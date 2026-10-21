@@ -58,6 +58,37 @@ export interface RunDeps {
 
 export type ContinueResult = { ok: true } | { ok: false; status: 400 | 409; error: string };
 
+type PendingDecision = { decision: SetupDecision; resolve(a: SetupContinueRequest): void };
+
+const badRequest = (error: string): ContinueResult => ({ ok: false, status: 400, error });
+
+/** Poll a checkpoint predicate; a transient CDP error counts as "not done yet". */
+async function untilTolerantOfCdp(until: () => Promise<boolean>): Promise<boolean> {
+  try {
+    return await until();
+  } catch (err) {
+    if (err instanceof CdpError) return false;
+    throw err;
+  }
+}
+
+/** Validate a human answer against the pending decision; resolves it on success (400 keeps the run waiting). */
+function answerDecision(pd: PendingDecision, body: SetupContinueRequest): ContinueResult {
+  const { decision } = pd;
+  if (decision.kind === "audience") {
+    const audience: Audience | undefined = body.audience === "internal" || body.audience === "external" ? body.audience : undefined;
+    if (!audience) return badRequest("invalid_audience");
+    if (audience === "internal" && decision.detected !== "internal") return badRequest("audience_not_allowed");
+    pd.resolve({ audience });
+    return { ok: true };
+  }
+  if (body.confirmLinks !== true) return badRequest("confirm_required");
+  const v = validateLinks(body.links ?? decision.links);
+  if (!v.ok) return badRequest(v.error);
+  pd.resolve({ links: v.links, confirmLinks: true });
+  return { ok: true };
+}
+
 const BROWSER_REFUSALS: readonly string[] = [
   "disabled",
   "unloaded",
@@ -94,6 +125,31 @@ function deferred<T>(): Deferred<T> {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** The dedicated browser's CDP endpoint is always the dashboard's own loopback socket. */
+function isLoopbackCdpUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "ws:" && (u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "[::1]");
+  } catch {
+    return false;
+  }
+}
+
+/** Reject when `fn` does not settle in `ms` (a Chrome that never answers must not wedge the single run slot). */
+async function withTimeout(ms: number, fn: () => Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new SetupHandoff("browser_closed", "project")), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /** A pausable step limit: human waits do not count against the 60 s. */
 class StepClock {
@@ -171,7 +227,7 @@ export class SetupRun {
   private attempt?: Attempt;
   private inHumanWait = false;
   private signInContinue = false;
-  private pendingDecision?: { decision: SetupDecision; resolve(a: SetupContinueRequest): void };
+  private pendingDecision?: PendingDecision;
   private takeoverRequested = deferred<void>();
   private keepAlive?: ReturnType<typeof setInterval>;
   private stepStart = Date.now();
@@ -212,22 +268,8 @@ export class SetupRun {
 
   /** Answer a decision or acknowledge the sign-in checkpoint. 400 keeps the run waiting. */
   continue(body: SetupContinueRequest): ContinueResult {
-    const bad = (error: string): ContinueResult => ({ ok: false, status: 400, error });
     const pd = this.pendingDecision;
-    if (this.state === "waiting_decision" && pd) {
-      if (pd.decision.kind === "audience") {
-        const audience: Audience | undefined = body.audience === "internal" || body.audience === "external" ? body.audience : undefined;
-        if (!audience) return bad("invalid_audience");
-        if (audience === "internal" && pd.decision.detected !== "internal") return bad("audience_not_allowed");
-        pd.resolve({ audience });
-      } else {
-        if (body.confirmLinks !== true) return bad("confirm_required");
-        const v = validateLinks(body.links ?? pd.decision.links);
-        if (!v.ok) return bad(v.error);
-        pd.resolve({ links: v.links, confirmLinks: true });
-      }
-      return { ok: true };
-    }
+    if (this.state === "waiting_decision" && pd) return answerDecision(pd, body);
     if (this.state === "waiting_user" && this.checkpoint === "sign_in") {
       this.signInContinue = true;
       return { ok: true };
@@ -328,11 +370,14 @@ export class SetupRun {
     if (!res.ok) throw new SetupHandoff(refusalReason(res.reason, "launch-failed"), "project");
     this.instanceId = res.instanceId;
     try {
-      this.conn = await CdpConnection.connect(res.cdpUrl, this.deps.wsFactory ?? defaultWsFactory);
-      this.conn.onClose(() => {
-        if (!this.closing && !this.ended) this.abortWith(new SetupHandoff("browser_closed"));
+      if (!isLoopbackCdpUrl(res.cdpUrl)) throw new SetupHandoff("launch-failed", "project");
+      await withTimeout(this.timing.stepLimitMs, async () => {
+        this.conn = await CdpConnection.connect(res.cdpUrl, this.deps.wsFactory ?? defaultWsFactory);
+        this.conn.onClose(() => {
+          if (!this.closing && !this.ended) this.abortWith(new SetupHandoff("browser_closed"));
+        });
+        this.page = await CdpPage.open(this.conn, { onSignInBlocked: () => this.onSignInBlocked() });
       });
-      this.page = await CdpPage.open(this.conn, { onSignInBlocked: () => this.onSignInBlocked() });
     } catch (err) {
       if (err instanceof SetupControl) throw err;
       throw new SetupHandoff("browser_closed", "project");
@@ -410,24 +455,23 @@ export class SetupRun {
       this.checkpoint = kind;
       try {
         if (opts?.front) await this.page?.bringToFront().catch(() => undefined);
-        const deadline = Date.now() + this.timing.checkpointLimitMs;
-        for (;;) {
-          let done = false;
-          try {
-            done = await until();
-          } catch (err) {
-            if (!(err instanceof CdpError)) throw err;
-          }
-          if (done) return;
-          if (Date.now() >= deadline) throw new SetupHandoff("timeout");
-          await sleep(this.timing.pollMs);
-          if (attempt.dead || this.ended) throw new RunAborted();
-        }
+        await this.pollCheckpoint(attempt, until);
       } finally {
         this.checkpoint = undefined;
         if (!this.ended) this.state = "running";
       }
     });
+  }
+
+  /** Poll `until` every `pollMs` until true; times out into a handoff, aborts when the attempt/run dies. */
+  private async pollCheckpoint(attempt: Attempt, until: () => Promise<boolean>): Promise<void> {
+    const deadline = Date.now() + this.timing.checkpointLimitMs;
+    for (;;) {
+      if (await untilTolerantOfCdp(until)) return;
+      if (Date.now() >= deadline) throw new SetupHandoff("timeout");
+      await sleep(this.timing.pollMs);
+      if (attempt.dead || this.ended) throw new RunAborted();
+    }
   }
 
   /** @internal */

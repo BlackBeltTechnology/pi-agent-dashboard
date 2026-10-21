@@ -23,6 +23,27 @@ export interface SetupRouteDeps {
 const PROJECT_ID_RULE = "projectId must be a Google Cloud project id: 6–30 chars, lower-case letters, digits and hyphens";
 const EMAIL_RULE = "ownerEmail must be an email address of at most 254 characters";
 
+type RunRequestParse = { ok: true; request: SetupRunRequest } | { ok: false; error: string; message: string };
+
+const invalidProjectId: RunRequestParse = { ok: false, error: "invalid_project_id", message: PROJECT_ID_RULE };
+
+/** Pure validation of the POST body; `error`/`message` map 1:1 onto the 400 response. */
+function parseRunRequest(raw: unknown): RunRequestParse {
+  const body = (raw ?? {}) as Partial<Record<keyof SetupRunRequest, unknown>>;
+  const mode = body.mode;
+  if (mode !== "new" && mode !== "existing") return { ok: false, error: "invalid_mode", message: 'mode must be "new" or "existing"' };
+  const ownerEmail = typeof body.ownerEmail === "string" ? normalizeEmail(body.ownerEmail) : "";
+  if (!isEmail(ownerEmail)) return { ok: false, error: "invalid_owner_email", message: EMAIL_RULE };
+  let projectId: string | undefined;
+  if (body.projectId !== undefined && body.projectId !== null && body.projectId !== "") {
+    if (typeof body.projectId !== "string") return invalidProjectId;
+    projectId = normalizeProjectId(body.projectId);
+    if (classifyProjectId(projectId) !== "ok") return invalidProjectId;
+  }
+  if (mode === "existing" && !projectId) return invalidProjectId;
+  return { ok: true, request: { mode, projectId, ownerEmail } };
+}
+
 function isLocal(request: FastifyRequest): boolean {
   return isGenuinelyLocal(request.headers, request.socket.remoteAddress);
 }
@@ -54,38 +75,28 @@ export function registerSetupRoutes(scope: FastifyInstance, deps: SetupRouteDeps
 
   scope.post(base, guarded, async (request, reply) => {
     if (!isLocal(request)) return reply.code(403).send({ error: "remote_dashboard" });
-    const body = (request.body ?? {}) as Partial<Record<keyof SetupRunRequest, unknown>>;
-    if (body.mode !== "new" && body.mode !== "existing") {
-      return reply.code(400).send({ error: "invalid_mode", message: 'mode must be "new" or "existing"' });
-    }
-    const ownerEmail = typeof body.ownerEmail === "string" ? normalizeEmail(body.ownerEmail) : "";
-    if (!isEmail(ownerEmail)) return reply.code(400).send({ error: "invalid_owner_email", message: EMAIL_RULE });
-    let projectId: string | undefined;
-    if (body.projectId !== undefined && body.projectId !== null && body.projectId !== "") {
-      if (typeof body.projectId !== "string") return reply.code(400).send({ error: "invalid_project_id", message: PROJECT_ID_RULE });
-      projectId = normalizeProjectId(body.projectId);
-      if (classifyProjectId(projectId) !== "ok") return reply.code(400).send({ error: "invalid_project_id", message: PROJECT_ID_RULE });
-    }
-    if (body.mode === "existing" && !projectId) {
-      return reply.code(400).send({ error: "invalid_project_id", message: PROJECT_ID_RULE });
-    }
+    const parsed = parseRunRequest(request.body);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error, message: parsed.message });
+    const { mode, projectId, ownerEmail } = parsed.request;
     const state = await autoSetupState(request, deps);
     if (!state.available) {
       if (state.reason === "run_active") return reply.code(409).send({ error: "run_active" });
       return reply.code(409).send({ error: "unavailable", reason: state.reason });
     }
-    const run = deps.manager.start({ mode: body.mode, projectId, ownerEmail });
+    const run = deps.manager.start({ mode, projectId, ownerEmail });
     if (!run) return reply.code(409).send({ error: "run_active" });
     return { runId: run.id };
   });
 
   scope.get<{ Params: { id: string } }>(`${base}/:id`, guarded, async (request, reply) => {
+    if (!isLocal(request)) return reply.code(403).send({ error: "remote_dashboard" });
     const run = deps.manager.get(request.params.id);
     if (!run) return reply.code(404).send({ error: "not_found" });
     return run.view();
   });
 
   scope.post<{ Params: { id: string } }>(`${base}/:id/continue`, guarded, async (request, reply) => {
+    if (!isLocal(request)) return reply.code(403).send({ error: "remote_dashboard" });
     const run = deps.manager.get(request.params.id);
     if (!run) return reply.code(404).send({ error: "not_found" });
     const result = run.continue((request.body ?? {}) as SetupContinueRequest);
@@ -94,6 +105,7 @@ export function registerSetupRoutes(scope: FastifyInstance, deps: SetupRouteDeps
   });
 
   scope.post<{ Params: { id: string } }>(`${base}/:id/takeover`, guarded, async (request, reply) => {
+    if (!isLocal(request)) return reply.code(403).send({ error: "remote_dashboard" });
     const run = deps.manager.get(request.params.id);
     if (!run) return reply.code(404).send({ error: "not_found" });
     const result = run.takeover();
@@ -102,6 +114,7 @@ export function registerSetupRoutes(scope: FastifyInstance, deps: SetupRouteDeps
   });
 
   scope.delete<{ Params: { id: string } }>(`${base}/:id`, guarded, async (request, reply) => {
+    if (!isLocal(request)) return reply.code(403).send({ error: "remote_dashboard" });
     const run = deps.manager.get(request.params.id);
     if (!run) return reply.code(404).send({ error: "not_found" });
     await run.cancel();

@@ -291,3 +291,29 @@ describe("R18 / task 2.1 — gmail loads without the browser plugin and finds it
     expect((await h.state()).autoSetup.available).toBe(true);
   });
 });
+
+describe("setup run routes are genuinely-local only (security review #1)", () => {
+  const remote = { remoteAddress: "192.168.1.5" };
+  const tunnel = { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.9" } };
+
+  for (const [name, opts] of [["a LAN peer", remote], ["a same-host tunnel", tunnel]] as const) {
+    it(`${name} cannot read, continue, take over or cancel a live run`, async () => {
+      const h = await makeHarness();
+      preset(h.console, "branding");
+      const id = await startExisting(h);
+      const base = `/api/plugins/gmail/setup/run/${id}`;
+      const calls = [
+        h.app.inject({ method: "GET", url: base, ...opts }),
+        h.app.inject({ method: "POST", url: `${base}/continue`, payload: { confirmLinks: true }, ...opts }),
+        h.app.inject({ method: "POST", url: `${base}/takeover`, payload: {}, ...opts }),
+        h.app.inject({ method: "DELETE", url: base, ...opts }),
+      ];
+      for (const r of await Promise.all(calls)) {
+        expect(r.statusCode).toBe(403);
+        expect(r.json().error).toBe("remote_dashboard");
+      }
+      // The run itself is untouched by the refused calls.
+      expect((await h.view(id)).state).not.toBe("cancelled");
+    });
+  }
+});

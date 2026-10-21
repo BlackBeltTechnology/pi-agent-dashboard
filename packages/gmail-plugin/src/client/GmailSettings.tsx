@@ -195,6 +195,150 @@ function WizardStepItem({
   );
 }
 
+type Translate = ReturnType<typeof useT>;
+
+function currentWizardStep(state: GmailState, focus: WizardStep | null): WizardStep | null {
+  return focus ?? (!state.client.configured ? 1 : state.accounts.length === 0 ? 6 : null);
+}
+
+function isStepDone(state: GmailState, current: WizardStep | null, n: WizardStep): boolean {
+  return n !== current && (state.client.configured ? n <= 5 || state.accounts.length > 0 : current !== null && n < current);
+}
+
+/** Flush a valid, unsaved typed project id; resolves false when the save failed. */
+async function flushTypedProjectId(
+  projectId: string,
+  savedId: string,
+  saveSetup: (partial: Partial<SavedSetup>) => Promise<void>,
+): Promise<boolean> {
+  if (classifyProjectId(projectId) !== "ok" || normalizeProjectId(projectId) === savedId) return true;
+  try {
+    await saveSetup({ projectId: normalizeProjectId(projectId) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function uploadMessages(t: Translate): Record<string, string> {
+  return {
+    not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
+    web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
+    not_installed: t("errNotInstalled", undefined, "No Desktop (`installed`) client in this file. Create a Desktop app client (step 4)."),
+    bad_client_id: t("errBadClientId", undefined, "The client id does not end in .apps.googleusercontent.com (step 4)."),
+    client_in_use: t(
+      "errClientInUse",
+      undefined,
+      "Accounts are connected with the current client. Revoke them first, then upload a different client.",
+    ),
+    missing_secret: t("errMissingSecret", undefined, "The file has no client secret. Download it again from the client page (step 5)."),
+    setup_save_failed: t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1)."),
+  };
+}
+
+function projectErrorText(t: Translate, projectErr: "looks_like_name" | "invalid" | null): string | null {
+  return (
+    projectErr === "looks_like_name"
+      ? t(
+          "errProjectLooksLikeName",
+          undefined,
+          "That looks like the project name. The wizard needs the project id (lower-case, for example pidashboard-510015): open the project list and copy the ID column.",
+        )
+      : projectErr === "invalid"
+        ? t(
+            "errProjectInvalid",
+            undefined,
+            "A project id is 6–30 characters: lower-case letters, digits and hyphens, starting with a letter and not ending with a hyphen.",
+          )
+        : null
+  );
+}
+
+function ProjectModeLinks({
+  mode,
+  links,
+  cmds,
+}: {
+  mode: "new" | "existing";
+  links: ReturnType<typeof consoleLinks>;
+  cmds: ReturnType<typeof gcloudCommands>;
+}) {
+  const t = useT();
+  return mode === "new" ? (
+    <>
+      <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
+      <div className="flex gap-3">
+        <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
+      </div>
+      {cmds.create && (
+        <>
+          <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
+          <Copyable value={cmds.create} />
+        </>
+      )}
+    </>
+  ) : (
+    <>
+      <div className={muted}>{t("findProject", undefined, "Find your project's id:")}</div>
+      <div className="flex gap-3">
+        <StepLink href={links.projectList} label={t("openProjectList", undefined, "Open the project list")} />
+      </div>
+      <Copyable value={cmds.projectsList} />
+    </>
+  );
+}
+
+function MismatchNotice({ mismatch, onUse }: { mismatch: { saved: string; json: string }; onUse: () => void }) {
+  const t = useT();
+  return (
+    <SettingsNotice tone="error" testId="gmail-project-mismatch">
+      <div className="flex flex-col gap-1">
+        <span>
+          {t(
+            "projectMismatch",
+            { saved: mismatch.saved, json: mismatch.json },
+            `The uploaded client belongs to project ${mismatch.json}, but the saved project id is ${mismatch.saved}.`,
+          )}
+        </span>
+        <span>
+          <button type="button" className={btn} data-testid="gmail-project-mismatch-use" onClick={onUse}>
+            {t("projectMismatchUse", { id: mismatch.json }, `Use ${mismatch.json}`)}
+          </button>
+        </span>
+      </div>
+    </SettingsNotice>
+  );
+}
+
+function AuthLoginNote({ cmds }: { cmds: ReturnType<typeof gcloudCommands> }) {
+  const t = useT();
+  if (!cmds.authLogin) return null;
+  return (
+    <>
+      <div className={muted} data-testid="gmail-auth-login-note">
+        {t("authLoginNote", undefined, "Run this once first, so gcloud can act as the owner account:")}
+      </div>
+      <Copyable value={cmds.authLogin} />
+    </>
+  );
+}
+
+function EnableGmailApi({ links, cmds }: { links: ReturnType<typeof consoleLinks>; cmds: ReturnType<typeof gcloudCommands> }) {
+  const t = useT();
+  return links.gmailApi && cmds.enable ? (
+    <>
+      <div className="flex gap-3">
+        <StepLink href={links.gmailApi} label={t("enableGmail", undefined, "Enable the Gmail API")} />
+      </div>
+      <Copyable value={cmds.enable} />
+    </>
+  ) : (
+    <div className={muted} data-testid="gmail-need-project-id">
+      {t("needValidProjectId", undefined, "A valid project id is needed before the project links and commands appear.")}
+    </div>
+  );
+}
+
 export function SetupWizard({
   state,
   highlight,
@@ -275,6 +419,19 @@ export function SetupWizard({
     saveOnBlur({ projectId: id });
   };
 
+  const reconcileJsonProject = (jsonId: string | undefined) => {
+    if (!jsonId) return;
+    const savedId = savedSetup.current.projectId;
+    if (!savedId) {
+      // Nothing saved yet: adopt the client's project id.
+      setProjectId(jsonId);
+      setProjectErr(null);
+      saveOnBlur({ projectId: jsonId });
+    } else if (savedId !== jsonId) {
+      setMismatch({ saved: savedId, json: jsonId });
+    }
+  };
+
   const upload = async (file: File) => {
     setUploadError(null);
     setMismatch(null);
@@ -286,28 +443,13 @@ export function SetupWizard({
     }
     // Flush a valid, unsaved typed id first (removes the blur/upload race); a failed
     // save aborts the upload so the comparison never runs against a stale id.
-    if (classifyProjectId(projectId) === "ok" && normalizeProjectId(projectId) !== savedSetup.current.projectId) {
-      try {
-        await saveSetup({ projectId: normalizeProjectId(projectId) });
-      } catch {
-        setUploadError({ code: "setup_save_failed", step: 1 });
-        return;
-      }
+    if (!(await flushTypedProjectId(projectId, savedSetup.current.projectId, saveSetup))) {
+      setUploadError({ code: "setup_save_failed", step: 1 });
+      return;
     }
     try {
       const reply = await api<{ projectId?: string }>("/client", { method: "PUT", body: JSON.stringify({ json: JSON.parse(textContent) }) });
-      const jsonId = reply.projectId;
-      if (jsonId) {
-        const savedId = savedSetup.current.projectId;
-        if (!savedId) {
-          // Nothing saved yet: adopt the client's project id.
-          setProjectId(jsonId);
-          setProjectErr(null);
-          saveOnBlur({ projectId: jsonId });
-        } else if (savedId !== jsonId) {
-          setMismatch({ saved: savedId, json: jsonId });
-        }
-      }
+      reconcileJsonProject(reply.projectId);
       onUploaded();
     } catch (err) {
       const code = (err as { code?: string }).code ?? "upload_failed";
@@ -316,37 +458,10 @@ export function SetupWizard({
   };
 
   // Current step: the highlighted one, else the next thing the user has to do.
-  const current: WizardStep | null =
-    focus ?? (!state.client.configured ? 1 : state.accounts.length === 0 ? 6 : null);
-  const isDone = (n: WizardStep) =>
-    n !== current && (state.client.configured ? n <= 5 || state.accounts.length > 0 : current !== null && n < current);
-  const uploadMsg: Record<string, string> = {
-    not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
-    web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
-    not_installed: t("errNotInstalled", undefined, "No Desktop (`installed`) client in this file. Create a Desktop app client (step 4)."),
-    bad_client_id: t("errBadClientId", undefined, "The client id does not end in .apps.googleusercontent.com (step 4)."),
-    client_in_use: t(
-      "errClientInUse",
-      undefined,
-      "Accounts are connected with the current client. Revoke them first, then upload a different client.",
-    ),
-    missing_secret: t("errMissingSecret", undefined, "The file has no client secret. Download it again from the client page (step 5)."),
-    setup_save_failed: t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1)."),
-  };
-  const projectErrText =
-    projectErr === "looks_like_name"
-      ? t(
-          "errProjectLooksLikeName",
-          undefined,
-          "That looks like the project name. The wizard needs the project id (lower-case, for example pidashboard-510015): open the project list and copy the ID column.",
-        )
-      : projectErr === "invalid"
-        ? t(
-            "errProjectInvalid",
-            undefined,
-            "A project id is 6–30 characters: lower-case letters, digits and hyphens, starting with a letter and not ending with a hyphen.",
-          )
-        : null;
+  const current = currentWizardStep(state, focus);
+  const isDone = (n: WizardStep) => isStepDone(state, current, n);
+  const uploadMsg = uploadMessages(t);
+  const projectErrText = projectErrorText(t, projectErr);
 
   return (
     <ol className="m-0 flex list-none flex-col p-0" data-testid="gmail-wizard">
@@ -414,66 +529,10 @@ export function SetupWizard({
             {t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1).")} ({saveError})
           </div>
         )}
-        {mismatch && (
-          <SettingsNotice tone="error" testId="gmail-project-mismatch">
-            <div className="flex flex-col gap-1">
-              <span>
-                {t(
-                  "projectMismatch",
-                  { saved: mismatch.saved, json: mismatch.json },
-                  `The uploaded client belongs to project ${mismatch.json}, but the saved project id is ${mismatch.saved}.`,
-                )}
-              </span>
-              <span>
-                <button type="button" className={btn} data-testid="gmail-project-mismatch-use" onClick={useJsonProject}>
-                  {t("projectMismatchUse", { id: mismatch.json }, `Use ${mismatch.json}`)}
-                </button>
-              </span>
-            </div>
-          </SettingsNotice>
-        )}
-        {cmds.authLogin && (
-          <>
-            <div className={muted} data-testid="gmail-auth-login-note">
-              {t("authLoginNote", undefined, "Run this once first, so gcloud can act as the owner account:")}
-            </div>
-            <Copyable value={cmds.authLogin} />
-          </>
-        )}
-        {mode === "new" ? (
-          <>
-            <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
-            <div className="flex gap-3">
-              <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
-            </div>
-            {cmds.create && (
-              <>
-                <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
-                <Copyable value={cmds.create} />
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <div className={muted}>{t("findProject", undefined, "Find your project's id:")}</div>
-            <div className="flex gap-3">
-              <StepLink href={links.projectList} label={t("openProjectList", undefined, "Open the project list")} />
-            </div>
-            <Copyable value={cmds.projectsList} />
-          </>
-        )}
-        {links.gmailApi && cmds.enable ? (
-          <>
-            <div className="flex gap-3">
-              <StepLink href={links.gmailApi} label={t("enableGmail", undefined, "Enable the Gmail API")} />
-            </div>
-            <Copyable value={cmds.enable} />
-          </>
-        ) : (
-          <div className={muted} data-testid="gmail-need-project-id">
-            {t("needValidProjectId", undefined, "A valid project id is needed before the project links and commands appear.")}
-          </div>
-        )}
+        {mismatch && <MismatchNotice mismatch={mismatch} onUse={useJsonProject} />}
+        <AuthLoginNote cmds={cmds} />
+        <ProjectModeLinks mode={mode} links={links} cmds={cmds} />
+        <EnableGmailApi links={links} cmds={cmds} />
       </WizardStepItem>
       <WizardStepItem n={2} title={t("step2", undefined, "2. Branding")} current={current === 2} done={isDone(2)}>
         <ProjectLink href={links.branding} label={t("openBranding", undefined, "Open Branding")} step={2} />

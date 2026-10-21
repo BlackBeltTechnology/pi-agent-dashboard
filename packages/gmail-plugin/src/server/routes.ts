@@ -52,6 +52,34 @@ export interface GmailRouteDeps {
 
 const PREFIX = "/api/plugins/gmail";
 
+/** Optional `email` body field → `login_hint`; absent/empty is fine, a non-email is not. */
+function parseLoginHint(raw: unknown): { ok: true; loginHint?: string } | { ok: false } {
+  if (raw === undefined || raw === null || raw === "") return { ok: true };
+  const email = typeof raw === "string" ? normalizeEmail(raw) : "";
+  return isEmail(email) ? { ok: true, loginHint: email } : { ok: false };
+}
+
+/** Validate a `PUT /setup` body; project id is checked (and reported) before the owner account. */
+function parseSetupBody(
+  raw: unknown,
+): { ok: true; partial: Record<string, unknown> } | { ok: false; error: "invalid_project_id" | "invalid_owner_account" } {
+  const body = (raw ?? {}) as { projectId?: unknown; ownerAccount?: unknown };
+  const partial: Record<string, unknown> = {};
+  if (body.projectId !== undefined) {
+    if (typeof body.projectId !== "string") return { ok: false, error: "invalid_project_id" };
+    const id = normalizeProjectId(body.projectId);
+    if (id && classifyProjectId(id) !== "ok") return { ok: false, error: "invalid_project_id" };
+    partial.projectId = id || undefined;
+  }
+  if (body.ownerAccount !== undefined) {
+    if (typeof body.ownerAccount !== "string") return { ok: false, error: "invalid_owner_account" };
+    const email = normalizeEmail(body.ownerAccount);
+    if (email && !isEmail(email)) return { ok: false, error: "invalid_owner_account" };
+    partial.ownerAccount = email || undefined;
+  }
+  return { ok: true, partial };
+}
+
 function accountErrorStatus(err: AccountError): number {
   if (err.code === "not_found") return 404;
   if (err.code === "alias_taken" || err.code === "ambiguous") return 409;
@@ -201,21 +229,10 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
 
     scope.put(`${PREFIX}/setup`, guarded, async (request, reply) => {
       if (!deps.config) return reply.code(501).send({ error: "config_unavailable" });
-      const body = (request.body ?? {}) as { projectId?: unknown; ownerAccount?: unknown };
-      const partial: Record<string, unknown> = {};
       // Validate every provided key before any write; project id is reported first.
-      if (body.projectId !== undefined) {
-        if (typeof body.projectId !== "string") return reply.code(400).send({ error: "invalid_project_id" });
-        const id = normalizeProjectId(body.projectId);
-        if (id && classifyProjectId(id) !== "ok") return reply.code(400).send({ error: "invalid_project_id" });
-        partial.projectId = id || undefined;
-      }
-      if (body.ownerAccount !== undefined) {
-        if (typeof body.ownerAccount !== "string") return reply.code(400).send({ error: "invalid_owner_account" });
-        const email = normalizeEmail(body.ownerAccount);
-        if (email && !isEmail(email)) return reply.code(400).send({ error: "invalid_owner_account" });
-        partial.ownerAccount = email || undefined;
-      }
+      const parsed = parseSetupBody(request.body);
+      if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+      const partial = parsed.partial;
       await queueSetupWrite(() => deps.config?.update(partial));
       logger.info("[gmail] setup saved");
       return { ok: true, setup: readSetup() };
@@ -232,13 +249,9 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       const tier = body.tier ?? "readonly";
       if (!isTier(tier)) return reply.code(400).send({ error: "invalid_tier" });
       // Optional email → `login_hint` so Google skips the account chooser.
-      let loginHint: string | undefined;
-      if (body.email !== undefined && body.email !== null && body.email !== "") {
-        const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
-        if (!isEmail(email)) return reply.code(400).send({ error: "invalid_email" });
-        loginHint = email;
-      }
-      return startSignIn(reply, tier, undefined, { loginHint });
+      const hint = parseLoginHint(body.email);
+      if (!hint.ok) return reply.code(400).send({ error: "invalid_email" });
+      return startSignIn(reply, tier, undefined, { loginHint: hint.loginHint });
     });
 
     scope.post<{ Params: { sub: string } }>(`${PREFIX}/accounts/:sub/level`, guarded, async (request, reply) => {

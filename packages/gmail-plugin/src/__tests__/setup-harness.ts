@@ -134,6 +134,24 @@ export interface AutopilotOptions {
   stopAt?: (v: SetupRunView) => boolean;
 }
 
+/** One autopilot reaction to a polled view (answers decisions once, ticks checkpoints). */
+async function autopilotStep(h: Harness, runId: string, o: AutopilotOptions, v: SetupRunView, handled: Set<string>): Promise<void> {
+  const key = `${v.state}:${v.checkpoint?.kind ?? v.decision?.kind ?? ""}`;
+  const decisionKind = v.state === "waiting_decision" && !handled.has(key) ? v.decision?.kind : undefined;
+  if (decisionKind === "audience" && v.decision?.kind === "audience") {
+    handled.add(key);
+    await h.post(`/setup/run/${runId}/continue`, { audience: o.audience ?? v.decision.detected });
+  } else if (decisionKind === "links") {
+    handled.add(key);
+    await h.post(`/setup/run/${runId}/continue`, { confirmLinks: true });
+  } else if (v.state === "waiting_user" && v.checkpoint?.kind === "policy") {
+    h.console.policyChecked = true;
+  } else if (v.state === "waiting_user" && v.checkpoint?.kind === "publish") {
+    if (o.publish === "cancel") h.console.cancelPublish();
+    else h.console.confirmPublish();
+  }
+}
+
 /** Plays the human until the run is terminal (or `stopAt` matches); returns the last view. */
 export async function autopilot(h: Harness, runId: string, o: AutopilotOptions = {}): Promise<SetupRunView> {
   const handled = new Set<string>();
@@ -141,19 +159,7 @@ export async function autopilot(h: Harness, runId: string, o: AutopilotOptions =
     async () => {
       const v = await h.view(runId);
       if (o.stopAt?.(v)) return v;
-      const key = `${v.state}:${v.checkpoint?.kind ?? v.decision?.kind ?? ""}`;
-      if (v.state === "waiting_decision" && v.decision?.kind === "audience" && !handled.has(key)) {
-        handled.add(key);
-        await h.post(`/setup/run/${runId}/continue`, { audience: o.audience ?? v.decision.detected });
-      } else if (v.state === "waiting_decision" && v.decision?.kind === "links" && !handled.has(key)) {
-        handled.add(key);
-        await h.post(`/setup/run/${runId}/continue`, { confirmLinks: true });
-      } else if (v.state === "waiting_user" && v.checkpoint?.kind === "policy") {
-        h.console.policyChecked = true;
-      } else if (v.state === "waiting_user" && v.checkpoint?.kind === "publish") {
-        if (o.publish === "cancel") h.console.cancelPublish();
-        else h.console.confirmPublish();
-      }
+      await autopilotStep(h, runId, o, v, handled);
       return v;
     },
     (v) => ["done", "handoff", "cancelled"].includes(v.state) || Boolean(o.stopAt?.(v)),

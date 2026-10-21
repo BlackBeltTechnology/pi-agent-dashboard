@@ -327,33 +327,11 @@ export class FakeConsole {
   }
 
   private route(u: URL): PageModel {
-    const param = u.searchParams.get("project");
     switch (u.pathname) {
       case PATHS.projectInfo:
-        return {
-          text:
-            this.projectExists && param === this.projectId
-              ? `Project name\nPi\nProject ID\n${this.projectId}\n${this.org ? `Organization\n${this.org}` : "No organization"}`
-              : "The project could not be found",
-        };
+        return this.projectInfoPage(u.searchParams.get("project"));
       case PATHS.projectCreate:
-        return {
-          text: "New Project",
-          ax: [
-            { role: "textbox", name: "Project name", onFill: (t) => void (this.projectName = t) },
-            { role: "button", name: "Edit", onClick: () => void (this.projectIdEditing = true) },
-            ...(this.projectIdEditing
-              ? [{ role: "textbox", name: "Project ID", onFill: (t: string) => void (this.projectId = t) }]
-              : []),
-            {
-              role: "button",
-              name: "Create",
-              onClick: () => {
-                this.projectExists = true;
-              },
-            },
-          ],
-        };
+        return this.projectCreatePage();
       case PATHS.apiOverview:
         return {
           text: "Gmail API",
@@ -362,16 +340,7 @@ export class FakeConsole {
             : [{ role: "button", name: "Enable", onClick: () => void (this.apiEnabled = true) }],
         };
       case PATHS.audience:
-        if (!this.userType) return { text: "Google Auth Platform not configured yet", ax: [{ role: "button", name: "Get started" }] };
-        return {
-          text: `User type\n${this.userType === "internal" ? "Internal" : "External"}\nPublishing status\n${this.published ? "In production" : "Testing"}`,
-          ax: [
-            ...(this.userType === "external" && !this.published
-              ? [{ role: "button", name: "Publish app", onClick: () => void (this.publishDialogOpen = true) }]
-              : []),
-            ...(this.publishDialogOpen ? [{ role: "dialog", name: "Push to production?" }] : []),
-          ],
-        };
+        return this.audiencePage();
       case PATHS.brandingCreate:
         return this.brandingForm();
       case PATHS.branding:
@@ -388,25 +357,68 @@ export class FakeConsole {
       case PATHS.clients:
         return { text: `OAuth 2.0 Client IDs\n${this.clients.join("\n")}`, ax: [{ role: "button", name: "Create client" }] };
       case PATHS.clientCreate:
-        return {
-          text: "Create OAuth client ID",
-          ax: [
-            { role: "combobox", name: "Application type" },
-            { role: "option", name: "Desktop app", onClick: () => void (this.appType = "desktop") },
-            { role: "textbox", name: "Name", onFill: (t) => void (this.clientName = t) },
-            {
-              role: "button",
-              name: "Create",
-              onClick: () => {
-                this.clients.push(this.clientName);
-                this.dialogOpen = true;
-              },
-            },
-          ],
-        };
+        return this.clientCreatePage();
       default:
         return { text: "", ax: [] };
     }
+  }
+
+  private projectInfoPage(param: string | null): PageModel {
+    if (!(this.projectExists && param === this.projectId)) return { text: "The project could not be found" };
+    const org = this.org ? `Organization\n${this.org}` : "No organization";
+    return { text: `Project name\nPi\nProject ID\n${this.projectId}\n${org}` };
+  }
+
+  private projectCreatePage(): PageModel {
+    return {
+      text: "New Project",
+      ax: [
+        { role: "textbox", name: "Project name", onFill: (t) => void (this.projectName = t) },
+        { role: "button", name: "Edit", onClick: () => void (this.projectIdEditing = true) },
+        ...(this.projectIdEditing
+          ? [{ role: "textbox", name: "Project ID", onFill: (t: string) => void (this.projectId = t) }]
+          : []),
+        {
+          role: "button",
+          name: "Create",
+          onClick: () => {
+            this.projectExists = true;
+          },
+        },
+      ],
+    };
+  }
+
+  private audiencePage(): PageModel {
+    if (!this.userType) return { text: "Google Auth Platform not configured yet", ax: [{ role: "button", name: "Get started" }] };
+    return {
+      text: `User type\n${this.userType === "internal" ? "Internal" : "External"}\nPublishing status\n${this.published ? "In production" : "Testing"}`,
+      ax: [
+        ...(this.userType === "external" && !this.published
+          ? [{ role: "button", name: "Publish app", onClick: () => void (this.publishDialogOpen = true) }]
+          : []),
+        ...(this.publishDialogOpen ? [{ role: "dialog", name: "Push to production?" }] : []),
+      ],
+    };
+  }
+
+  private clientCreatePage(): PageModel {
+    return {
+      text: "Create OAuth client ID",
+      ax: [
+        { role: "combobox", name: "Application type" },
+        { role: "option", name: "Desktop app", onClick: () => void (this.appType = "desktop") },
+        { role: "textbox", name: "Name", onFill: (t) => void (this.clientName = t) },
+        {
+          role: "button",
+          name: "Create",
+          onClick: () => {
+            this.clients.push(this.clientName);
+            this.dialogOpen = true;
+          },
+        },
+      ],
+    };
   }
 
   private brandingForm(): PageModel {

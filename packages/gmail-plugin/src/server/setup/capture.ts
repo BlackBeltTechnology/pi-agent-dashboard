@@ -13,7 +13,7 @@ import { SEL, type StepEnv } from "./steps.js";
 
 const CLIENT_ID_RE = /[A-Za-z0-9._-]{1,200}\.apps\.googleusercontent\.com/;
 const SECRET_RE = /GOCSPX-[A-Za-z0-9_-]+/;
-const DOWNLOAD_RE = /^client_secret_.*\.json/;
+const DOWNLOAD_RE = /^client_secret_[^/\\]*\.json$/;
 
 export interface CapturedClient {
   clientId: string;

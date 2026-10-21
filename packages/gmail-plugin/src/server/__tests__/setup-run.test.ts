@@ -252,3 +252,26 @@ describe("R17 secrets never reach a log, a run view or a response", () => {
     expect(all).not.toContain("dialogOnly");
   });
 });
+
+describe("browser endpoint hardening (security review #2, #3)", () => {
+  it("a non-loopback cdpUrl is never dialled → handoff launch-failed @ project, instance disconnected", async () => {
+    const h = await makeHarness({ browser: { cdpUrl: "ws://evil.example:9222/devtools/browser/x" } });
+    preset(h.console, "project");
+    const id = await startExisting(h);
+    const v = await until(() => h.view(id), (x) => x.state === "handoff");
+    expect(v.handoff).toEqual({ step: "project", wizardStep: 1, reason: "launch-failed" });
+    expect(h.console.log).toHaveLength(0);
+    await until(() => h.browser.calls.disconnect, (d) => d.length > 0);
+  });
+
+  it("a Chrome that never answers the connect hands off browser_closed instead of wedging the run slot", async () => {
+    const h = await makeHarness({ timing: { stepLimitMs: 80 } });
+    preset(h.console, "project");
+    h.console.hang = (method) => method === "Target.createTarget";
+    const id = await startExisting(h);
+    const v = await until(() => h.view(id), (x) => x.state === "handoff");
+    expect(v.handoff).toMatchObject({ step: "project", reason: "browser_closed" });
+    // The slot is free again.
+    expect((await h.start({ mode: "existing", projectId: "pi-dashboard-abc123", ownerEmail: OWNER })).statusCode).toBe(200);
+  });
+});

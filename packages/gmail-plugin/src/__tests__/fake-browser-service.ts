@@ -17,6 +17,8 @@ export interface FakeBrowserOptions {
   busyHolder?: string;
   /** `connect` always refuses with this reason. */
   refuse?: string;
+  /** `cdpUrl` the connect answers with (default: a loopback socket). */
+  cdpUrl?: string;
   /** Origin answers for the hidden sign-in tab, per `tabOrigin` call. */
   tabOrigin?: (call: number) => string | null;
 }
@@ -48,7 +50,7 @@ export function fakeBrowserService(opts: FakeBrowserOptions = {}) {
         return refusal("busy", { holder: opts.busyHolder, instanceId: "holder-instance-SECRET" });
       }
       if (o.takeover) holderGone = true;
-      return { ok: true, cdpUrl: "ws://127.0.0.1:1/devtools/browser/fake", instanceId: `inst-${++n}` };
+      return { ok: true, cdpUrl: opts.cdpUrl ?? "ws://127.0.0.1:1/devtools/browser/fake", instanceId: `inst-${++n}` };
     },
     async open(o) {
       calls.open.push(o);
