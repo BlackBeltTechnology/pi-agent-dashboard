@@ -10,13 +10,15 @@
  * See change: generalize-worktree-init-hook.
  */
 
+import { mdiAlertCircleOutline, mdiCheckCircleOutline, mdiReplay } from "@mdi/js";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorktreeInitHook } from "../../lib/git/git-api.js";
 import { __resetInitBusForTests, dispatchInitEvent } from "../../lib/git/worktree-init-bus.js";
-import { initStore } from "../../lib/git/worktree-init-store.js";
+import { type ClientInitRun, initStore } from "../../lib/git/worktree-init-store.js";
 import { WorktreeInitButton } from "../worktree/WorktreeInitButton.js";
+import { WorktreeInitChip } from "../worktree/WorktreeInitChip.js";
 
 const { fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
   fetchWorktreeInitStatus: vi.fn(),
@@ -169,11 +171,11 @@ describe("WorktreeInitButton", () => {
     await waitFor(() => expect(screen.getByTestId("worktree-init-chip").textContent).toContain("Initialized"));
   });
 
-  it("labels the control 'Review & trust changes' when the hook was edited", async () => {
+  it("labels the control 'Review & trust' when the hook is untrusted", async () => {
     fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: false, trusted: false });
     render(<WorktreeInitButton cwd="/repo" />);
     await waitFor(() => screen.getByTestId("worktree-init-btn"));
-    expect(screen.getByTestId("worktree-init-btn").textContent).toContain("Review & trust changes");
+    expect(screen.getByTestId("worktree-init-btn").textContent).toBe("Review & trust");
   });
 
   // The no-hook / scaffold branch moved to `ProjectInitButton`
@@ -185,5 +187,83 @@ describe("WorktreeInitButton", () => {
     await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
     expect(screen.queryByTestId("project-init-btn")).toBeNull();
     expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
+  });
+});
+
+/**
+ * `WorktreeInitChip` is colour-free: it inherits the hosting banner's
+ * `--severity-*-fg` (change: fix-folder-card-pill-contrast, test-plan #E17).
+ */
+describe("WorktreeInitChip — inherited colour", () => {
+  const base: ClientInitRun = { cwd: "/repo", phase: "running", startedAt: Date.now() };
+  const running: ClientInitRun = { ...base, lastLine: "added 412 packages", logTail: "$ npm ci\nadded 412 packages" };
+  const done: ClientInitRun = { ...base, phase: "done" };
+  const failed: ClientInitRun = {
+    ...base,
+    phase: "failed",
+    code: "script_nonzero_exit",
+    message: "script_nonzero_exit",
+    stderr: "boom: exit 3",
+  };
+
+  const PALETTE = /(?:^|[\s:])(?:text|bg|border|from|via|to|ring|fill|stroke)-(?:amber|green|red|blue|yellow|orange|emerald|purple|indigo)-\d{2,3}/;
+  const paths = (el: Element) => [...el.querySelectorAll("svg path")].map((p) => p.getAttribute("d"));
+
+  it.each([
+    ["running", running],
+    ["done", done],
+    ["failed", failed],
+  ])("%s: no palette class and no --text-muted / --text-tertiary", (_n, run) => {
+    const { container } = render(<WorktreeInitChip run={run} onRetry={() => {}} />);
+    const classes = [...container.querySelectorAll("[class]")].map((e) => e.getAttribute("class") ?? "").join(" ");
+    expect(PALETTE.test(classes)).toBe(false);
+    expect(classes).not.toContain("--text-muted");
+    expect(classes).not.toContain("--text-tertiary");
+  });
+
+  it("running: spinner arc and progress bar paint currentColor; ghost line is mono 11px", () => {
+    const { container } = render(<WorktreeInitChip run={running} />);
+    expect(container.querySelector(".animate-spin")?.className).toContain("border-t-current");
+    expect(container.querySelector("i")?.className).toContain("via-current");
+    const ghost = screen.getByTestId("worktree-init-ghost");
+    expect(ghost.className).toContain("text-[11px]");
+    expect(ghost.className).toContain("font-mono");
+  });
+
+  it("done: check glyph is mdiCheckCircleOutline, no ✓ text", () => {
+    const { container } = render(<WorktreeInitChip run={done} />);
+    expect(paths(container)).toContain(mdiCheckCircleOutline);
+    expect(container.textContent).not.toContain("✓");
+    expect(container.textContent).toContain("Initialized");
+  });
+
+  it("failed: label and code on separate block elements; Retry is border-current 12px with mdiReplay", () => {
+    const { container } = render(<WorktreeInitChip run={failed} onRetry={() => {}} />);
+    const label = screen.getByText("Init failed");
+    const code = screen.getByText("script_nonzero_exit");
+    expect(label.closest("div")).not.toBe(code.closest("div"));
+    expect(label.closest("div")?.contains(code)).toBe(false);
+    expect(code.closest("div")?.className).toContain("text-[11px]");
+    expect(paths(container)).toContain(mdiAlertCircleOutline);
+    expect(container.textContent).not.toContain("✕");
+    const retry = screen.getByTestId("worktree-init-retry");
+    expect(retry.className).toContain("border-current");
+    expect(retry.className).toContain("text-[12px]");
+    expect(paths(retry)).toContain(mdiReplay);
+    expect(retry.textContent).not.toContain("↻");
+    // Retry sits on its own row, outside the summary block.
+    expect(screen.getByTestId("worktree-init-error").contains(retry)).toBe(false);
+  });
+
+  it("opened log <pre> keeps code colours: --text-secondary on --bg-code, 11px; toggle inherits at 11px", () => {
+    render(<WorktreeInitChip run={failed} />);
+    const log = screen.getByTestId("worktree-init-log");
+    const pre = log.querySelector("pre");
+    expect(pre?.className).toContain("text-[var(--text-secondary)]");
+    expect(pre?.className).toContain("bg-[var(--bg-code)]");
+    expect(pre?.className).toContain("text-[11px]");
+    const summary = log.querySelector("summary");
+    expect(summary?.className).toContain("text-[11px]");
+    expect(summary?.className).not.toContain("--text-");
   });
 });

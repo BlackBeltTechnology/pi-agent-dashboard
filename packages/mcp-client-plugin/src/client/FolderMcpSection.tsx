@@ -49,7 +49,7 @@ function ErrorMarker({ name }: { name: string }): React.ReactElement {
       data-testid="mcp-folder-pill-error"
       role="img"
       aria-label={name}
-      className="text-red-400 flex-none"
+      className="text-[var(--accent-red-text)] flex-none"
     >
       ⚠
     </span>
@@ -130,7 +130,7 @@ function pillContent(t: Translate, state: PillState): PillContent {
       body: (
         <span
           data-testid="mcp-folder-pill-loading"
-          className="inline-block h-[15px] w-16 rounded bg-[var(--bg-tertiary,#27272a)] animate-pulse"
+          className="inline-block h-[15px] w-16 rounded bg-[var(--bg-tertiary)] animate-pulse"
         />
       ),
     };
@@ -160,7 +160,7 @@ function pillContent(t: Translate, state: PillState): PillContent {
         {state.off > 0 && (
           <>
             <span className="text-[var(--text-tertiary)]">·</span>
-            <span data-testid="mcp-folder-pill-off" className="text-amber-400">
+            <span data-testid="mcp-folder-pill-off" className="text-[var(--accent-orange-text)]">
               {t("mcpFolderOffCount", { count: state.off }, `${state.off} off`)}
             </span>
           </>

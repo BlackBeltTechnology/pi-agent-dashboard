@@ -5,7 +5,9 @@ Track worktree-init runs server-side by `cwd` and surface their progress with fr
 opt-in-log feedback shared by the manual button, auto-on-spawn, and post-refresh paths:
 running status chip, sticky retryable failure, success flash, boot rehydration via
 `GET /api/git/worktree/active-inits`, and a concurrent-run stack.
+
 ## Requirements
+
 ### Requirement: Init runs are tracked server-side by cwd
 The server SHALL track each worktree-init run in a registry keyed by the run's `cwd`,
 holding at least `{ phase: "running" | "done" | "failed", startedAt, lastLine?, logTail?, code? }`.
@@ -51,8 +53,8 @@ On load the client SHALL fetch the active runs and render the correct feedback s
 
 ### Requirement: Feedback replaces raw terminal output
 Init feedback SHALL present a one-line status (label + elapsed) with the last log line as a
-muted preview; the full log SHALL be opt-in behind a collapsed disclosure, not rendered
-inline by default.
+de-emphasised preview (a smaller monospace line, never `--text-muted`, which fails AA as readable
+text); the full log SHALL be opt-in behind a collapsed disclosure, not rendered inline by default.
 
 #### Scenario: Running shows status not a wall of output
 - **WHEN** a run is in flight
@@ -89,7 +91,7 @@ surface summarizing counts, with each `cwd` shown independently.
 
 Init run progress and failure feedback for a directory card SHALL render inside the tier-0 banner, not inline on the git row and not as a wrapping exception beneath it.
 
-The existing feedback contract is preserved verbatim within the banner: elapsed time plus the last log line as a muted preview while running; the full log behind an opt-in collapsed disclosure and never as an inline raw output block; a failure summary in plain language (exit code + short command) with a Retry action and the stderr tail behind the same disclosure; and no auto-dismiss on a timer.
+The existing feedback contract is preserved verbatim within the banner: elapsed time plus the last log line as a de-emphasised preview while running (smaller monospace, painted in the banner's inherited severity colour per `folder-action-banner`); the full log behind an opt-in collapsed disclosure and never as an inline raw output block; a failure summary in plain language (exit code + short command) with a Retry action and the stderr tail behind the same disclosure; and no auto-dismiss on a timer.
 
 This supersedes the implementation note in `SessionList.tsx` that a wide init state "SHALL wrap to its own line rather than overflow the git row" — that was a banner without a name.
 
@@ -113,4 +115,3 @@ This supersedes the implementation note in `SessionList.tsx` that a wide init st
 - **GIVEN** an init run succeeds
 - **WHEN** init-status is re-fetched and the gate reports no further need
 - **THEN** the banner SHALL disappear
-

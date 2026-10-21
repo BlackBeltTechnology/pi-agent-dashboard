@@ -98,9 +98,9 @@ export function FolderAutomationSection({
         onActivate={() => setLocation(`/folder/${encodeFolderPath(folder.cwd)}/automations`)}
       >
         <span data-testid="folder-automation-count">{automations.length}</span>
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "tasks")}</span>
+        <span className="text-[11px] font-semibold text-[var(--text-tertiary)]">{t("automationsUnit", undefined, "tasks")}</span>
         {invalid > 0 && (
-          <span className="text-[10px] font-extrabold text-amber-400" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
+          <span className="text-[11px] font-extrabold text-[var(--accent-orange-text)]" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
             ⚠ {invalid}
           </span>
         )}
