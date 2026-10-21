@@ -30,10 +30,10 @@ import {
   type SettingsStatusTone,
   useT,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { authModeOf, isProjectOverride } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import type { EffectiveServerView, LayerStatus, LiveState, Scope } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type React from "react";
 import { useEffect, useState } from "react";
-import { authModeOf, isProjectOverride } from "../core/pi-rules.js";
-import type { EffectiveServerView, LayerStatus, LiveState, Scope } from "../core/types.js";
 import { ApiError, convertServer, scopeToWire, setEnabled } from "./api.js";
 import { overrideBadges, provenanceLabel } from "./folder-view.js";
 import { invalidateEffective } from "./hooks.js";

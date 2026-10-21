@@ -6,7 +6,10 @@
  * Uses the real wouter browser location + the real provider (no mocks).
  * See change: add-browser-editor-pane-tab.
  */
-import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useLocation, useSearchParams } from "wouter";

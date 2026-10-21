@@ -3,47 +3,20 @@
    See change: asciidoc-support. */
 @import "./styles/asciidoc.css";
 
-/* Plugin packages that ship client-side React components with Tailwind
-   utility classes. Without these @source directives, Tailwind v4 only
-   scans the vite root (packages/client/src/) and purges every class
-   that only appears in plugin source (e.g. h-[70vh] in FlowAgentCard,
-   hover:text-indigo-400 in goal-plugin's FolderGoalsSection).
-   One @source line per client-bearing plugin package. A bare star glob
-   over sibling src/client dirs does NOT expand in this Tailwind v4 setup,
-   so every new plugin that ships client Tailwind classes MUST add its
-   own line here.
-   See change: fix-popout-scroll-height, fix-plugin-tailwind-source-scan. */
+/* Non-plugin client-bearing packages keep explicit @source lines: Tailwind v4
+   only scans the vite root (packages/client/src/) by default and would purge
+   classes that appear only in these packages. A bare star glob over sibling
+   dirs does NOT expand in this setup. */
 @source "../../client-utils/src";
 @source "../../dashboard-plugin-runtime/src";
-@source "../../flows-plugin/src/client";
-@source "../../subagents-plugin/src/client";
-@source "../../goal-plugin/src/client";
-@source "../../automation-plugin/src/client";
-@source "../../mcp-client-plugin/src/client";
-@source "../../system-one-plugin/src/client";
-@source "../../gmail-plugin/src/client";
-@source "../../obs-studio-plugin/src/client";
-@source "../../context-mode-settings-plugin/src/client";
-@source "../../craft-web-plugin/src/client";
-@source "../../hermes-memory-plugin/src/client";
-@source "../../kb-plugin/src/client";
-@source "../../team-plugin/src/client";
-@source "../../skill-atlas-plugin/src/client";
-@source "../../web-access-plugin/src/client";
-/* Settings-section plugins missing a line until wave 2; the last five keep
-   their client code directly under src/. A repository test fails when a
-   settings-section plugin has no covering line.
-   See change: retro-ux-plugin-settings-wave-2 (design D6). */
-@source "../../apple-tools/src/client";
-@source "../../blackhole-plugin/src/client";
-@source "../../browser-plugin/src/client";
-@source "../../chat-gateway/src/client";
-@source "../../cost-estimator/src/client";
-@source "../../flows-anthropic-bridge-plugin/src";
-@source "../../grammar-plugin/src";
-@source "../../quota-plugin/src";
-@source "../../roles-plugin/src";
-@source "../../demo-plugin/src";
+
+/* Plugin @source lines are GENERATED from the plugin manifests (one per
+   client-bearing plugin dir, plus claim `module` dirs outside it) by the
+   dashboard vite plugin / scripts/generate-plugin-registry.mjs. Never
+   hand-edit this import or the generated file; a plugin author adds nothing
+   here. See change: decouple-plugins-from-core (supersedes
+   fix-popout-scroll-height, fix-plugin-tailwind-source-scan). */
+@import "./generated/plugin-sources.css";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/

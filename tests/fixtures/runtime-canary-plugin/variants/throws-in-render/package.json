@@ -1,0 +1,24 @@
+{
+  "name": "pi-dashboard-runtime-canary-throws-in-render",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime canary FAILURE variant (throws while rendering). Built by scripts/build-runtime-canary.mjs; fixture only.",
+  "type": "module",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "runtime-canary-throws-in-render",
+    "displayName": "Runtime Canary variant: throws-in-render (fixture)",
+    "fixture": true,
+    "hostApi": "^1.0.0",
+    "clientBundle": "./dist/client/index.js",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "VariantPanel",
+        "tab": "general"
+      }
+    ]
+  }
+}

@@ -11,14 +11,14 @@ import {
   type RegisteredSource,
   SettingsDraftProvider,
   type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMock = vi.fn((_msg: unknown): Promise<void> => Promise.resolve());
 let configValue: Record<string, unknown> = {};
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", async (importOriginal) => ({
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal) => ({
   // Keep the real module (the settings kit reads `useRuntimeT` from it) and
   // override only the hooks this suite drives.
   ...(await importOriginal<Record<string, unknown>>()),

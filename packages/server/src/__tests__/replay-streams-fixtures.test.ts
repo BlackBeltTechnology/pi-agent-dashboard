@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createInitialState, reduceEvent, type SessionState } from "../../../client/src/lib/chat/event-reducer.js";
+import "../../../client/src/test-support/subagents-reducer-slice.js"; // the reducer's subagent_* arms are a plugin slice now (decouple-plugins-from-core)
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import {
   plainMessageWindow,

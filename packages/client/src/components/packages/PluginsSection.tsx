@@ -27,7 +27,9 @@ import { useLocation } from "wouter";
 import type { PluginList, PluginToggle } from "../../hooks/usePluginToggle.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
+import { getRuntimeLoadingBlocker, useRuntimeLoaderState } from "../../lib/plugins/runtime-plugin-loader.js";
 import type { SettingsPromotion } from "../../lib/settings-promotions.js";
+import { PluginTrustControls } from "./PluginTrustControls.js";
 import {
   MissingRequirementsBlock,
   PluginErrorNotice,
@@ -36,6 +38,11 @@ import {
   WARN_BORDER,
   WARN_FG,
 } from "./plugin-row-parts.js";
+
+/** Discovery sources are technical tokens (`workspace`, `pi-package`, …): shown verbatim, like the plugin id. */
+function sourceLabel(source: string): string {
+  return source;
+}
 
 /**
  * `list`/`toggle` come from `SettingsPanel`, which already mounts them for the
@@ -68,6 +75,9 @@ export function PluginsSection({
 }) {
   const [, navigate] = useLocation();
   const { rows, loading, error } = list;
+  // Re-render when the loader learns its state; the blocker itself is read live (api base / import map).
+  useRuntimeLoaderState();
+  const runtimeBlocker = getRuntimeLoadingBlocker();
 
   if (loading) {
     return <div className="text-sm text-[var(--text-muted)]">{i18nT("packages.loadingPlugins", undefined, "Loading plugins…")}</div>;
@@ -87,6 +97,16 @@ export function PluginsSection({
   return (
     <div className="space-y-3" data-testid="plugins-section">
       {toggle.cascadeDialog}
+      {runtimeBlocker && (
+        <div
+          className={`px-3 py-2 rounded ${WARN_BG} border ${WARN_BORDER} ${WARN_FG} text-sm`}
+          data-testid={`plugins-runtime-notice-${runtimeBlocker}`}
+        >
+          {runtimeBlocker === "remote-server"
+            ? i18nT("packages.runtimePluginsRemoteServer", undefined, "Runtime plugins are unavailable while connected to a remote server")
+            : i18nT("packages.runtimePluginsNeedProductionPage", undefined, "Runtime plugins need the production page")}
+        </div>
+      )}
       {toggle.restartRequired && (
         <div
           className={`flex items-center gap-2 px-3 py-2 rounded ${WARN_BG} border ${WARN_BORDER} ${WARN_FG} text-sm`}
@@ -124,7 +144,11 @@ export function PluginsSection({
         {rows.map((row) => {
           const hasSettings = contributesSettings(row);
           const isEnabled = row.status?.enabled !== false;
-          const statusError = row.status?.error;
+          const isLocalDetected = row.status?.source === "local-detected";
+          // A local-detected row's only "error" is the install-globally hint, shown as its own note.
+          const statusError = isLocalDetected ? undefined : row.status?.error;
+          const shadowed = row.status?.shadowed ?? [];
+          const refusal = row.status?.client?.delivery === "refused" ? row.status.client.refusedReason : undefined;
           const toggleError = toggle.toggleErrorFor(row.id);
           const cogTitle = hasSettings
             ? "Open plugin settings"
@@ -141,8 +165,24 @@ export function PluginsSection({
                   <div className="text-sm text-[var(--text-primary)] font-medium truncate">
                     {row.displayName}
                   </div>
-                  <div className="text-[10px] text-[var(--text-muted)] truncate">{row.id}</div>
+                  <div className="text-[10px] text-[var(--text-muted)] truncate">
+                    {row.id}
+                    {row.status?.source && (
+                      <span data-testid={`plugin-source-${row.id}`}>
+                        {" · "}
+                        {sourceLabel(row.status.source)}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {isLocalDetected && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] border ${WARN_BG} ${WARN_BORDER} ${WARN_FG}`}
+                    data-testid={`plugin-local-detected-${row.id}`}
+                  >
+                    {i18nT("packages.localDetected", undefined, "local-detected")}
+                  </span>
+                )}
                 <StatusPill row={row} />
                 {!isEnabled && (
                   // Explain the absence from the nav rail where the user looks
@@ -160,7 +200,7 @@ export function PluginsSection({
                   <input
                     type="checkbox"
                     checked={isEnabled}
-                    disabled={toggle.isToggling(row.id)}
+                    disabled={toggle.isToggling(row.id) || isLocalDetected}
                     onChange={(e) => toggle.handleToggle(row, e.target.checked)}
                     data-testid={`plugin-toggle-${row.id}`}
                     className="accent-blue-500"
@@ -215,6 +255,37 @@ export function PluginsSection({
                   )}
                 </div>
               ) : null}
+              {isLocalDetected && (
+                <div className={`mx-3 mb-2 px-2 py-1 rounded border text-[11px] ${WARN_BG} ${WARN_BORDER} ${WARN_FG}`} data-testid={`plugin-local-detected-note-${row.id}`}>
+                  {i18nT(
+                    "packages.localDetectedNote",
+                    undefined,
+                    "Found in a project's local scope. Local-scope plugins are not loaded in this release. Install globally with --scope global to enable.",
+                  )}
+                </div>
+              )}
+              {row.status?.restartRequired && (
+                <div className={`mx-3 mb-2 flex items-center gap-1.5 px-2 py-1 rounded border text-[11px] ${WARN_BG} ${WARN_BORDER} ${WARN_FG}`} data-testid={`plugin-restart-hint-${row.id}`}>
+                  <Icon path={mdiRestart} size={0.5} />
+                  {i18nT("packages.pluginRestartRequired", undefined, "Restart the dashboard to apply this plugin's change.")}
+                </div>
+              )}
+              {refusal && (
+                <div className="px-3 pb-2 text-[11px] text-[var(--text-secondary)]" data-testid={`plugin-client-refused-${row.id}`}>
+                  {i18nT("packages.pluginClientRefused", undefined, "Client refused:")} <code>{refusal}</code>
+                </div>
+              )}
+              <PluginTrustControls row={row} />
+              {shadowed.map((copy) => (
+                <div
+                  key={`${copy.source}:${copy.packageDir}`}
+                  className="px-3 pb-2 text-[10px] text-[var(--text-muted)] truncate"
+                  data-testid={`plugin-shadowed-${row.id}`}
+                  title={copy.packageDir}
+                >
+                  {i18nT("packages.pluginShadowedCopy", { source: sourceLabel(copy.source), path: copy.packageDir }, `Also found (${sourceLabel(copy.source)}, not used): ${copy.packageDir}`)}
+                </div>
+              ))}
               {toggleError && (
                 <div className="px-3 pb-2">
                   <PluginErrorNotice

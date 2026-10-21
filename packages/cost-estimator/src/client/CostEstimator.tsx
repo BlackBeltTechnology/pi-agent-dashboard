@@ -11,12 +11,7 @@
  * indefensible under scrutiny.
  */
 
-import {
-  NumberField,
-  SelectField,
-  useSettingsDraftSource,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { NumberField, SelectField, usePluginConfig, usePluginSend, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 

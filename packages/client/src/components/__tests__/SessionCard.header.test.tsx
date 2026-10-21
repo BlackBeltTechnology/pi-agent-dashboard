@@ -7,7 +7,10 @@
  * See change: compact-session-card-header (test-plan E1–E10, E13, E14, E17,
  * E18, F5–F7, X1, X2).
  */
-import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { HOST_PRESSURE_UNRESPONSIVE_MS } from "@blackbelt-technology/pi-dashboard-shared/host-pressure.js";

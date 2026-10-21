@@ -37,6 +37,9 @@ site/.astro/
 .worktrees/
 # Per-worktree test-harness state (ports + compose project). See change: parallelize-test-harness.
 .pi-test-harness.json
+# Staged runtime-delivery canary (docker/test-up.sh; removed by test-down.sh). See change: decouple-plugins-from-core.
+.pi-test-canary/
+.pi-test-dist-only.json
 # Playwright E2E outputs (tests/e2e). See change: add-playwright-e2e.
 playwright-report/
 # Sharded blob reports (CI=1). See change: stabilize-browser-e2e (task 1.3).

@@ -3,9 +3,10 @@
  * recorded path), the dashboard (naming source + folder + scope), or nobody.
  * See change: mirror-dashboard-trust-to-pi.
  */
+
+import schemaDoc from "@blackbelt-technology/pi-dashboard-mcp-core/schema/mcp-config.schema.json";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { FolderMcpPage } from "../FolderMcpPage.js";
 import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
 

@@ -2,6 +2,11 @@
  * Client API for /api/plugins activation endpoints.
  * See change: add-plugin-activation-ui.
  */
+import type {
+  PluginClientStatus,
+  PluginDiscoverySource,
+  PluginShadowedCopy,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { getApiBase } from "../api/api-context.js";
 
 export interface PluginRequirementReport {
@@ -21,6 +26,14 @@ export interface PluginRowStatus {
   claims: number;
   requirements?: PluginRequirementReport;
   missingRequirements?: string[];
+  /** Discovery source (absent on an older server). See change: decouple-plugins-from-core. */
+  source?: PluginDiscoverySource;
+  /** Losing duplicates of this id; rendered as a sub-line of the winning row. */
+  shadowed?: PluginShadowedCopy[];
+  /** The running copy is stale, or a re-enabled plugin's server entry is not loaded: restart to apply. */
+  restartRequired?: boolean;
+  /** Client delivery; `refused` + `refusedReason` explains a refusal. */
+  client?: PluginClientStatus;
 }
 
 export interface PluginRow {
@@ -167,4 +180,49 @@ export async function togglePlugin(
     throw new Error(`POST /api/plugins/${id}/toggle failed: ${msg}`);
   }
   return (await res.json()) as TogglePluginResult;
+}
+
+/** Error from a plugin-trust call; `code` is the server's machine reason (`local_only`, `stale_hash`) when sent. */
+export class PluginTrustError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "PluginTrustError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function trustCall(id: string, method: "POST" | "DELETE", body?: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${getApiBase()}/api/plugins/${encodeURIComponent(id)}/trust`, {
+    method,
+    ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+  });
+  if (res.ok) return;
+  let code: string | undefined;
+  let message = `${res.status}`;
+  try {
+    const parsed = (await res.json()) as { error?: string; message?: string };
+    code = parsed.error;
+    message = parsed.message ?? parsed.error ?? message;
+  } catch {
+    /* empty */
+  }
+  throw new PluginTrustError(message, res.status, code);
+}
+
+/** Pin the plugin's client bundle to `sha256` (the hash the operator was shown). 409 `stale_hash` = it changed meanwhile. */
+export function trustPluginClient(id: string, sha256: string): Promise<void> {
+  return trustCall(id, "POST", { sha256 });
+}
+
+/** Trust a `pi-package` plugin's server entry. */
+export function trustPluginServer(id: string): Promise<void> {
+  return trustCall(id, "POST", { server: true });
+}
+
+/** Drop the whole trust entry (client pin and server grant). */
+export function revokePluginTrust(id: string): Promise<void> {
+  return trustCall(id, "DELETE");
 }

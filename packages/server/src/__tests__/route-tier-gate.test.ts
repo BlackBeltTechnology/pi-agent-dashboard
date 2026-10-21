@@ -18,6 +18,7 @@ import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
 import { useTrustModeHome } from "../test-support/trust-mode-home.js";
 
 let tmpDir: string;
@@ -95,12 +96,56 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
   // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
   app.all("/live/:id/*", async () => ({ ok: true }));
   app.all("/live/:id", async () => ({ ok: true }));
+  // The REAL runtime-client routes (decouple-plugins-from-core 6.11/6.12), behind the same gate + guard.
+  registerPluginRuntimeClientRoutes(app, { networkGuard, broadcast: () => {}, log: { info: () => {} } });
   await app.ready();
 
   return { app, tokens, restartCalls: () => restart, promptCalls: () => prompt, refusals };
 }
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+
+describe("E81 — runtime-client routes: tiers and the local-only trust grant", () => {
+  const REMOTE = "203.0.113.5";
+
+  it("observe bearer reads the listing but is refused DELETE trust at operate", async () => {
+    const { app, tokens } = await mkApp();
+    const list = await app.inject({ method: "GET", url: "/api/plugins/runtime-clients", remoteAddress: REMOTE, headers: bearer(tokens.observe) });
+    expect(list.statusCode).toBe(200);
+    const del = await app.inject({ method: "DELETE", url: "/api/plugins/ext/trust", remoteAddress: REMOTE, headers: bearer(tokens.observe) });
+    expect(del.statusCode).toBe(403);
+    expect(del.json()).toMatchObject({ error: "insufficient_scope", scope: "operate" });
+  });
+
+  it("control bearer is refused POST trust by the tier gate (operate)", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject({ method: "POST", url: "/api/plugins/ext/trust", remoteAddress: REMOTE, headers: bearer(tokens.control), payload: { server: true } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "insufficient_scope", scope: "operate" });
+  });
+
+  it("a REMOTE operate bearer is refused POST trust by the handler (local_only), but may DELETE", async () => {
+    const { app, tokens } = await mkApp();
+    const post = await app.inject({ method: "POST", url: "/api/plugins/ext/trust", remoteAddress: REMOTE, headers: bearer(tokens.operate), payload: { server: true } });
+    expect(post.statusCode).toBe(403);
+    expect(post.json()).toMatchObject({ success: false, error: "local_only" });
+    const del = await app.inject({ method: "DELETE", url: "/api/plugins/ext/trust", remoteAddress: REMOTE, headers: bearer(tokens.operate) });
+    expect(del.statusCode).toBe(200);
+  });
+
+  it("a tunnel-relayed loopback request (forwarding header) is not local either", async () => {
+    const { app, tokens } = await mkApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/plugins/ext/trust",
+      remoteAddress: "127.0.0.1",
+      headers: { ...bearer(tokens.operate), "x-forwarded-for": "198.51.100.9" },
+      payload: { server: true },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "local_only" });
+  });
+});
 
 describe("E23 — tier gate decision table", () => {
   it("observe bearer off-host: reads within tier, refused above it", async () => {

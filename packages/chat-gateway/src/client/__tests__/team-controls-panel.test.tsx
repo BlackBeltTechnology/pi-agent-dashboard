@@ -15,7 +15,7 @@ const handlers = new Map<string, (msg: unknown) => void>();
 const sendMock = vi.fn(async (_msg: unknown) => {});
 let configValue: Record<string, unknown> = {};
 
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime/context", async (importOriginal) => ({
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal) => ({
   // Keep the real module: the settings kit reads `useRuntimeT` from it.
   ...(await importOriginal<Record<string, unknown>>()),
   usePluginConfig: () => configValue,

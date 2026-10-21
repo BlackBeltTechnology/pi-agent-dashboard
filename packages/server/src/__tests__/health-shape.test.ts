@@ -628,3 +628,49 @@ describe("GET /api/health — pollCost", () => {
     }
   });
 });
+
+// decouple-plugins-from-core #E64 (task 5.10): /api/health is unauthenticated and tunnel-reachable,
+// so its plugins[] is path- and hash-free while the guarded GET /api/plugins carries the full rows.
+describe("GET /api/health — plugins[] exposes no paths or hashes", () => {
+  it("E64: no packageDir, no 64-hex hash, no local-detected row; new path/hash-free fields pass; /api/plugins has all three", async () => {
+    const { getPluginStatusStore } = await import("@blackbelt-technology/dashboard-plugin-runtime/server");
+    const h = await createTestServer();
+    try {
+      const sha = "a".repeat(64);
+      const store = getPluginStatusStore();
+      store.setStatus({
+        id: "gone-plugin",
+        displayName: "Gone",
+        enabled: true,
+        loaded: true,
+        claims: 0,
+        source: "installed",
+        restartRequired: true,
+        hostApi: { range: "^1.0.0", compatible: true },
+        shadowed: [{ source: "pi-package", packageDir: "/secret/path/gone-plugin" }],
+        client: { delivery: "runtime", sha256: sha },
+        serveApp: "mounted",
+      });
+      store.setStatus({ id: "loc-only", displayName: "Loc", enabled: false, loaded: false, claims: 0, source: "local-detected" });
+
+      const health = await (await fetch(`http://localhost:${h.httpPort}/api/health`)).json() as { plugins: Array<Record<string, any>> };
+      const json = JSON.stringify(health.plugins);
+      expect(json).not.toContain("packageDir");
+      expect(json).not.toContain("/secret/path");
+      expect(json).not.toMatch(/[0-9a-f]{64}/);
+      expect(health.plugins.some((p) => p.id === "loc-only")).toBe(false);
+      const gone = health.plugins.find((p) => p.id === "gone-plugin");
+      expect(gone).toMatchObject({ source: "installed", restartRequired: true, hostApi: { compatible: true }, client: { delivery: "runtime" }, serveApp: "mounted" });
+      expect(gone?.shadowed).toBeUndefined();
+      expect(gone?.client.sha256).toBeUndefined();
+
+      const guarded = JSON.stringify(await (await fetch(`http://localhost:${h.httpPort}/api/plugins`)).json());
+      expect(guarded).toContain("packageDir");
+      expect(guarded).toContain(sha);
+      expect(guarded).toContain("loc-only");
+      expect(guarded).toContain("/secret/path/gone-plugin");
+    } finally {
+      await h.stop();
+    }
+  });
+});

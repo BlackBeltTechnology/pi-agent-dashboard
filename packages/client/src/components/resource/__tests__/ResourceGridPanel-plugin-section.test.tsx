@@ -3,7 +3,10 @@
  * (test-plan #E24 client half; pi-resources-view delta).
  * See change: add-skill-atlas-screen.
  */
-import { PluginContextProvider, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  PluginContextProvider,
+  createSlotRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";

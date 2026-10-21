@@ -6,9 +6,15 @@
  * Vite so prelint/prebuild hooks (and fresh clones) can produce the file
  * before tsc / vitest / vite ever runs.
  *
- * The file is gitignored — Vite regenerates it on dev start and during build,
- * and this script regenerates it for non-Vite consumers (tsc --noEmit, IDEs
- * on a fresh clone, CI lint steps).
+ * Also writes packages/client/src/generated/plugin-sources.css (the Tailwind
+ * `@source` lines `index.css` imports): `regeneratePluginRegistry` runs the
+ * shared `regenerate`, which emits both files, so Vite and this script stay
+ * byte-identical.
+ *
+ * Both files are committed (see generated/.gitignore) so a fresh checkout
+ * resolves them; Vite regenerates them on dev start and during build, and this
+ * script regenerates them for non-Vite consumers (tsc --noEmit, IDEs on a fresh
+ * clone, CI lint steps).
  */
 import { createJiti } from "jiti";
 import path from "node:path";

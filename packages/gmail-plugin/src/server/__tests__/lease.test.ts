@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { CLIENT, capturingLogger, fakeGoogleFetch, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
 import { type Op, SCOPE, TIER_SCOPES, type Tier } from "../../shared/scopes.js";
-import { AccountStore, acctKey, CLIENT_KEY } from "../accounts.js";
+import { type AccountRecord, AccountStore, acctKey, CLIENT_KEY } from "../accounts.js";
 import { createLeaseHandler } from "../lease.js";
 
 const NOW = 1_000_000_000_000;
@@ -15,6 +15,7 @@ function setup(opts: {
   scopes?: string[];
   expiresIn?: number;
   status?: string;
+  filters?: boolean;
   refresh?: Parameters<typeof fakeGoogleFetch>[0]["refresh"];
 }) {
   const tier = opts.tier ?? "send";
@@ -30,6 +31,7 @@ function setup(opts: {
       access: "ACCESS-old",
       expires: NOW + (opts.expiresIn ?? 3_600_000),
       status: opts.status ?? "ok",
+      ...(opts.filters ? { filters: true } : {}),
       addedAt: 1,
     },
   });
@@ -42,16 +44,17 @@ function setup(opts: {
   return { creds, google, logger, store, lease };
 }
 
-const OPS: Op[] = ["read", "draft", "send", "modify", "trash"];
+const OPS: Op[] = ["read", "draft", "send", "modify", "trash", "filters_read", "filters_write"];
 const RANK = { readonly: 0, draft: 1, send: 2 } as const;
-const OP_RANK: Record<Op, number> = { read: 0, draft: 1, send: 2, modify: 2, trash: 2 };
+const OP_RANK: Record<Op, number> = { read: 0, draft: 1, send: 2, modify: 2, trash: 2, filters_read: 0, filters_write: 2 };
 
 describe("E12 — tier × op matrix", () => {
   for (const tier of ["readonly", "draft", "send"] as Tier[]) {
     for (const op of OPS) {
       const allowed = RANK[tier] >= OP_RANK[op];
       it(`${tier} × ${op} → ${allowed ? "allowed" : "tier_denied"}`, async () => {
-        const { lease } = setup({ tier });
+        // filter ops need the filters option on and the settings scope granted
+        const { lease } = setup({ tier, filters: true, scopes: [...TIER_SCOPES[tier], SCOPE.settingsBasic] });
         const r = lease({ account: "work", op });
         if (allowed) await expect(r).resolves.toMatchObject({ tier });
         else await expect(r).rejects.toMatchObject({ code: "tier_denied" });
@@ -307,5 +310,47 @@ describe("CodeRabbit — bounded refresh", () => {
     const { lease, google } = setup({ expiresIn: 0 });
     await lease({ account: "work", op: "read" });
     expect(google.calls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe("test-plan #E21 — filters option gates filter leases", () => {
+  const FILTER_OPS: Op[] = ["filters_read", "filters_write"];
+
+  for (const tier of ["readonly", "draft", "send"] as Tier[]) {
+    for (const op of FILTER_OPS) {
+      it(`filters off × ${tier} × ${op} → filters_disabled (before the tier check)`, async () => {
+        const { lease } = setup({ tier, scopes: [...TIER_SCOPES[tier], SCOPE.settingsBasic] });
+        await expect(lease({ account: "work", op })).rejects.toMatchObject({ code: "filters_disabled" });
+      });
+    }
+  }
+
+  it("filters on + readonly + filters_read → token", async () => {
+    const { lease } = setup({ tier: "readonly", filters: true, scopes: [SCOPE.readonly, SCOPE.settingsBasic] });
+    await expect(lease({ account: "work", op: "filters_read" })).resolves.toMatchObject({ tier: "readonly" });
+  });
+
+  it("filters on + draft + filters_write → tier_denied", async () => {
+    const { lease } = setup({ tier: "draft", filters: true, scopes: [...TIER_SCOPES.draft, SCOPE.settingsBasic] });
+    await expect(lease({ account: "work", op: "filters_write" })).rejects.toMatchObject({ code: "tier_denied" });
+  });
+
+  it("filters on without the settings scope → scope_missing; reauth_required last", async () => {
+    const a = setup({ tier: "send", filters: true, scopes: [SCOPE.modify] });
+    await expect(a.lease({ account: "work", op: "filters_write" })).rejects.toMatchObject({ code: "scope_missing" });
+    const b = setup({ tier: "send", filters: true, scopes: [SCOPE.modify, SCOPE.settingsBasic], status: "reauth_required" });
+    await expect(b.lease({ account: "work", op: "filters_write" })).rejects.toMatchObject({ code: "reauth_required" });
+  });
+
+  it("message ops are unaffected by the filters option", async () => {
+    const { lease } = setup({ tier: "send" });
+    await expect(lease({ account: "work", op: "send" })).resolves.toMatchObject({ tier: "send" });
+  });
+
+  it("summarize() includes the filters flag only when on", async () => {
+    const { summarize } = await import("../accounts.js");
+    const base: AccountRecord = { sub: "s", email: "a@x.com", tier: "send", scopes: [], refresh: "r", access: "a", expires: 1, status: "ok", addedAt: 1 };
+    expect(summarize({ ...base, filters: true }).filters).toBe(true);
+    expect("filters" in summarize({ ...base })).toBe(false);
   });
 });

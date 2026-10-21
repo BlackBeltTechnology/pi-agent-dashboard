@@ -27,5 +27,9 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     endpoints,
     networkGuard: ctx.networkGuard,
     logger: ctx.logger,
+    config: {
+      get: () => ctx.getPluginConfig<Record<string, unknown>>(),
+      update: (partial) => ctx.updatePluginConfig(partial),
+    },
   });
 }

@@ -1,5 +1,9 @@
 /** PluginTabHost + EditorTabs plugin label (#E16 RTL, #F15 unit, #F16). See change: add-browser-editor-pane-tab. */
-import { createSlotRegistry, PluginContextProvider, ShellSessionsProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+  ShellSessionsProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

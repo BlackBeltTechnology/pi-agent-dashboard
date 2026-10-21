@@ -1,4 +1,7 @@
-import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SidebarFolderSectionSlot,
+  useFolderMenuRefreshRunner,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { cardSectionFolderKey, isPluginSectionVisible, resolveCardSectionVisible, resolveFolderListMode } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";

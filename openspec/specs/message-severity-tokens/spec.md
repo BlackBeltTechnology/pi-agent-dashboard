@@ -136,11 +136,11 @@ no-raw-literals requirement enumerates `Toast.tsx`, `SpawnErrorToastHost.tsx`,
 `SpawnErrorBanner.tsx`, `extension-ui/ToastSlot.tsx` and `NotifyRenderer.tsx`;
 the tool-result renderers were omitted from that list and still ship raw
 `red-300` / `red-400` / `red-500` / `red-950` literals. They are added to the
-governed set:
+governed set (paths without a package prefix are under `packages/client/src/components/`):
 
 - `tool-renderers/CtxToolRenderer.tsx` — the error card's border, fill and label
 - `tool-renderers/AskUserToolRenderer.tsx` — the error icon and message
-- `tool-renderers/AgentToolRenderer.tsx` — the subagent error line
+- `packages/subagents-plugin/src/client/AgentToolRenderer.tsx` — the subagent error line (moved from `tool-renderers/AgentToolRenderer.tsx` by `decouple-plugins-from-core`; it stays governed at its new path)
 - `chat/ToolBurstGroup.tsx` — the `N failed` badge
 - `chat/BashOutputCard.tsx` — the non-zero `exit N` badge
 - `chat/ToolCallStep.tsx` — the errored tool's status icon
@@ -160,6 +160,10 @@ clears the floor in dark mode and fails it in light mode.
 #### Scenario: Non-error surfaces are unaffected
 - **WHEN** files outside the governed set use raw red literals for non-severity purposes, such as a destructive-action button
 - **THEN** the check SHALL NOT fail
+
+#### Scenario: Moved renderer stays governed
+- **WHEN** a raw `red-<NNN>` literal is introduced into `packages/subagents-plugin/src/client/AgentToolRenderer.tsx`
+- **THEN** the static check SHALL fail and identify the file and line
 
 ### Requirement: Severity styles the chrome, not multi-line body content
 

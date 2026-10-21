@@ -6,14 +6,28 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { type ConfigIO, createRealConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type ConfigIO, createRealConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DASHBOARD_MCP_KEY,
   isProvisionedDashboardEntry,
   logMigration,
   migrateProvisionedEntry,
 } from "../legacy-entry-migration.js";
+
+// #X1: the migration obtains its service factory from the mcp-core library —
+// the spy proves vi.mock on mcp-core intercepts it (no mcp-client plugin hop).
+const coreSpy = vi.hoisted(() => ({ factoryCalls: 0 }));
+vi.mock("@blackbelt-technology/pi-dashboard-mcp-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-mcp-core")>();
+  return {
+    ...actual,
+    createMcpClientConfigService: ((...a: Parameters<typeof actual.createMcpClientConfigService>) => {
+      coreSpy.factoryCalls++;
+      return actual.createMcpClientConfigService(...a);
+    }) as typeof actual.createMcpClientConfigService,
+  };
+});
 
 let dir: string;
 let target: string;
@@ -126,5 +140,14 @@ describe("X4 — a failed removal keeps the entry and the server start continues
     expect(() => logMigration(r, { info: () => {}, warn: (m) => warns.push(m) })).not.toThrow();
     expect(warns).toHaveLength(1);
     expect(warns[0]).toContain("EACCES");
+  });
+});
+
+describe("X1 — migration sources its factories from mcp-core", () => {
+  it("calls the mcp-core createMcpClientConfigService factory", () => {
+    const before = coreSpy.factoryCalls;
+    write({ mcpServers: { docs } });
+    migrateProvisionedEntry(createRealConfigIO(), { paths: paths() });
+    expect(coreSpy.factoryCalls).toBe(before + 1);
   });
 });

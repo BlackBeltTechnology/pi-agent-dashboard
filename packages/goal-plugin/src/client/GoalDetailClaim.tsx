@@ -23,7 +23,6 @@ import { useLocation } from "wouter";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
 import { deriveSnapshot, fmtUsd, gaugePct, resolveGoalTurns } from "./goal-state.js";
 import {
-  decodeFolderPath,
   deleteGoal,
   goalsBoardUrl,
   linkSession,
@@ -52,11 +51,13 @@ function verdictCls(verdict: string): string {
 
 export interface GoalDetailClaimProps {
   params: Record<string, string>;
+  /** Decoded folder path of the route (host-provided). */
+  cwd?: string;
   onBack: () => void;
 }
 
-export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React.ReactElement {
-  const cwd = decodeFolderPath(params.encodedCwd ?? "") ?? "";
+export function GoalDetailClaim({ params, cwd: routeCwd, onBack }: GoalDetailClaimProps): React.ReactElement {
+  const cwd = routeCwd ?? "";
   const t = useT();
   const goalId = params.goalId ?? "";
   const [, navigate] = useLocation();

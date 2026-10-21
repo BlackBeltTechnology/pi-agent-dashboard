@@ -237,6 +237,29 @@ export PI_CHAT_GATEWAY_FAKE_DIR="${PI_CHAT_GATEWAY_FAKE_DIR:-}"
 # that in-container port. Defaulted so the spec needs no extra flag.
 export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}"
 
+# Runtime-delivery canary (change: decouple-plugins-from-core, tasks 7.5 / 8.2 / 8.3).
+# Under PI_E2E_SEED=1 the harness stages the prebuilt runtime canary
+# (tests/fixtures/runtime-canary-plugin) into ${HOST_CWD}/.pi-test-canary BEFORE `compose up`; the container sees it
+# through the path-parity overlay and test-entrypoint.sh copies it into ~/.pi/dashboard/plugins/ and pre-seeds
+# `auth.trustedPlugins`. The canary is built ONCE here and hashed with the server's own content hasher — never
+# rebuilt after seeding, so the pin always equals the served hash. The HOST needs the repo's node_modules.
+#   PI_E2E_CANARY=trusted     (default) base canary, pinned → its claims render
+#   PI_E2E_CANARY=untrusted   base canary WITHOUT a trust entry + the four failure variants copied next to it
+#   PI_E2E_CANARY=off         nothing staged (harness unchanged)
+# PI_DASHBOARD_CSP=enforce boots the server with the ENFORCING CSP (default: report-only). Both are passed through
+# to the container (compose.test.yml). Exported explicitly: compose substitutes from the SHELL environment.
+export PI_E2E_CANARY="${PI_E2E_CANARY:-}"
+export PI_DASHBOARD_CSP="${PI_DASHBOARD_CSP:-}"
+CANARY_STAGE_DIR="${HOST_CWD}/.pi-test-canary"
+rm -rf "$CANARY_STAGE_DIR"
+if [ "${PI_E2E_SEED:-}" = "1" ] && [ "${PI_E2E_CANARY:-trusted}" != "off" ]; then
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  node "${REPO_ROOT}/scripts/stage-runtime-canary.mjs" --out "$CANARY_STAGE_DIR" --mode "${PI_E2E_CANARY:-trusted}" >&2 || {
+    echo "runtime-canary: staging failed (needs the repo's node_modules on the host); set PI_E2E_CANARY=off to skip" >&2
+    exit 1
+  }
+fi
+
 # Extra overlays (TEST_EXTRA_COMPOSE, whitespace-separated basenames under
 # docker/). Recorded in the state file as `extraCompose` so test-down.sh tears
 # the same stack down WITHOUT the env var (e.g. ship-it's trap). Always written,

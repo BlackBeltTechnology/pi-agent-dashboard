@@ -14,7 +14,7 @@ metadata:
 
 # Dashboard Plugin Scaffold
 
-Two modes, one skill. Mode `new` scaffolds `packages/<id>-plugin/` inside the dashboard monorepo. Mode `augment` retrofits an existing pi-extension at the current working directory with a `pi-dashboard-plugin` manifest field and a `src/dashboard/` React subtree.
+Two modes, one skill. Mode `new` scaffolds `packages/<id>-plugin/` inside the dashboard monorepo. Mode `augment` retrofits an existing pi-extension at the current working directory with a `pi-dashboard-plugin` manifest field and a `src/dashboard/` React subtree. An augmented project lives outside the dashboard monorepo, so its client is **runtime-delivered**: a prebuilt bundle (`dist/client/`) built with the SDK preset, loaded by the stock dashboard.
 
 > **Server TypeScript must be erasable.** The dashboard server loads a plugin's `server` entry with Node's strip-only TypeScript loader, so plugin server code must not use `enum`, runtime `namespace`, or constructor parameter properties, and must import type-only symbols with `import type`. A plugin that does fails to load in isolation (the error names the file). The templates already comply; keep them that way when editing.
 
@@ -171,8 +171,8 @@ Scoped apps get **no** `standaloneUrl` and no standalone entry. `requiredApi` st
 
 ```bash
 [ -f package.json ] || { echo "No package.json at cwd" >&2; exit 1; }
-PEER=$(jq -r '.peerDependencies["pi-coding-agent"] // .dependencies["pi-coding-agent"] // empty' package.json)
-[ -n "$PEER" ] || { echo "package.json does not declare pi-coding-agent — not a pi extension" >&2; exit 1; }
+PEER=$(jq -r '[(.peerDependencies // {}), (.dependencies // {})] | add | keys[] | select(test("^(@[^/]+/)?pi-coding-agent$"))' package.json | head -1)
+[ -n "$PEER" ] || { echo "package.json does not declare pi-coding-agent as a dependency or peerDependency — not a pi extension" >&2; exit 1; }
 ```
 
 ### 3b.2 Run the grep prelude
@@ -231,36 +231,42 @@ cat <<JSON | node ... "$SKILL_PKG/src/bin/scaffold.ts"
   "mode": "augment",
   "outDir": ".",
   "confirmedProposals": [<proposal[i] for each user-checked option>],
-  "addServer": <true if any proposal needs server hooks>
+  "addServer": <true if any proposal needs server hooks>,
+  "styles": <true if the project's dashboard UI uses Tailwind utility classes; default false>
 }
 JSON
 ```
 
-The renderer:
+The renderer **throws before writing anything** (the bin exits 1 and names the missing `pi-coding-agent` peerDep) when `package.json` does not declare `pi-coding-agent` (or a scoped fork) as a dependency or peerDependency. Otherwise it:
 
 1. Adds `@blackbelt-technology/dashboard-plugin-runtime` and `@blackbelt-technology/pi-dashboard-shared` as `dependencies` (preserves existing deps; sorted alphabetically).
-2. Injects the `pi-dashboard-plugin` manifest field into `package.json` (top-level, JSON-safe edit via `jq`).
-3. Adds `./client`, `./server` (if applicable), `./bridge` (if applicable) entries to `exports`.
-4. Sets `pi-dashboard-plugin.requiredApi` to `^0.x` (the v0.x lock).
-5. Creates `src/dashboard/client.tsx` with stubs for each confirmed claim.
-6. Creates `src/dashboard/server.ts` only if any proposal needed server hooks.
+2. Injects the `pi-dashboard-plugin` manifest field into `package.json` (top-level, JSON-safe edit).
+3. Adds `./client` (and `./server` if applicable) entries to `exports`.
+4. Sets `requiredApi` to `^0.x`, `hostApi` to `^<major>.<minor>.0` of the current `PLUGIN_HOST_API_VERSION`, and adds the `pi-dashboard-plugin` keyword (existing keywords kept).
+5. Makes the project runtime-deliverable: manifest `clientBundle: "./dist/client/index.js"` (a dedicated client dir; the server entry stays in `src/dashboard/`, outside it), `clientStyles: "./dist/client/client.css"` when `styles` is true, a `build:dashboard` script (`vite build --config vite.dashboard.config.ts --configLoader runner`), devDependencies for it (`vite`, `react`, `@types/react`; plus `tailwindcss`, `@tailwindcss/vite` when `styles`; the author's pins win), and, if `files` is an explicit list, `dist/client/` and `src/dashboard/`.
+6. Creates `vite.dashboard.config.ts` (the SDK preset: every import-map specifier external, no React in the bundle).
+7. Creates `src/dashboard/client.tsx` with stubs for each confirmed claim.
+8. Creates `src/dashboard/server.ts` only if any proposal needed server hooks.
 
-It does **NOT** modify any other source file.
+It does **NOT** modify any other source file. The bin prints the next-steps (3b.6) after it finishes.
 
 ### 3b.6 Print next-steps
+
+The bin prints these (`src/next-steps.ts`); relay them verbatim. **Never run them yourself.**
 
 ```
 Next steps:
   1. npm install
-  2. npm run build                 # build your project
-  3. Test in pi: pi  (the original TUI surface still works)
-  4. Test in dashboard: until node_modules scan ships, link into the dashboard
-     monorepo: cd <dashboard-repo> && npm link <your-package-path>
-     OR clone your project into <dashboard-repo>/packages/ as a workspace.
-  5. Style plugin UI with host tokens only: read references/host-design.md
-     (surfaces, severity/status, accent-text, both modes, no own theme/fonts).
-  6. When ready: npm publish
-     (a future dashboard release will discover your package via node_modules)
+  2. npm run build                 # build your project (the TUI surface still works in pi)
+  3. npm run build:dashboard       # build the dashboard client bundle into dist/client/
+  4. npm publish                   # the package must carry dist/client/ and src/dashboard/
+  5. Install it globally: `pi install npm:<package>` from a terminal (the dashboard shows it
+     after a dashboard restart), or the dashboard Packages tab (shows it live).
+  6. Until published: `npm link` it into the dashboard's packages/ layout, or clone it into
+     <dashboard-repo>/packages/ as a workspace.
+  7. Trust: the operator trusts the client bundle (and, for a server entry, grants server trust)
+     from the Plugins tab on the dashboard host itself.
+  8. Style plugin UI with host tokens only: read references/host-design.md
 ```
 
 Done with mode `augment`.
@@ -269,9 +275,10 @@ Done with mode `augment`.
 
 ## Guardrails
 
-- **Never run `npm publish`, `npm run build`, or restart the dashboard server**. The skill prints next-steps; the user runs them.
-- **Never edit existing source files in augment mode** — only `package.json` (manifest injection) and new files under `src/dashboard/`.
-- **Refuse to run augment mode if `pi-coding-agent` is not declared** as a dep or peerDep.
+- **Never run `npm publish`, `npm run build`, `npm run build:dashboard`, `pi install`, or restart the dashboard server**. The skill prints next-steps; the user runs them.
+- **Never edit existing source files in augment mode** — only `package.json` (manifest injection) and new files (`src/dashboard/*`, `vite.dashboard.config.ts`).
+- **Refuse to run augment mode if `pi-coding-agent` is not declared** as a dep or peerDep (the renderer enforces it and writes nothing).
+- **Never trust on the user's behalf** — trusting a plugin's client bundle / server entry is the operator's action on the dashboard host.
 - **Refuse to run new mode outside the dashboard monorepo** (no `openspec/` in any ancestor).
 - **Refuse to overwrite an existing `packages/<id>-plugin/`** in new mode.
 - **Bridge entry defaults to OFF**. Only emit if the user explicitly opts in.

@@ -1,0 +1,571 @@
+/**
+ * Custom renderer for the Agent tool (from pi-dashboard-subagents).
+ *
+ * Card layout:
+ *   ┌──────────────────────────────────────────┐
+ *   │ ⚡ name        running  ⏱ ▾ ↗           │  <- header + expand toggle + popout
+ *   │  "description"                            │
+ *   │  ▸ activity line                          │
+ *   │  stats line                               │
+ *   │  [prompt block (collapsed)]               │
+ *   │                                           │
+ *   │  ── when expanded ──                      │
+ *   │  <SubagentDetailView /> (max-h-[60vh])    │
+ *   │  ── when collapsed AND complete ──        │
+ *   │  result block                             │
+ *   └──────────────────────────────────────────┘
+ *
+ * See change: add-subagent-inspector.
+ */
+
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { currentSentence } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import {
+  countSteps,
+  readLiveTail,
+  type SubagentLiveTail,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { mdiChevronDown, mdiChevronUp, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type SessionStateLike, SubagentDetailView } from "./SubagentDetailView.js";
+import {
+  noteSubagentRunning,
+  noteSubagentTerminal,
+  trackInspectorMounted,
+} from "./subagent-inspector-telemetry.js";
+import { useSubagentResyncCadence } from "./useSubagentResyncCadence.js";
+
+type ToolRendererProps = SlotProps<"tool-renderer">;
+
+/** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
+interface AgentDetails {
+  displayName?: string;
+  description?: string;
+  subagentType?: string;
+  status?: "queued" | "running" | "completed" | "steered" | "aborted" | "stopped" | "error";
+  activity?: string;
+  toolUses?: number;
+  tokens?: string;
+  turnCount?: number;
+  maxTurns?: number;
+  durationMs?: number;
+  modelName?: string;
+  /** Effective child thinking level (producer ≥ 0.2.7). */
+  thinkingLevel?: string;
+  tags?: string[];
+  agentId?: string;
+  /**
+   * Runner session id (v7) from the producer (>= 0.2.3). Client mirror of the
+   * producer's AgentDetails field; the reducer dual-indexes on it so a v7
+   * deep-link resolves. See change: resolve-subagent-inspector-by-session-id.
+   */
+  agentSessionId?: string;
+  /**
+   * Bounded tail of the streaming block (producer ≥ 0.2.7); `kind: "none"` =
+   * nothing streaming. See change: stream-subagent-reasoning-and-stable-card.
+   */
+  liveTail?: SubagentLiveTail;
+  error?: string;
+}
+
+/**
+ * Map AgentDetails status to AgentCardShell status key.
+ *
+ * The no-details fall-through maps ANY unrecognised row status to `running`, so
+ * `elided` must be handled explicitly or a windowed subagent row spins forever
+ * — and subagent rows are the likeliest to be windowed.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+function mapStatus(details: AgentDetails | undefined, toolStatus: string): string {
+  /**
+   * `elided` outranks `details.status`, and must be checked BEFORE it.
+   *
+   * `toolDetails` survives on a spliced row, so a backfilled subagent whose end
+   * never arrived still carries `details.status: "running"` (or a stale
+   * `"completed"`) from the last frame the window delivered. Reading that first
+   * renders a spinner — or worse, a completed card — for a result that is not
+   * loaded. The row-level stamp is the authority on loadability; `details` only
+   * describes what the subagent was doing when the stream was cut.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  if (toolStatus === "elided") return "elided";
+  if (!details?.status) {
+    if (toolStatus === "error") return "error";
+    if (toolStatus === "complete") return "complete";
+    return "running";
+  }
+  switch (details.status) {
+    case "running":
+    case "queued":
+      return "running";
+    case "completed":
+    case "steered":
+      return "complete";
+    case "error":
+    case "aborted":
+      return "error";
+    case "stopped":
+      return "stopped";
+    default:
+      return "running";
+  }
+}
+
+/** Build a stats string from AgentDetails */
+function buildStats(d: AgentDetails): string {
+  const parts: string[] = [];
+  if (d.modelName) parts.push(d.modelName);
+  if (d.thinkingLevel) parts.push(`thinking ${d.thinkingLevel}`);
+  if (d.tags?.length) parts.push(...d.tags);
+  if (d.turnCount != null && d.turnCount > 0) {
+    parts.push(d.maxTurns != null ? `⟳${d.turnCount}≤${d.maxTurns}` : `⟳${d.turnCount}`);
+  }
+  if (d.toolUses != null && d.toolUses > 0) parts.push(`${d.toolUses} tool use${d.toolUses === 1 ? "" : "s"}`);
+  if (d.tokens) parts.push(d.tokens);
+  return parts.join(" · ");
+}
+
+/**
+ * One-line ticker: right-anchored so the newest words stay visible; the left
+ * edge fades ONLY when the sentence overflows (short text stays crisp).
+ * See change: stream-subagent-reasoning-and-stable-card (card option C).
+ */
+function LiveTicker({ kind, text }: { kind: "thinking" | "text"; text: string }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState(false);
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const inner = box?.firstElementChild as HTMLElement | null;
+    if (box && inner) setOverflow(inner.scrollWidth > box.clientWidth);
+  }, [text]);
+  return (
+    <div
+      ref={boxRef}
+      className={`flex-1 min-w-0 flex justify-end overflow-hidden ${
+        overflow ? "[mask-image:linear-gradient(to_right,transparent_0,#000_18%)]" : ""
+      }`}
+    >
+      <span
+        data-testid="agent-live-preview"
+        data-kind={kind}
+        className="min-w-full whitespace-nowrap text-[11px] text-[var(--text-secondary)]"
+      >
+        {text}
+      </span>
+    </div>
+  );
+}
+
+/** Prompt display block */
+function PromptBlock({ text }: { text: string }) {
+  const t = useT();
+  return (
+    <div className="mt-1.5">
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{t("agentPrompt", undefined, "Prompt")}</div>
+      {/* Renders a 1000-char prefix but exposes the full text to the copy path
+          via `data-copy-text` so a selection over this card copies the whole
+          prompt, not the DOM-capped prefix. See change:
+          chat-copy-fidelity-intercept. */}
+      <pre data-copy-text={text} className="whitespace-pre-wrap text-[11px] text-[var(--text-secondary)] max-h-40 overflow-auto">
+        {text.slice(0, 1000)}
+      </pre>
+    </div>
+  );
+}
+
+/** Result display block with markdown rendering */
+function ResultBlock({ text }: { text: string }) {
+  const t = useT();
+  const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
+  return (
+    <div className="mt-1.5">
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{t("result", undefined, "Result")}</div>
+      <div className="max-h-80 overflow-auto text-[12px]">
+        <MarkdownContent content={text} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Header-right icon cluster: expand toggle + popout button.
+ *
+ * Pill-style buttons (icon + text label, contrasted border, hover state)
+ * so the affordances read clearly. Previously these were sub-pixel icons
+ * in `text-tertiary` and easy to miss. Matches the visual treatment
+ * applied to `FlowAgentCard` and `FlowArchitect`.
+ *
+ * See change: fix-flows-plugin-polish (button visibility).
+ */
+function CardControls({
+  expanded,
+  onToggleExpand,
+  onOpenPopout,
+  canPopout,
+  elapsed,
+}: {
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onOpenPopout: () => void;
+  canPopout: boolean;
+  elapsed?: React.ReactNode;
+}) {
+  const t = useT();
+  return (
+    <div className="flex items-center gap-1.5 flex-shrink-0">
+      {elapsed}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
+        className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
+          expanded
+            ? "text-blue-400 bg-blue-400/10 border-blue-400/40"
+            : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
+        }`}
+        title={expanded ? "Collapse subagent timeline" : "Expand to inspect tool calls & messages"}
+      >
+        <Icon path={expanded ? mdiChevronUp : mdiChevronDown} size={0.55} />
+        <span>{expanded ? "Collapse" : "Details"}</span>
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (canPopout) onOpenPopout();
+        }}
+        disabled={!canPopout}
+        className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
+          canPopout
+            ? "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
+            : "border-[var(--border-subtle)] text-[var(--text-muted)] opacity-40 cursor-not-allowed"
+        }`}
+        title={canPopout ? "Open subagent detail" : "Subagent id not yet available"}
+      >
+        <Icon path={mdiOpenInNew} size={0.5} />
+        <span>{t("agentPopout", undefined, "Popout")}</span>
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Correlation token so a resync reply comes back to THIS browser only (C5).
+ * A v4 id from `getRandomValues`, which exists on the plain-http LAN origin a
+ * knock pairs onto; the native `randomUUID` does not (the secure-context scan
+ * forbids a bare reference). The shell's `randomUuid()` is host-only, so the
+ * plugin carries this 4-line equivalent. See change: add-lan-knock-pairing.
+ */
+function newResyncRequestId(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10xx
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+export function AgentToolRenderer({ toolInput: args, status = "running", result, toolDetails, context }: ToolRendererProps) {
+  const t = useT();
+  const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
+  const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
+  const ElapsedBadge = useUiPrimitive(UI_PRIMITIVE_KEYS.elapsedBadge);
+  const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
+  const details = toolDetails as AgentDetails | undefined;
+  const [expanded, setExpanded] = useState(false);
+  // Detail popout opens in the shell `ui:dialog` primitive (parity with
+  // `flow-agent-detail`), replacing the prior `window.open(..., "_blank")`
+  // browser popout that broke on Electron/PWA/mobile.
+  // See change: fix-subagent-live-detail-reliability (D4).
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // Derive display values
+  const displayName = details?.displayName ?? (args?.subagent_type as string) ?? "Agent";
+  const description = details?.description ?? (args?.description as string) ?? "";
+  const cardStatus = mapStatus(details, status);
+  const promptText = args?.prompt ? String(args.prompt) : undefined;
+
+  const sessionId = context?.sessionId;
+  const session = context?.session as SessionStateLike | undefined;
+  const agentId = details?.agentId;
+  // Popout affordance is enabled only when both the agent id and the session
+  // state are available (SubagentDetailView needs both). Disabled otherwise
+  // — no dialog opens (spec: "Detail affordance disabled without an agent id").
+  const canPopout = Boolean(agentId && session);
+
+  const detailDialog = agentId && session ? (
+    <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} size="lg" flush>
+      {/* STAYS after the flush panel became a flex column: a DEFINITE height,
+          not a duplicated flex context. The popout must keep a stable height as
+          transcript entries stream in; shrink-to-fit would make the dialog jump.
+          See change: fix-flush-dialog-scroll-and-close-collision. */}
+      <div className="h-[70vh] overflow-hidden flex flex-col">
+        <SubagentDetailView
+          session={session}
+          agentId={agentId}
+          mode="popout"
+          sessionId={sessionId}
+          onBack={() => setDetailOpen(false)}
+        />
+      </div>
+    </Dialog>
+  ) : null;
+
+  // Request a resync when the subagent is still running but its inspector
+  // timeline is empty or the map has no entry at all (a gap swallowed its
+  // live frames, or the client subscribed after it started and state-replay
+  // does not re-synthesize subagent_* events for running agents). The bridge
+  // replays the latest snapshot in response.
+  // See change: fix-subagent-live-detail-reliability (D2);
+  // see change: fix-subagent-inline-expand-resync (inline path parity).
+  const requestResyncIfStale = () => {
+    if (!agentId || !sessionId || !context?.send) return;
+    const sub = session?.subagents.get(agentId);
+    const emptyTimeline = !sub?.entries || sub.entries.length === 0;
+    // Card status is authoritative for "still running" even when the map has
+    // no entry yet (sub === undefined) — that is exactly the not-found case.
+    const running = details?.status === "running" || details?.status === "queued" || sub?.status === "running";
+    if (running && emptyTimeline) {
+      context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "open" });
+    }
+  };
+
+  // Open the detail dialog, resyncing first if the timeline is stale.
+  const openDetail = () => {
+    setDetailOpen(true);
+    requestResyncIfStale();
+  };
+
+  // P5 kill-switch signal (D1): record how much of this subagent's runtime has
+  // a detail view mounted. Nothing else in the client knows a view is mounted,
+  // and that share bounds the achievable win of stripping.
+  // See change: reduce-subagent-details-payload (task 1.5).
+  const inspectorOpen = expanded || detailOpen;
+  const liveStatus = details?.status;
+  useEffect(() => {
+    if (!agentId) return;
+    if (liveStatus === "running" || liveStatus === "queued") noteSubagentRunning(agentId);
+    else if (liveStatus) noteSubagentTerminal(agentId);
+  }, [agentId, liveStatus]);
+  useEffect(() => {
+    if (!agentId || !inspectorOpen) return;
+    const release = trackInspectorMounted(agentId);
+    return () => release();
+  }, [agentId, inspectorOpen]);
+
+  // Open-inspector liveness (D4 v1). Intermediate frames no longer carry the
+  // timeline, so a MOUNTED view pulls it on a backoff cadence. Deliberately
+  // WITHOUT the `emptyTimeline` precondition above — that precondition is why a
+  // view watching a growing timeline never re-fires today. One timer per
+  // subagent, so inline + popout mounted together do not double-fire.
+  // See change: reduce-subagent-details-payload (F1, F3, F4).
+  const sub = agentId ? session?.subagents.get(agentId) : undefined;
+  // A healed row (superseded / session_ended) carries a placeholder result; the
+  // subagent's own `subagent_completed` result is the real one, so prefer it.
+  // See change: add-plugin-bridge-contributions (D10).
+  const healedBy = (toolDetails as Record<string, unknown> | undefined)?.healedBy;
+  const shownResult = typeof healedBy === "string" && healedBy && sub?.result ? sub.result : result;
+  // A streamed producer (≥ 0.3.0) delivers every step on `subagent_entry`; once
+  // the filled steps reach `entryCount` a pull would only re-send what is
+  // already here. See change: add-plugin-bridge-contributions (D9).
+  const streamComplete = sub?.entryCount !== undefined && countSteps(sub.entries) >= sub.entryCount;
+  useSubagentResyncCadence({
+    key:
+      agentId && sessionId && (expanded || detailOpen) && !streamComplete ? `${sessionId}:${agentId}` : undefined,
+    // A finalized card (e.g. a neutral settle heal while the subagent is still
+    // recorded running) stops polling. See change:
+    // finalize-agent-card-on-subagent-stop (D5c).
+    running:
+      details?.status === "running" ||
+      details?.status === "queued" ||
+      (sub?.status === "running" && status === "running"),
+    entryCount: sub?.entries?.length ?? 0,
+    onResync: () => {
+      if (agentId && sessionId && context?.send) {
+        // The token makes the reply requester-scoped instead of fanned out to
+        // every viewer of this session (C5).
+        context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "cadence" });
+      }
+    },
+  });
+
+  // Hold the last non-empty tail so the ticker never blinks out between a
+  // block's end and the next block (or terminal). No extra resync on the clear
+  // edge: the held tail covers the gap and each resync reply is a full-timeline
+  // frame that the store retains (A/B: +47% stored bytes with an open
+  // inspector). See change: stream-subagent-reasoning-and-stable-card.
+  // `sub.liveTail` is already reducer-normalized; the raw toolDetails fallback
+  // (no session map) goes through the same normalizer (review B1).
+  const rawTail = sub?.liveTail ?? readLiveTail(details?.liveTail);
+  const heldTail = useRef<{ kind: "thinking" | "text"; text: string } | undefined>(undefined);
+  if (rawTail && rawTail.kind !== "none" && rawTail.text) {
+    heldTail.current = { kind: rawTail.kind, text: rawTail.text };
+  }
+
+  // Toggle the inline expanded body; when expanding, resync if stale so the
+  // inline timeline hydrates the same way the popout does (previously the
+  // inline path skipped resync → "Subagent not found in this session.").
+  const toggleExpand = () => {
+    if (!expanded) requestResyncIfStale();
+    setExpanded((v) => !v);
+  };
+
+  const controls = (
+    <CardControls
+      expanded={expanded}
+      onToggleExpand={toggleExpand}
+      onOpenPopout={openDetail}
+      canPopout={canPopout}
+      elapsed={
+        details?.status === "running" || details?.status === "queued"
+          ? <ElapsedBadge startedAt={details.durationMs ? Date.now() - details.durationMs : undefined} />
+          : details?.durationMs
+          ? <span className="text-[11px] text-[var(--text-tertiary)]">{formatDuration(details.durationMs)}</span>
+          : undefined
+      }
+    />
+  );
+
+  // Inline expanded body — preferred whenever the user has expanded the card,
+  // even if details/agentId are partial (SubagentDetailView handles fallbacks).
+  const expandedBody = expanded && session && agentId
+    ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={sessionId} /></div>
+    : null;
+
+  /**
+   * ELIDED short-circuits the details-driven branches below, and must come
+   * BEFORE them.
+   *
+   * `mapStatus` alone is not enough: the `details.status` branches further down
+   * hardcode their own shell status (`status="running"` for running/queued,
+   * the completed styling for completed/steered) and never consult
+   * `cardStatus`. `toolDetails` SURVIVES on a spliced row, so a backfilled
+   * subagent still carries whatever `details.status` the last delivered frame
+   * set — which rendered a spinner, or a completed card, for a result that is
+   * not loadable. The row-level stamp is the authority on loadability;
+   * `details` only describes what the subagent was doing when the stream was
+   * cut. See change: fix-lazy-history-backfill-ux (D5).
+   */
+  // --- Fallback: no toolDetails (replayed/older sessions), or an elided row ---
+  if (!details || cardStatus === "elided") {
+    return (
+      <AgentCardShell name={displayName} status={cardStatus} headerRight={controls}>
+        {description && (
+          <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        {cardStatus === "elided" && (
+          <div
+            data-testid="agent-elided-note"
+            className="text-[11px] text-[var(--text-muted)] mt-1"
+          >
+            {t("agentElided", undefined, "result not loaded")}
+          </div>
+        )}
+        {!expanded && promptText && <PromptBlock text={promptText} />}
+        {!expanded && shownResult && <ResultBlock text={shownResult} />}
+        {expandedBody}
+        {detailDialog}
+      </AgentCardShell>
+    );
+  }
+
+  const statsText = buildStats(details);
+  // Session map first (inside `rawTail`): resync replies only update
+  // `session.subagents`. See change: stream-subagent-reasoning-and-stable-card (D9).
+  const shownTail = heldTail.current;
+  const tickerText = shownTail ? currentSentence(shownTail.text) : "";
+
+  // --- Running ---
+  if (details.status === "running" || details.status === "queued") {
+    return (
+      <AgentCardShell
+        name={displayName}
+        status="running"
+        headerRight={controls}
+        stats={statsText ? <span>{statsText}</span> : undefined}
+      >
+        {description && (
+          <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        {/* ONE fixed-height row, ALWAYS mounted (card option C): the sentence
+            being written (kind icon + ticker, left-fade only on overflow), else
+            the activity. Hidden ticker while expanded — the inspector shows the
+            full tail. See change: stream-subagent-reasoning-and-stable-card (D4). */}
+        <div
+          data-testid="agent-activity-row"
+          className="h-4 mt-1 flex items-center gap-1.5 text-[10px] leading-4 text-[var(--text-tertiary)] overflow-hidden"
+        >
+          {!expanded && tickerText ? (
+            <>
+              <span className={`shrink-0 inline-flex ${shownTail?.kind === "thinking" ? "text-purple-400" : ""}`}>
+                <Icon path={shownTail?.kind === "thinking" ? mdiHeadLightbulb : mdiPencil} size={0.45} />
+              </span>
+              <LiveTicker kind={shownTail!.kind} text={tickerText} />
+            </>
+          ) : (
+            <span className="truncate">▸ {details.activity ?? "…"}</span>
+          )}
+        </div>
+        {!expanded && promptText && <PromptBlock text={promptText} />}
+        {expandedBody}
+        {detailDialog}
+      </AgentCardShell>
+    );
+  }
+
+  // --- Completed / Steered ---
+  if (details.status === "completed" || details.status === "steered") {
+    return (
+      <AgentCardShell
+        name={displayName}
+        status="complete"
+        headerRight={controls}
+        stats={statsText ? <span>{statsText}</span> : undefined}
+      >
+        {description && (
+          <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        {details.status === "steered" && (
+          <div className="text-[11px] text-orange-400 mt-0.5">{t("agentWrappedUp", undefined, "Wrapped up (turn limit)")}</div>
+        )}
+        {!expanded && promptText && <PromptBlock text={promptText} />}
+        {!expanded && shownResult && <ResultBlock text={shownResult} />}
+        {expandedBody}
+        {detailDialog}
+      </AgentCardShell>
+    );
+  }
+
+  // --- Error / Aborted / Stopped ---
+  const isError = details.status === "error" || details.status === "aborted";
+  return (
+    <AgentCardShell
+      name={displayName}
+      status={isError ? "error" : "stopped"}
+      headerRight={controls}
+      stats={statsText ? <span>{statsText}</span> : undefined}
+    >
+      {description && (
+        <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+      )}
+      {details.status === "error" && details.error && (
+        <div className="text-[11px] text-[var(--text-secondary)] mt-1">
+          <span className="text-[var(--severity-error-fg)]">{t("agentError", undefined, "Error:")}</span>{" "}
+          {details.error}
+        </div>
+      )}
+      {details.status === "aborted" && (
+        <div className="text-[11px] text-orange-400 mt-1">{t("agentAborted", undefined, "Aborted (max turns exceeded)")}</div>
+      )}
+      {details.status === "stopped" && (
+        <div className="text-[11px] text-[var(--text-muted)] mt-1">{t("agentStopped", undefined, "Stopped")}</div>
+      )}
+      {!expanded && promptText && <PromptBlock text={promptText} />}
+      {!expanded && shownResult && <ResultBlock text={shownResult} />}
+      {expandedBody}
+      {detailDialog}
+    </AgentCardShell>
+  );
+}

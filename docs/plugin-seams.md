@@ -448,6 +448,116 @@ ctx.serveApp({
 - Mounts restart-effective: disable does not unmount until restart.
 - See change: add-plugin-capability-routes (D5).
 
+## Shared contracts live in non-plugin packages
+
+Rule: contract used by host + plugin, or plugin + plugin → non-plugin package. Never plugin → plugin or core → plugin import. Gate: `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`).
+
+| Contract | Home |
+|---|---|
+| Protocol-shaped types / pure helpers | `packages/shared/src/dashboard-plugin/<name>.ts` |
+| Subagent types + helpers (`SubagentState`, `readLiveTail`, `countSteps`, `readSubagentDetails`, `setSubagentState`, `applyLiveBlockPiece`) | `shared/dashboard-plugin/subagent-types.ts` |
+| `PEER_AM_LEGACY` (anthropic peer probe key) | `shared/dashboard-plugin/anthropic-peer-names.ts`. Provider plugin re-exports. |
+| MCP verb-tier table | `packages/shared/src/mcp/verb-tiers.generated.ts` (`{name, tier}[]`). Emitted by mcp-server codegen. chat-gateway reads it. |
+| MCP config logic (`McpClientConfigService`, `MCP_CLIENT_CONFIG_SERVICE_KEY = "mcp-client.config"`, config IO/writer/layers/effective view) | `packages/mcp-core` = `@blackbelt-technology/pi-dashboard-mcp-core` |
+
+- Domain library with filesystem/process I/O → own core library (`mcp-core`), not `shared`.
+- Provider plugin MAY re-export. `mcp-client-plugin/core` = deprecated re-export of `mcp-core` for one minor.
+- Core needing MCP config (server Radius MCP) imports `mcp-core` directly. Works with mcp-client plugin disabled. No new refusal code.
+- mcp-server + apple-tools import `mcp-core` directly. Drop `mcp-client-plugin` dep.
+- Plugin reaches another plugin's running service only via `consume` + `dependsOn`. No new `ServerPluginContext` member for this.
+- `mcp-core` in release set + `BUNDLED_WORKSPACE_PKGS` (`packages/electron/scripts/bundle-server.mjs`).
+- Once published, contract stays. Deprecate, never withdraw.
+- Client CSS scan comes from generated tracked `packages/client/src/generated/plugin-sources.css`. No hand-written plugin `@source`.
+
+See change: decouple-plugins-from-core.
+
+## Manifest `eventTypes` + owned-event group rows
+
+Manifest field `eventTypes?: string[]` = event types plugin owns. Exact name or `prefix_*` (one trailing `*`).
+
+- subagents-plugin: `subagent_*`. flows-plugin: `flow_*`. Replaces core's hard-coded `flow_` prefix.
+- Generated registry carries `{id, displayName, eventTypes}` for EVERY bundled plugin, enabled or not. Owner lookup `getEventTypeOwners()` (`packages/client/src/lib/plugins/event-type-owners.ts`) reads this, never `getClaims`. Disabled plugin keeps ownership.
+- Runtime-delivered plugin: `eventTypes` come from the listing. Shell applies pure `regroupOwnedEvents(state, owners)` to every loaded session.
+
+Reducer (pure) default branch, per session:
+
+| Event type | Result |
+|---|---|
+| Owned, no enabled slice consumed it | ONE group row per type. Placed at first event. `count` updated in place. |
+| Unowned | Plain `rawEvent` row (as before). |
+
+- Group row = `role: "rawEvent"`, `toolName` = event type, id `owned-<type>`, field `ownedGroup: {ownerId, count, payloads}`.
+- Reuses `rawEvent` role → every chat-view look-ahead already skips it. No `chat-view` change.
+- `payloads` capped to last 50 (`OWNED_GROUP_PAYLOAD_CAP`). Oldest dropped. `count` kept.
+- `flow_*` traffic, once dropped, now bounded.
+
+**Ownership = reducer input. Availability = NOT.** Availability (enabled, loaded, not refused) arrives late + changes. Reducer never reads it. Replay before `/api/health` answers must not collapse an enabled plugin forever.
+
+- Render-time store: `pluginAvailability` (`packages/client/src/lib/plugins/plugin-availability.ts`, hook `usePluginAvailability`). Fed by `usePluginEnabledSet` from `/api/health.plugins[]`, `plugins_changed`, runtime listing.
+- `ChatView` `rawEvent` branch: `ownedGroup` row ignores `showDebugTools`. Renders by availability:
+  - owner available, or no status read yet → nothing.
+  - owner unavailable → `OwnedEventGroupCard`: one collapsed row "N `<type>` events — `<displayName>` plugin unavailable". Payloads on expand.
+- Status change re-renders. Never re-reduces.
+- Plain `rawEvent` row keeps its `showDebugTools` gate.
+
+## Session event reducer slices + tool-row finalizers
+
+Plugin owns state in `SessionState` → declares reducer slice + finalizers. Shell reducer in `packages/client` calls them. Core does not import plugin.
+
+Plugin client entry exports (declarative, no import side effect):
+
+| Export | Shape |
+|---|---|
+| `sessionEventReducer` | `SessionEventReducerSlice`: `{ eventTypes, reduce(state, event, {isLive}) }`. Pure. Same state ref when event changes nothing. |
+| `toolRowFinalizers` | `ToolRowFinalizer[]`: `{ toolName, onToolExecution?, onSessionEvent? }`. Each returns new state or `undefined` to decline. |
+
+- Types `SessionEventReducerSlice`, `ToolRowFinalizer` public (`public.ts`). Registration fns `registerSessionEventReducer` / `registerToolRowFinalizer` are `./host` only. Source: `packages/dashboard-plugin-runtime/src/session-event-reducers.ts`.
+- Vite plugin carries them into generated registry. Runtime loader reads them from entry module. Shell registers on plugin's behalf. Tests build the same registry.
+- Reference: `packages/subagents-plugin/src/client/{sessionEventReducer,toolRowFinalizer,resultPending}.ts`, re-exported by `index.tsx`.
+
+**Enabled-set gate.** Slices + finalizers filtered by same enabled set as claims (`setSessionReducerEnabledSet` mirrors `SlotRegistry.setEnabledSet`).
+
+- Disabled plugin: slice does not run. Its events fall to default branch as owned events → group row.
+- Enable-set change applies to LATER events. Already-reduced state never replayed.
+
+**Reducer order.** Default branch asks `findSessionEventReducer(eventType)` first. Slice found → `slice.reduce`. Else owned group fold. Tool events ask `findToolRowFinalizer(toolName)`.
+
+`ToolRowFinalizerOpts`: `isLive`, `reduce` (re-enter shell reducer with synthesized event, e.g. `tool_execution_end`), `prior` (`tool_execution_update` only: state BEFORE shell row-half reopen; lets finalizer tell reopened row from running one).
+
+**Heal guards (contract, spec `session-end-orphan-heal`).** Finalizer:
+- finalizes only `running` rows.
+- never overwrites a real terminal row.
+- on synthesized `healedBy` event never changes a subagent already `completed`/`failed`.
+- records heal provenance on subagent. Reopens only when terminal state came from the `session_ended` heal.
+- keeps dual index (`agentId` + `agentSessionId` share one object) + non-regression rules.
+
+**Generic heals stay in core** (`packages/client/src/lib/chat/event-reducer.ts`):
+- server-synthesized `tool_execution_end` heal.
+- row half of live-tick reopen (`reopenSessionEndedRow`).
+- neutral settle heal (`neutralSettleAgentRow`).
+- `turn_settled` keep on late tick.
+- Reducer first asks registered finalizer. None registered, or it declines → neutral heal runs. Plugin disabled → orphan Agent row still stops spinning. Synthesized `subagent_failed` folds into group row.
+- Server `open-tool-calls.ts` unchanged.
+- `tool-summary.ts` collapsed summaries/icons for `Agent`, `get_subagent_result`, `steer_subagent` stay in core. Tool-name data. Plugin absent → readable collapsed line.
+
+`SessionState.subagents` stays a core field. Writers: only the plugin's slice + finalizers. `useSessionSubagents` signature unchanged.
+
+### `tool-renderer` claim fields
+
+Replace hard-coded per-tool logic in `ToolCallStep.tsx`.
+
+| Field | Meaning |
+|---|---|
+| `expandWhileRunning?: boolean` | Tool row starts EXPANDED while status `running`. Card = live progress surface. Absent = false. |
+| `resultPending?: string` | Name of exported SYNC predicate `(toolDetails, session) => boolean`. `session` = `ToolContext.session`. True = result never reached this browser → shell shows neutral "recovered" badge. |
+
+- Example (`packages/subagents-plugin/package.json`): claim `{toolName: "Agent", expandWhileRunning: true, resultPending: "isAgentResultNotReceived"}`. Predicate exported from client entry (own module, no lazy chunk).
+- `ToolRendererContext` gains optional `send`.
+- `tool-renderer` lookup re-runs on claims-version bump (one-shot per lookup). Late runtime claim renders.
+- No claim for `Agent` → `GenericToolRenderer`.
+
+See change: decouple-plugins-from-core.
+
 ## Trust boundary
 
 "Private" means NOT observable and NOT forgeable — NOT authenticated.

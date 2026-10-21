@@ -34,13 +34,15 @@
  */
 
 import {
-  PluginSettingsPageProvider,
   SettingsFacts,
   SettingsNotice,
-  SettingsSectionByPluginSlot,
   SettingsStatusPill,
   ToggleField,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  PluginSettingsPageProvider,
+  SettingsSectionByPluginSlot,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiPackageVariantClosed } from "@mdi/js";
 import Icon from "@mdi/react";
 import type { PluginToggle } from "../../hooks/usePluginToggle.js";

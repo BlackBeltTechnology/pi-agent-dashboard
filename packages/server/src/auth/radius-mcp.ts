@@ -19,7 +19,7 @@ import type {
   EffectiveView,
   McpClientConfigService,
   ServerEntry,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 
 /** pi `RADIUS_MCP_URL` (`core/radius.js`); pinned by a drift test. */
 export const RADIUS_MCP_URL = "https://radius.pi.dev/mcp";

@@ -10,8 +10,8 @@
  *
  * See change: migrate-mcp-to-pi-builtin; mcp-client-project-overrides.
  */
-import { displayExposure, OVERRIDE_KEYS } from "../core/pi-rules.js";
-import type { ProjectOverridePatch, Provenance } from "../core/types.js";
+import { displayExposure, OVERRIDE_KEYS } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import type { ProjectOverridePatch, Provenance } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import { stripRedacted } from "./schema.js";
 
 /**

@@ -15,6 +15,9 @@ import compress from "@fastify/compress";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppMountRegistry, type MountAppEnv, mountApp, type ServeAppOptions } from "../server/app-mount.js";
+import { clearDiscoveryCache, discoverPlugins } from "../server/loader.js";
+import { registerPluginAssetsRoute } from "../server/plugin-assets-route.js";
+import { createRuntimeClientRegistry, type RuntimeClientRegistry } from "../server/runtime-client-registry.js";
 
 let tmp: string;
 let pkgRoot: string;
@@ -399,6 +402,205 @@ describe("serveApp mount — cross-origin frame (3.3c)", () => {
     const res = await f.inject({ method: "GET", url: "/apps/wall/app.map" });
     expect(res.statusCode).toBe(404);
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+// ── Runtime client assets: `GET /plugin-assets/:id/:sha/*` (decouple-plugins-from-core 6.10) ─────────────
+
+describe("plugin assets route (#E83, #X8, #X9, #P4)", () => {
+  let repo: string;
+  let fastify: FastifyInstance;
+  const trust: Array<{ id: string; clientSha256: string }> = [];
+
+  function mkPlugin(id: string, files: Record<string, string | Buffer> = {}): void {
+    const dir = path.join(repo, "packages", id);
+    fs.mkdirSync(path.join(dir, "dist", "client"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: id,
+        version: "1.0.0",
+        "pi-dashboard-plugin": {
+          id,
+          displayName: id,
+          claims: [],
+          client: "./src/c.tsx",
+          clientBundle: "./dist/client/client.js",
+          clientStyles: "./dist/client/s.css",
+          hostApi: "^1.0.0",
+        },
+      }),
+    );
+    fs.writeFileSync(path.join(dir, "secret.json"), "{}");
+    const all: Record<string, string | Buffer> = {
+      "client.js": "export default 1;\n",
+      "a.mjs": "export const a = 1;\n",
+      "s.css": "body{}\n",
+      "f.woff2": Buffer.from([0, 1, 2]),
+      "i.png": Buffer.from([137, 80]),
+      "client.js.gz": "GZIPPED-CLIENT",
+      "client.js.map": "{}",
+      "package.json": "{}",
+      ...files,
+    };
+    for (const [name, body] of Object.entries(all)) fs.writeFileSync(path.join(dir, "dist", "client", name), body);
+  }
+
+  async function boot(withRegistry = true): Promise<{ reg: RuntimeClientRegistry; sha: (id: string) => string }> {
+    const reg = createRuntimeClientRegistry({
+      discover: () => discoverPlugins(repo),
+      declaredIds: () => ["flows"],
+      isEnabled: () => true,
+      readTrust: () => trust,
+      getStoredStatus: (id) => ({ id, displayName: id, enabled: true, loaded: true, claims: 0 }),
+    });
+    for (const id of ["ext", "other"]) {
+      const sha = reg.currentContentHash(id);
+      if (sha) trust.push({ id, clientSha256: sha });
+    }
+    fastify = Fastify({ logger: false });
+    registerPluginAssetsRoute(fastify, { getRegistry: () => (withRegistry ? reg : undefined) });
+    await fastify.ready();
+    app = fastify;
+    return { reg, sha: (id) => reg.currentContentHash(id) as string };
+  }
+
+  beforeEach(() => {
+    repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "plugin-assets-")));
+    trust.length = 0;
+    clearDiscoveryCache();
+    mkPlugin("ext");
+    mkPlugin("other", { "client.js": "export default 2;\n" });
+  });
+  afterEach(() => {
+    clearDiscoveryCache();
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("E83: serves the allowlisted assets with immutable caching and no per-app CSP", async () => {
+    const { sha } = await boot();
+    for (const [file, type] of [
+      ["client.js", "text/javascript"],
+      ["a.mjs", "text/javascript"],
+      ["s.css", "text/css"],
+      ["f.woff2", "font/woff2"],
+      ["i.png", "image/png"],
+    ] as const) {
+      const res = await fastify.inject({ method: "GET", url: `/plugin-assets/ext/${sha("ext")}/${file}` });
+      expect(res.statusCode, file).toBe(200);
+      expect(res.headers["cache-control"], file).toBe("public, max-age=31536000, immutable");
+      expect(res.headers["content-type"], file).toContain(type);
+      expect(res.headers["x-content-type-options"], file).toBe("nosniff");
+      expect(res.headers["content-security-policy"], file).toBeUndefined();
+      expect(res.headers["content-security-policy-report-only"], file).toBeUndefined();
+    }
+  });
+
+  it("E83: gzip client gets the .gz bytes + Content-Encoding; without it, identity", async () => {
+    const { sha } = await boot();
+    const url = `/plugin-assets/ext/${sha("ext")}/client.js`;
+    const gz = await fastify.inject({ method: "GET", url, headers: { "accept-encoding": "gzip" } });
+    expect(gz.statusCode).toBe(200);
+    expect(gz.headers["content-encoding"]).toBe("gzip");
+    expect(gz.headers.vary).toContain("Accept-Encoding");
+    expect(gz.body).toBe("GZIPPED-CLIENT");
+    const plain = await fastify.inject({ method: "GET", url });
+    expect(plain.headers["content-encoding"]).toBeUndefined();
+    expect(plain.body).toBe("export default 1;\n");
+  });
+
+  it("X8: traversal (raw and encoded), unadmitted / foreign shas, .map and package.json are all 404", async () => {
+    const { sha } = await boot();
+    const base = `/plugin-assets/ext/${sha("ext")}`;
+    const urls = [
+      `${base}/../../package.json`,
+      `${base}/%2e%2e%2fpackage.json`,
+      `${base}/..%2f..%2fpackage.json`,
+      `${base}/..%2fsecret.json`,
+      `/plugin-assets/ext/${"0".repeat(64)}/client.js`,
+      `/plugin-assets/ext/${sha("other")}/client.js`,
+      `/plugin-assets/nobody/${sha("ext")}/client.js`,
+      `${base}/client.js.map`,
+      `${base}/package.json`,
+      `${base}/`,
+      `${base}/%00client.js`,
+      `/plugin-assets/ext/not-a-sha/client.js`,
+    ];
+    for (const url of urls) {
+      const res = await fastify.inject({ method: "GET", url });
+      expect(res.statusCode, url).toBe(404);
+      // (a literal `..` is normalised away by the HTTP stack before routing: Fastify's own 404 answers)
+      expect(res.headers["cache-control"] ?? "", url).not.toContain("immutable");
+    }
+  });
+
+  it("X8: another plugin's sha serves that plugin's own bytes only under its own id", async () => {
+    const { sha } = await boot();
+    const res = await fastify.inject({ method: "GET", url: `/plugin-assets/other/${sha("other")}/client.js` });
+    expect(res.body).toBe("export default 2;\n");
+  });
+
+  it("X9: bytes rewritten after the last listing are never served under the old hash (no immutable header)", async () => {
+    const { sha } = await boot();
+    const old = sha("ext");
+    const url = `/plugin-assets/ext/${old}/client.js`;
+    expect((await fastify.inject({ method: "GET", url })).statusCode).toBe(200);
+    const file = path.join(repo, "packages", "ext", "dist", "client", "client.js");
+    fs.writeFileSync(file, "export default 'tampered-and-longer';\n");
+    const res = await fastify.inject({ method: "GET", url });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain("tampered");
+    expect(res.headers["cache-control"]).not.toContain("immutable");
+  });
+
+  it("E69: a bundle laid out beside the server entry (dist/client.js + dist/server.js) is refused no-bundle → its asset URLs 404", async () => {
+    const dir = path.join(repo, "packages", "badlayout");
+    fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "badlayout",
+        version: "1.0.0",
+        "pi-dashboard-plugin": { id: "badlayout", displayName: "b", claims: [], client: "./src/c.tsx", clientBundle: "./dist/client.js", server: "./dist/server.js", hostApi: "^1.0.0" },
+      }),
+    );
+    fs.writeFileSync(path.join(dir, "dist", "client.js"), "export default 1;\n");
+    fs.writeFileSync(path.join(dir, "dist", "server.js"), "export const secret = 1;\n");
+    const { reg } = await boot();
+    expect(reg.currentContentHash("badlayout")).toBeUndefined();
+    for (const file of ["server.js", "client.js"]) {
+      const res = await fastify.inject({ method: "GET", url: `/plugin-assets/badlayout/${"c".repeat(64)}/${file}` });
+      expect(res.statusCode, file).toBe(404);
+      expect(res.body).not.toContain("secret");
+    }
+  });
+
+  it("answers 404 for everything before a registry exists", async () => {
+    await boot(false);
+    const res = await fastify.inject({ method: "GET", url: `/plugin-assets/ext/${"a".repeat(64)}/client.js` });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("P4: p95 ≤ 10 ms over 200 warm requests across 10 plugins × 50 files", async () => {
+    for (let i = 0; i < 10; i++) {
+      const files: Record<string, string> = {};
+      for (let f = 0; f < 50; f++) files[`chunk-${f}.js`] = `export const n = ${f};\n`;
+      mkPlugin(`perf${i}`, files);
+    }
+    const { reg } = await boot();
+    const target = reg.currentContentHash("perf3") as string;
+    trust.push({ id: "perf3", clientSha256: target });
+    const url = `/plugin-assets/perf3/${target}/chunk-7.js`;
+    await fastify.inject({ method: "GET", url }); // warm the stat cache
+    const times: number[] = [];
+    for (let i = 0; i < 200; i++) {
+      const t0 = performance.now();
+      const res = await fastify.inject({ method: "GET", url });
+      times.push(performance.now() - t0);
+      expect(res.statusCode).toBe(200);
+    }
+    times.sort((a, b) => a - b);
+    expect(times[Math.floor(times.length * 0.95)]).toBeLessThanOrEqual(10);
   });
 });
 

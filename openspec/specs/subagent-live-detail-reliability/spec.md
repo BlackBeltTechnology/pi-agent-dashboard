@@ -130,11 +130,7 @@ The subagent inspector (the card's inline expand, the popout dialog, and the `/s
 
 ### Requirement: Running subagent timeline hydrated from the durable partialResult channel
 
-The reducer SHALL hydrate a running subagent's `session.subagents` entry from the **durable** Agent-tool `partialResult` (`tool_execution_update`) channel, not only from the ephemeral `subagents:*` `event_forward` frames and the `tool_execution_end` completion backfill. When a structured `tool_execution_update` for a row whose `toolName` is `Agent` carries `details.agentId`, the reducer SHALL derive a `SubagentState` from that `details` snapshot (reusing the same detail-mapping + dual-index used by the completion backfill) and write it into `session.subagents` under the `agentId` key — and, when `details.agentSessionId` is present, ALSO under that key (same object reference).
-
-The hydration SHALL be non-regressing: when the existing `SubagentState` for that `agentId` is already terminal (`completed` or `failed`), a later running `tool_execution_update` SHALL NOT reset its status to `running`. The single exception: a terminal state that was written by a `session_ended` heal (the client records the heal marker on the subagent) asserts a death that a later live tick disproves, so such a subagent SHALL be returned to `running` by that tick. A subagent that reached `completed`/`failed` through a real terminal event SHALL never be reset. The mapping SHALL introduce no new bounded structure and SHALL be self-selecting — only the Agent tool's `details` carry `agentId`, so ordinary tools' partial results SHALL NOT touch `session.subagents`.
-
-Because the durable channel survives the bridge-not-ready buffering and the server→browser WS back-pressure drops that can lose ephemeral frames (and lose the resync reply), the subagent inspector SHALL render the live timeline — or the correct running "No detail available yet." state once a map entry exists — rather than the "Subagent not found in this session." placeholder, for the whole run under load.
+The subagents plugin's `Agent` finalizer (`onToolExecution`, `dashboard-plugin-loader`) SHALL hydrate a running subagent's `session.subagents` entry from the durable `tool_execution_update` `partialResult`, not only from ephemeral `subagents:*` frames and the completion backfill, when an `Agent` row's `details` carry `agentId`. It SHALL reuse the backfill's detail mapping and dual index, SHALL NOT regress a really-terminal subagent, and SHALL add no bounded structure.
 
 #### Scenario: Running partialResult hydrates the inspector map live
 
@@ -164,6 +160,18 @@ Because the durable channel survives the bridge-not-ready buffering and the serv
 - **GIVEN** subagent `ag-1` is `completed` or `failed` through a real `subagent_completed`/`subagent_failed` or real Agent end
 - **WHEN** a running `tool_execution_update` for it reduces
 - **THEN** `ag-1` status SHALL remain terminal
+
+#### Scenario: Inspector renders under frame loss
+
+- **GIVEN** the ephemeral `subagents:*` frames of a running subagent were lost to bridge-not-ready buffering or WS back-pressure, and its durable `partialResult` updates arrived
+- **WHEN** the user opens the subagent inspector during the run
+- **THEN** it SHALL render the live timeline, or the running "No detail available yet." state once a map entry exists, and SHALL NOT show "Subagent not found in this session."
+
+#### Scenario: Hydration is plugin code
+
+- **GIVEN** the subagents plugin is disabled
+- **WHEN** an `Agent` `tool_execution_update` carrying `details.agentId` reduces
+- **THEN** `session.subagents` SHALL be unchanged, and core reducer code SHALL contain no writer of it
 
 ### Requirement: A subagent's own terminal event finalizes its Agent card
 

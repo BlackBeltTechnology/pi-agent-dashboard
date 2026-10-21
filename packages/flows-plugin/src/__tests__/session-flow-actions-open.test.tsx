@@ -7,17 +7,13 @@
  * See change: attach-flow-before-run (D7), add-session-actions-flyout (E26, F20).
  */
 import {
-  CurrentPluginLayer,
   createUiPrimitiveRegistry,
-  PluginContextProvider,
-  publishSessionData,
-  publishSessionEvents,
   registerUiPrimitive,
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { CurrentPluginLayer, initPluginConfigs, PluginContextProvider, publishSessionData, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

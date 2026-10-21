@@ -27,14 +27,14 @@
  * See change: migrate-mcp-to-pi-builtin (D1, D2); earlier: extract-mcp-client-plugin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { createRealConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import { createRealConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-core";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ToolInvocation } from "./dispatch.js";
 import { GENERATED_TOOLS } from "./generated/tools.js";
-import { type ListSessionsArgs, listSessions, validateListSessionsArgs } from "./list-sessions.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { logMigration, migrateProvisionedEntry } from "./legacy-entry-migration.js";
-import { mountMcpRoutes } from "./routes.js";
+import { type ListSessionsArgs, listSessions, validateListSessionsArgs } from "./list-sessions.js";
 import { filterToolsByRoute } from "./route-skew.js";
+import { mountMcpRoutes } from "./routes.js";
 import { SubscriptionRegistry } from "./streaming.js";
 import { McpTokenRegistry } from "./tokens.js";
 import { assertContextPartitionTotal, checkToolCompleteness } from "./tools.js";

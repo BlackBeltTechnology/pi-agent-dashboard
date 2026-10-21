@@ -18,15 +18,7 @@
  *
  * See change: add-chat-gateway-team-controls, retro-ux-plugin-settings-wave-2.
  */
-import {
-  SettingsFacts,
-  SettingsGroup,
-  SettingsItem,
-  SettingsNotice,
-  SettingsStatusPill,
-  SettingsTable,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginMessage, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { SettingsFacts, SettingsGroup, SettingsItem, SettingsNotice, SettingsStatusPill, SettingsTable, usePluginConfig, usePluginMessage, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import {

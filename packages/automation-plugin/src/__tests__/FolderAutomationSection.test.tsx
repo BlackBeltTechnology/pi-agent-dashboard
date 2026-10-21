@@ -12,11 +12,11 @@ import {
   CurrentPluginLayer,
   createFolderMenuStore,
   FolderMenuProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodeFolderPath } from "../client/folder-encoding.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 const { listAutomations } = vi.hoisted(() => ({

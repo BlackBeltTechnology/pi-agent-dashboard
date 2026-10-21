@@ -4,10 +4,12 @@
  */
 
 import {
-	__resetSlotClaimsVersionForTests,
-	getSlotClaimsVersion,
-	subscribeSlotClaimsVersion,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+  getSlotClaimsVersion,
+  subscribeSlotClaimsVersion,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import {
+  __resetSlotClaimsVersionForTests,
+} from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as store from "../relay-store.js";
