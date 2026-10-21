@@ -147,6 +147,16 @@ describe("rebaseRuntimeLock (design D3)", () => {
     ).toThrow(`${SC}pi-dashboard-unknown`);
   });
 
+  it("E6: a first-party package nested under a third-party or workspace owner throws (rule 4 at every depth)", () => {
+    const sc = `${SC}pi-dashboard-shared`;
+    expect(() =>
+      rebaseRuntimeLock(lockWith({ [`node_modules/foo/node_modules/${sc}`]: tp("shared", X) }), ctx()),
+    ).toThrow(/nested at node_modules\/foo\/node_modules/);
+    expect(() =>
+      rebaseRuntimeLock(lockWith({ [`node_modules/${SC}pi-dashboard-server/node_modules/${sc}`]: tp("shared", X) }), ctx()),
+    ).toThrow(/nested at/);
+  });
+
   describe("E7: third-party entry sources and integrity", () => {
     const attempt = (entry) => rebaseRuntimeLock(lockWith({ "node_modules/zed": entry }), ctx());
 

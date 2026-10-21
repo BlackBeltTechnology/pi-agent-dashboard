@@ -232,6 +232,12 @@ export function rebaseRuntimeLock(published, { workspaces, bundledPlugins, plugi
 /** Rules 1–5 for one non-root lock entry; writes into `out`, counts into `stats`. */
 function rebaseEntry(key, entry, { workspaces, bundledPlugins }, out, stats) {
   const { owner, rest } = splitKey(key);
+  // A first-party package nested under ANY owner (third-party or workspace)
+  // would be fetched from the registry by `npm ci`; rule 4 applies at every depth.
+  const nestedAt = key.indexOf(`/node_modules/${SCOPE_PREFIX}`);
+  if (nestedAt > 0) {
+    throw new Error(`unmapped first-party package in runtime lock: nested at ${key}`);
+  }
   if (!isFirstParty(owner)) {
     assertThirdPartyEntry(key, entry);
     out[key] = entry;

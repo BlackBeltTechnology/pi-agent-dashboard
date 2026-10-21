@@ -1102,7 +1102,7 @@ When the Electron app is built with a release-lock version X (release and nightl
 - **AND** a lock entry for a first-party package the bundle does not map SHALL fail the bundle step naming that package
 
 #### Scenario: Lock entry without integrity is rejected
-- **WHEN** a third-party entry in the release lock carries no `integrity` value
+- **WHEN** a separately fetched third-party entry in the release lock (not one `inBundle`, which ships inside its parent package's tarball) carries no `integrity` value
 - **THEN** the bundle step SHALL exit non-zero naming the entry instead of installing it unverified
 
 #### Scenario: Missing release lock fails the build
