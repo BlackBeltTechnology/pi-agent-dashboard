@@ -82,7 +82,7 @@ jobs:
           fetch-depth: 1
 
       # pnpm, like every other job: the repo has no package-lock.json, so
-      # `cache: npm` + `npm ci` could never run and skipped the electron matrix.
+      # an npm-cache install could never run and skipped the electron matrix.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
