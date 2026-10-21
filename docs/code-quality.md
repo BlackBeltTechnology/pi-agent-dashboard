@@ -371,6 +371,33 @@ Accepted debt shrinks only. Growth needs typed reason. See change: add-local-cod
 - Shared config `.github/codeql/codeql-config.yml`: `paths-ignore`. Read by CI (`config-file:`) and local.
 - Local translates each glob → one `exclude:<glob>` line in `LGTM_INDEX_FILTERS`. Trailing `/**` dropped.
 - Local analyses `javascript-typescript` + `actions` only. Python CI-only.
+- Local `spike/**` (root only): `paths-ignore` entry → extractor `exclude:spike`, root-anchored. Nested `packages/x/spike/` stays analyzed (real-CLI test #E12 + CI spike). Explicit exception to "non-test scripts stay analyzed". See change: codeql-model-pack-and-mirror.
+- Local model load: `.github/codeql/extensions/*.model.yml` read from SNAPSHOT bytes. Uncommitted edits included. Git-ignored files excluded.
+- Copied as wrapper pack `pi-dashboard/local-models` under `<run>/model-pack/` (manifest + copies). Outside `<run>/src`. Snapshot id unchanged.
+- JS analysis only: `--additional-packs=<dir> --model-packs=pi-dashboard/local-models`. Actions get neither. Never `--download`.
+- Pre-check `codeql resolve extensions`: summed `rowCount` per copied file == that file's data rows.
+- Pre-check non-zero exit, unparsable output, or row mismatch → exit 2. Never skip.
+- No model files in snapshot → no flags, no check.
+- `--json` `versions.models` = sha256 over copied file bytes, byte-wise sorted path order. `null` without model files.
+- Broken model pack → exit 2 → `ship-it` 4.4b retry/abort (headless: `SHIP_IT_BLOCKED.md`).
+
+### Model type strings
+
+- CodeQL models-as-data parse type column with `('[^']+'|[^.]+)(.*)` (`codeql/javascript-all@2.10.3`, `ApiGraphModelsSpecific.qll` `parseTypeString`).
+- Package name ends at FIRST dot unless type single-quoted.
+- Unquoted `pkg/m.js` → package `pkg/m`, type `js` → matches nothing.
+- Pre-fix `.github/codeql/extensions/cwd-guard.model.yml` rows unquoted → model never applied. All production imports use `.js` specifier. Explains old "no observable effect".
+- Fix: `"'@blackbelt-technology/pi-dashboard-shared/cwd-guard.js'"`.
+- Enforced: `packages/shared/src/__tests__/codeql-model-contract.test.ts` rejects unquoted dotted type.
+- Enforced: `extensions/` holds only `*.model.yml` + `AGENTS.md` + `codeql-pack.yml`.
+- Re-check regexp on every `javascript-all` upgrade.
+- Limitation: namespace import (`import * as G`, `G.isAllowedCwd`) not suppressed with rows tried. No production namespace import exists.
+- Pitfall: guard body `known().includes(cwd)` = CodeQL sanitizing guard → hides model in fixtures. Use opaque bodies.
+- Pitfall: `database analyze` re-run on SAME db with another model pack reuses cached results. Recreate db per variant.
+- Spike (`evidence/spike.md`): local == GitHub on every probe line. Equal `javascript-all` 2.10.3+a7057b83….
+- Fixed model suppresses guarded sinks of `isAllowedCwd` + `isPortableProjectName` only.
+- `admissionAllows` / `tokenAllows` guarded sinks + `admitCwd` argument already silent without model (native guard inference, unverified) → no model effect.
+- Unguarded twins + unchecked-`admitCwd` negative case stay reported.
 
 ### Commands
 
@@ -383,6 +410,7 @@ Accepted debt shrinks only. Growth needs typed reason. See change: add-local-cod
 | `--triage <rule> <file> <lineHash> --reason <text>` | Replace `untriaged` reason at same count. No analysis. |
 | `--write-baseline` | Seed once. Refuses overwrite. Uses `SEED_PACKS`. |
 | `--check-baseline-diff <ref> [--no-growth]` | Static growth check vs `<ref>`. |
+| `--mirror-dismissal <ruleId> <file> <lineHash> --alert <n>[,<n>…]` | Copy GitHub dismissal into entry. See [Mirror a GitHub dismissal](#mirror-a-github-dismissal). |
 
 Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 `--prune` / `--accept` exit `1` when new results remain.
@@ -398,6 +426,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Result in ignored path → exit 2 `exclusion not applied`.
 - Extractor crash, unreadable SARIF, invalid baseline → exit 2.
 - `--check-baseline-diff` unresolvable ref → exit 2. Never pass.
+- Model pack pre-check failure → exit 2. Never skip. See `### Where it runs`.
 - Ref has no baseline (introducing change) → growth check passes.
 
 ### Baseline
@@ -410,7 +439,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - `operator-authz: …` — only `js/path-injection`, `js/command-line-injection`, `js/shell-command-constructed-from-input`.
   - `false-positive: …`
   - `accepted-risk: …`
-  - `github-dismissed (#n, reason): …`
+  - `github-dismissed (#<n>[, #<m>…], false positive|won't fix|used in tests): <text>`
 - Growth check per `(ruleId, file)`: summed `untriaged` count must not rise.
 - Key carries `untriaged` only if same key had `untriaged` at ref, count ≥.
 - Growth with real reason allowed. Printed for review.
@@ -419,6 +448,38 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Edit flagged line or ~100 chars after → lineHash changes. One new + one stale.
 - `--prune` removes stale entry and its reason.
 - Edits above or far below flagged line → key stable (probed).
+
+### Mirror a GitHub dismissal
+
+- Form: `--mirror-dismissal <ruleId> <file> <lineHash> --alert <n>[,<n>…]`.
+- Refuses (exit 2) combined with `--json --reason --prune --accept --triage --write-baseline --check-baseline-diff --no-growth`.
+- `--alert` alone = error.
+- Lock required.
+- Entry must exist. Reason `operator-authz|false-positive|accepted-risk`. Not `untriaged`. Not `github-dismissed`.
+- Alert count == entry count. Positive ints. No dups.
+- Recorded run for current snapshot with `baselineHash`. Legacy record (no hash) refuses.
+- Recorded run `clean: true` + `headCommit` present.
+- Origin = plain github.com remote: `git@github.com:o/r[.git]`, `ssh://git@github.com/o/r`, `https://github.com/o/r[.git][/]`.
+- `owner`/`repo` match `^[A-Za-z0-9_.-]+$`, not `.` / `..`. Else refuse.
+- Per alert: `gh api repos/<o>/<r>/code-scanning/alerts/<n>` via `execFileSync` (no shell).
+- `gh` timeout `PI_CODEQL_GH_TIMEOUT_MS` (positive int, default 15000).
+- `gh` binary override `PI_CODEQL_GH_BIN` (must be X_OK).
+- Per alert checks:
+  - `state == dismissed`.
+  - `rule.id` == `<ruleId>`.
+  - `most_recent_instance.location.path` == `<file>`.
+  - `most_recent_instance.commit_sha` == recorded `headCommit`.
+  - One shared `dismissed_reason` in {`false positive`, `won't fix`, `used in tests`}.
+  - Multiset `most_recent_instance.location.start_line` == recorded result start lines.
+- Missing field → refuse, naming it.
+- Writes reason `github-dismissed (#n[, #m…], <reason>): <original reason>`.
+- Re-binds run hash only when it matched pre-write baseline. Hand edit never laundered.
+- Procedure:
+  1. Check out `develop` commit GitHub last analysed. Not PR head.
+  2. `npm run codeql`.
+  3. `--mirror-dismissal …`.
+- Run from UPSTREAM clone. Fork origin → 404 → refuse.
+- Residual risk: HAND edit of `github-dismissed (#n, …)` reason passes `--check-baseline-diff` (same-count rewrite allowed). Unchanged. Documented.
 
 ### Snapshot
 
@@ -429,7 +490,9 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Materialized via `git checkout-index -a --prefix=<run>/src/`.
 - State: `$TMPDIR/pi-codeql/<sha1 of git rev-parse --show-toplevel>/`.
   - `lock/` — owner PID + start time.
-  - `last-run.json` — `{snapshotId, counts, results, baselineHash}`.
+  - `last-run.json` — `{snapshotId, counts, results, baselineHash, headCommit, clean}`.
+- `headCommit` = `git rev-parse HEAD`.
+- `clean` = true iff `git status --porcelain --untracked-files=all` lists nothing except `codeql-baseline.json`.
   - `baselineHash` = sha256 of `serializeBaseline(parsed baseline)`.
   - Canonical: JSON formatting + entry order do not change it.
   - Any emitted field (entries, counts, reasons, `codeql`, `packs`, `_comment`) changes it.
@@ -464,7 +527,8 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Example files: `packages/automation-plugin/src/__tests__/routes-stop.test.ts`, `packages/team-plugin/src/server/__tests__/harness.ts`.
   - Production loads plugins dynamically. `FastifyInstance` is type-only import.
   - No ignores + no flag → local == pre-switch default-setup CI exactly (179/179).
-- Ruled out: extractor coverage (identical per file), query suite, alerts API vs SARIF counts, pack/CLI drift, `cwd-guard`, CI `generated/extension-pack` (no effect on results).
+- Ruled out: extractor coverage (identical per file), query suite, alerts API vs SARIF counts, pack/CLI drift, CI `generated/extension-pack` (no effect on results).
+- Ruled out `cwd-guard` model: NOT evidence guard irrelevant. Model was dead when measured (unquoted type strings, see [Model type strings](#model-type-strings)). Fixed model applies on both sides.
 - Decision (2026-10-17) — align:
   - Follow-up drops `--threat-model=remote`.
   - Follow-up restores server coverage: un-ignore `__tests__` or data-extension model of registrar.
@@ -472,6 +536,12 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Until then: local gate covers 29 fetch-response client results; neither side covers 29 plugin-server results.
 - Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md` (path moves under `openspec/changes/archive/<date>-…` on archive).
 - Seed gated: unmatched share > 5 % → stop for decision.
+- Parity record:
+  - Seed gate governs SEEDING only.
+  - After merge: follow-up issue compares first post-merge `develop` analysis with local run at SAME commit SHA.
+  - Share = unmatched local ÷ local results. Only when both `javascript-all` versions match.
+  - Numbers recorded in this section.
+  - Share > 5 points above post-switch value → further issue.
 
 ### Rollout
 
