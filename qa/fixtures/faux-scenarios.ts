@@ -1930,7 +1930,13 @@ export const SCENARIOS: Record<string, Scenario> = {
         [
           fauxToolCall("write", {
             path: "mockups/screens/index.html",
-            content: "<!doctype html><html><body><h1>Screen A</h1></body></html>\n",
+            content:
+              '<!doctype html><html><head><link rel="stylesheet" href="./style.css"></head>' +
+              "<body><h1>Screen A</h1></body></html>\n",
+          }),
+          fauxToolCall("write", {
+            path: "mockups/screens/style.css",
+            content: "h1 { border-radius: 7px; }\n",
           }),
           fauxToolCall("write", {
             path: "mockups/screens/screens/b.html",

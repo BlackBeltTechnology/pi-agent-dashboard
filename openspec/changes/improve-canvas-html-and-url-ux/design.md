@@ -109,6 +109,7 @@ flowchart LR
   - `<P>` is built from the request's `Host`, which host admission has already validated (`host-admission`), never from an unvalidated header.
   - Also `worker-src <P> blob:` and `manifest-src 'none'`.
   - Never `'self'` or a bare dashboard origin, so `/api/*` and dashboard assets are unreachable. Spike S1 verifies prefix matching. The fallback is inline-only for `<S>`, keeping `<P>` for `connect-src`.
+- **Spike S1 result (Chrome, docker harness, `canvas-static-mockup.spec.ts` F17):** an agent-opened restricted page (`script-src`/`style-src` = absolute capability prefix, no `'self'`) loads its relative `./style.css`; prefix matching works, so the inline-only fallback is NOT adopted. Firefox and Safari are checked by the manual task 8.3 (test-plan #X12).
 - **Provenance** reuses `PreviewProvenance`/`autoOpened`, extended with an explicit opener parameter `operator | agent`:
   - operator: overlay click, tree click, an editor tab last activated by the operator, the **canvas chip tap**, the **canvas card click**;
   - agent: the canvas auto-open effect, agent preview cards, any undeclared surface (the default).
@@ -142,6 +143,7 @@ flowchart LR
    - Only `blocked-uri` is read. All logging goes through `redactCapability`.
    - **Runtime detection is best-effort.** Where reports do not arrive (spike S2), `scanIncomplete`-style "Some resources may be blocked" is shown.
    - The page itself can post reports, so runtime-only entries are labelled "reported by this page" and offer **Allow once only**, never a project grant. Report budgets are separate from the banner's markup entries.
+   **Spike S2 status:** report delivery from the opaque-origin frame is covered by server tests (X8) and verified per browser by manual task 8.3 (#X12). Runtime detection stays best-effort until then.
 3. **The blocked set is per token**, bounded to 64. Eviction removes the oldest `runtime` entries first and never removes markup or granted ones.
 4. `GET /api/live-server/:id/egress?token=<tokenId>` and `POST /api/live-server/:id/allow-once {tokenId, origin}` are **control tier** (route-tier map). They are accepted only from the token's **minting principal**.
    - Allow-once sets are keyed by a client-generated **viewer id** (one per tab instance), carried across that viewer's re-mints, and bounded to 32.

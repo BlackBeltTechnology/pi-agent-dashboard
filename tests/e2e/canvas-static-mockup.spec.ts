@@ -82,6 +82,11 @@ test.describe("improve-canvas-html-and-url-ux — static mockup viewer", () => {
     const listed = async () => ((await (await page.request.get("/api/live-server/list")).json()) as { data?: { servers?: unknown[] } }).data?.servers?.length ?? 0;
     const before = await listed();
 
+    // Spike S1 (Chrome): the agent-opened page is RESTRICTED (CSP script/style-src = capability prefix
+    // only, no 'self'); a relative stylesheet must still load through the absolute prefix source.
+    const radius = await frame.getByRole("heading", { name: "Screen A" }).evaluate((n) => getComputedStyle(n).borderRadius);
+    expect(radius).toBe("7px");
+
     const address = page.getByTestId("live-address");
     await address.fill("screens/b.html");
     await address.press("Enter");
