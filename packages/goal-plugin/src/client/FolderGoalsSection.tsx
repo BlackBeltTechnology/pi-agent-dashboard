@@ -62,7 +62,7 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
         onActivate={() => navigate(goalsBoardUrl(cwd))}
       >
         <span data-testid="folder-goals-count">{goals.length}</span>
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("goalsUnit", undefined, "active")}</span>
+        <span className="text-[11px] font-semibold text-[var(--text-tertiary)]">{t("goalsUnit", undefined, "active")}</span>
       </SlotPill>
       {creating && (
         <CreateGoalDialog

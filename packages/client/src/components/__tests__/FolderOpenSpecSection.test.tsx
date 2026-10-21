@@ -76,3 +76,26 @@ describe("FolderOpenSpecSection (navigation entry)", () => {
     expect(container.querySelector('[data-testid="folder-openspec-section"]')).toBeNull();
   });
 });
+
+// See change: fix-folder-card-pill-contrast (test-plan #E21).
+describe("FolderOpenSpecSection pill colour roles", () => {
+  it("E21: the unit label is 11 px", () => {
+    render(<FolderOpenSpecSection {...defaultProps} />);
+    const unit = screen.getByTestId("folder-openspec-count").nextElementSibling as HTMLElement;
+    expect(unit.className).toContain("text-[11px]");
+    expect(unit.className).not.toContain("text-[10px]");
+  });
+
+  it("E21: the broken-state glyph uses the purple token pair, no palette class", () => {
+    const { container } = render(
+      <FolderOpenSpecSection
+        cwd="/project/foo"
+        data={{ initialized: false, changes: [], readiness: { state: "BROKEN", reason: "cli-failed" } } as OpenSpecData}
+      />,
+    );
+    const glyph = container.querySelector("span.w-\\[26px\\]") as HTMLElement;
+    expect(glyph.className).toContain("text-[var(--accent-purple-text)]");
+    expect(glyph.className).toContain("bg-[var(--tint-purple-bg)]");
+    expect(container.innerHTML).not.toMatch(/purple-(400|500)|#27272a/);
+  });
+});

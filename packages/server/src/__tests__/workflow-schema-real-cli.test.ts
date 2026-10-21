@@ -46,7 +46,7 @@ suite("pi-spec-driven with the real OpenSpec CLI", () => {
     const text = read(root, "openspec/schemas/pi-spec-driven/schema.yaml");
     const doc = YAML.parse(text) as Record<string, any>;
     const version = openspecSync(["--version"], root).trim();
-    expect(doc["x-pi-dashboard"]).toEqual({ derivedFrom: `spec-driven@${version}`, patch: 1, previousDefault: "spec-driven" });
+    expect(doc["x-pi-dashboard"]).toEqual({ derivedFrom: `spec-driven@${version}`, patch: 2, previousDefault: "spec-driven" });
     const design = doc.artifacts.find((a: { id: string }) => a.id === "design");
     expect(design.instruction).toContain('When a full design.md is warranted (otherwise still create design.md containing one line "Not needed: <reason>"):');
     expect(design.instruction).not.toContain("When to include design.md (create only if any apply):");

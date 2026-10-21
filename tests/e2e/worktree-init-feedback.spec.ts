@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { contrastFailures, measureText, nonTextFailures, setThemeMode } from "./helpers/computed-contrast.js";
 import { byTestId, ensureGitSession, gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 // Level-1 E2E for the friendly worktree-init feedback (change: friendlier-worktree-init).
@@ -90,8 +91,29 @@ test.describe("worktree-init feedback", () => {
 
     // Reload MID-RUN (the hook sleeps ~5s): boot rehydration re-fetches
     // /active-inits and re-renders the chip for this cwd without user action.
-    await gotoDashboard(page);
+    // The reload is the theme switch to base light (`setThemeMode` reloads), so
+    // #F3 below measures the running banner in the light palette.
+    // See change: fix-folder-card-pill-contrast (test-plan #F3).
+    await setThemeMode(page, "light");
     await expect(folderGroup(page, "sample-hook-ok").getByTestId("worktree-init-chip")).toBeVisible({ timeout: 15_000 });
+
+    // #F3: while running, the banner (info rung) text clears 4.5:1, the spinner
+    // arc 3:1, and the preview line paints in the region's own colour.
+    const running = folderGroup(page, "sample-hook-ok").getByTestId(`folder-banner-running-${HOOK_OK}`);
+    await expect(running).toBeVisible({ timeout: 15_000 });
+    expect(contrastFailures(await measureText(running), 4.5)).toEqual([]);
+    expect(await nonTextFailures(running, 3)).toEqual([]);
+    const ghost = running.getByTestId("worktree-init-ghost");
+    if (await ghost.count()) {
+      const [ghostColor, regionColor] = await Promise.all([
+        ghost.evaluate((e) => getComputedStyle(e).color),
+        running.evaluate((e) => getComputedStyle(e).color),
+      ]);
+      expect(ghostColor).toBe(regionColor);
+    }
+    // Converges to "Initialized" on the same (info) rung, then the banner detaches.
+    await expect(running).toContainText("Initialized", { timeout: 30_000 });
+    await expect(folderGroup(page, "sample-hook-ok").locator('[data-testid^="folder-banner-"]')).toHaveCount(0, { timeout: 15_000 });
 
     // Success collapses the feedback (chip gone AND no Initialize button — the
     // gate flipped). A FAILED run would keep the chip sticky, so chip-count-0
@@ -126,5 +148,57 @@ test.describe("worktree-init feedback", () => {
     await expect(group.getByTestId("worktree-init-error")).toBeHidden({ timeout: 10_000 });
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(group.getByTestId("worktree-init-error")).toBeVisible({ timeout: 20_000 });
+  });
+
+  // F4 (test-plan #F4, change: fix-folder-card-pill-contrast): the failed run on
+  // the error rung. Placed AFTER S15 — its "Always trust" grant persists, so this
+  // run may or may not meet the trust dialog; it answers the dialog only if shown.
+  test("F4 failed banner: text ≥ 4.5:1, log keeps code colours, toggle inherits, Retry on its own row", async ({ page }) => {
+    await pinFixture(page, HOOK_FAIL);
+    await setThemeMode(page, "light");
+    const group = folderGroup(page, "sample-hook-fail");
+    const initBtn = group.getByTestId("worktree-init-btn");
+    await expect(initBtn).toBeVisible({ timeout: 20_000 });
+    await initBtn.click();
+    const dialog = page.getByRole("dialog");
+    if (await dialog.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await dialog.getByTestId("worktree-init-trust-always").click();
+    }
+
+    const region = group.getByTestId(`folder-banner-failed-${HOOK_FAIL}`);
+    await expect(region).toBeVisible({ timeout: 20_000 });
+    await expect(group.getByTestId("worktree-init-error")).toBeVisible();
+    expect(contrastFailures(await measureText(region), 4.5)).toEqual([]);
+
+    // Open the log: the <pre> keeps `--text-secondary` on `--bg-code`; the
+    // `View log` toggle inherits the region colour.
+    const log = group.getByTestId("worktree-init-log");
+    await log.locator("summary").click();
+    const pre = log.locator("pre");
+    await expect(pre).toBeVisible();
+    const expected = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.color = "var(--text-secondary)";
+      probe.style.backgroundColor = "var(--bg-code)";
+      document.body.appendChild(probe);
+      const cs = getComputedStyle(probe);
+      const out = { color: cs.color, bg: cs.backgroundColor };
+      probe.remove();
+      return out;
+    });
+    const got = await pre.evaluate((e) => ({ color: getComputedStyle(e).color, bg: getComputedStyle(e).backgroundColor }));
+    expect(got).toEqual(expected);
+    const [toggleColor, regionColor] = await Promise.all([
+      log.locator("summary").evaluate((e) => getComputedStyle(e).color),
+      region.evaluate((e) => getComputedStyle(e).color),
+    ]);
+    expect(toggleColor).toBe(regionColor);
+
+    // Retry sits on its own row, below the summary block.
+    const retryBox = await group.getByTestId("worktree-init-retry").boundingBox();
+    const summaryBox = await group.getByTestId("worktree-init-error").boundingBox();
+    expect(retryBox).not.toBeNull();
+    expect(summaryBox).not.toBeNull();
+    expect(retryBox!.y).toBeGreaterThanOrEqual(summaryBox!.y + summaryBox!.height - 1);
   });
 });

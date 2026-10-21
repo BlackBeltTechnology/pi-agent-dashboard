@@ -25,6 +25,8 @@ import { matchesOutputPattern } from "@blackbelt-technology/pi-dashboard-shared/
  *   - `tasks.md`, `proposal.md`, `design.md` at the change root
  *   - any `*.md` under any `specs/` subtree
  *   - `.openspec.yaml` (change metadata — affects schema / error state)
+ *   - `dependencies.yaml` (declared change dependencies; spec-driven changes do
+ *     not declare it as an artifact). See change: add-openspec-change-dependencies.
  *
  * The watcher event filename is the relative path from the watch root
  * (`openspec/changes/`), so a typical match is
@@ -34,7 +36,7 @@ import { matchesOutputPattern } from "@blackbelt-technology/pi-dashboard-shared/
  * (`my-change\\tasks.md`) match too.
  */
 const FILTER_RE =
-  /^[^/]+\/(?:tasks\.md|proposal\.md|design\.md|\.openspec\.yaml|specs(?:\/.*)?\.md)$/;
+  /^[^/]+\/(?:tasks\.md|proposal\.md|design\.md|\.openspec\.yaml|dependencies\.yaml|specs(?:\/.*)?\.md)$/;
 
 /**
  * Relevant events under `openspec/changes/` (path relative to that dir):

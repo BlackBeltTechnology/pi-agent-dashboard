@@ -324,3 +324,36 @@ describe("transient 503 cwd-admission-unavailable", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// See change: fix-folder-card-pill-contrast (test-plan #E21).
+describe("pill colour roles", () => {
+  it("E21: off count is the orange text token", async () => {
+    const cwd = nextCwd();
+    serve(view(cwd, { servers: [row("a", { command: "a" }), row("off", { command: "o", enabled: false }, { active: false, inactiveReason: "disabled" })] }));
+    const { findByTestId } = renderPill(cwd);
+    const off = await findByTestId("mcp-folder-pill-off");
+    expect(off.className).toContain("text-[var(--accent-orange-text)]");
+    expect(off.className).not.toContain("amber");
+  });
+
+  it("E21: parse-error marker is the red text token", async () => {
+    const cwd = nextCwd();
+    serve(
+      view(cwd, {
+        servers: [row("a", { command: "a" })],
+        layers: [{ layer: "pi-folder", path: "/repo/wt/.pi/mcp.json", exists: true, ok: false, message: "Unexpected token }" }],
+      }),
+    );
+    const { findByTestId } = renderPill(cwd);
+    const marker = await findByTestId("mcp-folder-pill-error");
+    expect(marker.className).toContain("text-[var(--accent-red-text)]");
+    expect(marker.className).not.toContain("text-red-400");
+  });
+
+  it("E21: the loading skeleton carries no fallback literal", () => {
+    const cwd = nextCwd();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    const { getByTestId } = renderPill(cwd);
+    expect(getByTestId("mcp-folder-pill-loading").className).not.toContain("#27272a");
+  });
+});

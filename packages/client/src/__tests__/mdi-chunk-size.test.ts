@@ -66,6 +66,11 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // (setup wizard, consent copy, filter control) ship in the entry like every plugin catalog (+~1.9 KB gz)
 // -> 604,237 B on CI, 1,101 B over the old cap; 590 KiB would still be 77 B short. Smallest KiB step
 // that clears it (~950 B headroom); not a general raise.
+// add-openspec-change-dependencies (2026-10-21): 589 -> 591 KiB. Size win first: the dependencies dialog
+// (the largest new component, click-only) is code-split via lazy-openspec-dialogs (-1.6 KB gz; 605,474 ->
+// 603,857 B). What stays is board behaviour that cannot split: the per-card chips + wave/issue badges, the
+// execution-order sort/drop helpers, the API client and the inline English fallbacks. 603,857 B is 721 B
+// over the old cap; 591 KiB (605,184 B) leaves ~1.3 KB. Smallest step with headroom; not a general raise.
 const INDEX_GZ_CAP_BYTES = 591 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));

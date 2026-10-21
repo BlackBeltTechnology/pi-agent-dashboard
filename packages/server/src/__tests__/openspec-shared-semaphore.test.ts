@@ -11,6 +11,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import type { CliCall } from "../openspec/workflow-schema.js";
+import { CURRENT_PATCH } from "../openspec/workflow-schema-status.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -51,7 +52,7 @@ beforeEach(() => {
 function newerRepo(): string {
   const root = mkRepo({ config: "schema: spec-driven\n" });
   dirs.push(root);
-  writeSchemaDir(root, { base: "1.12.0", patch: 1 });
+  writeSchemaDir(root, { base: "1.12.0", patch: CURRENT_PATCH });
   return root;
 }
 

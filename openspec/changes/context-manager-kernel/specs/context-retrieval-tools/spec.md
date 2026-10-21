@@ -1,13 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Scopes map to separate kb databases
-The context manager SHALL register the scopes `docs`, `lessons`, `sessions` and `web`.
+The context manager SHALL register the scopes `docs`, `lessons`, `git`, `sessions` and `web`.
 
 - `docs` SHALL be served by the session's kb-extension docs provider over its existing per-cwd store. The context manager SHALL NOT write to that store.
 - `lessons` SHALL use its own kb database at `<root>/.pi/dashboard/context_manager/lessons.db`, covering markdown under `<root>/.pi/lessons/` (root `lessons:project`) and `~/.pi/agent/lessons/` (root `lessons:global`), where `<root>` is the git toplevel of the session cwd, or the cwd outside a git repository.
 - A scope SHALL count as configured when at least one of its root directories exists.
 - The first search of a configured scope in a session SHALL bring its database up to date (create and populate, or an incremental walk).
 - A markdown write under a lessons root SHALL schedule a reindex of `lessons.db`, and a `lessons` search SHALL first await any pending or in-flight lessons reindex.
+- `git` SHALL be served by the session's kb-extension git provider (the `kb_search`/`kb_get` `scope: "git"` code path). The context manager SHALL open no git store and SHALL NOT trigger a forge sync except through that provider's search. Without a git provider, `git` SHALL return `(git unavailable)`.
 - `sessions` and `web` SHALL have no store in this phase, SHALL never be configured, and SHALL return no hits.
 
 #### Scenario: A lesson appears once
@@ -27,17 +28,21 @@ The context manager SHALL register the scopes `docs`, `lessons`, `sessions` and 
 - **WHEN** a session's cwd is `<root>/packages/kb`
 - **THEN** `lessons` covers `<root>/.pi/lessons/` and uses `<root>/.pi/dashboard/context_manager/lessons.db`
 
+#### Scenario: Git provider missing
+- **WHEN** `context_search` is called with `scope: "git"` and the session has no kb-extension git provider
+- **THEN** it returns `(git unavailable)` without error
+
 #### Scenario: Unconfigured scope
 - **WHEN** `context_search` is called with `scope: "web"`
 - **THEN** it returns the no-match result without error
 
 ### Requirement: context_search searches docs by default and fuses named scopes with Reciprocal Rank Fusion
-`context_search(query, scope?, limit?, format?, doc_type?)` SHALL:
-- search each requested scope (default in this phase: `docs` only);
+`context_search(query, scope?, limit?, format?, doc_type?, kind?)` SHALL:
+- search each requested scope (default in this phase: `docs` only; `git` and `lessons` only when named);
 - apply the scope's abstention floor;
 - when more than one scope contributes, fuse the lists with Reciprocal Rank Fusion (`k = 60`), with ties going to `docs` and then to the lower within-scope rank, truncated to `limit` (default 10).
 
-Each result SHALL carry its scope tag. A single scope's results SHALL be that scope's ranking unchanged. `docs` results SHALL be the session's kb-extension docs provider results (the `kb_search` code path, fetched with twice the limit) minus hits under a lessons root, truncated to `limit`. When the session has no docs provider, `docs` SHALL return `(docs unavailable)`, never the abstention text. `format` SHALL accept any string, with unknown values rendering the condensed format. An empty query SHALL return `(no query)` in condensed format and `[]` in json.
+Each result SHALL carry its scope tag. A single scope's results SHALL be that scope's ranking unchanged. `docs` results SHALL be the session's kb-extension docs provider results (the `kb_search` code path, fetched with twice the limit) minus hits under a lessons root, truncated to `limit`. When the session has no docs provider, `docs` SHALL return `(docs unavailable)`, never the abstention text. `doc_type` SHALL apply to `docs` only and `kind` (`commit`, `pr`, `issue`) to `git` only. `scope: "git"` alone SHALL return the git provider's text and `details` unchanged; for fusion, `git` hits SHALL be fetched as raw ranked hits (`format: "json"`). `details.untrusted` SHALL be true whenever any contributing scope's result is untrusted, and every `git` hit SHALL keep its `[git]` mark. `format` SHALL accept any string, with unknown values rendering the condensed format. An empty query SHALL return `(no query)` in condensed format and `[]` in json.
 
 #### Scenario: Docs parity with kb_search
 - **WHEN** no lesson file exists under a docs source, the docs floor is 0, and every query of `golden.markdown-intent.json` and `golden.source-intent.json` runs through `kb_search` and through `context_search` with `scope: "docs"`
@@ -58,6 +63,19 @@ Each result SHALL carry its scope tag. A single scope's results SHALL be that sc
 #### Scenario: Fusion across named scopes
 - **WHEN** `scope` is `["docs", "lessons"]`, `docs` ranks A, B, and `lessons` ranks L1, L2
 - **THEN** the order is A, L1, B, L2, each tagged with its scope
+
+#### Scenario: Git parity with kb_search
+- **WHEN** `context_search` is called with `scope: "git"`, a query and `kind: "pr"`
+- **THEN** its text and `details` equal those of `kb_search` with `scope: "git"`, the same query and `kind`
+- **AND** `details.untrusted` is true
+
+#### Scenario: Untrusted flag survives fusion
+- **WHEN** `scope` is `["docs", "git"]` and both scopes return hits
+- **THEN** the fused result has `details.untrusted` true and each git hit carries its `[git]` mark
+
+#### Scenario: Default call does not include git
+- **WHEN** `context_search` is called without `scope` in a repository with an indexed git scope
+- **THEN** no `git` hit is returned and the git provider is not called
 
 #### Scenario: Unknown format
 - **WHEN** `context_search` is called with `format: "yaml"`
@@ -106,7 +124,7 @@ The candidate floor SHALL be the highest with which at most 2 queries per golden
 - **THEN** no floor is written and the script reports why
 
 ### Requirement: context_get fetches a section, a file or its neighbours
-`context_get(ref, scope?, section?, neighbors?)` SHALL treat `ref` as a plain path. It SHALL take the scope only from `scope` (`docs` by default, or `lessons`), and SHALL return the chunk from that scope. On a path-only fetch of a multi-section file, it SHALL report the count of further sections rather than silently returning one slice. When `neighbors` is given as a depth, it SHALL return the graph neighbours of the `section` heading node if `section` is given, else of the `ref` file node, up to that depth.
+`context_get(ref, scope?, section?, neighbors?)` SHALL treat `ref` as a plain path. It SHALL take the scope only from `scope` (`docs` by default, `lessons`, or `git`), and SHALL return the chunk from that scope. With `scope: "git"`, `ref` SHALL be passed unchanged as the git provider's `path` (`commit/<sha prefix>`, `pr/<n>`, `issue/<n>`), `section` and `neighbors` SHALL be ignored, and the provider's text and `details` (including `untrusted`) SHALL be returned unchanged. On a path-only fetch of a multi-section file, it SHALL report the count of further sections rather than silently returning one slice. When `neighbors` is given as a depth, it SHALL return the graph neighbours of the `section` heading node if `section` is given, else of the `ref` file node, up to that depth.
 
 #### Scenario: Multi-section file
 - **WHEN** `context_get` is called with only the path of a file that has several sections
@@ -116,12 +134,16 @@ The candidate floor SHALL be the highest with which at most 2 queries per golden
 - **WHEN** `context_get` is called with `ref: "C:\\repo\\docs\\a.md"`
 - **THEN** the ref is resolved in the `docs` scope as a path
 
+#### Scenario: Git ref
+- **WHEN** `context_get` is called with `scope: "git"` and `ref: "pr/12"`
+- **THEN** it returns the same text and `details` as `kb_get` with `scope: "git"` and `path: "pr/12"`
+
 #### Scenario: Lesson ref
 - **WHEN** `context_get` is called with `scope: "lessons"` and a lesson path
 - **THEN** it returns that lesson's content from `lessons.db`
 
 ### Requirement: The kb tools stay unchanged in this phase
-kb-extension SHALL keep `kb_search`, `kb_get` and `kb_neighbors` registered, active, and unchanged in description, parameters and behaviour, whatever the context manager's state, because pi does not execute calls to inactive tools.
+kb-extension SHALL keep `kb_search`, `kb_get` and `kb_neighbors` registered, active, declared to the model, and unchanged in description, parameters and behaviour, whatever the context manager's state. The context manager SHALL NOT hide their declarations in this phase.
 
 #### Scenario: Old call in an active session
 - **WHEN** the context manager is active and the model calls `kb_search`

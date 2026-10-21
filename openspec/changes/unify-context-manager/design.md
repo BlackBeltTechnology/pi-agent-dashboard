@@ -5,15 +5,30 @@
 See `proposal.md` (Why) and `docs/research/unified-context-manager-exploration.md`
 for the measurements referenced below.
 
-State today (pi 0.87.1, this host):
+State today (pi 1.3.0, this host; re-checked 2026-10-21, first written on 0.87.1):
 
 | Plane | License | LOC | Engine | Hooks it owns |
 |---|---|---:|---|---|
-| pi-hermes-memory 0.9.9 | MIT | ~17.0k | better-sqlite3 | before_agent_start, message_end, session_before_compact, turn_end, tool_result, resources_discover |
-| pi-blackhole 0.5.6 | MIT | ~32.7k | JSONL `custom` entries | context, session_before_compact, turn_end, agent_start/end, `AgentSession.compact` monkeypatch |
+| pi-hermes-memory 0.9.10 | MIT | ~17.8k | better-sqlite3 | before_agent_start, message_end, session_before_compact, turn_end, tool_result, resources_discover |
+| pi-blackhole 0.5.15 | MIT | ~38.7k (`pi-base` 8.4k) | JSONL `custom` entries | context, session_before_compact, turn_end, agent_start/end, `AgentSession.compact` monkeypatch (`src/om/inline-compaction.ts`) |
 | context-mode 1.0.169 | Elastic-2.0 | compiled only | better-sqlite3 + MCP child | tool_call, tool_result, before_agent_start, context, session_before_compact, turn_end, before_provider_response |
 | kb + kb-extension | ours | ~8.1k | node:sqlite | before_agent_start, tool_call, tool_result, turn_start |
+| pi built-ins (0.99+) | pi | — | QuickJS | `codemode`, `tool_search`, MCP client |
 
+Upstream changes consumed since the first draft:
+- hermes 0.9.10: per-entry recall counters (`hit_count`, `last_hit_at`,
+  bumped on every `memory_search` return) and `consolidationUsageSignals`;
+  chunked consolidation. Used by `import-hermes` (D10).
+- blackhole 0.5.7–0.5.15: observation/reflection `supersedes`, reflection
+  evidence timestamps, `[User Decisions]` from question tools,
+  `/blackhole-export mode:timeline days:N` plus headless `--blackhole-export`.
+  Pi 1.x support still goes through the `AgentSession.compact` patch, so D3
+  stands.
+- pi-web-access 0.42–0.44: `toolExposure: "deferred"` and
+  `toolActivation: "none"` (web tools reachable only via `codemode` /
+  `tool_search`). D8 must therefore see nested calls.
+- `add-kb-git-forge-scope` (D13) and `add-untrusted-content-guard` +
+  `harden-untrusted-content-ingestion` (D8) are shipped.
 Constraints:
 - pi dispatches handlers in load order. `before_agent_start` replacing
   `systemPrompt` invalidates the prompt cache, and hermes, context-mode and kb all
@@ -23,6 +38,15 @@ Constraints:
   `ContextEditEntryDraft` entries plus `continue: true`. It also exports
   `findCutPoint`, `shouldCompact` and `estimateTokens`, but not
   `prepareCompaction`.
+- pi 1.x tool exposure: `direct | model-only | codemode | deferred | hidden`.
+  `prepareLoadout` can return `hiddenDeclarations` (active, callable, not
+  declared). `tool_search` activates `deferred` tools.
+- pi 1.x nested calls: `ctx.executeTool()` (used by `codemode`) runs
+  `tool_call` / `tool_result` handlers with `parentToolCallId` set. Nested
+  results reach only the calling script and are **not** written to the
+  transcript JSONL.
+- pi 1.2: `before_agent_start` also fires for `sendMessage(..., {triggerTurn})`
+  runs; `event.messageType` is `"user" | "custom"`.
 - Subagent fan-out is already bounded by `maxConcurrentSubagents` (default 2),
   the admission gate in `packages/extension/src/subagent-fanout-admission.ts`,
   and the heap coupling in `packages/shared/src/heap-limits.ts`.
@@ -30,9 +54,12 @@ Constraints:
 ## Goals / Non-Goals
 
 **Goals**
-- Exactly one extension subscribes to each context-relevant pi hook.
-- Five model-facing tools and one per-turn injection block, with the pinned tier
-  kept byte-stable.
+- Exactly one extension subscribes to each context-relevant pi hook, for the
+  context planes (hermes, blackhole, context-mode, kb). Extensions that only
+  transform media for the provider (`image-fit-extension`'s `context`
+  handler) are outside this goal (`context-manager-blackhole-fork` B7).
+- Four model-facing tools and one per-turn injection block, with the pinned tier
+  kept byte-stable. Sandbox execution is pi's `codemode`.
 - One index engine (node:sqlite via `packages/kb`) and no native SQLite addon.
   One engine, not one file: `docs` stays in kb-extension's store and each
   other scope gets its own kb database, because the kb store has no
@@ -43,7 +70,8 @@ Constraints:
 - Existing knowledge is importable, but only through triage and review.
 
 **Non-Goals**
-- Porting or vendoring any context-mode source.
+- Porting or vendoring any context-mode source, or building our own sandbox
+  (pi `codemode` covers it).
 - Merging the hermes and blackhole distillation pipelines (an explicit user
   decision; they stay separate inside the package).
 - Deleting existing hermes, blackhole or context-mode stores.
@@ -62,9 +90,9 @@ flowchart TB
     MATCH["cue matcher<br/>(precompiled per session)"]
     INJ["injection owner<br/>pinned tier + per-turn cue message"]
     CMP["boundary compaction<br/>(blackhole core, deterministic)"]
-    HD["hermes distillers<br/>(background-review, correction-detector,<br/>session-flush, auto-consolidate)"]
+    HD["hermes distillers<br/>(background-review, correction-detector,<br/>session-flush; phase 3)"]
     OM["blackhole OM workers<br/>(observer, reflector, dropper)"]
-    TOOLS["context_search · context_get · lesson · skill_manage · exec"]
+    TOOLS["context_search · context_get · lesson · skill_manage<br/>(+ codemode intent tap)"]
     S1["SystemOne adapter<br/>/v1/systemone | LLM fallback"]
   end
   subgraph STORE["storage"]
@@ -90,17 +118,24 @@ flowchart TB
 
 ## Decisions
 
-### D1: Fork hermes + blackhole; clean-room only for context-mode
+### D1: Fork hermes + blackhole; nothing from context-mode
 **Why:** Both are MIT. Owning the code removes the "shim over a pre-1.0
 third-party store" risk that dominated the predecessor design (its D3).
 context-mode is Elastic-2.0, compiled-only, and its useful 97% is the sandbox,
-whose behaviour is small enough to re-specify.
+which pi's built-in `codemode` now provides (D7).
+
+**Fork bases:** hermes 0.9.10, blackhole 0.5.15 (the versions installed on
+2026-10-21). Phase 2 re-checks for newer upstream releases before forking.
 
 **How:**
 - Upstream copyright notices are kept in `packages/context-manager/NOTICE`.
 - Each forked module carries a header naming its upstream path and version.
-- Dropped at fork time: `pi-base/settings` + config (~8.2k), `changelog/`, TUI
+- Dropped at fork time: blackhole `src/pi-base/` (~8.4k), `src/changelog/`,
+  `src/om/status-bar.ts` (footer, superseded by the dashboard plugin), TUI
   commands, `extension-root-migration.ts`, `project-memory-migration.ts`.
+  blackhole grew from ~32.7k to ~38.7k LOC since the first draft (0.5.9 already
+  removed its dead TUI overlays), so phase 2 recounts the drop list and states
+  the shed LOC against the 0.5.15 base.
 
 **Alternatives:**
 - Keep wrapping (predecessor): rejected, the shim stays forever.
@@ -114,34 +149,56 @@ whose behaviour is small enough to re-specify.
     kb-extension injects today;
   - pinned lessons (`kind: preference` + `delivery: pinned`), capped at
     ~2 KB.
-- Under the dashboard, the bridge forces `systemPrompt` every turn, so the
-  block is inserted into the forced prompt next to a sentinel line
-  (`context-manager-kernel` K5).
-- Exception: the dashboard bridge's session-context injector (not a context
-  plane) keeps forcing `systemPrompt`; moving it to a section is a follow-up.
+- Delivery is sections only (`sections.context`); the manager never returns
+  `systemPrompt`. Since `fix-forced-system-prompt-drops-tool-guidelines`
+  (2026-10-19) the bridge (`dashboard_session`) and kb-extension
+  (`dox_doctrine`) do the same, so the first draft's forced-prompt splice is
+  dropped. A third-party extension that forces the prompt drops every
+  structured section; the manager logs it once (`context-manager-kernel` K5).
 - Everything per-turn goes into a `before_agent_start` `message`, never into
   `systemPrompt`.
+- Since pi 1.2, `before_agent_start` also fires for extension-triggered runs
+  (`messageType: "custom"`). Pinned sections are set for both kinds (they are
+  byte-stable, so no delta is appended). The per-turn cue message (channel C,
+  `prompt` triggers) is attached only when `messageType === "user"`, since a
+  custom run has no prompt to match.
 
 **Alternative:** per-turn `systemPrompt` rewrite (today's behaviour). Rejected:
 it busts the cache every turn.
 
 ### D3: Compaction on the boundary API; the monkeypatch is retired
-- On `turn_end` / `agent_before_settle`, when `shouldCompact` holds and no tool
-  call is unpaired, the handler computes blackhole's deterministic summary. It
-  picks `firstKeptEntryId` via `findCutPoint` and returns
-  `{ entries: [...event.entries, CompactionEntryDraft], continue: true }`.
-- A continuation guard prevents loops: at most one compaction per boundary, and
-  none when the previous boundary already compacted.
+- On `turn_end` (mid-run) / `agent_before_settle` (end of run), when the
+  threshold holds and no tool call is unpaired, the handler computes
+  blackhole's deterministic summary from the same `preparation` pi's own
+  compaction would use: pi does not export `prepareCompaction`, and the public
+  `findCutPoint` does not reproduce it (it skips context edits, file
+  operations and token estimates), so `context-manager-blackhole-fork` B5
+  vendors pi's `prepareCompaction` (MIT) with a drift test. It returns
+  `{ entries: [...event.entries, CompactionEntryDraft] }`.
+- Spike (pi 1.3.0, 2026-10-21): `continue` is **not** needed. A draft
+  returned at `turn_end` applies to the next request of a run that continues
+  anyway (tool results pending); one returned at `agent_before_settle`
+  persists for the next prompt. pi persists an ordinary `compaction` entry
+  (`tokensBefore` computed by pi, `fromHook: true`, `details` kept). The guard
+  is: at most one compaction per boundary, none when the previous boundary
+  already compacted.
+- **pi emits no `session_compact` for a boundary compaction** (spike). The
+  dashboard bridge therefore synthesizes the live event when it sees a new
+  `compaction` entry (phase 2a), as `state-replay.ts` already does on reload.
 - `session_before_compact` (manual and overflow compaction) returns the same
   deterministic summary as `compaction`.
 - blackhole's existing `projectAppendOnlyContext` replay moves to the `context`
-  hook, which is now owned solely by the manager.
+  hook, which the manager owns for the context planes;
+  `image-fit-extension`'s media-only `context` handler stays separate
+  (`context-manager-blackhole-fork` B7).
 
-**Alternative:** keep `om/inline-compaction.ts` (it recognises the pi 0.81/0.84
-shapes and fails closed). Rejected: a private-API patch whose job pi 0.87 now
-does publicly.
+**Alternative:** keep `om/inline-compaction.ts` (blackhole 0.5.15 still
+recognises the pi 0.85–1.x shapes, including the 0.87
+`_refreshFinalizedContext()` indirection, and fails closed). Rejected: a
+private-API patch whose job pi 0.87+ does publicly, and which every pi release
+has had to re-chase.
 
-**Consequence:** the pi peer floor becomes 0.87.0.
+**Consequence:** none on the pi floor; the repo already requires pi ≥1.3.0.
 
 ### D4: Lessons are files; the index and stats can be rebuilt
 Lesson files:
@@ -240,6 +297,11 @@ Writes and indexing:
   - A: `tool_result.content` append (default, next to the cause, cache-safe).
   - B: `tool_call` block with a reason (only `severity: block`, and only on
     `command`/`tool` triggers).
+  - **Nested calls** (`parentToolCallId` set, e.g. inside a `codemode`
+    script): the matcher still runs, but an A append would reach only the
+    script. The card is deferred to the parent tool's own `tool_result`
+    (one append per parent, same budget). B still blocks the nested call; the
+    reason surfaces as the script's rejected promise.
   - C: a per-turn `before_agent_start` message (`prompt` triggers).
   - D: a boundary custom message with `continue` (`before_settle` checklists).
   - E: the compaction summary carries still-relevant cards.
@@ -271,7 +333,7 @@ Writes and indexing:
   2602.12670). The pinned tier therefore holds only non-standard rules, and
   every tier is A/B-tested before cutover (task 2.2).
 
-### D6: Five tools + aliases
+### D6: Four tools + aliases
 - **`context_search(query, scope?)`:** runs kb retrieval per scope and fuses
   across scopes with Reciprocal Rank Fusion. The `docs` scope keeps kb's
   current ranking and lanes unchanged.
@@ -280,13 +342,19 @@ Writes and indexing:
 - **`lesson(action: add|update|retire, …)`:** validates triggers with the replay
   gate and runs the PII/secret scrub before a project-scope write.
 - **`skill_manage`:** forked from hermes with a trimmed description.
-- **`exec`:** see D7.
-- **Old names (corrected by `context-manager-kernel` K8):** pi 0.87.1 runs
-  tool calls only against the active set (`prepareToolCall` → `Tool <name>
-  not found`), so an inactive alias does not resolve. The old names
-  therefore stay **active** for one release. They are unchanged until
-  cutover, then slimmed to one-line deprecation descriptions, and removed
-  after that release.
+- No `exec`: sandbox execution is pi's `codemode` (D7).
+- **Old names (`context-manager-kernel` K8, spike on pi 1.3.0, 2026-10-21):**
+  - Until cutover the `kb_*` names stay active, declared and unchanged (the
+    doctrine still names them).
+  - At cutover `context_search` carries a `prepareLoadout` hook returning
+    `hiddenDeclarations` for the old names: their declarations leave the
+    request and the system prompt, and a **direct** model call (habit, stale
+    skill text) still executes. The spike confirmed both.
+  - Rejected: `exposure: "deferred"` (a direct call returns `Tool <name> not
+    found` unless `tool_search` activated it first) and inactive tools (same
+    result; the 0.87.1 finding).
+  - After one release the old names are re-registered with
+    `exposure: "hidden"` (tools cannot be unregistered).
 - **Retrieval labels from behaviour:** a `context_search` followed by opening
   a result is logged as a click (query → ref, rank). A search followed by
   a grep fallback and then opening a file that was not in the results is
@@ -296,31 +364,56 @@ Writes and indexing:
   calls and fell back to grep in 54%; 34 of the 39 grep fallbacks that ended
   in a file opened a file absent from the kb hits.
 
-### D7: `exec`: a clean-room sandbox
-The contract is written from observed behaviour:
-- runs code in a language runtime, or runs over a file bound to a variable;
-- returns only stdout, capped;
-- supports timeout and background detachment;
-- `intent` + output above a threshold indexes the output into scope
-  `sessions/exec` and returns section titles.
+### D7: Sandbox execution is pi `codemode` (supersedes the clean-room `exec`)
+pi 0.99+ ships `codemode`: model-written JavaScript in a QuickJS sandbox,
+calling pi tools via `tools.<name>()`; only the script's output reaches the
+model (`max_output_tokens`, default 10000, overflow to a temp file).
+`tools.bash()` resolves up to 1 MiB of output inside the script, so
+"filter big output in code, print the answer" — context-mode's 97% use —
+needs no tool of ours. `timeout_ms` and `store`/`load` cover the rest of the
+old contract except background detachment (dropped: long-running processes go
+through `bash` or the dashboard's managed services).
 
-It is implemented on `child_process` with no dependency on context-mode. The
-`curl`/HTTP flood guard becomes a `guard` lesson (severity `block`, trigger
-`command`), not hard-coded logic. That is the same mechanism the bake-off
-showed is missing today (5 of 12 reference lessons were re-hits of that block).
+What the manager still adds:
+- **`intent` indexing:** a `tool_result` consumer on the `codemode` tool. When
+  the script's output passes a size threshold (or spills to the temp file),
+  the full text is chunked into scope `sessions/exec` keyed by tool call id,
+  and a one-line `context_get` ref is appended. No separate tool.
+- **Guidance:** the doctrine names `codemode` for large-output derivations
+  (replacing the `ctx_execute` rules), and the cutover offers
+  `defaultTools: ["+codemode"]` when the operator has not enabled it.
+
+The `curl`/HTTP flood guard becomes a `guard` lesson (severity `block`,
+trigger `command`), not hard-coded logic. Because nested calls pass
+`tool_call`, the guard also blocks `tools.bash({command: "curl …"})` inside a
+script. That is the mechanism the bake-off showed is missing today (5 of 12
+reference lessons were re-hits of that block).
+
+**Alternative:** the clean-room `child_process` `exec` (first draft).
+Rejected: duplicates a maintained core feature, and adds a code-execution
+surface we would have to harden ourselves.
 
 ### D8: Web tap
 - The manager's `tool_result` handler receives results from `fetch_content`,
-  `web_search` and `source_check` (pi-web-access).
+  `web_search` and `source_check` (pi-web-access), both model-issued and
+  nested (`parentToolCallId`; pi-web-access 0.44 `toolActivation: "none"`
+  makes nested the only path). Nested results are not in the transcript, so
+  the live tap is their only capture point.
 - It chunks the extracted markdown into scope `web`, keyed by URL + fetch time.
 - The web tool's output is returned to the model unchanged.
-- Indexed web content is treated as untrusted: the `add-untrusted-content-guard`
-  scanner runs before indexing when present.
+- Indexed web content is treated as untrusted: the shipped
+  `add-untrusted-content-guard` / `harden-untrusted-content-ingestion` scanner
+  runs before indexing. Phase 4 imports it; it does not specify a new one.
 
 ### D9: Session index keeps a copy
 - One node:sqlite FTS table set stores message text, as the user chose, for
   speed.
 - It is fed incrementally from pi JSONL and lives in the shared index DB.
+- Nested tool results (inside `codemode`) never reach the JSONL; the transcript
+  keeps only `nestedCalls` metadata (name, args, status; never results). The
+  capture tap therefore writes nested results (error text) to the index live,
+  keyed by `<parent id>/<n>`; JSONL ingest cannot see them, so there is no
+  double write.
 - It replaces hermes' better-sqlite3 `sessions.db`, which is left on disk,
   unread after cutover.
 - It indexes tool results (error text) as well as user/assistant text; hermes
@@ -414,7 +507,19 @@ showed is missing today (5 of 12 reference lessons were re-hits of that block).
 
 `/lessons import-hermes` feeds the 812 existing entries through the same
 triage. Status-type entries are archived to the `sessions` scope instead of
-becoming lessons.
+becoming lessons. hermes 0.9.10's `hit_count` / `last_hit_at` (recorded on
+every `memory_search` return) are carried as a triage feature and a review
+sort key: a recalled entry is evidence of use, a never-recalled one is a weaker
+keep candidate (tie-breaker only, as hermes uses it). Counters start at
+0.9.10, so entries older than that read as "unknown", not "unused".
+
+blackhole's `/blackhole-export mode:timeline days:N` (headless via
+`pi --blackhole-export "…" --no-session -p`) is an optional miner input:
+reflections already carry `supersedes`, evidence timestamps and confirmed
+`[User Decisions]`, which map to lesson `supersedes`, `valid_from` and
+`kind: preference` candidates. It is a second candidate stream next to
+`session-distiller` windows, deduped by the same `same_as` gate. Before
+cutover it reads upstream blackhole's store; after it, the fork's.
 
 ### D11: The System-1 adapter
 - **Amended by `add-system-one-registry`:** the adapter is the shared library
@@ -483,7 +588,7 @@ becoming lessons.
   view that is read-only for the old stores.
 
 ### D13: The `git` scope is absorbed, not rebuilt
-- `add-kb-git-forge-scope` ships before cutover. It indexes commits (local git
+- `add-kb-git-forge-scope` shipped (archived 2026-10-13). It indexes commits (local git
   only), PRs and issues (GitHub via `gh`, GitLab via `glab`, Gitea/Forgejo/Codeberg
   via HTTPS) into one kb database per git common dir, under
   `~/.pi/dashboard/kb/git/<repoKey>/`. Worktrees share it.
@@ -525,26 +630,28 @@ Four earlier changes are superseded; none had started implementation
 | `consolidate-retrieval-planes` | Direction only ("wrap" → fork) | — |
 | `memory-retrieval-injection` | Category pinning → pinned tier; "injected ⇒ used" → `fired`/`followed`; prompt sanitising before FTS → `prompt` triggers; fail-safe → chassis fail-open | 1, 3 |
 | `distill-hermes-memory-into-skills` | Shareability gate (`target ≠ user` + scrub), `project IS NULL` exclusion, cross-dedup against lessons and sidecars, human-confirmed routing; maturity as a triage feature | 5 |
-| `add-automatic-session-kb-index` | Lifecycle-triggered ingest (`LiveIdle`/`Ended`, mtime fallback), watermark + hash idempotency, subagent sessions excluded by default, distiller `signal` facet on session chunks | 2 |
+| `add-automatic-session-kb-index` | Lifecycle-triggered ingest (`LiveIdle`/`Ended`, mtime fallback), watermark + hash idempotency, subagent sessions excluded by default (in-process subagents use `SessionManager.inMemory`, so they write no JSONL), distiller `signal` facet on session chunks | 2b |
 | `add-automatic-session-kb-index` | The shared scrub module (`scrub.ts`), also imported by `add-lora-dataset-export-skill` | 3 |
 
 Related but not superseded: `add-system-one-registry` (it amends D11 so the
 miner consumes its adapter; the amendment lands with that change),
-`add-kb-semantic-annotation-plane` (D4), `add-untrusted-content-guard` (D8),
+`add-kb-semantic-annotation-plane` (D4), `add-untrusted-content-guard` and
+`harden-untrusted-content-ingestion` (D8; both shipped),
 `add-codegraph-code-plane` (the `code` scope), `add-session-step-table`
 (a candidate source for task 2.1 eval cases and the miner's labels),
-`add-kb-git-forge-scope` (the `git` scope, D13; ships before cutover).
+`add-kb-git-forge-scope` (the `git` scope, D13; shipped).
 
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
 |---|---|
 | We own ~30k forked LOC | Drop the ~12k listed in D1. Behavioural tests replace the dropped upstream CI. Each forked module carries its upstream header so fixes can be cherry-picked. |
-| Tool rename breaks prompts, skills and doctrine | Old names stay registered and **active** for one release (inactive tools do not resolve in pi 0.87.1; `context-manager-kernel` K8). The doctrine update is part of the cutover phase. |
+| Tool rename breaks prompts, skills and doctrine | Old names stay callable for one release, undeclared via `prepareLoadout` `hiddenDeclarations` (spike-verified on pi 1.3.0: direct calls still execute; D6, K8). The doctrine update is part of the cutover phase. |
+| `codemode` hides tool calls inside scripts | Nested calls pass `tool_call`/`tool_result` with `parentToolCallId`; the tap, cue matcher and web tap handle them explicitly (D5, D8, D9), with contract tests that drive a real `codemode` script. |
 | Cue false positives teach the model to ignore cards | Explicit triggers, the replay gate (df ≤ 3%), per-lesson `followed` precision with automatic demotion, strict budgets and a silent default. |
 | Lesson files in the repo and web content as a prompt-injection path | Lesson writes go through `lesson` and PR review. Cards are length-capped and delivered in delimited blocks. Web content passes the untrusted-content scanner before indexing. `security-hardening` is applied per phase. |
 | The matcher adds hot-path latency to every tool call | Globs and regexes are precompiled. The budget is measured in the lessons phase (`performance-optimization`). The System-1 relevance gate runs only after a trigger has matched. |
-| The boundary API is new (pi 0.87) | Pin the floor. Contract tests against a real `AgentSession` with a fake provider cover compaction, continuation and cancellation. |
+| The boundary API is relatively new (pi 0.87) | The repo floor is pi 1.3.0. Contract tests against a real `AgentSession` with a fake provider cover compaction, continuation and cancellation. |
 | Mid-migration double ownership (old packages still installed) | The manager detects the old packages by package identity (tool `sourceInfo`, never tool names) once per turn epoch, then stays inert (dispatches nothing, hides its tools) with one notice until they are removed (`context-manager-kernel` K2). |
 | `git` scope spends forge API quota from many sessions | Single sync owner per git common dir, lazy sync only on a named `git` scope, minimum interval, rate floor (`add-kb-git-forge-scope` G4). D13 makes these invariants of the absorbed scope. |
 | Team-shared lessons leak personal data | A PII/secret scrub gates writes to project scope. The miner's `sensitive` check is only advisory. |

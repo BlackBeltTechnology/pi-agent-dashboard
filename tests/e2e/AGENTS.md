@@ -27,6 +27,7 @@ One row per file.
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |
 | `first-run-skip-providers.spec.ts` | → `first-run-skip-providers.spec.ts.AGENTS.md` |
+| `folder-banner-contrast.spec.ts` | L3 retrust banner on untrusted `sample-hook-ok`: #F1 contrast (text 4.5, glyph 3), #F2 action colour = region over base/nord dark/light, #F7 44/32 px + focus ring. Observe-only (never trusts; sorts before `worktree-init-feedback`). See change: fix-folder-card-pill-contrast. |
 | `hermes-model-override.spec.ts` | → `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | → `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | → `known-server-stale-name.spec.ts.AGENTS.md` |

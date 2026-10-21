@@ -32,6 +32,15 @@ artifacts:
       - Cross-cutting change
     requires:
       - proposal
+  - id: tasks
+    generates: tasks.md
+    description: Tasks
+    template: tasks.md
+    instruction: |
+      Create the task list.
+    requires:
+      - specs
+      - design
 `;
 
 export function mkTmp(prefix: string): string {

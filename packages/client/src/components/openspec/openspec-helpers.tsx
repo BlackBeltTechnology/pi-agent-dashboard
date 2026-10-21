@@ -7,6 +7,13 @@ const LETTER_MAP: Record<string, string> = {
   design: "D",
   specs: "S",
   tasks: "T",
+  // The `dependencies` artifact of pi-spec-driven patch v2 (`D` is taken by design).
+  dependencies: "L",
+};
+
+/** Tooltip name for artifacts whose id alone is not self-explanatory. */
+const LETTER_TITLE: Record<string, string> = {
+  dependencies: "Dependencies",
 };
 
 export function artifactLetter(id: string): string {
@@ -14,9 +21,9 @@ export function artifactLetter(id: string): string {
 }
 
 export function statusColor(status: string): string {
-  if (status === "done") return "text-green-500";
-  if (status === "ready") return "text-yellow-500";
-  return "text-[var(--text-muted)]";
+  if (status === "done") return "text-[var(--accent-green-text)]";
+  if (status === "ready") return "text-[var(--accent-yellow-text)]";
+  return "text-[var(--text-secondary)]";
 }
 
 export function ArtifactLetters({
@@ -35,8 +42,8 @@ export function ArtifactLetters({
         <button
           key={a.id}
           data-testid="artifact-letter"
-          title={`${a.id}: ${a.status}`}
-          className={`text-[10px] font-bold font-mono cursor-pointer hover:underline ${statusColor(a.status)}`}
+          title={`${LETTER_TITLE[a.id] ?? a.id}: ${a.status}`}
+          className={`text-[12px] font-bold font-mono cursor-pointer hover:underline ${statusColor(a.status)}`}
           onClick={(e) => { e.stopPropagation(); onReadArtifact?.(changeName, a.id); }}
         >
           {artifactLetter(a.id)}
@@ -60,11 +67,11 @@ export function ArtifactLettersButton({
     <button
       data-testid="artifact-letters-btn"
       title={i18nT("openspec.openProposal", undefined, "Open proposal")}
-      className="flex items-center gap-0.5 px-1 py-0.5 rounded border border-[var(--border-secondary)] hover:border-blue-500/50 cursor-pointer"
+      className="flex items-center gap-0.5 px-1 py-0.5 rounded border border-[var(--border-secondary)] hover:border-[var(--accent)] cursor-pointer"
       onClick={(e) => { e.stopPropagation(); onReadArtifact?.(changeName, "proposal"); }}
     >
       {artifacts.map((a) => (
-        <span key={a.id} className={`text-[10px] font-bold font-mono ${statusColor(a.status)}`}>
+        <span key={a.id} className={`text-[12px] font-bold font-mono ${statusColor(a.status)}`}>
           {artifactLetter(a.id)}
         </span>
       ))}

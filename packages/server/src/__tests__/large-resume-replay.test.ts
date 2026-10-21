@@ -703,11 +703,14 @@ describe("fix-large-session-resume-replay — replay mode, exits and flush", () 
     send(h.ws, { type: "subscribe", sessionId: "f3" });
     await wait(60);
     for (let i = 0; i < 6_000; i++) send(b, unique("f3", i, true));
+    // Back to back (as F4): re-register (wipes) while the flush is still draining.
+    // Waiting for its first batch raced the drain, and a fully drained flush made
+    // this test pass vacuously.
     replayComplete(b, "f3");
-    // The flush is draining: re-register (wipes) as soon as its first batch lands.
-    await until(() => replayCount(h.msgs).some((m) => m.events.length > 0), 8_000);
     register(b, "f3");
     await until(() => resets(h.msgs) >= 2, 4_000);
+    // The premise: the superseded flush never reached its last batch.
+    expect(replayCount(h.msgs).some((m) => m.isLast)).toBe(false);
     const secondReset = h.msgs.map((m) => m.type).lastIndexOf("session_state_reset");
     const countAtReset = h.msgs.length;
     await wait(300);
@@ -734,10 +737,16 @@ describe("fix-large-session-resume-replay — replay mode, exits and flush", () 
     send(h.ws, { type: "subscribe", sessionId: "f4" });
     await wait(60);
     for (let i = 0; i < 6_000; i++) send(b, unique("f4", i, true));
+    // Back to back: the server handles the re-register while the exit flush is
+    // still yielding between batches, so the abort is deterministic. Waiting for
+    // the first batch first raced the drain: on a fast host all 33 batches landed
+    // within one 15 ms poll, nothing was aborted, and the skip-wipe register left
+    // no flush to complete (isLast never came; ~2/3 local runs failed).
     replayComplete(b, "f4");
-    await until(() => replayCount(h.msgs).some((m) => m.events.length > 0), 8_000);
     register(b, "f4", fields); // same branch ⇒ skips the wipe, aborting the draining flush
     await wait(300);
+    // The premise of F4: the first flush really was aborted before its last batch.
+    expect(replayCount(h.msgs).some((m) => m.isLast)).toBe(false);
     expect(storeCount(c, "f4")).toBe(6_000);
     h.msgs.length = 0;
     replayComplete(b, "f4");

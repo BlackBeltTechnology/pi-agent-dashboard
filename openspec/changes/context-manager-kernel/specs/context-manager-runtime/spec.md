@@ -85,6 +85,7 @@ The context manager SHALL subscribe once to each of `session_start`, `turn_start
 - `tool_result` consumers SHALL follow pi's result semantics: each returned field (`content`, `details`, `isError`, `usage`) replaces the previous value, and the next consumer receives the updated result.
 - `tool_call` dispatch SHALL stop at the first consumer that returns a block.
 - A consumer that throws SHALL be skipped for that event (fail-open) without altering the result or the other consumers, and SHALL produce one `[context-manager]` warning per consumer per session.
+- Events of nested tool calls (made through `ctx.executeTool()`, e.g. inside a `codemode` script) SHALL be dispatched like model-issued events, with the event, including `parentToolCallId`, passed to consumers unchanged.
 - On `session_shutdown`, the context manager SHALL close the stores it opened.
 
 #### Scenario: Composition order
@@ -101,14 +102,20 @@ The context manager SHALL subscribe once to each of `session_start`, `turn_start
 - **THEN** each hook has exactly one entry per registered consumer
 - **AND** a markdown write triggers exactly one reindex
 
+#### Scenario: Nested call inside a codemode script
+- **WHEN** a `codemode` script calls a tool while the context manager is active
+- **THEN** the registered `tool_call` and `tool_result` consumers each receive that nested event once
+- **AND** the event they receive carries the script call's id as `parentToolCallId`
+
 #### Scenario: Dispatch overhead budget
 - **WHEN** 1,000 synthetic `tool_call` and `tool_result` events are dispatched to five no-op consumers
 - **THEN** the p95 dispatch overhead per event is below 1 ms
 
 ### Requirement: kb-extension's hook bodies run exactly once per event, per session
 kb-extension SHALL bind, into its own session's slot of the process-global registry `Symbol.for("pi-dashboard.context-manager.v1")`:
-- its hook bodies (`tool_call`, `tool_result`, `turn_start`) as chassis consumers;
+- its hook bodies (`tool_call`, `tool_result`, `turn_start`) as chassis consumers, the `tool_result` body including the forge-command hint matcher;
 - its docs search, get and neighbours providers;
+- its git search and get providers;
 - its doctrine pinned and message providers.
 
 It SHALL bind them at its `session_start` and lazily on any event whose slot lacks them. The slot SHALL be keyed by the session's session-manager object (weakly held, so a disposed in-process session leaves nothing reachable) and deleted on `session_shutdown`.
@@ -140,34 +147,37 @@ On every event, kb-extension's own subscriptions SHALL call `resolveState` for t
 - **THEN** kb-extension runs its own hooks
 - **AND** `/context status` reports `docs` as `unavailable`
 
-### Requirement: The pinned tier is byte-stable on both prompt paths
-The context manager SHALL build the pinned block from its providers, prefixed by the sentinel line `── context-manager pinned ──`. When every provider returns an empty string, there SHALL be no block, no sentinel and no section.
-
-- When the system prompt is not forced, the context manager SHALL set the block as the `context` entry of `systemPromptOptions.sections`.
-- When an earlier handler has forced the system prompt, it SHALL return the prompt with the block, wrapped exactly as pi renders a section (`<context>` … `</context>`), inserted into the part after the last `</cwd>`: before the `── pi-dashboard session context ──` delimiter when present there, and appended otherwise. A forced prompt with no `</cwd>` SHALL receive the block appended.
-- The forced-path insertion SHALL be idempotent on the sentinel, searched only after the last `</cwd>`.
+### Requirement: The pinned tier is one byte-stable prompt section
+The context manager SHALL build the pinned block from its providers and SHALL deliver it only as the `context` entry of `systemPromptOptions.sections`, on runs of both `messageType` `user` and `custom`. It SHALL NOT return a `systemPrompt` value and SHALL NOT set `forceSystemPrompt`. When every provider returns an empty string, there SHALL be no block and the `context` entry SHALL be absent.
 
 For unchanged inputs (doctrine config, doctrine file bytes, legacy-seed verdict), the block SHALL be byte-identical on every turn.
 
-#### Scenario: Stable across turns
-- **WHEN** 100 consecutive turns run with unchanged inputs, on each prompt path
-- **THEN** the pinned block is byte-identical on all 100 turns
+When an earlier handler has already forced the system prompt, the context manager SHALL still set the section, SHALL NOT modify the forced text, and SHALL log `[context-manager]` once per session that the pinned section was not delivered.
 
-#### Scenario: Coexists with the bridge injector in either order
-- **WHEN** the real `spliceContextFragment` bridge injector runs before, or after, the context manager on a pi-0.87-shaped prompt with a `<cwd>` section and no `Current working directory:` line
-- **THEN** the final system prompt contains the pinned block exactly once and the bridge fragment exactly once
+#### Scenario: Stable across turns
+- **WHEN** 100 consecutive turns run with unchanged inputs
+- **THEN** the `context` section is byte-identical on all 100 turns
+
+#### Scenario: Coexists with the section-based injectors in either order
+- **WHEN** the real dashboard bridge injector (section `dashboard_session`) and kb-extension run before, or after, the context manager, with the context manager active
+- **THEN** the system prompt sent to the provider contains the `context` section once, the `dashboard_session` section once, and no `dox_doctrine` section
 - **AND** it is byte-identical across two turns in that order
 
-#### Scenario: Literals quoted in project files
-- **WHEN** a loaded AGENTS.md contains the sentinel line, the bridge delimiter and `<context>` verbatim
-- **THEN** the pinned block is still inserted exactly once, after the last `</cwd>`
+#### Scenario: Prompt forced by another extension
+- **WHEN** a third-party handler that runs before the context manager returns `systemPrompt`
+- **THEN** the context manager returns no `systemPrompt` and the forced text is unchanged
+- **AND** exactly one `[context-manager]` log line for the forced prompt appears in the session
+
+#### Scenario: Extension-triggered run
+- **WHEN** a run starts from `pi.sendMessage(..., { triggerTurn: true })` (`messageType: "custom"`)
+- **THEN** the `context` section is set, byte-identical to the previous user run's
 
 #### Scenario: Nothing to pin
 - **WHEN** `doctrine.inject` is `off` and no other provider contributes
-- **THEN** the system prompt contains no pinned block, no sentinel and no `context` section
+- **THEN** the system prompt contains no `context` section
 
 ### Requirement: Per-turn items are delivered in one message with two budgets
-The context manager SHALL emit at most one `before_agent_start` message per turn, with `customType` `context-manager`.
+The context manager SHALL emit at most one `before_agent_start` message per turn, with `customType` `context-manager`, and only on runs with `messageType` `user`. On a `custom` run it SHALL emit no message; items not yet delivered SHALL remain eligible for the next `user` run.
 - `onboarding` items (the doctrine first-contact and migration nudges) SHALL be delivered whole, with `display: true`, at most once per session each, where "already delivered" is determined from the session's entries so `/reload` and resume do not repeat them.
 - `cue` items SHALL be capped at 2 items and 600 characters, chosen by priority.
 - No message SHALL be emitted when there are no items.
@@ -187,6 +197,11 @@ The context manager SHALL emit at most one `before_agent_start` message per turn
 #### Scenario: Nothing to say
 - **WHEN** no item is contributed
 - **THEN** no message is emitted
+
+#### Scenario: Nudge waits for a user run
+- **WHEN** the first-contact nudge is pending and the first run of the session is extension-triggered (`messageType: "custom"`)
+- **THEN** that run carries no `context-manager` message
+- **AND** the next `user` run carries the nudge
 
 ### Requirement: The context manager's state is inspectable
 The context manager SHALL log its state and the reason or evidence once per session with a `[context-manager]` prefix. It SHALL provide a `/context status` command reporting:

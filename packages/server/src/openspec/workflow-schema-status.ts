@@ -22,7 +22,9 @@ import type {
 import semver from "semver";
 import YAML from "yaml";
 
-export const CURRENT_PATCH = 1;
+export const CURRENT_PATCH = 2;
+/** First patch whose schema carries the required `dependencies` artifact (see change: add-openspec-change-dependencies). */
+const DEPENDENCIES_PATCH = 2;
 export const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
 export const STAMP_KEY = "x-pi-dashboard";
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -282,6 +284,19 @@ async function listProjectSchemas(cwd: string): Promise<string[]> {
   return kept.filter((n): n is string => n !== null).sort();
 }
 
+/**
+ * Members of `affected` (sorted, as given) without a REGULAR `dependencies.yaml`: lstat only, so a symlink
+ * or a directory counts as undeclared and nothing is read. Bounded like the `.openspec.yaml` reads.
+ * See change: add-openspec-change-dependencies.
+ */
+async function listUndeclared(cwd: string, affected: string[]): Promise<string[]> {
+  const flags = await mapLimit(affected, CHANGE_READ_LIMIT, async (name) => {
+    const st = await lstatOrNull(path.join(changesDirOf(cwd), name, "dependencies.yaml"));
+    return !st?.isFile();
+  });
+  return affected.filter((_, i) => flags[i]);
+}
+
 // ── Status assembly ─────────────────────────────────────────────────────────
 
 export interface SchemaStatusOptions extends InspectOptions {
@@ -344,12 +359,17 @@ export async function computeSchemaStatus(cwd: string, opts: SchemaStatusOptions
       affectedChanges.push(name);
     }
   }
+  const undeclaredChanges = await listUndeclared(cwd, affectedChanges);
   const status: OpenSpecWorkflowSchemaStatus = {
     configured,
     generated: inspection.generated,
     missing,
     unpinnedChanges,
     affectedChanges,
+    undeclaredChanges,
+    // An update only "adds a required dependencies declaration" when the installed stamp predates it; an
+    // outdated stamp already at the dependencies patch is outdated for the CLI base alone.
+    raisesToDependencies: inspection.generated === "outdated" && (inspection.stamp?.patch ?? 0) < DEPENDENCIES_PATCH,
     projectSchemas,
   };
   const needsValidate = inspection.generated === "newer" || inspection.generated === "conflict";

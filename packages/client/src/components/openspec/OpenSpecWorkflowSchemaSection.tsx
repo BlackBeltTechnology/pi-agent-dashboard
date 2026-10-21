@@ -950,6 +950,25 @@ function AffectedChanges({ affected }: { affected: string[] }) {
   );
 }
 
+/**
+ * Patch 2 adds a required `dependencies` declaration: changes without one go
+ * back to planning until they declare. Only shown once the server reports who.
+ * See change: add-openspec-change-dependencies.
+ */
+function DependenciesImpact({ status }: { status: OpenSpecWorkflowSchemaStatus }) {
+  const undeclared = status.undeclaredChanges;
+  if (status.generated !== "outdated" || status.raisesToDependencies !== true || !undeclared || undeclared.length === 0) return null;
+  return (
+    <p className={FIELD_HELP} data-testid="workflow-schema-dependencies-impact">
+      {i18nT(
+        "openspec.schemaDependenciesImpact",
+        { undeclared: String(undeclared.length), affected: String(status.affectedChanges.length) },
+        "This update adds a required dependencies declaration: {undeclared} of {affected} affected changes have none and return to planning until they declare their dependencies.",
+      )}
+    </p>
+  );
+}
+
 function FilesBlock({ action, paths }: { action: WorkflowSchemaAction; paths: string[] }) {
   return (
     <div>
@@ -1069,6 +1088,7 @@ function WorkflowSchemaConfirmDialog({
           </SelectField>
         )}
         {action === "update" && <AffectedChanges affected={status.affectedChanges} />}
+        {action === "update" && <DependenciesImpact status={status} />}
         <FilesBlock action={action} paths={pathsFor(action, status)} />
       </div>
       <Dialog.Footer>

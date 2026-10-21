@@ -1,0 +1,164 @@
+/* Folder-card pill contrast board — layout + as-built replica + proposed recipes.
+   AS-BUILT replica: raw Tailwind v4 palette values (copied from
+   node_modules/tailwindcss/theme.css) so the board reproduces the shipped
+   paint exactly; alpha fills use color-mix(in oklab, …) like Tailwind v4.
+   PROPOSED: tokens only (index.css / themes.ts) — no raw colour literal. */
+
+/* ── as-built palette (replica only) ─────────────────────────────── */
+:root {
+  --tw-red-300: oklch(80.8% 0.114 19.571); --tw-red-400: oklch(70.4% 0.191 22.216); --tw-red-500: oklch(63.7% 0.237 25.331);
+  --tw-orange-400: oklch(75% 0.183 55.934);
+  --tw-amber-300: oklch(87.9% 0.169 91.605); --tw-amber-400: oklch(82.8% 0.189 84.429); --tw-amber-500: oklch(76.9% 0.188 70.08);
+  --tw-yellow-400: oklch(85.2% 0.199 91.936); --tw-yellow-500: oklch(79.5% 0.184 86.047);
+  --tw-green-400: oklch(79.2% 0.209 151.711); --tw-green-500: oklch(72.3% 0.219 149.579);
+  --tw-emerald-400: oklch(76.5% 0.177 163.223);
+  --tw-teal-400: oklch(77.7% 0.152 181.912); --tw-teal-500: oklch(70.4% 0.14 182.503);
+  --tw-cyan-400: oklch(78.9% 0.154 211.53); --tw-cyan-500: oklch(71.5% 0.143 215.221);
+  --tw-blue-400: oklch(70.7% 0.165 254.624); --tw-blue-500: oklch(62.3% 0.214 259.815);
+  --tw-indigo-400: oklch(67.3% 0.182 276.935); --tw-indigo-500: oklch(58.5% 0.233 277.117);
+  --tw-purple-400: oklch(71.4% 0.203 305.504); --tw-purple-500: oklch(62.7% 0.265 303.9);
+}
+.a { --c: currentColor; }
+/* utility-ish helpers for the replica: text colour, tinted fill, tinted border */
+[data-tx] { color: var(--tx); }
+[data-fill] { background: color-mix(in oklab, var(--fill) var(--fa, 10%), transparent); }
+[data-bd] { border: 1px solid color-mix(in oklab, var(--bd) var(--ba, 40%), transparent); }
+
+/* ── board layout ─────────────────────────────────────────────────── */
+.rows { display: grid; gap: 14px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border: 1px solid var(--border-secondary); border-radius: 10px; overflow: hidden; background: var(--bg-primary); }
+.row > .rh { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; padding: 8px 12px; border-bottom: 1px solid var(--border-secondary); background: var(--bg-secondary); }
+.row > .rh h3 { margin: 0; font-size: 13px; color: var(--text-primary); }
+.row > .rh .note { font-size: 12px; color: var(--text-secondary); }
+.row > .rh .note code { font-size: 11px; }
+.row .col { padding: 10px 12px 12px; }
+.row .col > .tag { display: flex; gap: 6px; align-items: center; }
+.ratios { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; font: 11px/1.4 "SF Mono", Menlo, monospace; color: var(--text-secondary); }
+.ratios li.bad { color: var(--severity-error-fg); font-weight: 600; }
+body[data-view="asbuilt"] .row .col.proposed, body[data-view="proposed"] .row .col.asbuilt { display: none; }
+body[data-view="asbuilt"] .row, body[data-view="proposed"] .row { grid-template-columns: 1fr; }
+.decision { border: 1px dashed var(--border-primary); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--text-secondary); background: var(--bg-secondary); }
+.decision h3 { margin: 0 0 6px; font-size: 13px; color: var(--text-primary); }
+.decision ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.decision b { color: var(--text-primary); }
+
+/* ── shared app chrome (replica of the folder card) ───────────────── */
+.frame { background: var(--bg-primary); padding: 8px; border-radius: 8px; }
+.card { width: 100%; max-width: 440px; border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); padding: 8px 10px 10px; font-size: 13px; color: var(--text-primary); }
+.card .hd { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.card .hd .chev { color: var(--text-secondary); font-size: 18px; }
+.card .hd .path { color: var(--text-secondary); font-size: 12px; display: inline-flex; gap: 4px; align-items: center; }
+.card .hd .name { font-weight: 700; font-size: 15px; text-decoration: underline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.card .hd .tool { color: var(--text-secondary); font-size: 18px; }
+.card .git { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.i { width: 1em; height: 1em; }
+
+/* ── AS-BUILT replica recipes (mirror the Tailwind classes 1:1) ───── */
+/* FolderActionBanner region: mt-1 flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 + severity triple */
+.ab-banner { margin-top: 4px; display: flex; width: 100%; align-items: center; gap: 8px; border-radius: 8px; border: 1px solid; padding: 6px 10px; }
+.sev-warning { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
+.sev-info { background: var(--severity-info-bg); color: var(--severity-info-fg); border-color: var(--severity-info-border); }
+.sev-error { background: var(--severity-error-bg); color: var(--severity-error-fg); border-color: var(--severity-error-border); }
+.sev-success { background: var(--severity-success-bg); color: var(--severity-success-fg); border-color: var(--severity-success-border); }
+/* WorktreeInitButton: text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 */
+.ab-initbtn { font-size: 10px; padding: 2px 6px; border-radius: 4px; --tx: var(--tw-amber-400); --bd: var(--tw-amber-500); --ba: 40%; --fill: var(--tw-amber-500); --fa: 5%; display: inline-flex; align-items: center; gap: 2px; }
+.ab-initbtn .i { width: 12px; height: 12px; }
+/* WorktreeInitChip: text-[11.5px] rounded-lg px-2.5 py-1.5 border … */
+.ab-chip { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; border-radius: 8px; padding: 6px 10px; }
+.ab-chip .mut { color: var(--text-muted); }
+.ab-chip .mono { font-family: "SF Mono", Menlo, monospace; font-size: 10.5px; }
+.ab-spin { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in oklab, var(--tw-amber-400) 25%, transparent); border-top-color: var(--tw-amber-400); flex: none; }
+.ab-bar { height: 3px; border-radius: 4px; margin-top: 6px; background: color-mix(in oklab, var(--tw-amber-500) 15%, transparent); overflow: hidden; }
+.ab-bar i { display: block; height: 100%; width: 40%; background: linear-gradient(90deg, transparent, var(--tw-amber-400), transparent); }
+.ab-retry { margin-left: 8px; font-size: 11px; padding: 2px 8px; border-radius: 6px; --tx: var(--tw-amber-400); --bd: var(--tw-amber-500); --ba: 40%; --fill: var(--tw-amber-500); --fa: 6%; }
+.ghost { font: 11px "SF Mono", Menlo, monospace; color: var(--text-muted); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* compact banner chip: rounded-full border px-2 py-0.5 text-[11px] font-medium + severity triple (already tokens) */
+.chip-c { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; border: 1px solid; padding: 2px 8px; font-size: 11px; font-weight: 500; margin-top: 4px; }
+
+/* SlotPill (dashboard-plugin-runtime) */
+.slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; margin-top: 14px; }
+.sp { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 10px 10px 6px; border-radius: 11px; border: 1px solid var(--border-subtle); background: var(--bg-secondary); box-shadow: 0 1px 2px var(--shadow-card); }
+.sp .lg { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-subtle); background: var(--bg-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .025em; text-transform: uppercase; color: var(--text-secondary); line-height: 1; }
+.sp .gl { flex: none; width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.sp .val { font-size: 13px; font-weight: 800; color: var(--text-primary); display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; line-height: 1.25; }
+.sp .unit { font-size: 10px; font-weight: 600; color: var(--text-tertiary); }
+.sp .mk { font-size: 10px; font-weight: 800; }
+.ab-gl { --tx: var(--h4); --fill: var(--h5); --fa: 10%; }
+.h-blue { --h4: var(--tw-blue-400); --h5: var(--tw-blue-500); }
+.h-indigo { --h4: var(--tw-indigo-400); --h5: var(--tw-indigo-500); }
+.h-cyan { --h4: var(--tw-cyan-400); --h5: var(--tw-cyan-500); }
+.h-teal { --h4: var(--tw-teal-400); --h5: var(--tw-teal-500); }
+.h-purple { --h4: var(--tw-purple-400); --h5: var(--tw-purple-500); }
+.h-red { --h4: var(--tw-red-400); --h5: var(--tw-red-500); }
+
+/* WorktreeInitStack (fixed bottom-right panel, ≥2 concurrent runs) */
+.stackp { width: 360px; max-width: 100%; border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); overflow: hidden; box-shadow: 0 8px 24px var(--shadow-card); }
+.stackp .sh { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border-subtle); }
+.stackp .sh b { font-size: 12.5px; color: var(--text-primary); }
+.stackp .sh .r { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.stackp .sr { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; }
+.stackp .sr:last-child { border-bottom: 0; }
+.stackp .sr .nm { font-weight: 600; color: var(--text-primary); min-width: 74px; }
+.stackp .sr .fl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stackp .sr .mut { color: var(--text-muted); font-size: 11px; }
+.stackp .sr .mono { font-family: "SF Mono", Menlo, monospace; font-size: 10.5px; }
+.col.proposed .stackp .sr .mono { font-size: 11px; }
+.col.proposed .sp .unit, .col.proposed .sp .mk { font-size: 11px; }
+
+/* Session-card activity rows + toggle chips */
+.sc { width: 100%; max-width: 440px; border-radius: 12px; border: 1px solid var(--border-secondary); background: var(--bg-secondary); padding: 8px 10px; display: grid; gap: 6px; }
+.act { font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.act .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.act .sec { color: var(--text-secondary); }
+.act .mut { color: var(--text-muted); }
+.letters { display: inline-flex; gap: 4px; }
+.letters button { font: 700 10px "SF Mono", Menlo, monospace; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ab-tchip { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 2px; }
+.ab-tchip.round { border-radius: 999px; padding: 2px 8px; color: var(--text-muted); }
+.ab-tchip[aria-pressed="true"] { --tx: var(--tw-blue-400); --bd: var(--tw-blue-500); --ba: 50%; --fill: var(--tw-blue-500); --fa: 10%; }
+.ab-abort { font-size: 10px; padding: 2px 6px; border-radius: 4px; --tx: var(--tw-red-400); --bd: var(--tw-red-500); --ba: 40%; display: inline-flex; align-items: center; gap: 2px; }
+.ab-wsbtn { font-size: 12px; padding: 4px 8px; border-radius: 4px; --tx: var(--tw-blue-500); --bd: var(--tw-blue-500); --ba: 40%; --fill: var(--tw-blue-500); --fa: 5%; display: inline-flex; align-items: center; gap: 2px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+/* ── PROPOSED recipes (tokens only) ───────────────────────────────── */
+/* P1 banner: message + border-current action, the same shape the shipped
+   "Not a pi project yet" rung already uses. Every descendant inherits the
+   severity -fg, so contrast is the token's own guarantee (≥ 4.5:1). */
+.fab { margin-top: 4px; display: flex; width: 100%; align-items: center; gap: 8px; border-radius: 8px; border: 1px solid; padding: 6px 10px; }
+.fab > .i { font-size: 15px; }
+.fab .msg { flex: 1; min-width: 0; font-size: 12px; font-weight: 500; }
+.fab .msg small { display: block; font-size: 11px; font-weight: 400; font-family: "SF Mono", Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fab .act { flex: none; min-height: 32px; border-radius: 4px; border: 1px solid currentColor; padding: 4px 8px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.fab .act:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.fab .act:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.fab .spin { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color: currentColor; flex: none; }
+.spin2 { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color: currentColor; flex: none; }
+.fab .bar { height: 3px; border-radius: 4px; margin-top: 4px; background: color-mix(in srgb, currentColor 18%, transparent); overflow: hidden; }
+.fab .bar i { display: block; height: 100%; width: 40%; background: currentColor; border-radius: 4px; }
+.fab details { font-size: 11px; }
+.fab details summary { cursor: pointer; font-weight: 600; min-height: 24px; display: inline-flex; align-items: center; }
+
+/* P2 coloured text / icon on a neutral surface: --accent-<hue>-text (AA 4.5:1 on every text backdrop) */
+.t-blue { color: var(--accent-blue-text); } .t-green { color: var(--accent-green-text); } .t-yellow { color: var(--accent-yellow-text); }
+.t-orange { color: var(--accent-orange-text); } .t-red { color: var(--accent-red-text); } .t-purple { color: var(--accent-purple-text); }
+/* P3 SlotPill glyph chip — option A: hue token text on hue tint */
+.pg-blue { color: var(--accent-blue-text); background: var(--tint-blue-bg); }
+.pg-purple { color: var(--accent-purple-text); background: var(--tint-purple-bg); }
+.pg-green { color: var(--accent-green-text); background: var(--tint-green-bg); }
+.pg-red { color: var(--accent-red-text); background: var(--tint-red-bg); }
+/* option B: neutral glyph; hue only on the error state */
+.pg-neutral { color: var(--text-secondary); background: var(--bg-tertiary); }
+/* P4 toggle chip (aria-pressed) = theme-system selected-chip recipe (--accent-soft + --text-primary, --accent border) */
+.tchip { font-size: 12px; padding: 2px 8px; min-height: 24px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 2px; }
+.tchip.round { border-radius: 999px; }
+.tchip[aria-pressed="true"] { color: var(--text-primary); background: var(--accent-soft); border-color: var(--accent); }
+.tchip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* P5 tinted action (tint-action-*) */
+.ta { font-size: 12px; padding: 4px 8px; min-height: 28px; border-radius: 4px; border: 1px solid; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.ta.blue { color: var(--tint-blue-fg); background: var(--tint-blue-bg); border-color: var(--tint-blue-border); }
+.ta.red { color: var(--tint-red-fg); background: var(--tint-red-bg); border-color: var(--tint-red-border); }
+.ta.neutral { color: var(--text-primary); background: var(--bg-tertiary); border-color: var(--border-secondary); }
+/* P6 standalone status chip (outside a banner): severity pill (fg on own bg) */
+.schip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; border-radius: 8px; border: 1px solid; padding: 4px 10px; }
+.schip .sub { font-size: 11px; opacity: 1; }

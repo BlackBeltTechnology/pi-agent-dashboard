@@ -5,3 +5,5 @@ Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`
 `OpenSpecChange.error?: {code, message}` (per-change CLI error from `status --all`; ≤500 chars one line / ≤64; `artifacts: []`). See change: use-openspec-status-all.
 
 `OpenSpecData.workflowSchema?: OpenSpecWorkflowSchemaStatus` (`configured`, `generated: WorkflowSchemaGenerated`, `missing`, `unpinnedChanges`, `affectedChanges`, `projectSchemas` = project-authored schema dir names, excl. managed/staging/backup); successful-poll payloads only. `WorkflowSchemaGenerated` = `none|current|outdated|newer|incompatible|conflict|unmanaged`. See change: add-pi-spec-driven-schema.
+
+`OpenSpecChange.dependencies?: ChangeDependencies` (`hasFile`, `blockedBy: DependencyEdge[]`, `blocks`, `related`, `overlaps`, `wave: number|null`, `issues: DependencyIssue[]`); `DependencyEdge {change, source declared|inferred-text|inferred-capability, reason?, state open|satisfied}`; `DependencyIssueCode`; `OpenSpecWorkflowSchemaStatus.undeclaredChanges?` (server fills it once the worker-safe status module lands). See change: add-openspec-change-dependencies.

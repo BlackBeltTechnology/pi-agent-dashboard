@@ -29,15 +29,15 @@ const phaseLabels: Record<OpenSpecPhase, string> = {
 };
 
 const phaseColors: Record<OpenSpecPhase, string> = {
-  explore: "text-blue-400",
-  new: "text-purple-400",
-  continue: "text-cyan-400",
-  ff: "text-cyan-400",
-  apply: "text-yellow-400",
-  verify: "text-green-400",
-  archive: "text-emerald-400",
-  "sync-specs": "text-teal-400",
-  onboard: "text-indigo-400",
+  explore: "text-[var(--accent-blue-text)]",
+  new: "text-[var(--accent-purple-text)]",
+  continue: "text-[var(--accent-blue-text)]",
+  ff: "text-[var(--accent-blue-text)]",
+  apply: "text-[var(--accent-yellow-text)]",
+  verify: "text-[var(--accent-green-text)]",
+  archive: "text-[var(--accent-green-text)]",
+  "sync-specs": "text-[var(--accent-purple-text)]",
+  onboard: "text-[var(--accent-purple-text)]",
 };
 
 export function OpenSpecActivityBadge({
@@ -55,7 +55,7 @@ export function OpenSpecActivityBadge({
   const label = phase
     ? t(`openspec.phase.${phaseKeys[phase] ?? phase}`, undefined, phaseLabels[phase] ?? phase)
     : "OpenSpec";
-  const color = phase ? (phaseColors[phase] ?? "text-[var(--text-tertiary)]") : "text-[var(--text-tertiary)]";
+  const color = phase ? (phaseColors[phase] ?? "text-[var(--text-secondary)]") : "text-[var(--text-secondary)]";
   const hasProgress = totalTasks != null && totalTasks > 0;
 
   return (
@@ -65,7 +65,7 @@ export function OpenSpecActivityBadge({
         {label}
         {changeName && <span className="text-[var(--text-secondary)]"> · {changeName}</span>}
         {hasProgress && (
-          <span className="text-[var(--text-muted)]"> ({completedTasks}/{totalTasks})</span>
+          <span className="text-[var(--text-secondary)]"> ({completedTasks}/{totalTasks})</span>
         )}
       </span>
     </div>
