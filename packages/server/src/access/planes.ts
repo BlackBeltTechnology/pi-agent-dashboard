@@ -1,5 +1,5 @@
 /**
- * The four access planes this change registers (design D5; tasks 5.2-5.4).
+ * The access planes (design D5; tasks 5.2-5.4; plus `preview-egress`, see the end of the file).
  *
  * Exactly the planes `add-access-grants-and-review` made grantable, each
  * delegating `grant` to THAT change's store, so there is nothing new to revoke
@@ -16,16 +16,22 @@
  *
  * See change: add-access-grant-dialog.
  */
+import dns from "node:dns";
 import { isIP } from "node:net";
 import path from "node:path";
 import type {
   DeferredGrantPromptCopy,
   HeldGrantPromptCopy,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import {
+  canonicalHttpsOrigin,
+  isUngrantableEgressOrigin,
+} from "@blackbelt-technology/pi-dashboard-shared/preview-egress.js";
 import { normalizeGrantSubject } from "./access-grants.js";
 import type { DeferredAccessPlane, HeldAccessPlane } from "./access-plane.js";
 import { isUngrantableSubject } from "./forbidden-subjects.js";
 import { grantNamedPathSubject } from "./named-grant.js";
+import { addPreviewEgressGrant } from "./preview-egress-store.js";
 
 /** Store writers the planes delegate to. */
 export interface PlaneDeps {
@@ -198,6 +204,105 @@ export function createCorsPlane(deps: Pick<PlaneDeps, "readRawCors" | "writeConf
       if (origins.includes(req.subject)) return { ok: true, store };
       const result = deps.writeConfigPartial({ cors: { ...rawCors, allowedOrigins: [...origins, req.subject] } });
       return result.success ? { ok: true, store } : { ok: false, reason: "write-failed", error: result.error };
+    },
+  };
+}
+
+/** Grant-time DNS budget (design D7). */
+const EGRESS_DNS_TIMEOUT_MS = 3000;
+/** The dialog text when a name cannot be resolved in time (decision C3). */
+const EGRESS_UNVERIFIABLE_MESSAGE = "Could not verify this origin; try again";
+
+/** Resolve a host to its addresses; throws on failure. Injectable so tests need no network. */
+type EgressResolver = (host: string) => Promise<readonly string[]>;
+
+const defaultEgressResolver: EgressResolver = async (host) =>
+  (await dns.promises.lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+
+/** Does this resolved address fall in loopback / private / link-local / shared / ULA space? */
+function isPrivateAddress(address: string): boolean {
+  const literal = isIP(address) === 6 ? `https://[${address}]` : `https://${address}`;
+  return isIP(address) === 0 || isUngrantableEgressOrigin(literal);
+}
+
+/**
+ * Resolve `origin`'s host within the 3 s budget and classify. `"ok"` = every
+ * address public; `"private"` = at least one is not; `"unverifiable"` = it failed,
+ * timed out or resolved to nothing.
+ */
+async function verifyEgressHost(
+  origin: string,
+  resolve: EgressResolver,
+  timeoutMs: number,
+): Promise<"ok" | "private" | "unverifiable"> {
+  const host = new URL(origin).hostname;
+  // A public IP literal passed `subjectOf` (private ones are ungrantable there): nothing to resolve.
+  if (isIP(host.replace(/^\[|\]$/g, "")) !== 0) return "ok";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const addresses = await Promise.race([
+      resolve(host),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("dns timeout")), timeoutMs);
+      }),
+    ]);
+    if (addresses.length === 0) return "unverifiable";
+    return addresses.some(isPrivateAddress) ? "private" : "ok";
+  } catch {
+    return "unverifiable";
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export interface PreviewEgressPlaneDeps {
+  /** The dashboard's own origins (tunnels, public base URLs, …): ungrantable. */
+  ownOrigins?: () => readonly string[];
+  resolve?: EgressResolver;
+  dnsTimeoutMs?: number;
+  /** Persist the grant (default: the locked `preview-egress.json` store). */
+  addGrant?: (project: string, origin: string) => Promise<unknown>;
+}
+
+/**
+ * Preview egress: an external https origin a restricted live preview may load, granted
+ * per PROJECT. Deferred (the preview's own request is never held) and never YOLO-eligible.
+ * The subject is the canonical https origin; an ungrantable one (private / loopback /
+ * own / single-label / …) is not promptable. The project key rides in the request's
+ * `origin` (the audit origin of the denial). `grant` re-checks ungrantability, resolves
+ * the host (3 s) and refuses a private or unverifiable one before writing.
+ *
+ * See change: improve-canvas-html-and-url-ux (design D7).
+ */
+export function createPreviewEgressPlane(deps: PreviewEgressPlaneDeps = {}): DeferredAccessPlane {
+  const store = "preview-egress.json";
+  const own = () => deps.ownOrigins?.() ?? [];
+  const resolve = deps.resolve ?? defaultEgressResolver;
+  const addGrant = deps.addGrant ?? addPreviewEgressGrant;
+  const subjectOf = (raw: string): string | null => {
+    const canon = raw ? canonicalHttpsOrigin(raw) : null;
+    return canon && !isUngrantableEgressOrigin(canon, own()) ? canon : null;
+  };
+  return {
+    id: "preview-egress",
+    mode: "deferred",
+    store,
+    subjectOf,
+    keyOf: identity,
+    describe: () => deferredCopy(store),
+    async grant(req) {
+      if (req.subject !== req.deniedSubject) return { ok: false, reason: "unnamed" };
+      if (subjectOf(req.subject) !== req.subject) return { ok: false, reason: "forbidden" };
+      if (!path.isAbsolute(req.origin)) return { ok: false, reason: "invalid-subject" };
+      const verdict = await verifyEgressHost(req.subject, resolve, deps.dnsTimeoutMs ?? EGRESS_DNS_TIMEOUT_MS);
+      if (verdict === "private") return { ok: false, reason: "forbidden" };
+      if (verdict === "unverifiable") return { ok: false, reason: "unverifiable", error: EGRESS_UNVERIFIABLE_MESSAGE };
+      try {
+        await addGrant(req.origin, req.subject);
+      } catch (err) {
+        return { ok: false, reason: "write-failed", error: String((err as Error)?.message ?? err) };
+      }
+      return { ok: true, store };
     },
   };
 }

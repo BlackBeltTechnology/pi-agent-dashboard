@@ -142,6 +142,18 @@ async function startLiveEntry(httpPort: number, upstreamPort: number): Promise<s
   return json.data.id;
 }
 
+/** Mint a capability path for a live entry (genuinely-local test caller). */
+async function mintLivePath(httpPort: number, id: string): Promise<string> {
+  const res = await fetch(`http://127.0.0.1:${httpPort}/api/live-server/${id}/capability`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ egress: "open", scripts: true }),
+  });
+  const json = (await res.json()) as { path?: string };
+  if (!json.path) throw new Error(`capability mint failed: HTTP ${res.status}`);
+  return json.path;
+}
+
 // ─── #E4 — the gate runs first, on every path ───────────────────────────────
 describe("#E4 an untrusted Origin is refused on every WS path", () => {
   it("403s /ws, /ws/terminal/*, /live/*, /ws/bridge and an unrouted path", async () => {
@@ -250,10 +262,12 @@ describe("#E7 the opaque `Origin: null`", () => {
     expect(isStatus(await dial(`${base}/ws`, { origin: "null" }), 403)).toBe(true);
     expect(isStatus(await dial(`${base}/ws/terminal/term-x`, { origin: "null" }), 403)).toBe(true);
 
-    // No live entry exists, so the proxy destroys the socket — but the GATE
-    // must never be what refuses it.
-    const live = await dial(`${base}/live/abcd1234`, { origin: "null" });
-    expect(isStatus(live, 403)).toBe(false);
+    // Without a capability the opaque origin is refused on `live` too (D10)...
+    const bare = await dial(`${base}/live/abcd1234`, { origin: "null" });
+    expect(isStatus(bare, 403)).toBe(true);
+    // ...a capability-shaped path whose token is not valid is refused alike.
+    const forged = await dial(`${base}/live/abcd1234/~c/${"A".repeat(43)}/`, { origin: "null" });
+    expect(isStatus(forged, 403)).toBe(true);
   }, 30000);
 });
 
@@ -379,7 +393,7 @@ describe("#X2 malformed Origin values", () => {
 
 // ─── #F4 — live preview keeps working through the proxy ─────────────────────
 describe("#F4 the sandboxed live-preview iframe still reaches its dev server", () => {
-  it("proxies an `Origin: null` /live/<id> dial and strips the header upstream", async () => {
+  it("proxies a capability-carrying `Origin: null` /live/<id> dial and strips the header upstream", async () => {
     const seen: Array<string | undefined> = [];
     const upstream = await new Promise<WebSocketServer>((resolve) => {
       const wss: WebSocketServer = new WebSocketServer({ port: 0, host: "127.0.0.1" }, () =>
@@ -398,7 +412,8 @@ describe("#F4 the sandboxed live-preview iframe still reaches its dev server", (
     handle = await createTestServer();
     try {
       const id = await startLiveEntry(handle.httpPort, upstreamPort);
-      const r = await dial(`ws://127.0.0.1:${handle.httpPort}/live/${id}/`, { origin: "null" });
+      const capPath = await mintLivePath(handle.httpPort, id);
+      const r = await dial(`ws://127.0.0.1:${handle.httpPort}${capPath}`, { origin: "null" });
 
       expect(r.kind).toBe("open");
       expect(seen).toHaveLength(1);

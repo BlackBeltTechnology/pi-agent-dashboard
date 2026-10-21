@@ -101,3 +101,22 @@ describe("validateCanvasDeclareShape (cwd-free ack)", () => {
     ).toBeNull();
   });
 });
+
+describe("loopback url declare routes to the confirm chip (E9)", () => {
+  it("keeps the path and the port, produces no candidate", () => {
+    const r = normalizeCanvasDeclare(
+      { target: { kind: "url", url: "http://127.0.0.1:5173/app?x=1" }, title: "Dev" },
+      "/p",
+    );
+    expect(r).toEqual({ ok: true, chip: { kind: "server", port: 5173, title: "Dev", path: "/app?x=1" } });
+    expect("candidate" in r).toBe(false);
+  });
+  it("omits path for a root url and infers the default port", () => {
+    const r = normalizeCanvasDeclare({ target: { kind: "url", url: "http://localhost/" } }, "/p");
+    expect(r).toEqual({ ok: true, chip: { kind: "server", port: 80, title: undefined } });
+  });
+  it("a LAN/public url is still a candidate", () => {
+    const r = normalizeCanvasDeclare({ target: { kind: "url", url: "http://192.168.1.5:5173/" } }, "/p");
+    expect(r).toMatchObject({ ok: true, candidate: { target: { kind: "url" } } });
+  });
+});

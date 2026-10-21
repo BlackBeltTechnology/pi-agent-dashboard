@@ -46,3 +46,13 @@ export function previewFetchFor(provenance: Provenance | null): { fetch: Preview
 export function usePreviewFetch(): { fetch: PreviewFetch; optedOut: boolean } {
   return previewFetchFor(useContext(ProvenanceContext));
 }
+
+/**
+ * Who opened the preview beneath, for the live-preview EGRESS policy (change:
+ * improve-canvas-html-and-url-ux, D4): `operator` only when a provider declares
+ * `autoOpened: false`; every other surface (agent auto-open, agent preview card,
+ * no provider at all) is `agent`, which previews restricted. Fails closed.
+ */
+export function usePreviewOpener(): "operator" | "agent" {
+  return useContext(ProvenanceContext)?.autoOpened === false ? "operator" : "agent";
+}

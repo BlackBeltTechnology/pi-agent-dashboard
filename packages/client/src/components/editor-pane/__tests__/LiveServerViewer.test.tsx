@@ -103,13 +103,17 @@ describe("LiveServerViewer", () => {
     expect(iframe.getAttribute("src")).not.toContain("report.html");
   });
 
-  it("header Open ↗ anchor targets the system browser with the deep proxied path", async () => {
+  it("header Open ↗ on an agent preset opens a freshly minted capability URL with the deep path", async () => {
+    // A preset target is never opened on its own loopback origin (the dashboard trusts loopback
+    // origins); a new tab has no dashboard credential either, so it gets its own capability.
+    const opened = { location: { href: "" }, opener: {}, close: vi.fn() };
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(opened as unknown as Window);
     render(<LiveServerViewer path="live:http://localhost:5173/report.html?x=1" />);
     await screen.findByTestId("live-iframe");
-    const open = screen.getByText("Open").closest("a");
-    expect(open?.getAttribute("target")).toBe("_blank");
-    // A new tab has no dashboard credential for /live/ either: it opens the capability path too.
-    expect(open?.getAttribute("href")).toBe(`${CAP}report.html?x=1`);
+    fireEvent.click(screen.getByTestId("live-open"));
+    await waitFor(() => expect(opened.location.href).toBe(`${CAP}report.html?x=1`));
+    expect(openSpy).toHaveBeenCalled();
+    expect(opened.opener).toBeNull();
   });
 
   it("live:preview preset still shows the picker", () => {
@@ -174,6 +178,9 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
       if (url.includes("/api/live-server/list")) {
         return Promise.resolve({ json: () => Promise.resolve({ success: true, data: { servers: [] } }) });
       }
+      if (url.includes("/api/live-server/policy")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ exposure: "local-only", epoch: 1, promptingEnabled: false }) });
+      }
       if (url.endsWith("/capability")) {
         if (failMint) return Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ success: false, error: "tier too low" }) });
         mints.push(`${init?.method} ${url}`);
@@ -208,11 +215,12 @@ describe("LiveServerViewer — capability mint and re-mint", () => {
     await flush();
     expect(mints).toEqual(["POST /api/live-server/abc12345/capability"]);
     expect(src()).toBe("/live/abc12345/~c/tok_1_padpadpadpadpadpadpad/");
+    // An undeclared surface (no PreviewProvenance) is the agent → restricted: no popups/downloads.
     const sandbox = (screen.getByTestId("live-iframe").getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean).sort();
-    expect(sandbox).toEqual(["allow-downloads", "allow-forms", "allow-popups", "allow-scripts"]);
+    expect(sandbox).toEqual(["allow-forms", "allow-scripts"]);
     // The visible header never shows the token.
-    expect(screen.getByText("/live/abc12345/")).toBeTruthy();
     expect(document.body.textContent).not.toContain("tok_1");
+    expect((document.body.innerHTML.match(/tok_1/g) ?? []).length).toBe(1); // only the frame src
   });
 
   it("re-mints 10 minutes before expiresAt: nothing at 11:49:59, a new mint + new src at 11:50:00", async () => {
