@@ -37,6 +37,44 @@ export function effectiveMtimeOr(paths: string[]): number | undefined {
   return max;
 }
 
+/** Deepest nesting of capability ids under `specs/` that is probed (matches the dependency scanner's walk). */
+export const MAX_SPEC_DEPTH = 6;
+
+/**
+ * Every directory under `specsDir` plus its `spec.md`, nested capability ids included, so an in-place edit of
+ * `specs/area/feature/spec.md` moves the probed mtime (a parent directory's mtime does not advance for it).
+ * Errors (missing dir, permissions) leave the fan-out shorter, never throw.
+ */
+function specProbePathsSync(specsDir: string, depth: number): string[] {
+  const out: string[] = [];
+  try {
+    for (const e of fs.readdirSync(specsDir, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const capDir = path.join(specsDir, e.name);
+      out.push(capDir, path.join(capDir, "spec.md"));
+      if (depth + 1 < MAX_SPEC_DEPTH) out.push(...specProbePathsSync(capDir, depth + 1));
+    }
+  } catch {
+    // ENOENT, permission denied, etc.
+  }
+  return out;
+}
+
+async function specProbePaths(specsDir: string, depth: number): Promise<string[]> {
+  const out: string[] = [];
+  try {
+    for (const e of await fs.promises.readdir(specsDir, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const capDir = path.join(specsDir, e.name);
+      out.push(capDir, path.join(capDir, "spec.md"));
+      if (depth + 1 < MAX_SPEC_DEPTH) out.push(...(await specProbePaths(capDir, depth + 1)));
+    }
+  } catch {
+    // no specs/ yet — fan-out stays empty
+  }
+  return out;
+}
+
 /**
  * File set tracked by the per-change effective-mtime computation.
  *
@@ -60,20 +98,7 @@ export function perChangeArtifactPaths(changesRoot: string, name: string): strin
     path.join(dir, "design.md"),
   ];
   const specsDir = path.join(dir, "specs");
-  const specsExtras: string[] = [specsDir];
-  try {
-    const entries = fs.readdirSync(specsDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        const capDir = path.join(specsDir, e.name);
-        specsExtras.push(capDir);
-        specsExtras.push(path.join(capDir, "spec.md"));
-      }
-    }
-  } catch {
-    // ENOENT, permission denied, etc. — leave specsExtras with just specsDir
-    // (its own statMtimeOr will return undefined and be excluded from max).
-  }
+  const specsExtras: string[] = [specsDir, ...specProbePathsSync(specsDir, 0)];
   return [...base, ...specsExtras];
 }
 
@@ -84,10 +109,20 @@ export interface ProbeRequest {
   openspecDir: string;
   /** Per-change extras from the last successful `--all` result; `null` before the first one (legacy set only). */
   extras: Record<string, TrackedExtras> | null;
+  /**
+   * Capability ids touched by an active delta in the previous build; the probe
+   * stats `specs/<cap>/` and `specs/<cap>/spec.md` for each (L2 reads main-spec
+   * existence). `null`/absent before the first build: the cwd-level stamp is
+   * then incomplete and the gate does not skip. See change: add-openspec-change-dependencies.
+   */
+  capabilityIds?: readonly string[] | null;
 }
 
 export interface ProbeResponse {
-  /** Max mtime over the cwd-level set (`openspec/`, `changes/`, `config.yaml`, everything under `schemas/`). */
+  /**
+   * Max mtime over the cwd-level set (`openspec/`, `changes/`, `changes/archive/`, `config.yaml`,
+   * `specs/`, the main-spec paths of `capabilityIds`, everything under `schemas/`).
+   */
   cwdMtime: number | undefined;
   /** Enumerated change directories (excludes `archive/` and dot-dirs), sorted by name. */
   names: string[];
@@ -157,21 +192,27 @@ async function legacyChangePaths(changeDir: string): Promise<string[]> {
   const base = [
     changeDir,
     path.join(changeDir, ".openspec.yaml"),
+    path.join(changeDir, "dependencies.yaml"),
     path.join(changeDir, "tasks.md"),
     path.join(changeDir, "proposal.md"),
     path.join(changeDir, "design.md"),
   ];
   const specsDir = path.join(changeDir, "specs");
-  const out = [...base, specsDir];
-  try {
-    for (const e of await fs.promises.readdir(specsDir, { withFileTypes: true })) {
-      if (e.isDirectory()) {
-        const capDir = path.join(specsDir, e.name);
-        out.push(capDir, path.join(capDir, "spec.md"));
-      }
-    }
-  } catch {
-    // no specs/ yet — fan-out stays empty
+  const out = [...base, specsDir, ...(await specProbePaths(specsDir, 0))];
+  return out;
+}
+
+/**
+ * Cwd-level dependency inputs beyond the legacy set: `changes/archive/` (an
+ * archive satisfies edges), `openspec/specs/` and, for each capability id,
+ * every directory prefix plus `spec.md` (directory mtimes catch deletions).
+ */
+function dependencyCwdPaths(openspecDir: string, capabilityIds: readonly string[] | null | undefined): string[] {
+  const out = [path.join(openspecDir, "changes", "archive"), path.join(openspecDir, "specs")];
+  for (const cap of capabilityIds ?? []) {
+    const parts = cap.split("/");
+    for (let i = 1; i <= parts.length; i++) out.push(path.join(openspecDir, "specs", ...parts.slice(0, i)));
+    out.push(path.join(openspecDir, "specs", ...parts, "spec.md"));
   }
   return out;
 }
@@ -189,7 +230,12 @@ export async function probeTrackedPaths(req: ProbeRequest): Promise<ProbeRespons
 
   const cwdPaths = [openspecDir, changesDir, path.join(openspecDir, "config.yaml")];
   const schemaTree = await walk(path.join(openspecDir, "schemas"), true);
-  const cwdMtime = await maxMtime([...cwdPaths, path.join(openspecDir, "schemas"), ...schemaTree]);
+  const cwdMtime = await maxMtime([
+    ...cwdPaths,
+    ...dependencyCwdPaths(openspecDir, req.capabilityIds),
+    path.join(openspecDir, "schemas"),
+    ...schemaTree,
+  ]);
 
   const mtimes = await mapLimit(names, 16, async (name) => {
     const changeDir = path.join(changesDir, name);

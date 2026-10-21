@@ -1,0 +1,9 @@
+blocked_by:
+  - change: move-workflow-schema-status-to-poll-worker
+    reason: undeclaredChanges is computed in its worker-safe workflow-schema-status module; this change's MODIFIED requirements rebase onto its archived text
+  - change: add-pi-spec-driven-schema
+    reason: patch v2 extends the managed pi-spec-driven schema it introduced
+  - change: use-openspec-status-all
+    reason: the dependency graph is built on the status --all poll path
+not_blocked_by: []
+related: []

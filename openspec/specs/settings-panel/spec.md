@@ -2036,7 +2036,7 @@ Every other allowed action of that card is an item of its More actions menu.
 
 **Remove** SHALL NOT be offered while the configured schema is `pi-spec-driven` (the server refuses it in that state). Update, Adopt and a stamp-less Disable show a previous-default field (labelled, with help text; preselected `spec-driven`, or "Keep recorded value" for Update with a stamp; listing `spec-driven` plus `workflowSchema.projectSchemas`, so never a user-level-only schema).
 
-The per-cwd actions write repository files immediately via `POST /api/openspec/workflow-schema`. They are NOT Save Bar sources. Each opens a confirmation dialog whose title names the action and the project (e.g. "Enable pi-spec-driven in deck3d?"), followed by the path, a one-sentence consequence, and a **Files written** list (Remove: **Files removed**) that holds only paths or path patterns, no prose (Enable lists the pattern `openspec/changes/*/.openspec.yaml` and explains the `*` in help text). For a worktree cwd an info callout names the branch and states that the dashboard never commits. Update additionally lists the active changes that resolve to `pi-spec-driven` (`workflowSchema.affectedChanges`, up to 5 names, then "and K more"). Adopt and Remove carry a warning callout (Adopt: hand customizations are discarded; Remove: unmerged branches may still pin the schema). Pin lets the user choose between `pi-spec-driven` and the stamp's `previousDefault` only. The confirm button names the outcome: Enable, Disable, Update schema, Adopt and regenerate (danger), Pin N changes, Remove schema files (danger).
+The per-cwd actions write repository files immediately via `POST /api/openspec/workflow-schema`. They are NOT Save Bar sources. Each opens a confirmation dialog whose title names the action and the project (e.g. "Enable pi-spec-driven in deck3d?"), followed by the path, a one-sentence consequence, and a **Files written** list (Remove: **Files removed**) that holds only paths or path patterns, no prose (Enable lists the pattern `openspec/changes/*/.openspec.yaml` and explains the `*` in help text). For a worktree cwd an info callout names the branch and states that the dashboard never commits. Update additionally lists the active changes that resolve to `pi-spec-driven` (`workflowSchema.affectedChanges`, up to 5 names, then "and K more"). When the Update raises the patch to 2, it also states how many of them lack `dependencies.yaml` (`workflowSchema.undeclaredChanges`) and that those changes (including ones currently implementing or complete) return to planning until they declare dependencies. Adopt and Remove carry a warning callout (Adopt: hand customizations are discarded; Remove: unmerged branches may still pin the schema). Pin lets the user choose between `pi-spec-driven` and the stamp's `previousDefault` only. The confirm button names the outcome: Enable, Disable, Update schema, Adopt and regenerate (danger), Pin N changes, Remove schema files (danger).
 
 While an action runs, only that card is busy (its recommended button shows a progress indicator and an "-ing" label, the card carries `aria-busy`); other cards stay interactive. The result is a severity callout under the card:
 - success: the past-tense action, the number of paths written and, for a worktree, the branch; the reminder that the dashboard does not commit; a **Show files** disclosure listing the written paths; and, for Pin, the changes the server skipped (`data.skipped`) by name;
@@ -2087,6 +2087,12 @@ A deep link (`?cwd=<cwd>#workflow-schema`) SHALL outline the target card with th
 
 - **WHEN** the page opens at `/settings/openspec?cwd=/repo/a#workflow-schema`
 - **THEN** focus SHALL be on the heading of the `/repo/a` card and the card SHALL show the "Opened from folder" caption
+
+#### Scenario: Update to patch 2 warns about affected changes
+
+- **GIVEN** a patch-1 project with `affectedChanges` of 4 changes and `undeclaredChanges` of 3, one of them implementing
+- **WHEN** the user opens the Update confirmation
+- **THEN** it SHALL state 4 affected changes, 3 of which will need a dependencies declaration and return to planning until then
 
 ### Requirement: Shared settings status, item, facts and table components
 `@blackbelt-technology/dashboard-plugin-runtime` SHALL export four presentation-only components for read-only and repeated content on settings pages:

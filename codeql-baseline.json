@@ -821,6 +821,20 @@
     },
     {
       "ruleId": "js/path-injection",
+      "file": "packages/server/src/openspec/dependencies-file.ts",
+      "lineHash": "dd1c673283be2f8d:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); cwd must be a tracked session/pinned directory, change is KEBAB_ID_REGEX-checked, writes re-check realpath containment under openspec/changes. See change: add-openspec-change-dependencies."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/openspec/dependencies-file.ts",
+      "lineHash": "e79f007fe350ae90:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); cwd must be a tracked session/pinned directory, change is KEBAB_ID_REGEX-checked, writes re-check realpath containment under openspec/changes. See change: add-openspec-change-dependencies."
+    },
+    {
+      "ruleId": "js/path-injection",
       "file": "packages/server/src/openspec/openspec-archive.ts",
       "lineHash": "64f604718fe97896:1",
       "count": 1,
@@ -874,6 +888,13 @@
       "lineHash": "661825eed920a75f:1",
       "count": 2,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/openspec/workflow-schema.ts",
+      "lineHash": "c4cdb9290e59529e:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); cwd must be a tracked session/pinned directory, change is KEBAB_ID_REGEX-checked, writes re-check realpath containment under openspec/changes. See change: add-openspec-change-dependencies."
     },
     {
       "ruleId": "js/request-forgery",
@@ -1112,6 +1133,20 @@
       "lineHash": "d1f1bb540e18cd67:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/shared/src/openspec-dependencies.ts",
+      "lineHash": "3b7a8c4a349824a6:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); cwd must be a tracked session/pinned directory, change is KEBAB_ID_REGEX-checked, writes re-check realpath containment under openspec/changes. See change: add-openspec-change-dependencies."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/shared/src/openspec-dependencies.ts",
+      "lineHash": "99538694ddfeba02:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); cwd must be a tracked session/pinned directory, change is KEBAB_ID_REGEX-checked, writes re-check realpath containment under openspec/changes. See change: add-openspec-change-dependencies."
     },
     {
       "ruleId": "js/path-injection",

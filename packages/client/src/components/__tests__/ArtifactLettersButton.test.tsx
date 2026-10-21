@@ -76,3 +76,29 @@ describe("ArtifactLettersButton", () => {
     expect(() => fireEvent.click(screen.getByTestId("artifact-letters-btn"))).not.toThrow();
   });
 });
+
+// #F7 — the pi-spec-driven `dependencies` artifact gets its own letter.
+// See change: add-openspec-change-dependencies.
+describe("dependencies artifact letter", () => {
+  const withDeps: OpenSpecArtifact[] = [
+    { id: "proposal", status: "done" },
+    { id: "design", status: "done" },
+    { id: "specs", status: "done" },
+    { id: "tasks", status: "blocked" },
+    { id: "dependencies", status: "ready" },
+    { id: "zeta", status: "blocked" },
+  ];
+
+  it("renders P D S T L and falls back to the first letter for unknown ids", () => {
+    render(<ArtifactLettersButton artifacts={withDeps} changeName="c" />);
+    expect(screen.getByTestId("artifact-letters-btn").textContent).toBe("PDSTLZ");
+  });
+
+  it("the per-letter tooltip names the artifact Dependencies", () => {
+    render(<ArtifactLetters artifacts={withDeps} changeName="c" />);
+    const letters = screen.getAllByTestId("artifact-letter");
+    expect(letters.map((l) => l.textContent)).toEqual(["P", "D", "S", "T", "L", "Z"]);
+    expect(letters[4].getAttribute("title")).toBe("Dependencies: ready");
+    expect(letters[5].getAttribute("title")).toBe("zeta: blocked");
+  });
+});
