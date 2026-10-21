@@ -138,7 +138,7 @@ export function runAsyncInProcess(
 ): Promise<unknown> {
   switch (kind) {
     case "derive":
-      return new Promise((resolveDerive) => resolveDerive(deriveAndSerialize(payload as PollWorkerRequest)));
+      return Promise.resolve(deriveInProcess(payload as PollWorkerRequest)); // never rejects, like every other derive path
     case "probe":
       return probeTrackedPaths(payload as ProbeRequest);
     case "build":

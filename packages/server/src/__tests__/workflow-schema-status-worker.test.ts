@@ -199,6 +199,13 @@ describe("#P17 exhaustive request dispatch", () => {
     expect(shape(await computeSchemaStatusFor(req))).toEqual(expected);
   });
 
+  it("`process()` on a disposed pool keeps its never-rejects contract (a throwing derive yields empty data)", async () => {
+    const pool = createOpenSpecPollWorkerPool({ useWorker: false });
+    await pool.dispose();
+    const out = await pool.process({ cwd: "/x", hasOpenspecDir: true } as never); // malformed request: derive throws
+    expect(out.data).toMatchObject({ initialized: false, changes: [], hasOpenspecDir: true });
+  });
+
   it("an unknown kind rejects at the worker handler and runAsyncInProcess (the disposed pool shares the latter)", async () => {
     await expect(handlePollWorkerMessage("bogus" as never, {})).rejects.toThrow(/unknown poll worker request kind/);
     await expect(runAsyncInProcess("bogus" as never, {} as never)).rejects.toThrow(/unknown poll worker request kind/);
