@@ -12,182 +12,189 @@
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "24d281e18977dc6:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#232, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "43c2693b54d4115:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#237, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "4cf599e05dc89b22:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#229, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "4ee1899934dc68e7:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#367, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "690423bc3ab267b9:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#253, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "6ca8dac9ec14c0cb:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#236, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "753b7b14003e7854:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#234, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
+    },
+    {
+      "ruleId": "actions/cache-poisoning/poisonable-step",
+      "file": ".github/workflows/_electron-build.yml",
+      "lineHash": "83bf59a0f706d5a9:1",
+      "count": 1,
+      "reason": "github-dismissed (#437, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4 (harden-ci-cache-poisoning); pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "99c66561c0d7d504:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#235, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "9f7763e13cd99310:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#233, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
       "lineHash": "ae9a0839d4a99afc:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#231, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "1bebdda30bbab7bd:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#415, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "2f45bbc164d3316e:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#411, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "481bfa7b2741ca2c:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#228, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "5f8f4c93579c46ee:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#410, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "88c77860188c16af:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#412, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "8f013c5c380efa7e:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#226, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "b4afc76a94d10345:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#409, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "d47a83fab3adf366:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#227, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "db40b3e482572bee:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#230, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "dbe8abce73ccd50f:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#416, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "dfa56f1d40f4d89:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#414, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
       "lineHash": "fdd921ddc72f2d21:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#413, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/publish.yml",
       "lineHash": "3e0037de27c57875:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#241, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/publish.yml",
       "lineHash": "51307dc305acf86b:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#240, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/publish.yml",
       "lineHash": "5a60420c933c9b2a:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#239, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/publish.yml",
       "lineHash": "96d7a3ca87ba219e:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "github-dismissed (#238, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "js/client-side-unvalidated-url-redirection",
@@ -216,6 +223,13 @@
       "lineHash": "4bdc898d876be6e8:1",
       "count": 1,
       "reason": "untriaged"
+    },
+    {
+      "ruleId": "js/client-side-unvalidated-url-redirection",
+      "file": "packages/client/src/components/Gateway/GatewayTlsSection.tsx",
+      "lineHash": "852fd92308679508:1",
+      "count": 1,
+      "reason": "false-positive: certUrl pins the scheme to https:// and the host is the dashboard's own advertised TLS name from its same-origin /api response; rendered as an operator-clicked target=_blank rel=noopener link, not a redirect. Local-only (--threat-model=remote)."
     },
     {
       "ruleId": "js/resource-exhaustion",
@@ -772,6 +786,20 @@
     },
     {
       "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/writable-handler-target.ts",
+      "lineHash": "54b82d15d6f0e059:1",
+      "count": 1,
+      "reason": "github-dismissed (#463, false positive): flagged realpath IS the write guard's canonicalization before within() containment; cwd already matched against known session cwds (file-write-binary-routes.ts sessionManager.listAll check)."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/writable-handler-target.ts",
+      "lineHash": "884d0312ce800623:1",
+      "count": 1,
+      "reason": "github-dismissed (#464, false positive): flagged realpath(dirname(requested)) IS the write guard's canonicalization; the within(dir, root) containment check follows immediately and fails closed."
+    },
+    {
+      "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/writable-md-target.ts",
       "lineHash": "bca412cc598f753b:1",
       "count": 1,
@@ -902,6 +930,13 @@
       "lineHash": "753c64e63ff40815:1",
       "count": 1,
       "reason": "github-dismissed (#334, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/routes/file-routes.ts",
+      "lineHash": "7fc5eb9027cf81ef:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login. Path admitted by gateReadPath (known session cwd + containment/grant) before open (GET /api/file/digest)."
     },
     {
       "ruleId": "js/path-injection",
