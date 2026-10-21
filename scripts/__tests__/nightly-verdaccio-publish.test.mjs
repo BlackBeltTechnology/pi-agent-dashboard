@@ -172,3 +172,25 @@ describe("planNightlyPublish (release order)", () => {
     expect(planNightlyPublish(["a", "b"])).toEqual({ before: ["a", "b"], server: null, root: null });
   });
 });
+
+// Nightly infra defects found while verifying pin-electron-bundle-dependency-tree on real runners.
+describe("nightly infra contracts", () => {
+  const read = (...p) => fs.readFileSync(path.join(REPO_ROOT, ...p), "utf8");
+
+  it("the Verdaccio config accepts large packages (pi-dashboard-web publish hit 413)", () => {
+    expect(read(".github", "verdaccio", "config.yml")).toMatch(/^max_body_size:\s*\d+mb\s*$/m);
+  });
+
+  it("the publish script spawns npm through npm.cmd + a shell on win32 (spawnSync npm ENOENT)", () => {
+    const src = read("scripts", "nightly-verdaccio-publish.mjs");
+    expect(src).toContain('"npm.cmd"');
+    expect(src).toMatch(/shell:\s*isWin/);
+  });
+
+  it("verify-publish installs with pnpm (the repo has no package-lock.json)", () => {
+    const wf = read(".github", "workflows", "nightly.yml");
+    const job = wf.slice(wf.indexOf("  verify-publish:"), wf.indexOf("  knip:"));
+    expect(job).toContain("pnpm install --frozen-lockfile");
+    expect(job).not.toMatch(/npm ci|cache:\s*npm/);
+  });
+});

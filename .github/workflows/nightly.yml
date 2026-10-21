@@ -81,12 +81,16 @@ jobs:
         with:
           fetch-depth: 1
 
+      # pnpm, like every other job: the repo has no package-lock.json, so
+      # `cache: npm` + `npm ci` could never run and skipped the electron matrix.
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Set nightly version
         run: npm pkg set "version=${{ needs.resolve.outputs.version }}" --workspaces --include-workspace-root

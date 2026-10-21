@@ -12,6 +12,11 @@
 # Local cache dir for proxied third-party tarballs.
 storage: ./storage
 
+# Verdaccio defaults to a 10mb request body (the observed `413 Payload Too Large`
+# on `pi-dashboard-web`, whose packed client is larger). The registry is
+# loopback-only and throwaway, so a generous cap is safe.
+max_body_size: 200mb
+
 # Uplink to the public registry — used ONLY by the `**` (third-party) group.
 uplinks:
   npmjs:

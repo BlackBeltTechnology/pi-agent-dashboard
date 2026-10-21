@@ -150,8 +150,12 @@ function main() {
         "The nightly MUST NOT reach public npm.",
     );
   }
+  // npm is `npm.cmd` on Windows, which Node only spawns through a shell
+  // (`spawnSync npm ENOENT` otherwise). `node` is a real executable everywhere.
+  const isWin = process.platform === "win32";
+  const bin = (cmd) => (isWin && cmd === "npm" ? "npm.cmd" : cmd);
   const run = (cmd, args) =>
-    execFileSync(cmd, args, { cwd: repoRoot, stdio: "inherit" });
+    execFileSync(bin(cmd), args, { cwd: repoRoot, stdio: "inherit", shell: isWin && cmd === "npm" });
 
   // Single source of truth: the nightly workflow's `resolve` job computes the
   // slug and passes it in via NIGHTLY_VERSION so the version the bundle's
@@ -202,7 +206,7 @@ function main() {
     [`npm_config_//${regHost}/:_authToken`]: "nightly-verdaccio",
   };
   const publish = (args) =>
-    execFileSync("npm", args, { cwd: repoRoot, stdio: "inherit", env: publishEnv });
+    execFileSync(bin("npm"), args, { cwd: repoRoot, stdio: "inherit", env: publishEnv, shell: isWin });
 
   const order = orderPublishSet(discoverWorkspaces(repoRoot));
   const plan = planNightlyPublish(order);
