@@ -120,7 +120,7 @@ Only the server holding the dashboard's home lock SHALL write the snapshot, atom
 
 ### Requirement: Trust mirror settings and per-entry choice
 
-The dashboard config SHALL hold `piTrustMirror` with `enabled` (default true), `coverInteractive` (default false), `liveQuery` (default true), `liveQueryTimeoutMs` (milliseconds, default 300 for a local bridge and 1000 for a remote one, clamped to 50–1000, a non-finite value reads as the default) and `sources.<id>`, defaulting to true for worktree-init, workflow, pinned folders, folder-workspaces and YOLO, and to false for access grants. Every dialog that creates a mirrorable entry (worktree-init trust "Always trust" and "until dashboard restarts", workflow trust, pin folder, "Add Folder" into a workspace, access-grant prompt "always", and a session-scoped access grant) SHALL show an "Also trust this folder in pi" checkbox pre-set from the source default, SHALL state that trusting lets every project extension and MCP server in the folder and below — including ones added later — start with pi, which is wider than approving one hook script, and SHALL store the operator's choice for that entry together with the entry (in memory only for a server-lifetime entry). Entries created before this change, or without a dialog (moving a folder between workspaces keeps its choice), follow the source default; the Access page SHALL mark them "by default". Every surface that activates YOLO SHALL state, while `sources.yolo` is true, that its roots are also trusted in pi until YOLO ends. Storing a choice SHALL NOT change the format existing readers of the source store rely on.
+The dashboard config SHALL hold `piTrustMirror` with `enabled` (default true), `coverInteractive` (default false), `liveQuery` (default true), `liveQueryTimeoutMs` (milliseconds, default 300 for a local bridge and 1000 for a remote one, clamped to 50–1000, a non-finite value reads as the default) and `sources.<id>`, defaulting to true for worktree-init, workflow, pinned folders, folder-workspaces and YOLO, and to false for access grants. Every dialog that creates a mirrorable entry (worktree-init trust "Always trust" and "until dashboard restarts", workflow trust, pin folder, "Add Folder" into a workspace, access-grant prompt "always", a provisioning-dialog line whose folder is a project root, and a session-scoped access grant) SHALL show an "Also trust this folder in pi" checkbox pre-set from the source default, SHALL state that trusting lets every project extension and MCP server in the folder and below — including ones added later — start with pi, which is wider than approving one hook script, and SHALL store the operator's choice for that entry together with the entry (in memory only for a server-lifetime entry). Entries created before this change, or without a dialog (moving a folder between workspaces keeps its choice), follow the source default; the Access page SHALL mark them "by default". Every surface that activates YOLO SHALL state, while `sources.yolo` is true, that its roots are also trusted in pi until YOLO ends. Storing a choice SHALL NOT change the format existing readers of the source store rely on.
 
 #### Scenario: Checkbox follows the source default
 - **WHEN** `sources.worktreeInit` is true and the worktree-init trust dialog opens
@@ -129,6 +129,10 @@ The dashboard config SHALL hold `piTrustMirror` with `enabled` (default true), `
 #### Scenario: Access-grant prompt is unchecked by default
 - **WHEN** an access-grant prompt opens with default settings
 - **THEN** "Also trust this folder in pi" SHALL be unchecked
+
+#### Scenario: Provisioning line is unchecked by default
+- **WHEN** a provisioning dialog shows a grantable project-root line with default settings
+- **THEN** "Also trust this folder in pi" SHALL be unchecked for that line, with the consequence statement shown
 
 #### Scenario: Unchecking stores the choice
 - **WHEN** the operator unchecks it and chooses "Always trust"
