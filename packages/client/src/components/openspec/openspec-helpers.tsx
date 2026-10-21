@@ -7,6 +7,13 @@ const LETTER_MAP: Record<string, string> = {
   design: "D",
   specs: "S",
   tasks: "T",
+  // The `dependencies` artifact of pi-spec-driven patch v2 (`D` is taken by design).
+  dependencies: "L",
+};
+
+/** Tooltip name for artifacts whose id alone is not self-explanatory. */
+const LETTER_TITLE: Record<string, string> = {
+  dependencies: "Dependencies",
 };
 
 export function artifactLetter(id: string): string {
@@ -35,7 +42,7 @@ export function ArtifactLetters({
         <button
           key={a.id}
           data-testid="artifact-letter"
-          title={`${a.id}: ${a.status}`}
+          title={`${LETTER_TITLE[a.id] ?? a.id}: ${a.status}`}
           className={`text-[10px] font-bold font-mono cursor-pointer hover:underline ${statusColor(a.status)}`}
           onClick={(e) => { e.stopPropagation(); onReadArtifact?.(changeName, a.id); }}
         >

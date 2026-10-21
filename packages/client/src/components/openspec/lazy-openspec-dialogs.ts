@@ -10,6 +10,7 @@ import { lazy } from "react";
 /** Module loaders — exported so the split mapping is testable. */
 export const openspecDialogLoaders = {
   AttachChangePicker: () => import("./AttachChangePicker.js").then((m) => ({ default: m.AttachChangePicker })),
+  DependenciesDialog: () => import("./DependenciesDialog.js").then((m) => ({ default: m.DependenciesDialog })),
   ExploreDialog: () => import("./ExploreDialog.js").then((m) => ({ default: m.ExploreDialog })),
   NewChangeDialog: () => import("./NewChangeDialog.js").then((m) => ({ default: m.NewChangeDialog })),
   ProposeDialog: () => import("./ProposeDialog.js").then((m) => ({ default: m.ProposeDialog })),
@@ -17,6 +18,7 @@ export const openspecDialogLoaders = {
 };
 
 export const LazyAttachChangePicker = lazy(openspecDialogLoaders.AttachChangePicker);
+export const LazyDependenciesDialog = lazy(openspecDialogLoaders.DependenciesDialog);
 export const LazyExploreDialog = lazy(openspecDialogLoaders.ExploreDialog);
 export const LazyNewChangeDialog = lazy(openspecDialogLoaders.NewChangeDialog);
 export const LazyProposeDialog = lazy(openspecDialogLoaders.ProposeDialog);

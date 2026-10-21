@@ -3,10 +3,10 @@
  * over injected deps so every verb is unit-testable without OBS.
  *
  * Offline verbs (no OBS connection, no secret): `doctor` (without `--live`),
- * `install`, `provision`, `launch`, `stop`, `preset list`.
+ * `install`, `provision`, `launch`, `stop`, `preset list`, `wake-hook install|uninstall|run` (macOS).
  * Live verbs (the skill runs them as `pi-dashboard service exec <id> -- pi-obs
  * <verb> --service <id>`): `status`, `scene list|switch|create`, `devices list`,
- * `input bind`, `vcam`, `record`, `stream target`, `text set`, `filter add`,
+ * `input bind`, `capture refresh`, `vcam`, `record`, `stream target`, `text set`, `filter add`,
  * `screenshot`, `preset apply`, `call`, `serve --stdio`, `doctor --live`.
  * Every live verb first sweeps leftover probe inputs.
  *
@@ -21,7 +21,7 @@ import type { Readable, Writable } from "node:stream";
 import { type ConnectOptions, connectObs, type ObsConn, type ObsTarget, resolveTarget } from "../core/connection.js";
 import { createDashboardCli, type DashboardCli } from "../core/dashboard-cli.js";
 import { detectObs, type Installation, launchArgv, type RunFn } from "../core/detect.js";
-import { bindInput, type DeviceKind, type DisplayLister, listCameras, listDevices, sweepProbes } from "../core/devices.js";
+import { bindInput, type DeviceKind, type DisplayLister, listCameras, listDevices, refreshScreenCaptures, sweepProbes } from "../core/devices.js";
 import { doctor } from "../core/doctor.js";
 import { exitCodeOf, ObsError } from "../core/errors.js";
 import { describePlan, installPortable, type PortableDeps, planInstall } from "../core/install.js";
@@ -34,6 +34,7 @@ import { serve } from "../core/serve.js";
 import { readServiceDefinitions } from "../core/service-defs.js";
 import { stopObs } from "../core/stop.js";
 import * as verbs from "../core/verbs.js";
+import { PLIST_LABEL, plistPath, renderPlist, watchForWake } from "../core/wake-hook.js";
 import { enableWebsocket, readWsConfig, UI_INSTRUCTION } from "../core/ws-config.js";
 
 export interface CliDeps {
@@ -85,6 +86,7 @@ interface Flags {
   kind?: string;
   device?: string;
   display?: string;
+  input?: string;
   jsonFile?: string;
   out?: string;
   remote?: string;
@@ -92,13 +94,14 @@ interface Flags {
   positional: string[];
 }
 
-const VALUE_FLAGS = new Set(["--service", "--url", "--state-dir", "--kind", "--device", "--display", "--json-file", "--out", "--remote", "--width"]);
+const VALUE_FLAGS = new Set(["--service", "--url", "--state-dir", "--kind", "--device", "--display", "--input", "--json-file", "--out", "--remote", "--width"]);
 
 const HELP = `usage: pi-obs <verb> [args] [--json] [--service <id>]
 offline: doctor [--live] · install [--portable] [--yes] · provision [--remote ws://host:port] [--service <id>] [--update] [--yes]
          launch [--reset-recovery] · stop [--service <id>] [--yes] [--force] · preset list
 live:    status · scene list|switch <name>|create <name> · devices list [--kind camera|audio|display]
-         input bind <input> --device <id>|--display <uuid> · vcam on|off · record on|off
+         input bind <input> --device <id>|--display <uuid> · capture refresh [--input <name>]
+         vcam on|off · record on|off · wake-hook install|uninstall|run [--service <id>] (macOS)
          stream target <url> --key-stdin [--allow-insecure-remote] · text set <input> <text>
          filter add <input> bgremoval · screenshot <source> --out <file> · preset apply <name>
          call <Request> (--json-file <f> | JSON on stdin) · serve --stdio
@@ -246,6 +249,50 @@ async function dispatch(verb: string, rest: string[], f: Flags, d: CliDeps): Pro
       if (rest[0] !== "bind") throw new ObsError("usage", "input bind <input> --device <id>|--display <uuid>");
       const input = need(rest[1], "input name");
       return live((obs) => bindInput(obs, input, { device: f.device, display: f.display }, deviceDeps));
+    }
+
+    case "capture": {
+      if (rest[0] !== "refresh") throw new ObsError("usage", "capture refresh [--input <name>]");
+      return live((obs) => refreshScreenCaptures(obs, { input: f.input }, { ...deviceDeps, sleep: d.sleep }));
+    }
+
+    case "wake-hook": {
+      const sub = rest[0];
+      if (sub !== "install" && sub !== "uninstall" && sub !== "run") throw new ObsError("usage", "wake-hook install|uninstall|run [--service <id>]");
+      if (host.platform !== "darwin") throw new ObsError("refused", "wake-hook is macOS-only (LaunchAgent)");
+      const service = f.service ?? "obs";
+      if (sub === "run") {
+        await watchForWake({
+          now: d.now,
+          sleep: d.sleep,
+          log: d.err,
+          onWake: async () => {
+            const r = await d.run("pi-dashboard", ["service", "exec", service, "--", d.nodePath, d.entryPath, "capture", "refresh", "--service", service]);
+            if (r.code !== 0) throw new Error(`pi-dashboard service exec exited ${r.code}`);
+          },
+        });
+        return undefined;
+      }
+      const plist = plistPath(host.home);
+      const uid = (await d.run("id", ["-u"])).stdout.trim();
+      if (sub === "uninstall") {
+        if (!(await confirm(`Remove the OBS wake-refresh LaunchAgent (${plist})?`))) throw new ObsError("refused", "not confirmed (re-run with --yes after asking the user)");
+        await d.run("launchctl", ["bootout", `gui/${uid}/${PLIST_LABEL}`]);
+        fs.rmSync(plist, { force: true });
+        return { uninstalled: true, plist };
+      }
+      if (!(await confirm(`Install a LaunchAgent that refreshes OBS screen captures after every wake (${plist})?`))) {
+        throw new ObsError("refused", "not confirmed (re-run with --yes after asking the user)");
+      }
+      const logFile = path.join(state, "wake-hook.log");
+      fs.mkdirSync(path.dirname(plist), { recursive: true });
+      fs.mkdirSync(state, { recursive: true });
+      fs.writeFileSync(plist, renderPlist({ nodePath: d.nodePath, entryPath: d.entryPath, service, pathEnv: host.env.PATH ?? "/usr/bin:/bin", logFile }));
+      // Replace a previously loaded copy; bootout of a missing agent just fails.
+      await d.run("launchctl", ["bootout", `gui/${uid}/${PLIST_LABEL}`]);
+      const r = await d.run("launchctl", ["bootstrap", `gui/${uid}`, plist]);
+      if (r.code !== 0) throw new ObsError("failed", `launchctl bootstrap exited ${r.code}`);
+      return { installed: true, plist, log: logFile, service };
     }
 
     case "vcam":

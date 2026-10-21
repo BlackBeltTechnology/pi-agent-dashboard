@@ -12,6 +12,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **OBS: unfreeze screen captures after sleep.** On macOS, OBS 31 screen captures stop when the Mac sleeps
+  and never restart, so the virtual camera keeps sending a frozen desktop. `pi-obs capture refresh
+  [--input <name>]` switches each screen capture to another display and back, restoring its exact
+  settings. `pi-obs wake-hook install` adds a LaunchAgent that runs the refresh after every wake
+  (`wake-hook uninstall` removes it). `devices list --kind display` no longer reports every display as the
+  main one, and now includes each display's position.
 - **Live and remote dashboard trust for pi.** A pi session whose folder the dashboard trusts only for as long as the
   server runs (worktree-init trust "until dashboard restarts", session access grants, YOLO roots) now gets that
   trust at `project_trust`, and so does a pi on another machine (paired device, `PI_DASHBOARD_TOKEN`). When the

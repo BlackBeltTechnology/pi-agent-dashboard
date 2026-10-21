@@ -1,7 +1,9 @@
 ## Purpose
 
 Enables resuming and forking ended pi sessions from the dashboard UI, spawning new pi instances with the appropriate CLI flags.
+
 ## Requirements
+
 ### Requirement: Resume session (continue)
 The dashboard SHALL support resuming a session by spawning a new pi instance with `pi --session <session-file-path>`. This continues the same JSONL file and reuses the same pi session ID.
 
@@ -171,17 +173,17 @@ When a session has `resuming === true`, the Resume and Fork buttons SHALL be dis
 - **THEN** the client SHALL clear `resuming` on any other session in that cwd
 
 ### Requirement: Resume affordance in desktop session content header
-The desktop `SessionHeader` SHALL render a Resume button and a Fork button in its right-side toolbar when the displayed session has `status === "ended"` AND `sessionFile` is non-empty AND a parent-supplied `onResume` callback is present. Clicking Resume SHALL invoke `onResume("continue")`; clicking Fork SHALL invoke `onResume("fork")`. The buttons SHALL be disabled (non-interactive, visually dimmed) while `session.resuming === true`.
+The desktop `SessionHeader` SHALL render a Resume button and a Fork button in its right-side toolbar when the displayed session has `status === "ended"` AND `sessionFile` is non-empty AND a parent-supplied `onResume` callback is present. Clicking Resume SHALL invoke `onResume("continue")`; clicking Fork SHALL invoke `onResume("fork")`. The buttons SHALL be disabled (non-interactive, visually dimmed) while `session.resuming === true`. The header meta line SHALL show a labelled clock alongside them: `ended · ran <duration>` for an ended session and `running <duration>` for an active session.
 
 #### Scenario: Buttons render on ended session with session file
 - **WHEN** the desktop `SessionHeader` is rendered with `session.status === "ended"`, `session.sessionFile` set to a non-empty string, and a non-null `onResume` callback
 - **THEN** a green Resume pill and a blue Fork pill SHALL appear in the toolbar
-- **AND** the dimmed elapsed-duration text SHALL NOT appear in the same slot
+- **AND** the meta line SHALL show the labelled clock `ended · ran <duration>`
 
 #### Scenario: Buttons hidden on active session
 - **WHEN** the desktop `SessionHeader` is rendered with `session.status !== "ended"` (e.g., `"active"`, `"streaming"`, `"idle"`)
 - **THEN** neither Resume nor Fork pills SHALL appear in the toolbar
-- **AND** the elapsed-duration text SHALL appear as before
+- **AND** the meta line SHALL show the labelled clock `running <duration>`
 
 #### Scenario: Buttons hidden when session file is missing
 - **WHEN** the desktop `SessionHeader` is rendered with `session.status === "ended"` but `session.sessionFile` is undefined or empty
@@ -206,7 +208,7 @@ The desktop `SessionHeader` SHALL render a Resume button and a Fork button in it
 
 #### Scenario: Mobile path unaffected
 - **WHEN** the `SessionHeader` is rendered on a mobile viewport
-- **THEN** the existing mobile layout (back-arrow, title, attach, kebab) SHALL render unchanged
+- **THEN** the mobile layout (back-arrow, title, context ring, layout menu, View, kebab) SHALL render with no attach button
 - **AND** Resume SHALL continue to be reachable via the existing `MobileActionMenu` kebab entry
 - **AND** the new desktop Resume / Fork pills SHALL NOT render on the mobile path
 
@@ -315,4 +317,3 @@ export interface ApiResponse<T = unknown> {
 #### Scenario: REST clients without code awareness still work
 - **WHEN** an older REST client parses the response
 - **THEN** it SHALL read `success` and `data.message` as before; the extra `code` SHALL not cause parse failures
-

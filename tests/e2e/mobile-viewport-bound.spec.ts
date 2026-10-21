@@ -299,3 +299,41 @@ test.describe("F15: overlays add no flow height", () => {
     await expectViewportBound(page);
   });
 });
+
+// F4 (session-header): the mobile header is ONE 48 px row — back, title, ring,
+// layout menu, View, ⋯ — and no info strip sits between it and the transcript.
+// Covers test-plan #F4. See change: reorganize-session-header.
+test("F4: mobile session header is one row with 44 px targets and a readable title", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize(DESKTOP);
+  const card = await ensureGitSession(page);
+  await card.click();
+  await page.setViewportSize(MOBILE);
+
+  const row = page.getByTestId("mobile-header-row");
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  const rowBox = (await row.boundingBox())!;
+  expect(rowBox.height, "mobile header row height").toBeLessThanOrEqual(56);
+
+  const title = (await page.getByTestId("mobile-header-title").boundingBox())!;
+  expect(title.width, "title keeps at least 140 px").toBeGreaterThanOrEqual(140);
+
+  const targets = [page.getByTestId("layout-mode-switch"), page.getByTitle("View options").first(), page.getByTestId("mobile-kebab-btn")];
+  // The ring button only exists once the session reports context usage.
+  const ring = page.getByTestId("context-ring-button");
+  if (await ring.isVisible().catch(() => false)) targets.push(ring);
+  for (const t of targets) {
+    const b = (await t.boundingBox())!;
+    expect(b.width, "target width").toBeGreaterThanOrEqual(44);
+    expect(b.height, "target height").toBeGreaterThanOrEqual(44);
+  }
+
+  // No info strip between the header and the transcript: the transcript starts
+  // right under the header block (no extra 40+ px row).
+  const header = (await row.evaluate((el) => {
+    const r = el.parentElement!.getBoundingClientRect();
+    return { bottom: r.bottom };
+  }));
+  const scroller = (await byTestId(page, "chatScrollContainer").first().boundingBox())!;
+  expect(scroller.y - header.bottom, "gap between header and transcript").toBeLessThanOrEqual(8);
+});

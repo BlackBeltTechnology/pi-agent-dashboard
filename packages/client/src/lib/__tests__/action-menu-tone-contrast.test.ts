@@ -89,3 +89,31 @@ describe("action-menu tone contrast floors (E25)", () => {
     expect(failures(bad, "light").length).toBeGreaterThan(0);
   });
 });
+
+// E19 (test-plan): the header context ring's five arc colours stay visible
+// against BOTH the page and the ring track in every palette (WCAG 1.4.11, 3:1).
+// See change: reorganize-session-header.
+const ARC_TOKENS = ["--text-secondary", "--accent-blue-text", "--accent-green-text", "--accent-orange-text", "--accent-red-text"];
+
+function ringFailures(vars: Record<string, unknown>, mode: Mode): string[] {
+  const t = (n: string) => resolveToken(vars, mode, n);
+  const out: string[] = [];
+  for (const arc of ARC_TOKENS) {
+    for (const surface of ["--bg-primary", "--border-secondary"]) {
+      const r = contrast(t(arc), t(surface));
+      if (!(r >= 3)) out.push(`${arc} on ${surface} ${r.toFixed(2)} < 3`);
+    }
+  }
+  return out;
+}
+
+describe("context ring arc contrast (E19)", () => {
+  it.each(PALETTES)("%s: every arc colour is at least 3:1 on the page and on the track", (_name, mode, vars) => {
+    expect(ringFailures(vars, mode)).toEqual([]);
+  });
+
+  it("the assertion bites: a track-coloured arc fails", () => {
+    const bad = { "--bg-primary": "#ffffff", "--border-secondary": "#d4d4d8", "--text-secondary": "#d4d4d8", "--accent-blue-text": "#d4d4d8", "--accent-green-text": "#d4d4d8", "--accent-orange-text": "#d4d4d8", "--accent-red-text": "#d4d4d8" };
+    expect(ringFailures(bad, "light").length).toBeGreaterThan(0);
+  });
+});

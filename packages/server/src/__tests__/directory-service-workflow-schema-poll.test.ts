@@ -20,6 +20,7 @@ import {
   type PollWorkerPoolOptions,
 } from "../openspec/openspec-poll-worker-pool.js";
 import type { CliCall } from "../openspec/workflow-schema.js";
+import { CURRENT_PATCH } from "../openspec/workflow-schema-status.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { backdate, createFixtureCli, mkTmpCwd, seedChanges, touchFuture, writeFile } from "./helpers/status-all-fixture.js";
@@ -67,7 +68,7 @@ function mkCwd(opts: { changes?: number; config?: string; configFile?: string } 
   writeFile(cwd, `openspec/${opts.configFile ?? "config.yaml"}`, opts.config ?? "schema: pi-spec-driven\n");
   return cwd;
 }
-function stamp(cwd: string, base: string, patch = 1): void {
+function stamp(cwd: string, base: string, patch = CURRENT_PATCH): void {
   writeFile(
     cwd,
     "openspec/schemas/pi-spec-driven/schema.yaml",

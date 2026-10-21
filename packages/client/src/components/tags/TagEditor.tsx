@@ -6,7 +6,7 @@
  */
 
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { TagChip } from "./TagChip.js";
 
@@ -17,13 +17,27 @@ interface TagEditorProps {
   allTags: string[];
   /** Emits the full new normalized tag array. */
   onChange: (tags: string[]) => void;
+  /**
+   * Increment to open the add-tag popover from outside (the session title
+   * menu's "Edit tags"). The initial value never opens it.
+   * See change: reorganize-session-header.
+   */
+  openSignal?: number;
 }
 
-export function TagEditor({ tags, allTags, onChange }: TagEditorProps) {
+export function TagEditor({ tags, allTags, onChange, openSignal = 0 }: TagEditorProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const seenSignal = useRef(openSignal);
+
+  useEffect(() => {
+    if (openSignal === seenSignal.current) return;
+    seenSignal.current = openSignal;
+    setOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, [openSignal]);
 
   const commit = useCallback(
     (next: string[]) => onChange(normalizeTags(next)),

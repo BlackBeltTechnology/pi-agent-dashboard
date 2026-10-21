@@ -87,6 +87,7 @@ Files in this directory. One row per source file.
 | `node-version.ts` | Single source of truth for Node-version predicates. `isAffectedNode(version)` flags nodejs/node#58515… → see `node-version.ts.AGENTS.md` |
 | `notify.ts` | `normalizeNotifyLevel(level)` — maps an unrecognized notify level to `"info"`. → see `notify.ts.AGENTS.md` |
 | `openspec-activity-detector.ts` | Detects OpenSpec activity from tool-execution events. `detectOpenSpecActivity(toolName, args, cwd)` — `cwd` REQUIRED, from server state — returns `{… → see `openspec-activity-detector.ts.AGENTS.md` |
+| `openspec-dependencies.ts` | → see `openspec-dependencies.ts.AGENTS.md` |
 | `openspec-design-evidence.ts` | Local-evidence override for OpenSpec `design` artifact. `evaluateLocalDesignSatisfaction(changeDir, probe)`… → see `openspec-design-evidence.ts.AGENTS.md` |
 | `openspec-poller.ts` | Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge),… → see… → see `openspec-poller.ts.AGENTS.md` |
 | `openspec-specs-evidence.ts` | Local-evidence override for OpenSpec `specs` artifact. `evaluateLocalSpecsSatisfaction(changeDir, probe)` =… → see `openspec-specs-evidence.ts.AGENTS.md` |
