@@ -7,7 +7,7 @@
  * button (it lives in `GmailSettings.tsx`); everything here is secondary.
  * See change: add-gmail-auto-setup.
  */
-import { SettingsNotice, TextField, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SettingsNotice, TextField, ToggleField, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
@@ -217,7 +217,6 @@ function LinksDecision({
   onConfirm: (links: PublishLinks) => void;
 }) {
   const t = useT();
-  const confirmId = useId();
   const [links, setLinks] = useState<PublishLinks>(decision.links);
   const [confirmed, setConfirmed] = useState(false);
   const errors = validateLinks(links);
@@ -265,19 +264,13 @@ function LinksDecision({
           error={err("authorizedDomain")}
           testIds={{ control: "gmail-setup-link-domain", error: "gmail-setup-link-domain-error" }}
         />
-        <span className="flex items-start gap-2">
-          <input
-            id={confirmId}
-            type="checkbox"
-            className="focus-ring mt-0.5"
-            checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
-            data-testid="gmail-setup-links-confirm"
-          />
-          <label htmlFor={confirmId}>
-            {t("autoLinksConfirm", undefined, "I understand these links appear on Google's consent screen for every account, and I want to use them.")}
-          </label>
-        </span>
+        <ToggleField
+          label={t("autoLinksConfirm", undefined, "I understand these links appear on Google's consent screen for every account, and I want to use them.")}
+          hint={null}
+          testIds={{ control: "gmail-setup-links-confirm" }}
+          value={confirmed}
+          onChange={setConfirmed}
+        />
         <span>
           <button
             type="button"

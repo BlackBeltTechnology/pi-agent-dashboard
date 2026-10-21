@@ -82,6 +82,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // decouple-plugins-from-core: removes a plugin's whole trust entry; the matching POST also needs a genuinely local caller.
   { method: "DELETE", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/gmail/accounts/:sub", tier: "operate" },
+  // add-gmail-auto-setup: the automatic setup run drives the dedicated browser and stores a client secret, so every run route is `operate` (and genuinely-local on the plugin side).
+  { method: "DELETE", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/agents/:key/conversations/:c", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/personas/:key", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/team/projects/:id", tier: "operate" },
@@ -228,6 +230,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/flows/files", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/flow-inputs", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
+  { method: "GET", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
   // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
   // and the plugin additionally requires `identity.hasOperateAuthority`.
@@ -423,6 +426,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/filters", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/level", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/reauth", tier: "operate" },
+  { method: "POST", path: "/api/plugins/gmail/setup/run", tier: "operate" },
+  { method: "POST", path: "/api/plugins/gmail/setup/run/:id/continue", tier: "operate" },
+  { method: "POST", path: "/api/plugins/gmail/setup/run/:id/takeover", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/radius/mcp", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/start", tier: "operate" },

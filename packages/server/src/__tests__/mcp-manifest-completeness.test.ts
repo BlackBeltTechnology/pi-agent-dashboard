@@ -240,6 +240,12 @@ describe("improve-gmail-plugin-setup-ux E29 — gmail setup + filters routes are
   it.each([
     ["PUT", "/api/plugins/gmail/setup"],
     ["POST", "/api/plugins/gmail/accounts/:sub/filters"],
+    // add-gmail-auto-setup: the automatic setup run routes.
+    ["POST", "/api/plugins/gmail/setup/run"],
+    ["GET", "/api/plugins/gmail/setup/run/:id"],
+    ["POST", "/api/plugins/gmail/setup/run/:id/continue"],
+    ["POST", "/api/plugins/gmail/setup/run/:id/takeover"],
+    ["DELETE", "/api/plugins/gmail/setup/run/:id"],
   ])("%s %s is an operate route covered by the gmail denylist prefix", (method, path) => {
     expect(ROUTE_TIERS.find((e) => e.method === method && e.path === path)?.tier).toBe("operate");
     expect(isDenylisted(path)).toBe(true);
