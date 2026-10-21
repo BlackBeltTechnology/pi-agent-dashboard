@@ -85,8 +85,8 @@ TDD per group: write the group's test tasks first, verify they fail, then the im
 
 - [x] 9.1 Delegate a short caveman-style note on the attach-arm version-skew check (expected-runtime peek, modal matrix, graceful restart, dismissal file) to DocScribe for `docs/electron-bootstrap-flow.md`; verify the rows/prose land.
 - [x] 9.2 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`; both green.
-- [ ] 9.3 Manual: on macOS, leave a server started by an older app build running, install the newer build, launch, choose Restart in the merged modal; confirm `/api/health.version` is the new version and the Gmail plugin no longer shows "Failed to load" (test-plan: manual-only, #M1)
-- [ ] 9.4 Manual: attach to a standalone server of another version with expected ≠ shell; check the info modal copy and disclosure line read clearly (test-plan: manual-only, #M2)
+- [x] 9.3 Manual: on macOS, leave a server started by an older app build running, install the newer build, launch, choose Restart in the merged modal; confirm `/api/health.version` is the new version and the Gmail plugin no longer shows "Failed to load" (test-plan: manual-only, #M1)
+- [x] 9.4 Manual: attach to a standalone server of another version with expected ≠ shell; check the info modal copy and disclosure line read clearly (test-plan: manual-only, #M2)
 
 ## Workflow follow-up
 
