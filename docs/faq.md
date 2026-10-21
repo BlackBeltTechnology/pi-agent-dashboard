@@ -3449,13 +3449,15 @@ Set `windowsBashSource` = `"host"` (Settings → Sessions → Worktrees → "Bas
 
 - `"host"` alone does NOT force WSL. Git for Windows under `%ProgramFiles%\Git\bin\bash.exe` (or `%ProgramFiles(x86)%`) is checked before PATH → pi uses it.
 - Git for Windows installed → to get WSL: remove/rename that Git `bash.exe`, or set pi `shellPath` (bash tool + `!` only) to WSL launcher `C:\Windows\System32\bash.exe`.
-- No Git for Windows under `%ProgramFiles%` → pi picks host's first `bash.exe` (`C:\Windows\System32\bash.exe`) → commands run inside Linux distro.
+- No Git for Windows under `%ProgramFiles%` → pi picks first `where bash.exe` hit.
+- WSL used only when `C:\Windows\System32\bash.exe` is that first hit.
+- Any other `bash.exe` earlier on PATH wins over WSL.
 - Doctor "bash source" row shows the bash pi will actually use.
 - Bundled git still works, incl. `#!/bin/sh` hooks.
 - Side effect: MSYS tools in bundled `usr/bin` (`find`, `sort`) shadowed by System32 tools for child processes.
 - No host `bash.exe` on PATH → falls back to bundled bash.
 - Doctor "bash source" row: ok "requires an installed WSL distro" when `host`. Warning `doctor.bash_is_wsl_launcher` when WSL launcher resolved without `host`.
-- Verify: `/api/health` `gitSource.shellIsWslLauncher` = `true`.
+- Verify: Doctor "bash source" row, or `/api/health` `gitSource.shellIsWslLauncher` = `true`.
 
 Cross-refs:
 - packages/shared/src/platform/git-source.ts
