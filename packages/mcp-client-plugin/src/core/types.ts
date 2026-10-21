@@ -204,7 +204,7 @@ export interface LayerStatus {
 export type ProjectTrustSource =
   | { kind: "implicit" }
   | { kind: "recorded"; path: string }
-  | { kind: "dashboard"; sourceKind: string; entry: string }
+  | { kind: "dashboard"; sourceKind: string; entry: string; lifetime?: string }
   | { kind: "default"; value: "always" | "never" | "ask" };
 
 export interface EffectiveView {

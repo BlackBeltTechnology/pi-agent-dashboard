@@ -18,7 +18,7 @@ import {
 } from "../pi-trust-mirror.js";
 
 const settings = (over: Partial<Record<MirrorSourceKind, boolean>> = {}) => ({
-  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, ...over },
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, yolo: true, ...over },
 });
 const FAKE_HOME = "/Users/me";
 const facts = { choicesReadable: true, deny: mirrorDenyRules({ homedir: FAKE_HOME, platform: "linux" }), platform: "linux" } as const;
@@ -164,5 +164,30 @@ describe("#E9 decidePiTrust table", () => {
   });
   it("no trust-requiring resources is implicitly trusted", () => {
     expect(decidePiTrust({ ...base, hasTrustRequiringResources: false, recordedEntry: { path: "/r", decision: false } })).toEqual({ trusted: true, source: { kind: "implicit" } });
+  });
+});
+
+describe("#E2 snapshot liveCount reader (mirror-dashboard-trust-live-remote)", () => {
+  const entry = { key: "/w", sourceKind: "pinned", dev: "1", ino: "2" };
+  const read = async (obj: Record<string, unknown>) => {
+    const { readPiTrustMirrorSnapshot } = await import("../pi-trust-mirror-snapshot.js");
+    const f = path.join(home, `snap-${Math.random().toString(36).slice(2)}.json`);
+    fs.writeFileSync(f, JSON.stringify({ version: 1, generation: 3, entries: [entry], ...obj }));
+    return readPiTrustMirrorSnapshot(f);
+  };
+  it.each([
+    ["missing", undefined, 0],
+    ["negative", -1, 0],
+    ["fractional", 1.5, 0],
+    ["string", "2", 0],
+    ["zero", 0, 0],
+    ["three", 3, 3],
+  ])("liveCount %s → %s", async (_n, v, expected) => {
+    const snap = await read(v === undefined ? {} : { liveCount: v });
+    expect(snap?.liveCount).toBe(expected);
+  });
+  it("a parent-era snapshot reads liveCount 0 with its entries unchanged", async () => {
+    const snap = await read({});
+    expect(snap).toEqual({ version: 1, generation: 3, entries: [entry], liveCount: 0 });
   });
 });

@@ -17,12 +17,17 @@
  * is live the form ADDS its root instead and says the timer is unchanged.
  * When YOLO is unavailable (report mode) every control is rendered inert
  * with the reason - never hidden.
+ *
+ * Every form (so all three surfaces) discloses that the chosen roots are also
+ * trusted in pi until YOLO ends while `piTrustMirror.sources.yolo` is on
+ * (`YoloPiTrustDisclosure`). See change: mirror-dashboard-trust-live-remote.
  */
 import { useEffect, useId, useState } from "react";
 import { activateYolo, fetchYoloRoots, type YoloActivation } from "../../lib/access-grants/access-prompts-api.js";
 import type { YoloSessionView, YoloView } from "../../lib/access-grants/access-prompts-types.js";
 import { useYoloStatus, type YoloStatusStore, yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { fetchPiTrustMirrorConfig } from "../../lib/pi-trust-mirror/pi-trust-mirror-api.js";
 import { useLiveYoloSession, yoloRemainingLabel } from "./YoloIndicators.js";
 
 const UNSCOPED = "\u0000unscoped";
@@ -46,6 +51,30 @@ function YoloUnavailableReason() {
         { mode: "report", required: "enforce" },
         "Not available: host-gate mode is {mode}. YOLO answers only prompts, which need host-gate mode {required}.",
       )}
+    </p>
+  );
+}
+
+/**
+ * One-line disclosure that a YOLO activation also confers pi trust on the chosen
+ * roots. Rendered only once the config says `sources.yolo` is on (nothing while
+ * loading or when off).
+ */
+function YoloPiTrustDisclosure() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void fetchPiTrustMirrorConfig().then((cfg) => {
+      if (live) setOn(cfg.sources.yolo);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!on) return null;
+  return (
+    <p data-testid="yolo-pi-trust-disclosure" className="text-xs text-[var(--text-secondary)]">
+      {i18nT("yolo.piTrustDisclosure", undefined, "The chosen roots are also trusted in pi until YOLO ends.")}
     </p>
   );
 }
@@ -293,6 +322,7 @@ function ActivationBody({
         sessionRoots={session?.roots.map((r) => r.path) ?? []}
         onChoose={setChoice}
       />
+      <YoloPiTrustDisclosure />
       <button
         type="button"
         data-testid={adding ? "yolo-add-root" : "yolo-activate"}

@@ -29,7 +29,8 @@ import { pollCost } from "../poll-cost.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "../process-metrics.js";
 import { createProcessScanScheduler } from "../process-scan-scheduler.js";
 import { scanChildProcessesAsync } from "../process-scanner.js";
-import { decideBridgeProjectTrust, readEventCwd } from "../project-trust.js";
+import { decideBridgeProjectTrust, type ProjectTrustDeps, readEventCwd } from "../project-trust.js";
+import { createHttpLiveQuery, isRemoteBridge } from "../project-trust-live.js";
 import { PromptBus } from "../prompt-bus.js";
 import { buildProviderCatalogue, reloadProviders, toModelInfo } from "../provider-register.js";
 import { gateRemoteRegistration, isRemoteEndpoint } from "../remote-registration-gate.js";
@@ -182,23 +183,48 @@ export function registerSessionInfoChanged(inst: BridgeInstance): void {
   } catch { /* older pi: no session_info_changed — poll fallback covers it */ }
 }
 
-/** `project_trust`: trust-gate decision for the dashboard-spawned project. */
-export function registerProjectTrust(inst: BridgeInstance): void {
+/**
+ * `project_trust`: trust-gate decision for the dashboard-spawned project.
+ *
+ * pi awaits this handler, so it may be asynchronous: on a snapshot miss the
+ * decision runs a live trust query bounded by `piTrustMirror.liveQueryTimeoutMs`
+ * (default 300 ms local / 1000 ms remote). The body has its own try/catch and
+ * every path resolves to `{ trusted: "undecided" }` or a per-run yes — it never
+ * relies on `safe()` or pi's runner to contain a failure. A bridge replaced while
+ * the query was pending (reload) answers undecided. See change: mirror-dashboard-trust-live-remote.
+ */
+export function registerProjectTrust(inst: BridgeInstance, overrides: Partial<ProjectTrustDeps> = {}): void {
   const pi = inst.pi;
   try {
-    pi.on("project_trust" as any, inst.safe((event: any, ctx: any) => {
+    pi.on("project_trust" as any, inst.safe(async (event: any, ctx: any) => {
       // Return the pi trust decision. A newer bridge taking over, or any
       // non-match, defers. `remember:false` = trust for THIS run only.
-      if (!inst.isActive()) return { trusted: "undecided" };
-      const decision = decideBridgeProjectTrust({
-        dashboardSpawned: inst.dashboardSpawned,
-        isHeadless: isHeadlessRpcSession(),
-        eventCwd: readEventCwd(event, ctx),
-        activationCwd: inst.activationCwd,
-      });
-      return decision.trusted === "yes"
-        ? { trusted: "yes", remember: false }
-        : { trusted: "undecided" };
+      try {
+        if (!inst.isActive()) return { trusted: "undecided" };
+        const decision = await decideBridgeProjectTrust(
+          {
+            dashboardSpawned: inst.dashboardSpawned,
+            isHeadless: isHeadlessRpcSession(),
+            eventCwd: readEventCwd(event, ctx),
+            activationCwd: inst.activationCwd,
+          },
+          {
+            isRemoteBridge: () => isRemoteBridge(inst.dashboardUrl),
+            liveQuery: createHttpLiveQuery({
+              endpoint: () => inst.dashboardUrl,
+              httpPort: () => inst.rendezvous?.httpPort,
+            }),
+            ...overrides,
+          },
+        );
+        // The instance may have been replaced while the live query was pending.
+        if (!inst.isActive()) return { trusted: "undecided" };
+        return decision.trusted === "yes"
+          ? { trusted: "yes", remember: false }
+          : { trusted: "undecided" };
+      } catch {
+        return { trusted: "undecided" };
+      }
     }));
   } catch { /* older pi: no project_trust event — no-op */ }
 }

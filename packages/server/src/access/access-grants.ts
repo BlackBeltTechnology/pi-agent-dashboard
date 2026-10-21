@@ -61,6 +61,23 @@ function notifyGrantsChanged(): void {
   }
 }
 
+/**
+ * Notified SYNCHRONOUSLY when the in-memory session grants change. Separate from
+ * {@link setGrantsChangedListener} (persisted writes only). Feeds the pi-trust
+ * live count. See change: mirror-dashboard-trust-live-remote.
+ */
+let sessionGrantsChanged: (() => void) | undefined;
+export function setSessionGrantsChangedListener(fn: (() => void) | undefined): void {
+  sessionGrantsChanged = fn;
+}
+function notifySessionGrantsChanged(): void {
+  try {
+    sessionGrantsChanged?.();
+  } catch {
+    /* a listener never fails a grant */
+  }
+}
+
 /** `session` = in-memory, until server restart. `project` = persisted JSON. */
 export type GrantScope = "session" | "project";
 
@@ -355,6 +372,7 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
     const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
     sessionGrants.push(grant);
     enforceCap(sessionGrants, "session", grant);
+    notifySessionGrantsChanged();
     return { ok: true, grant };
   }
 
@@ -390,12 +408,15 @@ export function revokeGrant(subject: string, scope?: GrantScope): boolean {
   let removed = false;
 
   if (scope !== "project") {
+    let sessionRemoved = false;
     for (let i = sessionGrants.length - 1; i >= 0; i -= 1) {
       if (sessionGrants[i].subject === target) {
         sessionGrants.splice(i, 1);
         removed = true;
+        sessionRemoved = true;
       }
     }
+    if (sessionRemoved) notifySessionGrantsChanged();
   }
   if (scope === "session") return removed;
 

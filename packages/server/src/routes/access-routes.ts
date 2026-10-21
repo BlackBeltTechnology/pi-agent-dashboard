@@ -459,6 +459,13 @@ export function registerAccessRoutes(
     }
     const result = outcome;
     const widened = outcome.widened;
+    // A session grant's choice lives in memory with the grant and dies with it.
+    // See change: mirror-dashboard-trust-live-remote.
+    if (typeof piTrust === "boolean" && result.grant.scope === "session") {
+      const mirror = getPiTrustMirror();
+      mirror?.live?.setChoice("accessGrants", result.grant.subject, piTrust);
+      mirror?.noteLiveChanged();
+    }
     // "Also trust this folder in pi" — stored with the (persisted) grant it belongs to.
     if (typeof piTrust === "boolean" && result.grant.scope === "project") {
       try {
@@ -510,6 +517,24 @@ export function registerAccessRoutes(
         ...(reason ? { reason, reasonLabel: MIRROR_REASON_LABELS[reason] } : {}),
       };
     });
+    // Live (server-lifetime) entries: session worktree trust, session grants, YOLO roots.
+    // Listed with their lifetime; they end with their source. See change: mirror-dashboard-trust-live-remote.
+    const liveEnum = mirror.live?.enumerate();
+    const liveReason = new Map((liveEnum?.ignored ?? []).map((i) => [`${i.entry.sourceKind}\u0000${i.entry.key}`, i.reason]));
+    const liveEntries = (liveEnum?.candidates ?? []).map((c) => {
+      const reason = liveReason.get(`${c.candidate.sourceKind}\u0000${c.candidate.key}`);
+      return {
+        live: true as const,
+        sourceKind: c.candidate.sourceKind,
+        sourceLabel: MIRROR_SOURCE_LABELS[c.candidate.sourceKind],
+        folder: c.candidate.key,
+        choice: c.candidate.choice ?? null,
+        byDefault: c.candidate.choice === undefined,
+        confers: c.confers,
+        lifetime: c.lifetime,
+        ...(reason ? { reason, reasonLabel: MIRROR_REASON_LABELS[reason] } : {}),
+      };
+    });
     return {
       success: true,
       data: {
@@ -517,14 +542,26 @@ export function registerAccessRoutes(
         config,
         agentDir,
         piEntries,
-        effective: ev.counted.map((c) => ({
-          folder: c.candidate.key,
-          sourceKind: c.candidate.sourceKind,
-          sourceLabel: MIRROR_SOURCE_LABELS[c.candidate.sourceKind],
-          coversSubfolders: true,
-        })),
-        ignored: entries.filter((e) => !e.confers),
-        entries,
+        effective: [
+          ...ev.counted.map((c) => ({
+            folder: c.candidate.key,
+            sourceKind: c.candidate.sourceKind,
+            sourceLabel: MIRROR_SOURCE_LABELS[c.candidate.sourceKind],
+            coversSubfolders: true,
+          })),
+          ...liveEntries
+            .filter((e) => e.confers)
+            .map((e) => ({
+              folder: e.folder,
+              sourceKind: e.sourceKind,
+              sourceLabel: e.sourceLabel,
+              coversSubfolders: true,
+              live: true as const,
+              lifetime: e.lifetime,
+            })),
+        ],
+        ignored: [...entries, ...liveEntries].filter((e) => !e.confers),
+        entries: [...entries, ...liveEntries],
         sourcesNotInstalled: ev.sourcesNotInstalled,
         choicesReadable: ev.choicesReadable,
       },

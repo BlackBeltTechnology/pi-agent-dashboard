@@ -177,7 +177,7 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
             </Dialog.Cancel>
             <Dialog.Action
               intent="neutral"
-              onClick={() => { const hash = confirm.hash; setConfirm(null); void doRun(hash, "session"); }}
+              onClick={() => { const hash = confirm.hash; setConfirm(null); void doRun(hash, "session", piTrust); }}
               testId="worktree-init-trust-session"
             >
               {i18nT("worktree.trustUntilDashboardRestarts", undefined, "Trust until dashboard restarts")}

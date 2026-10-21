@@ -58,3 +58,5 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 
 improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` (port targets still need `control`, enforced in the handler); added `start-static`, `:id/touch`, `GET policy` as `observe`. `GET :id/egress`, `POST :id/allow-once`, `POST :id/egress-grant-request` are `control` (handler also requires the token's minting principal); `DELETE /api/access/preview-egress` is `operate`.
 
+
+`POST /api/pi-trust/query` at `operate` (same tier as `POST /api/ws-ticket`). See change: mirror-dashboard-trust-live-remote.

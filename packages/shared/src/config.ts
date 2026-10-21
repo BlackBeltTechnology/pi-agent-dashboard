@@ -851,17 +851,30 @@ export interface AccessGrantsConfig {
 
 /**
  * Dashboard trust → pi `project_trust` mirror. `enabled` (default true) lets
- * durably dashboard-trusted folders count as trusted projects for pi sessions on
- * the same machine; `coverInteractive` (default false) extends that to sessions
- * not spawned headless by the dashboard; `sources.<id>` enable each durable source
- * (all on except `accessGrants`). Rollback: `enabled: false` (read live by the
- * bridge, works with the server down). See change: mirror-dashboard-trust-to-pi.
+ * dashboard-trusted folders count as trusted projects for pi sessions;
+ * `coverInteractive` (default false) extends that to sessions not spawned
+ * headless by the dashboard; `sources.<id>` enable each source (all on except
+ * `accessGrants`; `yolo` is live-only — no durable store backs it).
+ * `liveQuery` (default true) lets the bridge ask the running server about
+ * server-lifetime entries; `liveQueryTimeoutMs` bounds that ask (default 300 ms
+ * local / 1000 ms remote, clamped 50–1000). Rollback: `enabled: false` or
+ * `liveQuery: false` (both read live by the bridge, work with the server down).
+ * See change: mirror-dashboard-trust-to-pi, mirror-dashboard-trust-live-remote.
  */
-export type PiTrustMirrorSourceId = "worktreeInit" | "workflow" | "pinned" | "folderWorkspaces" | "accessGrants";
+export type PiTrustMirrorSourceId =
+  | "worktreeInit"
+  | "workflow"
+  | "pinned"
+  | "folderWorkspaces"
+  | "accessGrants"
+  | "yolo";
 
 export interface PiTrustMirrorConfig {
   enabled: boolean;
   coverInteractive: boolean;
+  liveQuery: boolean;
+  /** Raw configured value; `undefined` = unset or not a finite number. Use {@link effectiveLiveQueryTimeoutMs}. */
+  liveQueryTimeoutMs?: number;
   sources: Record<PiTrustMirrorSourceId, boolean>;
 }
 
@@ -871,13 +884,29 @@ export const PI_TRUST_MIRROR_SOURCE_IDS: readonly PiTrustMirrorSourceId[] = [
   "pinned",
   "folderWorkspaces",
   "accessGrants",
+  "yolo",
 ];
 
 export const DEFAULT_PI_TRUST_MIRROR: PiTrustMirrorConfig = {
   enabled: true,
   coverInteractive: false,
-  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false },
+  liveQuery: true,
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, yolo: true },
 };
+
+export const LIVE_QUERY_TIMEOUT_LOCAL_MS = 300;
+export const LIVE_QUERY_TIMEOUT_REMOTE_MS = 1000;
+export const LIVE_QUERY_TIMEOUT_MIN_MS = 50;
+export const LIVE_QUERY_TIMEOUT_MAX_MS = 1000;
+
+/** The deadline for one live trust query: configured value clamped to 50–1000, else the class default. */
+export function effectiveLiveQueryTimeoutMs(cfg: Pick<PiTrustMirrorConfig, "liveQueryTimeoutMs">, remote: boolean): number {
+  const raw = cfg.liveQueryTimeoutMs;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return remote ? LIVE_QUERY_TIMEOUT_REMOTE_MS : LIVE_QUERY_TIMEOUT_LOCAL_MS;
+  }
+  return Math.min(LIVE_QUERY_TIMEOUT_MAX_MS, Math.max(LIVE_QUERY_TIMEOUT_MIN_MS, raw));
+}
 
 export function parsePiTrustMirror(raw: unknown): PiTrustMirrorConfig {
   const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
@@ -886,10 +915,13 @@ export function parsePiTrustMirror(raw: unknown): PiTrustMirrorConfig {
   for (const id of PI_TRUST_MIRROR_SOURCE_IDS) {
     if (typeof src[id] === "boolean") sources[id] = src[id] as boolean;
   }
+  const timeout = typeof r.liveQueryTimeoutMs === "number" && Number.isFinite(r.liveQueryTimeoutMs) ? r.liveQueryTimeoutMs : undefined;
   return {
     enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_PI_TRUST_MIRROR.enabled,
     coverInteractive:
       typeof r.coverInteractive === "boolean" ? r.coverInteractive : DEFAULT_PI_TRUST_MIRROR.coverInteractive,
+    liveQuery: typeof r.liveQuery === "boolean" ? r.liveQuery : DEFAULT_PI_TRUST_MIRROR.liveQuery,
+    ...(timeout !== undefined ? { liveQueryTimeoutMs: timeout } : {}),
     sources,
   };
 }

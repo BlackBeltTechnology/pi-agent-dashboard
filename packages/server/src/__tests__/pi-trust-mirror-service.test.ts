@@ -19,7 +19,8 @@ const NO_DENY = () => ({ exact: [], subtree: [] });
 const baseCfg = (): PiTrustMirrorConfig => ({
   enabled: true,
   coverInteractive: false,
-  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false },
+  liveQuery: true,
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, yolo: true },
 });
 
 interface Stores {

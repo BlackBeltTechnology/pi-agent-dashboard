@@ -471,6 +471,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/vault/grants", tier: "operate" },
   { method: "POST", path: "/api/vault/import/confirm", tier: "operate" },
   { method: "POST", path: "/api/vault/import/propose", tier: "operate" },
+  // Live pi-trust query: a device that may run a bridge may ask (same tier as the ticket mint).
+  // See change: mirror-dashboard-trust-live-remote.
+  { method: "POST", path: "/api/pi-trust/query", tier: "operate" },
   { method: "POST", path: "/api/ws-ticket", tier: "operate" },
   { method: "PUT", path: "/api/access/pi-trust/choice", tier: "operate" },
   { method: "PUT", path: "/api/config", tier: "operate" },

@@ -126,7 +126,9 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "live-server": "system",
 };
 
-const IDENTITY_ROUTES: ReadonlySet<string> = new Set(["/api/health", "/api/ws-ticket"]);
+// `/api/pi-trust/query` is the bridge's own credentialed call, classified like the ticket mint
+// (change: mirror-dashboard-trust-live-remote).
+const IDENTITY_ROUTES: ReadonlySet<string> = new Set(["/api/health", "/api/ws-ticket", "/api/pi-trust/query"]);
 
 const verbOf = (method: string): "read" | "write" =>
   method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD" ? "read" : "write";

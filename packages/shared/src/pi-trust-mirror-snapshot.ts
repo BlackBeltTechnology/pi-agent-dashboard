@@ -57,7 +57,9 @@ export function readPiTrustMirrorSnapshot(file: string = piTrustMirrorSnapshotPa
     if (!parsed || typeof parsed !== "object") return null;
     const p = parsed as Record<string, unknown>;
     if (p.version !== 1 || typeof p.generation !== "number" || !Array.isArray(p.entries)) return null;
-    return { version: 1, generation: p.generation, entries: p.entries.filter(validEntry) };
+    const live = p.liveCount;
+    const liveCount = typeof live === "number" && Number.isInteger(live) && live >= 0 ? live : 0;
+    return { version: 1, generation: p.generation, entries: p.entries.filter(validEntry), liveCount };
   } catch {
     return null;
   }

@@ -10,9 +10,12 @@ Files in this directory. One row per source file.
 | `__tests__/ci-vitest-report-artifact.test.ts` | Repo-lint: every vitest job in `ci.yml` uploads its own JSON report `if: always()`. → see `__tests__/ci-vitest-report-artifact.test.ts.AGENTS.md` |
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
-| `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge. See change: mirror-dashboard-trust-to-pi. #E1 live settings: `liveQuery`, `liveQueryTimeoutMs` clamp, `sources.yolo`. See change: mirror-dashboard-trust-live-remote. |
+| `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
-| `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter, decidePiTrust table. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter, decidePiTrust table. See change: mirror-dashboard-trust-to-pi. #E2 snapshot `liveCount` reader. See change: mirror-dashboard-trust-live-remote. |
+| `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. |
+| `__tests__/pi-trust-resource-golden.test.ts` | #E17 our resource list vs installed pi `trust-manager.js`; verdict vs `hasTrustRequiringProjectResources`. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/tool-path-resolve.test.ts` | #E24: containment (sibling prefix, equality, probe-free exact hit, fold only when probe says, win32), D6 dangling-link following on a real temp tree (`sub/../x` from real target), loop throws, legacy env literal unchanged. See change: add-path-containment-guard-extension. |
 | `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between… → see `__tests__/ship-it-codeql-wiring.test.ts.AGENTS.md` |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
@@ -72,6 +75,7 @@ Files in this directory. One row per source file.
 | `launch-source-types.ts` | `LaunchSource` discriminated union for Electron server layout. → see `launch-source-types.ts.AGENTS.md` |
 | `legacy-managed-dir.ts` | `detectLegacyManagedDir({ homedir? })`. Returns `{present:false}` or `{present:true, path, pkgCount,… → see `legacy-managed-dir.ts.AGENTS.md` |
 | `local-credential-proof.ts` | Pure local credential proof primitive: `mintProof`/`parseProof`/`canonicalBinding`/counter-proof/`localDialHost`. → see `local-credential-proof.ts.AGENTS.md` |
+| `loopback-host.ts` | `isLoopbackHost(host)`, `isLoopbackEndpoint(url)`. One loopback predicate (localhost, 127/8, ::1, ::ffff:127.x, bracketed ok). Bridge `isRemoteBridge` and server admission share it; never disagree. See change: mirror-dashboard-trust-live-remote. |
 | `md-table-cell.ts` | GFM cell escape. → see `md-table-cell.ts.AGENTS.md` |
 | `memory-limits.ts` | BROWSER-SAFE memory-limit types + defaults: `MemoryLimitsConfig`, `MIN_REPLAY_WINDOW` (100), `DEFAULT_MEMORY_L. → see `memory-limits.ts.AGENTS.md` |
 | `managed-paths.ts` | Single source of truth for managed install dir `~/.pi-dashboard/`. → see `managed-paths.ts.AGENTS.md` |
@@ -95,9 +99,11 @@ Files in this directory. One row per source file.
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json`… → see `pi-settings-keys.ts.AGENTS.md` |
 | `pi-settings-schema.ts` | Typed key schema of pi's global `settings.json` (50 keys: bool/enum/mixed/int/string/`enabledModels`): `PI_SETTINGS_SCHEMA` (`key`,`kind`,`options`,`min`,`max`,`def`,`category`,`label`,`hint`), `PI_SETTING_CATEGORIES`, `PI_SETTINGS_BLOCKS`, `checkPiSettingValue`, `getPiSettingDef`. Drives server patch validation AND client rows. Excludes `PI_MANAGED_SETTINGS_KEYS`. Parity test reads upstream pi docs/settings.md. See change: pi-settings-full-coverage. |
+| `pi-trust-live-query.ts` | Browser-safe wire types for `POST /api/pi-trust/query`. `validatePiTrustQueryBody` (body ≤8 KiB, cwd absolute, no NUL, ≤4,096 chars), `parsePiTrustLiveAnswer`, `PiTrustLiveAnswer` (local: key+sourceKind+dev+ino[+birth]; remote: salt+digest only). See change: mirror-dashboard-trust-live-remote. |
 | `pi-trust-mirror-snapshot.ts` | Snapshot + trust-store readers shared by bridge and server. → see `pi-trust-mirror-snapshot.ts.AGENTS.md` |
 | `pi-trust-mirror-types.ts` | Browser-safe types: `MirrorSourceKind`, `MirrorIgnoreReason`, `MirrorWithheldReason`, `MIRROR_REASON_LABELS`,… → see `pi-trust-mirror-types.ts.AGENTS.md` |
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |
+| `pi-trust-resource-digest.ts` | Remote folder proof, Node-only. `trustResourceManifest(cwd,{home,signal})` async walk of pi's trust-requiring resources (`.pi/*` + ancestor `.agents/skills`), file content hashed; `null` on empty set, symlink, special file, >1,000 entries, >16 MiB, bad settings refs, abort. `trustResourceDigest(salt,cwdKey,manifest)` HMAC-SHA256. `TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES` literal, pinned to pi by golden test. See change: mirror-dashboard-trust-live-remote. |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
 | `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |

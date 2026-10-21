@@ -533,6 +533,11 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
             return { success: false, code: "trust_not_recorded", error: `trust not recorded: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
           }
         } else {
+          // "Until the dashboard restarts": the "also trust in pi" choice is held in
+          // memory with the entry and never written. See change: mirror-dashboard-trust-live-remote.
+          if (scope === "session" && typeof body.piTrust === "boolean") {
+            getPiTrustMirror()?.live?.setChoice("worktreeInit", configRoot, body.piTrust);
+          }
           recordTrust(configRoot, hash, scope);
         }
       }

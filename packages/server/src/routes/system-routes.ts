@@ -23,6 +23,7 @@ import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blac
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { AccessGrantHealth } from "../access/access-health.js";
+import type { PiTrustLiveCounters } from "./pi-trust-query-routes.js";
 import {
   computeBindReachability,
   getLastBindReachability,
@@ -249,6 +250,9 @@ export function registerSystemRoutes(
     // `accessGrants`, failure-isolated like every other telemetry read.
     // See change: add-access-grant-dialog (task 9.3).
     readAccessGrants?: () => AccessGrantHealth;
+    // Live pi-trust query counters (`piTrustMirror.live`), same disclosure gate as
+    // `accessGrants`. See change: mirror-dashboard-trust-live-remote (D6).
+    readPiTrustLive?: () => PiTrustLiveCounters;
     // Live trusted-network list (top-level ∪ auth.bypassHosts) for the additive
     // `trustPosture` health field. Falls back to the boot list when unwired.
     // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -292,7 +296,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readPiTrustLive, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -1138,6 +1142,11 @@ export function registerSystemRoutes(
     if (canDiscloseAccessPosture(request)) {
       try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
     }
+    // Live pi-trust query counters: same disclosure gate as `accessGrants`.
+    let piTrustMirror: { live: PiTrustLiveCounters } | null = null;
+    if (readPiTrustLive && canDiscloseAccessPosture(request)) {
+      try { piTrustMirror = { live: readPiTrustLive() }; } catch { /* keep null */ }
+    }
     // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
     // admits tunnel traffic. Same disclosure gate as `accessGrants`.
     // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -1191,6 +1200,7 @@ export function registerSystemRoutes(
       // Access-grant prompting counters (additive; null when unwired or on a
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
+      piTrustMirror,
       ...(tlsStatus ? { tls: tlsStatus } : {}),
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).

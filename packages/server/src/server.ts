@@ -53,7 +53,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { listGrants as listAccessGrants, setGrantsChangedListener } from "./access/access-grants.js";
+import { listGrants as listAccessGrants, setGrantsChangedListener, setSessionGrantsChangedListener } from "./access/access-grants.js";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
 import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
@@ -63,6 +63,7 @@ import { createCwdHold } from "./access/cwd-verdict.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
+import { createPiTrustLiveProvider } from "./access/pi-trust-live.js";
 import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane, createPreviewEgressPlane } from "./access/planes.js";
 import { projectEgressGrants } from "./access/preview-egress-store.js";
@@ -170,7 +171,12 @@ import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { resolveMainPath } from "./git-worktree/git-operations.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
-import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
+import {
+  listPersistedTrust as listPersistedWorktreeTrust,
+  listSessionTrust as listSessionWorktreeTrust,
+  setSessionTrustChangedListener,
+  setTrustChangedListener,
+} from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
 import { buildAuthContext } from "./identity/auth-context.js";
 import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
@@ -276,6 +282,7 @@ import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerHostGateRoutes } from "./routes/host-gate-routes.js";
+import { registerPiTrustQueryRoutes } from "./routes/pi-trust-query-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
@@ -1590,12 +1597,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Durable dashboard trust is mirrored into pi's `project_trust` through a
   // server-written snapshot (rebuilt now from the persisted stores, so a crash
   // between a revoke's two writes heals at boot). See change: mirror-dashboard-trust-to-pi.
+  // Server-lifetime ("live") trust: session worktree trust, session grants, YOLO
+  // roots. Counted into the snapshot as `liveCount` only; the YOLO controller is
+  // constructed further down, so it is read through a late-bound reference.
+  // See change: mirror-dashboard-trust-live-remote.
+  let yoloForLiveTrust: YoloController | undefined;
+  const piTrustLive = createPiTrustLiveProvider({
+    getConfig: () => loadConfig().piTrustMirror,
+    listSessionTrust: listSessionWorktreeTrust,
+    listSessionGrants: () => listAccessGrants().filter((g) => g.scope === "session"),
+    getYolo: () => yoloForLiveTrust,
+  });
   const piTrustMirror = createPiTrustMirrorService({
     getConfig: () => loadConfig().piTrustMirror,
     listPinned: () => preferencesStore.getPinnedDirectories(),
     listWorkspaceFolders: () => preferencesStore.getWorkspaces().flatMap((w) => w.folders),
     listWorktreeTrust: listPersistedWorktreeTrust,
     listPersistedGrants: () => listAccessGrants().filter((g) => g.scope === "project"),
+    live: piTrustLive,
   });
   setPiTrustMirror(piTrustMirror);
   try {
@@ -1618,6 +1637,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   preferencesStore.onWorkspacesChanged(queueMirrorRefresh);
   setGrantsChangedListener(queueMirrorRefresh);
   setTrustChangedListener(queueMirrorRefresh);
+  // Session entries never reach disk, so their listeners recompute the live count
+  // synchronously (the snapshot is rewritten before the action reports success).
+  setSessionGrantsChangedListener(() => piTrustMirror.noteLiveChanged());
+  setSessionTrustChangedListener(() => piTrustMirror.noteLiveChanged());
   const hostProjectTrust = await loadHostProjectTrustService();
   pluginServiceRegistry.set("host.isProjectTrusted", hostProjectTrust.isProjectTrusted);
   pluginServiceRegistry.set("host.projectTrustSource", hostProjectTrust.projectTrustSource);
@@ -2078,6 +2101,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
     isRefused,
   });
+  yoloForLiveTrust = yolo;
+  yolo.setChangeListener(() => piTrustMirror.noteLiveChanged());
   const yoloBoot = yolo.activateFromEnv(process.env[YOLO_ENV]);
   if (yoloBoot.ok) {
     const s = yoloBoot.session;
@@ -2837,7 +2862,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   registerAcpRoutes(fastify);
   registerTlsRoutes(fastify, { networkGuard, listener: tlsListener });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  // Live pi-trust query: authenticated one-shot HTTP for the bridge's `project_trust`.
+  // See change: mirror-dashboard-trust-live-remote.
+  const piTrustQuery = registerPiTrustQueryRoutes(fastify, {
+    getConfig: () => loadConfig().piTrustMirror,
+    live: () => piTrustMirror.live,
+    readSnapshot: () => piTrustMirror.readSnapshot(),
+  });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.

@@ -148,6 +148,53 @@ describe("9.3 access-grant counters", () => {
   });
 });
 
+// test-plan #E22 — `/api/health` `piTrustMirror.live` counters, same disclosure gate as
+// `accessGrants`. See change: mirror-dashboard-trust-live-remote (D6).
+describe("E22 /api/health piTrustMirror.live", () => {
+  const counters = { covered: 3, notCovered: 2, refused: 1, rateLimited: 4, budgetMissed: 5 };
+
+  async function liveApp(read?: () => typeof counters): Promise<FastifyInstance> {
+    const app = Fastify({ logger: false });
+    apps.push(app);
+    registerSystemRoutes(app, {
+      sessionManager: { listActive: () => [], listAll: () => [] },
+      preferencesStore: { flush: () => {} },
+      metaPersistence: { flushAll: () => {} },
+      config: { port: 8000, piPort: 9999, dev: false },
+      networkGuard: async () => {},
+      version: "test",
+      clientDir: null,
+      readPiTrustLive: read,
+    } as never);
+    await app.ready();
+    return app;
+  }
+
+  it("exposes the five counters to a genuinely-local caller", async () => {
+    const body = await health(await liveApp(() => counters));
+    expect(body.piTrustMirror).toEqual({ live: counters });
+  });
+
+  it("is null when unwired, and a throwing read never breaks /api/health", async () => {
+    expect((await health(await liveApp())).piTrustMirror).toBeNull();
+    const body = await health(
+      await liveApp(() => {
+        throw new Error("boom");
+      }),
+    );
+    expect(body.piTrustMirror).toBeNull();
+    expect(body.ok).toBe(true);
+  });
+
+  it("hides the counters from a remote or tunnel-forwarded caller", async () => {
+    const app = await liveApp(() => counters);
+    const remote = await app.inject({ method: "GET", url: "/api/health", remoteAddress: "203.0.113.9" });
+    expect(remote.json().piTrustMirror).toBeNull();
+    const tunnel = await app.inject({ method: "GET", url: "/api/health", headers: { "x-forwarded-for": "198.51.100.4" } });
+    expect(tunnel.json().piTrustMirror).toBeNull();
+  });
+});
+
 // test-plan #E14 / #E17 — additive `trustPosture` on /api/health, disclosed only
 // to an authenticated or genuinely-local caller. See change:
 // fix-trusted-network-tunnel-bypass (D3), retire-trusted-networks-bypass (D4).
