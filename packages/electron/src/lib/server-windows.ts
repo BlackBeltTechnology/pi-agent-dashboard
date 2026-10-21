@@ -52,6 +52,12 @@ const RECHECK_MIN_INTERVAL_MS = 5 * 60_000;
 const EXCHANGE_TIMEOUT_MS = 10_000;
 const EXTERNAL_MIN_INTERVAL_MS = 1000;
 const DEVICE_COOKIE = "pi_dash_device";
+/**
+ * Non-secret "cookie-paired" marker the remote's client reads (`isDevicePaired`) to decide it
+ * must mint a WS ticket. The exchange sets the httpOnly cookie from main, so the page never
+ * learns it is paired unless we plant the marker. The bearer never enters the page.
+ */
+const MARK_COOKIE_PAIRED_JS = 'try{localStorage.setItem("pi-dashboard:device-paired","1")}catch{}';
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -111,6 +117,7 @@ interface WebContentsLike {
   setWindowOpenHandler(handler: (details: { url: string }) => { action: "deny" }): void;
   loadURL(url: string): Promise<void>;
   getURL(): string;
+  executeJavaScript(code: string): Promise<unknown>;
 }
 
 export interface ServerWindowLike {
@@ -444,6 +451,19 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
         }
       }
       return { action: "deny" };
+    });
+
+    // Cookie-paired marker: only on the server's own origin (old clients pick it up on reconnect).
+    wc.on("dom-ready", () => {
+      if (ow.win.isDestroyed() || registry.get(fp) !== ow) return;
+      let pageOrigin: string;
+      try {
+        pageOrigin = new URL(wc.getURL()).origin;
+      } catch {
+        return;
+      }
+      if (pageOrigin !== origin) return;
+      wc.executeJavaScript(MARK_COOKIE_PAIRED_JS).catch(() => {});
     });
 
     // Title: the page title is untrusted text.

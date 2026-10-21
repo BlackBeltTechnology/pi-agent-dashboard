@@ -94,6 +94,22 @@ describe("useWebSocket ticket minting for the identity plane (§12.3)", () => {
     expect(MockWebSocket.instances[0]!.url).toBe(WS_URL);
     expect(fetchSpy.mock.calls.some((c) => String(c[0]).includes("/api/ws-ticket"))).toBe(false);
   });
+
+  it("a non-loopback page with no marker probes a cookie ticket (Electron server window heal)", async () => {
+    vi.stubGlobal("location", { ...window.location, hostname: "192.168.16.203", host: "192.168.16.203:8000" });
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, data: { ticket: "HEAL-TK" } })));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      renderHook(() => useWebSocket(WS_URL));
+      await vi.waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
+      expect(MockWebSocket.instances[0]!.url).toContain("ticket=HEAL-TK");
+      expect(localStorage.getItem("pi-dashboard:device-paired")).toBe("1");
+    } finally {
+      localStorage.removeItem("pi-dashboard:device-paired");
+    }
+  });
 });
 
 describe("reconnect on identity expiry (§12.4)", () => {
