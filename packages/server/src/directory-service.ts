@@ -669,17 +669,32 @@ export function createDirectoryService(
     packageSchemasDirMemo = { version, dir }; // a `null` (no CLI) is memoized too: no per-tick re-walk
     return dir;
   }
-  /** Main-thread inputs of the `schemaStatus` request (the worker module must not import them). */
-  async function schemaStatusInputsFor(
-    version: string | null,
-  ): Promise<Pick<SchemaStatusRequest, "packageSchemasDir" | "userSchemasDir">> {
-    return {
-      packageSchemasDir: await packageSchemasDirFor(version),
-      userSchemasDir: workflowSchemaOpts?.userSchemasDirPath ?? userSchemasDir(),
-    };
+  type SchemaStatusInputs = Pick<SchemaStatusRequest, "packageSchemasDir" | "userSchemasDir">;
+  /**
+   * Main-thread inputs of the `schemaStatus` request (the worker module must not
+   * import them). Advisory: a resolution failure yields `{ error }`, never a throw,
+   * so it can neither fail a poll nor escape `pollOne`.
+   */
+  async function schemaStatusInputsFor(version: string | null): Promise<SchemaStatusInputs | { error: unknown }> {
+    try {
+      return {
+        packageSchemasDir: await packageSchemasDirFor(version),
+        userSchemasDir: workflowSchemaOpts?.userSchemasDirPath ?? userSchemasDir(),
+      };
+    } catch (error) {
+      return { error };
+    }
   }
   // cwds whose status computation failed on the previous tick (log once per failure run).
   const schemaStatusFailing = new Set<string>();
+  function noteSchemaStatusFailure(cwd: string, err: unknown): void {
+    if (schemaStatusFailing.has(cwd)) return;
+    schemaStatusFailing.add(cwd);
+    console.warn(
+      `[openspec-poll] workflow-schema status failed for ${cwd} (worker request and in-process fallback); omitting workflowSchema this tick:`,
+      err,
+    );
+  }
   /**
    * Enqueue the `schemaStatus` request NOW (synchronously — callers rely on its
    * place in the pool FIFO) and resolve the finished status. Never rejects: a
@@ -690,8 +705,12 @@ export function createDirectoryService(
   function requestSchemaStatus(
     cwd: string,
     version: string | null,
-    inputs: Pick<SchemaStatusRequest, "packageSchemasDir" | "userSchemasDir">,
+    inputs: SchemaStatusInputs | { error: unknown },
   ): Promise<OpenSpecWorkflowSchemaStatus | undefined> {
+    if ("error" in inputs) {
+      noteSchemaStatusFailure(cwd, inputs.error);
+      return Promise.resolve(undefined);
+    }
     const localVersion = version ?? "";
     const run = async (): Promise<OpenSpecWorkflowSchemaStatus | undefined> => {
       try {
@@ -704,13 +723,7 @@ export function createDirectoryService(
         schemaStatusFailing.delete(cwd);
         return status;
       } catch (err) {
-        if (!schemaStatusFailing.has(cwd)) {
-          schemaStatusFailing.add(cwd);
-          console.warn(
-            `[openspec-poll] workflow-schema status failed for ${cwd} (worker request and in-process fallback); omitting workflowSchema this tick:`,
-            err,
-          );
-        }
+        noteSchemaStatusFailure(cwd, err);
         return undefined; // advisory only: never fail or alter a poll
       }
     };

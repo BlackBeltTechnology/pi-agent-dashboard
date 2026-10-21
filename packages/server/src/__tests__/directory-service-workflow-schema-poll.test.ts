@@ -224,6 +224,27 @@ describe("failure handling", () => {
     for (const l of lines) expect(l).toMatch(/in-process fallback/);
   });
 
+  it("an input-resolution failure (package schemas dir) omits the key and never fails the poll", async () => {
+    const cwd = mkCwd();
+    stamp(cwd, "1.11.0");
+    settle(cwd);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    make({}, {
+      workflowSchema: {
+        packageSchemasDir: async () => {
+          throw new Error("resolver boom");
+        },
+        userSchemasDirPath: userDir,
+      },
+    });
+    for (let i = 0; i < 2; i++) {
+      const out = await tick(service!, cwd);
+      expect(out.initialized).toBe(true);
+      expect("workflowSchema" in out).toBe(false);
+    }
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("workflow-schema status failed"))).toHaveLength(1);
+  });
+
   it("#P13 a newer stamp validates once on the main thread through the shared semaphore", async () => {
     const cwd = mkCwd();
     stamp(cwd, "1.12.0");
