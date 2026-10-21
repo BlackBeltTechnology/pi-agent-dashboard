@@ -15,7 +15,7 @@ The plugin settings SHALL present a setup wizard that:
 - accepts an uploaded OAuth client JSON file;
 - runs a test sign-in.
 
-The plugin SHALL NOT execute cloud CLI commands. An uploaded client SHALL be accepted only if it is a Desktop (installed) client with a client id and secret.
+The plugin SHALL NOT execute cloud CLI commands. When the dedicated agent browser is available, the settings SHALL also offer "Set up automatically" (see gmail-auto-setup); the wizard SHALL accept a hand-off from it that opens a given step with the project id and owner account filled in. An uploaded client SHALL be accepted only if it is a Desktop (installed) client with a client id and secret.
 
 The project id field SHALL be validated when the user leaves the field; no validation error SHALL be shown while typing, and an error shown after leaving SHALL clear as soon as the value becomes valid. A value that is not a valid Google Cloud project id SHALL show an inline error; a value containing an uppercase letter or a space SHALL instead show an error explaining that the console shows a project *name* while the wizard needs the project *id*, with a link to the console's project list. Project-scoped console links and commands SHALL be offered only for a valid project id; while the id is empty or invalid they SHALL be replaced by a statement that a valid project id is needed, and the commands SHALL NOT be shown with a placeholder.
 
@@ -105,8 +105,13 @@ When setup is complete and the wizard is collapsed, its summary SHALL identify t
 - **WHEN** the user views the audience step
 - **THEN** it states that publishing removes the 7-day token expiry, that an unverified app shows a warning and admits at most 100 users, and that accounts added during Testing need one re-authentication after publishing
 
+#### Scenario: Hand-off opens the wizard at a step
+
+- **WHEN** an automatic setup run ends with `handoff {step: "publish", wizardStep: 3}` for project `pi-dashboard-abc123`
+- **THEN** the wizard SHALL be expanded with step 3 carrying `aria-current="step"` and the project id field showing `pi-dashboard-abc123`
+
 ### Requirement: Multi-account sign-in
-The plugin SHALL let the user add any number of Google accounts through the host OAuth flow, using the loopback redirect with a pasted-redirect fallback. Each account SHALL be identified by the provider-verified subject and shown with its verified email. Signing in again with an existing account SHALL update that account rather than create a duplicate.
+The plugin SHALL let the user add any number of Google accounts through the host OAuth flow, using the loopback redirect with a pasted-redirect fallback. Each account SHALL be identified by the provider-verified subject and shown with its verified email. Adding an account MAY carry an email address; when it does, the authorization request SHALL pass it as `login_hint` so Google preselects that account. When the configured client's audience is External or unknown, the waiting-sign-in notice SHALL also say that Google may show "Google hasn't verified this app" and that the user continues through Advanced. Signing in again with an existing account SHALL update that account rather than create a duplicate.
 
 #### Scenario: Two accounts coexist
 - **WHEN** the user signs in with `a@x.com` and then with `b@y.com`
@@ -127,6 +132,16 @@ The plugin SHALL let the user add any number of Google accounts through the host
 #### Scenario: Unverified email refused
 - **WHEN** the identity token reports an unverified email
 - **THEN** the sign-in fails and no account is stored
+
+#### Scenario: Add account with an email hint
+
+- **WHEN** the user adds an account entering `robson@semmi.se`
+- **THEN** the authorization URL SHALL carry `login_hint=robson@semmi.se`
+
+#### Scenario: Invalid email hint
+
+- **WHEN** `POST /api/plugins/gmail/accounts` carries `email` that is not an email address or longer than 254 characters
+- **THEN** the response SHALL be 400 and no sign-in SHALL start
 
 ### Requirement: Per-account permission levels
 Each account SHALL have exactly one level:
@@ -235,7 +250,7 @@ Revoking an account SHALL require an explicit confirmation in the UI before any 
 - **THEN** no revoke request is sent and the account remains listed
 
 ### Requirement: Secrets never logged
-Tokens, client secrets, authorization codes and pasted redirect URLs SHALL NOT appear in server or bridge logs or in tool results. A failed sign-in SHALL be logged exactly once, as a warning carrying only a fixed, input-free error code; an error without such a code SHALL be logged with a generic code.
+Tokens, client secrets, authorization codes and pasted redirect URLs SHALL NOT appear in server or bridge logs, in tool results, or in automatic-setup run views, hand-off reasons or browser audit entries. Any text the automatic setup logs SHALL have `GOCSPX-` secrets masked, and a client JSON it downloads SHALL be deleted after it is read. A failed sign-in SHALL be logged exactly once, as a warning carrying only a fixed, input-free error code; an error without such a code SHALL be logged with a generic code.
 
 #### Scenario: Lease logging
 - **WHEN** a lease is issued
@@ -245,6 +260,11 @@ Tokens, client secrets, authorization codes and pasted redirect URLs SHALL NOT a
 - **WHEN** a sign-in fails (Google error redirect, token exchange failure, scope missing, account mismatch, timeout, cancel, or the flow failing to start)
 - **THEN** the server log records one warning with a fixed error code
 - **AND** the log line contains no token, authorization code, client secret, URL or email
+
+#### Scenario: Setup run masking
+
+- **WHEN** an automatic setup run fails after the creation dialog showed a secret `GOCSPX-abc`
+- **THEN** no log line SHALL contain `GOCSPX-abc` and any logged dialog text SHALL read `GOCSPX-***`
 
 ### Requirement: Settings section is readable and guarded
 The Gmail settings section SHALL take every color from declared dashboard theme tokens so borders, status badges and errors render correctly in every named theme in light and dark mode; information text (labels, help, hints) SHALL use `--text-primary` or `--text-secondary`, never `--text-muted`. Account status SHALL be distinguishable by color and text: a severity pill reading "Connected" for `ok` and "Re-auth needed" for `reauth_required`, keeping `data-testid="gmail-account-status"` and its `data-status` value. Every interactive control SHALL show a visible keyboard focus indicator, and each account row SHALL name its controls after the account ("Alias for <email>", "Level for <email>", "Filters for <email>", "Revoke <email>"). Saving an alias SHALL report success or failure. The level choices SHALL each describe what the level allows, and the section SHALL keep stating that levels are enforced by the plugin rather than by Google and that any dashboard session can use every account within its level. The labelled inputs (project id, owner account, client upload, new account level) SHALL use the shared settings field components (`settings-panel`), the project id and owner account fields SHALL each carry a hint (what the value is and where to find it), and their validation errors SHALL be linked to the input by `aria-describedby`. "Add account" SHALL be the section's one primary button; while it is disabled, a text reason SHALL be shown and linked by `aria-describedby`. The add-account control SHALL state that accounts outside the project's Workspace organization need an External audience.
@@ -294,7 +314,7 @@ When the Gmail API answers HTTP 403, a Gmail tool SHALL classify the failure fro
 - **THEN** the tool fails with code `gmail_error` and the message contains none of the response body text
 
 ### Requirement: Gmail setup wizard shows step progress and actionable errors
-The setup wizard SHALL number its steps with chips. The current step — the step the wizard highlights today, including the audience step it highlights after an `org_internal` report — SHALL carry `aria-current="step"`, and completed steps SHALL show a check. A failed sign-in SHALL render as a severity-error notice that names the cause and the wizard step that fixes it, keeping `gmail-flow-error` with its `data-step` and the error code. An invalid project id and a project-id mismatch after upload SHALL each render as an actionable notice in step 1 that says what to change, with test ids `gmail-project-error` and `gmail-project-mismatch` respectively. The section SHALL pass the contrast, size and focus probes in `{base,dark}`, `{base,light}` and `{nord,dark}` at 375, 768 and 1440 px in these states: loading, load error, not configured, invalid project id, project-id mismatch, configured with an `ok`, a `reauth_required` and a testing-mode account, client upload error, sign-in waiting, sign-in failed, and alias error. Every existing `gmail-*` test id SHALL still render in its state.
+The setup wizard SHALL number its steps with chips. The current step — the step the wizard highlights today, including the audience step it highlights after an `org_internal` report — SHALL carry `aria-current="step"`, and completed steps SHALL show a check. A failed sign-in SHALL render as a severity-error notice that names the cause and the wizard step that fixes it, keeping `gmail-flow-error` with its `data-step` and the error code. An invalid project id and a project-id mismatch after upload SHALL each render as an actionable notice in step 1 that says what to change, with test ids `gmail-project-error` and `gmail-project-mismatch` respectively. The section SHALL pass the contrast, size and focus probes in `{base,dark}`, `{base,light}` and `{nord,dark}` at 375, 768 and 1440 px in these states: loading, load error, not configured, invalid project id, project-id mismatch, configured with an `ok`, a `reauth_required` and a testing-mode account, client upload error, sign-in waiting, sign-in failed, alias error, and the automatic setup states: entry available, remote note, start form, run in progress, waiting for the user (sign-in and policy checkpoints), audience and links decisions, busy with takeover, and hand-off. Every existing `gmail-*` test id SHALL still render in its state.
 
 #### Scenario: Current step is marked
 - **WHEN** the client is not configured
