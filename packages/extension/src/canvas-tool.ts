@@ -37,6 +37,8 @@ export function registerCanvasTool(pi: ExtensionAPI): void {
       "Point the dashboard canvas at a deliverable you're producing (file, url, or a running dev server)",
     promptGuidelines: [
       "Call canvas() when you produce or update a user-facing deliverable — a report/doc/mockup/image (target.kind='file', path relative to the session cwd), a web page (target.kind='url'), or a dev server you started (target.kind='server', port).",
+      "For a local server pass its localhost URL (target.kind='url' with http://localhost:<port>/…, or kind='server'), never a LAN/IP URL — the dashboard only embeds loopback servers.",
+      "For a local HTML file prefer kind:'file' (relative path): the dashboard serves it with its relative CSS/JS/images instead of needing a server.",
       "Paths MUST be relative to the session cwd — never absolute and never containing '..'.",
       "This is fire-and-forget: it returns immediately and never blocks. Keep working after calling it.",
       "Use mode='pin' to keep the canvas on this artifact across later writes; default 'replace' lets the newest artifact take the slot.",

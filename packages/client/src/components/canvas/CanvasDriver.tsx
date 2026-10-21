@@ -5,7 +5,9 @@
  *
  * Responsive gate (design Decision 1, guarded IN the transition):
  *   - desktop / tablet → auto-open the winning target side-by-side / replace-chat
- *     via `openInSplit` (file) or `openLiveTarget` (loopback url).
+ *     via the shared `useOpenCanvasTarget` (file → `openInSplit`, `.html` →
+ *     `openStaticTarget`, generic url → `openUrlTarget`; a loopback url NEVER
+ *     auto-opens — it surfaces the confirm chip).
  *   - mobile (<768w OR <600h) → NEVER yank chat; surface a tap-to-open chip.
  *
  * The gate fires on the eager-open transition AND on restore-on-reselect: the
@@ -15,14 +17,15 @@
  * Server chip (Section 7) renders independently of the file target and taps
  * through the LiveServerViewer loopback-probe path.
  */
-import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCanvasTier } from "../../hooks/useCanvasTier.js";
+import { setActiveCanvasPort } from "../../lib/canvas/active-canvas-target.js";
 import { type CanvasState, gateAllowsAutoOpen } from "../../lib/canvas/canvas-gate.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { CanvasServerChip } from "./CanvasServerChip.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { CanvasServerChip } from "./CanvasServerChip.js";
+import { useOpenCanvasTarget } from "./useOpenCanvasTarget.js";
 
 interface Props {
   /** The selected session's canvas state (empty when none). */
@@ -114,46 +117,17 @@ function useAnchorBottom(anchor: HTMLElement | null | undefined): number | null 
   return anchor ? bottom : null;
 }
 
-/**
- * Open a canvas target through the split-workspace helpers. Files open in the
- * monaco/preview split; loopback URLs open the live-server viewer (SSRF-gated).
- */
-function useOpenTarget() {
-  const { openInSplit, openLiveTarget, openUrlTarget } = useSplitWorkspace();
-  // Stable identity across renders so effect deps don't churn. `background`
-  // splits the two callers: the auto-open EFFECT passes `true` (agent — add
-  // silently while the editor is shown); the mobile chip `onClick` passes
-  // `false` (user tap — foreground). See change: non-disruptive-file-open.
-  return useCallback(
-    (state: CanvasState, background: boolean) => {
-      const target = state.target;
-      if (!target) return;
-      if (target.kind === "file") {
-        // Canvas auto-open (no user click) → restrictCsp so document viewers
-        // block external subresources (auto-open egress ≤ manual-click, S34).
-        // `restrictCsp` (egress) and `background` (focus) are orthogonal.
-        // `autoOpened` is provenance: the effect (background) is the agent,
-        // the chip tap is the operator — `restrictCsp` is true for both, so it
-        // cannot tell them apart (surface-denial-remedy-in-previews, D4).
-        openInSplit(target.path, undefined, true, { background, autoOpened: background });
-      } else if (target.kind === "url" && isLoopbackUrl(target.url)) {
-        // Loopback dev-server URL → SSRF-gated live-server viewer.
-        openLiveTarget(target.url, { background });
-      } else if (target.kind === "url") {
-        // Generic url/youtube declare → the `url` split viewer renders it
-        // normally, NO document CSP (S35).
-        openUrlTarget(target.url, { background });
-      }
-    },
-    [openInSplit, openLiveTarget, openUrlTarget],
-  );
-}
-
 export function CanvasDriver({ state, anchor }: Props) {
   const tier = useCanvasTier();
   const anchorBottom = useAnchorBottom(anchor);
-  const openTarget = useOpenTarget();
-  const { openLiveTarget } = useSplitWorkspace();
+  const { open: openTarget } = useOpenCanvasTarget();
+  const { sessionId } = useSplitWorkspace();
+  // Publish the declared server's port so the live-server picker lists it first.
+  const chipPort = state.chip?.port ?? null;
+  useEffect(() => {
+    setActiveCanvasPort(sessionId, chipPort);
+    return () => setActiveCanvasPort(sessionId, null);
+  }, [sessionId, chipPort]);
 
   // Key the auto-open effect on the target identity + version so a re-write
   // (same target, version++) refreshes and a session re-select re-opens.
@@ -164,10 +138,15 @@ export function CanvasDriver({ state, anchor }: Props) {
         ? `file:${state.target.cwd}:${state.target.path}:${state.version}`
         : `url:${state.target.url}:${state.version}`;
   const lastKeyRef = useRef<string | null>(null);
+  // Target identity WITHOUT the version: a repeat of the same target at a higher
+  // version is a re-declare (bump), not a first open or a session re-select.
+  const identity = key == null ? null : key.slice(0, key.lastIndexOf(":"));
+  const lastIdentityRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (key == null) {
       lastKeyRef.current = null;
+      lastIdentityRef.current = null;
       return;
     }
     if (key === lastKeyRef.current) return;
@@ -176,9 +155,12 @@ export function CanvasDriver({ state, anchor }: Props) {
     // grows (tier is an effect dep).
     if (!gateAllowsAutoOpen(tier)) return;
     lastKeyRef.current = key;
+    const bump = lastIdentityRef.current === identity;
+    lastIdentityRef.current = identity;
     // Agent auto-open → background (add silently while the editor is shown).
-    openTarget(state, true);
-  }, [key, tier, openTarget, state]);
+    // A loopback URL never auto-opens: the server routes it to the confirm chip.
+    if (state.target) openTarget(state.target, { opener: "agent", background: true, bump });
+  }, [key, identity, tier, openTarget, state.target]);
 
   const showMobileChip = tier === "mobile" && state.target != null;
 
@@ -204,7 +186,7 @@ export function CanvasDriver({ state, anchor }: Props) {
           <button
             type="button"
             data-testid="canvas-file-chip"
-            onClick={() => openTarget(state, false)}
+            onClick={() => state.target && openTarget(state.target, { opener: "operator", background: false })}
             className="pointer-events-auto flex min-h-[44px] min-w-0 max-w-full items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
           >
             <span className="min-w-0 truncate font-medium">
@@ -217,12 +199,7 @@ export function CanvasDriver({ state, anchor }: Props) {
             )}
           </button>
         )}
-        {state.chip && (
-          <CanvasServerChip
-            chip={state.chip}
-            onTap={(loopbackUrl) => openLiveTarget(loopbackUrl)}
-          />
-        )}
+        {state.chip && <CanvasServerChip chip={state.chip} />}
       </div>
     </LayerPortal>
   );

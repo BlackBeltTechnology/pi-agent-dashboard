@@ -82,6 +82,7 @@ import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
+import { useCanvasToolScalars } from "./lib/canvas/use-canvas-tool-scalars.js";
 import { composerLiveness, isComposerWorking } from "./lib/chat/composer-liveness.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
@@ -1828,12 +1829,17 @@ export default function App() {
   // the type matches what is actually kept fresh. See change:
   // fix-long-session-ux-degradation (D7).
   const selectedSubagents = selectedId ? sessionStates.get(selectedId)?.subagents : undefined;
+  // `canvas` is the scalar ownership slice (key / sourceCallId / chipDeclarationId):
+  // the memo moves only when one of them does, never on a phase/title/version change.
+  // See change: improve-canvas-html-and-url-ux (D8).
+  const canvasScalars = useCanvasToolScalars(selectedId ? canvasMap.get(selectedId) : undefined);
   const toolContext: ToolContext = useMemo(() => makeToolContext({
     cwd: selectedCwd,
     sessionId: selectedId,
     session: selectedSubagents ? { subagents: selectedSubagents } : undefined,
+    canvas: canvasScalars,
     send,
-  }), [selectedCwd, selectedId, selectedSubagents, send]);
+  }), [selectedCwd, selectedId, selectedSubagents, canvasScalars, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),

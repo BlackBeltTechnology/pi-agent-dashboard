@@ -2,7 +2,7 @@
  * Pure aggregation for the Settings → Access review surface (change:
  * add-access-grants-and-review, task 7.2).
  *
- * Maps an `AccessGrantSnapshot` (the eight in-scope stores, read in place —
+ * Maps an `AccessGrantSnapshot` (the nine in-scope stores, read in place —
  * design D6) into labelled, revocable rows. Kept PURE so fixture tests can
  * exercise it without a live server.
  *
@@ -117,6 +117,15 @@ function entriesForStore(store: AccessStoreId, snapshot: AccessGrantSnapshot): A
         store,
         subject: value,
         legacyHashOnly: false,
+      }));
+    case "previewEgress":
+      // One row per (project, origin): the same origin granted for two projects is two entries.
+      return (snapshot.previewEgress ?? []).map((g) => ({
+        id: `${g.project}\u0000${g.origin}`,
+        store,
+        subject: g.origin,
+        legacyHashOnly: false,
+        project: g.project,
       }));
   }
 }

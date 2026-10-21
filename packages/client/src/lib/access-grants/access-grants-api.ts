@@ -28,6 +28,7 @@
  * - CORS origins           → DELETE /api/access/cors-origin (per-entry, as above)
  * - pinned directories     → PATCH /api/preferences/pinned-directories (the
  *                            preferences-store write path)
+ * - preview-egress origins → DELETE /api/access/preview-egress {project, origin}
  *
  * No function here creates a grant (design D12).
  */
@@ -99,6 +100,9 @@ export async function revokeAccessEntry(entry: AccessEntry): Promise<RevokeResul
       return send("DELETE", "/api/access/cors-origin", { origin: entry.subject });
     case "pinnedDirectories":
       return send("DELETE", "/api/access/pinned-directory", { subject: entry.subject });
+    case "previewEgress":
+      // Per (project, origin); the server edits its own locked store, so the next CSP build drops the origin.
+      return send("DELETE", "/api/access/preview-egress", { project: entry.project, origin: entry.subject });
   }
 }
 

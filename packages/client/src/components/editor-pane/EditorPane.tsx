@@ -244,6 +244,8 @@ export function EditorPane() {
       size: 0,
       line: lineForTab,
       restrictCsp: activeTab.restrictCsp,
+      reloadNonce: activeTab.reloadNonce,
+      updatedByAgent: activeTab.updatedByAgent,
     };
     // Plugin tabs render through PluginTabHost (claim by prefix, richer
     // props); never the registry, never CappedViewer (no `/api/file`).
@@ -263,7 +265,9 @@ export function EditorPane() {
               onClose={() => dispatch({ type: "closeTab", index: activeIdx })}
             />
           ) : PseudoTabViewerComponent ? (
-            <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
+            // A live-server tab keeps per-target state (framed target, token, policy): key it by tab path so
+            // two `static:`/`live:` tabs never show each other's page. See change: improve-canvas-html-and-url-ux.
+            <PseudoTabViewerComponent key={viewer === "live-server" ? activeTab.path : viewerKey} {...viewerProps} />
           ) : isPseudoTabViewer(viewer) ? null : fh.handlerView && fh.activeKey ? (
             // Plugin file-handler mode: the page-level layer aligns the live
             // instance over this anchor; CappedViewer is NOT mounted.

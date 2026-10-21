@@ -27,6 +27,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Canvas and live previews: HTML renders as authored, with fail-closed isolation.** A local `.html`
+  file now opens as an in-memory, capability-only *static target* of the live-server viewer, so relative
+  CSS/JS/images resolve and scripts run inside the opaque-origin sandbox (the old `srcdoc` no-script
+  preview is gone; a "Static" toggle restores script-free rendering). Previews are egress-restricted
+  unless the operator opened them; blocked CDN origins show in a banner with "Allow once" or a per-project
+  `preview-egress` grant (reviewed on the Access page). The viewer header is an editable address bar, and
+  the `canvas` tool shows a clickable card. **Breaking:** tokenless browser access to `/live/` (any request
+  with `Origin: null` or `Sec-Fetch-*`) now returns 404 — use a minted capability path. Agent-declared
+  localhost URLs show the confirm chip and are no longer persisted as live-server targets.
+
 ### Fixed
 
 ## [0.10.0] - 2026-10-20

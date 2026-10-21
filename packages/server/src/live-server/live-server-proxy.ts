@@ -12,9 +12,14 @@
  * See change: improve-content-editor (live-server-preview §6).
  */
 import net from "node:net";
-import type { FastifyInstance } from "fastify";
-import { stripCapabilitySegment } from "./live-capability.js";
+import type { LiveServerTarget, StaticTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { isBrowserOriginated } from "./live-browser-gate.js";
+import { type LiveCapabilityGrant, stripCapabilitySegment } from "./live-capability.js";
+import { buildLiveCsp, type LiveCspResult } from "./live-csp.js";
+import { registerCspReportParsers } from "./live-csp-report.js";
 import type { LiveServerManager } from "./live-server-manager.js";
+import { serveStatic } from "./live-static.js";
 
 /** Dashboard cookie namespace (`pi_dash_token`, `pi_dash_device`, `pi_dash_local`, …). */
 const DASHBOARD_COOKIE_PREFIX = "pi_dash_";
@@ -106,6 +111,53 @@ function staysInside(path: string, prefix: string): boolean {
 export interface LiveProxyDeps {
   /** Does this token verify as a dashboard device bearer? Absent ⇒ never strip `Authorization`. */
   isDeviceBearer?: (token: string) => boolean;
+  /**
+   * The raw file-read gate for a static target's real path, re-run on EVERY static
+   * request. Absent ⇒ static targets serve nothing (fail closed).
+   */
+  staticGate?: (cwd: string, absPath: string) => Promise<boolean>;
+  /**
+   * Granted egress origins `<G>` for a token's CSP: project grants ∪ the viewer's
+   * allow-once set. Absent ⇒ none.
+   */
+  grantedOrigins?: (grant: LiveCapabilityGrant) => readonly string[];
+  /** An HTML document of a static target was served under this token (feeds the lazy origin scan). */
+  onStaticHtmlServed?: (grant: LiveCapabilityGrant, realPath: string) => void;
+  /**
+   * Handler for the reserved `/__pi/…` namespace under a valid capability prefix
+   * (CSP reports, …). It is never forwarded upstream and never served from disk;
+   * absent ⇒ 404. Return the reply you sent.
+   */
+  reservedHandler?: (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    ctx: { grant: LiveCapabilityGrant; subPath: string },
+  ) => Promise<FastifyReply> | FastifyReply;
+}
+
+/** `/__pi` as a whole path segment (the reserved namespace under a capability prefix). */
+const isReservedPath = (subPath: string): boolean => {
+  const q = subPath.search(/[?#]/);
+  const p = q >= 0 ? subPath.slice(0, q) : subPath;
+  return p === "/__pi" || p.startsWith("/__pi/");
+};
+
+/** The scheme the dashboard is reached on, as far as this hop can tell. `http` is the safe default (`http://` matches https too). */
+const schemeOf = (request: FastifyRequest): "http" | "https" => (request.protocol === "https" ? "https" : "http");
+
+/**
+ * APPEND our CSP (and `Reporting-Endpoints` entry) to the upstream's response headers —
+ * never replacing or stripping the upstream's: browsers enforce every header, so the
+ * result is the stricter intersection.
+ */
+function appendCsp(headers: Record<string, unknown>, csp: LiveCspResult): void {
+  const upstreamCsp = headers["content-security-policy"];
+  const existing = upstreamCsp === undefined ? [] : Array.isArray(upstreamCsp) ? upstreamCsp : [upstreamCsp];
+  headers["content-security-policy"] = [...existing, csp.csp];
+  if (!csp.reportingEndpoints) return;
+  const re = headers["reporting-endpoints"];
+  headers["reporting-endpoints"] =
+    typeof re === "string" && re.length > 0 ? `${re}, ${csp.reportingEndpoints}` : csp.reportingEndpoints;
 }
 
 /** localhost/::1 resolve to 127.0.0.1 for the upstream TCP connect. */
@@ -126,6 +178,8 @@ export function registerLiveServerProxy(
   // `/live/:id/*`. Owning the dependency here keeps the proxy self-contained.
   // See change: improve-content-editor, fix-live-server-proxy-reply-from.
   fastify.register(import("@fastify/reply-from"));
+  // CSP reports arrive as `application/csp-report` / `application/reports+json`.
+  if (deps.reservedHandler) registerCspReportParsers(fastify);
 
   /**
    * `capabilityPrefix` is set (by the capability hook, only after the token
@@ -135,21 +189,62 @@ export function registerLiveServerProxy(
   function resolve(url: string, capabilityPrefix?: string) {
     const match = url.match(/^\/live\/([^/?]+)(.*)$/);
     if (!match) return null;
-    const target = manager.get(match[1]);
-    if (!target) return null;
     let rest = match[2] || "";
     if (capabilityPrefix && url.startsWith(capabilityPrefix)) rest = url.slice(capabilityPrefix.length);
     const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
-    return { target, subPath };
+    return { id: match[1], subPath };
   }
 
-  const forward = (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => {
-    const capabilityPrefix = (request as { liveCapabilityPrefix?: string }).liveCapabilityPrefix;
-    const resolved = resolve(request.url, capabilityPrefix);
-    if (!resolved) {
-      return reply.code(404).send({ error: "live-server target not found" });
+  /** CSP for a capability response, or `null` (fail closed) when no safe header can be built. */
+  function cspFor(request: FastifyRequest, grant: LiveCapabilityGrant, prefix: string): LiveCspResult | null {
+    const host = request.headers.host;
+    if (typeof host !== "string") return null;
+    let granted: readonly string[] = [];
+    try {
+      granted = deps.grantedOrigins?.(grant) ?? [];
+    } catch {
+      granted = []; // a failing grant lookup must not widen the policy
     }
-    const { target, subPath } = resolved;
+    return buildLiveCsp({ policy: grant.policy, host, scheme: schemeOf(request), prefix, granted });
+  }
+
+  const notFoundReply = (reply: FastifyReply) => reply.code(404).send({ error: "live-server target not found" });
+
+  /** A static target, reachable ONLY through a valid capability, by any caller. */
+  const forwardStatic = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    target: StaticTarget,
+    subPath: string,
+    grant: LiveCapabilityGrant | undefined,
+    capabilityPrefix: string | undefined,
+  ) => {
+    if (!grant || !capabilityPrefix) return notFoundReply(reply);
+    if (isReservedPath(subPath)) return reservedOr404(request, reply, grant, subPath);
+    const csp = cspFor(request, grant, capabilityPrefix);
+    if (!csp) return notFoundReply(reply);
+    manager.use(target.id);
+    const extra: Record<string, string> = { "content-security-policy": csp.csp };
+    if (csp.reportingEndpoints) extra["reporting-endpoints"] = csp.reportingEndpoints;
+    return serveStatic(request, reply, target, subPath, extra, {
+      gate: deps.staticGate ?? (async () => false),
+      onHtmlServed: (real) => deps.onStaticHtmlServed?.(grant, real),
+    });
+  };
+
+  const forwardPort = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    target: LiveServerTarget,
+    subPath: string,
+    grant: LiveCapabilityGrant | undefined,
+    capabilityPrefix: string | undefined,
+  ) => {
+    if (grant && isReservedPath(subPath)) return reservedOr404(request, reply, grant, subPath);
+    const csp = grant && capabilityPrefix ? cspFor(request, grant, capabilityPrefix) : null;
+    // A capability response without a buildable CSP would be less isolated than promised.
+    if (grant && !csp) return notFoundReply(reply);
+    manager.use(target.id);
     // Redirects stay inside the capability prefix when the request used one.
     const prefix = capabilityPrefix ?? `/live/${target.id}`;
     const host = upstreamHost(target.host);
@@ -159,6 +254,9 @@ export function registerLiveServerProxy(
         // Dashboard credentials never reach the previewed app; its own cookies
         // and bearer pass through. See change: retire-trusted-networks-bypass (D5).
         stripDashboardCredentials(headers as HeaderBag, isDeviceBearer);
+        // The hop to the loopback upstream is a PROXIED hop: mark it so nothing the
+        // upstream does with this request can pass for "genuinely local".
+        headers["x-forwarded-for"] = [headers["x-forwarded-for"], request.ip].filter(Boolean).join(", ");
         // A forwarded Referer must not carry the capability token upstream.
         if (typeof headers.referer === "string") headers.referer = stripCapabilitySegment(headers.referer);
         return headers;
@@ -173,6 +271,7 @@ export function registerLiveServerProxy(
         if (capabilityPrefix && headers["referrer-policy"] === undefined) {
           headers["referrer-policy"] = "no-referrer";
         }
+        if (csp) appendCsp(headers, csp);
         const location = headers.location;
         if (typeof location === "string") {
           headers.location = rewriteLocation(location, prefix, host, target.port);
@@ -181,6 +280,26 @@ export function registerLiveServerProxy(
       },
     });
   };
+
+  const forward = (request: FastifyRequest, reply: FastifyReply) => {
+    const capabilityPrefix = (request as { liveCapabilityPrefix?: string }).liveCapabilityPrefix;
+    const grant = (request as { liveCapability?: LiveCapabilityGrant }).liveCapability;
+    // A browser-originated request (opaque `Origin: null` / `Sec-Fetch-*`) needs a capability.
+    if (!grant && isBrowserOriginated(request.headers as Record<string, unknown>)) return notFoundReply(reply);
+    const resolved = resolve(request.url, capabilityPrefix);
+    if (!resolved) return notFoundReply(reply);
+    const { id, subPath } = resolved;
+    const staticTarget = manager.getStatic(id);
+    if (staticTarget) return forwardStatic(request, reply, staticTarget, subPath, grant, capabilityPrefix);
+    const target = manager.get(id);
+    if (!target) return notFoundReply(reply);
+    return forwardPort(request, reply, target, subPath, grant, capabilityPrefix);
+  };
+
+  const reservedOr404 = (request: FastifyRequest, reply: FastifyReply, grant: LiveCapabilityGrant, subPath: string) =>
+    deps.reservedHandler
+      ? deps.reservedHandler(request, reply, { grant, subPath })
+      : notFoundReply(reply);
 
   fastify.all("/live/:id/*", forward);
   fastify.all("/live/:id", forward);
@@ -232,11 +351,17 @@ export function handleLiveServerUpgrade(
     socket.destroy();
     return;
   }
+  // A browser-originated upgrade (opaque `Origin: null` / `Sec-Fetch-*`) needs a capability.
+  if (!deps.capabilityPrefix && isBrowserOriginated(request.headers as Record<string, unknown>)) {
+    socket.destroy();
+    return;
+  }
   const target = manager.get(match[1]);
   if (!target) {
     socket.destroy();
     return;
   }
+  manager.use(target.id);
   const capabilityPrefix = deps.capabilityPrefix;
   let rest = match[2] || "";
   if (capabilityPrefix && request.url?.startsWith(capabilityPrefix)) rest = request.url.slice(capabilityPrefix.length);
@@ -251,6 +376,10 @@ export function handleLiveServerUpgrade(
     // Dashboard credentials never reach the previewed app (same rule as the
     // HTTP path); a forwarded Referer loses any capability segment.
     const forwarded = stripDashboardCredentials({ ...request.headers } as HeaderBag, isDeviceBearer);
+    // A proxied hop: the upstream must never see this upgrade as genuinely local.
+    forwarded["x-forwarded-for"] = [forwarded["x-forwarded-for"], request.socket?.remoteAddress]
+      .filter(Boolean)
+      .join(", ");
     if (typeof forwarded.referer === "string") forwarded.referer = stripCapabilitySegment(forwarded.referer);
     const headers = Object.entries(forwarded)
       .filter(([k]) => !["host", "origin"].includes(k.toLowerCase()))

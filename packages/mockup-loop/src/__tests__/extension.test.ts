@@ -102,3 +102,23 @@ describe("extension tool surface", () => {
     expect(typeof d.pass).toBe("boolean");
   });
 });
+
+describe("serve_mockup result text (E32)", () => {
+  it("tells the agent to pass the local URL to canvas()", async () => {
+    const f = makeFakePi();
+    frontendMockupLoop(f.pi);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-serve-"));
+    fs.writeFileSync(path.join(dir, "index.html"), "<h1>x</h1>");
+    try {
+      const res = await f.tools.get("serve_mockup")!.execute("t", { dir });
+      const text = res.content[0].text;
+      expect(text).toContain("For canvas(), use the local URL.");
+      expect(text).toMatch(/local: http:\/\/localhost:\d+/);
+      expect(text).toContain("LAN:");
+      const port = (res.details as { port: number }).port;
+      await f.tools.get("serve_mockup")!.execute("t", { stop: true, port });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

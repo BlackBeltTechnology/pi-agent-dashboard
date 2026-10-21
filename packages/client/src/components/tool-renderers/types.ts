@@ -44,6 +44,12 @@ export interface ToolContext {
    * See change: fix-long-session-ux-degradation (D7).
    */
   session?: { subagents: SessionState["subagents"] };
+  /**
+   * The selected session's canvas ownership scalars (scalars, so the context memo
+   * depends on values). Read only by `CanvasToolRenderer` to decide which `canvas`
+   * card is active. See change: improve-canvas-html-and-url-ux (D8).
+   */
+  canvas?: { key: string | null; sourceCallId?: string; chipDeclarationId?: string };
   /** Send a message to the server (e.g. subagent resync request). Optional for backward-compat / tests. See change: fix-subagent-live-detail-reliability. */
   send?: (message: BrowserToServerMessage) => void;
 }
@@ -51,6 +57,8 @@ export interface ToolContext {
 /** Props every tool renderer receives */
 export interface ToolRendererProps {
   toolName: string;
+  /** Id of the tool call being rendered (absent for synthetic/embedded rows). */
+  toolCallId?: string;
   args?: Record<string, unknown>;
   /** `elided` = result not loadable. See change: fix-lazy-history-backfill-ux (D5). */
   status: "running" | "complete" | "error" | "elided";

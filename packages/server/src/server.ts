@@ -2,7 +2,7 @@
  * Dashboard HTTP + WebSocket server.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -64,7 +64,8 @@ import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
 import { ensureGrantStoreId } from "./access/grant-store-id.js";
 import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-mirror-service.js";
-import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
+import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane, createPreviewEgressPlane } from "./access/planes.js";
+import { projectEgressGrants } from "./access/preview-egress-store.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
 import { sourceChannel } from "./access/source-channel.js";
@@ -109,11 +110,13 @@ import {
   createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
+  isLocallyTrusted,
   isPluginScopePeerLocal,
   noteTrustedList,
   parseGuardTarget,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
+import { collectEndpoints } from "./tunnel/tunnel-endpoints.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
 import { resolveRpContext } from "./auth/passkey/rp-context.js";
@@ -152,6 +155,7 @@ import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
+  livePreviewExposureOverride,
   livePublicBaseUrls,
   liveRequireLocalProof,
   liveTrustedNetworks,
@@ -164,6 +168,7 @@ import { createPluginSessionCloseApi, createSessionCloserRegistry } from "./embe
 import { wireEvents } from "./event-wiring.js";
 import { createReplayState } from "./session/hydration-state.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
+import { resolveMainPath } from "./git-worktree/git-operations.js";
 import { createWorktreeInitRegistry } from "./git-worktree/worktree-init-registry.js";
 import { listPersistedTrust as listPersistedWorktreeTrust, setTrustChangedListener } from "./git-worktree/worktree-init-trust.js";
 import { identityDisarmedWarning, isIdentityEnforced } from "./identity/activation.js";
@@ -205,6 +210,9 @@ import {
   redactCapability,
   sessionKeyOf,
 } from "./live-server/live-capability.js";
+import { createReservedHandler } from "./live-server/live-csp-report.js";
+import { createEgressGrantRequester, createPreviewEgress, requestOriginsOf } from "./live-server/live-egress.js";
+import { createPreviewExposure, wirePreviewExposure } from "./live-server/live-exposure.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -263,7 +271,7 @@ import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
-import { registerFileRoutes } from "./routes/file-routes.js";
+import { denialBody, gateFilePath, registerFileRoutes } from "./routes/file-routes.js";
 import { registerFolderProjectRoutes } from "./routes/folder-project-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
@@ -1344,7 +1352,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const terminalGateway = createTerminalGateway(terminalManager);
 
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
-  const liveServerManager = createLiveServerManager(preferencesStore);
+  // Ports the dashboard itself listens on are never previewable (a loopback origin is trusted
+  // by its CORS / mutation gates). See change: improve-canvas-html-and-url-ux (D1).
+  const liveServerManager = createLiveServerManager(preferencesStore, {
+    ownPorts: () => {
+      const tls = loadConfig().tls;
+      return [config.port, config.piPort, ...(tls?.enabled ? [tls.port] : [])];
+    },
+  });
 
   // ACP host A (in-process): attach virtual connections to THIS gateway.
   // See change: add-acp-session-driver (D1).
@@ -2044,6 +2059,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   grantPlanes.register(
     createCorsPlane({ readRawCors: () => (readRawConfig().cors ?? {}) as Record<string, unknown>, writeConfigPartial }),
   );
+  // Preview egress: an external https origin a restricted live preview may load, granted per project.
+  // The dashboard's own origins (tunnels, public base URLs, configured CORS origins) are never grantable.
+  // See change: improve-canvas-html-and-url-ux (D7).
+  const previewEgressOwnOrigins = (): string[] =>
+    [getTunnelUrl(), ...liveTunnelOrigins(), ...livePublicBaseUrls(), ...corsAllowedOrigins()].flatMap((u) => {
+      try {
+        return typeof u === "string" && u ? [new URL(u).origin] : [];
+      } catch {
+        return [];
+      }
+    });
+  grantPlanes.register(createPreviewEgressPlane({ ownOrigins: previewEgressOwnOrigins }));
   // YOLO (design D13): consulted at the prompt point; the refusal ledger stops it
   // reversing an explicit deny. Environment activation is attempted once, at
   // boot, and refused outright in report mode or on any unusable root.
@@ -2176,7 +2203,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Liveness is re-checked at every use, so a revoked device, an ended session
   // or a removed target is refused on its next request.
   const liveCapabilities = new LiveCapabilityStore({
-    isTargetLive: (id) => liveServerManager.get(id) !== undefined,
+    isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: (p) => {
       if (p.identityExpiresAt !== undefined && p.identityExpiresAt <= Date.now()) return false;
       // Minted on network trust alone: only valid while network trust still authenticates.
@@ -2185,6 +2212,59 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService) !== null;
       return true;
     },
+  });
+  // An evicted preset / static target takes its tokens with it.
+  liveServerManager.setEvictionListener((id) => liveCapabilities.revokeByTarget(id));
+  // Per-token egress state (markup scan, CSP reports, allow-once, project grants). Project grants are read
+  // from their store on every CSP build, so a grant or revoke applies on the next response with no restart.
+  const previewEgress = createPreviewEgress({
+    getStatic: (id) => liveServerManager.getStatic(id),
+    presetCwdOf: (id) => {
+      const sessionId = liveServerManager.presetSessionOf(id);
+      return sessionId ? sessionManager.get(sessionId)?.cwd : undefined;
+    },
+    projectKeyOf: (cwd) => {
+      let real = cwd;
+      try {
+        real = realpathSync(cwd);
+      } catch {
+        /* keep the stated cwd */
+      }
+      return resolveMainPath(real) ?? real;
+    },
+    projectGrants: projectEgressGrants,
+    allowOnce: (viewerId) => liveCapabilities.getAllowOnce(viewerId),
+    ownOrigins: previewEgressOwnOrigins,
+  });
+  // Preview exposure (is the dashboard reachable from anywhere but this machine?). Drives the
+  // scripts rule on restricted mints; a flip to `exposed` kills restricted scripted local-only
+  // tokens and tells open viewers to re-mint. See change: improve-canvas-html-and-url-ux (D5).
+  const previewExposure = createPreviewExposure({
+    getBindHost: () => config.host,
+    getEndpoints: () =>
+      collectEndpoints({
+        providerEndpoints: [getTunnelUrl(), ...liveTunnelOrigins()]
+          .filter((u): u is string => typeof u === "string" && u.length > 0)
+          .map((url) => ({ kind: "public" as const, url, tls: url.startsWith("https://") })),
+        publicBaseUrls: livePublicBaseUrls(),
+        port: config.port,
+        tlsEndpoints: tlsListener.tlsListenerUrls(),
+        includeLocal: false,
+      }).map((e) => e.url),
+    getConfigOverride: livePreviewExposureOverride,
+  });
+  wirePreviewExposure({
+    exposure: previewExposure,
+    capabilities: liveCapabilities,
+    broadcast: (epoch) => browserGateway.broadcastToAll({ type: "preview_exposure_changed", epoch }),
+  });
+  // Detect the flip even when no request arrives (a tunnel connecting), within the viewers' 2 s budget.
+  const previewExposureTimer = setInterval(() => previewExposure.current(), 1000);
+  previewExposureTimer.unref();
+  fastify.addHook("onClose", async () => clearInterval(previewExposureTimer));
+  // A request carrying a forwarding header pins the exposure to `exposed` until restart (fails closed).
+  fastify.addHook("onRequest", async (request) => {
+    previewExposure.noteRequest(request.headers as Record<string, unknown>);
   });
   fastify.addHook("onRequest", createLiveCapabilityHook(liveCapabilities));
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
@@ -3067,8 +3147,36 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   ]);
 
   // Live-server-preview routes + reverse proxy (main-origin /live/:id/*).
-  registerLiveServerRoutes(fastify, liveServerManager, { networkGuard, capabilities: liveCapabilities });
-  registerLiveServerProxy(fastify, liveServerManager, { isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null });
+  registerLiveServerRoutes(fastify, liveServerManager, {
+    networkGuard,
+    capabilities: liveCapabilities,
+    exposure: previewExposure,
+    promptingEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
+    getTrustedNetworks: admissionList,
+    localTrust,
+    egress: previewEgress,
+    requestEgressGrant: createEgressGrantRequester(grantCoordinator),
+    channelOf: (request) => sourceChannel(request.ip),
+    // `start-static`: the SAME gate as a raw file read; a refusal answers with that route's status and body.
+    staticGate: async (cwd, relPath, opts) => {
+      const gate = await gateFilePath(cwd, relPath, sessionManager, { allowGrant: true, disclosure: opts.disclosure });
+      if ("code" in gate) return { ok: false, status: gate.code, body: denialBody(gate) };
+      return { ok: true, resolved: gate.resolved };
+    },
+  });
+  registerLiveServerProxy(fastify, liveServerManager, {
+    isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+    grantedOrigins: (grant) => previewEgress.grantedFor(grant),
+    onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
+    reservedHandler: createReservedHandler({
+      egress: previewEgress,
+      ownOriginsOf: (request) => requestOriginsOf(request),
+    }),
+    // Re-run on EVERY static request, so a revoked grant or pin applies on the next one. Quiet:
+    // a refusal here records no denial and raises no prompt.
+    staticGate: async (cwd, absPath) =>
+      !("code" in (await gateFilePath(cwd, absPath, sessionManager, { allowGrant: true, quiet: true }))),
+  });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
   // injected so auth/ never imports model-proxy/.
@@ -4376,7 +4484,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // routed path from an unrouted one. A browser cannot omit or forge
         // `Origin` on a handshake; every non-browser client sends none and is
         // unaffected. See change: fix-ws-origin-cswsh (D1).
-        if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts())) {
+        // A live-scope upgrade may be admitted by a validated capability path
+        // (token read from the path segment only — never query/subprotocol).
+        // Any other scope ignores it entirely. The opaque `Origin: null` is admitted
+        // only WITH a valid capability. See change: retire-trusted-networks-bypass (D5),
+        // improve-canvas-html-and-url-ux (D10).
+        const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
+        const liveCapPrincipal = liveCap
+          ? liveCapabilities.validate(liveCap.targetId, liveCap.token, {
+              genuinelyLocal: isLocallyTrusted({ ip: remoteAddress, headers: request.headers as Record<string, unknown> }),
+            })
+          : null;
+        if (!isWsOriginTrusted(request.headers.origin, request.headers.host, scope, corsOpts(), liveCapPrincipal !== null)) {
           console.error(
             `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope ?? "none"} peer=${sanitizeHeaderForLog(remoteAddress)}`,
           );
@@ -4413,11 +4532,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // principal-bearing ticket — they were the legacy loopback / local-token /
         // trusted-network / principal-less-ticket allowances that bypassed it.
         const requireIdentityTicket = (scope === "browser" || scope === "terminal" || scope === "live") && identityEnforced();
-        // A live-scope upgrade may be admitted by a validated capability path
-        // (token read from the path segment only — never query/subprotocol).
-        // Any other scope ignores it entirely. See change: retire-trusted-networks-bypass (D5).
-        const liveCap = scope === "live" ? parseCapabilityPath(request.url) : null;
-        const liveCapPrincipal = liveCap ? liveCapabilities.validate(liveCap.targetId, liveCap.token) : null;
         const upgradeAuth = authorizeWsUpgrade({
           cookieHeader: request.headers.cookie,
           remoteAddress,
