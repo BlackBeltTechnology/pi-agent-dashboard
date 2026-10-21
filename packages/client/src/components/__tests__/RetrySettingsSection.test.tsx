@@ -15,7 +15,7 @@ import {
   type RegisteredSource,
   SettingsDraftProvider,
   type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { RetrySettingsSection } from "../settings/RetrySettingsSection.js";
 import type { PiRetryPolicy } from "../../lib/api/pi-retry-api.js";
 

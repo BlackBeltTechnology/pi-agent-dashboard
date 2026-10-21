@@ -82,6 +82,7 @@ const AUTH_PREFIX = "/auth";
  */
 const STATIC_PUBLIC: ReadonlySet<string> = new Set([
   "/",
+  "/index.html", // the import-map HTML sender (decouple-plugins-from-core 6.4); same bytes as "/".
   "*",
   "/*",
   "/sw.js",
@@ -104,6 +105,17 @@ const STATIC_PUBLIC: ReadonlySet<string> = new Set([
   "/apps/obs/app.js",
 ]);
 
+/**
+ * PUBLIC CODE-ONLY prefixes, deliberately outside the guard's jurisdiction (design D13):
+ * - `/plugin-assets/<id>/<sha256>/*` — content-addressed, extension-allowlisted bundle files of an ADMITTED
+ *   runtime plugin (code, styles, fonts, images; never `.json` / `.map`). Answers exactly like `/assets/*`.
+ * - `/host/*` — the host's own built shim entries (`dist/host/*.js`), served by the static handler.
+ * No data, no `/api` route may live under either. The OAuth hook carries NO skip for them: a request is
+ * admitted by the same rule as the host's `/assets/*` (verified: design Open Question 3).
+ * See change: decouple-plugins-from-core (6.10).
+ */
+const PUBLIC_CODE_ONLY_PREFIXES = ["/plugin-assets", "/host"] as const;
+
 /** `url` is under `prefix` as a path segment (exact, or `/`-continuation). */
 function isUnder(candidate: string, prefix: string): boolean {
   return candidate === prefix || candidate.startsWith(`${prefix}/`);
@@ -114,6 +126,7 @@ function isCovered(routeUrl: string, mounts: AppMountRegistry = getAppMountRegis
   if (STATIC_PUBLIC.has(routeUrl)) return true;
   if (mounts.coversRoute(routeUrl)) return true;
   if (isUnder(routeUrl, AUTH_PREFIX)) return true;
+  if (PUBLIC_CODE_ONLY_PREFIXES.some((p) => isUnder(routeUrl, p))) return true;
   return INDEPENDENTLY_AUTHENTICATED.some((ns) => isUnder(routeUrl, ns));
 }
 
@@ -183,6 +196,50 @@ describe("E16: /apps mounts are enumerated, not ignored", () => {
   it("the guard does not jurisdiction-block a mounted /apps path (it is outside /api|/v1|/editor|/live)", () => {
     expect(isGuardJurisdiction("/apps/craft-wordcraft/index.html")).toBe(false);
     expect(isGuardJurisdiction("/apps/craft-wordcraft")).toBe(false);
+  });
+});
+
+// decouple-plugins-from-core 6.10 — test-plan #E84.
+describe("E84: /plugin-assets and /host are public code-only prefixes, outside the guard, with no OAuth skip", () => {
+  it("registers the asset route, covered by the public code-only prefixes, and no /api route under them", () => {
+    expect(routes.some((r) => r.url === "/plugin-assets/:id/:sha/*")).toBe(true);
+    for (const r of routes) {
+      if (PUBLIC_CODE_ONLY_PREFIXES.some((p) => isUnder(r.url, p))) expect(r.url, `${r.method} ${r.url}`).not.toMatch(/\/api(\/|$)/);
+    }
+    expect(routes.filter((r) => !isCovered(r.url)).map((r) => r.url)).toEqual([]);
+  });
+
+  it("an injected route under the prefix that smuggles an /api segment is an offender; look-alike prefixes are not covered", () => {
+    expect(isCovered("/plugin-assets/:id/:sha/*")).toBe(true);
+    expect(isCovered("/host/react.js")).toBe(true);
+    for (const lookalike of ["/plugin-assetsx/a.js", "/hostile/a.js", "/host-evil/a.js", "/plugin-asset/a.js"]) {
+      expect(isCovered(lookalike), lookalike).toBe(false);
+    }
+    expect(isGuardJurisdiction("/plugin-assets/ext/abc/client.js")).toBe(false);
+    expect(isGuardJurisdiction("/host/react.js")).toBe(false);
+  });
+
+  it("the OAuth hook carries no /plugin-assets skip when it carries no /assets skip", () => {
+    const src = fs.readFileSync(path.join(REPO_ROOT, "packages", "server", "src", "auth", "auth-plugin.ts"), "utf-8");
+    const skipsAssets = /startsWith\(\s*["'`]\/assets/.test(src);
+    const skipsPluginAssets = /plugin-assets/.test(src);
+    expect(skipsAssets).toBe(false);
+    expect(skipsPluginAssets).toBe(skipsAssets);
+  });
+
+  it("an unauthenticated non-local request is answered the same for a host bundle file and a plugin asset prefix (no auth skip either way)", async () => {
+    const port = server.httpPort();
+    const headers = { "x-forwarded-for": "203.0.113.5" };
+    const host = await fetch(`http://127.0.0.1:${port}/assets/x.js`, { headers });
+    const plugin = await fetch(`http://127.0.0.1:${port}/plugin-assets/ext/${"a".repeat(64)}/x.js`, { headers });
+    // Neither is network-denied: both are outside the guard's jurisdiction (the host file may be absent → SPA/404).
+    for (const res of [host, plugin]) {
+      expect(res.status).not.toBe(403);
+      expect(res.status).not.toBe(401);
+      expect(await res.text()).not.toContain("network_not_allowed");
+    }
+    expect(plugin.status).toBe(404); // not admitted → 404, never a redirect to login
+    expect(plugin.headers.get("www-authenticate")).toBe(host.headers.get("www-authenticate"));
   });
 });
 

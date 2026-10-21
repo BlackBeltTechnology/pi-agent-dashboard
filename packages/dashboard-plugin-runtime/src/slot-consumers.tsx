@@ -17,6 +17,7 @@ import { IntentRenderer } from "./intent-renderer.js";
 import { useSlotIntents } from "./intent-store.js";
 import { sendPluginAction } from "./plugin-action-bridge.js";
 import { CurrentPluginLayer, useSlotRegistryOrNull } from "./plugin-context.js";
+import { decodeFolderPath } from "./sdk.js";
 import { useShellSessionOrNull } from "./shell-sessions-context.js";
 import { useSlotClaimsVersion } from "./slot-claims-invalidation.js";
 import { SlotErrorBoundary } from "./slot-error-boundary.js";
@@ -349,6 +350,7 @@ export function ComposerPanelSlot({
   sessionStatus?: string;
   onApplyText: (text: string) => void;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = registry.getClaims("composer-panel");
@@ -595,6 +597,7 @@ export function AnchoredPopoverSlot({
   anchorEl: HTMLElement;
   onDismiss: () => void;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = registry.getClaims("anchored-popover");
@@ -618,6 +621,7 @@ export function CommandRouteSlot({
   routeParams: Record<string, string>;
   onClose: () => void;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const allClaims = registry.getClaims("command-route");
@@ -662,6 +666,7 @@ export function SettingsSectionSlot(_props: { tab?: string }): null {
  * See change: add-plugin-activation-ui, plugin-settings-pages.
  */
 export function SettingsSectionByPluginSlot({ pluginId }: { pluginId: string }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   const allIntents = useSlotIntents("settings-section", null);
   const claims = registry
@@ -710,6 +715,7 @@ export function ToolRendererSlot({
     sessionId: string;
   } & ToolRendererExtraProps>;
 } & ToolRendererExtraProps) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
@@ -750,6 +756,7 @@ export function AutomationActionEditorSlot({
   onChange: (payload: Record<string, unknown>) => void;
   cwd?: string;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forActionId(registry.getClaims("automation-action-editor"), actionId);
@@ -822,6 +829,7 @@ export function ShellHeadlessSlot() {
  * editor. See change: wire-flow-inputs-in-automation.
  */
 export function useHasAutomationActionEditor(actionId: string): boolean {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return false;
   return forActionId(registry.getClaims("automation-action-editor"), actionId).length > 0;
@@ -888,6 +896,7 @@ export function ShellOverlayRouteSlot({
    * has not opted in behaves exactly as it did before this change.
    */
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registryProp ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -920,6 +929,7 @@ export function ShellOverlayRouteSlot({
  * See change: fix-flows-plugin-polish (hook-outside-provider fix).
  */
 export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boolean {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -959,6 +969,7 @@ export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boo
 export function useShellOverlayRoutePresentation(
   registry?: SlotRegistry | null,
 ): "page" | "dialog" | "content" | null {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -981,6 +992,7 @@ export function useShellOverlayRoutePresentation(
  * See change: add-plugin-app-host.
  */
 export function useShellOverlayRouteDepth(registry?: SlotRegistry | null): 1 | 2 | null {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -1201,6 +1213,9 @@ function ShellOverlayRouteRender({
   const sessionParam = overlaySessionParam(claim);
   const sessionId = params[sessionParam];
   const session = useShellSessionOrNull(sessionId ?? "");
+  // Decoded folder next to the deprecated `params.encodedCwd`, so a claim never
+  // re-implements the folder codec. See change: decouple-plugins-from-core (D6).
+  const cwd = params.encodedCwd ? (decodeFolderPath(params.encodedCwd) ?? undefined) : undefined;
   // `renderClaim` carries the Suspense boundary. The skeleton keeps the
   // top-bar shape while a lazy claim chunk loads — a "content" claim usually
   // exports a `React.lazy` route component (add-plugin-app-host D8); a
@@ -1208,7 +1223,7 @@ function ShellOverlayRouteRender({
   const rendered = renderClaim(
     claim as Parameters<typeof renderClaim>[0],
     "shell-overlay-route",
-    { params, session, onBack },
+    { params, cwd, session, onBack },
     <ContentClaimSkeleton />,
   );
   return <div className="absolute inset-0 flex flex-col overflow-hidden">{rendered}</div>;

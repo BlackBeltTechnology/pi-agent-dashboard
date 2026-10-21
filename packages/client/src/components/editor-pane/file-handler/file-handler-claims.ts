@@ -5,7 +5,7 @@
  * See change: add-editor-pane-file-handlers (D1, D2, D5).
  */
 
-import type { ClaimEntry, SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { ClaimEntry, SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { fileHandlerClaimKey } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import type { FileHandlerProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { extOf } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";

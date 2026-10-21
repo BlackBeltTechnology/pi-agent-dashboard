@@ -10,7 +10,7 @@
  * Covers test-plan rows E1-E11.
  * See change: plugin-settings-pages.
  */
-import { intentStore } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { intentStore } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

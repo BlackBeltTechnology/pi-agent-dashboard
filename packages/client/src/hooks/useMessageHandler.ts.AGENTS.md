@@ -22,6 +22,7 @@ See change: add-pending-question-stack — `case "questions_update"` → `setQue
 
 `file_changed` stamps a unique monotonic generation (module-level counter) per candidate. See change: gate-changed-on-disk-by-content.
 
+`case "plugins_changed"` re-emits a `plugins-changed` DOM CustomEvent (detail = message), like `plugin-config-update`. See change: decouple-plugins-from-core (5.11, 5.18).
 - `terminal_limit_reached` → notice store; `terminal_added` clears that cwd's notices; `folder_refused` → error toast. See change: harden-server-capability-bounds.
 
 Handles `preview_exposure_changed` → `notifyExposureChanged(epoch)`. See change: improve-canvas-html-and-url-ux.

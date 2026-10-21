@@ -14,9 +14,9 @@ vi.mock("../client/api.js", () => ({
   getRunBySessionId: vi.fn(async () => ({ status: "done", runId: "r1", name: "nightly", result: "# findings" })),
 }));
 
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { AutomationRunMonitor } from "../client/AutomationRunMonitor.js";
 import { getRunBySessionId } from "../client/api.js";
-import { encodeFolderPath } from "../client/folder-encoding.js";
 
 const MockMarkdown: React.FC<{ content: string }> = ({ content }) => <div data-testid="md">{content}</div>;
 const wrap = (ui: React.ReactElement) => render(withUiPrimitiveProvider({ "ui:markdown-content": MockMarkdown }, ui));
@@ -50,7 +50,7 @@ describe("AutomationRunMonitor", () => {
   // test-plan #F3: a resident running session keeps today's behaviour.
   it("a resident running session shows the live hint and no archived link", () => {
     const { getByTestId, queryByTestId } = wrap(
-      <AutomationRunMonitor session={run("active")} params={{ sid: "run-sess", encodedCwd: encodeFolderPath("/r") }} />,
+      <AutomationRunMonitor session={run("active")} cwd="/r" params={{ sid: "run-sess", encodedCwd: encodeFolderPath("/r") }} />,
     );
     expect(getByTestId("run-live-hint")).toBeTruthy();
     expect(queryByTestId("run-archived-transcript")).toBeNull();
@@ -61,7 +61,7 @@ describe("AutomationRunMonitor", () => {
   // run from the run store by session id. See change: archive-service-sessions-on-end.
   it("an archived (non-resident) run session renders the run-store status, result and an archived transcript link", async () => {
     const { getByTestId, queryByTestId } = wrap(
-      <AutomationRunMonitor params={{ sid: "run-sess", encodedCwd: encodeFolderPath("/r") }} />,
+      <AutomationRunMonitor cwd="/r" params={{ sid: "run-sess", encodedCwd: encodeFolderPath("/r") }} />,
     );
     await waitFor(() => expect(getByTestId("md").textContent).toBe("# findings"));
     expect(vi.mocked(getRunBySessionId)).toHaveBeenCalledWith("/r", "run-sess");
@@ -76,7 +76,7 @@ describe("AutomationRunMonitor", () => {
   it("an unresolvable archived run shows 'run not found', never 'running'", async () => {
     vi.mocked(getRunBySessionId).mockResolvedValueOnce(null);
     const { getByTestId, queryByTestId } = wrap(
-      <AutomationRunMonitor params={{ sid: "gone-sess", encodedCwd: encodeFolderPath("/r") }} />,
+      <AutomationRunMonitor cwd="/r" params={{ sid: "gone-sess", encodedCwd: encodeFolderPath("/r") }} />,
     );
     await waitFor(() => expect(getByTestId("run-status").textContent).toBe("run not found"));
     expect(queryByTestId("run-live-hint")).toBeNull();

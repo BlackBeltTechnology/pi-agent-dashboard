@@ -38,6 +38,7 @@ import type { DirectoryService } from "../directory-service.js";
 import {
   type ClientBuildSnapshot,
   readClientBuildSnapshot,
+  readServedDeclaration,
   runtimePluginRegistryHash,
 } from "../lib/client-dist.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
@@ -164,6 +165,23 @@ function saveConfigAndMirror(partial: Record<string, any>) {
     return { ok: true as const, result, reloaded, piMirror };
   };
   return runOnConfigSaveChain(run);
+}
+
+/**
+ * `/api/health` is unauthenticated and tunnel-reachable, so its `plugins[]` stays path- and
+ * hash-free: local-detected rows (they name a session cwd's packages), `shadowed` (carries
+ * `packageDir`) and `client.sha256` are dropped; `source`, `restartRequired`, `hostApi`,
+ * `client.delivery` / `client.refusedReason` and `serveApp` pass through. The guarded
+ * `GET /api/plugins` and `plugins_changed` (authenticated WS) carry the full rows.
+ * See change: decouple-plugins-from-core (task 5.10, design D15).
+ */
+export function toHealthPlugins(statuses: readonly PluginStatus[]): PluginStatus[] {
+  return statuses
+    .filter((s) => s.source !== "local-detected")
+    .map((s) => {
+      const { shadowed: _shadowed, client, ...rest } = s;
+      return client ? { ...rest, client: { delivery: client.delivery, ...(client.refusedReason ? { refusedReason: client.refusedReason } : {}) } } : rest;
+    });
 }
 
 /**
@@ -296,10 +314,12 @@ export function registerSystemRoutes(
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
+  // The served declaration decides which plugins the server hashes (design D11): read once with the snapshot.
+  const servedDeclaration = readServedDeclaration(clientDir ?? null);
   const clientBuild =
     deps.clientBuild ??
     readClientBuildSnapshot(clientDir ?? null, (policy) =>
-      runtimePluginRegistryHash(policy === "excluded"),
+      runtimePluginRegistryHash(policy === "excluded", servedDeclaration),
     );
 
   // Hoisted for the same reason as `clientBuild`: `runtimePluginRegistryHash`
@@ -312,7 +332,7 @@ export function registerSystemRoutes(
   // Fixture clients are part of a production build only under the opt-in
   // PI_DASHBOARD_FIXTURE_PLUGINS gate (docker test harness) — the same rule
   // the vite plugin applied. See change: expose-plugin-credential-and-oauth-seams (D8).
-  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled());
+  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled(), servedDeclaration);
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -1299,7 +1319,7 @@ export function registerSystemRoutes(
       // server log so it is discoverable live, not only post-mortem.
       // See change: bound-session-heap-and-gc-telemetry (D3a).
       sessionHeapFallback: heapFallbackStatus(),
-      plugins: enrichWithBridgeSource(getPluginStatusStore().listAll()),
+      plugins: toHealthPlugins(enrichWithBridgeSource(getPluginStatusStore().listAll())),
       bundleHash,
       // Served-artifact coherence (design D4). Additive; `bundleHash` above
       // keeps its shape and meaning. No filesystem path is exposed.

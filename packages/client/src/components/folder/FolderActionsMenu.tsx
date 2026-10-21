@@ -33,11 +33,13 @@
  * See change: add-folder-actions-menu.
  */
 
+import type {
+  FolderMenuGroup,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   FOLDER_MENU_GROUPS,
-  type FolderMenuGroup,
   useFolderMenuItems,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   LayerHostProvider,
   LayerPortal,

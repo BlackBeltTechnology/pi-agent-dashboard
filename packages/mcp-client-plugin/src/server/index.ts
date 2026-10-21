@@ -11,14 +11,14 @@
  */
 
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createRealConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-core/config-io.js";
+import { createMcpClientConfigService } from "@blackbelt-technology/pi-dashboard-mcp-core/service.js";
+import { MCP_CLIENT_CONFIG_SERVICE_KEY, type ProjectTrustSource } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type { IndeterminateInfo } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
-import { createRealConfigIO } from "../core/config-io.js";
-import { createMcpClientConfigService } from "../core/service.js";
-import type { ProjectTrustSource } from "../core/types.js";
 import { createPiMcpListRunner } from "./pi-runner.js";
 import { mountMcpClientRoutes } from "./routes.js";
 
-const SERVICE_KEY = "mcp-client.config";
+const SERVICE_KEY = MCP_CLIENT_CONFIG_SERVICE_KEY;
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const HOST_PROJECT_TRUST = "host.isProjectTrusted";
 const HOST_PROJECT_TRUST_SOURCE = "host.projectTrustSource";

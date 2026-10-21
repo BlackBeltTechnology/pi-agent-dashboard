@@ -17,7 +17,7 @@ import { mdiGraphOutline } from "@mdi/js";
 import type React from "react";
 import { lazy, Suspense, useMemo } from "react";
 import { useLocation } from "wouter";
-import { atlasUrl, decodeFolderPath } from "./atlas-api.js";
+import { atlasUrl } from "./atlas-api.js";
 
 const SkillAtlasPage = lazy(() => import("./SkillAtlasPage.js"));
 const AtlasSummary = lazy(() => import("./AtlasSummary.js").then((m) => ({ default: m.AtlasSummary })));
@@ -66,9 +66,8 @@ function PageFallback(): React.ReactElement {
   );
 }
 
-export function ProjectAtlasClaim({ params, onBack }: { params: Record<string, string>; onBack: () => void }): React.ReactElement {
+export function ProjectAtlasClaim({ cwd, onBack }: { params?: Record<string, string>; cwd?: string; onBack: () => void }): React.ReactElement {
   const t = useT();
-  const cwd = decodeFolderPath(params.encodedCwd ?? "");
   if (!cwd) {
     return (
       <div role="alert" className="p-4 text-[12px] text-[var(--severity-error-fg)]">

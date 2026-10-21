@@ -7,7 +7,7 @@ import {
   type ConfigIO,
   createMcpClientConfigService,
   type McpClientConfigService,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import { describe, expect, it } from "vitest";
 import { doctorProbe } from "../doctor.js";
 import { type InstallerEnv, runInstaller } from "../install.js";

@@ -39,6 +39,11 @@ TESTS=(
   "43-gateway-squatter-proof.sh" # a marked dashboard-spawned session refuses a loopback port squatter (proof only, no frame), logs it off-channel, recovers when the dashboard returns (#X7). Skips off POSIX / without pi. See change: loopback-credential-proof.
   "42-managed-services-podman.sh" # real rootless podman: adopt-after-restart, idle-stop, mounted secret, npx group stop (#X11-X13). Skips off Linux / without podman. See change: add-service-registry-core.
   "44-photocraft.sh"            # pi-photocraft install (no TS loader), real release provisioning cacheHit false->true, exec + MCP handshake, Intel-mac native slice (#E36, #E37). Needs network. See change: add-photocraft-plugin.
+  "47-plugin-runtime-dist-only.sh" # runtime delivery on a clean npm-global install: trust grant → delivery runtime, listing, immutable entry, dist/ + bundleHash untouched (#E100). Skips without QA_CANARY_DIR. See change: decouple-plugins-from-core.
+  "48-plugin-serveapp-restart.sh" # a serveApp trust grant sets restartRequired and mounts only after a restart (#E82). See change: decouple-plugins-from-core.
+  "49-plugin-global-install-dist-only.sh" # global install via /api/packages/install appears live, server-untrusted until a local grant, pid unchanged (#E101). See change: decouple-plugins-from-core.
+  "50-plugin-local-uninstall-dist-only.sh" # local-scope install only detected; uninstall of an unloaded plugin drops its row (#E102). Skips when pi absent. See change: decouple-plugins-from-core.
+  "51-plugin-failing-server-entry-dist-only.sh" # a throwing server entry: row loaded:false + error, /api/health 200 before and after (#X15). See change: decouple-plugins-from-core.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
   # one moves ~1 GB through a socket, the others soak for minutes (38: PI_QA_POLL_COST=1).
 )

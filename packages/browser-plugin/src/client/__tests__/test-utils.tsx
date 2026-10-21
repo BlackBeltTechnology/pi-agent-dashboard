@@ -8,11 +8,8 @@
  * `usePluginConfig` / `usePluginMessage` / `usePluginSend` require.
  */
 
-import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import {
-	CurrentPluginLayer,
-	PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { CurrentPluginLayer, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type {
 	BrowserHostBridge,
 	BrowserHostConnectAnswer,

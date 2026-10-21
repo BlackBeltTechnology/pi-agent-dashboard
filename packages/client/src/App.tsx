@@ -25,6 +25,7 @@ import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import { InstallBanner } from "./components/packages/InstallBanner.js";
 import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
+import { RuntimePluginReloadNotice } from "./components/packages/RuntimePluginReloadNotice.js";
 import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 // Flow components are no longer imported by the shell. They render
 // exclusively via plugin slot claims (content-header-sticky,
@@ -196,7 +197,8 @@ const FolderHomeContainer = lazy(() =>
   import("./components/folder/FolderHomeContainer.js").then((m) => ({ default: m.FolderHomeContainer })),
 );
 
-import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { applyPluginConfigUpdate, ContentHeaderStickySlot, ContentInlineFooterSlot, ContentViewSlot, createSlotRegistry, EMPTY_SUBAGENTS, EmbeddedAppReturnPill, EmbeddedAppShellProvider, FolderMenuProvider, initPluginConfigs, PluginContextProvider, registerSessionEventReducer, registerToolRowFinalizer, ShellHeadlessSlot, ShellOverlayRouteSlot, ShellSessionsProvider, useShellOverlayRouteDepth, useShellOverlayRouteMatched, useShellOverlayRoutePresentation } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -237,29 +239,22 @@ import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
 const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
-// Typed as the runtime's snapshot type so the empty map satisfies the provider's
-// `useSessionSubagents` contract. Shell state holds the stricter `SubagentState`
-// which is upcast at the closure boundary below.
-const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
 
-import {
-  ContentHeaderStickySlot,
-  ContentInlineFooterSlot,
-  ContentViewSlot,createSlotRegistry, 
-  EmbeddedAppReturnPill,
-  EmbeddedAppShellProvider,
-  FolderMenuProvider,
-  ShellHeadlessSlot,
-  ShellOverlayRouteSlot,
-  ShellSessionsProvider,
-  useShellOverlayRouteDepth,
-  useShellOverlayRouteMatched,
-  useShellOverlayRoutePresentation
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+// `useSessionSubagents` returns the runtime's shared frozen `EMPTY_SUBAGENTS` for a
+// session with no subagents. Shell state holds the stricter `SubagentState`
+// which is upcast at the closure boundary below.
+
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
+import { setEventTypeOwners } from "./lib/plugins/event-type-owners.js";
+import {
+  RUNTIME_PLUGINS_REGISTERED_EVENT,
+  regroupAllSessionStates,
+  startRuntimePluginLoader,
+  useRuntimePluginNames,
+} from "./lib/plugins/runtime-plugin-loader.js";
 import { logRejection } from "./lib/report-error.js";
 import { randomUuid } from "./lib/util/random-uuid.js";
 
@@ -269,22 +264,40 @@ import { randomUuid } from "./lib/util/random-uuid.js";
 // generated file on dev start and on every build.
 const _pluginRegistry = createSlotRegistry();
 for (const entry of PLUGIN_REGISTRY) {
+  // Manifest summary for EVERY bundled plugin (claims or not, enabled or not):
+  // keeps `displayName` + `eventTypes` available to the event-ownership lookup.
+  // See change: decouple-plugins-from-core (design D5 item 3).
+  _pluginRegistry.registerPlugin({
+    id: entry.manifest.id,
+    displayName: entry.manifest.displayName,
+    eventTypes: entry.manifest.eventTypes,
+  });
   for (const claim of entry.claims) {
     _pluginRegistry.addClaim(claim);
   }
+  // Reducer contributions the plugin's client entry exports: registered on its
+  // behalf (declarative — no import side effect). Filtered by the same enabled
+  // set as claims (`usePluginEnabledSet`). See change: decouple-plugins-from-core.
+  if (entry.sessionEventReducer) registerSessionEventReducer(entry.manifest.id, entry.sessionEventReducer);
+  for (const finalizer of entry.toolRowFinalizers ?? []) registerToolRowFinalizer(entry.manifest.id, finalizer);
   // Merge each plugin's i18n catalog under plugin.<id>.* so plugin surfaces
   // resolve via the plugin-context `t`. Idempotent; language-partitioned.
   // See change: make-all-ui-text-i18n.
   registerPluginCatalog(entry.manifest.id, entry.catalog);
 }
 
+// Ownership is a reducer input (availability is not): seed it before any event
+// reduces. See change: decouple-plugins-from-core.
+setEventTypeOwners(_pluginRegistry.getEventTypeOwners());
+
 // Feed plugin `shell-overlay-route` claims into the back-target classifier so
 // the depth-aware back action resolves plugin routes (declared depth/parent)
 // instead of the old depth-0 dead no-op. See change:
 // fix-plugin-and-scoped-back-navigation.
-registerPluginRouteDescriptors(
-  claimsToRouteDescriptors(PLUGIN_REGISTRY.flatMap((entry) => entry.claims)),
-);
+// The build-time copy is kept: the runtime loader re-registers build-time ∪ runtime (the store replaces its list).
+const _buildTimeRoutes = claimsToRouteDescriptors(PLUGIN_REGISTRY.flatMap((entry) => entry.claims));
+registerPluginRouteDescriptors(_buildTimeRoutes);
+const _buildTimePluginIds: ReadonlySet<string> = new Set(PLUGIN_REGISTRY.map((entry) => entry.manifest.id));
 
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 // Stable empty-array reference for sessions with no pending images.
@@ -1228,6 +1241,23 @@ export default function App() {
   // tool-result route. Session-scoped (survives transcript virtualization).
   // See change: fix-stuck-tool-card-on-dropped-event.
   useStaleToolReconcile(sessionStates, setSessionStates, apiBase);
+  // Runtime plugins (design D10/D21): load the admitted listing once the API base is known (a remote
+  // server or a page without an import map loads nothing), and re-fetch on every `plugins_changed`.
+  // See change: decouple-plugins-from-core (tasks 6.14, 6.17).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `apiBase` is the re-run trigger; the loader reads it via `getApiBase()`
+  useEffect(
+    () => startRuntimePluginLoader({ registry: _pluginRegistry, buildTimeIds: _buildTimePluginIds, buildTimeRoutes: _buildTimeRoutes }),
+    [apiBase],
+  );
+  // A runtime plugin that owns event types: earlier raw rows of those types become one group row (D5 item 4, R8).
+  useEffect(() => {
+    const onRegistered = (e: Event) => {
+      const owners = (e as CustomEvent<{ owners?: Parameters<typeof regroupAllSessionStates>[1] }>).detail?.owners;
+      if (owners?.length) setSessionStates((prev) => regroupAllSessionStates(prev, owners));
+    };
+    window.addEventListener(RUNTIME_PLUGINS_REGISTERED_EVENT, onRegistered);
+    return () => window.removeEventListener(RUNTIME_PLUGINS_REGISTERED_EVENT, onRegistered);
+  }, []);
 
   // Fetch the gitWorktreeEnabled preference on mount.
   // See change: openspec-worktree-spawn-button.
@@ -3000,9 +3030,10 @@ export default function App() {
     (text, variant, opts) => showToastRef.current(text, variant, opts),
     [],
   );
+  const runtimePluginNames = useRuntimePluginNames();
   const pluginNames = useMemo(
-    () => Object.fromEntries(PLUGIN_REGISTRY.map((e) => [e.manifest.id, e.manifest.displayName])),
-    [],
+    () => ({ ...runtimePluginNames, ...Object.fromEntries(PLUGIN_REGISTRY.map((e) => [e.manifest.id, e.manifest.displayName])) }),
+    [runtimePluginNames],
   );
   const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
     () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast, folderListMode: configFolderListMode, pluginNames }),
@@ -3081,7 +3112,7 @@ export default function App() {
           // `SubagentState` is structurally compatible with `SubagentStateSnapshot` but TS
           // can't bridge the `Record<string, unknown>` index-signature requirement directly,
           // so we route the cast through `unknown`. Plugins downcast at their boundary.
-          ((sessionStates.get(sid)?.subagents ?? EMPTY_SUBAGENTS_MAP) as unknown as ReadonlyMap<string, SubagentStateSnapshot>)
+          ((sessionStates.get(sid)?.subagents ?? EMPTY_SUBAGENTS) as unknown as ReadonlyMap<string, SubagentStateSnapshot>)
         }
         connectionStatus={
           status === "connected" || status === "connecting" ? status : "disconnected"
@@ -3206,6 +3237,7 @@ export default function App() {
          fix-long-session-ux-degradation (D4). */
       <div className="flex flex-col h-[100dvh] overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
         <PluginStalenessBanner />
+        <RuntimePluginReloadNotice />
         <ConnectionStatusBanner
           status={status}
           currentServerHost={currentServerHost}
@@ -3293,6 +3325,9 @@ export default function App() {
           underlay covers exactly the content region the launching surface
           occupied. See change: fix-settings-overlay-header-peek. */}
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
+        {/* Desktop too: a revoked/changed runtime plugin stays live until a reload, so the notice must be visible
+            here as well (it was mounted only in the mobile branch). See change: decouple-plugins-from-core (task 6.17). */}
+        <RuntimePluginReloadNotice />
         {/* Desktop shows only the guard-denial surface here (the mobile branch mounts the full
             banner): a plain outage keeps `connectionBanner`'s offline bar. See change: add-lan-knock-pairing. */}
         {networkDenied && (

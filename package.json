@@ -105,6 +105,7 @@
     "test:e2e:chrome": "PW_CHANNEL=chrome playwright test",
     "test:e2e:reconnect": "PI_E2E_INDEPENDENT_SESSION=1 playwright test faux-ask",
     "test:e2e:identity": "playwright test --config playwright.identity.config.ts",
+    "test:e2e:dist-only": "playwright test --config playwright.dist-only.config.ts",
     "test:e2e:identity-matrix": "playwright test --config playwright.identity-matrix.config.ts",
     "pretest:e2e:team": "npm run build:app --workspace=@blackbelt-technology/pi-dashboard-team-plugin",
     "test:e2e:team": "playwright test --config playwright.team.config.ts",
@@ -115,7 +116,9 @@
     "knip:ratchet": "node scripts/knip-ratchet.mjs",
     "codeql": "node scripts/codeql-local.mjs",
     "z-layer:lint": "node scripts/z-layer-lint.mjs",
-    "knip:config": "node scripts/knip-config.mjs"
+    "knip:config": "node scripts/knip-config.mjs",
+    "check:plugin-boundary": "node scripts/check-plugin-boundary.mjs",
+    "build:canary": "node scripts/build-runtime-canary.mjs"
   },
   "engines": {
     "node": ">=22.19.0 <27"

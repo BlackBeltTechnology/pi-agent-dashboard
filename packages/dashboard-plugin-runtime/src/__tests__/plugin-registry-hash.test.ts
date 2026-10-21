@@ -8,6 +8,8 @@ import {
   pluginRegistryHash,
 } from "../server/loader.js";
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
+import { computeBuildDeclaration } from "../server/build-declaration-sdk.js";
+import { serverRegistryHash } from "../server/client-registry-set.js";
 
 function plugin(id: string, claims: PluginManifest["claims"]): { manifest: PluginManifest } {
   return { manifest: { id, displayName: id, priority: 100, claims } as PluginManifest };
@@ -87,5 +89,35 @@ describe("deterministicSerializePlugins", () => {
     const a = [plugin("a", [{ slot: "settings-section", component: "X", tab: "general" }])];
     const b = [plugin("a", [{ slot: "settings-section", component: "X", tab: "developer" }])];
     expect(pluginRegistryHash(a)).not.toEqual(pluginRegistryHash(b));
+  });
+});
+
+// decouple-plugins-from-core task 6.2 / #E72: the server side follows the declaration the build wrote.
+describe("build-time declaration ↔ server hash (E72)", () => {
+  const cand = (id: string, claim: string, client = true) => ({
+    manifest: { id, displayName: id, claims: [{ slot: "settings-section" as const, component: claim }] } as PluginManifest,
+    source: "workspace" as const,
+    packageDir: `/repo/packages/${id}`,
+    clientEntryPath: client ? `/repo/packages/${id}/c.tsx` : undefined,
+  });
+  const build = (set: ReturnType<typeof cand>[]) => computeBuildDeclaration(set, { isProd: true, bundleRoots: ["/repo/packages"] });
+  const server = (set: ReturnType<typeof cand>[], decl: ReturnType<typeof build>) =>
+    serverRegistryHash(set, { isProd: true, declaration: decl, monorepoRoot: "/repo" });
+
+  it("the same set hashes the same twice; a new claim changes it; server equals the declaration", () => {
+    const set = [cand("a", "X"), cand("b", "Y")];
+    const decl = build(set);
+    expect(build(set).pluginRegistryHash).toBe(decl.pluginRegistryHash);
+    expect(server(set, decl)).toBe(decl.pluginRegistryHash);
+    expect(build([cand("a", "X"), cand("b", "Z")]).pluginRegistryHash).not.toBe(decl.pluginRegistryHash);
+  });
+
+  it("a client-less plugin changes neither the declaration nor the server hash", () => {
+    const set = [cand("a", "X"), cand("b", "Y")];
+    const decl = build(set);
+    const withHeadless = [...set, cand("mcp", "M", false)];
+    expect(build(withHeadless).pluginRegistryHash).toBe(decl.pluginRegistryHash);
+    expect(build(withHeadless).bundledPluginIds).toEqual(["a", "b"]);
+    expect(server(withHeadless, decl)).toBe(decl.pluginRegistryHash);
   });
 });

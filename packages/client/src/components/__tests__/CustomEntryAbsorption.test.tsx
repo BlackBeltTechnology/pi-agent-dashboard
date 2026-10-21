@@ -6,9 +6,9 @@
  * hidden case passes vacuously), plus the third vanish path where the per-tool
  * gate empties a container that still holds a visible custom row.
  */
+
+import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";

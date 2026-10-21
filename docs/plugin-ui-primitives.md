@@ -15,6 +15,7 @@ ship zero React for the dashboard's UI primitives.
 |---|---|---|
 | Plugin contributes a session-card badge / action / settings panel | **Slot claim** in plugin manifest | `flows-plugin` claims `session-card-flows` |
 | Plugin uses dashboard's MarkdownContent / AgentCardShell / dialogs | **Primitive registry** via `useUiPrimitive(key)` | `flows-plugin`'s FlowAgentCard uses `useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard)` |
+| Plugin client renders a live session chat or elapsed badge | **Primitive registry** via `useUiPrimitive(UI_PRIMITIVE_KEYS.chatView)` / `.elapsedBadge` | `ui:chat-view`, `ui:elapsed-badge` |
 | Plugin uses a dashboard hook (useMobile, useZoomPan) | **Direct import** from `pi-dashboard-client-utils` | Hooks can't go through the registry — Rules of Hooks |
 | Plugin uses an extension-ui slot consumer (GateSlot, BreadcrumbSlot) | **Direct import** from `pi-dashboard-client-utils/extension-ui/*` | Slot consumers are themselves slot mechanism, different layer |
 
@@ -37,7 +38,18 @@ the const `UI_PRIMITIVE_KEYS`.
 | `UI_PRIMITIVE_KEYS.modelSelector` | `"ui:model-selector"` | `ComponentType<UiModelSelectorProps>` — model picker. provider filter. typeahead. emits `provider/id` label via `onSelect`. |
 | `UI_PRIMITIVE_KEYS.thinkingLevelSelector` | `"ui:thinking-level-selector"` | `ComponentType<UiThinkingLevelSelectorProps>` — thinking-level picker. contract `{ current?, onSelect, supportedLevels? }`. |
 
+| `UI_PRIMITIVE_KEYS.chatView` | `"ui:chat-view"` | `ComponentType<UiChatViewProps>` — live chat of one session (transcript + composer), host-styled. Contract `{ sessionId: string; readOnly?: boolean; compact?: boolean }`. Self-providing: mounts the chat/session providers it needs, nested inside app's `UiPrimitiveProvider`. Registered in `packages/client/src/main.tsx`. |
+| `UI_PRIMITIVE_KEYS.elapsedBadge` | `"ui:elapsed-badge"` | `ComponentType<UiElapsedBadgeProps>` — wraps host `ElapsedBadge`. Contract `{ startedAt?: number; duration?: number }`. `startedAt` = live ticking counter. `duration` (ms) = static display, wins over counter. |
+
 Full prop types for each are in `packages/shared/src/dashboard-plugin/ui-primitives.ts`.
+
+`ui:confirm-dialog` contract stays `{message, confirmLabel?, onConfirm, onCancel}`. Widening it (title, ReactNode body, `cancelLabel`, `destructive`) deferred to its own change. In-repo copies of `ConfirmDialog` not migrated yet.
+
+`ui:chat-view` + `createHostPrimitiveRegistry()`:
+- Subpath `@blackbelt-technology/pi-dashboard-web/chat-embed` exports `createHostPrimitiveRegistry()` + `EmbedProviders`. Sibling workspace apps stop copying `main.tsx`.
+- Factory takes no dependencies.
+- `EmbedProviders` provides no `ModelConfigContext`. Embedded `ui:model-selector` gets no favorites / refresh / provider-settings link. Caller's `models` list still renders (wrapper's no-context behaviour).
+- Consumer: `packages/team-app` (no plugin manifest).
 
 ## Shell-bound registrations
 
@@ -68,6 +80,25 @@ Per-model filtering shared: `max` opt-in.
 `FALLBACK_LEVELS` when `supportedLevels` absent/empty.
 `supportedLevels` caller-supplied.
 Primitive derives nothing — caller owns model→levels lookup.
+
+## Direct `useUiPrimitive` is allowed
+
+Trusted plugin client code MAY call `useUiPrimitive` / `useUiPrimitiveOrNull` directly. Trusted = build-time bundled, or operator-trusted runtime client (`auth.trustedPlugins`, see [`runtime-plugin-clients.md`](runtime-plugin-clients.md)).
+
+- Reverses the old rules "primitives consumed by IntentRenderer, not plugin code" and "plugin `useUiPrimitive` DEPRECATED". Both removed from spec `plugin-ui-primitive-registry`.
+- Reason: runtime plugin cannot reach a host component any other way without bundling it. Bundling = second singleton.
+- Primitives need no import-map entry. Same for build-time + runtime plugins. Reached through `@blackbelt-technology/dashboard-plugin-runtime` (import-mapped root).
+- Do NOT bundle host singletons (`escape-stack`, `LayerPortal`, client-utils `Dialog`). Use `ui:dialog` / `ui:dialog-portal`. SDK preset singleton guard fails the build.
+- Provider-context distribution: self-providing primitives (`ui:chat-view`) mount their own providers inside the app registry.
+
+### Intent path unchanged
+
+- Intents (`plugin_intents` JSON trees) remain the path for UI originated by bridge or server code. `IntentRenderer` renders them via the same registry. See [`plugin-intent-protocol.md`](plugin-intent-protocol.md).
+- Plugin MAY use BOTH paths for one slot. Old per-claim exclusivity rule ("emits intents → no React claims for same slot") removed.
+- `one-active` slots prefer the intent from the same plugin. `many` slots render both.
+- No migration. No shipped plugin relied on the prohibition.
+
+See change: decouple-plugins-from-core.
 
 ## How a plugin consumes a primitive
 
@@ -177,6 +208,7 @@ See change: model-picker-everywhere-favorites.
 
 ## Related changes
 
+- `decouple-plugins-from-core` — direct `useUiPrimitive` allowed; `ui:chat-view`, `ui:elapsed-badge`.
 - `add-plugin-ui-primitive-registry` — this proposal.
 - `dashboard-plugin-architecture` — the slot system the registry complements.
 - `dashboard-shell-slots` — slot taxonomy.

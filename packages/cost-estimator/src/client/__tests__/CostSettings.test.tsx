@@ -7,17 +7,7 @@
  * registered draft source driven the way the host Save bar drives it.
  * See change: retro-ux-plugin-settings-wave-2 (test-plan E11, F1).
  */
-import {
-  createSlotRegistry,
-  type RegisteredSource,
-  SettingsDraftProvider,
-  type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import {
-  applyPluginConfigUpdate,
-  CurrentPluginLayer,
-  PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CostSettings } from "../CostEstimator.js";

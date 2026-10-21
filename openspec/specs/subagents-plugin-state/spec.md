@@ -2,16 +2,18 @@
 
 ## Purpose
 TBD - created by archiving change add-flow-agent-popout. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Plugin-runtime primitive `useSessionSubagents`
 
-The dashboard-plugin-runtime SHALL export `useSessionSubagents(sessionId: string): ReadonlyMap<string, SubagentStateSnapshot>`. The hook reads the per-session subagent map populated by the shell's event reducer and re-renders subscribers when the map changes for that session id.
+The dashboard-plugin-runtime SHALL export `useSessionSubagents(sessionId: string): ReadonlyMap<string, SubagentStateSnapshot>`. The hook reads the per-session subagent map in `SessionState.subagents` and re-renders subscribers when the map changes for that session id. The map is written only by the subagents plugin's session event reducer slice and `Agent` tool-row finalizer, which the shell registers and applies (`dashboard-plugin-loader` "Plugins register session event reducer slices"); core reducer code no longer writes it.
 
-`SubagentStateSnapshot` is a structurally-typed snapshot mirroring the shell's internal `SubagentState`. The runtime types it independently so plugins do not pull in the shell package.
+`SubagentStateSnapshot` is a structurally-typed snapshot mirroring `SubagentState`, whose type now lives in `packages/shared/src/dashboard-plugin/subagent-types.ts`. The runtime types it independently so plugins do not pull in the shell package.
 
-For unknown session ids, the hook returns the shared `EMPTY_SUBAGENTS` frozen-Map reference.
+For unknown session ids, and while the subagents plugin is disabled or absent, the hook returns the shared `EMPTY_SUBAGENTS` frozen-Map reference or the map as last written.
 
-This primitive is a transitional bridge: subagent state currently lives in the shell's central session-state reducer (`packages/client/src/lib/event-reducer.ts`). A follow-up change will move the reducer into the subagents-plugin (mirror of `pluginize-flows-via-registry`). Until then, the primitive gives the plugin the read access it needs without leaking shell internals.
+The transitional note of the earlier version (subagent state reduced in the shell's central reducer until a follow-up moves it into the plugin) is resolved by `decouple-plugins-from-core`: the reducer slice now lives in the subagents plugin.
 
 #### Scenario: Hook returns the shell-resolved map
 
@@ -27,9 +29,14 @@ This primitive is a transitional bridge: subagent state currently lives in the s
 
 #### Scenario: Hook re-renders on session state update
 
-- **WHEN** the shell appends a new entry to `sessionStates.get("sess_1")?.subagents`
+- **WHEN** the subagents plugin's slice appends a new entry to `sessionStates.get("sess_1")?.subagents`
 - **AND** a plugin component is subscribed via `useSessionSubagents("sess_1")`
 - **THEN** the component SHALL re-render with the updated map
+
+#### Scenario: No core writer remains
+
+- **WHEN** the subagents plugin is disabled and a session receives `subagent_started`
+- **THEN** `SessionState.subagents` SHALL NOT change, and the event SHALL reach the absent-owner group row
 
 ### Requirement: SubagentPopoutClaim consumes the primitive
 
@@ -50,4 +57,3 @@ The `useSessionSubagents` primitive SHALL carry inline docs marking it as transi
 
 - **WHEN** a developer inspects `useSessionSubagents`'s JSDoc
 - **THEN** the doc SHALL state that the primitive is a transitional read bridge while subagent state lives in shell, and SHALL reference the future plugin-side migration
-

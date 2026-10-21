@@ -42,6 +42,14 @@ export const catalog = {
     rolesNotice:
       "内置的 Explore 代理使用 {role}。请在“模型角色”中为 {role} 指定模型，否则使用角色的代理会报告“尚未配置”。",
     openModelRoles: "打开模型角色",
+    // AgentToolRenderer (moved from the shell; task 4.3). en = call-site fallback.
+    agentPrompt: "提示词",
+    agentPopout: "弹出",
+    agentElided: "结果未加载",
+    agentWrappedUp: "已结束（达到回合上限）",
+    agentError: "错误：",
+    agentAborted: "已中止（超出最大回合数）",
+    agentStopped: "已停止",
   },
   hu: {
     subagentNotFound: "Nem található alügynök ebben a munkamenetben.",
@@ -74,5 +82,13 @@ export const catalog = {
     rolesNotice:
       "A beépített Explore ügynök a(z) {role} szerepet használja. Adj a(z) {role} szerepnek modellt a Modellszerepek oldalon, különben a szerepeket használó ügynökök „még nincs beállítva” hibát jelentenek.",
     openModelRoles: "Modellszerepek megnyitása",
+    // AgentToolRenderer (moved from the shell; task 4.3). en = call-site fallback.
+    agentPrompt: "Kérés",
+    agentPopout: "Kiemelés",
+    agentElided: "eredmény nincs betöltve",
+    agentWrappedUp: "Lezárva (körhatár)",
+    agentError: "Hiba:",
+    agentAborted: "Megszakítva (max. körök túllépve)",
+    agentStopped: "Leállítva",
   },
 };

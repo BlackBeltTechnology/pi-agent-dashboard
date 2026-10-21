@@ -72,6 +72,11 @@ Add-folders dialog forwards `piTrust` on pin / workspace add. See change: mirror
 
 See change: add-editor-pane-file-handlers — mounts `<FileHandlerLayer />` (a `React.lazy` chunk inside `<Suspense fallback={null}>`) once inside `SessionDiffProvider` beside `{children}` (outside EditorPane/SplitWorkspace, both layouts).
 
+Owned events: each `PLUGIN_REGISTRY` entry registers its manifest summary (`registry.registerPlugin({id,displayName,eventTypes})`, claims or not) and, after the loop, `setEventTypeOwners(_pluginRegistry.getEventTypeOwners())` seeds the reducer's ownership input before any event reduces. See change: decouple-plugins-from-core.
+
+Reducer contributions: next to the claims loop, `registerSessionEventReducer(id, entry.sessionEventReducer)` / `registerToolRowFinalizer(id, f)` register what each `PLUGIN_REGISTRY` entry carries from its client entry exports (declarative; filtered by `usePluginEnabledSet` via `setSessionReducerEnabledSet`). `useSessionSubagents` falls back to the runtime's shared `EMPTY_SUBAGENTS` (local `EMPTY_SUBAGENTS_MAP` removed). See change: decouple-plugins-from-core (task 4.2).
+
+Runtime plugins: build-time route descriptors kept as `_buildTimeRoutes` (the back-target store replaces its list), `_buildTimePluginIds` = build-time ids. An effect keyed on `apiBase` runs `startRuntimePluginLoader({registry, buildTimeIds, buildTimeRoutes})` (apiBase is only known after render, so not at module scope); a `runtime-plugins-registered` listener runs `regroupAllSessionStates` over `sessionStates` (late event-type owners). `pluginNames` merges `useRuntimePluginNames()`. Mounts `<RuntimePluginReloadNotice />` under `PluginStalenessBanner` (mobile branch) AND at the top of the desktop content column (desktop had no mount until the e2e F12 caught it). See change: decouple-plugins-from-core (tasks 6.14, 6.17, 6.18).
 - Mounts `TerminalLimitNotice inline` above the chat view. See change: harden-server-capability-bounds.
 
 - Mounts `ProvisionPromptHost` beside `GrantPromptHost` in both returns (provisioning dialog; capability owned by the grant host). See change: add-access-provisioning.

@@ -7,6 +7,8 @@
  */
 
 export * from "./file-handler.js";
+export * from "./host-api.js";
+export * from "./host-fx-classes.js";
 export * from "./intent-types.js";
 export * from "./manifest-types.js";
 export * from "./plugin-status.js";

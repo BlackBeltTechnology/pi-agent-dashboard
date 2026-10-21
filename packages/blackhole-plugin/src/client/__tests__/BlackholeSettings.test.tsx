@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   type RegisteredSource,
   SettingsDraftProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type {
   UiConfirmDialogProps,

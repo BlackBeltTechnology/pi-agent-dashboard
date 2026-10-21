@@ -19,12 +19,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import React from "react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ChatMessage, createInitialState, reduceEvent } from "../../lib/chat/event-reducer.js";
+import { setEventTypeOwners } from "../../lib/plugins/event-type-owners.js";
+import { __resetPluginAvailabilityForTests, applyPluginStatuses } from "../../lib/plugins/plugin-availability.js";
 import { ChatView } from "../chat/ChatView.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
@@ -40,6 +42,12 @@ const prefsRef: { current: DisplayPrefs } = {
 vi.mock("../../hooks/useDisplayPrefs.js", () => ({
   useDisplayPrefs: () => prefsRef.current,
 }));
+
+// Wrap the real reducer so a test can prove an availability change never re-reduces.
+vi.mock("../../lib/chat/event-reducer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/chat/event-reducer.js")>();
+  return { ...actual, reduceEvent: vi.fn(actual.reduceEvent) };
+});
 
 const defaultToolContext: ToolContext = {};
 
@@ -59,6 +67,8 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   prefsRef.current = { ...DISPLAY_PRESETS.everything };
+  setEventTypeOwners([]);
+  __resetPluginAvailabilityForTests();
 });
 
 function entryRow(customType: string, groupId: string | undefined, body: string): ChatMessage {
@@ -209,5 +219,86 @@ describe("ChatView burst stop wiring", () => {
     expect(stop).not.toBeNull();
     fireEvent.click(stop);
     expect(onAbort).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Owned-event group rows: render-time availability.
+// See change: decouple-plugins-from-core (test-plan #F1–#F3, task 2.16).
+describe("owned-event group row (render-time availability)", () => {
+  const OWNERS = [
+    { ownerId: "subagents", displayName: "Subagents", eventTypes: ["subagent_*"] },
+    { ownerId: "flows", displayName: "Flows", eventTypes: ["flow_*"] },
+  ];
+  const groupRow = (type: string, ownerId: string, n: number): ChatMessage => ({
+    id: `owned-${type}`,
+    role: "rawEvent",
+    content: "",
+    timestamp: Date.now(),
+    toolName: type,
+    ownedGroup: { ownerId, count: n, payloads: Array.from({ length: n }, (_, i) => ({ i: i + 1 })) },
+  });
+  const plainRaw = (): ChatMessage => ({
+    id: "raw-plain",
+    role: "rawEvent",
+    content: '{"plain":true}',
+    timestamp: Date.now(),
+    toolName: "mystery_evt",
+  });
+  const status = (id: string, ok: boolean) => ({ id, enabled: ok, loaded: ok });
+
+  it("#F1 an unavailable owner shows ONE collapsed row, no JSON until expanded", () => {
+    setEventTypeOwners(OWNERS);
+    applyPluginStatuses([status("subagents", false)]);
+    const { container, getByRole } = renderChat(stateWith([groupRow("subagent_entry", "subagents", 40)]));
+    expect(bodyText(container)).toContain("40 subagent_entry events — Subagents plugin unavailable");
+    expect(container.querySelectorAll("pre")).toHaveLength(0);
+    fireEvent.click(getByRole("button", { name: /subagent_entry events/ }));
+    expect(container.querySelectorAll("pre")).toHaveLength(40);
+  });
+
+  it("#F2a no status read yet: the group row never renders, before or after the first read", () => {
+    setEventTypeOwners(OWNERS);
+    let state = createInitialState();
+    for (let i = 1; i <= 5; i++) state = reduceEvent(state, { eventType: "flow_step", timestamp: i, data: { i } });
+    expect(state.messages).toHaveLength(1);
+    const ui = (s: typeof state) => (
+      <ThemeProvider>
+        <ChatView sessionId="s1" state={s} toolContext={defaultToolContext} onRespondToUi={vi.fn()} />
+      </ThemeProvider>
+    );
+    const { container, rerender } = render(ui(state));
+    expect(bodyText(container)).not.toContain("plugin unavailable");
+    expect(bodyText(container)).not.toContain("flow_step");
+    act(() => applyPluginStatuses([status("flows", true)]));
+    rerender(ui(state));
+    expect(bodyText(container)).not.toContain("plugin unavailable");
+    expect(bodyText(container)).not.toContain("flow_step");
+  });
+
+  it("#F2b an owner that becomes unavailable later re-renders the row, without re-reducing", () => {
+    setEventTypeOwners(OWNERS);
+    applyPluginStatuses([status("flows", true)]);
+    const state = stateWith([groupRow("flow_step", "flows", 3)]);
+    const { container } = renderChat(state);
+    expect(bodyText(container)).not.toContain("plugin unavailable");
+    vi.mocked(reduceEvent).mockClear();
+    act(() => applyPluginStatuses([status("flows", false)]));
+    expect(bodyText(container)).toContain("3 flow_step events — Flows plugin unavailable");
+    expect(container.querySelectorAll("pre")).toHaveLength(0);
+    expect(reduceEvent).not.toHaveBeenCalled();
+  });
+
+  it("#F3 an owned group row ignores the debug-tools setting; a plain raw row obeys it", () => {
+    setEventTypeOwners(OWNERS);
+    applyPluginStatuses([status("subagents", false)]);
+    for (const debugTools of [true, false]) {
+      prefsRef.current = { ...prefsRef.current, debugTools };
+      const { container, unmount } = renderChat(
+        stateWith([groupRow("subagent_entry", "subagents", 2), plainRaw()]),
+      );
+      expect(bodyText(container)).toContain("2 subagent_entry events — Subagents plugin unavailable");
+      expect(bodyText(container).includes("mystery_evt")).toBe(debugTools);
+      unmount();
+    }
   });
 });

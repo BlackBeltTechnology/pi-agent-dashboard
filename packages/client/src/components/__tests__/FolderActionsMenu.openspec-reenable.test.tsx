@@ -11,7 +11,10 @@
  * openspec/changes/add-openspec-init-affordances/specs/folder-actions-menu.
  */
 
-import { createFolderMenuStore, FolderMenuProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createFolderMenuStore,
+  FolderMenuProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession, OpenSpecData, OpenSpecReadiness } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";

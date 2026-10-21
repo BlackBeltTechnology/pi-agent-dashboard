@@ -331,6 +331,47 @@ export const isJudoFolder = folderHasProjectType("judo");
 - Leftover `project.json` files inert.
 - External scoped consumers fail dashboard build until removed.
 
+## Runtime-loaded embedded apps (one app, two builds)
+
+External plugin (not bundled into dashboard build) embeds an app through runtime delivery. Option C layered on B. Mechanism: [`runtime-plugin-clients.md`](runtime-plugin-clients.md). Build recipe: [`publishing-plugins.md`](publishing-plugins.md) § "Runtime-delivered plugin client".
+
+- Embedded half = `shell-overlay-route` claim rendering `<EmbeddedApp>`. Loaded as runtime ESM chunk. `serveApp` stays the standalone / share-link half.
+- Import map carries the three host shims the app needs: `…/dashboard-plugin-runtime/embedded-app` (`/host/embedded-app.js`), `@blackbelt-technology/pi-dashboard-app-kit/react` (`/host/app-kit-react.js`), `wouter` (`/host/wouter.js`). One shared instance each, so `AppHost` context, `EmbeddedAppShellProvider`, wouter router reach plugin code.
+- Plugin bundles NOTHING of app-kit, wouter, React. SDK preset externalizes them. Singleton guard fails the build otherwise.
+- Same app source, two builds:
+
+| Build | Preset fn | Output | React |
+|---|---|---|---|
+| Embedded | `dashboardClientViteConfig` | `dist/client/` (`clientBundle`: entry + lazy `module` chunk) | Host's, via import map |
+| Standalone | `dashboardStandaloneViteConfig` | `dist/standalone/` (`index.html` SPA, `serveApp`) | Own |
+
+- `host.api.fetch` works in both builds (embedded shell transport; standalone authed transport). `host.mode` tells which.
+- Route claim = ~3 lines of plugin code in a lazy module:
+
+```tsx
+// src/client/S6Route.tsx  (claim module ./dist/client/s6-route.js)
+import { EmbeddedApp } from "@blackbelt-technology/dashboard-plugin-runtime/embedded-app";
+import { canaryApp } from "./canary-app.js";
+export function S6Route({ onBack }: { onBack: () => void }) {
+  return <EmbeddedApp app={canaryApp} basePath="/s6" onBack={onBack} />;
+}
+```
+
+- Claim (manifest): `{ slot: "shell-overlay-route", component: "S6Route", module: "./dist/client/s6-route.js", path: "/s6/*?", depth: 1, presentation: "content" }`. Lazy: app code stays out of the entry module.
+- Route descriptors (`path`, `depth`, `parentPath`) ride the listing. Client re-registers union of build-time + runtime descriptors.
+- Trust applies: untrusted runtime plugin = no route. Operator trust + pin first.
+- Remote-server mode + `--dev` page: runtime apps not loaded. Embedded runtime apps need production page on local server.
+
+### Canary
+
+Fixture `tests/fixtures/runtime-canary-plugin` (id `runtime-canary`, `fixture: true`). Proves the path in a stock production build.
+- Build: `npm run build:canary` → `scripts/build-runtime-canary.mjs` (SDK preset). `dist/` never committed. Harness builds, hashes, trusts the hash.
+- Claims: `settings-section` + `shouldRender`, lazy `settings-section`, `shell-overlay-route` `/s6/*?` (embedded app), `sidebar-folder-section` (`useFolderMenuItem` → `/s6`).
+- App: `src/client/canary-app.tsx` (`defineDashboardApp`, wouter `/sub` route).
+- Failure variants (`variants/`): `bundled-app-kit` (no host provider → throws in claim boundary), `bundled-react` (invalid hook call), `missing-export` (link-time `SyntaxError`), `throws-in-render` (contained by slot error boundary).
+
+See change: decouple-plugins-from-core.
+
 ## Standalone
 
 - Plugin serves `/apps/<id>/`.

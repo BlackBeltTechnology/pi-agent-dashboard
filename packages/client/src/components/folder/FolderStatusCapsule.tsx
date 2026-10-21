@@ -24,7 +24,7 @@
  * See change: unify-folder-status-capsule.
  */
 
-import { useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useMemo, useState } from "react";

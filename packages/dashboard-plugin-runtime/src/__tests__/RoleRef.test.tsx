@@ -64,7 +64,7 @@ describe("RoleRef once / unresolved / labels (E2)", () => {
 
 describe("RoleRef runtime boundary (E3)", () => {
   it("is exported and neither imports the client nor fetches", () => {
-    expect(src("index.ts")).toMatch(/export \{ RoleRef \} from "\.\/RoleRef\.js"/);
+    expect(src("public.ts")).toMatch(/\bRoleRef,[^}]*\} from "\.\/RoleRef\.js"/);
     const body = src("RoleRef.tsx");
     expect(body).not.toMatch(/packages\/client|pi-dashboard-client-utils|from "[^"]*\/client\//);
     expect(body).not.toContain("fetch(");

@@ -10,7 +10,7 @@
 import {
   PluginContextProvider,
   setSender,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +21,7 @@ type PluginActionMessage = { pluginId: string; sessionId: string | null; action:
 
 import type { GoalRecord } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GoalDetailClaim } from "../client/GoalDetailClaim.js";
-import { encodeFolderPath, goalsBoardUrl } from "../client/goals-api.js";
+import { goalsBoardUrl } from "../client/goals-api.js";
 
 const cwd = "/repo/alpha";
 
@@ -49,7 +49,7 @@ function renderDetail(goal: GoalRecord, hook?: any) {
   return render(
     <Router hook={hook}>
       <PluginContextProvider>
-        <GoalDetailClaim params={{ encodedCwd: encodeFolderPath(cwd), goalId: goal.id }} onBack={() => {}} />
+        <GoalDetailClaim cwd={cwd} params={{ goalId: goal.id }} onBack={() => {}} />
       </PluginContextProvider>
     </Router>,
   );

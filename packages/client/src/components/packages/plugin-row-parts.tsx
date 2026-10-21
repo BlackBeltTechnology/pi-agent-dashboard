@@ -45,6 +45,13 @@ export function StatusPill({ row }: { row: PluginRow }) {
       </SettingsStatusPill>
     );
   }
+  if (status.source === "local-detected") {
+    return (
+      <SettingsStatusPill tone="warning" status="not-loaded">
+        {i18nT("packages.pillNotLoaded", undefined, "Not loaded")}
+      </SettingsStatusPill>
+    );
+  }
   if (status.error) {
     return (
       <SettingsStatusPill tone="error" status="error">

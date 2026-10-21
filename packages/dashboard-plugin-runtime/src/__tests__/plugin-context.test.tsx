@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyPluginConfigUpdate,
   CurrentPluginLayer,
+  EMPTY_SUBAGENTS,
   initPluginConfigs,
   PluginContextProvider,
   useAllSessions,
@@ -13,6 +14,7 @@ import {
   usePluginLogger,
   usePluginMessage,
   usePluginSocket,
+  useSessionSubagents,
 } from "../plugin-context.js";
 import { createSlotRegistry } from "../slot-registry.js";
 
@@ -339,5 +341,88 @@ describe("usePluginSocket", () => {
     unmount();
     render(<Comp />);
     expect(seen.at(-1)).toBeNull();
+  });
+});
+
+// useSessionSubagents (test-plan #E49): returns the shell-resolved map, the shared
+// frozen EMPTY_SUBAGENTS for an unknown session, and re-renders when the plugin's
+// slice writes a new map for that session.
+describe("useSessionSubagents", () => {
+  type Snap = { id: string; status: string };
+  const mapOf = (...subs: Snap[]) => new Map(subs.map((x) => [x.id, x])) as ReadonlyMap<string, Snap>;
+
+  function Harness({
+    store,
+    sessionId,
+    onRender,
+  }: {
+    store: { get: () => Map<string, ReadonlyMap<string, Snap>>; subscribe: (cb: () => void) => () => void };
+    sessionId: string;
+    onRender: (m: ReadonlyMap<string, { id: string }>) => void;
+  }) {
+    const state = React.useSyncExternalStore(store.subscribe, store.get);
+    return (
+      <PluginContextProvider
+        registry={createSlotRegistry()}
+        useSessionSubagents={(sid) => state.get(sid) ?? EMPTY_SUBAGENTS}
+      >
+        <SubagentsReader sessionId={sessionId} onRender={onRender} />
+      </PluginContextProvider>
+    );
+  }
+
+  function SubagentsReader({ sessionId, onRender }: { sessionId: string; onRender: (m: ReadonlyMap<string, { id: string }>) => void }) {
+    onRender(useSessionSubagents(sessionId));
+    return null;
+  }
+
+  function makeStore(initial: Map<string, ReadonlyMap<string, Snap>>) {
+    let state = initial;
+    const listeners = new Set<() => void>();
+    return {
+      get: () => state,
+      subscribe: (cb: () => void) => {
+        listeners.add(cb);
+        return () => listeners.delete(cb);
+      },
+      /** What the subagents slice does: replace the session's map with a new one holding one more entry. */
+      append(sessionId: string, snap: Snap) {
+        const prev = state.get(sessionId) ?? (EMPTY_SUBAGENTS as ReadonlyMap<string, Snap>);
+        state = new Map(state).set(sessionId, new Map([...prev, [snap.id, snap]]) as ReadonlyMap<string, Snap>);
+        for (const l of listeners) l();
+      },
+    };
+  }
+
+  it("returns the session's map for a known id and the shared EMPTY_SUBAGENTS for an unknown id", () => {
+    const store = makeStore(new Map([["sess_1", mapOf({ id: "a1", status: "running" })]]));
+    const seen: Array<ReadonlyMap<string, { id: string }>> = [];
+    render(<Harness store={store} sessionId="sess_1" onRender={(m) => seen.push(m)} />);
+    expect(seen.at(-1)).toBe(store.get().get("sess_1"));
+    expect(seen.at(-1)?.get("a1")).toEqual({ id: "a1", status: "running" });
+
+    const unknown: Array<ReadonlyMap<string, { id: string }>> = [];
+    render(<Harness store={store} sessionId="never-existed" onRender={(m) => unknown.push(m)} />);
+    expect(unknown.at(-1)).toBe(EMPTY_SUBAGENTS);
+  });
+
+  it("re-renders once, with the new entry, when the slice appends to the session's map", () => {
+    const store = makeStore(new Map([["sess_1", mapOf({ id: "a1", status: "running" })]]));
+    const seen: Array<ReadonlyMap<string, { id: string }>> = [];
+    render(<Harness store={store} sessionId="sess_1" onRender={(m) => seen.push(m)} />);
+    const rendersBefore = seen.length;
+    act(() => store.append("sess_1", { id: "a2", status: "running" }));
+    expect(seen.length - rendersBefore).toBe(1);
+    expect([...seen.at(-1)!.keys()]).toEqual(["a1", "a2"]);
+  });
+
+  it("outside a PluginContextProvider it returns EMPTY_SUBAGENTS (soft contract)", () => {
+    let got: ReadonlyMap<string, { id: string }> | undefined;
+    function Reader() {
+      got = useSessionSubagents("sess_1");
+      return null;
+    }
+    render(<Reader />);
+    expect(got).toBe(EMPTY_SUBAGENTS);
   });
 });

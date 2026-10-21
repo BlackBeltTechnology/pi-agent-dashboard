@@ -5,7 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `useActiveChatSelection.ts` | `useActiveChatSelection(containerRef, mapRange) → { isSelecting, isSelectingRef, selectionSpanRef,… → see `useActiveChatSelection.ts.AGENTS.md` |
-| `useAddonIssues.ts` | Subscribes to `addon-issues-store` (plugin issues + `packages[]` health, one count for the Issues tab and the Settings rail badge); refresh on mount + `plugin-config-update`. See change: addons-hub-folder-view. |
+| `useAddonIssues.ts` | Subscribes to `addon-issues-store` (plugin issues + `packages[]` health, one count for the Issues tab and the Settings rail badge); refresh on mount + `plugin-config-update`. See change: addons-hub-folder-view. On `pi-package-event` refreshes health only; folds `plugins-changed` snapshots into plugin issues (no refetch). See change: decouple-plugins-from-core. |
 | `useFolderAddons.ts` | Folder Add-ons page state: folder catalog fetch, switch flow (no local flip before the server confirms; row error on failure), `keptOn`/`notOwned`(`removeUnowned` retry)/trust prompt (replays after `submitResourceTrust`), reload offer. See change: addons-hub-folder-view. |
 | `useAddonCatalog.ts` | `GET /api/addons/catalog` + refetch (debounced `ADDON_CATALOG_DEBOUNCE_MS`) on `pi-package-event` success and `plugin-config-update`. See change: addons-hub-feature-catalog. |
 | `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason, peerResolving, importFailed, refresh }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |
@@ -70,7 +70,6 @@ Files in this directory. One row per source file.
 | `useSidebarState.ts` | Persists sidebar `width` + `collapsed` to `localStorage` (`dashboard:sidebar-width`,… → see `useSidebarState.ts.AGENTS.md` |
 | `useSideFlyoutPosition.ts` | Side placement for the session flyout: `computeSideFlyoutPosition` (card.right+8, clamp, maxHeight) + hook writing `left/top/maxHeight` through refs on capture-phase scroll (ignores the panel's own scroll), resize and card `ResizeObserver`. Anchor and point modes; never React state. See change: add-session-actions-flyout. |
 | `useStaleToolReconcile.ts` | Session-scoped stale running-tool heal (survives transcript virtualization). → see `useStaleToolReconcile.ts.AGENTS.md` |
-| `useSubagentResyncCadence.ts` | Open-inspector liveness (D4 v1): a mounted detail view re-fires `subagent_resync_request` on a backoff… → see `useSubagentResyncCadence.ts.AGENTS.md` |
 | `useSwipeBack.ts` | iOS-style left-edge swipe-back gesture. Touch listeners decide horizontal vs vertical after 10px, triggers… → see `useSwipeBack.ts.AGENTS.md` |
 | `useTreeColumnWidth.ts` | Persisted width + drag lifecycle for the Instructions folder-tree column (peer of `useSidebarState`). → see `useTreeColumnWidth.ts.AGENTS.md` |
 | `useTheme.ts` | Theme mode + named-theme state. Reads `dashboard:theme`/`dashboard:theme-name` from `localStorage`, resolves… → see `useTheme.ts.AGENTS.md` |

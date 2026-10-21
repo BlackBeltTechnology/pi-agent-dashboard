@@ -40,7 +40,6 @@ import { NotifyRenderer } from "../interactive-renderers/NotifyRenderer.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
 import { SelectRenderer } from "../interactive-renderers/SelectRenderer.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
 import { AskUserToolRenderer } from "../tool-renderers/AskUserToolRenderer.js";
 import { BashToolRenderer } from "../tool-renderers/BashToolRenderer.js";
 import { CtxToolRenderer } from "../tool-renderers/CtxToolRenderer.js";
@@ -128,7 +127,10 @@ describe("faux renderer matrix — tool renderers (§3.2)", () => {
     ["tool-write", WriteToolRenderer],
     ["tool-bash", BashToolRenderer],
     ["tool-ctx", CtxToolRenderer],
-    ["tool-agent", AgentToolRenderer],
+    // `Agent` is a tool-renderer CLAIM of the subagents plugin now, not a built-in
+    // row: the registry falls back to Generic (the plugin-absent path).
+    // See change: decouple-plugins-from-core (task 4.4).
+    ["tool-agent", GenericToolRenderer],
     ["tool-unknown", GenericToolRenderer],
   ];
 

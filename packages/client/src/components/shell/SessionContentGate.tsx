@@ -13,7 +13,7 @@ import {
   forSession,
   type SlotRegistry,
   useSlotClaimsVersion,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 

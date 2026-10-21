@@ -1,4 +1,4 @@
-import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { CommandInfo, FileEntry, ImageContent, ModelInfo, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";

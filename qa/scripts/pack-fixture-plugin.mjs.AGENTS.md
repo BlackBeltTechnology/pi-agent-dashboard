@@ -1,0 +1,3 @@
+# pack-fixture-plugin.mjs — index
+
+Writes two pi-package fixture plugins into `--out <dir>` (no registry): `qa-fixture-plugin` (server entry writes `<out>/qa-fixture-plugin.loaded` sentinel, bridge entry) and `qa-fixture-plugin-throws` (server entry throws). Plain JS, relocatable. Install via `POST /api/packages/install {source:<abs dir>,scope:"global"}` → `source:pi-package`, `server-untrusted` until `POST /api/plugins/<id>/trust {server:true}`. Export `packFixturePlugins`, `FIXTURE_IDS`. Verified against harness. Test: `scripts/__tests__/qa-pack-fixture-plugin.test.mjs`. See change: decouple-plugins-from-core (8.6; E101, E102, X15).

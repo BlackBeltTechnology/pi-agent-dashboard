@@ -8,8 +8,9 @@
  *
  * See change: streamline-first-run (design D2).
  */
-import { PEER_AM_LEGACY } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin/peer-probe";
+
 import { ANTHROPIC_MESSAGES_SOURCE } from "@blackbelt-technology/pi-dashboard-shared/anthropic-messages-source.js";
+import { PEER_AM_LEGACY } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/anthropic-peer-names.js";
 
 const BRIDGE_PLUGIN_ID = "flows-anthropic-bridge";
 

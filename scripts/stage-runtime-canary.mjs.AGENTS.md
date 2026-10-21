@@ -1,0 +1,3 @@
+# stage-runtime-canary.mjs — index
+
+Stages the runtime canary for the docker harness (`docker/test-up.sh`, 7.5/8.2). `stageRuntimeCanary({outDir, mode})` builds once (`build-runtime-canary.mjs`), hashes `dist/client` with the SERVER hasher (`client-content-hash.ts` via jiti), lays out `plugins/runtime-canary[-<variant>]`, `auth-trust.json`, `manifest.json`. `trusted` = base canary pinned; `untrusted` = base without pin + 4 failure variants + `intent.flag` (outside `dist/client`, hash unaffected). Exports `stageRuntimeCanary`, `contentHashOf`, `VARIANTS`. CLI: `--out <dir> [--mode] [--no-build]`. Tests: `__tests__/e2e-canary-seed.test.mjs`. See change: decouple-plugins-from-core.
