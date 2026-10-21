@@ -1,0 +1,176 @@
+/* Session-header reorganisation board: PROPOSED recipes + board layout.
+   Tokens only (tokens.css). No palette class, hex or rgba literal.
+   Recipes cite ui-contract.md "Component invariants" (segmented control =
+   tinted selected toggle, menu / flyout, row overflow, tap-target floor). */
+
+/* ── board layout extras (stacked as-built over proposed) ─────── */
+.cites { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 12px; font-size: 12px; color: var(--text-secondary); }
+.cites a { color: var(--link); }
+.stack { display: grid; gap: 16px; }
+.stack > .col { padding: 0; }
+.stack > .col + .col { border-left: 0; }
+.pstate + .pstate { margin-top: 16px; }
+.pstate > .src { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin: 0 0 4px; font-size: 12px; color: var(--text-secondary); }
+.pstate > .src code { color: var(--text-primary); font-size: 12px; font-weight: 600; }
+.annot { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); max-width: 110ch; }
+.annot code { color: var(--text-primary); }
+.stage { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; position: relative; }
+.stage.w390 { width: 390px; max-width: 100%; }
+.stage.w560 { width: 560px; max-width: 100%; }
+.col.built img { display: block; max-width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--border-secondary); }
+.col.built .imgs { display: grid; gap: 8px; }
+.col.built .imgs figure { margin: 0; }
+.col.built .imgs figcaption { font-size: 12px; color: var(--text-secondary); margin: 0 0 4px; }
+.dtable { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 1100px; }
+.dtable th, .dtable td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border-secondary); }
+.dtable th { color: var(--text-secondary); font-weight: 600; background: var(--bg-tertiary); }
+.dtable td { color: var(--text-primary); }
+.dtable td .sub { color: var(--text-secondary); }
+.dtable svg.i { width: 16px; height: 16px; vertical-align: -3px; }
+
+/* ── shared primitives ─────────────────────────────────────────── */
+.fr { outline: none; }
+.fr:focus-visible, .sh button:focus-visible, .mh button:focus-visible, .menu [role^="menuitem"]:focus-visible, .cs button:focus-visible {
+  outline: 2px solid var(--focus-ring); outline-offset: 1px;
+}
+.ibtn { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; border-radius: 6px; color: var(--text-secondary); }
+.ibtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.ibtn svg.i { width: 18px; height: 18px; }
+.vsep { width: 1px; align-self: stretch; margin: 6px 2px; background: var(--border-secondary); flex: none; }
+
+/* secondary chip button (ui-contract secondary button, 32 px from sm) */
+.sbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary);
+  font-size: 12px; font-weight: 600; white-space: nowrap; flex: none; }
+.sbtn:hover { background: var(--bg-hover); }
+.sbtn svg.i { width: 16px; height: 16px; color: var(--text-secondary); }
+.sbtn .cnt { color: var(--text-secondary); font-weight: 600; }
+/* tinted action chip (ui-contract action chip + tint-action-X) */
+.tbtn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid;
+  font-size: 12px; font-weight: 600; white-space: nowrap; flex: none; }
+.tbtn svg.i { width: 16px; height: 16px; }
+.tbtn.green { color: var(--tint-green-fg); background: var(--tint-green-bg); border-color: var(--tint-green-border); }
+.tbtn.blue { color: var(--tint-blue-fg); background: var(--tint-blue-bg); border-color: var(--tint-blue-border); }
+/* count pills inside a button: severity fg on its own bg, 12 px (interactive floor) */
+.cpill { display: inline-flex; align-items: center; border-radius: 999px; padding: 0 6px; font-size: 12px; font-weight: 600; border: 1px solid; line-height: 18px; }
+.cpill.add { color: var(--severity-success-fg); background: var(--severity-success-bg); border-color: var(--severity-success-border); }
+.cpill.del { color: var(--severity-error-fg); background: var(--severity-error-bg); border-color: var(--severity-error-border); }
+.wpill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 0 8px; min-height: 24px; font-size: 12px; font-weight: 600; border: 1px solid;
+  color: var(--severity-warning-fg); background: var(--severity-warning-bg); border-color: var(--severity-warning-border); white-space: nowrap; }
+.wpill svg.i { width: 14px; height: 14px; }
+
+/* ── layout switch: segmented radiogroup (selected = tint-blue triple) ── */
+.lsw { display: inline-flex; align-items: stretch; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; flex: none; background: var(--bg-primary); }
+.lsw button { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.lsw button + button { border-left: 1px solid var(--border-secondary); }
+.lsw button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.lsw button[aria-checked="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+.lsw button svg.i { width: 16px; height: 16px; }
+.lsw.icons button { padding: 0; min-width: 36px; justify-content: center; }
+.lsw.icons button .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* tabs-styled variant (ui-contract tabs row: border-b-2, accent-primary) */
+.ltabs { display: flex; gap: 4px; padding: 0 16px 0 56px; border-bottom: 1px solid var(--border-secondary); }
+.ltabs button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; margin-bottom: -1px; border-bottom: 2px solid transparent;
+  font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+.ltabs button:hover { color: var(--text-primary); }
+.ltabs button[aria-checked="true"] { border-bottom-color: var(--accent-primary); color: var(--text-primary); }
+.ltabs button svg.i { width: 16px; height: 16px; }
+
+/* ── desktop session header (proposed) ─────────────────────────── */
+.sh { container-type: inline-size; border-bottom: 1px solid var(--border-primary); background: var(--bg-primary); }
+.sh .row { display: flex; align-items: center; gap: 12px; padding: 8px 16px; min-height: 48px; }
+.sh .hl { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.sh .tb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; min-width: 0; flex: 0 1 auto; }
+.sh .tw { display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; }
+.sh .title-btn { display: inline-flex; align-items: center; gap: 2px; min-height: 32px; padding: 0 6px; border-radius: 6px; min-width: 0; max-width: 100%;
+  font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.sh .title-btn:hover { background: var(--bg-hover); }
+.sh .title-btn .t { min-width: 6ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh .title-btn svg.i { width: 18px; height: 18px; color: var(--text-secondary); }
+.sh .title-btn[aria-expanded="true"] { background: var(--bg-tertiary); }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--text-secondary); min-width: 0; }
+.meta .tag { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; font-size: 12px; color: var(--text-primary);
+  background: var(--bg-tertiary); border: 1px solid var(--border-secondary); }
+.meta .addtag { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  color: var(--text-secondary); border: 1px dashed var(--border-secondary); }
+.meta .addtag:hover { color: var(--text-primary); }
+.meta .phase { display: inline-flex; align-items: center; min-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  color: var(--severity-info-fg); background: var(--severity-info-bg); border: 1px solid var(--severity-info-border); }
+.meta .clock { display: inline-flex; align-items: center; gap: 4px; }
+.meta .clock svg.i { width: 14px; height: 14px; }
+.sh .mid { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; }
+.sh .acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.sh .acts .grp { display: flex; align-items: center; gap: 6px; }
+/* narrow pane: meta under title; switch icon-only; changed files label hidden */
+@container (max-width: 760px) {
+  .sh .tb { flex-direction: column; align-items: stretch; gap: 0; }
+  .sh .tw { align-self: flex-start; }
+  .sh .meta .lowprio { display: none; }
+  .sh .sbtn.files .lbl, .sh .sbtn.view .lbl { display: none; }
+  .sh .lsw:not(.keep) button { padding: 0; min-width: 36px; justify-content: center; }
+  .sh .lsw:not(.keep) button .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+}
+
+/* menu / flyout recipe */
+.menu { position: absolute; z-index: 5; min-width: 240px; max-width: 320px; padding: 4px 0; border-radius: 8px; border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card); }
+.menu .mi { display: flex; align-items: flex-start; gap: 8px; width: 100%; min-height: 36px; padding: 8px 12px; text-align: left; font-size: 14px; color: var(--text-primary); }
+.menu .mi:hover { background: var(--bg-hover); }
+.menu .mi svg.i { width: 18px; height: 18px; color: var(--text-secondary); margin-top: 1px; }
+.menu .mi .d { display: block; font-size: 12px; color: var(--text-secondary); }
+.menu .mi .k { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+.menu .mi[aria-checked="true"] { font-weight: 600; }
+.menu .mi .ck { margin-left: auto; color: var(--tint-blue-fg); }
+.menu hr { border: 0; border-top: 1px solid var(--border-secondary); margin: 4px 0; }
+.menu .gh { padding: 6px 12px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+
+/* ── stage placeholders under the header ──────────────────────── */
+.ctxrow { display: flex; align-items: center; gap: 8px; padding: 4px 16px; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); }
+.ctxrow .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+.ctxrow .bar > span { display: block; height: 100%; background: var(--severity-success-fg); border-radius: 999px; }
+.panes { display: flex; min-height: 96px; }
+.stage.has-menu .panes { min-height: 250px; }
+.panes .pane { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; color: var(--text-secondary); }
+.panes .pane.ed { flex: 0.8; border-left: 1px solid var(--border-secondary); background: var(--bg-secondary); }
+.panes .rail { width: 24px; flex: none; border-left: 1px solid var(--border-secondary); background: var(--bg-secondary); display: flex; align-items: center; justify-content: center; }
+.panes .rail span { writing-mode: vertical-rl; font-size: 11px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.08em; }
+
+/* ── mobile header (proposed) ─────────────────────────────────── */
+.mh { border-bottom: 1px solid var(--border-primary); background: var(--bg-primary); }
+.mh .row { display: flex; align-items: center; gap: 0; padding: 0 4px; min-height: 48px; }
+.mh .ibtn { min-width: 44px; min-height: 44px; }
+.mh .ibtn svg.i { width: 20px; height: 20px; }
+.mh .t { flex: 1; min-width: 0; padding: 0 4px; font-size: 16px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mh .modebtn { display: inline-flex; align-items: center; justify-content: center; gap: 0; min-width: 44px; min-height: 44px; border-radius: 6px; color: var(--tint-blue-fg); }
+.mh .modebtn svg.i { width: 20px; height: 20px; }
+.mh .modebtn svg.i.dn { width: 14px; height: 14px; margin-left: -2px; color: var(--text-secondary); }
+.mh .info { display: flex; align-items: center; gap: 8px; padding: 4px 16px 8px; font-size: 12px; color: var(--text-secondary); }
+.mh .info .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+.mh .info .bar > span { display: block; height: 100%; background: var(--severity-success-fg); }
+.mh .seg3 { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 12px 8px; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+.mh .seg3 button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+.mh .seg3 button + button { border-left: 1px solid var(--border-secondary); }
+.mh .seg3 button[aria-checked="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+.mh .seg3 button svg.i { width: 18px; height: 18px; }
+.mh .menu .mi { min-height: 44px; align-items: center; }
+
+/* ── context ring (geometry from mockups/composer-dock; tokens changed for WCAG 1.4.11, see ui-plan F12) ── */
+.ring { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 6px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ring:hover { background: var(--bg-hover); }
+.ring:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.ring svg { width: 16px; height: 16px; transform: rotate(-90deg); }
+.ring .trk { stroke: var(--border-secondary); }
+.ring .val { stroke: var(--text-secondary); }
+.ring.t-blue .val { stroke: var(--accent-blue-text); }
+.ring.t-green .val { stroke: var(--accent-green-text); }
+.ring.t-orange .val { stroke: var(--accent-orange-text); }
+.ring.t-red .val { stroke: var(--accent-red-text); }
+.mh .ring { min-width: 44px; min-height: 44px; justify-content: center; padding: 0; }
+.mh .ring svg { width: 20px; height: 20px; }
+
+/* reference strip: where the composer-dock toolbar (other board) shows its ring */
+.dockref { display: flex; align-items: center; gap: 8px; margin: 0 12px 12px; padding: 4px 8px; border: 1px dashed var(--border-secondary); border-radius: 8px; font-size: 12px; color: var(--text-secondary); }
+.dockref .sp { flex: 1; }
+.dockref .dr-tag { font-weight: 600; }
+.dockref .dr-model { color: var(--text-primary); }

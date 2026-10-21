@@ -444,7 +444,8 @@ describe("EditorPane — changed-on-disk verification wiring", () => {
     expect(screen.queryByTestId("monaco-viewer")).toBeNull();
     expect(screen.getByText("Loading viewer…")).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId("monaco-viewer")).toBeTruthy(), { timeout: 2000 });
-    expect(monacoMounts.count).toBe(1);
+    // The mount counter bumps in a passive effect, which can flush after the DOM node appears.
+    await waitFor(() => expect(monacoMounts.count).toBe(1));
   });
 
   it("F9: Refresh clears the banner, re-captures the baseline, re-sends the watch set and remounts the viewer", async () => {
