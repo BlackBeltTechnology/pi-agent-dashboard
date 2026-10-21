@@ -92,7 +92,7 @@ Tests first in every group (write → see red → implement → green). Test tas
 ## 8. Integration + manual QA
 
 - [x] 8.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green; `npm run quality:changed` clean.
-- [ ] 8.2 Run `review-code` on the diff; resolve findings.
+- [x] 8.2 Run `review-code` on the diff; resolve findings.
 - [ ] 8.3 Manual (test-plan: manual-only, #X11): CI-built Windows installer on a machine without Git for Windows → new session, model runs `echo $BASH_VERSION && git --version` → bash 5.x + git 2.53.0.windows.4; Doctor bash row ok showing `…\resources\git\usr\bin\bash.exe`.
 - [ ] 8.4 Manual (test-plan: manual-only, #X12): Windows with an installed WSL distro, bundled git source → set `windowsBashSource: "host"`, new session, `uname -a` → Linux kernel string; Doctor bash row ok with WSL detail.
 - [ ] 8.5 Manual (test-plan: manual-only, #X13): Windows on ARM with the arm64 installer → new session, `echo $BASH_VERSION` → non-empty.

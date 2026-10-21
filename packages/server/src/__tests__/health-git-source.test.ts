@@ -67,8 +67,7 @@ describe("/api/health gitSource", () => {
     expect(typeof env.PATH).toBe("string");
   });
 
-  it("E18: non-win32 → gitSource absent or null", async () => {
-    if (process.platform === "win32") return;
+  it.skipIf(process.platform === "win32")("E18: non-win32 → gitSource absent or null", async () => {
     stubbed = "real";
     const body = await health();
     expect(body.gitSource ?? null).toBeNull();
