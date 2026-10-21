@@ -12,6 +12,21 @@ Untrusted third-party plugins cannot use the React plugin path. Same-realm JS = 
 - Server tier worse: `packages/dashboard-plugin-runtime/src/server/loader.ts:442` does `await import(plugin.serverEntryPath)` with Fastify-bearing `ServerPluginContext` ⇒ direct RCE.
 - Untrusted plugins MUST NOT use `client` or `server` manifest entries.
 
+## Runtime client = trusted path, not untrusted
+
+Change `decouple-plugins-from-core` adds runtime-delivered plugin clients. Does NOT make untrusted React safe.
+
+- Runtime client JS = same-origin, full page authority. Same realm as dashboard.
+- Gate = operator trust: `auth.trustedPlugins` entry `{id, clientSha256}`. Pinned to content hash. Granted only by genuinely local operator via `POST /api/plugins/:id/trust`.
+- `PUT /api/config` cannot write the list.
+- Untrusted plugin shows `refused` (`untrusted` / `pin-mismatch`) in Plugins tab. Never loads.
+- Same gate class as `serveApp` (`auth.trustedPlugins`, legacy `capabilityRoutePlugins`).
+- `pi-package` server entry: default-deny until local `server: true` grant.
+- Untrusted third-party UI still = descriptor protocol (below). Do not route untrusted plugins through `clientBundle`.
+- Detail: [`runtime-plugin-clients.md`](runtime-plugin-clients.md).
+
+See change: decouple-plugins-from-core.
+
 ## Descriptor protocol = the safe path
 
 - Spec `openspec/specs/extension-ui-system/spec.md`. 13 requirements, 306 lines.
@@ -131,9 +146,10 @@ Analysis only. No code change. No OpenSpec change opened yet.
 - `packages/dashboard-plugin-runtime/src/vite-plugin/index.ts` (build-time static-import registry, client rebuild required)
 - `packages/dashboard-plugin-runtime/src/server/loader.ts`
 - `docs/architecture.md`
+- `docs/runtime-plugin-clients.md`
 
 ## Build implications
 
 - Descriptor path needs NO client rebuild. Live probe on `session_start`/reconnect/`ui:invalidate`.
 - React plugin path requires Vite regeneration of `packages/client/src/generated/plugin-registry.tsx`.
-- Monorepo constraint binds React path only.
+- Monorepo constraint binds build-time React path only. Runtime client (`clientBundle`, trusted) needs no rebuild.

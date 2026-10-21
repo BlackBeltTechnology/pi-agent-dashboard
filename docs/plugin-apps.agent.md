@@ -133,3 +133,8 @@ Gates folder routes only; data bound to admitted cwd.
 - Client: `packages/client/src/lib/__tests__/embedded-app-shell.test.ts`, `overlay-background.test.ts`, `mobile-depth.test.ts`
 - Lazy route: `packages/demo-plugin/src/__tests__/lazy-route.test.ts`
 - E2E (opt-in): `tests/e2e/plugin-embedded-app.spec.ts`
+
+## Runtime-loaded apps (decouple-plugins-from-core)
+- External plugin embeds app via runtime ESM: `shell-overlay-route` claim → lazy chunk → `<EmbeddedApp>`. Import-map shims `embedded-app`, `app-kit-react`, `wouter`.
+- One source two builds: `dashboardClientViteConfig` (embedded) + `dashboardStandaloneViteConfig` (standalone SPA).
+- Canary `tests/fixtures/runtime-canary-plugin` + 4 failure variants.
