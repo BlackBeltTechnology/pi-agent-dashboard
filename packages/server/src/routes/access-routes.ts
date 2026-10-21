@@ -45,6 +45,7 @@ import {
 } from "../access/access-grants.js";
 import { grantNamedPathSubject } from "../access/named-grant.js";
 import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
+import { listPreviewEgressRows, revokePreviewEgressGrant } from "../access/preview-egress-store.js";
 import { readRawConfig } from "../config-api.js";
 import { revokeTrust as revokeWorktreeTrust } from "../git-worktree/worktree-init-trust.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
@@ -169,6 +170,8 @@ export function registerAccessRoutes(
         bypassHosts: config.auth?.bypassHosts ?? [],
         corsOrigins: config.cors?.allowedOrigins ?? [],
         pinnedDirectories: preferencesStore.getPinnedDirectories(),
+        // Project egress grants for restricted previews: one row per (project, origin). Read-only here.
+        previewEgress: listPreviewEgressRows().map((r) => ({ store: "preview-egress" as const, ...r })),
       },
     } satisfies ApiResponse;
   });
@@ -302,6 +305,31 @@ export function registerAccessRoutes(
       if (!result.success) {
         reply.code(500);
         return { success: false, error: result.error ?? "config write failed" } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
+    },
+  );
+
+  // ── REVOKE: a project's preview-egress origin (own locked store, not config.json) ──
+  // Takes effect on the next CSP build: the proxy reads the store on every capability response.
+  fastify.delete<{ Body: { project?: string; origin?: string } }>(
+    "/api/access/preview-egress",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { project, origin } = request.body ?? {};
+      if (!project || typeof project !== "string" || !origin || typeof origin !== "string") {
+        reply.code(400);
+        return { success: false, error: "project and origin are required" } satisfies ApiResponse;
+      }
+      try {
+        const { changed } = await revokePreviewEgressGrant(project, origin);
+        if (!changed) {
+          reply.code(404);
+          return { success: false, error: "no such grant" } satisfies ApiResponse;
+        }
+      } catch (err) {
+        reply.code(500);
+        return { success: false, error: `failed to revoke: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
       }
       return { success: true } satisfies ApiResponse;
     },

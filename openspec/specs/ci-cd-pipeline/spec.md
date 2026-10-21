@@ -86,7 +86,7 @@ The legacy monolithic `prepare` job SHALL be split into `resolve` (pure version 
 
 #### Scenario: Electron job consumes reusable workflow
 - **WHEN** the publish workflow reaches the electron build phase
-- **THEN** it SHALL invoke `_electron-build.yml` via `uses:` with `needs: [resolve, publish]` and `with: { version: <resolved>, ref: <tag>, legs: all, source_only_bundle: false, artifact_retention_days: 90, use_dependency_cache: false }`
+- **THEN** it SHALL invoke `_electron-build.yml` via `uses:` with `needs: [resolve, publish]` and `with: { version: <resolved>, ref: <tag>, legs: all, source_only_bundle: false, artifact_retention_days: 90, use_dependency_cache: false, release_lock: true }`
 
 #### Scenario: CI failure prevents publish
 - **WHEN** any sub-job of the gate (`ci-checks` lint/test/build, or any leg of the `smoke` matrix) fails during the publish workflow
@@ -98,15 +98,16 @@ The legacy monolithic `prepare` job SHALL be split into `resolve` (pure version 
 - **THEN** every step SHALL execute via `cmd.exe` (default), `pwsh`, or directly via `node` — no step SHALL execute via `bash`
 
 ### Requirement: Reusable Electron build workflow
-The project SHALL provide a reusable workflow `.github/workflows/_electron-build.yml` with `on: workflow_call` that encapsulates the full 6-leg Electron matrix (darwin arm64/x64, linux x64/arm64, win32 x64/arm64). The workflow SHALL accept these inputs: `version` (string, required), `ref` (string, required), `legs` (string, default `all`), `source_only_bundle` (boolean, default `false`), `artifact_retention_days` (number, default `14`), `artifact_name_suffix` (string, default empty), `registry_url` (string, default empty), and `use_dependency_cache` (boolean, default `false`). Unless `use_dependency_cache` is `true`, no build leg SHALL restore the pnpm dependency cache. The workflow SHALL be the sole definition of the Electron build matrix in the repo; `publish.yml` SHALL consume it via `uses:` rather than inlining the matrix.
+The project SHALL provide a reusable workflow `.github/workflows/_electron-build.yml` with `on: workflow_call` that encapsulates the full 6-leg Electron matrix (darwin arm64/x64, linux x64/arm64, win32 x64/arm64). The workflow SHALL accept these inputs: `version` (string, required), `ref` (string, required), `legs` (string, default `all`), `source_only_bundle` (boolean, default `false`), `artifact_retention_days` (number, default `14`), `artifact_name_suffix` (string, default empty), `registry_url` (string, default empty), `use_dependency_cache` (boolean, default `false`), and `release_lock` (boolean, default `false`; when `true`, every leg's bundle step installs from the published runtime lock of `version` and the build fails unless the bundle records that it did). Unless `use_dependency_cache` is `true`, no build leg SHALL restore the pnpm dependency cache. The workflow SHALL be the sole definition of the Electron build matrix in the repo; `publish.yml` SHALL consume it via `uses:` rather than inlining the matrix.
 
 #### Scenario: Release pipeline consumes reusable workflow
 - **WHEN** `publish.yml` runs on a `v*` tag push
-- **THEN** its `electron` job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `version` = resolved tag version, `ref` = resolved tag, `legs: all`, `source_only_bundle: false`, `artifact_retention_days: 90`, `use_dependency_cache: false`
+- **THEN** its `electron` job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `version` = resolved tag version, `ref` = resolved tag, `legs: all`, `source_only_bundle: false`, `artifact_retention_days: 90`, `use_dependency_cache: false`, `release_lock: true`
 
 #### Scenario: On-demand pipeline consumes the same reusable workflow
 - **WHEN** `ci-electron.yml` runs on `workflow_dispatch`
 - **THEN** its build job SHALL be a `uses: ./.github/workflows/_electron-build.yml` reference with `source_only_bundle: false`, `ref: ${{ github.sha }}`, `artifact_retention_days: 14`, `use_dependency_cache: true`
+- **AND** it SHALL NOT set `release_lock`
 
 #### Scenario: Dependency cache is opt-out per caller
 - **WHEN** `_electron-build.yml` is called with `use_dependency_cache: false`

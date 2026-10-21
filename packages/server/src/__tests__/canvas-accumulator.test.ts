@@ -185,3 +185,31 @@ describe("canvas accumulator", () => {
     expect(settle[0].target).toEqual({ kind: "file", cwd: CWD, path: "report.md" });
   });
 });
+
+describe("sourceCallId + chip declarationId (E9)", () => {
+  it("last writer wins; a loopback url declare produces only a chip", () => {
+    const intents: Array<{ phase: string; target: ViewTarget | null; sourceCallId?: string }> = [];
+    const chips: Array<{ port: number; extra?: { path?: string; declarationId?: string } }> = [];
+    const acc = createCanvasAccumulator({
+      readCanvasTypes: () => DEFAULT_CANVAS_TYPES,
+      broadcastIntent: (_s, phase, target, _m, _t, sourceCallId) =>
+        intents.push({ phase, target, sourceCallId }),
+      broadcastServerChip: (_s, port, _t, extra) => chips.push({ port, extra }),
+      broadcastServerChipExpire: () => {},
+    });
+    const call = (id: string, args: Record<string, unknown>): CanvasForwardedEvent => ({
+      eventType: "tool_execution_start",
+      data: { toolName: "canvas", toolCallId: id, args },
+    });
+    acc.onEvent("s", call("c1", { target: { kind: "file", path: "a.html" } }), live);
+    acc.onEvent("s", call("c2", { target: { kind: "url", url: "http://127.0.0.1:5173/app" } }), live);
+    acc.onEvent("s", call("c3", { target: { kind: "file", path: "b.html" } }), live);
+    acc.onEvent("s", AGENT_END, live);
+    expect(chips).toEqual([{ port: 5173, extra: { path: "/app", declarationId: "c2" } }]);
+    // c2 produced no candidate: eager fired for c1 and c3 only, settle = c3.
+    expect(intents.filter((i) => i.phase === "eager").map((i) => i.sourceCallId)).toEqual(["c1", "c3"]);
+    const settle = intents.find((i) => i.phase === "settle");
+    expect(settle?.sourceCallId).toBe("c3");
+    expect(settle?.target).toMatchObject({ kind: "file", path: "b.html" });
+  });
+});

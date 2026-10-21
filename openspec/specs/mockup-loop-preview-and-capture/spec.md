@@ -8,7 +8,7 @@ Provide a zero-dependency static-HTTP preview of a mockup directory reachable fr
 
 ### Requirement: Serve a mockup directory over static HTTP
 
-The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to `0.0.0.0` and return both a localhost URL and a LAN URL for the bound port.
+The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to `0.0.0.0` and return both a localhost URL and a LAN URL for the bound port. Its result text SHALL tell the agent to pass the localhost URL, not the LAN URL, to the dashboard `canvas` tool.
 
 #### Scenario: Start a server on an ephemeral port
 
@@ -21,6 +21,11 @@ The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to 
 
 - **WHEN** `serve_mockup` is called with `dir` and a `port`
 - **THEN** it binds the HTTP server on host `0.0.0.0` on that port and returns the localhost and LAN URLs for it
+
+#### Scenario: Result steers canvas to the localhost URL
+
+- **WHEN** `serve_mockup` starts a server
+- **THEN** its result text states that the local URL is the one to pass to `canvas()`
 
 #### Scenario: No LAN IPv4 address is available
 

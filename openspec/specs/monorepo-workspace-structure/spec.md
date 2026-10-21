@@ -3,7 +3,9 @@
 ## Purpose
 
 Defines the npm workspaces monorepo layout for PI Dashboard: which packages live under `packages/`, the `@blackbelt-technology/pi-dashboard-*` naming convention, the inter-package dependency graph, shared TypeScript configuration, root-level dev scripts, and the publication policy (public runtime packages + private Electron).
+
 ## Requirements
+
 ### Requirement: npm workspace layout
 The project SHALL be structured as a **pnpm workspaces** monorepo (packages
 enumerated in `pnpm-workspace.yaml` `packages: ['packages/*']`), with `pnpm`
@@ -140,7 +142,12 @@ All cross-package dependency entries in every workspace `package.json` (includin
 release workflow (preserving OIDC Trusted Publishing, which does not require an
 npm-installed tree) and (b) runtime `npm install` invocations that run on
 END-USER machines (`pi-core-updater`, `recovery-server`, `pi-core-checker`,
-electron `update-checker`). These npm survivors SHALL NOT be rewritten to pnpm.
+electron `update-checker`), and (c) assembling the npm-layout runtime tree that ships
+to end users: `npm install`, `npm pack` and `npm ci` inside the Electron bundle step
+(`bundle-server.mjs`), and `npm install --package-lock-only` in runtime-lock generation.
+These npm survivors SHALL NOT be rewritten to pnpm. A transient `package-lock.json` that
+the bundle step writes into its gitignored build output and removes again is not a
+repository lockfile.
 
 #### Scenario: publish uses pnpm install + npm publish
 - **WHEN** the release workflow runs
@@ -150,6 +157,11 @@ electron `update-checker`). These npm survivors SHALL NOT be rewritten to pnpm.
 #### Scenario: runtime installs stay npm
 - **WHEN** the shipped server or electron app installs/updates pi-core on a user machine
 - **THEN** it SHALL invoke `npm install`, never `pnpm`
+
+#### Scenario: bundle assembly stays npm
+- **WHEN** the Electron bundle step installs the bundled server's dependencies
+- **THEN** it SHALL use `npm` (`npm install`, or `npm pack` + `npm ci` for a release-lock build), never `pnpm`
+- **AND** no `package-lock.json` SHALL remain in the bundle output or be committed to the repository
 
 ### Requirement: Electron build compatibility under pnpm
 The electron build SHALL succeed under pnpm. `bundle-server.mjs` SHALL exclude
@@ -165,4 +177,3 @@ node-pty prebuilds). The electron packaging SHALL run with `nodeLinker: hoisted`
 #### Scenario: electron-forge packages the app
 - **WHEN** `electron-forge package` runs under pnpm with `nodeLinker: hoisted`
 - **THEN** it SHALL produce a `.app` containing the server bundle with node-pty prebuilds
-

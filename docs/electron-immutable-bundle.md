@@ -19,7 +19,7 @@ Architectural invariant: Electron app bundle read-only at runtime. No code under
       fastify/  ws/  node-pty/  jiti/  ...
 ```
 
-pi / openspec / tsx ship as regular `dependencies` of `@blackbelt-technology/pi-dashboard-server`. `bundle-server.mjs` runs `npm install --omit=dev` at build time. Result copied into `<resourcesPath>/server/node_modules/`. Read-only thereafter.
+pi / openspec / tsx ship as regular `dependencies` of `@blackbelt-technology/pi-dashboard-server`. `bundle-server.mjs` installs the runtime tree at build time: floating `npm install --omit=dev` by default, or pinned release-lock install with `--release-lock=<X>` (see [Release-lock bundle install](#release-lock-bundle-install)). Result copied into `<resourcesPath>/server/node_modules/`. Read-only thereafter.
 
 ## Update path
 
@@ -77,7 +77,10 @@ Activation is Electron-owned. Server writes `activateNonce`; Electron watcher st
 
 ### runtime-manifest.json
 
-`{ version, minShellVersion, nodeEngines, origin, integrity?, piVersion? }`. `parseRuntimeManifest()` / `writeRuntimeManifest()` shared by the build script (`bundle-server.mjs`) and runtime code.
+`{ version, minShellVersion, nodeEngines, origin, integrity?, piVersion?, installMode?, lockVersion? }`. `parseRuntimeManifest()` / `writeRuntimeManifest()` shared by the build script (`bundle-server.mjs`) and runtime code.
+
+- `installMode`: `release-lock` | `floating`. Optional.
+- `lockVersion`: X of pinned `runtime-lock.json`. Set only when `installMode` = `release-lock`.
 
 ### pi follows the runtime
 
@@ -105,7 +108,7 @@ Pre-R3 builds installed pi/openspec/tsx into `~/.pi-dashboard/node_modules/` at 
 
 Bundled plugins ship to `resources/server/resources/plugins/<id>/` WITHOUT `node_modules`. `materializeBundledPlugins` (`packages/shared/src/runtime-overlay/materialize-plugins.mjs`) excludes nested `node_modules`. Plugins resolve modules only via `resources/server/node_modules`.
 
-Third-party plugin deps hoist to root `node_modules` at build. `bundle-server.mjs` writes synthetic root `package.json` with `dependencies: pluginRuntimeDeps` = `collectPluginRuntimeDeps({ids, resolveSource, workspaceManifests})`: union of bundled plugins' third-party `dependencies`. Excludes `@blackbelt-technology/*`, `peerDependencies`, `devDependencies`, `optionalDependencies`. `npm install --omit=dev` places them at root `node_modules` slot. pi/openspec/tsx still arrive only through the server workspace.
+Third-party plugin deps hoist to root `node_modules` at build. `bundle-server.mjs` writes synthetic root `package.json` with `dependencies: pluginRuntimeDeps` = `collectPluginRuntimeDeps({ids, resolveSource, workspaceManifests})`: union of bundled plugins' third-party `dependencies`. Excludes `@blackbelt-technology/*`, `peerDependencies`, `devDependencies`, `optionalDependencies`. Floating mode: `npm install --omit=dev` places them at root `node_modules` slot. Release-lock mode: same union must equal lock root third-party deps (see below). pi/openspec/tsx still arrive only through the server workspace.
 
 Specifier rules (build fails, `✗` + exit 1): every declaration of a collected name across bundled plugins AND `BUNDLED_WORKSPACE_PKGS` manifests must be identical string. Plugin specifier with `:` or `/` (`file:`, `workspace:`, `link:`, `git+`, `npm:` alias, `user/repo`) rejected. Fix = align declarations.
 
@@ -115,11 +118,63 @@ Motivating failure: gmail plugin `Cannot find module 'oauth4webapi'` in extracte
 
 See change: bundle-plugin-third-party-deps
 
+## Release-lock bundle install
+
+Pins bundle third-party tree to published lock of server release X. Floating install not used for release builds.
+
+Flag: `node packages/electron/scripts/bundle-server.mjs --release-lock=<X>`.
+- Only accepted form. Bare flag, space-separated value, empty value, combined with `--source-only`, or `X` ≠ server workspace version → exit non-zero before any work.
+
+Caller: `_electron-build.yml` input `release_lock` → `--release-lock`.
+- `publish.yml`, `nightly.yml`: `true`.
+- `ci-electron.yml`, `ci-e2e-electron.yml`: unset → floating.
+
+Floating command (unset): `npm install --omit=dev --no-audit --no-fund --no-package-lock`.
+
+Release-lock steps:
+1. `fetchPublishedLock`: `npm pack @blackbelt-technology/pi-dashboard-server@X --prefer-online`. 3 attempts. Archive listing checked via shared `runtime-overlay/archive-safety.mjs`. Root `version` must equal X. Reads `runtime-lock.json`.
+2. `rebaseRuntimeLock` (`packages/electron/scripts/lib/release-lock.mjs`):
+   - Bundled workspaces → linked to `packages/<dir>`.
+   - `@blackbelt-technology/pi-dashboard-web` + non-workspace bundled plugins → removed.
+   - Other `@blackbelt-technology/*` → throw.
+   - Third-party → kept verbatim. Throw if missing `integrity` or non-https source. Loopback `http` allowed (nightly Verdaccio). `inBundle` entries exempt.
+   - Root → synthetic name `pi-dashboard-bundled-server`, version X, deps = bundle workspaces + plugin union.
+   - Plugin union must equal lock root third-party deps.
+3. Write `package-lock.json`.
+4. `npm ci --omit=dev --no-audit --no-fund --allow-remote=all`. Exit status checked.
+5. `auditInstalledTree`:
+   - Installed third-party ⊆ lock at same key + version.
+   - First-party entries = symlinks to `packages/<dir>`.
+   - No `packages/<dir>/node_modules`.
+6. `package-lock.json` removed in `finally`.
+
+Fail closed. Any step error → build fails. No fallback to floating install.
+
+Manifest: `runtime-manifest.json` `installMode: release-lock`, `lockVersion: X`.
+
+Gate: `packages/electron/scripts/assert-release-lock-bundle.mjs` reads `release_lock` boolean. Mismatch with bundle manifest → build fails.
+
+Release-path checks:
+- `scripts/lint-runtime-lock.mjs --version X` runs rebase as check.
+- `publish.yml`: runs between `scripts/generate-runtime-lock.mjs` and server `npm publish`. Publish irreversible → check gates it.
+- `nightly.yml`: runs same check via `scripts/nightly-verdaccio-publish.mjs`.
+
+Nightly publish order (`scripts/nightly-verdaccio-publish.mjs`):
+1. All packages except server + root.
+2. Lock + lint.
+3. Server.
+4. Root.
+
+Release path runs on 6 nightly legs.
+
+See change: pin-electron-bundle-dependency-tree
+
 ## Bundle guardrails
 
 - `packages/electron/scripts/bundle-server.mjs` Phase 1 GO/NO-GO: asserts `node-pty/prebuilds/{darwin-arm64,darwin-x64,linux-x64,win32-x64}/` exist after `npm install --omit=dev`. Build fails loudly on missing prebuilds.
 - `scripts/verify-release-deps.mjs` blocks release if pi/openspec/tsx/node-pty/jiti regress below pinned floor.
 - Repo-lint `packages/shared/src/__tests__/no-managed-dir-reference.test.ts` walks `packages/electron/src/lib/`, `packages/server/src/`, `packages/shared/src/`. Fails when a file references `.pi-dashboard` outside the explicit allowlist (detector + read-only probes + standalone-arm-only pi-core update writes).
+- `packages/electron/scripts/assert-release-lock-bundle.mjs`: release-lock build gate. Checks manifest `installMode` / `lockVersion` against `release_lock` input. See [Release-lock bundle install](#release-lock-bundle-install).
 - Gate 1 `packages/electron/scripts/assert-bundled-plugins-complete.mjs`: presence check then resolvability. Failure lists `plugin → dep`; success prints `<dep>@<installedVersion>`. Env `BUNDLE_ROOT_DIR` (default `dirname(dirname(BUNDLE_PLUGINS_DIR))` = `resources/server`). Runs on every CI electron leg and from `build-installer.sh` after a rebundle.
 - Gate 2 `packages/electron/scripts/assert-bundled-server-plugin-load.mjs`: enables every bundled server-entry plugin (temp-HOME `config.json`), requires `Loaded plugin "<id>"` for each, zero `Failed to load plugin` / `Skipping plugin`. `VERDICT_TIMEOUT_MS` (120000) idle budget, restarts on each new verdict.
 - `build-installer.sh` freshness watch list derived by `packages/electron/scripts/bundle-watch-paths.mjs`: bundle workspaces + bundled plugins `src` + `package.json`, server manifest, built client, bundler.

@@ -1,68 +1,37 @@
 /**
- * Live-server-preview tab — embeds a running LOOPBACK dev server / mockup.
+ * Live-server-preview tab — embeds a running LOOPBACK dev server or a local
+ * static page (viewer kind `live-server`).
  *
- * Flow: pick a saved allowlist target OR enter a URL (confirmed, never auto-
- * fetched) → `startLiveServer` (client + server both run the loopback SSRF
- * check) → iframe the proxied `/live/<id>/` path on the MAIN origin with
- * `sandbox="allow-scripts allow-forms allow-popups allow-downloads"` and NO
- * `allow-same-origin` (opaque origin, D7): the app's scripts run but it cannot
- * read the dashboard token or call its APIs. `allow-downloads` grants
- * the frame the ability to download (not an origin). Chrome does not require a
- * user gesture for it; `allow-downloads-without-user-activation` stays absent.
- * Remote/free-form hosts are refused by `validateLiveTarget`.
+ * Entry points:
+ *   - the picker (`live:preview` / no payload): saved targets + a confirmed URL
+ *     entry → `startLiveServer` (client + server both run the loopback SSRF
+ *     check). An operator action: OPEN egress.
+ *   - a `live:<loopback url>` preset (the agent's confirm-chip tap, a linkified
+ *     URL click): `startLiveServer({addedBy:"preset"})` → in-memory, never
+ *     persisted; egress follows the tab's provenance (agent → restricted).
+ *   - a `static:<absolute file>` preset (canvas auto-open / card / chip, tree
+ *     click): `POST /start-static` → a served document root.
  *
- * The frame carries no cookie (opaque origin), so it loads a per-preview
- * capability path `/live/<id>/~c/<token>/` minted for this viewer
- * (`POST /api/live-server/:id/capability`): minted before framing, on every
- * reopen, and again `REMINT_LEAD_MS` before it expires. The token is only ever
- * the frame's `src` / the Open link — never shown. See change:
- * retire-trusted-networks-bypass (D5).
+ * The framed half (policy, mint, address bar, Scripts ⇄ Static, exposure, egress
+ * banner, Open, keepalive) lives in `live/LiveFrame`. The frame carries no cookie
+ * (opaque origin), so it loads a per-preview capability path minted for this
+ * viewer; the token is only ever the frame's `src` / the Open target — never shown.
  *
- * See change: improve-content-editor (live-server-preview §6.3).
+ * See change: improve-content-editor (live-server-preview §6.3);
+ * retire-trusted-networks-bypass (D5); improve-canvas-html-and-url-ux (D1-D9).
  */
-import { isLoopbackUrl, type LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
-import { mdiOpenInNew, mdiPlay } from "@mdi/js";
-import { Icon } from "@mdi/react";
-import { useEffect, useState } from "react";
-import { getApiBase } from "../../lib/api/api-context.js";
-import { listLiveServers, mintLiveCapability, startLiveServer } from "../../lib/api/live-server-api.js";
+import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePreviewFetch, usePreviewOpener } from "../../lib/access-grants/preview-provenance.js";
+import { listLiveServers, removeLiveServer, startLiveServer, startStaticTarget } from "../../lib/api/live-server-api.js";
+import { useActiveCanvasPort } from "../../lib/canvas/active-canvas-target.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { type Opener, parsePresetPath } from "../../lib/live-preview/preview-policy.js";
+import { classifyResponse } from "../preview/denial-fetch.js";
+import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+import { type FramedTarget, LiveFrame } from "./live/LiveFrame.js";
+import { TargetPicker } from "./live/TargetPicker.js";
 import type { ViewerProps } from "./types.js";
-
-/** Re-mint this long before the capability's absolute expiry. */
-const REMINT_LEAD_MS = 10 * 60_000;
-/** Retry cadence after a failed re-mint (the current token is still valid meanwhile). */
-const REMINT_RETRY_MS = 30_000;
-
-/** The capability the frame loads: the minted path (the plain path is display-only). */
-interface Capability {
-  targetId: string;
-  path: string;
-  expiresAt: number;
-}
-
-/**
- * Parse a `live:<url>` preset sentinel into a launch target + deep path.
- * `live:preview` / empty / non-loopback payloads return null (→ picker).
- */
-function parsePreset(
-  viewerPath: string | undefined,
-): { host: string; port: number; deep: string } | null {
-  if (!viewerPath?.startsWith("live:")) return null;
-  const target = viewerPath.slice("live:".length);
-  if (!isLoopbackUrl(target)) return null;
-  try {
-    const u = new URL(target);
-    const port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
-    // Strip IPv6 brackets so the host matches the server allowlist.
-    const host = u.hostname.replace(/^\[|\]$/g, "");
-    // Deep link (path + query) to append onto the `/live/<id>/` mount.
-    const deep = `${u.pathname}${u.search}`.replace(/^\//, "");
-    return { host, port, deep };
-  } catch {
-    return null;
-  }
-}
 
 /** Parse a user-entered URL into `{ host, port }`; null when unparseable. */
 function parseTarget(input: string): { host: string; port: number } | null {
@@ -78,82 +47,133 @@ function parseTarget(input: string): { host: string; port: number } | null {
   }
 }
 
-export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerProps> = {}) {
+/** The text for a refused/failed `start-static`: the server's own refusal wording when it gave one. */
+async function refusalMessage(
+  res: { error: string; response?: Response },
+  optedOut: boolean,
+  t: ReturnType<typeof useI18n>["t"],
+): Promise<string> {
+  const failure = res.response ? await classifyResponse(res.response, optedOut) : null;
+  if (failure?.kind === "refused") return failure.error;
+  if (failure?.kind === "denied") return t("live.static.denied", { subject: failure.subject }, "Access to {subject} was refused.");
+  return res.error;
+}
+
+interface Framed {
+  target: FramedTarget;
+  deep: string;
+  /** `picker` = an operator action (open egress); `preset` = the tab's provenance decides. */
+  launchedBy: "picker" | "preset";
+  /** Bumped per launch so a re-launch of the same target remounts its frame. */
+  seq: number;
+}
+
+export default function LiveServerViewer({ path: viewerPath, cwd, reloadNonce, updatedByAgent }: Partial<ViewerProps> = {}) {
   const { t } = useI18n();
+  const split = useOptionalSplitWorkspace();
+  const sessionId = split?.sessionId;
+  const tabOpener = usePreviewOpener();
+  const { fetch: previewFetch } = usePreviewFetch();
+  const activePort = useActiveCanvasPort(sessionId);
+
   const [servers, setServers] = useState<LiveServerTarget[]>([]);
-  const [path, setPath] = useState<string | null>(null);
-  const [capability, setCapability] = useState<Capability | null>(null);
-  const [deep, setDeep] = useState("");
+  const [framed, setFramed] = useState<Framed | null>(null);
   const [url, setUrl] = useState("http://localhost:5173");
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const seq = useRef(0);
 
-  useEffect(() => {
+  const refreshList = useCallback(() => {
     listLiveServers()
       .then(setServers)
       .catch(() => setError(t("editor.couldntLoadSavedTargets", undefined, "Couldn't load saved targets.")));
-  }, []);
+  }, [t]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load the saved list once on mount
+  useEffect(() => refreshList(), []);
 
-  // Re-mint before the capability's absolute expiry and re-point the frame. A failed
-  // re-mint retries (the current token still works until `expiresAt`).
-  useEffect(() => {
-    if (!capability) return;
-    const { targetId, expiresAt } = capability;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const run = async () => {
-      const next = await mintLiveCapability(targetId);
-      if (cancelled) return;
-      if (next.ok) {
-        setCapability({ targetId, path: next.path, expiresAt: next.expiresAt });
-      } else if (Date.now() < expiresAt) {
-        timer = setTimeout(run, REMINT_RETRY_MS);
+  const launchPort = useCallback(
+    async (
+      input: { host: string; port: number; label?: string; deep?: string; addedBy: "user" | "preset" },
+      launchedBy: Framed["launchedBy"],
+    ): Promise<string | null> => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await startLiveServer({
+          host: input.host,
+          port: input.port,
+          label: input.label,
+          addedBy: input.addedBy,
+          sessionId: input.addedBy === "preset" ? sessionId : undefined,
+        });
+        if (!res.ok) {
+          setError(res.error);
+          return res.error;
+        }
+        seq.current += 1;
+        setFramed({
+          target: { kind: "port", id: res.target.id, host: res.target.host, port: res.target.port, addedBy: res.target.addedBy ?? input.addedBy },
+          deep: input.deep ?? "",
+          launchedBy,
+          seq: seq.current,
+        });
+        setServers((prev) => (prev.some((s) => s.id === res.target.id) ? prev : [...prev, res.target]));
+        return null;
+      } finally {
+        // Always clear busy — an unexpected throw must not leave Preview disabled.
+        setBusy(false);
       }
-    };
-    timer = setTimeout(run, Math.max(0, expiresAt - REMINT_LEAD_MS - Date.now()));
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [capability]);
+    },
+    [sessionId],
+  );
 
-  // Auto-launch a preset `live:<url>` target instead of showing the picker.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: launch closes over stable setters; launch once per preset path.
+  const launchStatic = useCallback(
+    async (file: string) => {
+      if (!cwd) {
+        setError(t("live.static.noCwd", undefined, "Cannot open this file: no working directory."));
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await startStaticTarget(cwd, file, previewFetch);
+        if (!res.ok) {
+          setError(await refusalMessage(res, tabOpener !== "operator", t));
+          return;
+        }
+        seq.current += 1;
+        setFramed({ target: { kind: "static", id: res.id, root: res.root }, deep: res.entry, launchedBy: "preset", seq: seq.current });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [cwd, previewFetch, tabOpener, t],
+  );
+
+  // Auto-launch a preset (`live:<url>` / `static:<file>`) instead of showing the picker.
+  // Re-runs when the session cwd resolves: after a page reload the restored `static:` tab mounts
+  // before the sessions snapshot, so its first pass has no cwd to anchor the file to.
+  const launchedKey = useRef<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: launch once per preset path (+ cwd for static)
   useEffect(() => {
-    const preset = parsePreset(viewerPath);
+    const preset = parsePresetPath(viewerPath);
     if (!preset) return;
-    void launch({ host: preset.host, port: preset.port, deep: preset.deep });
-  }, [viewerPath]);
-
-  // `deep` is threaded through `launch` so it is set ATOMICALLY with `path`;
-  // a manual/saved-target launch (no `deep`) resets it, never reusing a prior
-  // preset's deep segment.
-  const launch = async (input: { host: string; port: number; label?: string; deep?: string }) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await startLiveServer(input);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      // Mint BEFORE framing: the frame has no other credential. A refusal (tier, network)
-      // is shown; the bare `/live/<id>/` path is never framed.
-      const cap = await mintLiveCapability(res.target.id);
-      if (!cap.ok) {
-        setError(cap.error);
-        return;
-      }
-      setPath(res.target.path);
-      setCapability({ targetId: res.target.id, path: cap.path, expiresAt: cap.expiresAt });
-      setDeep(input.deep ?? "");
-      setServers((prev) => (prev.some((s) => s.id === res.target.id) ? prev : [...prev, res.target]));
-    } finally {
-      // Always clear busy — an unexpected throw must not leave Preview disabled.
-      setBusy(false);
+    if (preset.kind === "static" && !cwd) return; // wait for the session cwd
+    const key = preset.kind === "static" ? `${viewerPath}|${cwd}` : (viewerPath ?? "");
+    if (launchedKey.current === key) return;
+    launchedKey.current = key;
+    if (preset.kind === "invalid-path") {
+      setFramed(null);
+      setError(t("live.address.invalidPath", undefined, "Invalid path. Use a path inside this preview (no empty, . or .. segments)."));
+      return;
     }
-  };
+    if (preset.kind === "static") {
+      void launchStatic(preset.file);
+      return;
+    }
+    void launchPort({ host: preset.host, port: preset.port, deep: preset.deep, addedBy: "preset" }, "preset");
+  }, [viewerPath, cwd]);
 
   const onConfirm = () => {
     const parsed = parseTarget(url);
@@ -161,114 +181,45 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
       setError(t("editor.enterValidUrl", undefined, "Enter a valid URL, e.g. http://localhost:5173"));
       return;
     }
-    void launch({ ...parsed, label: label.trim() || undefined });
+    void launchPort({ ...parsed, label: label.trim() || undefined, addedBy: "user" }, "picker");
   };
 
-  if (path && capability) {
-    const frameSrc = `${getApiBase()}${capability.path}${deep}`;
+  const onRemove = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => removeLiveServer(id)));
+    setServers((prev) => prev.filter((s) => !ids.includes(s.id)));
+  };
+
+  if (framed) {
+    const opener: Opener = framed.launchedBy === "picker" ? "operator" : tabOpener;
     return (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-2 py-1 text-xs">
-          <button
-            type="button"
-            data-testid="live-back"
-            onClick={() => {
-              setPath(null);
-              setCapability(null);
-            }}
-            className="rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
-          >
-            {t("editor.backToTargets", undefined, "← Targets")}
-          </button>
-          <span className="truncate font-mono text-[var(--text-secondary)]">{path}</span>
-          <span className="flex-1" />
-          <a
-            href={frameSrc}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
-          >
-            <Icon path={mdiOpenInNew} size={0.55} />
-            <span>{t("editor.openExternal", undefined, "Open")}</span>
-          </a>
-        </div>
-        <iframe
-          data-testid="live-iframe"
-          // D7: opaque origin — scripts run, but NO allow-same-origin, so the
-          // embedded app cannot read the dashboard token or call /api/*.
-          // allow-downloads = the frame may download (not an origin); Chrome does not
-          // gate it on a user gesture. without-user-activation stays absent.
-          sandbox="allow-scripts allow-forms allow-popups allow-downloads"
-          src={frameSrc}
-          title={t("editor.liveServerPreview", undefined, "Live server preview")}
-          className="min-h-0 flex-1 border-0 bg-white"
-        />
-      </div>
+      <LiveFrame
+        key={`${framed.target.id}:${framed.seq}`}
+        target={framed.target}
+        initialDeep={framed.deep}
+        opener={opener}
+        title={t("editor.liveServerPreview", undefined, "Live server preview")}
+        onBack={() => setFramed(null)}
+        onLaunchPort={(i) => launchPort({ host: i.host, port: i.port, deep: i.deep, addedBy: "user" }, "picker")}
+        reloadNonce={reloadNonce}
+        updatedByAgent={updatedByAgent}
+        onAckUpdate={() => viewerPath && split?.dispatch({ type: "ackUpdate", path: viewerPath })}
+      />
     );
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-auto p-4 text-sm">
-      <div>
-        <h3 className="mb-1 font-medium text-[var(--text-primary)]">{t("editor.previewLocalDevServer", undefined, "Preview a local dev server")}</h3>
-        <p className="text-xs text-[var(--text-tertiary)]">
-          {t("editor.loopbackOnlyHint", undefined, "Loopback only (localhost / 127.0.0.1). Runs sandboxed — the app can't reach the dashboard.")}
-        </p>
-      </div>
-
-      {/* Add / confirm a target */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          data-testid="live-url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="http://localhost:5173"
-          className="min-w-0 flex-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 py-1 font-mono text-xs"
-        />
-        <input
-          data-testid="live-label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={t("editor.labelOptional", undefined, "label (optional)")}
-          className="w-32 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 py-1 text-xs"
-        />
-        <button
-          type="button"
-          data-testid="live-confirm"
-          onClick={onConfirm}
-          disabled={busy}
-          className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-3 py-1 text-white disabled:opacity-40"
-        >
-          <Icon path={mdiPlay} size={0.6} />
-          <span>{t("editor.preview", undefined, "Preview")}</span>
-        </button>
-      </div>
-
-      {error && <div data-testid="live-error" className="text-xs text-[var(--accent-red)]">{error}</div>}
-
-      {/* Saved allowlist */}
-      {servers.length > 0 && (
-        <div>
-          <div className="mb-1 text-xs font-medium text-[var(--text-secondary)]">{t("editor.savedTargets", undefined, "Saved targets")}</div>
-          <ul className="flex flex-col gap-1">
-            {servers.map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() => void launch({ host: s.host, port: s.port, label: s.label })}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-[var(--bg-hover)]"
-                >
-                  <Icon path={mdiPlay} size={0.55} className="text-[var(--accent-green)]" />
-                  <span className="font-medium">{s.label}</span>
-                  <span className="font-mono text-xs text-[var(--text-tertiary)]">
-                    {s.host}:{s.port}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
+    <TargetPicker
+      servers={servers}
+      activePort={activePort}
+      url={url}
+      label={label}
+      error={error}
+      busy={busy}
+      onUrlChange={setUrl}
+      onLabelChange={setLabel}
+      onConfirm={onConfirm}
+      onLaunch={(s) => void launchPort({ host: s.host, port: s.port, label: s.label, addedBy: s.addedBy === "preset" ? "preset" : "user" }, "picker")}
+      onRemove={(ids) => void onRemove(ids)}
+    />
   );
 }

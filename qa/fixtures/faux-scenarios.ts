@@ -1967,6 +1967,69 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // ── canvas HTML + URL ux (change: improve-canvas-html-and-url-ux) ────────
+  // A loopback `kind:"url"` declare routes to the confirm chip with its path kept
+  // (no auto-open, no fetch). Port 5188 is served by the spec (F5), in the container.
+  "canvas-declare-url-loopback": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "url", url: "http://127.0.0.1:5188/app" }, title: "Local app" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("loopback url declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // An agent-written mockup that pulls Tailwind from a CDN, then `canvas` kind:file.
+  // Auto-open serves it as a restricted static target → the egress banner lists the CDN (F16/F18).
+  "canvas-html-cdn": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "mockups/cdn/index.html",
+            content:
+              '<!doctype html><html><head><title>cdn</title><script src="https://cdn.tailwindcss.com"></script></head>' +
+              '<body><h1 class="text-3xl">CDN mockup</h1></body></html>\n',
+          }),
+          fauxToolCall("canvas", { target: { kind: "file", path: "mockups/cdn/index.html" }, title: "CDN mockup" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("cdn mockup declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // A two-screen static mockup: the address bar navigates index.html → screens/b.html (F17).
+  "canvas-html-screens": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("write", {
+            path: "mockups/screens/index.html",
+            content:
+              '<!doctype html><html><head><link rel="stylesheet" href="./style.css"></head>' +
+              "<body><h1>Screen A</h1></body></html>\n",
+          }),
+          fauxToolCall("write", {
+            path: "mockups/screens/style.css",
+            content: "h1 { border-radius: 7px; }\n",
+          }),
+          fauxToolCall("write", {
+            path: "mockups/screens/screens/b.html",
+            content: "<!doctype html><html><body><h1>Screen B</h1></body></html>\n",
+          }),
+          fauxToolCall("canvas", { target: { kind: "file", path: "mockups/screens/index.html" }, title: "Screens" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("screens declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
   // ── preview denial remedy (change: surface-denial-remedy-in-previews) ────
   // An agent auto-open of a file OUTSIDE the session cwd: write detection
   // accepts an absolute path, so a `write` of a `.png` opens the canvas on it.

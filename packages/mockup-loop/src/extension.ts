@@ -242,7 +242,7 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
           content: [
             {
               type: "text",
-              text: `Serving ${root}\n  local: ${local}\n  LAN:   ${lan}\n\nOpen the LAN URL on a phone to check responsive. Stop with serve_mockup{stop:true,port:${port}}.`,
+              text: `Serving ${root}\n  local: ${local}\n  LAN:   ${lan}\n\nOpen the LAN URL on a phone to check responsive. For canvas(), use the local URL. Stop with serve_mockup{stop:true,port:${port}}.`,
             },
           ],
           details: { port, root, local, lan },
