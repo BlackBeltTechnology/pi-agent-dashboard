@@ -4,11 +4,11 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  createPendingWorktreeBaseRegistry,
   PENDING_WORKTREE_BASE_CAP,
   PENDING_WORKTREE_BASE_TTL_MS,
-  createPendingWorktreeBaseRegistry,
 } from "../pending/pending-worktree-base-registry.js";
 
 function fakeNow() {

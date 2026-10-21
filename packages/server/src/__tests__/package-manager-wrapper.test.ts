@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createSafePackageManagerClass, PackageManagerWrapper, PackageOperationBusyError } from "../package/package-manager-wrapper.js";
-import type { SubprocessAdapter } from "@blackbelt-technology/pi-dashboard-shared/platform/subprocess-adapter.js";
-import { ToolRegistry, OverridesStore } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import type { SubprocessAdapter } from "@blackbelt-technology/pi-dashboard-shared/platform/subprocess-adapter.js";
+import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
+import { OverridesStore, ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createSafePackageManagerClass, PackageManagerWrapper, PackageOperationBusyError } from "../package/package-manager-wrapper.js";
 
 // Track mock functions
 const installAndPersist = vi.fn().mockResolvedValue(undefined);

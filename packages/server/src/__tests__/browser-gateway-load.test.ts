@@ -15,26 +15,26 @@
  *
  * See change: add-ws-broadcast-load-harness.
  */
-import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
+import { createDrainingWs } from "./helpers/draining-ws.js";
 import {
-  DRAIN_FAST,
-  DRAIN_SLOW,
-  seedSessions,
+  attachClients,
   buildLoadGateway,
   buildLoadGatewayEx,
+  DRAIN_FAST,
+  DRAIN_SLOW,
+  flushAsync,
   makeFakeDirectoryService,
+  makeOpenSpecPayload,
   makeStubPiGateway,
   makeUntruncatedEventStore,
   seedReplayEvents,
+  seedSessions,
   sendMessage,
-  flushAsync,
-  makeOpenSpecPayload,
-  attachClients,
   subscribeWs,
 } from "./helpers/load-fixtures.js";
-import { createDrainingWs } from "./helpers/draining-ws.js";
 import { asWs, attachCapturedWs, buildDebtGateway } from "./helpers/status-debt-fixtures.js";
 
 /** The draining fake satisfies the gateway's `WebSocket` surface at runtime. */

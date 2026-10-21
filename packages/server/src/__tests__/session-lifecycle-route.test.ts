@@ -10,15 +10,16 @@
  * E27: the REST `extension-ui-response` route and the browser-WS case both
  * clear the gateway's pending-UI entry and forward through the same helper.
  */
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { handleExtensionUiResponse } from "../browser-handlers/directory-handler.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { registerSessionApi } from "../session/session-api.js";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 let tmpDir: string;
 const openApps: FastifyInstance[] = [];

@@ -7,9 +7,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  fingerprintDir,
   generateWorkflowSchema,
   runWorkflowSchemaAction,
-  fingerprintDir,
 } from "../openspec/workflow-schema.js";
 import { listDirNames, makeFakeCli, mkRepo, snapshotTree, stubDeps } from "./helpers/workflow-schema-fixtures.js";
 

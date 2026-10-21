@@ -22,9 +22,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import { createHydrationMetrics } from "../metrics/hydration-metrics.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import { createRemoteTranscriptStore } from "../session/remote-transcript-store.js";
 import { readRetainedTranscript } from "../session/retained-transcript.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 
 const RAW =
   [

@@ -9,9 +9,9 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import {
-  MAX_BACKFILL_EVENTS,
   handleHistoryBackfill,
   handleSubscribe,
+  MAX_BACKFILL_EVENTS,
   peekGapState,
 } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";

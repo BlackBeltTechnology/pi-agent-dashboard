@@ -5,13 +5,14 @@
  * and clean-stop end-states (seeded as their code paths produce them) are NOT
  * offered. See change: reopen-sessions-after-shutdown (task 7.1).
  */
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { WebSocket } from "ws";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import path from "node:path";
+
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import path from "node:path";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocket } from "ws";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

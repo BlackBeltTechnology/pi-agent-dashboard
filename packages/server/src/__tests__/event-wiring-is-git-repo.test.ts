@@ -11,12 +11,13 @@
  *
  * See change: gate-session-worktree-button-on-git.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { WebSocket } from "ws";
+
 import { mkdtempSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

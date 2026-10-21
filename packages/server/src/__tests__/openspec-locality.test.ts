@@ -7,10 +7,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   attachedStillExistsInCandidateRoots,
   candidateRoots,
-  localityGateAllows,
-  resolveChangeLocality,
   type LocalitySession,
+  localityGateAllows,
   type OpenSpecCacheReader,
+  resolveChangeLocality,
 } from "../session/openspec-locality.js";
 
 type CacheShape = Record<string, { initialized?: boolean; changes?: Array<{ name: string }> } | undefined>;

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTerminalGateway } from "../terminal/terminal-gateway.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 

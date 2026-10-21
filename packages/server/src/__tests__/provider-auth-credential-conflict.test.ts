@@ -19,13 +19,13 @@ import path from "node:path";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { abortAllFlows } from "../auth/provider-auth-adapter.js";
+import { setOAuthRegistryRuntimeSource } from "../auth/provider-auth-registry.js";
 import {
   type OAuthCredential,
   readAuthJson,
   removeCredential,
   writeCredential,
 } from "../auth/provider-auth-storage.js";
-import { setOAuthRegistryRuntimeSource } from "../auth/provider-auth-registry.js";
 import { getServerModelRuntime } from "../model-proxy/server-model-runtime.js";
 import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 

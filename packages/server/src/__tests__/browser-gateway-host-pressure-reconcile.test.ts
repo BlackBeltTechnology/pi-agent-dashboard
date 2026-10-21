@@ -17,8 +17,9 @@
  *
  * Harness glue copied from `browser-gateway-dropped-frames.test.ts`.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asWs, attachCapturedWs, buildDebtGateway, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
 
 describe("host-pressure survives a shed frame via the status-reconcile debt (X1)", () => {

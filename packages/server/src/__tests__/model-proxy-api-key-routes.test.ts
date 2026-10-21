@@ -7,11 +7,12 @@
  * - revoke: sets revokedAt, 404 on unknown, 403 non-owner non-admin, 204 admin on others
  * - purge (DELETE): removes entry, list excludes purged
  */
-import { describe, it, expect, beforeEach } from "vitest";
+
+import type { ModelProxyConfig, ProxyApiKey } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import Fastify from "fastify";
-import { registerModelProxyApiKeyRoutes } from "../routes/model-proxy-api-key-routes.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { generateKey, hashKey, verifyKey } from "../model-proxy/api-key-store.js";
-import type { ProxyApiKey, ModelProxyConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { registerModelProxyApiKeyRoutes } from "../routes/model-proxy-api-key-routes.js";
 
 // ── Test fixture ────────────────────────────────────────────────────────────
 

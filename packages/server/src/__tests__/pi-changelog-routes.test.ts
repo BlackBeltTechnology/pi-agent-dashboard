@@ -6,13 +6,14 @@
  *
  * See change: pi-update-whats-new-panel.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
+import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { _resetChangelogCache } from "../changelog/changelog-parser.js";
+import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
 
 // We can't easily patch findChangelogPath at import-time (vitest module
 // mocks vary), so we set up a fake managed install at HOME/.pi-dashboard

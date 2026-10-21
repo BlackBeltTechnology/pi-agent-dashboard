@@ -7,9 +7,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { createPreferencesStore } from "../persistence/preferences-store.js";
 import { registerPreferencesDisplayRoutes } from "../routes/preferences-display-routes.js";
 

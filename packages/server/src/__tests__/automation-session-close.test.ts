@@ -6,10 +6,10 @@
  * lifecycle flag, never a plugin name. See change:
  * detach-automation-goal-from-core (was finalize-automation-run-on-session-death).
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import { WebSocket } from "ws";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

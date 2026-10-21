@@ -2,12 +2,13 @@
  * Tests for listPullRequests + addWorktreeFromPr.
  * See change: add-worktree-from-pull-request.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { listPullRequests, addWorktreeFromPr } from "../git-worktree/git-operations.js";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { addWorktreeFromPr, listPullRequests } from "../git-worktree/git-operations.js";
 
 function git(cmd: string, cwd: string): string {
   return execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" }).trim();

@@ -2,9 +2,10 @@
  * Tests for the commit-draft relay: request/resolve correlation + timeout stub.
  * See change: add-session-uncommitted-indicator-and-commit.
  */
-import { describe, it, expect, vi } from "vitest";
-import { createCommitDraftRelay } from "../commit-draft-relay.js";
+
 import type { GitCommitDraftResultMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { describe, expect, it, vi } from "vitest";
+import { createCommitDraftRelay } from "../commit-draft-relay.js";
 
 describe("commit-draft relay", () => {
   it("resolves when the bridge replies with the matching requestId", async () => {

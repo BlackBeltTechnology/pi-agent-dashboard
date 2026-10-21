@@ -4,11 +4,12 @@
  *
  * See change: restore-pi-version-skew-surface.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { WebSocket } from "ws";
+
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

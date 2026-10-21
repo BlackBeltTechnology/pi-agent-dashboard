@@ -13,11 +13,12 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
+
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { createServer, type DashboardServer } from "../server.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));

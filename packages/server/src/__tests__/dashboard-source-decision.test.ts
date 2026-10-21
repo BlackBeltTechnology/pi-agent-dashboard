@@ -12,7 +12,7 @@
  *             fix-dashboard-spawn-correlation-by-token
  *             (persistMeta + strictCorrelation).
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { decideDashboardSource } from "../lifecycle/dashboard-source-decision.js";
 
 describe("decideDashboardSource", () => {

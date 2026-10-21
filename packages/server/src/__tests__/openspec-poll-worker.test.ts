@@ -7,7 +7,7 @@
  *
  * See change: offload-openspec-poll-to-worker.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -17,6 +17,7 @@ import {
   createFsSpecsProbeFactory,
   deriveArtifactStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deriveAndSerialize,
   type PollWorkerRequest,
@@ -30,6 +31,7 @@ vi.mock("../openspec/openspec-poll-worker.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../openspec/openspec-poll-worker.js")>();
   return { ...actual, deriveAndSerialize: vi.fn(actual.deriveAndSerialize) };
 });
+
 import {
   effectiveMtimeOr,
   perChangeArtifactPaths,

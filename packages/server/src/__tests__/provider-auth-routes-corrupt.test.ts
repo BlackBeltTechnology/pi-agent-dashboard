@@ -7,17 +7,18 @@
  *
  * See change: fix-corrupt-auth-json-500.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import Fastify from "fastify";
-import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
-import {
-  setCatalogueForSession,
-  _resetForTests as resetCatalogueCache,
-} from "../package/provider-catalogue-cache.js";
+import path from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  _resetForTests as resetCatalogueCache,
+  setCatalogueForSession,
+} from "../package/provider-catalogue-cache.js";
+import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 
 const FIXTURE_CATALOGUE: ProviderInfo[] = [
   { id: "anthropic", displayName: "Anthropic", hasOAuth: true, configured: false },

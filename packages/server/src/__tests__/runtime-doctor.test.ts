@@ -1,6 +1,6 @@
 /** 9.2 Doctor row "Dashboard runtime". See change: electron-runtime-overlay-updates. */
 import { describe, expect, it } from "vitest";
-import { bundledFallbackIntact, buildRuntimeDoctorCheck } from "../runtime-overlay/runtime-doctor.js";
+import { buildRuntimeDoctorCheck, bundledFallbackIntact } from "../runtime-overlay/runtime-doctor.js";
 
 const overlay = { origin: "overlay" as const, id: "0.9.1", version: "0.9.1", updatable: true, source: "npm" as const };
 

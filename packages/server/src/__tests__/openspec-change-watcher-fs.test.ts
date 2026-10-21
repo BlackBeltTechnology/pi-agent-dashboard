@@ -13,10 +13,11 @@
  *
  * See change: fix-openspec-taskcheck-delay.
  */
-import { describe, it, expect } from "vitest";
+
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
+import { describe, expect, it } from "vitest";
 import { createOpenSpecChangeWatcher } from "../openspec/openspec-change-watcher.js";
 
 const skipFsWatch = process.env.SKIP_FS_WATCH_TESTS === "1";

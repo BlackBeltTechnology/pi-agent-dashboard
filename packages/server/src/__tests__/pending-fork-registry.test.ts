@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 
