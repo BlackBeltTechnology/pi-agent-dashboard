@@ -7,7 +7,8 @@
 /** A Google Cloud project id: 6–30 chars, lower-case letters, digits, hyphens. */
 export const PROJECT_ID_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** RFC 5321 maximum address length. */
+const EMAIL_MAX = 254;
 
 export type ProjectIdClass = "ok" | "empty" | "looks_like_name" | "invalid";
 
@@ -27,6 +28,16 @@ export function classifyProjectId(v: string): ProjectIdClass {
   return PROJECT_ID_RE.test(id) ? "ok" : "invalid";
 }
 
+/**
+ * One `@`, a non-empty local part, and a domain with an interior dot; no whitespace.
+ * Linear time: a single `[^\s@]+\.[^\s@]+` regex backtracks polynomially because `.` also
+ * matches the class (CodeQL js/polynomial-redos).
+ */
 export function isEmail(v: string): boolean {
-  return EMAIL_RE.test(v);
+  if (v.length > EMAIL_MAX || /\s/.test(v)) return false;
+  const at = v.indexOf("@");
+  if (at < 1 || at !== v.lastIndexOf("@")) return false;
+  const domain = v.slice(at + 1);
+  const dot = domain.indexOf(".", 1);
+  return dot !== -1 && dot < domain.length - 1;
 }

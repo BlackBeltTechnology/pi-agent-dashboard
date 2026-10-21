@@ -56,4 +56,23 @@ describe("E5 — owner email", () => {
     expect(isEmail("robson@")).toBe(false);
     expect(isEmail("a@b")).toBe(false);
   });
+
+  it.each([
+    ["a@b.c", true],
+    ["a@b..", true],
+    ["a@.b", false],
+    ["a@b.", false],
+    ["@b.c", false],
+    ["a@@b.c", false],
+    ["a b@c.d", false],
+  ])("%j → %s", (input, expected) => {
+    expect(isEmail(input)).toBe(expected);
+  });
+
+  it("rejects an oversized hostile address in linear time (no regex backtracking)", () => {
+    const hostile = `!@${"!.".repeat(50_000)}`;
+    const started = performance.now();
+    expect(isEmail(hostile)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(50);
+  });
 });
