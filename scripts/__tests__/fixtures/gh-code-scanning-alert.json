@@ -1,0 +1,60 @@
+{
+  "number": 464,
+  "created_at": "2026-10-19T12:41:58Z",
+  "updated_at": "2026-10-21T06:34:10Z",
+  "url": "https://api.github.com/repos/BlackBeltTechnology/pi-agent-dashboard/code-scanning/alerts/464",
+  "html_url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard/security/code-scanning/464",
+  "state": "dismissed",
+  "fixed_at": null,
+  "dismissed_by": {
+    "login": "someone",
+    "type": "User"
+  },
+  "dismissed_at": "2026-10-21T06:34:10Z",
+  "dismissed_reason": "false positive",
+  "dismissed_comment": "False positive for a path-containment feature: the flagged realpath IS the write guard's (isWritableHandlerTarget) canonicalization before within() containment; cwd is pre-checked against known session cwds. Baselined in codeql-baseline.json.",
+  "rule": {
+    "id": "js/path-injection",
+    "severity": "error",
+    "description": "Uncontrolled data used in path expression",
+    "name": "js/path-injection",
+    "tags": [
+      "external/cwe/cwe-022",
+      "external/cwe/cwe-023",
+      "external/cwe/cwe-036",
+      "external/cwe/cwe-073",
+      "external/cwe/cwe-099",
+      "security"
+    ],
+    "security_severity_level": "high"
+  },
+  "tool": {
+    "name": "CodeQL",
+    "guid": null,
+    "version": "2.27.2"
+  },
+  "most_recent_instance": {
+    "ref": "refs/heads/develop",
+    "analysis_key": ".github/workflows/codeql.yml:analyze",
+    "environment": "{\"language\":\"javascript-typescript\"}",
+    "category": "/language:javascript-typescript",
+    "state": "dismissed",
+    "commit_sha": "d6fa16155ce9024426964bfb08cb82d3d6cd5ae9",
+    "message": {
+      "text": "This path depends on a user-provided value.",
+      "markdown": "This path depends on a [user-provided value](packages/server/src/routes/file-write-binary-routes.ts#L282C19-L282C32)."
+    },
+    "location": {
+      "path": "packages/server/src/lib/writable-handler-target.ts",
+      "start_line": 56,
+      "end_line": 56,
+      "start_column": 35,
+      "end_column": 58
+    },
+    "classifications": []
+  },
+  "instances_url": "https://api.github.com/repos/BlackBeltTechnology/pi-agent-dashboard/code-scanning/alerts/464/instances",
+  "dismissal_approved_by": null,
+  "assignees": [],
+  "linked_pull_requests": []
+}
