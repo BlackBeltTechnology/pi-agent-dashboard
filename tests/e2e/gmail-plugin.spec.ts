@@ -291,4 +291,67 @@ test.describe("gmail plugin", () => {
     expect(filters[0]?.action?.removeLabelIds).toEqual(["INBOX"]);
     expect(filters[0]?.criteria).toEqual({ from: "newsletter@dest.test" });
   });
+  // add-gmail-auto-setup (test-plan F5): the real settings page with the automatic-setup endpoints
+  // answered by route stubs (the dedicated Chrome is not part of the harness). The computed
+  // contrast/size/focus probes for every state run in retro-ux-plugin-settings-forms.spec.ts via
+  // `fixtures/retro-ux/gmail.ts`; this spec proves the states render, follow the 1 s poll, and that
+  // every pre-existing `gmail-*` test id still renders beside them.
+  test("add-gmail-auto-setup F5: entry → run states follow the poll; existing test ids still render", async ({ page }) => {
+    const real = (await (await page.request.get("/api/plugins/gmail/state")).json()) as Record<string, unknown>;
+    const steps = (step: string) =>
+      ["project", "api", "branding", "publish", "client", "capture"].map((id, i, all) => ({
+        id,
+        status: i < all.indexOf(step) ? "done" : i === all.indexOf(step) ? "running" : "pending",
+      }));
+    const base = { runId: "r1", created: { clients: [] }, ownerEmail: "owner@gmail.com" };
+    let view: Record<string, unknown> = { ...base, state: "running", step: "project", steps: steps("project") };
+    await page.route("**/api/plugins/gmail/state", (route) =>
+      route.fulfill({ json: { ...real, autoSetup: { available: true, local: true } } }),
+    );
+    await page.route("**/api/plugins/gmail/setup/run", (route) => route.fulfill({ json: { runId: "r1" } }));
+    await page.route("**/api/plugins/gmail/setup/run/r1", (route) => route.fulfill({ json: view }));
+
+    const section = await openGmailSettings(page);
+    for (const id of ["gmail-wizard", "gmail-accounts", "gmail-add-account", "gmail-new-level", "gmail-cross-org-hint", "gmail-level-help"]) {
+      await expect(section.getByTestId(id), id).toBeVisible();
+    }
+    await expect(section.locator('button[class*="bg-[var(--accent-solid)]"]:not([role="switch"])')).toHaveCount(1); // Add account stays the one primary
+
+    await section.getByTestId("gmail-setup-entry").click();
+    await section.getByTestId("gmail-setup-owner").fill("owner@gmail.com");
+    await section.getByTestId("gmail-setup-start").click();
+    await expect(section.getByTestId("gmail-setup-working")).toBeVisible();
+    await expect(section.getByTestId("gmail-setup-step-project")).toHaveAttribute("aria-current", "step");
+
+    view = { ...base, state: "waiting_user", step: "branding", steps: steps("branding"), checkpoint: { kind: "policy" } };
+    await expect(section.getByTestId("gmail-setup-checkpoint")).toContainText("User Data Policy", { timeout: 10_000 });
+    await expect(section.getByTestId("gmail-setup-step-branding")).toHaveAttribute("aria-current", "step");
+
+    view = {
+      ...base,
+      state: "waiting_decision",
+      step: "branding",
+      steps: steps("branding"),
+      decision: { kind: "audience", detected: "external" },
+    };
+    await expect(section.getByTestId("gmail-setup-audience-external")).toBeVisible({ timeout: 10_000 });
+    await expect(section.getByTestId("gmail-setup-audience-internal")).toHaveCount(0);
+
+    view = { ...base, state: "busy", step: "project", steps: steps("project"), busy: { holder: "agent session 7" } };
+    await expect(section.getByTestId("gmail-setup-busy-holder")).toContainText("agent session 7", { timeout: 10_000 });
+
+    view = {
+      ...base,
+      state: "handoff",
+      step: "capture",
+      steps: steps("capture").map((s) => (s.id === "capture" ? { ...s, status: "handoff" } : s)),
+      handoff: { step: "capture", wizardStep: 4, reason: "secret_capture_failed" },
+      projectId: "e2e-proj-1",
+      created: { projectId: "e2e-proj-1", clients: ["pi-dashboard-2"] },
+    };
+    await expect(section.getByTestId("gmail-setup-handoff")).toBeVisible({ timeout: 10_000 });
+    await expect(section.getByTestId("gmail-step-4")).toHaveAttribute("aria-current", "step");
+    await expect(section.getByTestId("gmail-project-id")).toHaveValue("e2e-proj-1");
+    await expect(section.getByTestId("gmail-setup-secret-help")).toContainText("pi-dashboard-2");
+  });
 });

@@ -80,13 +80,21 @@ export interface SetupRunView {
   decision?: SetupDecision;
   /** Holder label (session id or client label) of the dedicated profile; never an instance id. */
   busy?: { holder?: string };
-  handoff?: { step: SetupStepId; wizardStep: WizardStepNumber; reason: HandoffReason };
+  handoff?: {
+    step: SetupStepId;
+    wizardStep: WizardStepNumber;
+    reason: HandoffReason;
+    /** `domain_blocked` only: the domains the dedicated browser must allow. */
+    domains?: string[];
+  };
   projectId?: string;
   /** Resources this run made on Google's side, so a hand-off can name them. */
   created: { projectId?: string; clients: string[] };
   /** Set once the client is stored (done). */
   clientId?: string;
   ownerEmail?: string;
+  /** Audience the run chose, or the one already configured on a re-run (reported, not asked). */
+  audience?: Audience;
 }
 
 /** `GET /state` → `autoSetup`. */
@@ -98,6 +106,8 @@ export interface AutoSetupState {
   local: boolean;
   /** A configured client without accounts would be replaced by the new one. */
   replacesClient?: boolean;
+  /** Id of the live (or last, unacknowledged) run, so a reloaded settings page can re-attach to it. */
+  runId?: string;
 }
 
 /** `POST setup/run` body. */

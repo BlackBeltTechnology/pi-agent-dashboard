@@ -32,6 +32,8 @@ export interface DedicatedRigOptions {
   /** Create the data dir up front (state `stopped` instead of `not-created`). */
   createDir?: boolean;
   onAgentTabCreated?: (instanceId: string, tabId: number) => void;
+  /** Runs synchronously inside the manager's `onInstanceClosed`, after the id is recorded. */
+  onInstanceClosed?: (instanceId: string) => void;
 }
 
 export interface DedicatedRig {
@@ -92,7 +94,10 @@ export function makeDedicatedRig(opts: DedicatedRigOptions = {}): DedicatedRig {
     canOpenChrome: () => true,
     listProfiles: async () => ({ profiles: [] }),
     onStatusChange: () => statusChanges.push(Date.now()),
-    onInstanceClosed: (id) => closedInstances.push(id),
+    onInstanceClosed: (id) => {
+      closedInstances.push(id);
+      opts.onInstanceClosed?.(id);
+    },
     onAgentTabCreated: opts.onAgentTabCreated,
     dedicated: { chrome, hidden, availability: opts.availabilityFn ?? (() => avail), noClientMs: opts.noClientMs },
   });

@@ -33,10 +33,14 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { Audience, AutoSetupState, SetupRunView } from "../shared/auto-setup.js";
 import { validateClientJson } from "../shared/client-json.js";
 import type { AccountInfo } from "../shared/protocol.js";
 import { TIERS, type Tier } from "../shared/scopes.js";
 import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../shared/setup.js";
+import { AutoSetupSection } from "./AutoSetup.js";
+import { showUnverifiedNotice } from "./auto-setup.js";
+import { api, btn, errorText, muted } from "./ui.js";
 import {
   AUDIENCE_HELP_EN,
   CONSENT_HINT_EN,
@@ -45,16 +49,17 @@ import {
   errorKey,
   errorStep,
   gcloudCommands,
+  UNVERIFIED_HINT_EN,
   type WizardStep,
 } from "./wizard.js";
-
-const API = "/api/plugins/gmail";
 
 interface GmailState {
   client: { configured: boolean; clientId?: string; projectId?: string };
   accounts: AccountInfo[];
   /** Saved setup fields (`plugins.gmail`); absent from older servers. */
   setup?: { projectId?: string; ownerAccount?: string };
+  /** Automatic-setup availability; absent from older servers. See change: add-gmail-auto-setup. */
+  autoSetup?: AutoSetupState;
 }
 
 interface SavedSetup {
@@ -65,26 +70,11 @@ interface SavedSetup {
 type FlowState = React.ComponentProps<ReturnType<typeof useUiPrimitive<"ui:oauth-flow">>>["flow"];
 type FlowStatus = NonNullable<FlowState["status"]>;
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: init?.body ? { "content-type": "application/json" } : undefined,
-  });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw Object.assign(new Error(body.error ?? `HTTP ${res.status}`), { code: body.error });
-  return body;
-}
-
-// Secondary button recipe (`ui-contract.md`); `tap-target` = 44 px touch, 32 px from sm.
-const btn =
-  "focus-ring tap-target rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50";
 // The section's one primary action (white on the theme-invariant `--accent-solid`).
 const primaryBtn =
   "focus-ring tap-target rounded-md bg-[var(--accent-solid)] px-3 text-xs font-semibold text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]";
 const field =
   "focus-ring rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-primary)]";
-const muted = "text-xs text-[var(--text-secondary)]";
-const errorText = "text-xs text-[var(--severity-error-fg)]";
 // Static strings: Tailwind cannot see interpolated class names.
 const pillBase = "inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-semibold";
 const badgeOk = `${pillBase} border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]`;
@@ -766,11 +756,17 @@ function AddAccount({
   configured,
   newTier,
   onTier,
+  email,
+  onEmail,
+  emailError,
   onAdd,
 }: {
   configured: boolean;
   newTier: Tier;
   onTier: (t: Tier) => void;
+  email: string;
+  onEmail: (v: string) => void;
+  emailError: boolean;
   onAdd: () => void;
 }) {
   const t = useT();
@@ -785,6 +781,17 @@ function AddAccount({
         options={tierOptions}
         onChange={(v) => onTier(v as Tier)}
         testIds={{ control: "gmail-new-level" }}
+      />
+      <TextField
+        label={t("addEmail", undefined, "Account email (optional)")}
+        hint={t("addEmailHint", undefined, "Google then skips its account chooser and signs in as this address.")}
+        error={emailError ? t("errOwnerInvalid", undefined, "Enter a full email address, for example you@gmail.com.") : null}
+        type="email"
+        autoComplete="email"
+        value={email}
+        onChange={onEmail}
+        placeholder="you@gmail.com"
+        testIds={{ control: "gmail-add-email", error: "gmail-add-email-error" }}
       />
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -829,6 +836,39 @@ function FlowErrorNotice({ code, step, errKey, clientId }: { code: string; step:
   );
 }
 
+/** `POST /accounts` body (the optional email becomes `login_hint`); `null` when the email is typed but not an address. */
+function accountRequest(tier: Tier, rawEmail: string): { tier: Tier; email?: string } | null {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return { tier };
+  return isEmail(email) ? { tier, email } : null;
+}
+
+/** The wizard's props: a hand-off run overlays its project id / owner account and picks the step (task 4.3). */
+function wizardProps(state: GmailState, handoff: SetupRunView | null, errorStep: WizardStep | null): { state: GmailState; highlight: WizardStep | null } {
+  if (!handoff) return { state, highlight: errorStep };
+  return {
+    state: {
+      ...state,
+      setup: {
+        projectId: handoff.projectId ?? handoff.created.projectId ?? state.setup?.projectId,
+        ownerAccount: handoff.ownerEmail ?? state.setup?.ownerAccount,
+      },
+    },
+    highlight: handoff.handoff?.wizardStep ?? errorStep,
+  };
+}
+
+/** Sign-in notice for an External or unknown audience (design D11). */
+function UnverifiedHint({ audience }: { audience: Audience | null }) {
+  const t = useT();
+  if (!showUnverifiedNotice(audience)) return null;
+  return (
+    <p className={`${muted} m-0`} data-testid="gmail-unverified-hint">
+      {t("unverifiedHint", undefined, UNVERIFIED_HINT_EN)}
+    </p>
+  );
+}
+
 export function GmailSettings() {
   const t = useT();
   const OAuthFlow = useUiPrimitive("ui:oauth-flow");
@@ -838,6 +878,12 @@ export function GmailSettings() {
   const [flowError, setFlowError] = useState<string | null>(null);
   const [lastRevoke, setLastRevoke] = useState<string | null>(null);
   const [newTier, setNewTier] = useState<Tier>("readonly");
+  const [addEmail, setAddEmail] = useState("");
+  const [addEmailError, setAddEmailError] = useState(false);
+  // Automatic setup (change: add-gmail-auto-setup): hand-off view for the wizard, audience
+  // for the unverified-app notice (null = unknown → the notice shows).
+  const [handoff, setHandoff] = useState<SetupRunView | null>(null);
+  const [audience, setAudience] = useState<Audience | null>(null);
   // Latch (design D1): once the user reports a Google-page code, no late poll
   // result may overwrite it or re-mount the flow view. Reset on a new flow.
   const reportedRef = useRef<string | null>(null);
@@ -888,11 +934,17 @@ export function GmailSettings() {
   };
 
   const addAccount = async () => {
+    const request = accountRequest(newTier, addEmail);
+    setAddEmailError(!request);
+    if (!request) return;
     reportedRef.current = null;
     setFlowError(null);
     setFlow({ phase: "starting" });
     try {
-      const r = await api<{ flowId: string }>("/accounts", { method: "POST", body: JSON.stringify({ tier: newTier }) });
+      const r = await api<{ flowId: string }>("/accounts", {
+        method: "POST",
+        body: JSON.stringify(request),
+      });
       await startFlow(r.flowId);
     } catch (err) {
       setFlow(null);
@@ -917,6 +969,7 @@ export function GmailSettings() {
   const step = errorStep(flowError);
   const errKey = errorKey(flowError);
   const { client } = state;
+  const wizard = wizardProps(state, handoff, step);
   const summary = !client.configured
     ? t("summaryNotConfigured", undefined, "not configured")
     : client.projectId
@@ -931,9 +984,22 @@ export function GmailSettings() {
         title={t("setup", undefined, "Google Cloud setup")}
         meta={summary}
         summaryTestId="gmail-setup-summary"
-        defaultOpen={!client.configured || state.accounts.length === 0 || step !== null}
+        defaultOpen={!client.configured || state.accounts.length === 0 || step !== null || handoff !== null}
       >
-        <SetupWizard state={state} highlight={step} onUploaded={() => void refresh()} />
+        <AutoSetupSection
+          autoSetup={state.autoSetup}
+          setup={state.setup}
+          onAudience={setAudience}
+          onOwnerEmail={setAddEmail}
+          onHandoff={setHandoff}
+          onRefresh={() => void refresh()}
+        />
+        <SetupWizard
+          key={handoff ? `handoff-${handoff.runId}` : "manual"}
+          state={wizard.state}
+          highlight={wizard.highlight}
+          onUploaded={() => void refresh()}
+        />
       </SettingsGroup>
 
       <div className="flex flex-col gap-2" data-testid="gmail-accounts">
@@ -976,6 +1042,7 @@ export function GmailSettings() {
                 CONSENT_HINT_EN,
               )}
             </p>
+            <UnverifiedHint audience={audience} />
             <OAuthFlow
               flow={flow}
               onSendInput={(id, value) => oauthFlowClient.input(id, value)}
@@ -1006,7 +1073,18 @@ export function GmailSettings() {
             )}
           </div>
         ) : (
-          <AddAccount configured={client.configured} newTier={newTier} onTier={setNewTier} onAdd={() => void addAccount()} />
+          <AddAccount
+            configured={client.configured}
+            newTier={newTier}
+            onTier={setNewTier}
+            email={addEmail}
+            onEmail={(v) => {
+              setAddEmail(v);
+              setAddEmailError(false);
+            }}
+            emailError={addEmailError}
+            onAdd={() => void addAccount()}
+          />
         )}
         {flowError && <FlowErrorNotice code={flowError} step={step} errKey={errKey} clientId={client.clientId ?? ""} />}
         {lastRevoke && (

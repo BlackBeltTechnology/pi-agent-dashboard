@@ -10,6 +10,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeChromeChild } from "../dedicated/__tests__/fake-chrome.js";
 import type { ProcessInfo } from "../dedicated/process-identity.js";
+import { viewerSocket } from "../relay/__tests__/fake-socket.js";
 import { BrowserRelayStatus } from "../status.js";
 import { answer, BINARY, type DedicatedRig, type DedicatedRigOptions, flush, makeDedicatedRig, silent } from "./dedicated-manager-rig.js";
 
@@ -26,7 +27,7 @@ afterEach(() => {
 
 const GUID_URL = /^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}$/;
 
-async function connected(r: DedicatedRig, opts: { client?: string } = {}) {
+async function connected(r: DedicatedRig, opts: Parameters<DedicatedRig["manager"]["connectDedicated"]>[0] = {}) {
   const res = await r.manager.connectDedicated(opts);
   if (!res.ok) throw new Error(`connect failed: ${JSON.stringify(res)}`);
   return res;
@@ -500,5 +501,132 @@ describe("live view hook", () => {
     answer(child, "Target.createTarget", { targetId: "T-agent" });
     await flush();
     expect(seen).toEqual([[res.instanceId, 1]]);
+  });
+});
+
+describe("#R14 atomic takeover (change: add-gmail-auto-setup)", () => {
+  it("an agent reconnect fired by the holder's close gets busy: the consumer holds the profile", async () => {
+    let agentId = "";
+    let reconnect: ReturnType<DedicatedRig["manager"]["connectDedicated"]> | undefined;
+    let liveInWindow: unknown = "unset";
+    const r = rig({
+      onInstanceClosed: (id) => {
+        if (id !== agentId) return;
+        liveInWindow = r.manager.liveDedicated(); // the window between the holder's close and the new registration
+        reconnect = r.manager.connectDedicated({ holder: { sessionId: "agent-1" } });
+      },
+    });
+    const agent = await r.manager.connectDedicated({ holder: { sessionId: "agent-1" } });
+    if (!agent.ok) throw new Error("agent connect failed");
+    agentId = agent.instanceId;
+    const agentClient = r.dial(agent.cdpUrl);
+    await flush();
+
+    const consumer = await r.manager.connectDedicated({ client: "gmail-setup", takeover: true });
+    if (!consumer.ok) throw new Error(`takeover failed: ${JSON.stringify(consumer)}`);
+
+    expect(reconnect).toBeDefined(); // the holder's close really fired the agent's reconnect
+    expect(liveInWindow).toBeUndefined(); // ...while the slot looked free
+    expect(await reconnect).toEqual({ ok: false, status: 409, reason: "busy", instanceId: consumer.instanceId, holder: "gmail-setup" });
+    expect(r.manager.liveDedicated()?.instanceId).toBe(consumer.instanceId);
+    expect(r.manager.instancesOn("dashboard", "@dedicated")).toHaveLength(1);
+    expect(r.manager.find(agent.instanceId)).toBeUndefined();
+    expect(agentClient.closed[0]?.reason).toBe("takeover"); // the evicted agent's socket was closed
+    expect(r.audit.list().some((e) => e.kind === "detach" && e.detail === "takeover" && e.instanceId === agent.instanceId)).toBe(true);
+    expect(await r.manager.dedicatedStatus()).toMatchObject({ instanceId: consumer.instanceId, holder: { client: "gmail-setup" } });
+  });
+
+  it("takeover on a free profile just connects; without takeover a busy profile is untouched", async () => {
+    const r = rig();
+    const first = await r.manager.connectDedicated({ client: "gmail-setup", takeover: true });
+    expect(first.ok).toBe(true);
+    const refused = await r.manager.connectDedicated({ holder: { sessionId: "agent-1" } });
+    expect(refused).toMatchObject({ ok: false, status: 409, reason: "busy", holder: "gmail-setup" });
+    expect(first.ok && r.manager.find(first.instanceId)).toBeTruthy();
+  });
+});
+
+describe("private + ephemeral connect options (change: add-gmail-auto-setup)", () => {
+  const tab = (targetId: string, url: string, browserContextId: string) => ({
+    method: "Target.targetCreated",
+    params: { targetInfo: { targetId, type: "page", title: "", url, attached: false, canAccessOpener: false, browserContextId } },
+  });
+
+  it("#R15 a private instance's tab is absent from browser_relay_status; viewer subscribe is refused and audited", async () => {
+    const r = rig();
+    const res = await connected(r, { client: "gmail-setup" });
+    // the default (not private) instance would list this tab: prove it via a control instance first
+    r.dial(res.cdpUrl);
+    await flush();
+    r.children[0].emitFrame(tab("T-control", "https://example.com/", "ctx-default"));
+    await flush();
+    const status = new BrowserRelayStatus({ manager: r.manager, audit: r.audit, broadcast: () => {}, logger: silent });
+    expect(status.message().instances[0].tabs.map((t) => t.url)).toContain("https://example.com/");
+    r.manager.disconnect(res.instanceId);
+
+    const priv = await r.manager.connectDedicated({ client: "gmail-setup", private: true });
+    if (!priv.ok) throw new Error("private connect failed");
+    r.dial(priv.cdpUrl);
+    await flush();
+    r.children[0].emitFrame(tab("T-private", "https://accounts.google.com/", "ctx-default"));
+    await flush();
+    const inst = status.message().instances.find((i) => i.instanceId === priv.instanceId);
+    expect(inst).toMatchObject({ profileDirectory: "@dedicated", state: "connected", tabs: [] });
+
+    const handlers = new Map<string, (msg: unknown, ws: unknown) => void>();
+    status.registerHandlers({ registerBrowserHandler: (type: string, h: (msg: unknown, ws: unknown) => void) => handlers.set(type, h) } as never);
+    const viewer = viewerSocket();
+    handlers.get("browser_relay_subscribe")?.({ instanceId: priv.instanceId, tabId: 1 }, viewer);
+    const refused = r.audit.list().filter((e) => e.kind === "viewer-subscribe-refused");
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toMatchObject({ instanceId: priv.instanceId, profileDirectory: "@dedicated" });
+    expect(r.children[0].methods()).not.toContain("Page.startScreencast");
+    status.dispose();
+  });
+
+  it("an ephemeral connect creates a server-side context with the downloads dir, and disposes it when the instance closes", async () => {
+    const r = rig({ behavior: { autoContexts: true } });
+    const res = await connected(r, { client: "gmail-setup", ephemeral: true });
+    const child = r.children[0];
+    const created = child.written.filter((m) => m.method === "Target.createBrowserContext");
+    expect(created).toHaveLength(1);
+    expect(child.written.find((m) => m.method === "Browser.setDownloadBehavior" && m.params?.browserContextId === "ctx-1")?.params).toEqual({
+      behavior: "allow",
+      downloadPath: r.chrome.downloadsDir,
+      browserContextId: "ctx-1",
+    });
+    // a client createTarget through the minted cdpUrl is pinned into that context
+    const client = r.dial(res.cdpUrl);
+    await flush();
+    client.send(JSON.stringify({ id: 1, method: "Target.createTarget", params: { url: "https://a.test/" } }));
+    await flush();
+    expect(child.written.filter((m) => m.method === "Target.createTarget").at(-1)?.params?.browserContextId).toBe("ctx-1");
+
+    expect(child.written.some((m) => m.method === "Target.disposeBrowserContext")).toBe(false);
+    r.manager.disconnect(res.instanceId);
+    expect(child.written.filter((m) => m.method === "Target.disposeBrowserContext").map((m) => m.params)).toEqual([{ browserContextId: "ctx-1" }]);
+  });
+
+  it("a busy refusal creates no context", async () => {
+    const r = rig({ behavior: { autoContexts: true } });
+    await connected(r, { client: "first" });
+    expect(await r.manager.connectDedicated({ client: "second", ephemeral: true })).toMatchObject({ ok: false, reason: "busy" });
+    expect(r.children[0].methods()).not.toContain("Target.createBrowserContext");
+  });
+
+  it("open({instanceId}) opens the hidden tab in that instance's context; an unknown instance is refused without launching", async () => {
+    const cold = rig();
+    expect(await cold.manager.openDedicated("https://accounts.google.com/", "inst-nope")).toMatchObject({ ok: false, status: 409, reason: "unknown-instance" });
+    expect(cold.spawn).not.toHaveBeenCalled();
+
+    const r = rig({ behavior: { autoContexts: true } });
+    const res = await connected(r, { client: "gmail-setup", ephemeral: true });
+    expect(await r.manager.openDedicated("https://accounts.google.com/", "inst-nope")).toMatchObject({ ok: false, reason: "unknown-instance" });
+    const child = r.children[0];
+    const open = r.manager.openDedicated("https://accounts.google.com/", res.instanceId);
+    await vi.waitFor(() => expect(child.methods()).toContain("Target.createTarget"));
+    expect(child.written.find((m) => m.method === "Target.createTarget")?.params).toEqual({ url: "https://accounts.google.com/", browserContextId: "ctx-1" });
+    answer(child, "Target.createTarget", { targetId: "T-eph" });
+    expect(await open).toEqual({ ok: true, targetId: "T-eph" });
   });
 });

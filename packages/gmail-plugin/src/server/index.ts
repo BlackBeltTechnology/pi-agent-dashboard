@@ -10,6 +10,7 @@ import { ACCOUNTS_TYPE, LEASE_TYPE } from "../shared/protocol.js";
 import { AccountStore, summarize } from "./accounts.js";
 import { createLeaseHandler } from "./lease.js";
 import { mountGmailRoutes } from "./routes.js";
+import { BROWSER_DEDICATED_SERVICE, type DedicatedBrowserService } from "./setup/browser-service.js";
 
 export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   if (!ctx.credentials) {
@@ -27,6 +28,8 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     endpoints,
     networkGuard: ctx.networkGuard,
     logger: ctx.logger,
+    // No `dependsOn` on the browser plugin (hard + it ships disabled): look the service up per request.
+    getBrowserService: () => ctx.consume<DedicatedBrowserService>(BROWSER_DEDICATED_SERVICE),
     config: {
       get: () => ctx.getPluginConfig<Record<string, unknown>>(),
       update: (partial) => ctx.updatePluginConfig(partial),

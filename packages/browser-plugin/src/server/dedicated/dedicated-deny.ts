@@ -104,11 +104,11 @@ export const METHOD_CLASSIFICATION: Readonly<Record<string, MethodClass>> = {
   "Target.attachToBrowserTarget": "denied",
   "Target.closeTarget": "allowed",
   "Target.exposeDevToolsProtocol": "denied",
-  "Target.createBrowserContext": "allowed",
+  "Target.createBrowserContext": "proxy", // forwarded, refused for an ephemeral instance (add-gmail-auto-setup)
   "Target.getBrowserContexts": "allowed",
   "Target.createTarget": "allowed",
   "Target.detachFromTarget": "proxy",
-  "Target.disposeBrowserContext": "allowed",
+  "Target.disposeBrowserContext": "proxy", // forwarded, refused for an ephemeral instance (add-gmail-auto-setup)
   "Target.getTargetInfo": "proxy",
   "Target.getTargets": "proxy",
   // Would let the client bypass every check by wrapping a command in a string.

@@ -67,11 +67,13 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.10.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.10.0",
     "oauth4webapi": "^3.8.8",
-    "@fastify/rate-limit": "^11.2.0"
+    "@fastify/rate-limit": "^11.2.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.18.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }

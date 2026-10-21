@@ -23,8 +23,15 @@ const ACCTS = [
   { sub: "s3", email: "dora@gmail.com", tier: "draft", status: "ok", testingHint: true, addedAt: 3 },
 ];
 
-const state = (client: Record<string, unknown>, accounts: unknown[], setup?: Record<string, unknown>) => (page: Page) =>
-  stubApi(page, STATE, (route) => json(route, { client, accounts, ...(setup ? { setup } : {}) }), "GET");
+const state =
+  (client: Record<string, unknown>, accounts: unknown[], setup?: Record<string, unknown>, autoSetup?: Record<string, unknown>) =>
+  (page: Page) =>
+    stubApi(
+      page,
+      STATE,
+      (route) => json(route, { client, accounts, ...(setup ? { setup } : {}), ...(autoSetup ? { autoSetup } : {}) }),
+      "GET",
+    );
 
 const root = (page: Page) => page.getByTestId("gmail-settings");
 const goto = async (page: Page) => {
@@ -40,6 +47,194 @@ const startFlow = (reply: Record<string, unknown>) => async (page: Page) => {
   await stubApi(page, ACCOUNTS, (route) => json(route, { flowId: "f1" }), "POST");
   await stubApi(page, FLOW, (route) => json(route, reply), "GET");
 };
+
+// ── add-gmail-auto-setup: "Set up automatically" entry, form, run progress, decisions, hand-off ──
+
+const RUN = "/api/plugins/gmail/setup/run";
+const RUN_VIEW = `${RUN}/r1`;
+const AUTO = { available: true, local: true };
+const STEP_IDS = ["project", "api", "branding", "publish", "client", "capture"] as const;
+
+/** A secret-free run view with the steps before `step` done and `step` running (or handed off). */
+const runView = (state: string, step: (typeof STEP_IDS)[number], extra: Record<string, unknown> = {}) => ({
+  runId: "r1",
+  state,
+  step,
+  steps: STEP_IDS.map((id, i) => ({
+    id,
+    status: i < STEP_IDS.indexOf(step) ? "done" : i === STEP_IDS.indexOf(step) ? (state === "handoff" ? "handoff" : "running") : "pending",
+  })),
+  created: { clients: [] },
+  ownerEmail: "anna@gmail.com",
+  ...extra,
+});
+
+/** Stub the run endpoints so a started run answers `view` forever. */
+const withRun = (view: Record<string, unknown>) => async (page: Page) => {
+  await state({ configured: false }, [], undefined, AUTO)(page);
+  await stubApi(page, RUN, (route) => json(route, { runId: "r1" }), "POST");
+  await stubApi(page, RUN_VIEW, (route) => json(route, view), "GET");
+};
+
+/** Open settings, start a run through the form and wait for `testId` of the run panel. */
+const startRunAndWait = (testId: string) => async (page: Page) => {
+  await goto(page);
+  await page.getByTestId("gmail-setup-entry").click();
+  await page.getByTestId("gmail-setup-owner").fill("anna@gmail.com");
+  await page.getByTestId("gmail-setup-start").click();
+  await page.getByTestId(testId).waitFor({ state: "visible", timeout: 10_000 });
+};
+
+const RUN_STUBS = [STATE, RUN, RUN_VIEW];
+
+const autoSetupStates: UiState[] = [
+  {
+    id: "auto-entry",
+    label: "automatic setup offered (secondary entry beside the manual wizard)",
+    stubs: [STATE],
+    install: state({ configured: false }, [], undefined, AUTO),
+    open: async (page) => {
+      await goto(page);
+      await page.getByTestId("gmail-setup-entry").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    id: "auto-replace",
+    label: "automatic setup offered; a client without accounts would be replaced",
+    stubs: [STATE],
+    install: state(CLIENT, [], undefined, { ...AUTO, replacesClient: true }),
+    open: async (page) => {
+      await goto(page);
+      await page.getByTestId("gmail-setup-replace").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    id: "auto-remote",
+    label: "remote dashboard: automatic setup explained, not offered",
+    stubs: [STATE],
+    install: state({ configured: false }, [], undefined, { available: false, reason: "remote_dashboard", local: false }),
+    open: async (page) => {
+      await goto(page);
+      await page.getByTestId("gmail-setup-remote").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    id: "auto-form",
+    label: "start form (new/existing project, project id, owner email)",
+    stubs: [STATE],
+    install: state({ configured: false }, [], { projectId: "pidashboard-510015", ownerAccount: "anna@gmail.com" }, AUTO),
+    open: async (page) => {
+      await goto(page);
+      await page.getByTestId("gmail-setup-entry").click();
+      await page.getByTestId("gmail-setup-form").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    id: "auto-start-error",
+    label: "start refused (a run is already active)",
+    stubs: [STATE, RUN],
+    install: async (page) => {
+      await state({ configured: false }, [], undefined, AUTO)(page);
+      await stubApi(page, RUN, (route) => json(route, { error: "run_active" }, 409), "POST");
+    },
+    open: async (page) => {
+      await goto(page);
+      await page.getByTestId("gmail-setup-entry").click();
+      await page.getByTestId("gmail-setup-owner").fill("anna@gmail.com");
+      await page.getByTestId("gmail-setup-start").click();
+      await page.getByTestId("gmail-setup-start-error").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    id: "auto-running",
+    label: "run in progress (step chips)",
+    stubs: RUN_STUBS,
+    install: withRun(runView("running", "api")),
+    open: startRunAndWait("gmail-setup-working"),
+    root,
+  },
+  {
+    id: "auto-sign-in",
+    label: "waiting for the user to sign in to the dedicated browser",
+    stubs: RUN_STUBS,
+    install: withRun(runView("waiting_user", "project", { checkpoint: { kind: "sign_in" } })),
+    open: startRunAndWait("gmail-setup-checkpoint"),
+    root,
+  },
+  {
+    id: "auto-policy",
+    label: "waiting for the user to tick the User Data Policy box",
+    stubs: RUN_STUBS,
+    install: withRun(runView("waiting_user", "branding", { checkpoint: { kind: "policy" } })),
+    open: startRunAndWait("gmail-setup-checkpoint"),
+    root,
+  },
+  {
+    id: "auto-audience",
+    label: "audience decision (Internal offered for a Workspace organization)",
+    stubs: RUN_STUBS,
+    install: withRun(runView("waiting_decision", "branding", { decision: { kind: "audience", detected: "internal", org: "blackbelt.hu" } })),
+    open: startRunAndWait("gmail-setup-audience"),
+    root,
+  },
+  {
+    id: "auto-links",
+    label: "publishing links decision with explicit confirmation",
+    stubs: RUN_STUBS,
+    install: withRun(
+      runView("waiting_decision", "publish", {
+        decision: {
+          kind: "links",
+          links: {
+            homePage: "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+            privacyPolicy: "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+            authorizedDomain: "github.com",
+          },
+        },
+      }),
+    ),
+    open: async (page) => {
+      await startRunAndWait("gmail-setup-links")(page);
+      await page.getByTestId("gmail-setup-links-confirm").check();
+    },
+    root,
+  },
+  {
+    id: "auto-busy",
+    label: "dedicated browser held by an agent session (Take over)",
+    stubs: RUN_STUBS,
+    install: withRun(runView("busy", "project", { busy: { holder: "agent session 7" } })),
+    open: startRunAndWait("gmail-setup-busy"),
+    root,
+  },
+  {
+    id: "auto-done",
+    label: "run finished; Add account prefilled with the owner email",
+    stubs: RUN_STUBS,
+    install: withRun(runView("done", "capture", { clientId: "603-abc.apps.googleusercontent.com", steps: STEP_IDS.map((id) => ({ id, status: "done" })) })),
+    open: startRunAndWait("gmail-setup-done"),
+    root,
+  },
+  {
+    id: "auto-handoff",
+    label: "hand-off at the capture step: wizard step 4, created client named",
+    stubs: RUN_STUBS,
+    install: withRun(
+      runView("handoff", "capture", {
+        handoff: { step: "capture", wizardStep: 4, reason: "secret_capture_failed" },
+        projectId: "pidashboard-510015",
+        created: { projectId: "pidashboard-510015", clients: ["pi-dashboard-2"] },
+      }),
+    ),
+    open: startRunAndWait("gmail-setup-handoff"),
+    root,
+  },
+];
 
 export const gmailStates: UiState[] = [
   {
@@ -167,4 +362,5 @@ export const gmailStates: UiState[] = [
     },
     root,
   },
+  ...autoSetupStates,
 ];
