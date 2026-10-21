@@ -14,21 +14,22 @@
  *
  * See change: embed-git-bash-on-windows, fix-windows-bundled-bash-exe.
  */
-import {
-  selectGitSource,
-  type GitSource,
-  type WindowsBashSourceSetting,
-  type WindowsGitSourceSetting,
-} from "./select-git-source.js";
-import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
-import { normalizeEnvPathKey } from "./env-path-key.js";
-import { resolvePiShell } from "./resolve-pi-shell.js";
+
+import path from "node:path";
 import {
   ensureBundledGitOnPath,
   resolveBundledGitDir,
 } from "./ensure-bundled-git.js";
+import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
+import { normalizeEnvPathKey } from "./env-path-key.js";
 import { spawnSync } from "./exec.js";
-import path from "node:path";
+import { resolvePiShell } from "./resolve-pi-shell.js";
+import {
+  type GitSource,
+  selectGitSource,
+  type WindowsBashSourceSetting,
+  type WindowsGitSourceSetting,
+} from "./select-git-source.js";
 
 export type WhichFn = (cmd: string) => string | null;
 

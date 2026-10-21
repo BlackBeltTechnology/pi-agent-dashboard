@@ -25,8 +25,8 @@ import {
   npmGlobalStrategy,
   overrideStrategy,
   pwBrowserProbeStrategy,
-  staticNpmStrategy,
   type StrategyDeps,
+  staticNpmStrategy,
   whereStrategy,
 } from "./strategies.js";
 import type { InstallHints, Source, Strategy, ToolDefinition } from "./types.js";

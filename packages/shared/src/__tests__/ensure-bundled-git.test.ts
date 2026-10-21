@@ -2,8 +2,9 @@
  * Unit tests for ensureBundledGitOnPath + resolveBundledGitDir.
  * See change: embed-git-bash-on-windows.
  */
-import { describe, it, expect } from "vitest";
+
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 import {
   ensureBundledGitOnPath,
   resolveBundledGitDir,

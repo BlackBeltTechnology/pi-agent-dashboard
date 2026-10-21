@@ -351,6 +351,20 @@
       "reason": "untriaged"
     },
     {
+      "ruleId": "js/client-side-unvalidated-url-redirection",
+      "file": "packages/client/src/lib/plugins/runtime-plugin-loader.ts",
+      "lineHash": "8bf6f4883d8afee7:1",
+      "count": 1,
+      "reason": "false-positive: href is a same-origin, server-served plugin stylesheet URL resolved from the plugin manifest, not user-controlled input"
+    },
+    {
+      "ruleId": "js/xss",
+      "file": "packages/client/src/lib/plugins/runtime-plugin-loader.ts",
+      "lineHash": "8bf6f4883d8afee7:1",
+      "count": 1,
+      "reason": "false-positive: href is a same-origin, server-served plugin stylesheet URL resolved from the plugin manifest, not user-controlled input"
+    },
+    {
       "ruleId": "js/xss",
       "file": "packages/client/src/lib/preview/adoc-math.ts",
       "lineHash": "72017053c49a39a1:1",

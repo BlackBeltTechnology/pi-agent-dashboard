@@ -1,14 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
-import forgeConfig from "../../forge.config.js";
 import {
   materializeBundledPlugins,
   readBundledPluginIds,
 } from "../../../shared/src/runtime-overlay/materialize-plugins.mjs";
+import forgeConfig from "../../forge.config.js";
 
 /**
  * Build-config parity lint (change: fix-electron-auto-update-pipeline, §3.6).

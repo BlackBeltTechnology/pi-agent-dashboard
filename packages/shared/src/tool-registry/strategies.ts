@@ -8,15 +8,15 @@
  *
  * See change: consolidate-tool-resolution (design §2).
  */
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import os from "node:os";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { spawnSync } from "../platform/exec.js";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";
 import { isAppImageSelfHit, ToolResolver } from "../platform/binary-lookup.js";
 import { resolveBundledGitDir } from "../platform/ensure-bundled-git.js";
+import { spawnSync } from "../platform/exec.js";
 import { getManagedNodeBinDir } from "../platform/managed-node-path.js";
 import * as npm from "../platform/npm.js";
 import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";

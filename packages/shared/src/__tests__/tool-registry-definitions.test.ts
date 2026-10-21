@@ -5,14 +5,15 @@
  * deterministic across platforms and don't depend on the test host's
  * real filesystem or PATH.
  */
-import { describe, it, expect } from "vitest";
-import path from "node:path";
+
 import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import {
-  ToolRegistry,
-  registerDefaultTools,
-  OverridesStore,
   bindPeerResolution,
+  OverridesStore,
+  registerDefaultTools,
+  ToolRegistry,
 } from "../tool-registry/index.js";
 
 function freshRegistry(opts: {

@@ -22,13 +22,13 @@
  * v2.53.0-3 tarballs on real windows-latest + windows-11-arm runners.
  */
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, createReadStream } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import https from "node:https";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import https from "node:https";
 import { fileURLToPath } from "node:url";
 import { ensureBundledBashExe } from "./lib/ensure-bundled-bash-exe.mjs";
-import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { extract } = require("tar");

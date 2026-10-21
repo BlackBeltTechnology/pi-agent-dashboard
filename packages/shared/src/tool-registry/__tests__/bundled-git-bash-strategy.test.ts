@@ -11,7 +11,7 @@
  * See change: resolve-bundled-bash-on-windows, fix-windows-bundled-bash-exe.
  */
 import path from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { bundledGitBashStrategy } from "../strategies.js";
 import type { StrategyCtx } from "../types.js";
 

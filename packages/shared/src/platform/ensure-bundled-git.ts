@@ -105,6 +105,43 @@ export interface EnsureBundledGitOpts {
 /** Trailing-separator-trimmed, case-folded PATH entry key. */
 const entryKey = (e: string): string => e.trim().replace(/[\\/]+$/, "").toLowerCase();
 
+/** Existing, de-duplicated (case/slash-insensitive) subset of `dirs`, order kept. */
+function existingUnique(dirs: string[], exists: (p: string) => boolean): string[] {
+  const seen = new Set<string>();
+  return dirs.filter((dir) => {
+    const k = entryKey(dir);
+    if (!exists(dir) || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/**
+ * Placement. `cmd` + `<libdir>/bin` always precede the inherited PATH. `usr/bin`
+ * (bash.exe + MSYS coreutils) precedes it in "bundled" mode and follows it in
+ * "host" mode. Existing entries for the dirs being placed are stripped first
+ * (case/trailing-slash-insensitive) so switching mode MOVES usr/bin and
+ * re-applying is idempotent. Operates on the already-normalised `PATH` key
+ * (callers run normalizeEnvPathKey first).
+ */
+function placeBundledDirs(
+  currentPath: string,
+  gitDir: string,
+  libDir: string | null,
+  bashSource: WindowsBashSourceSetting,
+  exists: (p: string) => boolean,
+): string {
+  const join = path.win32.join;
+  const usrBin = join(gitDir, "usr", "bin");
+  const front = [join(gitDir, "cmd"), ...(bashSource === "bundled" ? [usrBin] : []), ...(libDir ? [join(gitDir, libDir, "bin")] : [])];
+  const frontOk = existingUnique(front, exists);
+  const backOk = existingUnique(bashSource === "host" ? [usrBin] : [], exists);
+
+  const ours = new Set([...frontOk, ...backOk].map(entryKey));
+  const rest = currentPath.split(";").filter((e) => e.trim() !== "" && !ours.has(entryKey(e)));
+  return [...frontOk, ...rest, ...backOk].join(";");
+}
+
 /**
  * Prepend bundled git/sh dirs to `env.PATH` and set git env vars when the
  * active source is "bundled" on Windows. Idempotent. No-op when:
@@ -139,38 +176,8 @@ export function ensureBundledGitOnPath(
   const join = path.win32.join;
   const libDir = resolveLibDir(gitDir, exists);
 
-  // Placement. `cmd` + `<libdir>/bin` always precede the inherited PATH.
-  // `usr/bin` (bash.exe + MSYS coreutils) precedes it in "bundled" mode and
-  // follows it in "host" mode. Existing entries for these dirs are stripped
-  // first (case/trailing-slash-insensitive) so switching mode MOVES usr/bin
-  // and re-applying is idempotent. Operates on the already-normalised `PATH`
-  // key (callers run normalizeEnvPathKey first).
   const bashSource = opts.bashSource === "host" ? "host" : "bundled";
-  const front: string[] = [join(gitDir, "cmd")];
-  const usrBin = join(gitDir, "usr", "bin");
-  if (bashSource === "bundled") front.push(usrBin);
-  if (libDir) front.push(join(gitDir, libDir, "bin"));
-  const back: string[] = bashSource === "host" ? [usrBin] : [];
-
-  const ours = new Set([...front, ...back].map(entryKey));
-  const rest = (env.PATH ?? "")
-    .split(";")
-    .filter((e) => e.trim() !== "" && !ours.has(entryKey(e)));
-
-  const place = (dirs: string[]): string[] => {
-    const seen = new Set<string>();
-    return dirs.filter((dir) => {
-      const k = entryKey(dir);
-      if (!exists(dir) || seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-  };
-  const frontOk = place(front);
-  const backOk = place(back);
-
-  const DELIM = ";";
-  const newPath = [...frontOk, ...rest, ...backOk].join(DELIM);
+  const newPath = placeBundledDirs(env.PATH ?? "", gitDir, libDir, bashSource, exists);
   let out = env;
   if (newPath !== (env.PATH ?? "")) {
     out = { ...out, PATH: newPath };
