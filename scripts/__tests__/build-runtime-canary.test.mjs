@@ -69,7 +69,7 @@ describe("runtime canary — base build", () => {
       expect(js, f).not.toMatch(/micromark|remark|\bmarked\b/);
     }
     expect(bareImports(read(path.join(built.base, "s6-route.js")))).toEqual(
-      new Set(["react/jsx-runtime", "@blackbelt-technology/dashboard-plugin-runtime/embedded-app", "@blackbelt-technology/pi-dashboard-app-kit/react", "wouter"]),
+      new Set(["react", "react/jsx-runtime", "@blackbelt-technology/dashboard-plugin-runtime/embedded-app", "@blackbelt-technology/pi-dashboard-app-kit/react", "wouter"]),
     );
   });
 
