@@ -1,7 +1,8 @@
 /**
  * Folder MCP page trust banner (test-plan #F3): who trusts the folder — pi (naming the
  * recorded path), the dashboard (naming source + folder + scope), or nobody.
- * See change: mirror-dashboard-trust-to-pi.
+ * #F4 (mirror-dashboard-trust-live-remote): a live dashboard entry names its source and lifetime.
+ * See change: mirror-dashboard-trust-to-pi, mirror-dashboard-trust-live-remote.
  */
 
 import schemaDoc from "@blackbelt-technology/pi-dashboard-mcp-core/schema/mcp-config.schema.json";
@@ -79,5 +80,45 @@ describe("#F3 folder trust banner", () => {
     expect(screen.getByTestId("mcp-folder-untrusted-access-link")).toBeTruthy();
     expect(screen.queryByTestId("mcp-folder-trusted-pi")).toBeNull();
     expect(screen.queryByTestId("mcp-folder-trusted-dashboard")).toBeNull();
+  });
+});
+
+describe("#F4 live dashboard entry names its lifetime", () => {
+  it("worktree-init session trust: through worktree-init trust for /r until the dashboard restarts, no 'not trusted' notice", async () => {
+    serve({
+      trusted: true,
+      trustCoverInteractive: false,
+      trustSource: { kind: "dashboard", sourceKind: "worktreeInit", entry: "/r", lifetime: "until dashboard restarts" },
+    });
+    open();
+    const banner = await screen.findByTestId("mcp-folder-trusted-dashboard");
+    expect(banner.textContent).toContain(
+      "trusted by the dashboard through worktree-init trust for /r until the dashboard restarts",
+    );
+    expect(screen.queryByTestId("mcp-folder-untrusted")).toBeNull();
+  });
+
+  it("YOLO until an instant: through YOLO for the root, with the local time", async () => {
+    const until = Date.UTC(2030, 0, 1, 14, 30);
+    serve({
+      trusted: true,
+      trustSource: { kind: "dashboard", sourceKind: "yolo", entry: "/w", lifetime: `YOLO until ${new Date(until).toISOString()}` },
+    });
+    open();
+    const text = (await screen.findByTestId("mcp-folder-trusted-dashboard")).textContent ?? "";
+    const time = new Date(until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    expect(text).toContain(`through YOLO for /w until ${time}`);
+    expect(screen.queryByTestId("mcp-folder-untrusted")).toBeNull();
+  });
+
+  it("YOLO for the server's lifetime", async () => {
+    serve({
+      trusted: true,
+      trustSource: { kind: "dashboard", sourceKind: "yolo", entry: "/e", lifetime: "YOLO while the server runs" },
+    });
+    open();
+    expect((await screen.findByTestId("mcp-folder-trusted-dashboard")).textContent).toContain(
+      "through YOLO for /e while the server runs",
+    );
   });
 });

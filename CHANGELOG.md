@@ -12,6 +12,36 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Live and remote dashboard trust for pi.** A pi session whose folder the dashboard trusts only for as long as the
+  server runs (worktree-init trust "until dashboard restarts", session access grants, YOLO roots) now gets that
+  trust at `project_trust`, and so does a pi on another machine (paired device, `PI_DASHBOARD_TOKEN`). When the
+  snapshot does not cover the cwd, the bridge asks `POST /api/pi-trust/query` once, under one deadline
+  (`piTrustMirror.liveQueryTimeoutMs`, default 300 ms local / 1000 ms remote, clamped 50–1000); every failure is
+  undecided with a reason code (`live-timeout`, `live-unreachable`, `live-refused`, `live-unsupported`,
+  `live-rate-limited`, `live-not-covered`, `live-error`, `identity-weak`). The folder must be the same folder: a local
+  bridge compares the device and inode recorded when the entry was created, a remote bridge compares a salted
+  digest of the content of pi's trust-requiring resources. The snapshot carries a `liveCount` only, never a path.
+  New settings `piTrustMirror.liveQuery` (rollback switch) and `piTrustMirror.sources.yolo`; `/api/health` gains
+  `piTrustMirror.live` counters; the Access page lists live entries with their lifetime.
+  **`pi-dashboard-shared` minor:** additive `PiTrustMirrorConfig.liveQuery|liveQueryTimeoutMs|sources.yolo`,
+  `PiTrustSnapshot.liveCount`, `MirrorSourceKind` `yolo`, route tier `POST /api/pi-trust/query` (`operate`).
+  An older server answers 404 (`live-unsupported`, undecided); an older bridge never queries.
+  **Behaviour change: YOLO now also confers pi trust on its roots by default** (until YOLO ends; unscoped YOLO never).
+  Turn it off with `piTrustMirror.sources.yolo: false`; the YOLO activation surfaces say so.
+
+- **Craft web editors for ten ArtCraft apps.** The opt-in Craft Web Editors plugin now edits more file
+  types in the editor pane: GridCraft (`.xlsx`), PdfCraft (`.pdf`), CADCraft (`.dxf`), DesignCraft
+  (`.designcraft`) and SoundCraft (`.scraftz`) save in place; PhotoCraft (`.psd`, and `.png .jpg .jpeg
+  .webp .tif .tiff` saved as a `.psd` next to the file), VectorCraft (`.svg` → `.vectorcraft`) and
+  DeckCraft 0.7.0 (`.pptx` → `.deckcraft`, `.deckcraft` in place) save their native format as a new
+  sibling file; LightCraft views camera RAW files (`.dng .cr2 .cr3 .nef .arw .raf .orf .rw2`) without
+  ever changing them. Every save passes a per-format validator (SVG saves are filtered for script). New apps
+  use their verified web build only; an installed WordCraft build keeps loading and is offered an update.
+  The binary-file notice now offers the matching editor. **`pi-dashboard-shared` minor:** additive
+  `siblingExtensions` on `editor-pane-file-handler` claims, `FileHandlerProps.save({target:"sibling", ext})`
+  and optional `FileHandlerProps.openFile(path, claimId?)`; `POST /api/file/write-binary` accepts
+  `mode=copy&siblingExt=<.ext>`. An older runtime drops the claim field (native saves then download).
+
 - **Versioned plugin host API.** `@blackbelt-technology/dashboard-plugin-runtime` now has a
   public surface (`src/public.ts`, re-exported by the package root) versioned by
   `PLUGIN_HOST_API_VERSION` (`1.0.0`), a new `./sdk` subpath with the pure helpers a plugin bundles

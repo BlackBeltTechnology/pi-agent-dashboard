@@ -46,6 +46,7 @@ import type {
   PiTrustSnapshotEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
 import { hasProjectRootMarker } from "@blackbelt-technology/pi-dashboard-shared/project-root.js";
+import type { PiTrustLiveProvider } from "./pi-trust-live.js";
 
 /** Above this many counted entries every snapshot rewrite logs a warning. */
 export const SNAPSHOT_WARN_ENTRIES = 5000;
@@ -72,6 +73,12 @@ export interface PiTrustMirrorServiceDeps {
   canWrite?: () => boolean;
   /** Test seam: deny rules (default `mirrorDenyRules({ homedir: home })`). */
   denyRules?: () => MirrorDenyRules;
+  /**
+   * Live (server-lifetime) entries: counted into the snapshot's `liveCount` only —
+   * their paths and identities never reach disk. Absent → `liveCount` stays 0.
+   * See change: mirror-dashboard-trust-live-remote.
+   */
+  live?: PiTrustLiveProvider;
 }
 
 interface CountedMirrorEntry {
@@ -108,6 +115,14 @@ export interface PiTrustMirrorService {
   refresh(): void;
   /** The snapshot as currently on disk, or null. */
   readSnapshot(): PiTrustSnapshot | null;
+  /** The live-entry provider, when one was configured. */
+  readonly live: PiTrustLiveProvider | undefined;
+  /**
+   * A live source changed (session trust/grant, YOLO): recompute the live count and,
+   * when it changed, rewrite the snapshot SYNCHRONOUSLY — before the changing action
+   * reports success. A failed rewrite is logged and never fails the action.
+   */
+  noteLiveChanged(): void;
 }
 
 const choiceKey = (kind: MirrorSourceKind, key: string): string => `${kind}\u0000${key}`;
@@ -205,6 +220,7 @@ export function createPiTrustMirrorService(deps: PiTrustMirrorServiceDeps): PiTr
   const warn = deps.warn ?? ((m: string) => console.warn(`[pi-trust-mirror] ${m}`));
   const installed: Partial<Record<MirrorSourceKind, boolean>> = { workflow: false, ...deps.installed };
   let lastGeneration = 0;
+  let lastLiveCount = 0;
 
   const keyOf = (folder: string): string | null => {
     try {
@@ -258,18 +274,30 @@ export function createPiTrustMirrorService(deps: PiTrustMirrorServiceDeps): PiTr
     return { counted, ignored, candidates, choicesReadable: readable, sourcesNotInstalled };
   }
 
-  function rewriteSnapshot(opts?: { exclude?: Array<{ sourceKind: MirrorSourceKind; key: string }> }): number {
+  function countLive(): number {
+    try {
+      return deps.live?.reconcile() ?? 0;
+    } catch (err) {
+      warn(`live count failed: ${(err as Error)?.message}`);
+      return lastLiveCount;
+    }
+  }
+
+  function rewriteSnapshot(opts?: { exclude?: Array<{ sourceKind: MirrorSourceKind; key: string }>; liveCount?: number }): number {
     if (deps.canWrite && !deps.canWrite()) throw new Error("pi-trust-mirror: this server does not hold the home lock");
     const evaluation = evaluate(opts);
+    const liveCount = opts?.liveCount ?? countLive();
     const onDisk = readPiTrustMirrorSnapshot(snapshotFile);
     const generation = Math.max(lastGeneration, onDisk?.generation ?? 0) + 1;
     const snapshot: PiTrustSnapshot = {
       version: 1,
       generation,
       entries: evaluation.counted.map((c) => c.snapshotEntry),
+      liveCount,
     };
     writeAtomic(snapshotFile, `${JSON.stringify(snapshot)}\n`, 0o600);
     lastGeneration = generation;
+    lastLiveCount = liveCount;
     if (snapshot.entries.length > SNAPSHOT_WARN_ENTRIES) {
       warn(`snapshot holds ${snapshot.entries.length} entries (> ${SNAPSHOT_WARN_ENTRIES}); consider unpinning unused folders`);
     }
@@ -317,7 +345,19 @@ export function createPiTrustMirrorService(deps: PiTrustMirrorServiceDeps): PiTr
       return choices[choiceKey(kind, key)];
     },
     rewriteSnapshot,
-    rebuildAtBoot: () => rewriteSnapshot(),
+    // Boot writes `liveCount` 0 whatever a crashed predecessor left behind; live
+    // entries that appear afterwards (env YOLO) raise it through `noteLiveChanged`.
+    rebuildAtBoot: () => rewriteSnapshot({ liveCount: 0 }),
+    live: deps.live,
+    noteLiveChanged() {
+      if (!deps.live) return;
+      if (countLive() === lastLiveCount) return;
+      try {
+        rewriteSnapshot();
+      } catch (err) {
+        warn(`snapshot live-count rewrite failed: ${(err as Error)?.message}`);
+      }
+    },
     setChoice,
     grant(kind, folder, choice, writeSource) {
       const key = keyOf(folder);

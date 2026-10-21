@@ -67,14 +67,14 @@ import { mirrorDefaultsToPi } from "../pi-agent-settings.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import { serverHeapTelemetry } from "../server-heap-telemetry.js";
-import { projectAcmeConfigured } from "../tls/sources/acme/config-projection.js";
-import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
-import type { TlsListener } from "../tls/tls-listener.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
+import { projectAcmeConfigured } from "../tls/sources/acme/config-projection.js";
+import { touchesTlsOrPorts, validateTlsConfigWrite } from "../tls/tls-config-validation.js";
+import type { TlsListener } from "../tls/tls-listener.js";
 import { connectedProviderIds, connectGateway, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, gatewayProviderStatus, getProviderReadiness, getTunnelStatus, getTunnelUrl, getZrokLastError, releaseShare } from "../tunnel/tunnel.js";
 import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints, liveReadinessEndpoints } from "../tunnel/tunnel-endpoints.js";
@@ -82,6 +82,7 @@ import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
+import type { PiTrustLiveCounters } from "./pi-trust-query-routes.js";
 
 /** Heartbeat poll-cost counters summed on /api/health. See change: optimize-polling-hot-paths. */
 const POLL_COST_KEYS = [
@@ -267,6 +268,9 @@ export function registerSystemRoutes(
     // `accessGrants`, failure-isolated like every other telemetry read.
     // See change: add-access-grant-dialog (task 9.3).
     readAccessGrants?: () => AccessGrantHealth;
+    // Live pi-trust query counters (`piTrustMirror.live`), same disclosure gate as
+    // `accessGrants`. See change: mirror-dashboard-trust-live-remote (D6).
+    readPiTrustLive?: () => PiTrustLiveCounters;
     // Live trusted-network list (top-level ∪ auth.bypassHosts) for the additive
     // `trustPosture` health field. Falls back to the boot list when unwired.
     // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -310,7 +314,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readPiTrustLive, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -1158,6 +1162,11 @@ export function registerSystemRoutes(
     if (canDiscloseAccessPosture(request)) {
       try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
     }
+    // Live pi-trust query counters: same disclosure gate as `accessGrants`.
+    let piTrustMirror: { live: PiTrustLiveCounters } | null = null;
+    if (readPiTrustLive && canDiscloseAccessPosture(request)) {
+      try { piTrustMirror = { live: readPiTrustLive() }; } catch { /* keep null */ }
+    }
     // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
     // admits tunnel traffic. Same disclosure gate as `accessGrants`.
     // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -1211,6 +1220,7 @@ export function registerSystemRoutes(
       // Access-grant prompting counters (additive; null when unwired or on a
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
+      piTrustMirror,
       ...(tlsStatus ? { tls: tlsStatus } : {}),
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).

@@ -107,6 +107,8 @@ export class YoloController {
   private readonly now: () => number;
   private readonly ladder: (base: string) => Promise<string[]>;
   private readonly emit: (line: string) => void;
+  private changeListener: (() => void) | undefined;
+  private expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(deps: YoloDeps) {
     this.deps = deps;
@@ -115,10 +117,47 @@ export class YoloController {
     this.emit = deps.onLog ?? ((line) => console.error(line));
   }
 
+  /**
+   * Notified synchronously whenever the set of live roots changes: activate,
+   * addRoot, end, environment activation, and expiry (the unref'd timer, or a
+   * lazy clear in `status()`). Feeds the pi-trust live count. A listener never
+   * fails the action. See change: mirror-dashboard-trust-live-remote.
+   */
+  setChangeListener(fn: (() => void) | undefined): void {
+    this.changeListener = fn;
+  }
+
+  private notifyChanged(): void {
+    try {
+      this.changeListener?.();
+    } catch {
+      /* a listener never fails an activation */
+    }
+  }
+
+  /** (Re)arm the expiry timer for the current session; unref'd so it never holds the process open. */
+  private armExpiry(): void {
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
+    const s = this.session;
+    if (!s || s.expiresAt === null) return;
+    const delay = Math.max(0, s.expiresAt - this.now());
+    this.expiryTimer = setTimeout(() => {
+      this.expiryTimer = undefined;
+      this.status(); // clears an expired session and notifies
+    }, delay);
+    this.expiryTimer.unref?.();
+  }
+
   /** The live session, or `null`. An expired session is cleared here. */
   status(): YoloSession | null {
     const s = this.session;
-    if (s && s.expiresAt !== null && this.now() >= s.expiresAt) this.session = null;
+    if (s && s.expiresAt !== null && this.now() >= s.expiresAt) {
+      this.session = null;
+      if (this.expiryTimer) clearTimeout(this.expiryTimer);
+      this.expiryTimer = undefined;
+      this.notifyChanged();
+    }
     return this.session;
   }
 
@@ -167,6 +206,8 @@ export class YoloController {
     const now = this.now();
     if (req.unscoped) {
       this.session = { source: "operator", activatedAt: now, expiresAt: now + req.durationMs, unscoped: true, roots: [] };
+      this.armExpiry();
+      this.notifyChanged();
       return { ok: true, session: this.session };
     }
     const root = await this.pickRoot(req.base, req.root);
@@ -178,6 +219,8 @@ export class YoloController {
       unscoped: false,
       roots: [{ path: root.path, addedAt: now }],
     };
+    this.armExpiry();
+    this.notifyChanged();
     return { ok: true, session: this.session };
   }
 
@@ -188,13 +231,20 @@ export class YoloController {
     if (live.unscoped) return { ok: true, session: live };
     const root = await this.pickRoot(req.base, req.root);
     if (!root.ok) return root;
-    if (!live.roots.some((r) => r.path === root.path)) live.roots.push({ path: root.path, addedAt: this.now() });
+    if (!live.roots.some((r) => r.path === root.path)) {
+      live.roots.push({ path: root.path, addedAt: this.now() });
+      this.notifyChanged();
+    }
     return { ok: true, session: live, added: true };
   }
 
   /** End the session now; the next denial behaves as if it never existed. */
   end(): void {
+    const had = this.session !== null;
     this.session = null;
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    this.expiryTimer = undefined;
+    if (had) this.notifyChanged();
   }
 
   /**
@@ -210,6 +260,7 @@ export class YoloController {
     const now = this.now();
     if (parsed.kind === "unscoped") {
       this.session = { source: "env", activatedAt: now, expiresAt: null, unscoped: true, roots: [] };
+      this.notifyChanged();
       return { ok: true, session: this.session };
     }
     const roots: YoloRoot[] = [];
@@ -220,6 +271,7 @@ export class YoloController {
       if (!roots.some((r) => r.path === real)) roots.push({ path: real, addedAt: now });
     }
     this.session = { source: "env", activatedAt: now, expiresAt: null, unscoped: false, roots };
+    this.notifyChanged();
     return { ok: true, session: this.session };
   }
 
