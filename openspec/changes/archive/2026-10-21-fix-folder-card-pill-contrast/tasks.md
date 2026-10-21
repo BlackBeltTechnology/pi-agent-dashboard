@@ -86,4 +86,4 @@
 ## 5. Verification
 
 - [x] 5.1 Full suite + build: `npm test` and `npm run build` green; `npm run quality:changed` clean; `node scripts/theme-token-guard.mjs` passes.
-- [ ] 5.2 Manual visual check of the built app in base dark, base light, nord dark and nord light against `mockups/folder-card-pill-contrast/index.html`: dark palettes read nearly unchanged, slot hues acceptable, banner rungs match the board (test-plan: manual-only, #F8).
+- [x] 5.2 Manual visual check of the built app in base dark, base light, nord dark and nord light against `mockups/folder-card-pill-contrast/index.html`: dark palettes read nearly unchanged, slot hues acceptable, banner rungs match the board (test-plan: manual-only, #F8).

@@ -214,7 +214,7 @@ The content-window header (rendered by `SessionHeader.tsx`, both the desktop bra
 The summary SHALL consist of:
 
 1. The existing paperclip + change-name chip (unchanged).
-2. An artifact-letters pill (the existing `ArtifactLettersButton` from `openspec-helpers.tsx`) rendering one letter per artifact (`P`, `D`, `T`, `S`) colored by the artifact's `status` field (green=`done`, yellow=`ready`, muted=`missing` or unknown). The whole pill SHALL be a single button that opens the `proposal` artifact for the attached change.
+2. An artifact-letters pill (the existing `ArtifactLettersButton` from `openspec-helpers.tsx`) rendering one letter per artifact (`P`, `D`, `T`, `S`) colored by the artifact's `status` field (`--accent-green-text` = `done`, `--accent-yellow-text` = `ready`, `--text-secondary` = `missing` or unknown; `--text-muted` fails AA as readable text). The whole pill SHALL be a single button that opens the `proposal` artifact for the attached change.
 3. A task counter `(completedTasks/totalTasks)` rendered immediately after the pill, only when `totalTasks > 0`.
 
 When `session.attachedProposal` is set but no matching entry exists in `openspecChanges` (e.g. polling lag, just-attached state), the header SHALL render only the chip text and SHALL NOT render the pill or counter — preserving the pre-change behavior as the graceful degraded state.
