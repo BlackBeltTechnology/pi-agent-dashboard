@@ -64,13 +64,20 @@ export const CANARY_BUILDS = [
 /** Build the canary (and, unless `baseOnly`, every variant). Returns the built dirs by name. */
 export async function buildRuntimeCanary({ baseOnly = false } = {}) {
   const jiti = createJiti(import.meta.url, { interopDefault: true });
-  const { buildDashboardClient } = await jiti.import(path.join(repoRoot, "packages/dashboard-plugin-runtime/src/vite-plugin/index.ts"));
+  const { buildDashboardClient, buildDashboardStandalone } = await jiti.import(path.join(repoRoot, "packages/dashboard-plugin-runtime/src/vite-plugin/index.ts"));
   const built = {};
   for (const b of CANARY_BUILDS) {
     if (baseOnly && b.name !== "base") continue;
     await buildDashboardClient({ root: b.root, ...b.options });
     built[b.name] = path.join(b.root, "dist/client");
   }
+  // Standalone half of the base canary app (served by its server entry's `ctx.serveApp`): own React, app-kit aliased to source.
+  await buildDashboardStandalone({
+    root: CANARY_ROOT,
+    outDir: "dist/standalone",
+    vite: { resolve: { alias: { [APP_KIT_REACT]: path.join(repoRoot, "packages/app-kit/src/react/index.ts") } } },
+  });
+  built.standalone = path.join(CANARY_ROOT, "dist/standalone");
   return built;
 }
 

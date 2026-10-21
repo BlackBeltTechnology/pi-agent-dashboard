@@ -171,6 +171,13 @@ services:
       # Always on in the HARNESS (never in a real image): the route is inert
       # until a spec POSTs `{enabled:true}`, so it needs no separate boot arm.
       PI_E2E_FORCE_SHED: "1"
+      # Runtime-delivery canary mode (trusted | untrusted | off) — read by test-entrypoint.sh together with the
+      # ${HOST_CWD}/.pi-test-canary stage test-up.sh builds. Unset = trusted under PI_E2E_SEED.
+      # See change: decouple-plugins-from-core (tasks 7.5, 8.2).
+      PI_E2E_CANARY: "${PI_E2E_CANARY:-}"
+      # CSP mode for the dashboard's own responses: report (default) | enforce | off. Empty = server default
+      # (report-only). `enforce` is the X12 arm. See change: decouple-plugins-from-core (task 8.3).
+      PI_DASHBOARD_CSP: "${PI_DASHBOARD_CSP:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

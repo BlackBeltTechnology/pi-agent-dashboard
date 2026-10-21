@@ -3,7 +3,8 @@
  * the i18n catalog. Heavy claims live in lazy chunks (`s6-route`, `lazy-panel`), named by manifest `module`.
  * Built by the SDK preset; every import below is an import-map specifier (external).
  */
-import { useFolderMenuItem, usePluginConfig, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useFolderMenuItem, usePluginConfig, useShellConnectionStatus, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useState } from "react";
 import { useLocation } from "wouter";
 
 export { catalog } from "./i18n.js";
@@ -14,9 +15,16 @@ export const canaryShouldRender = () => true;
 export function CanarySettings() {
   const t = useT();
   const config = usePluginConfig<{ greeting?: string }>();
+  // One React instance: a hook (`useState`) AND a host-context hook (`useShellConnectionStatus`) both work.
+  const [clicks, setClicks] = useState(0);
+  const status = useShellConnectionStatus();
   return (
     <div data-testid="canary-settings" className="rounded border border-dashed p-2 bg-[var(--bg-surface)] text-[var(--text-primary)]">
       {t("canaryTitle", undefined, "Runtime canary")} · {config.greeting ?? "hello"}
+      <span data-testid="canary-conn-status"> · {status}</span>
+      <button type="button" data-testid="canary-clicks" onClick={() => setClicks((n) => n + 1)}>
+        {clicks}
+      </button>
     </div>
   );
 }

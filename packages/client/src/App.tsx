@@ -3343,6 +3343,9 @@ export default function App() {
           underlay covers exactly the content region the launching surface
           occupied. See change: fix-settings-overlay-header-peek. */}
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
+        {/* Desktop too: a revoked/changed runtime plugin stays live until a reload, so the notice must be visible
+            here as well (it was mounted only in the mobile branch). See change: decouple-plugins-from-core (task 6.17). */}
+        <RuntimePluginReloadNotice />
         {/* Desktop shows only the guard-denial surface here (the mobile branch mounts the full
             banner): a plain outage keeps `connectionBanner`'s offline bar. See change: add-lan-knock-pairing. */}
         {networkDenied && (

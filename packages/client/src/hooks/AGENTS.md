@@ -5,7 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `useActiveChatSelection.ts` | `useActiveChatSelection(containerRef, mapRange) → { isSelecting, isSelectingRef, selectionSpanRef,… → see `useActiveChatSelection.ts.AGENTS.md` |
-| `useAddonIssues.ts` | Subscribes to `addon-issues-store` (plugin issues + `packages[]` health, one count for the Issues tab and the Settings rail badge); refresh on mount + `plugin-config-update`. See change: addons-hub-folder-view. |
+| `useAddonIssues.ts` | Subscribes to `addon-issues-store` (plugin issues + `packages[]` health, one count for the Issues tab and the Settings rail badge); refresh on mount + `plugin-config-update`. See change: addons-hub-folder-view. On `pi-package-event` refreshes health only; folds `plugins-changed` snapshots into plugin issues (no refetch). See change: decouple-plugins-from-core. |
 | `useFolderAddons.ts` | Folder Add-ons page state: folder catalog fetch, switch flow (no local flip before the server confirms; row error on failure), `keptOn`/`notOwned`(`removeUnowned` retry)/trust prompt (replays after `submitResourceTrust`), reload offer. See change: addons-hub-folder-view. |
 | `useAddonCatalog.ts` | `GET /api/addons/catalog` + refetch (debounced `ADDON_CATALOG_DEBOUNCE_MS`) on `pi-package-event` success and `plugin-config-update`. See change: addons-hub-feature-catalog. |
 | `useAnthropicPeerProbe.ts` | `useAnthropicPeerProbe() -> { peerMissing, peerReason, peerResolving, importFailed, refresh }` for the Anthropic OAuth row hint. → see `useAnthropicPeerProbe.ts.AGENTS.md` |

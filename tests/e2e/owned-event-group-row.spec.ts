@@ -23,7 +23,7 @@ const GROUP_LABEL = new RegExp(`${COUNT} ${OWNED_TYPE} events — .* plugin unav
 
 test.describe("owned-event group row — unavailable owner", () => {
   test("disabled subagents plugin: one collapsed row, payloads on expand", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(300_000);
 
     // Keep the browser-side socket so frames can be pushed to the page.
     let browserWs: WebSocketRoute | undefined;
@@ -36,9 +36,31 @@ test.describe("owned-event group row — unavailable owner", () => {
 
     const toggle = (enabled: boolean) =>
       page.request.post("/api/plugins/subagents/toggle", { data: { enabled } });
+    // `POST /api/plugins/:id/toggle` answers `restartRequired: true`: `/api/health`
+    // reports the plugin disabled only after a server restart, so the toggle is
+    // followed by one (the real activation path, not a shortcut).
+    const restartServer = () => page.request.post("/api/restart", { timeout: 10_000 }).catch(() => {});
+    // After a restart `/api/health` answers before the static client is fully served; wait until the
+    // entry document and every script it references load, so the next spawn does not race the boot.
+    const clientServed = async () => {
+      const html = await page.request.get("/").catch(() => null);
+      if (!html?.ok()) return false;
+      const urls = [...(await html.text()).matchAll(/(?:src|href)="(\/assets\/[^"]+\.js)"/g)].map((m) => m[1]);
+      const rs = await Promise.all(urls.map((u) => page.request.get(u).catch(() => null)));
+      return rs.every((r) => r?.ok());
+    };
+    const subagentsEnabled = async () => {
+      const res = await page.request.get("/api/health").catch(() => null);
+      if (!res?.ok()) return undefined;
+      const h = (await res.json()) as { plugins?: { id: string; enabled?: boolean }[] };
+      return h.plugins?.find((p) => p.id === "subagents")?.enabled;
+    };
 
     try {
       expect((await toggle(false)).ok()).toBeTruthy();
+      await restartServer();
+      await expect.poll(subagentsEnabled, { timeout: 120_000, intervals: [1_000] }).toBe(false);
+      await expect.poll(clientServed, { timeout: 60_000, intervals: [1_000] }).toBe(true);
 
       const card = await spawnFreshGitSession(page);
       await card.click();
@@ -50,6 +72,8 @@ test.describe("owned-event group row — unavailable owner", () => {
       await page.reload();
       await expect.poll(() => browserWs !== undefined, { timeout: 30_000 }).toBe(true);
       await page.locator(`[data-testid="session-card-desktop"][data-session-id="${sessionId}"]`).click();
+      // The subscribe replay must have landed before the synthetic frames, or it resets them away.
+      await expect(page.getByTestId("chat-scroll-container")).toBeVisible({ timeout: 30_000 });
 
       for (let i = 1; i <= COUNT; i++) {
         browserWs?.send(
@@ -75,6 +99,8 @@ test.describe("owned-event group row — unavailable owner", () => {
     } finally {
       // Restore state for suite independence.
       await toggle(true).catch(() => undefined);
+      await restartServer();
+      await expect.poll(subagentsEnabled, { timeout: 120_000, intervals: [1_000] }).toBe(true).catch(() => undefined);
     }
   });
 });

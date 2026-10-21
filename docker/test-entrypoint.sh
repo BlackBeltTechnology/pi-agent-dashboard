@@ -410,6 +410,48 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:[/] + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
   fi
 
+  # --- Browse-root seed: the add-folder dialog browses `/fixtures/sample-git`, outside $HOME ---
+  # `/api/browse*` only serves `$HOME` + pinned directories (harden-server-capability-bounds B8), so without a
+  # pin every spec that spawns a session through the dialog stalls at `add-folders-status-path`. Merge-only.
+  node -e '
+    const fs = require("node:fs");
+    const out = process.argv[1];
+    let prefs = {};
+    try { prefs = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
+    const pins = new Set(prefs.pinnedDirectories ?? []);
+    pins.add("/fixtures/sample-git");
+    prefs.pinnedDirectories = [...pins];
+    fs.mkdirSync(require("node:path").dirname(out), { recursive: true });
+    fs.writeFileSync(out, JSON.stringify(prefs) + "\n");
+  ' "${PI_DIR}/dashboard/preferences.json"
+
+  # --- Runtime-delivery canary seed (change: decouple-plugins-from-core, tasks 7.5 / 8.2) ---
+  # test-up.sh staged the prebuilt canary into ${HOST_CWD}/.pi-test-canary (built ONCE, hashed with the server's
+  # content hasher). Copy the plugin dirs next to the other user-installed plugins and merge the staged
+  # `auth.trustedPlugins` entries (empty in untrusted mode) into config.json. Never rebuilt after seeding: the pin
+  # is the staged hash. Absent stage (PI_E2E_CANARY=off) = harness unchanged.
+  CANARY_STAGE="${HOST_CWD:-}/.pi-test-canary"
+  if [ -n "${HOST_CWD:-}" ] && [ -f "${CANARY_STAGE}/manifest.json" ]; then
+    mkdir -p "${PI_DIR}/dashboard/plugins"
+    cp -a "${CANARY_STAGE}/plugins/." "${PI_DIR}/dashboard/plugins/"
+    # canary-trust-seed
+    node -e '
+      const fs = require("node:fs");
+      const [out, trustFile] = process.argv.slice(1);
+      let cfg = {};
+      try { cfg = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
+      const staged = JSON.parse(fs.readFileSync(trustFile, "utf8"));
+      const ids = new Set(staged.map((e) => e.id));
+      const kept = (cfg.auth?.trustedPlugins ?? []).filter((e) => !ids.has(e.id));
+      if (staged.length > 0) {
+        cfg.auth = { ...(cfg.auth ?? {}), trustedPlugins: [...kept, ...staged] };
+        fs.mkdirSync(require("node:path").dirname(out), { recursive: true });
+        fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+      }
+    ' "${PI_DIR}/dashboard/config.json" "${CANARY_STAGE}/auth-trust.json"
+    echo "[test-entrypoint] PI_E2E_CANARY=${PI_E2E_CANARY:-trusted}: canary staged → ${PI_DIR}/dashboard/plugins ($(ls "${PI_DIR}/dashboard/plugins" | grep -c '^runtime-canary') dirs)"
+  fi
+
   # --- Identity plane seed (PI_E2E_IDENTITY=1) ------------------------------
   # Activates the multi-user identity plane for the §11.2 E2E using a LIGHTWEIGHT
   # in-container fake OIDC issuer (packages/shared/.../fake-oidc-issuer.ts) — NOT
