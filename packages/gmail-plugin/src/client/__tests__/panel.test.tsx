@@ -280,21 +280,22 @@ describe("test-plan #X6 / #E13 — flow errors read as sentences", () => {
     await startWaitingFlow();
     const err = await screen.findByTestId("gmail-flow-error", undefined, { timeout: 2000 });
     expect(err.textContent).toMatch(/Gmail permission/);
-    expect(err.textContent).toMatch(/every permission/);
+    expect(err.textContent).toMatch(/second screen/);
+    expect(err.textContent).toMatch(/myaccount\.google\.com\/connections/);
     expect(err.dataset.step).toBe("");
   });
 });
 
 describe("test-plan #E12 — consent hint", () => {
-  it("shows the tick-every-permission hint only while a sign-in is waiting", async () => {
+  it("shows the consent hint (checkbox or second screen) only while a sign-in is waiting", async () => {
     flowFetch();
     renderPanel();
     await screen.findByTestId("gmail-add-account");
     expect(screen.queryByTestId("gmail-consent-hint")).toBeNull();
     await startWaitingFlow();
     const hint = screen.getByTestId("gmail-consent-hint");
-    expect(hint.textContent).toMatch(/tick every permission/);
-    expect(hint.textContent).toMatch(/Select all/);
+    expect(hint.textContent).toMatch(/checkbox/);
+    expect(hint.textContent).toMatch(/wants additional access/);
   });
 });
 
@@ -465,7 +466,7 @@ describe("retro-ux — account status, names and the primary action", () => {
 
 // See change: audit-plugin-bundles-non-secure-context (test-plan #F5–#F7).
 describe("gcloud Copyable", () => {
-  const UNCONFIGURED = { client: { configured: false }, accounts: [] };
+  const UNCONFIGURED = { client: { configured: false }, accounts: [], setup: { projectId: "pidashboard-510015" } };
   const stubExec = (ok: boolean) => {
     (document as unknown as { execCommand: unknown }).execCommand = vi.fn(() => ok);
   };
@@ -528,5 +529,291 @@ describe("gcloud Copyable", () => {
     await waitFor(() => expect(status(b)).toBe("Copied"));
     await act(async () => rejectA(new Error("late")));
     expect(status(b)).toBe("Copied");
+  });
+});
+
+// ── improve-gmail-plugin-setup-ux ────────────────────────────────────────────
+
+const ID_OK = "pidashboard-510015";
+const OWNER_OK = "csakany.robert@gmail.com";
+const UNCONFIGURED_STATE = { client: { configured: false }, accounts: [] as unknown[] };
+
+interface Recorded {
+  method: string;
+  url: string;
+  body: Record<string, unknown> | undefined;
+}
+
+/** Fetch fake for step-1 tests: records every call; PUT /client answers with `clientReply`. */
+function setupFetch(
+  state: unknown,
+  opts: { clientReply?: { status: number; body: unknown }; extra?: (r: Recorded) => unknown } = {},
+) {
+  const calls: Recorded[] = [];
+  const fn = vi.fn(async (url: string, init?: RequestInit) => {
+    const rec: Recorded = { method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : undefined };
+    calls.push(rec);
+    const extra = opts.extra?.(rec);
+    if (extra !== undefined) return json(extra);
+    if (url === "/api/plugins/gmail/state") return json(state);
+    if (url === "/api/plugins/gmail/setup" && rec.method === "PUT") return json({ ok: true });
+    if (url === "/api/plugins/gmail/client" && rec.method === "PUT") {
+      const r = opts.clientReply ?? { status: 200, body: { ok: true } };
+      return json(r.body, r.status);
+    }
+    return json({ error: "nope" }, 404);
+  });
+  vi.stubGlobal("fetch", fn);
+  return { calls, puts: (path: string) => calls.filter((c) => c.method === "PUT" && c.url === `/api/plugins/gmail${path}`) };
+}
+
+const projectInput = () => screen.getByTestId("gmail-project-id") as HTMLInputElement;
+const ownerInput = () => screen.getByTestId("gmail-owner-account") as HTMLInputElement;
+const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
+const leave = (el: HTMLElement) => fireEvent.focusOut(el);
+const hrefs = () => [...document.querySelectorAll("a")].map((a) => a.getAttribute("href") ?? "");
+
+async function uploadClient(projectId: string | undefined) {
+  const content = JSON.stringify({
+    installed: { client_id: "x.apps.googleusercontent.com", client_secret: "s", ...(projectId ? { project_id: projectId } : {}) },
+  });
+  const input = (await screen.findByTestId("gmail-client-upload")) as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File([content], "client_secret_1.json", { type: "application/json" })] } });
+}
+
+describe("test-plan #E7 — saved setup is restored", () => {
+  it("fields show the saved values and the mode defaults to existing", async () => {
+    setupFetch({ ...UNCONFIGURED_STATE, setup: { projectId: ID_OK, ownerAccount: OWNER_OK } });
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    expect(projectInput().value).toBe(ID_OK);
+    expect(ownerInput().value).toBe(OWNER_OK);
+    expect((screen.getByTestId("gmail-project-mode-existing") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("with nothing saved the mode defaults to new", async () => {
+    setupFetch(UNCONFIGURED_STATE);
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    expect((screen.getByTestId("gmail-project-mode-new") as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+describe("test-plan #E8 — a display name is explained, not used", () => {
+  it("shows no error while typing; after blur names the id/name difference with a project-list link", async () => {
+    const h = setupFetch(UNCONFIGURED_STATE);
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    type(projectInput(), "PiDashboard");
+    expect(screen.queryByTestId("gmail-project-error")).toBeNull();
+    expect(screen.getByTestId("gmail-need-project-id")).toBeTruthy();
+    leave(projectInput());
+    const err = await screen.findByTestId("gmail-project-error");
+    expect(err.textContent).toMatch(/project name/i);
+    expect(err.textContent).toMatch(/project id/i);
+    expect(projectInput().getAttribute("aria-invalid")).toBe("true");
+    expect(projectInput().getAttribute("aria-describedby")?.split(" ")).toContain(err.id);
+    const hint = document.getElementById(`${err.id.replace(/-error$/, "")}-hint`) as HTMLElement;
+    expect(within(hint).getByRole("link").getAttribute("href")).toContain("cloud-resource-manager");
+    expect(h.puts("/setup")).toHaveLength(0);
+    expect(hrefs().some((x) => x.includes("project=PiDashboard"))).toBe(false);
+    expect(document.body.textContent).not.toContain("<project-id>");
+  });
+});
+
+describe("test-plan #E9 — the error clears on the valid keystroke", () => {
+  it("clears when the value turns valid; the next blur saves once", async () => {
+    const h = setupFetch(UNCONFIGURED_STATE);
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    type(projectInput(), "pid");
+    leave(projectInput());
+    await screen.findByTestId("gmail-project-error");
+    expect(h.puts("/setup")).toHaveLength(0);
+    type(projectInput(), ID_OK);
+    expect(screen.queryByTestId("gmail-project-error")).toBeNull();
+    leave(projectInput());
+    await waitFor(() => expect(h.puts("/setup")).toHaveLength(1));
+    expect(h.puts("/setup")[0]?.body).toEqual({ projectId: ID_OK });
+  });
+});
+
+describe("test-plan #E10 — new vs existing project path", () => {
+  it("create link + command only in new; project list + gcloud projects list only in existing; enable in both", async () => {
+    setupFetch({ ...UNCONFIGURED_STATE, setup: { projectId: ID_OK } });
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    const text = () => document.body.textContent ?? "";
+    // existing (default: a project id is saved)
+    expect(text()).toContain("gcloud projects list");
+    expect(hrefs().some((x) => x.includes("cloud-resource-manager"))).toBe(true);
+    expect(text()).not.toContain(`gcloud projects create ${ID_OK}`);
+    expect(hrefs().some((x) => x.includes("/projectcreate"))).toBe(false);
+    expect(text()).toContain(`gcloud services enable gmail.googleapis.com --project ${ID_OK}`);
+    fireEvent.click(screen.getByTestId("gmail-project-mode-new"));
+    expect(text()).toContain(`gcloud projects create ${ID_OK}`);
+    expect(hrefs().some((x) => x.includes("/projectcreate"))).toBe(true);
+    expect(text()).not.toContain("gcloud projects list");
+    expect(text()).toContain(`gcloud services enable gmail.googleapis.com --project ${ID_OK}`);
+  });
+});
+
+describe("test-plan #E11 — owner account", () => {
+  it("a valid owner adds the auth-login command with its note; an invalid one is flagged and not applied", async () => {
+    setupFetch({ ...UNCONFIGURED_STATE, setup: { projectId: ID_OK } });
+    renderPanel();
+    await screen.findByTestId("gmail-owner-account");
+    type(ownerInput(), OWNER_OK);
+    expect(screen.getByTestId("gmail-auth-login-note").textContent).toMatch(/once first|first/i);
+    expect(document.body.textContent).toContain(`gcloud auth login ${OWNER_OK}`);
+    expect(document.body.textContent).toContain(`--account ${OWNER_OK}`);
+    expect(hrefs().some((x) => x.includes("authuser=csakany.robert%40gmail.com"))).toBe(true);
+    type(ownerInput(), "robson@");
+    leave(ownerInput());
+    expect(await screen.findByTestId("gmail-owner-error")).toBeTruthy();
+    expect(screen.queryByTestId("gmail-auth-login-note")).toBeNull();
+    expect(document.body.textContent).not.toContain("--account");
+    expect(hrefs().some((x) => x.includes("authuser"))).toBe(false);
+  });
+});
+
+describe("test-plan #E12 — uploaded client vs saved project id", () => {
+  it("different ids → mismatch naming both, with a one-click replace", async () => {
+    const h = setupFetch({ ...UNCONFIGURED_STATE, setup: { projectId: ID_OK } }, { clientReply: { status: 200, body: { ok: true, projectId: "other-project-123" } } });
+    renderPanel();
+    await uploadClient("other-project-123");
+    const notice = await screen.findByTestId("gmail-project-mismatch");
+    expect(notice.textContent).toContain(ID_OK);
+    expect(notice.textContent).toContain("other-project-123");
+    expect(h.puts("/setup")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Use other-project-123" }));
+    await waitFor(() => expect(h.puts("/setup")).toHaveLength(1));
+    expect(h.puts("/setup")[0]?.body).toEqual({ projectId: "other-project-123" });
+    expect(screen.queryByTestId("gmail-project-mismatch")).toBeNull();
+  });
+
+  it("nothing saved → the client's id is adopted, no notice", async () => {
+    const h = setupFetch(UNCONFIGURED_STATE, { clientReply: { status: 200, body: { ok: true, projectId: ID_OK } } });
+    renderPanel();
+    await uploadClient(ID_OK);
+    await waitFor(() => expect(h.puts("/setup")).toHaveLength(1));
+    expect(h.puts("/setup")[0]?.body).toEqual({ projectId: ID_OK });
+    expect(screen.queryByTestId("gmail-project-mismatch")).toBeNull();
+    expect(projectInput().value).toBe(ID_OK);
+  });
+
+  it.each([
+    ["the JSON has no usable project id", undefined],
+    ["the JSON id equals the saved id", ID_OK],
+  ])("%s → no PUT /setup, no notice", async (_label, jsonId) => {
+    const h = setupFetch({ ...UNCONFIGURED_STATE, setup: { projectId: ID_OK } }, { clientReply: { status: 200, body: { ok: true, ...(jsonId ? { projectId: jsonId } : {}) } } });
+    renderPanel();
+    await uploadClient(jsonId);
+    await waitFor(() => expect(h.puts("/client")).toHaveLength(1));
+    await sleep(20);
+    expect(h.puts("/setup")).toHaveLength(0);
+    expect(screen.queryByTestId("gmail-project-mismatch")).toBeNull();
+  });
+});
+
+describe("test-plan #E13 — a typed id is saved before the upload is compared", () => {
+  it("PUT /setup precedes PUT /client and the notice names both ids", async () => {
+    const h = setupFetch(UNCONFIGURED_STATE, { clientReply: { status: 200, body: { ok: true, projectId: "other-project-123" } } });
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    type(projectInput(), ID_OK); // typed, never blurred
+    await uploadClient("other-project-123");
+    const notice = await screen.findByTestId("gmail-project-mismatch");
+    const order = h.calls.filter((c) => c.method === "PUT").map((c) => c.url);
+    expect(order.indexOf("/api/plugins/gmail/setup")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("/api/plugins/gmail/setup")).toBeLessThan(order.indexOf("/api/plugins/gmail/client"));
+    expect(notice.textContent).toContain(ID_OK);
+    expect(notice.textContent).toContain("other-project-123");
+  });
+
+  it("a failed flush aborts the upload", async () => {
+    const puts: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "PUT") puts.push(url);
+        if (url.endsWith("/state")) return json(UNCONFIGURED_STATE);
+        if (url.endsWith("/setup")) return json({ error: "boom" }, 500);
+        return json({ ok: true });
+      }),
+    );
+    renderPanel();
+    await screen.findByTestId("gmail-project-id");
+    type(projectInput(), ID_OK);
+    await uploadClient(ID_OK);
+    const err = await screen.findByTestId("gmail-upload-error");
+    expect(err.dataset.step).toBe("1");
+    expect(puts.some((u) => u.endsWith("/client"))).toBe(false);
+  });
+});
+
+describe("test-plan #E14 — client_in_use keeps its own path", () => {
+  it("shows the in-use error at step 5, no mismatch, and no compare PUT /setup", async () => {
+    const h = setupFetch(
+      { client: { configured: true, clientId: "x.apps.googleusercontent.com" }, accounts: [STATE.accounts[0]], setup: { projectId: ID_OK } },
+      { clientReply: { status: 409, body: { error: "client_in_use", step: 5 } } },
+    );
+    renderPanel();
+    await uploadClient("other-project-123");
+    const err = await screen.findByTestId("gmail-upload-error");
+    expect(err.dataset.step).toBe("5");
+    expect(screen.queryByTestId("gmail-project-mismatch")).toBeNull();
+    expect(h.puts("/setup")).toHaveLength(0);
+  });
+});
+
+describe("test-plan #E15 — step-1 fields carry a real hint", () => {
+  it.each([["gmail-project-id"], ["gmail-owner-account"]])("%s has a non-empty hint referenced by aria-describedby", async (testId) => {
+    setupFetch(UNCONFIGURED_STATE);
+    renderPanel();
+    const input = (await screen.findByTestId(testId)) as HTMLInputElement;
+    const ids = (input.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    expect(ids.length).toBeGreaterThan(0);
+    const hint = document.getElementById(ids[0] as string) as HTMLElement;
+    expect(hint.textContent?.trim().length).toBeGreaterThan(10);
+  });
+});
+
+describe("test-plan #E31 — filters control", () => {
+  const FILTER_STATE = {
+    client: { configured: true, clientId: "x.apps.googleusercontent.com" },
+    accounts: [{ sub: "s9", email: "anna@blackbelt.hu", tier: "send", status: "ok", addedAt: 1 }],
+  };
+
+  it("is named after the account, toggles on then off through POST, and shows no flow on off", async () => {
+    const h = setupFetch(FILTER_STATE, {
+      extra: (r) => (r.url.endsWith("/accounts/s9/filters") ? { applied: true } : undefined),
+    });
+    renderPanel();
+    const box = (await screen.findByRole("checkbox", { name: "Filters for anna@blackbelt.hu" })) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    await waitFor(() => expect(box.checked).toBe(true));
+    fireEvent.click(box);
+    await waitFor(() => expect(box.checked).toBe(false));
+    const posts = h.calls.filter((c) => c.method === "POST" && c.url.endsWith("/accounts/s9/filters"));
+    expect(posts.map((p) => p.body)).toEqual([{ enabled: true }, { enabled: false }]);
+    expect(screen.queryByTestId("flow-view")).toBeNull();
+  });
+
+  it("turning on that needs consent starts the sign-in flow", async () => {
+    setupFetch(FILTER_STATE, { extra: (r) => (r.url.endsWith("/accounts/s9/filters") ? { flowId: "f1" } : undefined) });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/state")) return json(FILTER_STATE);
+        if (url.endsWith("/accounts/s9/filters")) return json({ flowId: "f1" });
+        if (url === FLOW_URL) return json(pendingStatus);
+        return json({}, 404);
+      }),
+    );
+    renderPanel();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Filters for anna@blackbelt.hu" }));
+    expect(await screen.findByTestId("flow-view")).toBeTruthy();
   });
 });

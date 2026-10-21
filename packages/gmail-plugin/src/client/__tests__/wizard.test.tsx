@@ -153,31 +153,56 @@ describe("test-plan #E6 — audience step explains Internal vs External", () => 
   });
 });
 
-describe("E3 — deep links", () => {
-  it("links carry ?project=<id>; gcloud commands contain the id", () => {
-    const l = consoleLinks("my-proj-1");
-    for (const u of [l.branding, l.audience, l.clientCreate, l.gmailApi]) expect(u).toContain("?project=my-proj-1");
-    expect(l.branding).toBe("https://console.cloud.google.com/auth/branding?project=my-proj-1");
-    expect(l.audience).toBe("https://console.cloud.google.com/auth/audience?project=my-proj-1");
-    expect(l.clientCreate).toBe("https://console.cloud.google.com/auth/clients/create?project=my-proj-1");
-    expect(gcloudCommands("my-proj-1")).toEqual([
-      "gcloud projects create my-proj-1",
-      "gcloud services enable gmail.googleapis.com --project my-proj-1",
-    ]);
+const VALID_ID = "pidashboard-510015";
+const VALID_OWNER = "csakany.robert@gmail.com";
+const IDS: Array<[string, string]> = [["valid", VALID_ID], ["name", "PiDashboard"], ["empty", ""]];
+const OWNERS: Array<[string, string]> = [["valid", VALID_OWNER], ["invalid", "robson@"], ["empty", ""]];
+
+describe("test-plan #E3 (improve-gmail-plugin-setup-ux) — console links", () => {
+  describe.each(IDS)("project id %s", (idKind, id) => {
+    it.each(OWNERS)(`× owner %s`, (ownerKind, owner) => {
+      const l = consoleLinks(id, owner);
+      // project-scoped links exist only for a valid id; create/list always exist and are never project-scoped
+      const scoped = [l.gmailApi, l.branding, l.audience, l.clientCreate];
+      for (const u of scoped) {
+        if (idKind === "valid") expect(u).toContain(`project=${VALID_ID}`);
+        else expect(u).toBeNull();
+      }
+      expect(l.projectCreate).toContain("https://console.cloud.google.com/projectcreate");
+      expect(l.projectList).toContain("https://console.cloud.google.com/cloud-resource-manager");
+      for (const u of [l.projectCreate, l.projectList]) expect(u).not.toContain("project=");
+      // authuser (URL-encoded) on every non-null link, only for a valid owner
+      for (const u of [l.projectCreate, l.projectList, ...scoped]) {
+        if (u === null) continue;
+        if (ownerKind === "valid") expect(u).toContain("authuser=csakany.robert%40gmail.com");
+        else expect(u).not.toContain("authuser");
+      }
+      // a display name never becomes a project parameter
+      for (const u of [l.projectCreate, l.projectList, ...scoped]) expect(u ?? "").not.toContain("project=PiDashboard");
+    });
   });
 
-  it("renders the links for the typed project id", () => {
-    render(<SetupWizard state={{ client: { configured: false }, accounts: [] }} highlight={null} onUploaded={vi.fn()} />);
-    fireEvent.change(screen.getByTestId("gmail-project-id"), { target: { value: "my-proj-1" } });
-    const hrefs = [...document.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    expect(hrefs).toContain("https://console.cloud.google.com/auth/branding?project=my-proj-1");
-    expect(document.body.textContent).toContain("gcloud services enable gmail.googleapis.com --project my-proj-1");
+  it("builds the exact deep links for a valid id and owner", () => {
+    const l = consoleLinks(` ${VALID_ID} `, ` ${VALID_OWNER.toUpperCase()} `);
+    expect(l.branding).toBe(`https://console.cloud.google.com/auth/branding?project=${VALID_ID}&authuser=csakany.robert%40gmail.com`);
   });
+});
 
-  it("an invalid project id never reaches a gcloud command", () => {
-    expect(gcloudCommands("x; rm -rf /")).toEqual([
-      "gcloud projects create <project-id>",
-      "gcloud services enable gmail.googleapis.com --project <project-id>",
-    ]);
+describe("test-plan #E4 (improve-gmail-plugin-setup-ux) — gcloud commands", () => {
+  describe.each(IDS)("project id %s", (idKind, id) => {
+    it.each(OWNERS)(`× owner %s`, (ownerKind, owner) => {
+      const c = gcloudCommands(id, owner);
+      const acct = ownerKind === "valid" ? ` --account ${VALID_OWNER}` : "";
+      expect(c.projectsList).toBe(`gcloud projects list${acct}`);
+      if (idKind === "valid") {
+        expect(c.create).toBe(`gcloud projects create ${VALID_ID}${acct}`);
+        expect(c.enable).toBe(`gcloud services enable gmail.googleapis.com --project ${VALID_ID}${acct}`);
+      } else {
+        expect(c.create).toBeNull();
+        expect(c.enable).toBeNull();
+      }
+      expect(c.authLogin).toBe(ownerKind === "valid" ? `gcloud auth login ${VALID_OWNER}` : null);
+      expect(JSON.stringify(c)).not.toContain("<project-id>");
+    });
   });
 });

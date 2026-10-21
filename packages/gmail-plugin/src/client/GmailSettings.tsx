@@ -35,13 +35,30 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { validateClientJson } from "../shared/client-json.js";
 import type { AccountInfo } from "../shared/protocol.js";
 import { TIERS, type Tier } from "../shared/scopes.js";
-import { consoleLinks, ERROR_EN, errorKey, errorStep, gcloudCommands, type WizardStep } from "./wizard.js";
+import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../shared/setup.js";
+import {
+  AUDIENCE_HELP_EN,
+  CONSENT_HINT_EN,
+  consoleLinks,
+  ERROR_EN,
+  errorKey,
+  errorStep,
+  gcloudCommands,
+  type WizardStep,
+} from "./wizard.js";
 
 const API = "/api/plugins/gmail";
 
 interface GmailState {
   client: { configured: boolean; clientId?: string; projectId?: string };
   accounts: AccountInfo[];
+  /** Saved setup fields (`plugins.gmail`); absent from older servers. */
+  setup?: { projectId?: string; ownerAccount?: string };
+}
+
+interface SavedSetup {
+  projectId: string;
+  ownerAccount: string;
 }
 
 type FlowState = React.ComponentProps<ReturnType<typeof useUiPrimitive<"ui:oauth-flow">>>["flow"];
@@ -125,6 +142,17 @@ function Copyable({ value }: { value: string }) {
   );
 }
 
+/** A project-scoped link, or the "valid project id needed" statement while the id is empty or invalid. */
+function ProjectLink({ href, label, step }: { href: string | null; label: string; step: WizardStep }) {
+  const t = useT();
+  if (href) return <StepLink href={href} label={label} />;
+  return (
+    <div className={muted} data-testid={`gmail-need-project-id-step-${step}`}>
+      {t("needValidProjectId", undefined, "A valid project id is needed before the project links and commands appear.")}
+    </div>
+  );
+}
+
 function StepLink({ href, label }: { href: string; label: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" className="focus-ring text-xs text-[var(--accent-text)] underline">
@@ -186,24 +214,109 @@ export function SetupWizard({
   onUploaded: () => void;
 }) {
   const t = useT();
-  const [projectId, setProjectId] = useState(state.client.projectId ?? "");
+  const savedSetup = useRef<SavedSetup>({
+    projectId: state.setup?.projectId ?? "",
+    ownerAccount: state.setup?.ownerAccount ?? "",
+  });
+  const [projectId, setProjectId] = useState(state.setup?.projectId ?? state.client.projectId ?? "");
+  const [owner, setOwner] = useState(state.setup?.ownerAccount ?? "");
+  // Presentational only (design D2): `existing` by default once a project id is known.
+  const [mode, setMode] = useState<"new" | "existing">(state.setup?.projectId || state.client.projectId ? "existing" : "new");
+  // Validation errors appear on blur only and clear the moment the value turns valid.
+  const [projectErr, setProjectErr] = useState<"looks_like_name" | "invalid" | null>(null);
+  const [ownerErr, setOwnerErr] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [mismatch, setMismatch] = useState<{ saved: string; json: string } | null>(null);
   const [uploadError, setUploadError] = useState<{ code: string; step: WizardStep } | null>(null);
-  const links = consoleLinks(projectId.trim());
-  const [cmdCreate, cmdEnable] = gcloudCommands(projectId.trim());
+  const links = consoleLinks(projectId, owner);
+  const cmds = gcloudCommands(projectId, owner);
   const [focus, setFocus] = useState<WizardStep | null>(highlight);
   useEffect(() => setFocus(highlight ?? uploadError?.step ?? null), [highlight, uploadError]);
 
+  /** Persist setup fields; rejects on failure. The reply (normalized values) is what counts as saved. */
+  const saveSetup = async (partial: Partial<SavedSetup>): Promise<void> => {
+    const r = await api<{ setup?: { projectId?: string; ownerAccount?: string } }>("/setup", {
+      method: "PUT",
+      body: JSON.stringify(partial),
+    });
+    savedSetup.current = r.setup
+      ? { projectId: r.setup.projectId ?? "", ownerAccount: r.setup.ownerAccount ?? "" }
+      : { ...savedSetup.current, ...partial };
+  };
+  const saveOnBlur = (partial: Partial<SavedSetup>) => {
+    setSaveError(null);
+    saveSetup(partial).catch((err: unknown) => setSaveError((err as { code?: string }).code ?? (err as Error).message));
+  };
+
+  const onProjectChange = (v: string) => {
+    setProjectId(v);
+    if (!v.trim() || classifyProjectId(v) === "ok") setProjectErr(null);
+  };
+  const onProjectBlur = () => {
+    const cls = classifyProjectId(projectId);
+    if (cls === "looks_like_name" || cls === "invalid") {
+      setProjectErr(cls);
+      return;
+    }
+    setProjectErr(null);
+    const next = cls === "ok" ? normalizeProjectId(projectId) : "";
+    if (next !== savedSetup.current.projectId) saveOnBlur({ projectId: next });
+  };
+  const onOwnerChange = (v: string) => {
+    setOwner(v);
+    if (!v.trim() || isEmail(normalizeEmail(v))) setOwnerErr(false);
+  };
+  const onOwnerBlur = () => {
+    const email = normalizeEmail(owner);
+    if (email && !isEmail(email)) {
+      setOwnerErr(true);
+      return;
+    }
+    setOwnerErr(false);
+    if (email !== savedSetup.current.ownerAccount) saveOnBlur({ ownerAccount: email });
+  };
+  const useJsonProject = () => {
+    if (!mismatch) return;
+    const id = mismatch.json;
+    setMismatch(null);
+    setProjectId(id);
+    setProjectErr(null);
+    saveOnBlur({ projectId: id });
+  };
+
   const upload = async (file: File) => {
     setUploadError(null);
+    setMismatch(null);
     const textContent = await file.text();
     const local = validateClientJson(textContent);
     if (!local.ok) {
       setUploadError({ code: local.error.code, step: local.error.step });
       return;
     }
+    // Flush a valid, unsaved typed id first (removes the blur/upload race); a failed
+    // save aborts the upload so the comparison never runs against a stale id.
+    if (classifyProjectId(projectId) === "ok" && normalizeProjectId(projectId) !== savedSetup.current.projectId) {
+      try {
+        await saveSetup({ projectId: normalizeProjectId(projectId) });
+      } catch {
+        setUploadError({ code: "setup_save_failed", step: 1 });
+        return;
+      }
+    }
     try {
-      await api("/client", { method: "PUT", body: JSON.stringify({ json: JSON.parse(textContent) }) });
-      if (local.client.projectId && !projectId) setProjectId(local.client.projectId);
+      const reply = await api<{ projectId?: string }>("/client", { method: "PUT", body: JSON.stringify({ json: JSON.parse(textContent) }) });
+      const jsonId = reply.projectId;
+      if (jsonId) {
+        const savedId = savedSetup.current.projectId;
+        if (!savedId) {
+          // Nothing saved yet: adopt the client's project id.
+          setProjectId(jsonId);
+          setProjectErr(null);
+          saveOnBlur({ projectId: jsonId });
+        } else if (savedId !== jsonId) {
+          setMismatch({ saved: savedId, json: jsonId });
+        }
+      }
       onUploaded();
     } catch (err) {
       const code = (err as { code?: string }).code ?? "upload_failed";
@@ -227,40 +340,161 @@ export function SetupWizard({
       "Accounts are connected with the current client. Revoke them first, then upload a different client.",
     ),
     missing_secret: t("errMissingSecret", undefined, "The file has no client secret. Download it again from the client page (step 5)."),
+    setup_save_failed: t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1)."),
   };
+  const projectErrText =
+    projectErr === "looks_like_name"
+      ? t(
+          "errProjectLooksLikeName",
+          undefined,
+          "That looks like the project name. The wizard needs the project id (lower-case, for example pidashboard-510015): open the project list and copy the ID column.",
+        )
+      : projectErr === "invalid"
+        ? t(
+            "errProjectInvalid",
+            undefined,
+            "A project id is 6–30 characters: lower-case letters, digits and hyphens, starting with a letter and not ending with a hyphen.",
+          )
+        : null;
 
   return (
     <ol className="m-0 flex list-none flex-col p-0" data-testid="gmail-wizard">
       <WizardStepItem n={1} title={t("step1", undefined, "1. Google Cloud project + Gmail API")} current={current === 1} done={isDone(1)}>
-        <TextField
-          label={t("projectId", undefined, "Project id")}
-          hint={null}
-          mono
-          value={projectId}
-          onChange={setProjectId}
-          placeholder="my-gmail-agent"
-          testIds={{ control: "gmail-project-id" }}
-        />
-        <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
-        <div className="flex gap-3">
-          <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
-          <StepLink href={links.gmailApi} label={t("enableGmail", undefined, "Enable the Gmail API")} />
+        <fieldset className="m-0 flex flex-wrap items-center gap-3 border-0 p-0" data-testid="gmail-project-mode">
+          <legend className="sr-only">{t("projectModeLegend", undefined, "Project")}</legend>
+          {(["new", "existing"] as const).map((m) => (
+            <label key={m} className={`${muted} flex items-center gap-1`}>
+              <input
+                type="radio"
+                name="gmail-project-mode"
+                value={m}
+                checked={mode === m}
+                onChange={() => setMode(m)}
+                className="focus-ring"
+                data-testid={`gmail-project-mode-${m}`}
+              />
+              {m === "new" ? t("projectModeNew", undefined, "Create a new project") : t("projectModeExisting", undefined, "Use an existing project")}
+            </label>
+          ))}
+        </fieldset>
+        <div onBlur={onProjectBlur}>
+          <TextField
+            label={t("projectId", undefined, "Project id")}
+            hint={
+              <>
+                {t(
+                  "projectIdHint",
+                  undefined,
+                  "The id of your Google Cloud project, not its display name: lower-case letters, digits and hyphens, for example my-gmail-agent. The console's project list shows both; the id is in the ID column.",
+                )}
+                {projectErr === "looks_like_name" && (
+                  <>
+                    {" "}
+                    <StepLink href={links.projectList} label={t("openProjectList", undefined, "Open the project list")} />
+                  </>
+                )}
+              </>
+            }
+            error={projectErrText}
+            mono
+            value={projectId}
+            onChange={onProjectChange}
+            placeholder="my-gmail-agent"
+            testIds={{ control: "gmail-project-id", error: "gmail-project-error" }}
+          />
         </div>
-        <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
-        <Copyable value={cmdCreate as string} />
-        <Copyable value={cmdEnable as string} />
+        <div onBlur={onOwnerBlur}>
+          <TextField
+            label={t("ownerAccount", undefined, "Owner account (optional)")}
+            hint={t(
+              "ownerHint",
+              undefined,
+              "The Google account that owns the project. Console links and gcloud commands then act as this account instead of your browser's default one.",
+            )}
+            error={ownerErr ? t("errOwnerInvalid", undefined, "Enter a full email address, for example you@gmail.com.") : null}
+            value={owner}
+            onChange={onOwnerChange}
+            placeholder="you@gmail.com"
+            testIds={{ control: "gmail-owner-account", error: "gmail-owner-error" }}
+          />
+        </div>
+        {saveError && (
+          <div role="alert" className={errorText} data-testid="gmail-setup-save-error">
+            {t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1).")} ({saveError})
+          </div>
+        )}
+        {mismatch && (
+          <SettingsNotice tone="error" testId="gmail-project-mismatch">
+            <div className="flex flex-col gap-1">
+              <span>
+                {t(
+                  "projectMismatch",
+                  { saved: mismatch.saved, json: mismatch.json },
+                  `The uploaded client belongs to project ${mismatch.json}, but the saved project id is ${mismatch.saved}.`,
+                )}
+              </span>
+              <span>
+                <button type="button" className={btn} data-testid="gmail-project-mismatch-use" onClick={useJsonProject}>
+                  {t("projectMismatchUse", { id: mismatch.json }, `Use ${mismatch.json}`)}
+                </button>
+              </span>
+            </div>
+          </SettingsNotice>
+        )}
+        {cmds.authLogin && (
+          <>
+            <div className={muted} data-testid="gmail-auth-login-note">
+              {t("authLoginNote", undefined, "Run this once first, so gcloud can act as the owner account:")}
+            </div>
+            <Copyable value={cmds.authLogin} />
+          </>
+        )}
+        {mode === "new" ? (
+          <>
+            <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
+            <div className="flex gap-3">
+              <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
+            </div>
+            {cmds.create && (
+              <>
+                <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
+                <Copyable value={cmds.create} />
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <div className={muted}>{t("findProject", undefined, "Find your project's id:")}</div>
+            <div className="flex gap-3">
+              <StepLink href={links.projectList} label={t("openProjectList", undefined, "Open the project list")} />
+            </div>
+            <Copyable value={cmds.projectsList} />
+          </>
+        )}
+        {links.gmailApi && cmds.enable ? (
+          <>
+            <div className="flex gap-3">
+              <StepLink href={links.gmailApi} label={t("enableGmail", undefined, "Enable the Gmail API")} />
+            </div>
+            <Copyable value={cmds.enable} />
+          </>
+        ) : (
+          <div className={muted} data-testid="gmail-need-project-id">
+            {t("needValidProjectId", undefined, "A valid project id is needed before the project links and commands appear.")}
+          </div>
+        )}
       </WizardStepItem>
       <WizardStepItem n={2} title={t("step2", undefined, "2. Branding")} current={current === 2} done={isDone(2)}>
-        <StepLink href={links.branding} label={t("openBranding", undefined, "Open Branding")} />
+        <ProjectLink href={links.branding} label={t("openBranding", undefined, "Open Branding")} step={2} />
         <div className={muted}>{t("fallback2", undefined, "If the link moved: APIs & Services → OAuth consent screen.")}</div>
       </WizardStepItem>
       <WizardStepItem n={3} title={t("step3", undefined, "3. Audience + test users")} current={current === 3} done={isDone(3)}>
-        <StepLink href={links.audience} label={t("openAudience", undefined, "Open Audience")} />
+        <ProjectLink href={links.audience} label={t("openAudience", undefined, "Open Audience")} step={3} />
         <div className={muted}>
           {t(
             "audienceHelp",
             undefined,
-            "Internal admits only accounts of the project's own Workspace organization: choose it only when every account you will connect belongs to that organization. Otherwise choose External and add every address you will connect as a test user. In Testing, tokens expire after 7 days; “Publish app” gives longer-lived tokens with an unverified-app warning.",
+            AUDIENCE_HELP_EN,
           )}
         </div>
         <div className={muted}>
@@ -272,7 +506,7 @@ export function SetupWizard({
         </div>
       </WizardStepItem>
       <WizardStepItem n={4} title={t("step4", undefined, "4. Desktop OAuth client")} current={current === 4} done={isDone(4)}>
-        <StepLink href={links.clientCreate} label={t("openClients", undefined, "Create client")} />
+        <ProjectLink href={links.clientCreate} label={t("openClients", undefined, "Create client")} step={4} />
         <div className={muted}>
           {t("clientHelp", undefined, "Application type: Desktop app. Download the JSON. If the link moved: APIs & Services → Credentials.")}
         </div>
@@ -348,6 +582,8 @@ function AccountRow({
   const [msg, setMsg] = useState<string | null>(null);
   const [aliasMsg, setAliasMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [filtersOn, setFiltersOn] = useState(acct.filters === true);
+  useEffect(() => setFiltersOn(acct.filters === true), [acct.filters]);
   const run = async (fn: () => Promise<void>) => {
     setMsg(null);
     try {
@@ -364,6 +600,18 @@ function AccountRow({
       });
       if (r.flowId) onFlow(r.flowId);
       else onChanged();
+    });
+  const toggleFilters = (enabled: boolean) =>
+    run(async () => {
+      const r = await api<{ applied?: boolean; flowId?: string }>(`/accounts/${encodeURIComponent(acct.sub)}/filters`, {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      });
+      if (r.flowId) onFlow(r.flowId);
+      else {
+        setFiltersOn(enabled);
+        onChanged();
+      }
     });
   const saveAlias = async () => {
     try {
@@ -450,6 +698,17 @@ function AccountRow({
             ))}
           </select>
         </label>
+        <label className={`${muted} flex items-center gap-1`}>
+          <input
+            type="checkbox"
+            className="focus-ring"
+            data-testid="gmail-account-filters"
+            aria-label={t("filtersFor", { email: acct.email }, `Filters for ${acct.email}`)}
+            checked={filtersOn}
+            onChange={(e) => void toggleFilters(e.target.checked)}
+          />
+          {t("filtersLabel", undefined, "Filters")}
+        </label>
         <button
           type="button"
           className={btn}
@@ -480,6 +739,13 @@ function AccountRow({
           </span>
         )}
       </div>
+      <p className={`${muted} m-0`} data-testid="gmail-account-filters-help">
+        {t(
+          "filtersHelp",
+          undefined,
+          "Filters let agents list, create and delete Gmail filters. Turning them on asks Google for one extra permission (gmail.settings.basic); creating and deleting also need level send.",
+        )}
+      </p>
       {confirming && (
         <ConfirmDialog
           message={t(
@@ -710,7 +976,7 @@ export function GmailSettings() {
               {t(
                 "consentHint",
                 undefined,
-                "On Google's consent screen tick every permission (Select all). The Gmail permission may start unticked.",
+                CONSENT_HINT_EN,
               )}
             </p>
             <OAuthFlow

@@ -6,41 +6,76 @@
  * See change: improve-gmail-settings-ux.
  */
 import { type FlowCode, knownFlowCode } from "../shared/flow-codes.js";
+import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../shared/setup.js";
 
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
 
 const CONSOLE = "https://console.cloud.google.com";
 
 export interface ConsoleLinks {
+  /** Never project-scoped: carries only `authuser`. */
   projectCreate: string;
-  gmailApi: string;
-  branding: string;
-  audience: string;
-  clientCreate: string;
+  /** Console project picker (find the project id); never project-scoped. */
+  projectList: string;
+  /** Project-scoped links: `null` until the project id is valid. */
+  gmailApi: string | null;
+  branding: string | null;
+  audience: string | null;
+  clientCreate: string | null;
 }
 
-/** Deep links carrying `?project=<id>` (encoded). */
-export function consoleLinks(projectId: string): ConsoleLinks {
-  const q = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+/** The owner account when it is a valid email (normalized), else `undefined`. */
+function validOwner(owner: string | undefined): string | undefined {
+  if (!owner) return undefined;
+  const email = normalizeEmail(owner);
+  return isEmail(email) ? email : undefined;
+}
+
+/**
+ * Console deep links (design D3). Project-scoped links exist only for a valid
+ * project id and carry `project`; every non-null link carries `authuser` when
+ * the owner account is a valid email. Query values are URL-encoded.
+ */
+export function consoleLinks(projectId: string, owner?: string): ConsoleLinks {
+  const email = validOwner(owner);
+  const id = classifyProjectId(projectId) === "ok" ? normalizeProjectId(projectId) : undefined;
+  const url = (path: string, withProject: boolean): string => {
+    const q = new URLSearchParams();
+    if (withProject && id) q.set("project", id);
+    if (email) q.set("authuser", email);
+    const qs = q.toString();
+    return `${CONSOLE}${path}${qs ? `?${qs}` : ""}`;
+  };
   return {
-    projectCreate: `${CONSOLE}/projectcreate`,
-    gmailApi: `${CONSOLE}/apis/library/gmail.googleapis.com${q}`,
-    branding: `${CONSOLE}/auth/branding${q}`,
-    audience: `${CONSOLE}/auth/audience${q}`,
-    clientCreate: `${CONSOLE}/auth/clients/create${q}`,
+    projectCreate: url("/projectcreate", false),
+    projectList: url("/cloud-resource-manager", false),
+    gmailApi: id ? url("/apis/library/gmail.googleapis.com", true) : null,
+    branding: id ? url("/auth/branding", true) : null,
+    audience: id ? url("/auth/audience", true) : null,
+    clientCreate: id ? url("/auth/clients/create", true) : null,
   };
 }
 
-const PROJECT_ID_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
-
-function isValidProjectId(id: string): boolean {
-  return PROJECT_ID_RE.test(id);
+export interface GcloudCommands {
+  /** `gcloud auth login <email>` — only with a valid owner; run it once first. */
+  authLogin: string | null;
+  projectsList: string;
+  /** `null` until the project id is valid (never a placeholder). */
+  create: string | null;
+  enable: string | null;
 }
 
-/** Copyable gcloud commands (only for a syntactically valid project id). */
-export function gcloudCommands(projectId: string): string[] {
-  const id = isValidProjectId(projectId) ? projectId : "<project-id>";
-  return [`gcloud projects create ${id}`, `gcloud services enable gmail.googleapis.com --project ${id}`];
+/** Copyable gcloud commands (design D3); `--account <email>` on every command but `auth login`. */
+export function gcloudCommands(projectId: string, owner?: string): GcloudCommands {
+  const email = validOwner(owner);
+  const id = classifyProjectId(projectId) === "ok" ? normalizeProjectId(projectId) : undefined;
+  const acct = (cmd: string): string => (email ? `${cmd} --account ${email}` : cmd);
+  return {
+    authLogin: email ? `gcloud auth login ${email}` : null,
+    projectsList: acct("gcloud projects list"),
+    create: id ? acct(`gcloud projects create ${id}`) : null,
+    enable: id ? acct(`gcloud services enable gmail.googleapis.com --project ${id}`) : null,
+  };
 }
 
 /**
@@ -109,7 +144,7 @@ export const ERROR_EN: Record<string, string> = {
   errRedirectMismatch: "Google rejected the redirect address. Create a Desktop app client, not a Web client (step 4).",
   errInvalidClient: "Google does not recognise the OAuth client. Download its JSON again and upload it (step 5).",
   errScopeMissing:
-    "Google did not grant the Gmail permission. Add the account again and tick every permission on Google's consent screen.",
+    "Google did not grant the Gmail permission. Google asks for it either as a checkbox you must tick, or on a second screen (\"wants additional access\") you must accept — finishing after the first screen only signs you in. Remove this app's access at myaccount.google.com/connections, then add the account again.",
   errAccountMismatch: "You signed in with a different Google account. Re-authenticate with the account shown in the row.",
   errMissingRefresh: "Google returned no long-lived token. Revoke the app at myaccount.google.com/permissions, then add the account again.",
   errEmailUnverified: "Google reports this account's email as unverified. Verify it with Google, then try again.",
@@ -134,3 +169,10 @@ export function errorKey(code: string | undefined | null): string {
   const known = knownFlowCode(code);
   return known ? CODE_KEY[known] : "errGeneric";
 }
+
+/** English fallbacks for copy that mirrors a catalog key (the E30 test pins their content). */
+export const CONSENT_HINT_EN =
+  "Google asks for the Gmail permission either as a checkbox (tick it) or on a second screen saying the app \"wants additional access\" (accept it). Stopping after the first screen only signs you in.";
+
+export const AUDIENCE_HELP_EN =
+  "Internal admits only accounts of the project's own Workspace organization: choose it only when every account you will connect belongs to that organization. Otherwise choose External and add every address you will connect as a test user. In Testing, tokens expire after 7 days. Publishing the app removes the 7-day token expiry. An unverified app shows Google's warning and admits at most 100 users. Accounts added while in Testing need one re-auth after publishing.";

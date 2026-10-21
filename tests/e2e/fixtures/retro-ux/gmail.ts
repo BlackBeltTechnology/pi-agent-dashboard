@@ -23,8 +23,8 @@ const ACCTS = [
   { sub: "s3", email: "dora@gmail.com", tier: "draft", status: "ok", testingHint: true, addedAt: 3 },
 ];
 
-const state = (client: Record<string, unknown>, accounts: unknown[]) => (page: Page) =>
-  stubApi(page, STATE, (route) => json(route, { client, accounts }), "GET");
+const state = (client: Record<string, unknown>, accounts: unknown[], setup?: Record<string, unknown>) => (page: Page) =>
+  stubApi(page, STATE, (route) => json(route, { client, accounts, ...(setup ? { setup } : {}) }), "GET");
 
 const root = (page: Page) => page.getByTestId("gmail-settings");
 const goto = async (page: Page) => {
@@ -86,6 +86,43 @@ export const gmailStates: UiState[] = [
         buffer: Buffer.from(JSON.stringify({ web: { client_id: "x.apps.googleusercontent.com", client_secret: "s" } })),
       });
       await page.getByTestId("gmail-upload-error").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    // improve-gmail-plugin-setup-ux (test-plan F1): the display name typed instead of the id.
+    id: "invalid-project-id",
+    label: "project display name typed into the project id field",
+    stubs: [STATE],
+    install: state({ configured: false }, []),
+    open: async (page) => {
+      await goto(page);
+      const input = page.getByTestId("gmail-project-id");
+      await input.fill("PiDashboard");
+      await input.blur();
+      await page.getByTestId("gmail-project-error").waitFor({ state: "visible" });
+    },
+    root,
+  },
+  {
+    // improve-gmail-plugin-setup-ux (test-plan F1): uploaded client belongs to another project.
+    id: "project-mismatch",
+    label: "uploaded client's project differs from the saved project id",
+    stubs: [STATE, "/api/plugins/gmail/client"],
+    install: async (page) => {
+      await state({ configured: false }, [], { projectId: "pidashboard-510015" })(page);
+      await stubApi(page, "/api/plugins/gmail/client", (route) => json(route, { ok: true, projectId: "other-project-123" }), "PUT");
+    },
+    open: async (page) => {
+      await goto(page);
+      await page.getByTestId("gmail-client-upload").setInputFiles({
+        name: "client_secret_other.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(
+          JSON.stringify({ installed: { client_id: "x.apps.googleusercontent.com", client_secret: "s", project_id: "other-project-123" } }),
+        ),
+      });
+      await page.getByTestId("gmail-project-mismatch").waitFor({ state: "visible" });
     },
     root,
   },
