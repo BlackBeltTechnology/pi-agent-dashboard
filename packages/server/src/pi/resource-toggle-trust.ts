@@ -152,7 +152,7 @@ export async function resolveToggleTrust(
   // ancestor: prompt (even under `never`) with "Trust" pre-selected. Nothing is
   // recorded until the operator chooses — the decision is a lasting pi record that
   // terminal pi also honours. See change: mirror-dashboard-trust-to-pi.
-  const covering = entry === null ? coveringDashboardEntry(cwd) : null;
+  const covering = entry === null ? coveringDashboardEntry(cwd, undefined, { live: false }) : null;
   if (covering) {
     const source = MIRROR_SOURCE_LABELS[covering.sourceKind];
     return {

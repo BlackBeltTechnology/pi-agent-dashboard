@@ -12,5 +12,5 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `git-worktree.ts` | Pure helpers for worktree handling: `slugifyBranch(branch)` (path-safe slug), `parsePorcelainWorktrees(out)`… → see `git-worktree.ts.AGENTS.md` |
 | `worktree-init-errors.ts` | Pure `mapInitStderrToHint(stderr)`. Ordered regex table. Codes: EACCES, EBADENGINE/Unsupported engine,… → see `worktree-init-errors.ts.AGENTS.md` |
 | `worktree-init-registry.ts` | `createWorktreeInitRegistry({ttlMs?,terminalTtlMs?,sendTo?})`. → see `worktree-init-registry.ts.AGENTS.md` |
-| `worktree-init-trust.ts` | TOFU trust store. `isTrusted(repoRoot,hash)`/`recordTrust(repoRoot,hash)` keyed by `repoRoot +… → see `worktree-init-trust.ts.AGENTS.md` |
+| `worktree-init-trust.ts` | TOFU trust store. `isTrusted(repoRoot,hash)`/`recordTrust(repoRoot,hash)` keyed by `repoRoot +… → see `worktree-init-trust.ts.AGENTS.md` `listSessionTrust()`, `setSessionTrustChangedListener`: session record/revoke notify sync; session set still never written. See change: mirror-dashboard-trust-live-remote. |
 | `worktree-init.ts` | Worktree-init hook engine. `readInitHook(repoRoot)` parses `.pi/settings.json#worktreeInit` →… → see `worktree-init.ts.AGENTS.md` |

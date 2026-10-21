@@ -22,7 +22,7 @@ The tutorial SHALL present one section per feature, grouped into chapters in thi
 
 #### Scenario: Anatomy labels parts
 - **WHEN** the Anatomy section renders
-- **THEN** it SHALL label the layout parts (header bar, filter bar, add actions, folder groups, directory card, session card, session header, context bar, transcript, editor rail, composer status strip, composer) with letters reused by later sections
+- **THEN** it SHALL label the layout parts (header bar, filter bar, add actions, folder groups, directory card, session card, session header, header context ring, transcript, editor rail, composer status strip, composer) with letters reused by later sections
 
 #### Scenario: Plugin-gated section
 - **GIVEN** the goals plugin is disabled

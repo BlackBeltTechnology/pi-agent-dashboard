@@ -1,10 +1,11 @@
 /**
  * YOLO activation entry points + Access page card (change:
  * add-access-grant-dialog, tasks 8b.7 surface 3, 8b.7a, 8b.7b, 8b.8; test-plan
- * rows 10.54 (UI half), 10.60, 10.73, 10.74).
+ * rows 10.54 (UI half), 10.60, 10.73, 10.74); pi-trust disclosure (test-plan #F3 of
+ * mirror-dashboard-trust-live-remote).
  */
 import type { GrantRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { yoloStatus } from "../../../lib/access-grants/yolo-status.js";
 import { AccessPromptsSection } from "../../settings/AccessPromptsSection.js";
@@ -283,5 +284,57 @@ describe("auto-answers in the verdict list (8b.8)", () => {
     expect(operator.dataset.answeredBy).toBe("operator");
     expect(within(operator).queryByTestId("access-verdict-yolo-badge")).toBeNull();
     expect(operator.textContent).not.toMatch(/no human answered/);
+  });
+});
+
+describe("#F3 YOLO activation discloses pi trust (mirror-dashboard-trust-live-remote)", () => {
+  /** Fake server plus a `GET /api/config` that reports `sources.yolo`. */
+  function withYoloSource(yolo: boolean) {
+    const base = global.fetch;
+    global.fetch = vi.fn((url: string, req?: { method?: string; body?: string }) =>
+      url === "/api/config"
+        ? Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ success: true, data: { piTrustMirror: { sources: { yolo } } } }),
+          })
+        : (base as unknown as (u: string, r?: unknown) => Promise<unknown>)(url, req),
+    ) as unknown as typeof fetch;
+  }
+
+  /** The config request was issued and its answer applied (a vacuous absence check is not a pass). */
+  const configSettled = async () => {
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/config", expect.anything()));
+    // The mocked fetch → json → setState chain is pure promises: draining the microtask queue inside
+    // `act` applies it (no timer, so no fixed-tick barrier).
+    await act(async () => {
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+  };
+
+  it.each([true, false])("Access page card, sources.yolo=%s → disclosure present iff true", async (yolo) => {
+    withYoloSource(yolo);
+    const card = await openAccessPage();
+    await within(card).findAllByTestId("yolo-root-option");
+    if (yolo) {
+      expect((await within(card).findByTestId("yolo-pi-trust-disclosure")).textContent).toBe(
+        "The chosen roots are also trusted in pi until YOLO ends.",
+      );
+    } else {
+      await configSettled();
+      expect(within(card).queryByTestId("yolo-pi-trust-disclosure")).toBeNull();
+    }
+  });
+
+  it.each([true, false])("directory page action, sources.yolo=%s → disclosure present iff true", async (yolo) => {
+    withYoloSource(yolo);
+    render(<DirectoryYoloAction cwd="/repo/app" />);
+    fireEvent.click(screen.getByTestId("directory-yolo-toggle"));
+    await screen.findAllByTestId("yolo-root-option");
+    if (yolo) expect(await screen.findByTestId("yolo-pi-trust-disclosure")).toBeTruthy();
+    else {
+      await configSettled();
+      expect(screen.queryByTestId("yolo-pi-trust-disclosure")).toBeNull();
+    }
   });
 });

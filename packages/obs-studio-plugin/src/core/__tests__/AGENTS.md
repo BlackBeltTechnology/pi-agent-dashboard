@@ -4,14 +4,16 @@ Never talk to real OBS: `fake-obs.ts` (obs-websocket v5 over `ws`) + `obs-model.
 
 | File | Purpose |
 |------|---------|
+| `capture-refresh.test.ts` | `capture refresh`: flip+exact restore (`{}` stays `{}`), `--input` not-found/refused, 1-display reapply, no property enumeration, restore on interrupted hold, macOS-only; `parseDisplays` x/y. |
 | `cli-harness.ts` | `runCli`, `baseDeps`, `recordingCli`, temp home, `writeServices`. |
 | `connection.test.ts` | E1 resolution decision table, X1 closed port / auth-failed / Hello withheld / unanswered request. |
 | `fake-obs.ts` | Fake server: Hello/Identify with real auth challenge, scripted handlers, frame log, `withholdHello`. |
 | `instances.test.ts` | Registry prune is best-effort (read-only state dir does not fail the read). |
 | `install-doctor-stop.test.ts` | E12 install (plan, no brew, no digest, zip-slip/symlink), E13 doctor log fixtures, E14 stop (incl. outputs stopped over fake ws before quit, stuck output refuses quit, unreachable ws warns). |
 | `launch.test.ts` | E8 strike table, E9 races + retention + darwin argv. |
-| `obs-model.ts` | Scenes/inputs/filters/outputs model; `Stop*` handlers, `stuckOutputs` keeps an output active, `canvas` → `GetVideoSettings`; 601 on taken names. |
+| `obs-model.ts` | Scenes/inputs/filters/outputs model; `GetInputSettings`, `SetInputSettings` honours `overlay:false` (replace); `Stop*` handlers, `stuckOutputs` keeps an output active, `canvas` → `GetVideoSettings`; 601 on taken names. |
 | `policy.test.ts` | E1 via `status`, E2 `call` denials, E3 crash deny (call + serve), E4 gating + stream key. |
 | `presets-devices.test.ts` | E5 repeat/preserve + canvas scaling (5120x2880, no-GetVideoSettings fallback), E6 partial/plugin-missing, E7 devices. |
 | `provision.test.ts` | E10 registration, E11 ws-enablement table. |
 | `serve.test.ts` | idle/EOF exit, out-of-order answers, probe sweep. |
+| `wake-hook.test.ts` | `watchForWake` fake clock (one fire per gap, failures logged + loop continues), `renderPlist` args/PATH/escaping/no secret, `wake-hook install|uninstall` (plist + `launchctl bootstrap gui/<uid>`, consent required, macOS-only). |

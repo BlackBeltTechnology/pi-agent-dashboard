@@ -92,7 +92,8 @@ The redesign was reviewed on an as-built vs proposed mockup board and approved o
 - **Coordinates with:**
   - `add-composer-dock`: shares the View-menu move (byte-identical `chat-display-preferences` delta). **Blocking conflict:** its proposal and `chat-view` delta keep a composer context ring "at every width", while this change puts the single ring in the header (approved). Implementation of this change is gated on that ring leaving `add-composer-dock` (task 1.3). Its Changes lane and the header Changed files chip both stay.
   - The shared `chat-display-preferences` delta is owned by `add-composer-dock` and copied byte for byte. Its Reason sentence assumes the dock has landed and its popover text has no phone carve-out; both are for that change's owner to adjust, and this copy follows.
-  - `add-welcome-tutorial`: its anatomy chapter labels a "context bar". With this change that label must become the header's context ring (task 5.4).
+  - `add-welcome-tutorial`: its anatomy chapter labelled a "context bar"; its `welcome-tutorial` spec now says "header context ring" (task 5.4, done in this change).
+  - `add-composer-dock` (task 1.3 gate): verified before implementation — its proposal and `chat-view` delta already drop the composer ring ("A context gauge in the composer: `reorganize-session-header` puts the one context ring in the session header"); it has not archived, so this change keeps its `chat-display-preferences` delta copy (task 1.2).
 - **Unaffected despite the name:** `openspec-attach-combo` "Attached session header shows one primary action and an overflow menu" governs the session OpenSpec block on the card and in the composer, not `SessionHeader`.
 - **New strings** (title menu items and descriptions, Reveal, clock words, layout menu, ring labels and popover) need i18n keys in every locale (task 2.7).
 - **Supersedes:** the header order of the archived `redesign-split-layout-controls` (`name ✎ [switch] Seek`).

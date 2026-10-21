@@ -8,3 +8,4 @@ Overflow of `architecture.md.AGENTS.md`. Change-history facts moved from the `do
 - `requireLocalProof` strict mode + proof bootstrap. Marker-less relay. Device cookie. OAuth state. Config `0600`. See change: harden-trust-and-credential-boundaries.
 - Plugin-config partial write keeps omitted keys (validation clones body). See change: fix-plugin-config-partial-write.
 - Pi trust mirror §. MCP Trust + Host trust updated. See change: mirror-dashboard-trust-to-pi.
+- Pi trust mirror § gains "Live trust query": `POST /api/pi-trust/query`, local identity proof + remote salted digest (`trustResourceManifest`), `liveQueryTimeoutMs`, 18 reason codes, rate limits, `/api/health` `piTrustMirror.live`, rollback levers. See change: mirror-dashboard-trust-live-remote.

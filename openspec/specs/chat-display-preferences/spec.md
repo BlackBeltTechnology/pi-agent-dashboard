@@ -176,32 +176,6 @@ On first client hydration after upgrade, if `localStorage["show-debug-tools"]` e
 - **WHEN** the client hydrates
 - **THEN** the client PATCHes `{ debugTools: true }`, removes the localStorage key, and subsequent loads do not re-PATCH
 
-### Requirement: Display-preferences menu SHALL mount in the composer status bar
-
-The per-session display-preferences popover (the "⚙ View" `ChatViewMenu`) SHALL render inside the composer `StatusBar` (the model-selector row, `data-testid="status-bar"`), positioned in the bar's `leading` cluster immediately after the refresh button and before the `ModelSelector`. It SHALL NOT render in a standalone full-width toolbar row inside `ChatView`.
-
-The popover's behavior — editing the session's `displayPrefsOverride`, the "Use global settings" reset, and the "modified" indicator — SHALL be unchanged; only its mount location moves. The menu SHALL remain gated on an active selected session (it renders only when a session is selected).
-
-#### Scenario: View menu renders in the status bar
-
-- **GIVEN** a selected session
-- **WHEN** the chat panel renders
-- **THEN** the `⚙ View` `ChatViewMenu` SHALL appear within the `status-bar` element, after the refresh button and before the model selector
-- **AND** no standalone display-prefs toolbar row SHALL render at the top of `ChatView`
-
-#### Scenario: View menu absent when no session selected
-
-- **GIVEN** no session is selected
-- **WHEN** the shell renders the landing/content area
-- **THEN** the `⚙ View` menu SHALL NOT render
-
-#### Scenario: Toggling prefs from the status bar still works
-
-- **GIVEN** the `⚙ View` menu mounted in the status bar for a session
-- **WHEN** the user toggles a display-preference axis in the popover
-- **THEN** the client SHALL send `setSessionDisplayPrefs { sessionId, override }` exactly as before the relocation
-- **AND** the chat view SHALL reflect the changed preference
-
 ### Requirement: Per-session override popover SHALL auto-flip direction
 
 The `⚙ View` popover (`ChatViewMenu`) SHALL stay fully within its boundary by
@@ -210,7 +184,7 @@ delegating its open-direction and height decision to the shared
 
 The popover SHALL open toward the side of the button with MORE available space
 (below when below-space is larger, otherwise above), with no minimum
-below-space threshold. From its composer-strip mount this means it opens upward.
+below-space threshold. From its session-header mount this means it opens downward.
 Its height SHALL be clamped to that space; only the row list SHALL scroll, and
 the footer actions SHALL stay visible. The list SHALL NOT scroll horizontally.
 
@@ -495,3 +469,27 @@ with rows at least 44px tall. Desktop row sizing SHALL be unchanged.
 - **WHEN** the user opens the `⚙ View` popover
 - **THEN** it renders as a full-width bottom sheet over a scrim
 - **AND** tapping the scrim closes it
+
+### Requirement: Display-preferences menu SHALL mount in the session header
+
+The per-session display-preferences popover (`⚙ View`, `ChatViewMenu`) SHALL render in the session header immediately after the chat/split/editor layout switch, and nowhere in the composer, the composer dock or a toolbar row inside `ChatView`. Its behavior (editing `displayPrefsOverride`, "Use global settings", the "modified" indicator) SHALL be unchanged, and it SHALL render only while a session is selected.
+
+#### Scenario: View menu renders in the session header
+
+- **GIVEN** a selected session
+- **WHEN** the chat panel renders
+- **THEN** the `⚙ View` `ChatViewMenu` SHALL appear within the session header, immediately after the layout switch
+- **AND** it SHALL NOT appear in the composer or the composer dock
+
+#### Scenario: View menu absent when no session selected
+
+- **GIVEN** no session is selected
+- **WHEN** the shell renders the landing/content area
+- **THEN** the `⚙ View` menu SHALL NOT render
+
+#### Scenario: Toggling prefs from the session header still works
+
+- **GIVEN** the `⚙ View` menu mounted in the session header for a session
+- **WHEN** the user toggles a display-preference axis in the popover
+- **THEN** the client SHALL send `setSessionDisplayPrefs { sessionId, override }` exactly as before the relocation
+- **AND** the chat view SHALL reflect the changed preference

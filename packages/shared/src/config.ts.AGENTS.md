@@ -55,3 +55,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 - `browse` block: `BrowseConfig {confineRemote}`, `DEFAULT_BROWSE_CONFIG`, `parseBrowseConfig` (only explicit `false` disables remote browse confinement; read at server start). See change: harden-server-capability-bounds.
 
 - `liveServer?: {previewExposure?: "exposed"}`: forces live-preview exposure to `exposed` (same-host relay with no forwarding header). Parsed only when exactly `"exposed"`. See change: improve-canvas-html-and-url-ux.
+
+`piTrustMirror`: `liveQuery` (default true), `liveQueryTimeoutMs` (raw; `effectiveLiveQueryTimeoutMs` → 300 local / 1000 remote, clamp 50–1000), `sources.yolo` (default true, live-only). See change: mirror-dashboard-trust-live-remote.

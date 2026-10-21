@@ -13,9 +13,9 @@ import { UserDirectory } from "../auth/passkey/user-directory.js";
 import { PolicyTrustError } from "../identity/policy-registry.js";
 
 describe("parameter-property rewrite preserves instance key order", () => {
-  it("YoloController: deps first, then initialized fields", () => {
+  it("YoloController: deps first, then initialized fields, then the live-trust listener/timer slots (mirror-dashboard-trust-live-remote)", () => {
     const c = new YoloController({ hostGateMode: () => "enforce" as never, isRefused: () => false });
-    expect(Object.keys(c)).toEqual(["deps", "session", "log", "totals", "now", "ladder", "emit"]);
+    expect(Object.keys(c)).toEqual(["deps", "session", "log", "totals", "now", "ladder", "emit", "changeListener", "expiryTimer"]);
   });
 
   it("GrantCoordinator: deps first", () => {
