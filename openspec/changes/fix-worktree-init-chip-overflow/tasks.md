@@ -64,5 +64,5 @@
 ## 3. Verification
 
 - [x] 3.1 Full suite green (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary). `npm run build` succeeds. The full `tests/e2e/worktree-init-feedback.spec.ts` (S14, S15, #F3 and the new scenarios) is green on the harness.
-- [ ] 3.2 `review-code` pass on the diff, with no blocking findings.
-- [ ] 3.3 Manual check (test-plan: manual-only, #M1). In the built app in an isolated env, run a real slow init (e.g. Maven `go-offline`) on a narrow sidebar card in base dark and base light. Expected: the chip never paints past the card, and the full-width bar and the `--text-secondary` body copy read as the mockup B′ column.
+- [x] 3.2 `review-code` pass on the diff, with no blocking findings.
+- [x] 3.3 Manual check (test-plan: manual-only, #M1). In the built app in an isolated env, run a real slow init (e.g. Maven `go-offline`) on a narrow sidebar card in base dark and base light. Expected: the chip never paints past the card, and the full-width bar and the `--text-secondary` body copy read as the mockup B′ column.
