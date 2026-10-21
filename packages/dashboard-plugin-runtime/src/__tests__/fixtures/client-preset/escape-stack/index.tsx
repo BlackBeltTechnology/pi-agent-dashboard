@@ -1,3 +1,3 @@
-import { registerEscapeLayer } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
+import { registerEscapeLayer } from "../../../../../../client-utils/src/escape-stack";
 
 export const Bad = registerEscapeLayer;

@@ -1,3 +1,3 @@
-import { ActionListMenuContext } from "@blackbelt-technology/pi-dashboard-client-utils/ActionListMenuContext";
+import { ActionListMenuContext } from "../../../../../../client-utils/src/ActionListMenuContext";
 
 export const Bad = ActionListMenuContext;

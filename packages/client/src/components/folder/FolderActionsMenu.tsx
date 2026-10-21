@@ -33,8 +33,8 @@
  * See change: add-folder-actions-menu.
  */
 
-import {
-  type FolderMenuGroup,
+import type {
+  FolderMenuGroup,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   FOLDER_MENU_GROUPS,

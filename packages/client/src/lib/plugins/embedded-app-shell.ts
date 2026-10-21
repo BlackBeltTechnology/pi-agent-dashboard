@@ -10,8 +10,8 @@
  *
  * See change: add-plugin-app-host (D4).
  */
-import {
-  type EmbeddedAppShell,
+import type {
+  EmbeddedAppShell,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   createReturnTargetStore,
