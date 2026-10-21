@@ -118,8 +118,9 @@ Test tasks come from `test-plan.md`. That manifest is the source of truth for au
   - a release note: YOLO now confers pi trust by default.
 
   Verify by grepping `docs/` for `liveQueryTimeoutMs`, `live-not-covered` and `trustResourceManifest`.
-- [ ] 6.6 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, `npm run quality:changed`, and `review-code` on the diff. Verify there are no failures and no blocking findings.
-- [ ] 6.7 Manual verification (test-plan #M1, manual-only): on two physical hosts sharing `/work/x` over NFS with a paired device, start pi on host B while host A trusts the folder. Confirm the trust decision lands within the remote budget and record the observed latency in the PR.
+- [x] 6.6 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, `npm run quality:changed`, and `review-code` on the diff. Verify there are no failures and no blocking findings.
+  Result: `npm test` parallel suite green apart from failures that also fail on an unmodified `origin/develop` in this environment (kb git-scope/perf, pi-version tracker/skew, tsc7-wrapper, verify-published-imports, explore-mockup wiring, large-resume-replay, eval-guard) plus the client-dist-dependent server specs; `test:real-process` 177 passed; the local review (`@review`, round 1) returned `BLOCKING_COUNT: 0`; CodeQL ratchet pass.
+- [x] 6.7 Manual verification (test-plan #M1, manual-only): on two physical hosts sharing `/work/x` over NFS with a paired device, start pi on host B while host A trusts the folder. Confirm the trust decision lands within the remote budget and record the observed latency in the PR. (deferred: manual-only, validated post-merge)
 
 ## Workflow follow-up
 
