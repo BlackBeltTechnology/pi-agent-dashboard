@@ -9,13 +9,15 @@
  *   - failed  → `mdiAlertCircleOutline Init failed` + the failure code on a second
  *     line + Retry on its own row + opt-in log; sticky (never auto-dismiss).
  *
- * Colour-free: every label, glyph, spinner arc and bar paints `currentColor`, so
- * the chip inherits the hosting banner's `--severity-*-fg` (no palette class, no
- * `--text-muted` / `--text-tertiary`). Only the expanded multi-line log body keeps
- * code colours (`--text-secondary` on `--bg-code`).
+ * Fits its banner: block-level `w-full` column capped at 420/460 px, long
+ * tokens wrap (`[overflow-wrap:anywhere]`), the ghost line ellipsizes.
+ * Chrome (status label, glyphs, spinner arc, bar, log toggle, Retry) paints
+ * `currentColor`, inheriting the banner's `--severity-*-fg`; body copy (elapsed,
+ * ghost, failure message, log `<pre>`) uses `--text-secondary` (AA on every
+ * severity bg). No `--text-muted` / `--text-tertiary` / palette classes.
  *
  * Purely presentational; the run state + timers live in `worktree-init-store`.
- * See change: friendlier-worktree-init, fix-folder-card-pill-contrast.
+ * See change: friendlier-worktree-init, fix-folder-card-pill-contrast, fix-worktree-init-chip-overflow.
  */
 import { mdiAlertCircleOutline, mdiCheckCircleOutline, mdiChevronRight, mdiReplay } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -54,12 +56,12 @@ function Spinner() {
 
 function LogDisclosure({ label, body }: { label: string; body: string }) {
   return (
-    <details className="group mt-1.5 max-w-[460px]" data-testid="worktree-init-log">
-      <summary className="list-none cursor-pointer text-[11px] inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
+    <details className="group mt-1.5 max-w-full" data-testid="worktree-init-log">
+      <summary className="list-none cursor-pointer text-[12px] underline inline-flex items-center gap-1 select-none [&::-webkit-details-marker]:hidden">
         <Icon path={mdiChevronRight} size={0.5} className="transition-transform group-open:rotate-90" />
         {label}
       </summary>
-      <pre className="mt-1.5 bg-[var(--bg-code)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-2 max-h-[200px] overflow-auto text-[11px] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap font-mono">
+      <pre className="mt-1.5 bg-[var(--bg-code)] border border-[var(--border-subtle)] rounded-lg px-2.5 py-2 max-h-[200px] overflow-auto text-[11px] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap [overflow-wrap:anywhere] font-mono">
         {body}
       </pre>
     </details>
@@ -81,17 +83,17 @@ export function WorktreeInitChip({ run, variant = "manual", onRetry }: Props) {
 
   if (run.phase === "running") {
     return (
-      <div className="inline-flex flex-col min-w-[240px] max-w-[420px]" data-testid="worktree-init-chip">
+      <div className="flex flex-col w-full max-w-[420px]" data-testid="worktree-init-chip">
         <span className="inline-flex items-center gap-2 text-[12px]">
           <Spinner />
           <span className="font-semibold">{runningLabel}</span>
-          <span className="font-mono text-[11px]">· {elapsed}s</span>
+          <span className="font-mono text-[11px] text-[var(--text-secondary)]" data-testid="worktree-init-elapsed">· {elapsed}s</span>
         </span>
         <div className="h-[3px] rounded bg-current/15 overflow-hidden mt-1.5">
           <i className="block h-full w-2/5 rounded bg-gradient-to-r from-transparent via-current to-transparent animate-[wtinit-slide_1.4s_ease-in-out_infinite]" />
         </div>
         {run.lastLine && (
-          <div className="text-[11px] font-mono mt-1.5 pl-0.5 whitespace-nowrap overflow-hidden text-ellipsis max-w-[420px]" data-testid="worktree-init-ghost">
+          <div className="text-[11px] font-mono text-[var(--text-secondary)] mt-1.5 pl-0.5 whitespace-nowrap overflow-hidden text-ellipsis max-w-full" data-testid="worktree-init-ghost">
             {run.lastLine}
           </div>
         )}
@@ -105,20 +107,20 @@ export function WorktreeInitChip({ run, variant = "manual", onRetry }: Props) {
       <span className="inline-flex items-center gap-1.5 text-[12px]" data-testid="worktree-init-chip">
         <Icon path={mdiCheckCircleOutline} size={0.6} className="shrink-0" />
         <span className="font-semibold">{i18nT("worktree.initialized", undefined, "Initialized")}</span>
-        <span className="font-mono text-[11px]">· {elapsed}s</span>
+        <span className="font-mono text-[11px] text-[var(--text-secondary)]" data-testid="worktree-init-elapsed">· {elapsed}s</span>
       </span>
     );
   }
 
   // failed — sticky
   return (
-    <div className="inline-flex flex-col gap-1 max-w-[460px]" data-testid="worktree-init-chip">
+    <div className="flex flex-col gap-1 w-full max-w-[460px]" data-testid="worktree-init-chip">
       <div className="flex flex-col gap-0.5" data-testid="worktree-init-error">
         <div className="flex items-center gap-1.5 text-[12px]">
           <Icon path={mdiAlertCircleOutline} size={0.6} className="shrink-0" />
           <span className="font-semibold">{failedLabel}</span>
         </div>
-        <div className="font-mono text-[11px] break-words">{shortSummary(run)}</div>
+        <div className="font-mono text-[11px] text-[var(--text-secondary)] [overflow-wrap:anywhere]" data-testid="worktree-init-message">{shortSummary(run)}</div>
       </div>
       {onRetry && (
         <div>
@@ -126,7 +128,7 @@ export function WorktreeInitChip({ run, variant = "manual", onRetry }: Props) {
             type="button"
             onClick={(e) => { e.stopPropagation(); onRetry(); }}
             data-testid="worktree-init-retry"
-            className="focus-ring inline-flex items-center gap-1 rounded border border-current px-2 py-0.5 text-[12px] font-semibold hover:bg-current/10"
+            className="focus-ring inline-flex items-center gap-1 rounded border border-current px-2 py-0.5 text-[12px] font-semibold tap-target hover:bg-current/10"
           >
             <Icon path={mdiReplay} size={0.5} className="shrink-0" />
             {i18nT("common.retry", undefined, "Retry")}

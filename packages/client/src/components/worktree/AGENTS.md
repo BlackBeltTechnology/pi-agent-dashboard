@@ -18,7 +18,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `worktree-actions.ts` | Pure `deriveWorktreeActions(session,{ghAvailable,working})` (push/openPr/merge/close + `hasPr`), shared by `WorktreeActionsMenu` and the session menu; `runWorktreePush`/`runWorktreeOpenPr` return toast outcomes; `labelForCode`. See change: add-session-actions-flyout. |
 | `WorktreeActionsMenu.tsx` | Exports `WorktreeActionsMenu`, `PrSegment` (reused by the card header git row) + `__resetGhAvailableCache`. → see `WorktreeActionsMenu.tsx.AGENTS.md` |
 | `WorktreeInitButton.tsx` | Hook-run-only Initialize control per directory/worktree row. → see `WorktreeInitButton.tsx.AGENTS.md` |
-| `WorktreeInitChip.tsx` | Presentational worktree-init status chip (variant A/D1). running → `⚙ Initializing… · {elapsed}` + slim… → see `WorktreeInitChip.tsx.AGENTS.md` |
+| `WorktreeInitChip.tsx` | Presentational worktree-init status chip (variant A/D1). Fills its banner (`w-full`, capped 420/460 px), `--text-secondary` body copy, long tokens wrap. See change: fix-worktree-init-chip-overflow. → see `WorktreeInitChip.tsx.AGENTS.md` |
 | `WorktreeInitStack.tsx` | Concurrent-init corner surface (variant E2). Reads `useAllInitRuns()`; renders only for ≥ 2 runs. → see `WorktreeInitStack.tsx.AGENTS.md` |
 | `WorktreeList.tsx` | Shared worktree list, `mode="spawn"`/`"manage"`. Client-side filter (default `isMain || (!detached && inTree)`), chip… → see `WorktreeList.tsx.AGENTS.md` |
 | `WorktreeSpawnDialog.tsx` | Fullscreen `+Worktree` dialog. §1 delegated to `WorktreeList mode="spawn"`; create-new form (base picker,… → see `WorktreeSpawnDialog.tsx.AGENTS.md` |

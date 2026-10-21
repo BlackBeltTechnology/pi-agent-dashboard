@@ -1,5 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
+export { type FrameInjector, forceConcurrentInitStack, installFrameInjector, stubActiveInits } from "./init-banner.js";
+
 // Central testid → locator map. Specs select on existing app data-testids
 // (693 already shipped) — NOT CSS classes, text copy, or DOM structure.
 // A renamed testid breaks here, in one place. Do NOT add app testids for E2E.

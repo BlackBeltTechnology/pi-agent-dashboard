@@ -1,6 +1,22 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { contrastFailures, measureText, nonTextFailures, setThemeMode } from "./helpers/computed-contrast.js";
-import { byTestId, ensureGitSession, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import {
+  colorDistance,
+  contrastFailures,
+  contrastRatio,
+  elementColors,
+  measureText,
+  nonTextFailures,
+  overflowFailures,
+  resolveColor,
+  setThemeMode,
+} from "./helpers/computed-contrast.js";
+import {
+  ensureGitSession,
+  type FrameInjector,
+  installFrameInjector,
+  pinDirectory,
+  stubActiveInits,
+} from "./helpers/index.js";
 
 // Level-1 E2E for the friendly worktree-init feedback (change: friendlier-worktree-init).
 //
@@ -42,6 +58,9 @@ function folderGroup(page: Page, basename: string): Locator {
  */
 async function pinFixture(page: Page, cwd: string): Promise<void> {
   await ensureGitSession(page);
+  // Pins outlive the page (server-side preferences): a fixture pinned by an
+  // earlier test is already there, and the dialog refuses to add it again.
+  if (await folderGroup(page, cwd.split("/").pop() ?? cwd).isVisible()) return;
   await pinDirectory(page, cwd);
 }
 
@@ -98,18 +117,16 @@ test.describe("worktree-init feedback", () => {
     await expect(folderGroup(page, "sample-hook-ok").getByTestId("worktree-init-chip")).toBeVisible({ timeout: 15_000 });
 
     // #F3: while running, the banner (info rung) text clears 4.5:1, the spinner
-    // arc 3:1, and the preview line paints in the region's own colour.
+    // arc 3:1, and the preview line paints in the quiet `--text-secondary` body colour.
     const running = folderGroup(page, "sample-hook-ok").getByTestId(`folder-banner-running-${HOOK_OK}`);
     await expect(running).toBeVisible({ timeout: 15_000 });
     expect(contrastFailures(await measureText(running), 4.5)).toEqual([]);
     expect(await nonTextFailures(running, 3)).toEqual([]);
     const ghost = running.getByTestId("worktree-init-ghost");
     if (await ghost.count()) {
-      const [ghostColor, regionColor] = await Promise.all([
-        ghost.evaluate((e) => getComputedStyle(e).color),
-        running.evaluate((e) => getComputedStyle(e).color),
-      ]);
-      expect(ghostColor).toBe(regionColor);
+      // See change: fix-worktree-init-chip-overflow (test-plan #Q2).
+      const [{ fg }, secondary] = await Promise.all([elementColors(ghost), resolveColor(page, "var(--text-secondary)")]);
+      expect(colorDistance(fg, secondary)).toBeLessThan(2);
     }
     // Converges to "Initialized" on the same (info) rung, then the banner detaches.
     await expect(running).toContainText("Initialized", { timeout: 30_000 });
@@ -201,4 +218,173 @@ test.describe("worktree-init feedback", () => {
     expect(summaryBox).not.toBeNull();
     expect(retryBox!.y).toBeGreaterThanOrEqual(summaryBox!.y + summaryBox!.height - 1);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Chip fits its banner + quiet body copy. The runs are STUBBED (rehydration
+// endpoint + injected shell-WS frames) so the content is controlled: a 220-char
+// line and a 150-char unbroken path are what real Maven/npm output produces.
+// See change: fix-worktree-init-chip-overflow (test-plan #E6-#E8, #Q1).
+// ---------------------------------------------------------------------------
+
+const STUB_CWD = "/fixtures/kb-parent";
+const LONG_LINE = "downloading artifact org.apache.maven.plugins:maven-compiler-plugin ".repeat(4).trim();
+const LONG_PATH = `/Users/someone/${"deeply-nested-directory/".repeat(6)}file.jar`;
+const DESKTOP = { width: 1280, height: 800 } as const;
+const VIEWPORTS = [
+  { name: "320", width: 320, height: 700 },
+  { name: "390", width: 390, height: 844 },
+  { name: "desktop", width: 1280, height: 800 },
+] as const;
+
+/** Re-deliver until the page's (re)opened shell socket accepts it — frames are idempotent. */
+async function deliver(inject: FrameInjector, frame: unknown): Promise<void> {
+  await expect
+    .poll(
+      () => {
+        try {
+          inject.send(frame);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
+
+const progressFrame = { type: "worktree_init_progress", requestId: "", cwd: STUB_CWD, line: `${LONG_LINE}\n${LONG_PATH}` };
+const failedFrame = {
+  type: "worktree_init_failed",
+  requestId: "",
+  cwd: STUB_CWD,
+  code: "script_nonzero_exit",
+  message: LONG_PATH,
+  stderr: LONG_PATH,
+};
+
+/** Pin the stubbed folder and return its group + frame injector (stub + injector installed before navigation). */
+async function stubbedFolder(page: Page, viewport?: { width: number; height: number }): Promise<{ group: Locator; inject: FrameInjector }> {
+  await stubActiveInits(page, [{ cwd: STUB_CWD, phase: "running", startedAt: Date.now() }]);
+  const inject = await installFrameInjector(page);
+  // `ensureGitSession`/`pinDirectory` drive desktop-only affordances: pin at the
+  // desktop size, then narrow (the socket and store survive a resize).
+  await page.setViewportSize(DESKTOP);
+  await pinFixture(page, STUB_CWD);
+  if (viewport) {
+    // The mobile shell opens the selected session full-screen over the list;
+    // reload at "/" so the folder list (where the banner lives) is on screen.
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+  }
+  return { group: folderGroup(page, "kb-parent"), inject };
+}
+
+test.describe("worktree-init chip fits its banner", () => {
+  for (const vp of VIEWPORTS) {
+    test(`E6 running chip with long output stays inside the banner at ${vp.name}`, async ({ page }) => {
+      const { group, inject } = await stubbedFolder(page, vp);
+      const banner = group.getByTestId(`folder-banner-running-${STUB_CWD}`);
+      await expect(banner).toBeVisible({ timeout: 20_000 });
+      await deliver(inject, progressFrame);
+      await expect(banner.getByTestId("worktree-init-ghost")).toBeVisible();
+      await banner.getByTestId("worktree-init-log").locator("summary").click();
+      const pre = banner.getByTestId("worktree-init-log").locator("pre");
+      await expect(pre).toBeVisible();
+
+      expect(await overflowFailures(banner)).toEqual([]);
+      const ghostClipped = await banner
+        .getByTestId("worktree-init-ghost")
+        .evaluate((e) => e.scrollWidth > e.clientWidth);
+      expect(ghostClipped, "ghost line ellipsizes instead of widening the chip").toBe(true);
+      const [preBox, bannerBox] = await Promise.all([pre.boundingBox(), banner.boundingBox()]);
+      expect(preBox && bannerBox && preBox.x + preBox.width <= bannerBox.x + bannerBox.width + 0.5).toBe(true);
+    });
+  }
+
+  for (const vp of VIEWPORTS.filter((v) => v.name !== "desktop")) {
+    test(`E7 failed chip with an unbroken summary wraps inside the banner at ${vp.name}`, async ({ page }) => {
+      const { group, inject } = await stubbedFolder(page, vp);
+      await expect(group.getByTestId(`folder-banner-running-${STUB_CWD}`)).toBeVisible({ timeout: 20_000 });
+      await deliver(inject, failedFrame);
+      const banner = group.getByTestId(`folder-banner-failed-${STUB_CWD}`);
+      await expect(banner).toBeVisible({ timeout: 15_000 });
+      await banner.getByTestId("worktree-init-log").locator("summary").click();
+
+      expect(await overflowFailures(banner)).toEqual([]);
+      const msg = banner.getByTestId("worktree-init-message");
+      const [msgBox, lineHeight] = await Promise.all([
+        msg.boundingBox(),
+        msg.evaluate((e) => Number.parseFloat(getComputedStyle(e).lineHeight) || 16),
+      ]);
+      expect(msgBox && msgBox.height > lineHeight * 1.5, "message wraps onto several lines").toBe(true);
+      const [retryBox, bannerBox] = await Promise.all([
+        banner.getByTestId("worktree-init-retry").boundingBox(),
+        banner.boundingBox(),
+      ]);
+      expect(retryBox && bannerBox).toBeTruthy();
+      expect(retryBox!.x + retryBox!.width).toBeLessThanOrEqual(bannerBox!.x + bannerBox!.width + 0.5);
+    });
+  }
+
+  for (const [vp, floor] of [
+    [VIEWPORTS[1], 44],
+    [VIEWPORTS[2], 32],
+  ] as const) {
+    test(`E8 Retry meets the tap-target floor (${floor} px) at ${vp.name}`, async ({ page }) => {
+      const { group, inject } = await stubbedFolder(page, vp);
+      await expect(group.getByTestId(`folder-banner-running-${STUB_CWD}`)).toBeVisible({ timeout: 20_000 });
+      await deliver(inject, failedFrame);
+      const retry = group.getByTestId(`folder-banner-failed-${STUB_CWD}`).getByTestId("worktree-init-retry");
+      await expect(retry).toBeVisible({ timeout: 15_000 });
+      const box = await retry.boundingBox();
+      expect(box!.height, `Retry height at ${vp.name}`).toBeGreaterThanOrEqual(floor - 0.5);
+    });
+  }
+
+  for (const [theme, mode] of [
+    ["base", "light"],
+    ["tokyo-night", "light"],
+    ["catppuccin", "light"],
+  ] as const) {
+    test(`Q1 body copy is --text-secondary and AA in ${theme}/${mode}`, async ({ page }) => {
+      const { group, inject } = await stubbedFolder(page);
+      await setThemeMode(page, mode, theme);
+      const running = folderGroup(page, "kb-parent").getByTestId(`folder-banner-running-${STUB_CWD}`);
+      await expect(running).toBeVisible({ timeout: 20_000 });
+      await deliver(inject, progressFrame);
+      const secondary = await resolveColor(page, "var(--text-secondary)");
+
+      for (const id of ["worktree-init-elapsed", "worktree-init-ghost"]) {
+        const { fg, bg } = await elementColors(running.getByTestId(id));
+        expect(colorDistance(fg, secondary), `${id} colour`).toBeLessThan(2);
+        expect(contrastRatio(fg, bg), `${id} contrast`).toBeGreaterThanOrEqual(4.5);
+      }
+      await running.getByTestId("worktree-init-log").locator("summary").click();
+      const log = running.getByTestId("worktree-init-log");
+      const [pre, codeBg, regionColor] = await Promise.all([
+        elementColors(log.locator("pre")),
+        resolveColor(page, "var(--bg-code)"),
+        running.evaluate((e) => getComputedStyle(e).color),
+      ]);
+      expect(colorDistance(pre.fg, secondary), "<pre> colour").toBeLessThan(2);
+      expect(colorDistance(pre.bg, codeBg), "<pre> background").toBeLessThan(2);
+      const summary = log.locator("summary");
+      const style = await summary.evaluate((e) => {
+        const cs = getComputedStyle(e);
+        return { size: cs.fontSize, deco: cs.textDecorationLine, color: cs.color };
+      });
+      expect(style.size).toBe("12px");
+      expect(style.deco).toContain("underline");
+      expect(style.color).toBe(regionColor);
+
+      await deliver(inject, failedFrame);
+      const failedBanner = group.getByTestId(`folder-banner-failed-${STUB_CWD}`);
+      await expect(failedBanner).toBeVisible({ timeout: 15_000 });
+      const { fg, bg } = await elementColors(failedBanner.getByTestId("worktree-init-message"));
+      expect(colorDistance(fg, secondary), "message colour").toBeLessThan(2);
+      expect(contrastRatio(fg, bg), "message contrast").toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });
