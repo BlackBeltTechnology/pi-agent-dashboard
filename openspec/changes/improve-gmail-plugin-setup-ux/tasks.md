@@ -9,10 +9,10 @@
 
 ## 2. Server: setup config, filters flag, level route
 
-- [ ] 2.1 `server/routes.ts` + `server/index.ts`: `PUT /setup` (normalize, validate, `ctx.updatePluginConfig`, empty clears, log `[gmail] setup saved`), `GET /state` adds `setup` from `ctx.getPluginConfig()`; register both new routes as `operate` in `packages/shared/src/route-tiers.ts`; verify E6, E7, E29 pass
+- [ ] 2.1 `server/routes.ts` + `server/index.ts`: `PUT /setup` (normalize, validate, `ctx.updatePluginConfig`, empty clears, log `[gmail] setup saved`), declare optional string `projectId` / `ownerAccount` in `src/configSchema.json`, `GET /state` adds `setup` from `ctx.getPluginConfig()`; register both new routes as `operate` in `packages/shared/src/route-tiers.ts`; verify E6, E7, E29 pass
 - [ ] 2.2 `server/accounts.ts` + `shared/protocol.ts`: `filters?` on `AccountRecord`/`AccountSummary`/`AccountInfo`, `summarize()` emits it, `setFilters(sub, on)`, `upsertFromSignIn` keeps the previous flag when input `filters` is undefined; verify E20 passes
-- [ ] 2.3 `server/routes.ts` + `server/google-oauth.ts`: `startSignIn(…, { filters })`, `persist` filter check, level route (lower always immediate; raise per D6), re-auth passes `acct.filters`, `POST /accounts/:sub/filters`; verify E17, E18, E19 pass
-- [ ] 2.4 `server/lease.ts`: `filters_disabled` in `LeaseErrorCode`, checked before tier/scope for `filters_*`; verify E21 passes
+- [ ] 2.3 `server/routes.ts` + `server/google-oauth.ts`: `startSignIn(…, { filters })`, `GoogleLoginOptions.filters` and `authScopeParam(tier, { filters })` in the auth-URL builder, `persist` filter check, level route (lower always immediate; raise per D6), re-auth passes `acct.filters`, `POST /accounts/:sub/filters`; verify E17, E18, E19 pass
+- [ ] 2.4 `server/lease.ts`: `filters_disabled` in `LeaseErrorCode`, checked before tier/scope for `filters_*`, precedence `filters_disabled` → `tier_denied` → `scope_missing` → `reauth_required` per design D6; verify E21 passes
 - [ ] 2.5 Test E6 in `packages/gmail-plugin/src/server/__tests__/routes.test.ts` (exemplar: same file's `PUT /client` cases): bodies `{projectId:"PiDashboard"}`, `{ownerAccount:"robson@"}`, `{projectId:""}`, padded/mixed-case valid pair · `PUT /setup` · 400 `invalid_project_id` / 400 `invalid_owner_account` with config untouched, 200 clear, 200 + normalized `updatePluginConfig`, log line exactly `[gmail] setup saved` (test-plan #E6)
 - [ ] 2.6 Test E7 in `routes.test.ts` (exemplar: same file's `GET /state` case): plugin config with both values, no client · `GET /state` · reply `setup` carries both values (server half of the E7 scenario; the scenario task is 4.7)
 - [ ] 2.7 Test E17 in `routes.test.ts` (exemplar: same file's level-route cases): `send`/`reauth_required`; `send`/ok/filters on; `readonly` filters on with covering and non-covering grants; filters off · `POST /accounts/:sub/level` · lower on `reauth_required` applied with no flow and status unchanged; lower with filters on immediate without `settings.basic`; covering raise immediate with filters kept; non-covering raise starts a flow whose auth URL has `gmail.settings.basic` iff filters on (test-plan #E17)
@@ -20,7 +20,7 @@
 - [ ] 2.9 Test E19 in `routes.test.ts` (exemplar: same file's re-auth cases): filters on, `reauth_required` · `POST /accounts/:sub/reauth`, grant without `settings.basic` · auth URL includes it; `scope_missing`; record unchanged incl. status (test-plan #E19)
 - [ ] 2.10 Test E20 in `packages/gmail-plugin/src/server/__tests__/accounts.test.ts` (exemplar: same file's upsert cases): stored `filters:true` · `upsertFromSignIn` with `filters` undefined · flag stays `true` (test-plan #E20)
 - [ ] 2.11 Test E21 in `packages/gmail-plugin/src/server/__tests__/lease.test.ts` (exemplar: same file's `tier_denied` cases): filters off/on × tiers × filter ops · lease · `filters_disabled` before tier check; on+`readonly`+read → token; on+`draft`+write → `tier_denied`; `summarize()` includes `filters` (test-plan #E21)
-- [ ] 2.12 Test E29 in `packages/server/src/__tests__/route-tier-gate.test.ts` (exemplar: same file): `route-tiers.ts` · completeness test · `PUT /api/plugins/gmail/setup` and `POST /api/plugins/gmail/accounts/:sub/filters` listed as `operate`; test passes (test-plan #E29)
+- [ ] 2.12 Test E29 in `packages/server/src/__tests__/mcp-manifest-completeness.test.ts` (exemplar: same file, boots the server and checks every `/api` route against `ROUTE_TIERS`): `route-tiers.ts` · completeness test · `PUT /api/plugins/gmail/setup` and `POST /api/plugins/gmail/accounts/:sub/filters` listed as `operate`; test passes (test-plan #E29)
 
 ## 3. Bridge: filter tools
 
@@ -37,7 +37,7 @@
 
 ## 4. Client: wizard step 1, copy, filters control
 
-- [ ] 4.1 `client/wizard.ts`: `consoleLinks(projectId, owner?)` / `gcloudCommands(projectId, owner?)` per design D3; update the `GmailSettings.tsx:177-178` call site and existing `client/__tests__/wizard.test.tsx` array/`<project-id>` expectations; verify E3, E4 pass
+- [ ] 4.1 `client/wizard.ts`: `consoleLinks(projectId, owner?)` / `gcloudCommands(projectId, owner?)` per design D3; update the `GmailSettings.tsx:191-192` call site and existing `client/__tests__/wizard.test.tsx` array/`<project-id>` expectations; verify E3, E4 pass
 - [ ] 4.2 `client/GmailSettings.tsx` step 1 per D1–D4: new/existing radio, project-id + owner `TextField`s with real hints and blur-only `error` (`testIds.error = "gmail-project-error"`), save on blur, seed from `state.setup`, "valid project id needed" statement, auth-login note, flush-before-upload, adopt/mismatch `SettingsNotice` (`gmail-project-mismatch`); verify E7–E15 pass
 - [ ] 4.3 Copy per D5: EN `errScopeMissing`, `consentHint`, `audienceHelp`; zh-CN + hu for those and every new key in `src/i18n.ts`; update `client/__tests__/panel.test.tsx:296` expectation; verify E30 passes
 - [ ] 4.4 Account row "Filters for <email>" toggle with `gmail.settings.basic` help, wired to `POST /accounts/:sub/filters`; verify E31 passes
@@ -66,6 +66,6 @@
 - [ ] 6.1 Real Google consent shapes (Workspace + gmail.com) match the `consentHint` wording (test-plan: manual-only, #F4)
 - [ ] 6.2 Wizard link with owner set opens the real console as that account (test-plan: manual-only, #F5)
 - [ ] 6.3 Review zh-CN and hu wording of step 1, consent hint and filters control (test-plan: manual-only, #F6)
-- [ ] 6.4 Confirm in the Gmail API reference that `users.settings.filters` accepts `gmail.settings.basic` and not `gmail.modify`; record in the PR (test-plan: manual-only, #X3)
+- [ ] 6.4 Confirm in the Gmail API reference that `users.settings.filters` accepts `gmail.settings.basic` and not `gmail.modify`; record in the PR; do this before 1.2 and 3.1, since the scope split in D6/D7 rests on it (test-plan: manual-only, #X3)
 - [ ] 6.5 `security-hardening` pass: `gmail.settings.sharing` never requested; no `forward` path reaches Google; filter writes confirmed and pre-checked; `PUT /setup` guarded/rate-limited and logs no values; findings recorded in the PR
 - [ ] 6.6 Update `packages/gmail-plugin/src/{shared,server,bridge,client}/AGENTS.md` and `packages/shared/src/route-tiers.ts.AGENTS.md` rows (`See change: improve-gmail-plugin-setup-ux`); verify `npm test` passes and `npm run quality:changed` is clean
