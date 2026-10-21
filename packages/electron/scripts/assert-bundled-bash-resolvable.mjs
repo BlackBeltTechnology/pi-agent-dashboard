@@ -40,7 +40,7 @@
  * See change: fix-windows-bundled-bash-exe (design D4).
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -177,14 +177,23 @@ function printDiag(label, got) {
   console.error(`  [${label}] child diagnostics: ${JSON.stringify(got.diag, null, 2)}`);
 }
 
+/** Canonical form of an existing file (8.3 short temp names like RUNNER~1 → long); else the input. */
+function canon(p) {
+  try {
+    return normWin(realpathSync.native(p));
+  } catch {
+    return normWin(p);
+  }
+}
+
 function checkResolution(label, got, expected) {
-  if (got.error || normWin(got.pi) !== normWin(expected)) printDiag(label, got);
+  if (got.error || canon(got.pi) !== canon(expected)) printDiag(label, got);
   if (got.error) fail(`[${label}] pi getShellConfig() threw: ${got.error} (expected ${expected})`);
-  if (normWin(got.pi) !== normWin(expected)) {
+  if (canon(got.pi) !== canon(expected)) {
     fail(`[${label}] pi resolved ${got.pi}, expected ${expected}`);
   }
   if (got.replicaError) fail(`[${label}] shipped resolvePiShell failed to load: ${got.replicaError}`);
-  if (normWin(got.replica) !== normWin(got.pi)) {
+  if (canon(got.replica) !== canon(got.pi)) {
     fail(`[${label}] shipped resolvePiShell (${got.replica}) disagrees with pi (${got.pi}) — replica drifted`);
   }
   console.log(`  [${label}] pi shell = ${got.pi}`);
