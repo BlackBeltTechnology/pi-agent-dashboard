@@ -11,10 +11,11 @@
  *
  * See change: fix-worktree-server-autostart-leak.
  */
-import { describe, it, expect } from "vitest";
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 const GATEWAY_TS = readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "pi", "pi-gateway.ts"),

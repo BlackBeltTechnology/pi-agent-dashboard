@@ -11,7 +11,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { deriveEndedAt, type EndedAtEvidence } from "../session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
-import { reconcileSessionOrder, type ReconcileSession } from "../session/reconcile-session-order.js";
+import { type ReconcileSession, reconcileSessionOrder } from "../session/reconcile-session-order.js";
 
 const dir = mkdtempSync(join(tmpdir(), "endedat-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

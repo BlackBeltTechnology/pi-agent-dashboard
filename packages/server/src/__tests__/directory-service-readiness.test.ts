@@ -20,9 +20,9 @@ import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-da
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import { deriveOpenSpecReadiness, type ReadinessInputs } from "../openspec/readiness.js";
+import { type CliCall, CURRENT_PATCH } from "../openspec/workflow-schema.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
-import { CURRENT_PATCH, type CliCall } from "../openspec/workflow-schema.js";
 
 // ── git-operations mock: resolveConfigRoot is faked (configurable per test);
 // everything else stays real (folder-head-poll needs readHeadDisplayAsync).

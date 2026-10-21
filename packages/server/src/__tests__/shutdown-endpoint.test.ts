@@ -1,7 +1,7 @@
 /**
  * Tests for POST /api/shutdown endpoint.
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
 
 let httpPort: number;

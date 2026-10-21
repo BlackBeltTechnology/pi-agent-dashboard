@@ -7,8 +7,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import YAML from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import YAML from "yaml";
 import { generateWorkflowSchema, runWorkflowSchemaAction } from "../openspec/workflow-schema.js";
 import { mkTmp, openspecSync, realCliAvailable, snapshotTree, write } from "./helpers/workflow-schema-fixtures.js";
 

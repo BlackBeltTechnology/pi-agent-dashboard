@@ -8,18 +8,19 @@
  * that floor so a lockstep floor raise cannot silently flip it below the floor
  * (it did at 1.0.0). See change: update-pi-core-1-0-adopt-apis.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../pi/pi-version-skew.js", async (importActual) => {
   const actual = await importActual<typeof import("../pi/pi-version-skew.js")>();
   return { ...actual, readCurrentPiVersion: vi.fn() };
 });
 
-import { registerSystemRoutes } from "../routes/system-routes.js";
 import { readCurrentPiVersion } from "../pi/pi-version-skew.js";
+import { registerSystemRoutes } from "../routes/system-routes.js";
 
 const mockReadCurrent = vi.mocked(readCurrentPiVersion);
 

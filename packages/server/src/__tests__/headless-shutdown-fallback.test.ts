@@ -1,10 +1,11 @@
 /**
  * Integration test: shutdown fallback kills headless process when bridge is disconnected.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createServer, type DashboardServer } from "../server.js";
-import { WebSocket } from "ws";
+
 import { spawn } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
+import { createServer, type DashboardServer } from "../server.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {

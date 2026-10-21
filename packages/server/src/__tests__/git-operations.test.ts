@@ -2,7 +2,6 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import * as sharedGit from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import {
   buildGitFixtures,
@@ -10,6 +9,7 @@ import {
   type GitFixtures,
   restoreEnv,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as gitOps from "../git-worktree/git-operations.js";
 import {
   checkoutBranch,

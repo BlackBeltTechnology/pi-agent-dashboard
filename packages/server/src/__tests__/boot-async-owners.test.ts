@@ -29,8 +29,8 @@ vi.mock("../session/session-bootstrap.js", async (importOriginal) => {
 });
 
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
-import { cleanupStaleZrok, detectZrokBinary } from "../tunnel/tunnel.js";
 import { discoverAndBroadcastSessions } from "../session/session-bootstrap.js";
+import { cleanupStaleZrok, detectZrokBinary } from "../tunnel/tunnel.js";
 
 const baseConfig: ServerConfig = {
   port: 0,

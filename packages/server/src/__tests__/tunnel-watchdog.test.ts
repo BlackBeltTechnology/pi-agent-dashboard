@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  _resetForTest,
+  _runTickForTest,
+  getTunnelWatchdogStatus,
   probeTunnel,
   startTunnelWatchdog,
   stopTunnelWatchdog,
-  getTunnelWatchdogStatus,
-  _runTickForTest,
-  _resetForTest,
 } from "../tunnel/tunnel-watchdog.js";
 
 const URL = "https://abc.share.zrok.io";

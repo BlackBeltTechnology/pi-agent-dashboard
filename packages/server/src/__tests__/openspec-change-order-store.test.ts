@@ -2,12 +2,13 @@
  * Tests for per-change ordering persistence in the OpenSpec group store.
  * See change: redesign-openspec-board (openspec-change-order spec).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
-import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
+import path from "node:path";
 import { OPENSPEC_UNGROUPED_KEY } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
 
 describe("openspec-group-store: change order", () => {
   let cwd: string;

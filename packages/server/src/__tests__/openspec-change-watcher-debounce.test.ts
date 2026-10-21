@@ -5,8 +5,9 @@
  *
  * See change: fix-openspec-taskcheck-delay.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { EventEmitter } from "node:events";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock fs.watch so attach() succeeds without touching the real filesystem.
 type FakeWatcher = EventEmitter & { close: () => void };

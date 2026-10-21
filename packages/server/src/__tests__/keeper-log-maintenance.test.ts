@@ -11,19 +11,19 @@
  * counts logs at/over 2× cap; launch logs counted separately; reclaimedBytes
  * owned by the sweep and preserved across refreshes.
  */
-import { chmodSync, existsSync, readdirSync, mkdirSync, mkdtempSync, rmSync, statSync, truncateSync as realTruncateSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, truncateSync as realTruncateSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createKeeperManager,
-  EMPTY_KEEPER_LOG_STATS,
   DEFAULT_KEEPER_LOG_MAX_BYTES,
-  DEFAULT_SWEEP_MIN_AGE_MS,
   DEFAULT_KEEPER_LOG_STATS_TTL_MS,
+  DEFAULT_SWEEP_MIN_AGE_MS,
+  EMPTY_KEEPER_LOG_STATS,
+  type KeeperManagerOptions,
   pidPathFor,
   piPidPathFor,
-  type KeeperManagerOptions,
 } from "../rpc-keeper/keeper-manager.js";
 
 const KNOWN_DEAD_PID = 99999999;

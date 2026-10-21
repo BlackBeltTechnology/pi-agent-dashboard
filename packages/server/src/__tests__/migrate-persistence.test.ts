@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { metaPath } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { needsMigration, runMigration, type MigrationPaths } from "../persistence/migrate-persistence.js";
+import path from "node:path";
+import { metaPath, readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type MigrationPaths, needsMigration, runMigration } from "../persistence/migrate-persistence.js";
 
 describe("migrate-persistence", () => {
   let tmpDir: string;

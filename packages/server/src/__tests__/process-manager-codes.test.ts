@@ -3,9 +3,10 @@
  * Uses a mocked ToolResolver and stubbed spawnDetached/waitForNoCrash.
  * See change: spawn-failure-diagnostics.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import path from "node:path";
+
 import os from "node:os";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub ToolResolver so we don't touch the real binary resolver.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", () => ({
@@ -44,9 +45,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js
   prependManagedNodeToPath: vi.fn().mockImplementation((env: unknown) => env),
 }));
 
-import { spawnPiSession, setResolver, resetResolver } from "../spawn-process/process-manager.js";
-import { spawnDetached, waitForNoCrash } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { spawnDetached, waitForNoCrash } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
+import { resetResolver, setResolver, spawnPiSession } from "../spawn-process/process-manager.js";
 
 const mockSpawnDetached = vi.mocked(spawnDetached);
 const mockWaitForNoCrash = vi.mocked(waitForNoCrash);

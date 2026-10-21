@@ -1,12 +1,12 @@
 /**
  * Tests for the shared bridge extension registration (server context).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
-import { registerBridgeExtension, findBundledExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 describe("bridge extension registration (server context)", () => {
   let tmpDir: string;

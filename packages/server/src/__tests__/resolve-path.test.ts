@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { safeRealpathSync } from "../resolve-path.js";
 
 describe("safeRealpathSync", () => {

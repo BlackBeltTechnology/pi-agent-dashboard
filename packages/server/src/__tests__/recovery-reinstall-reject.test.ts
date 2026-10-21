@@ -10,8 +10,9 @@
  *
  * See change: cleanup-async-semantics-server-extension (test-plan #X11).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import http from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();

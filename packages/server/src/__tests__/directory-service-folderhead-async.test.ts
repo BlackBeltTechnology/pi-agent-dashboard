@@ -18,8 +18,8 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import type { HeadInfo } from "../git-worktree/git-operations.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 
 const runOpenSpecListMock = vi.fn();
 vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (importOriginal) => {

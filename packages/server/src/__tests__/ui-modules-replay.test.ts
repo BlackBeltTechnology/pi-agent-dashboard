@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it, vi } from "vitest";
+import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleSubscribe, replayUiState } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**
  * Tests for the Phase-1 Extension UI System server contract:

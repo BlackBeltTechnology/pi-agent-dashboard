@@ -6,7 +6,7 @@
  * Mirrors `post-install-openspec-refresh.test.ts` contract for the
  * bootstrap path. See change: fix-cold-boot-openspec-protocol.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverAndBroadcastSessions } from "../session/session-bootstrap.js";
 
 interface SpyDirSvc {

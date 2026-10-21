@@ -17,8 +17,8 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveMainPath } from "../git-worktree/git-operations.js";
-import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import * as worktreeInit from "../git-worktree/worktree-init.js";
+import { hookDefHash, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import { createWorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 import { recordTrust } from "../git-worktree/worktree-init-trust.js";
 import { registerGitRoutes } from "../routes/git-routes.js";

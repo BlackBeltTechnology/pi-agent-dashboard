@@ -7,7 +7,7 @@
  *
  * See change: fix-fork-empty-session-silent-timeout.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 // Spy on existsSync so we control the on-disk truth.

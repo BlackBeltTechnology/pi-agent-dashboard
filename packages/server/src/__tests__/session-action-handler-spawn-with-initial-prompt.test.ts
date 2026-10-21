@@ -3,7 +3,7 @@
  * when the browser sends `initialPrompt`, and does NOT enqueue when omitted.
  * See change: project-init-skill-and-profiles.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),

@@ -13,6 +13,7 @@ import {
   type WorkflowSchemaResult,
 } from "../openspec/workflow-schema.js";
 import {
+  type FakeCli,
   makeFakeCli,
   mkRepo,
   mkTmp,
@@ -20,7 +21,6 @@ import {
   stubDeps,
   write,
   writeSchemaDir,
-  type FakeCli,
 } from "./helpers/workflow-schema-fixtures.js";
 
 const roots: string[] = [];

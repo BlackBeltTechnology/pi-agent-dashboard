@@ -9,7 +9,7 @@
  *
  * See change: electron-attach-ownership-fixes.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const isProcessAlive = vi.fn<(pid: number) => boolean>();
 
@@ -18,8 +18,8 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", async (
   return { ...actual, isProcessAlive: (pid: number) => isProcessAlive(pid) };
 });
 
-import { startEphemeralParentWatch } from "../lifecycle/ephemeral-parent-watch.js";
 import { bootParentPid } from "../lifecycle/boot-parent-liveness.js";
+import { startEphemeralParentWatch } from "../lifecycle/ephemeral-parent-watch.js";
 
 describe("computeBootParentAlive (Tier 1)", () => {
   beforeEach(() => {

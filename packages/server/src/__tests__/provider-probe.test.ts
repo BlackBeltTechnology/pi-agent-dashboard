@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildProbeRequest,
-  resolveProbeApiKey,
-  probeProvider,
   type ProbeInput,
+  probeProvider,
+  resolveProbeApiKey,
 } from "../package/provider-probe.js";
 import { startStalledUpstream } from "./stalled-upstream.js";
 

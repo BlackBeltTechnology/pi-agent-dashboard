@@ -165,6 +165,7 @@ One row per file.
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling. → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `raw-active-content-sandbox.spec.ts` | L3 raw SVG/HTML sandbox CSP. See change: harden-raw-svg-responses. |
 | `remote-access-wizard.spec.ts` | L3 dialog. → see `remote-access-wizard.spec.ts.AGENTS.md` |
 | `remote-browse-confinement.spec.ts` | → see `remote-browse-confinement.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
