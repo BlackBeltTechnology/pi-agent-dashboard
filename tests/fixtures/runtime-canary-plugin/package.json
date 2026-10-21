@@ -51,6 +51,7 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "*",
     "@blackbelt-technology/pi-dashboard-app-kit": "*",
     "react": ">=18.0.0",
+    "react-dom": ">=18.0.0",
     "wouter": "^3.9.0"
   }
 }
