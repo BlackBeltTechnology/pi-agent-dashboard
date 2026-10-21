@@ -4,6 +4,7 @@
  *
  * See change: add-openspec-change-dependencies.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import fsp from "node:fs/promises";
 import * as path from "node:path";
@@ -104,6 +105,26 @@ describe("review: change names are single path segments", () => {
     expect(out.graph["real"]?.blocks ?? []).toEqual([]);
     expect(Object.keys(out.graph)).toContain("real");
   });
+});
+
+describe("review: markdown inputs are opened without following or blocking", () => {
+  it.skipIf(process.platform === "win32")("a FIFO swapped in for proposal.md after the lstat does not hang the build", async () => {
+    writeFile(cwd, "openspec/changes/swapped/.openspec.yaml", "schema: spec-driven\n");
+    const fifo = path.join(cwd, "openspec", "changes", "swapped", "proposal.md");
+    execFileSync("mkfifo", [fifo]);
+    const orig = fsp.lstat.bind(fsp);
+    // The check sees a small regular file (as if the swap happened right after it); the read then meets a FIFO.
+    vi.spyOn(fsp, "lstat").mockImplementation((async (p: unknown, ...rest: unknown[]) => {
+      const st = (await (orig as (...a: unknown[]) => Promise<import("node:fs").Stats>)(p, ...rest)) as import("node:fs").Stats;
+      if (String(p) !== fifo) return st;
+      return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { isFile: () => true, isSymbolicLink: () => false, size: 10 });
+    }) as never);
+    const out = await Promise.race([
+      computeDependencies(openspecDir, ["swapped"]),
+      new Promise<"blocked">((r) => setTimeout(() => r("blocked"), 3000)),
+    ]);
+    expect(out).not.toBe("blocked"); // a plain readFile of a FIFO waits for a writer forever
+  }, 10_000);
 });
 
 describe("#P1 warm rebuild budget", () => {

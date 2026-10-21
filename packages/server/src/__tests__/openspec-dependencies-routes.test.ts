@@ -15,6 +15,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MANIFEST } from "../../../mcp-server-plugin/src/server/tools.manifest.js";
 import { classifyHttpRoad } from "../identity/http-road-classification.js";
+import { writeDependenciesFile } from "../openspec/dependencies-file.js";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 import { makeFakeCli, mkRepo, mkTmp, stubDeps, write } from "./helpers/workflow-schema-fixtures.js";
 
@@ -390,5 +391,17 @@ describe("#X7 registration", () => {
     await app.close();
     expect(seen.GET).toBe(guard);
     expect(seen.PUT).toBe(guard);
+  });
+});
+
+describe("review: writeDependenciesFile owns its containment", () => {
+  it("a change name that resolves to openspec/changes itself ('.') is refused and writes nothing", async () => {
+    const root = mkRepo({ config: "schema: pi-spec-driven\n" });
+    for (const change of [".", ""]) {
+      const out = await writeDependenciesFile({ root, change, content: "blocked_by: []\n", expected: null });
+      expect(out.ok, `change ${JSON.stringify(change)}`).toBe(false);
+    }
+    expect(nodeFs.existsSync(path.join(root, "openspec", "changes", "dependencies.yaml"))).toBe(false);
+    nodeFs.rmSync(root, { recursive: true, force: true });
   });
 });

@@ -7,6 +7,7 @@
  *
  * See change: add-openspec-change-dependencies.
  */
+import { constants as fsConstants } from "node:fs";
 import fsp from "node:fs/promises";
 import * as path from "node:path";
 import {
@@ -76,15 +77,34 @@ async function cachedParse<T>(
   seen.add(file);
   const hit = fileCache.get(file) as CacheEntry<T> | undefined;
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value;
-  let text: string;
-  try {
-    text = await fsp.readFile(file, "utf8");
-  } catch {
-    return null;
-  }
+  const text = await readMarkdown(file);
+  if (text === null) return null;
   const value = parse(text);
   fileCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, value });
   return value;
+}
+
+/**
+ * Bounded read of a regular file that is re-checked on the OPEN handle: never through a symlink
+ * (`O_NOFOLLOW`), never blocking on a FIFO swapped in after the caller's lstat (`O_NONBLOCK`), never more
+ * than `MAX_MARKDOWN_BYTES`. `null` = unreadable or not a regular file.
+ */
+async function readMarkdown(file: string): Promise<string | null> {
+  const noFollow = typeof fsConstants.O_NOFOLLOW === "number" ? fsConstants.O_NOFOLLOW : 0;
+  const nonBlock = typeof fsConstants.O_NONBLOCK === "number" ? fsConstants.O_NONBLOCK : 0;
+  let handle: Awaited<ReturnType<typeof fsp.open>> | undefined;
+  try {
+    handle = await fsp.open(file, fsConstants.O_RDONLY | noFollow | nonBlock);
+    const hs = await handle.stat();
+    if (!hs.isFile() || hs.size > MAX_MARKDOWN_BYTES) return null;
+    const buf = Buffer.alloc(hs.size + 1);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    return bytesRead > hs.size ? null : buf.toString("utf8", 0, bytesRead); // grew while reading: skip
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 async function readDeclared(file: string, seen: Set<string>): Promise<DeclaredState> {

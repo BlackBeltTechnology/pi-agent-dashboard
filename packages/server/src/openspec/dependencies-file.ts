@@ -83,7 +83,8 @@ export async function writeDependenciesFile(args: {
   } catch {
     return refused("cannot resolve the change directory");
   }
-  if (!(dirReal + path.sep).startsWith(changesReal + path.sep)) {
+  // Strictly below `changes/` (the directory itself, e.g. change "." or "", is not a change directory).
+  if (dirReal === changesReal || !(dirReal + path.sep).startsWith(changesReal + path.sep)) {
     return refused("the change directory resolves outside openspec/changes/");
   }
 
