@@ -1,46 +1,103 @@
-> **STUB — not yet planned.** Run `plan-proposal` on this change before implementation. Depends on `codeql-model-pack-and-mirror` (its spike must prove a modelled guard closes a CI alert). `design.md` and `specs/` are cycle-2 drafts carried over from the split of `triage-codeql-alert-debt` and still contain the unresolved findings listed below.
+> **In planning (plan-proposal).** Doubt-review cycles 1 and 2 have been reconciled. On 2026-10-22 the operator decided to split the file-family routes into `core-file-cwd-admission`, to use a new `cwd_unknown` code, to keep a single hyphenated `cwd-admission-unavailable` identifier, to accept that sibling worktrees are refused, and to keep the gated openspec write sites on exact membership (no widening there). The dependency `codeql-model-pack-and-mirror` is archived (2026-10-21).
 
 ## Why
 
-`validateCwd` (`packages/server/src/routes/git-routes.ts:1111`) checks only that the cwd exists and is a directory. About 20 `/api/git/*` call sites therefore accept any directory on the host. Core file and openspec routes gate on ad-hoc session-membership checks that CodeQL cannot see. Together these produce most of the 71 open `js/path-injection` alerts.
+`validateCwd` (`packages/server/src/routes/git-routes.ts:1116`) checks only that the cwd exists and is a directory, and it touches the raw request path while doing so. Its 19 `/api/git/*` call sites therefore accept any directory on the host. Openspec routes either do not gate a caller `cwd` at all or gate it with exact-string membership, which CodeQL cannot see. Together these feed most of the `js/path-injection` results booked on `git-worktree/*`, `openspec/*` and the two route files.
 
 ## What Changes
 
-- **Admission.** Core routes admit a caller `cwd` through the shared, modelled `admitCwd` + `admissionAllows` guard.
-- **Joined paths.** Paths joined under the cwd are contained via a new modelled `admissionContains(admission, p)`.
-- **Widening (accepted by the operator 2026-10-20).** File and openspec routes also admit pinned folders and worktrees / main checkouts of known repositories.
-- **Tightening.** `/api/git/*` refuse unknown directories.
+- **Admission.** Git and openspec routes admit a caller `cwd` through the shared `admitCwd` + `admissionAllows` guard, before any filesystem call on the request value. Operations run on the canonical cwd.
+- **Tightening (operator 2026-10-20 / 2026-10-22).** `/api/git/*` refuse directories that are not admitted, with the new code `cwd_unknown` and a pin hint. Unknown paths no longer reveal whether they exist.
+- **Openspec.**
+  - Ungated sites (reads and tasks-toggle) gain the gate: 403 `cwd_unknown`, global config dir refused. They are widened to worktrees and subdirectories of known repos.
+  - Gated write sites (init, workflow-schema, dependencies) run admission *and* keep exact membership, opt-out and their bodies.
+- **503.** An indeterminate admission answers with the plugin wire shape `cwd-admission-unavailable` (plus `success` and `code`).
+- **Path segments.** Openspec change names are checked with the existing modelled `isPortableProjectName` before a lib joins them (400 `invalid_name`). Lib-owned multi-segment containment in git stays as it is and is booked as residue.
+- **Bug fix.** A regular-file cwd is refused, not indeterminate (D6, conditional on a test).
+- **Probe gate.** A real-CodeQL probe gate proves these guard forms close results before any route work starts.
 
 ## Capabilities
 
 ### New Capabilities
-- `core-cwd-admission`: draft in `specs/core-cwd-admission/spec.md`.
+- `core-cwd-admission`: admission, known set, gated-write exact membership, openspec refusals, 503, segment guard, and release.
 
 ### Modified Capabilities
-- TBD at planning. Candidates: `file-read-containment`, `path-anchor-grants` precedence, `plugin-cwd-admission` (file-routes verdict re-run).
+- `git-operations-api`:
+  - ADDED: admission precedes validation (`cwd_unknown`, precedence over `not_a_repo`), and the codes extend the stable sets.
+  - MODIFIED: "Four worktree-lifecycle endpoints registered" (`validateCwd` admits), "Read HEAD endpoint", "Create worktree endpoint" (codes), and "Worktree operations anchor…" (admission derivation not counted).
+- `worktree-auto-init`: auto-init re-probes `cwd_unknown` every 500 ms for at most 10 s (D7).
+- `folder-action-bar`: access control for `POST /api/git/worktree` is the network guard **plus** cwd admission.
+- `worktree-lifecycle`:
+  - the remove-batch code union (`+ cwd_unknown`, `cwd-admission-unavailable`, `main_checkout_unresolved`), sequential admission and a 10 s batch budget;
+  - "removal reachable without a session" now requires an *admitted* cwd;
+  - gone rows: `cwd_unknown` for unknown paths.
 
 ## Impact
 
-TBD at planning.
+- **Server.**
+  - `packages/shared/src/cwd-guard.ts`: non-directory → refuse, only if the D6 test fails.
+  - New `packages/server/src/lib/route-admission.ts`.
+  - `routes/git-routes.ts`: `validateCwd` becomes async; 19 sites; `remove-batch` admits sequentially.
+  - `routes/openspec-routes.ts`: 12 caller-`cwd` sites, including `depGates`.
+  - `routes/folder-project-routes.ts`: release moves into a `finally`.
+- **Model.** Unchanged. The real-analysis harness gains D0 probe fixtures.
+- **Client.**
+  - `lib/i18n-en-source.json`: `err.cwd_unknown`, `err.cwd_admission_unavailable`, `err.invalid_name`.
+  - `CloseWorktreeDialog` / `ManageWorktreesDialog` must not read `cwd_unknown` as "already gone".
+- **Wire contract.** New 400 `cwd_unknown` and 503 `cwd-admission-unavailable` on git and openspec routes. New 403 `cwd_unknown` and 400 `invalid_name` on previously ungated openspec routes. MCP server-plugin tools that wrap these routes surface the new errors.
+- **Out of scope.**
+  - File-family routes → `core-file-cwd-admission` (stub, blocked by this change).
+  - Residue → `triage-codeql-alert-debt`.
 
-## Open findings carried from doubt-review cycles 1–2 (resolve during planning)
+## Findings from doubt-review → resolution
 
-1. **Count `validateCwd` callers by grep.** There are about 20, not 10; the ones after `:653` include remove, remove-batch, prune, merge, push, pr, pull-requests, from-pr and diff-stat. Add tightening scenarios for the mutating ones.
-2. **Status-code contract.** Every git refusal is 400 `cwd_invalid` today (`git-routes.ts:242-260`). An indeterminate → 503 result changes the client contract. Decide, and audit the client callers (`git-api.ts`, `WorktreeSpawnDialog.tsx`, `SessionCard.tsx`, `useInitStatus.ts`).
-3. **Gate inventory.** `file-routes.ts` has 9 `listAll` gates (`:158, 344, 385, 480, 884, 991, 1143, 1183, 1402`), and `exists` already admits pinned dirs (`:1060-1089`). Build a per-site old→new matrix and correct the "session-only" premise.
-4. **Async ripple.** `:158` `resolveScopedMdPath` is sync, and the global scope (no cwd) must stay unchanged. Making it async ripples to callers.
-5. **Openspec known set.** `openspec-routes.ts` `knownCwds()` (`:246-250`) is filtered by `hasOpenSpecRoot`. Pass the full known set to admission and keep the filter as a list predicate. There is no session-membership site in `openspec-routes.ts`.
-6. **Unknown-cwd verdict.** The file-route verdict (operator allow → re-run, `openspec/specs/plugin-cwd-admission/spec.md:152`) must be a carve-out from the "unknown directory refused" scenario.
-7. **Precedence vs grants.** The joined-path containment rule must state precedence against path-anchor grants and layered containment (`file-routes.ts:1063-1101`, `openspec/specs/path-anchor-grants/spec.md:67`). Containment input changes when cwd widens; add a regression for a pinned cwd plus `../outside` → 403.
-8. **`admissionContains` semantics.** Decide lexical vs realpath. Model only the canonical value that reaches the sink. Define Linux case-sensitivity and a TOCTOU fence (cf. `access/cwd-verdict.ts` `admitIfUnchanged`). Add a symlink-escape test.
-9. **Token release.** Release the token in `finally` / `onResponse` in every route, including folder-project, whose current release is on `reply.raw` close (`:84`).
-10. **Hot-path latency.** `admitCwd` realpaths every known folder plus git probes (cap 4, deadline 3000 ms). Add p99 and an indeterminate-rate budget, not only p50.
-11. **Wrapper location (cross-change).** `design.md` D4's `$TMPDIR` wrapper and in-repo `qlpack.yml` are superseded by `codeql-model-pack-and-mirror` D1 (run-dir wrapper; repo layout unchanged; CI already auto-loads the bare model file). Drop D4 here and depend on that change. Likewise the old D6 `--mirror-dismissal … --dismissed-reason` CLI is superseded by that change's D4 (reason read from GitHub; owned there).
-12. **Tests first.** Write tests per requirement first (TDD); "suite passes" is not verification.
+Cycles 1–2 (pre-split):
+
+1. 19 `validateCwd` callers → design Context.
+2. Status codes → D3 and D4.
+3. Gate inventory → design Context (openspec table). The file inventory moved to `core-file-cwd-admission`.
+4. Async ripple → `validateCwd` and `depGates` become async. The file ripple moved.
+5. Openspec known set → unfiltered, per the requirement.
+6. Verdict carve-out → moved with the file routes.
+7. Containment precedence → D2 scope: only sites with no containment today.
+8. Containment semantics → superseded in cycle 2. D2 uses the modelled segment guard, because libs re-join raw inputs.
+9. Release → D1 `finally`, including folder-project.
+10. Latency → D5, gated.
+11. Superseded wrapper/mirror → dropped.
+12. TDD → tasks.
+
+Cycle 3 (this planning, review 1):
+
+- Raw-path `stat` before the guard → admit first (D1).
+- `cwd_invalid` read as "already gone" → `cwd_unknown`.
+- Two 503 spellings → one identifier (D3).
+- Openspec gated sites → keep their bodies (D4).
+- Spike overstated → D0 probe gate.
+- Batch concurrency → sequential + memo.
+- Bench covered only the cheap path → D5 extra cases.
+- Unreadable known folder → D3 + scenario.
+- `admitCwd` semantics → spec reworded (subdirs admitted, siblings refused).
+- Missing deltas → `git-operations-api`, `worktree-lifecycle`; file-family deltas moved.
+
+Cycle 4 (this planning, review 2):
+
+- A route-side join check can't sanitize lib re-joins → D2 segment guard; `admissionContains` dropped.
+- D0 twins were vacuous → sinks in a separate lib module; the stub returns a token; a skipped run fails.
+- Opt-out bypass and global-config dir → gated write sites keep exact membership (operator).
+- Existence oracle overstated → narrowed in Risks.
+- File cwd → 503 → D6.
+- Vanished sessionless worktree → accepted, with a scenario.
+- Pinned non-repo parent → scenario + Risks.
+- Main-spec contradictions → `git-operations-api` MODIFIED deltas.
+- Raw vs canonical keys → openspec keeps raw guarded `cwd`.
+- Batch latency → 10 s budget.
+- 403 without a code → `cwd_unknown`.
+- Tasks: enumerate all 19 sites; spies exempt the guard; i18n catalog target.
 
 ## Discipline Skills
 
-- `security-hardening`: caller-supplied `cwd`/path on file, git and openspec routes; the widening and the tightening.
-- `doubt-driven-review`: the widening/tightening decision and the status-code contract before they stand.
-- `performance-optimization`: async admission on the `/api/file` hot path.
+- `security-hardening`: caller-supplied `cwd` and joined paths on git and openspec routes; the tightening; removing the existence oracle.
+- `doubt-driven-review`: wire-contract and tightening decisions before they stand.
+- `performance-optimization`: async admission on `/api/git/status` and openspec reads (D5).
+- `systematic-debugging`: if the D0 probe gate fails.
 - `review-code`: before commit.
