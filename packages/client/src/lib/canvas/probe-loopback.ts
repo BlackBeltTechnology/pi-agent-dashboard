@@ -10,13 +10,14 @@
  * bare `/live/<id>/` path.
  */
 import { getApiBase } from "../api/api-context.js";
-import { mintLiveCapability, startLiveServer } from "../api/live-server-api.js";
 import { classifyServerProbe, type ServerProbeOutcome } from "./canvas-gate.js";
 
 /** Client timeout for the on-tap probe (S31 threshold). */
 const PROBE_TIMEOUT_MS = 3000;
 
 export async function probeLoopbackServer(port: number, sessionId?: string): Promise<ServerProbeOutcome> {
+  // On-tap only: the live-server API module stays off the cold landing.
+  const { mintLiveCapability, startLiveServer } = await import("../api/live-server-api.js");
   const started = await startLiveServer({ host: "127.0.0.1", port, addedBy: "preset", sessionId });
   if (!started.ok) return "not-running";
   const cap = await mintLiveCapability(started.target.id, { policy: { egress: "restricted", scripts: false } });

@@ -2,7 +2,7 @@
  * CanvasToolRenderer — declared target, error line, active-only link.
  * See change: improve-canvas-html-and-url-ux (test-plan #E30, tool-renderers spec).
  */
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SplitWorkspaceProvider } from "../../split/SplitWorkspaceContext.js";
 import { CanvasToolRenderer } from "../CanvasToolRenderer.js";
@@ -120,7 +120,22 @@ describe("CanvasToolRenderer (E30)", () => {
     expect(screen.getByTestId("canvas-tool-target").className.split(/\s+/)).toContain("text-code");
   });
 
-  it("the registry maps `canvas` to CanvasToolRenderer", () => {
-    expect(getToolRenderer("canvas")).toBe(CanvasToolRenderer);
+  it("the registry maps `canvas` to the (lazy) CanvasToolRenderer, not the generic JSON dump", async () => {
+    const Registered = getToolRenderer("canvas");
+    expect(Registered).not.toBe(getToolRenderer("some_unmapped_tool"));
+    render(
+      <SplitWorkspaceProvider sessionId="sCard" cwd="/proj" orientation="h">
+        <Registered
+          toolName="canvas"
+          toolCallId="c9"
+          status="complete"
+          result='{"ok":true}'
+          args={{ target: { kind: "file", path: "a.html" }, title: "Via registry" }}
+          context={ctx({ key: "k", sourceCallId: "c9" })}
+        />
+      </SplitWorkspaceProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("canvas-tool-card").textContent).toContain("Via registry"));
+    expect(screen.getByTestId("canvas-tool-card").textContent).not.toContain('{"ok":true}');
   });
 });

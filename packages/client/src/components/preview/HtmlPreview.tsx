@@ -17,7 +17,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { eligibleFetch, usePreviewFetch, usePreviewOpener } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { startStaticTarget } from "../../lib/api/live-server-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { DenialNotice } from "./DenialNotice.js";
@@ -64,6 +63,9 @@ export function HtmlPreview({ target }: Props) {
     setFailure(null);
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
+      // The live-server API module is loaded with the first HTML preview, not on the cold landing.
+      const { startStaticTarget } = await import("../../lib/api/live-server-api.js");
+      if (cancelled) return;
       const res = await startStaticTarget(target.cwd, target.path, asked ? eligibleFetch : previewFetch);
       if (cancelled) return;
       if (res.ok) {

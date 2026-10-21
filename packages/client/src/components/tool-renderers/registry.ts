@@ -1,10 +1,10 @@
 import { AgentToolRenderer } from "./AgentToolRenderer.js";
 import { AskUserToolRenderer } from "./AskUserToolRenderer.js";
 import { BashToolRenderer } from "./BashToolRenderer.js";
-import { CanvasToolRenderer } from "./CanvasToolRenderer.js";
 import { CtxToolRenderer } from "./CtxToolRenderer.js";
 import { EditToolRenderer } from "./EditToolRenderer.js";
 import { GenericToolRenderer } from "./GenericToolRenderer.js";
+import { LazyCanvasToolRenderer } from "./LazyCanvasToolRenderer.js";
 import { ReadToolRenderer } from "./ReadToolRenderer.js";
 import type { ToolRenderer } from "./types.js";
 import { WriteToolRenderer } from "./WriteToolRenderer.js";
@@ -14,7 +14,7 @@ const renderers = new Map<string, ToolRenderer>([
   ["edit", EditToolRenderer],
   ["write", WriteToolRenderer],
   ["bash", BashToolRenderer],
-  ["canvas", CanvasToolRenderer],
+  ["canvas", LazyCanvasToolRenderer],
   ["Agent", AgentToolRenderer],
   ["ask_user", AskUserToolRenderer],
   ["ctx_execute", CtxToolRenderer],
