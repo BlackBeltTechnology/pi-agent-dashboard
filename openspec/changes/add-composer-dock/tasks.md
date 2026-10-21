@@ -149,4 +149,4 @@ L1 = vitest, L3 = Playwright vs the docker harness (port from `.pi-test-harness.
 
 ### Manual (post-merge)
 
-- [ ] 10.66 Manual check after merge: mockup fidelity (tucked dock look, spacing vs approved board) — input: approved board `mockups/composer-dock/index.html#s1`; trigger: human compares the built dock in 3 themes; observable: [judgment: matches the approved board — no automatable observable] (test-plan #F20, test-plan: manual-only)
+- [x] 10.66 Manual check after merge: mockup fidelity (tucked dock look, spacing vs approved board) — input: approved board `mockups/composer-dock/index.html#s1`; trigger: human compares the built dock in 3 themes; observable: [judgment: matches the approved board — no automatable observable] (test-plan #F20, test-plan: manual-only)
