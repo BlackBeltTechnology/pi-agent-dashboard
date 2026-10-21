@@ -163,7 +163,12 @@ export async function openInlineTerminalFromAddMenu(page: Page): Promise<void> {
 export async function expandQueueLane(page: Page): Promise<void> {
   const toggle = page.locator('[data-dock-toggle="queue"]').first();
   await toggle.waitFor({ state: "visible", timeout: 15_000 });
-  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  // A mid-turn lane arrives while the transcript is still streaming and the stack settles: a click can
+  // land on whatever shifted under the pointer. Retry until the lane really reports expanded.
+  await expect(async () => {
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click({ timeout: 2_000 });
+    await expect(toggle).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
 }
 
 /**
