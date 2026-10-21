@@ -230,7 +230,7 @@ SHALL validate the fix ledger before requesting any verification round.
 
 ### Requirement: Dependency gate at ship-it entry
 
-At entry, after the existing `SHIP_IT_BLOCKED.md` idempotency check and before any implementation step, ship-it SHALL run `npx tsx scripts/openspec-deps-gate.ts --change <name>` from its own cwd with a 60-second overall timeout and act on its JSON verdict `{ status: "ok" | "warn" | "blocked", mode: "online" | "offline", blockers: [{ change, state: "open" | "satisfied" | "unknown", source }], issues: [{ code, severity, message }], notes: string[] }`. A crash, a timeout or unparseable output SHALL be recorded as "dependencies not checked" and SHALL NOT stop the run.
+At entry, after the existing `SHIP_IT_BLOCKED.md` idempotency check and before any implementation step, ship-it SHALL run `npx tsx scripts/openspec-deps-gate.ts --change <name>` from the ship-it skill directory `.pi/skills/ship-it` (the gate lives at `.pi/skills/ship-it/scripts/openspec-deps-gate.ts`), resolved relative to the worktree root, not an absolute path with a 60-second overall timeout and act on its JSON verdict `{ status: "ok" | "warn" | "blocked", mode: "online" | "offline", blockers: [{ change, state: "open" | "satisfied" | "unknown", source }], issues: [{ code, severity, message }], notes: string[] }`. A crash, a timeout or unparseable output SHALL be recorded as "dependencies not checked" and SHALL NOT stop the run.
 
 The script SHALL:
 - resolve the dashboard HTTP base the way the extension does (`resolveDashboardPorts` precedence: `PI_DASHBOARD_PORT` / `DASHBOARD_PORT`, then `~/.pi/dashboard/config.json`, then 8000, on `localhost`);
