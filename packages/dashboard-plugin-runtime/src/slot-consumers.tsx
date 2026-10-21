@@ -350,6 +350,7 @@ export function ComposerPanelSlot({
   sessionStatus?: string;
   onApplyText: (text: string) => void;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = registry.getClaims("composer-panel");
@@ -596,6 +597,7 @@ export function AnchoredPopoverSlot({
   anchorEl: HTMLElement;
   onDismiss: () => void;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = registry.getClaims("anchored-popover");
@@ -619,6 +621,7 @@ export function CommandRouteSlot({
   routeParams: Record<string, string>;
   onClose: () => void;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const allClaims = registry.getClaims("command-route");
@@ -663,6 +666,7 @@ export function SettingsSectionSlot(_props: { tab?: string }): null {
  * See change: add-plugin-activation-ui, plugin-settings-pages.
  */
 export function SettingsSectionByPluginSlot({ pluginId }: { pluginId: string }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   const allIntents = useSlotIntents("settings-section", null);
   const claims = registry
@@ -711,6 +715,7 @@ export function ToolRendererSlot({
     sessionId: string;
   } & ToolRendererExtraProps>;
 } & ToolRendererExtraProps) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
@@ -751,6 +756,7 @@ export function AutomationActionEditorSlot({
   onChange: (payload: Record<string, unknown>) => void;
   cwd?: string;
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return null;
   const claims = forActionId(registry.getClaims("automation-action-editor"), actionId);
@@ -823,6 +829,7 @@ export function ShellHeadlessSlot() {
  * editor. See change: wire-flow-inputs-in-automation.
  */
 export function useHasAutomationActionEditor(actionId: string): boolean {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const registry = useSlotRegistryOrNull();
   if (!registry) return false;
   return forActionId(registry.getClaims("automation-action-editor"), actionId).length > 0;
@@ -889,6 +896,7 @@ export function ShellOverlayRouteSlot({
    * has not opted in behaves exactly as it did before this change.
    */
 }) {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registryProp ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -921,6 +929,7 @@ export function ShellOverlayRouteSlot({
  * See change: fix-flows-plugin-polish (hook-outside-provider fix).
  */
 export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boolean {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -960,6 +969,7 @@ export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boo
 export function useShellOverlayRoutePresentation(
   registry?: SlotRegistry | null,
 ): "page" | "dialog" | "content" | null {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
@@ -982,6 +992,7 @@ export function useShellOverlayRoutePresentation(
  * See change: add-plugin-app-host.
  */
 export function useShellOverlayRouteDepth(registry?: SlotRegistry | null): 1 | 2 | null {
+  useSlotClaimsVersion(); // re-read claims after a runtime plugin registers (bump) — before any registry-null return
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registry ?? ctxRegistry;
   const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];

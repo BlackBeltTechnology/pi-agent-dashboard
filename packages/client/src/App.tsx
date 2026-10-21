@@ -25,6 +25,7 @@ import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import { InstallBanner } from "./components/packages/InstallBanner.js";
 import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
+import { RuntimePluginReloadNotice } from "./components/packages/RuntimePluginReloadNotice.js";
 import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 // Flow components are no longer imported by the shell. They render
 // exclusively via plugin slot claims (content-header-sticky,
@@ -241,6 +242,12 @@ import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
 import { setEventTypeOwners } from "./lib/plugins/event-type-owners.js";
+import {
+  RUNTIME_PLUGINS_REGISTERED_EVENT,
+  regroupAllSessionStates,
+  startRuntimePluginLoader,
+  useRuntimePluginNames,
+} from "./lib/plugins/runtime-plugin-loader.js";
 import { logRejection } from "./lib/report-error.js";
 import { randomUuid } from "./lib/util/random-uuid.js";
 
@@ -280,9 +287,10 @@ setEventTypeOwners(_pluginRegistry.getEventTypeOwners());
 // the depth-aware back action resolves plugin routes (declared depth/parent)
 // instead of the old depth-0 dead no-op. See change:
 // fix-plugin-and-scoped-back-navigation.
-registerPluginRouteDescriptors(
-  claimsToRouteDescriptors(PLUGIN_REGISTRY.flatMap((entry) => entry.claims)),
-);
+// The build-time copy is kept: the runtime loader re-registers build-time ∪ runtime (the store replaces its list).
+const _buildTimeRoutes = claimsToRouteDescriptors(PLUGIN_REGISTRY.flatMap((entry) => entry.claims));
+registerPluginRouteDescriptors(_buildTimeRoutes);
+const _buildTimePluginIds: ReadonlySet<string> = new Set(PLUGIN_REGISTRY.map((entry) => entry.manifest.id));
 
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 // Stable empty-array reference for sessions with no pending images.
@@ -1226,6 +1234,23 @@ export default function App() {
   // tool-result route. Session-scoped (survives transcript virtualization).
   // See change: fix-stuck-tool-card-on-dropped-event.
   useStaleToolReconcile(sessionStates, setSessionStates, apiBase);
+  // Runtime plugins (design D10/D21): load the admitted listing once the API base is known (a remote
+  // server or a page without an import map loads nothing), and re-fetch on every `plugins_changed`.
+  // See change: decouple-plugins-from-core (tasks 6.14, 6.17).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `apiBase` is the re-run trigger; the loader reads it via `getApiBase()`
+  useEffect(
+    () => startRuntimePluginLoader({ registry: _pluginRegistry, buildTimeIds: _buildTimePluginIds, buildTimeRoutes: _buildTimeRoutes }),
+    [apiBase],
+  );
+  // A runtime plugin that owns event types: earlier raw rows of those types become one group row (D5 item 4, R8).
+  useEffect(() => {
+    const onRegistered = (e: Event) => {
+      const owners = (e as CustomEvent<{ owners?: Parameters<typeof regroupAllSessionStates>[1] }>).detail?.owners;
+      if (owners?.length) setSessionStates((prev) => regroupAllSessionStates(prev, owners));
+    };
+    window.addEventListener(RUNTIME_PLUGINS_REGISTERED_EVENT, onRegistered);
+    return () => window.removeEventListener(RUNTIME_PLUGINS_REGISTERED_EVENT, onRegistered);
+  }, []);
 
   // Fetch the gitWorktreeEnabled preference on mount.
   // See change: openspec-worktree-spawn-button.
@@ -3032,9 +3057,10 @@ export default function App() {
     (text, variant, opts) => showToastRef.current(text, variant, opts),
     [],
   );
+  const runtimePluginNames = useRuntimePluginNames();
   const pluginNames = useMemo(
-    () => Object.fromEntries(PLUGIN_REGISTRY.map((e) => [e.manifest.id, e.manifest.displayName])),
-    [],
+    () => ({ ...runtimePluginNames, ...Object.fromEntries(PLUGIN_REGISTRY.map((e) => [e.manifest.id, e.manifest.displayName])) }),
+    [runtimePluginNames],
   );
   const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
     () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast, folderListMode: configFolderListMode, pluginNames }),
@@ -3231,6 +3257,7 @@ export default function App() {
          fix-long-session-ux-degradation (D4). */
       <div className="flex flex-col h-[100dvh] overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
         <PluginStalenessBanner />
+        <RuntimePluginReloadNotice />
         <ConnectionStatusBanner
           status={status}
           currentServerHost={currentServerHost}

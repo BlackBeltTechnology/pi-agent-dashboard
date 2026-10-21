@@ -5,3 +5,5 @@ Settings ▸ Plugins activation list (the activation index). Renders every plugi
 Optional `promotions` prop (Map from SettingsPanel): disabled PROMOTED row marker reads `packages.shownInModels` "shown in Models" instead of "not in Settings nav". See change: promote-model-roles-settings.
 
 Renders `status.source` next to the id (`plugin-source-<id>`), `shadowed` copies as sub-lines of the winning row (`plugin-shadowed-<id>`), a `restartRequired` hint (`plugin-restart-hint-<id>`), the refused-client reason (`plugin-client-refused-<id>`), and for `source: local-detected` an amber badge + install-globally note (no failed-to-load notice, toggle disabled). Rows update live from `plugins_changed`. See change: decouple-plugins-from-core (5.11).
+
+Renders `PluginTrustControls` per row (Trust / Trust this version / Revoke / Trust server code; package path + full hash). Top notices from `getRuntimeLoadingBlocker()`: `plugins-runtime-notice-remote-server` (non-empty API base) / `plugins-runtime-notice-no-import-map`. A structural refusal reason (`disabled`, `missing-dep`, …) shows its reason and no Trust action. See change: decouple-plugins-from-core (task 6.13).

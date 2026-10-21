@@ -1,4 +1,4 @@
-import { type ClaimEntry, CurrentPluginLayer, forToolName, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { type ClaimEntry, CurrentPluginLayer, forToolName, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
@@ -126,7 +126,11 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // SlotRegistryProvider is mounted (tests/storybook) the lookup is skipped.
   // Resolved BEFORE the expand state: the claim's `expandWhileRunning` seeds it.
   // See change: wire-tool-renderer-slot, decouple-plugins-from-core.
+  // `claimsVersion` is a memo dep: a runtime plugin registering a late `tool-renderer` claim
+  // bumps it, so an already-mounted Generic row re-resolves (unchanged version → reuse).
+  const claimsVersion = useSlotClaimsVersion();
   const registry = useSlotRegistryOrNull();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `claimsVersion` is an invalidation key, not a value read inside
   const pluginClaim = React.useMemo<ClaimEntry | null>(() => {
     if (!registry) return null;
     const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
@@ -134,7 +138,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
       if (claimShouldRender(c, toolName)) return c;
     }
     return null;
-  }, [registry, toolName]);
+  }, [registry, toolName, claimsVersion]);
   const PluginComponent = pluginClaim?.Component;
   // The claim, not the shell, says a running row starts expanded and when its
   // result never arrived (the plugin owns both notions).

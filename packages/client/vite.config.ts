@@ -60,6 +60,9 @@ function resolveDashboardPort(): number {
 
 const DASHBOARD_PORT = resolveDashboardPort();
 
+/** Host shim entries (src/host-shims/<name>.ts → dist/host/<name>.js); keep in lock-step with HOST_IMPORT_MAP_IMPORTS. */
+const HOST_SHIMS = ["react", "react-jsx-runtime", "react-dom", "react-dom-client", "runtime"] as const;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -90,7 +93,20 @@ export default defineConfig({
     // zrok / free-tunnel aborts on large static assets and improves caching
     // (only changed chunks invalidate).
     rollupOptions: {
+      // Host shims (design D9/D21, task 6.3): one extra entry per import-map specifier, emitted at
+      // exactly `host/<name>.js` (no hash — the server's static import map names them). They
+      // re-export the app's own react / dashboard-plugin-runtime instances (shared chunks), so a
+      // runtime plugin and the shell run ONE React. `exports-only` keeps each shim's export surface.
+      input: {
+        index: path.resolve(__dirname, "src/index.html"),
+        ...Object.fromEntries(
+          HOST_SHIMS.map((name) => [`host/${name}`, path.resolve(__dirname, `src/host-shims/${name}.ts`)]),
+        ),
+      },
+      preserveEntrySignatures: "exports-only",
       output: {
+        entryFileNames: (chunk: { name: string }) =>
+          chunk.name.startsWith("host/") ? "[name].js" : "assets/[name]-[hash].js",
         manualChunks(id: string) {
           const chunks: Record<string, string[]> = {
             "react-vendor": ["react", "react-dom"],

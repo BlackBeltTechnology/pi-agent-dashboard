@@ -8,3 +8,5 @@ Drives `registry.setEnabledSet(ids)` from `/api/health.plugins[]` snapshot on mo
 Also calls `setSessionReducerEnabledSet(enabled)` next to `registry.setEnabledSet(enabled)`: plugin session reducer slices/finalizers follow the SAME enabled set as claims (applies to later events only). See change: decouple-plugins-from-core (task 4.2).
 
 `plugins-changed` DOM event (re-emitted by `useMessageHandler` from `plugins_changed`): recomputes the enabled set AND `pluginAvailability` from the broadcast snapshot via shared `applySnapshot`, no `/api/health` refetch. See change: decouple-plugins-from-core (5.18).
+
+`runtime-plugins-registered` DOM event (fired by the runtime loader): re-applies the LAST status snapshot via `applySnapshot` (no refetch) so a runtime plugin registered after the health read joins the default-allow enabled set. No-op before the first read. See change: decouple-plugins-from-core (task 6.14).

@@ -27,7 +27,9 @@ import { useLocation } from "wouter";
 import type { PluginList, PluginToggle } from "../../hooks/usePluginToggle.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
+import { getRuntimeLoadingBlocker, useRuntimeLoaderState } from "../../lib/plugins/runtime-plugin-loader.js";
 import type { SettingsPromotion } from "../../lib/settings-promotions.js";
+import { PluginTrustControls } from "./PluginTrustControls.js";
 import {
   MissingRequirementsBlock,
   PluginErrorNotice,
@@ -73,6 +75,9 @@ export function PluginsSection({
 }) {
   const [, navigate] = useLocation();
   const { rows, loading, error } = list;
+  // Re-render when the loader learns its state; the blocker itself is read live (api base / import map).
+  useRuntimeLoaderState();
+  const runtimeBlocker = getRuntimeLoadingBlocker();
 
   if (loading) {
     return <div className="text-sm text-[var(--text-muted)]">{i18nT("packages.loadingPlugins", undefined, "Loading plugins…")}</div>;
@@ -92,6 +97,16 @@ export function PluginsSection({
   return (
     <div className="space-y-3" data-testid="plugins-section">
       {toggle.cascadeDialog}
+      {runtimeBlocker && (
+        <div
+          className={`px-3 py-2 rounded ${WARN_BG} border ${WARN_BORDER} ${WARN_FG} text-sm`}
+          data-testid={`plugins-runtime-notice-${runtimeBlocker}`}
+        >
+          {runtimeBlocker === "remote-server"
+            ? i18nT("packages.runtimePluginsRemoteServer", undefined, "Runtime plugins are unavailable while connected to a remote server")
+            : i18nT("packages.runtimePluginsNeedProductionPage", undefined, "Runtime plugins need the production page")}
+        </div>
+      )}
       {toggle.restartRequired && (
         <div
           className={`flex items-center gap-2 px-3 py-2 rounded ${WARN_BG} border ${WARN_BORDER} ${WARN_FG} text-sm`}
@@ -260,6 +275,7 @@ export function PluginsSection({
                   {i18nT("packages.pluginClientRefused", undefined, "Client refused:")} <code>{refusal}</code>
                 </div>
               )}
+              <PluginTrustControls row={row} />
               {shadowed.map((copy) => (
                 <div
                   key={`${copy.source}:${copy.packageDir}`}

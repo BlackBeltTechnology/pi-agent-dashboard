@@ -20,6 +20,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useEffect, useRef, useState } from "react";
 import { applyPluginStatuses, type PluginStatusLike } from "../lib/plugins/plugin-availability.js";
+import { RUNTIME_PLUGINS_REGISTERED_EVENT } from "../lib/plugins/runtime-plugin-loader.js";
 import { logRejection } from "../lib/report-error.js";
 
 export interface PluginEnabledSetState {
@@ -31,6 +32,8 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
   const [startedAt, setStartedAt] = useState<string | null>(null);
   // Signature of the last applied enabled set (null until the first refresh).
   const lastEnabledSig = useRef<string | null>(null);
+  // Last status snapshot applied (null until the first read): re-applied when a runtime plugin registers.
+  const lastPlugins = useRef<ReadonlyArray<PluginStatusLike> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +56,7 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
 
     /** Recompute the enabled set + plugin availability from one status snapshot. */
     function applySnapshot(plugins: ReadonlyArray<PluginStatusLike>) {
+      lastPlugins.current = plugins;
       try {
         // Default-allow semantics: the enabled set is
         //   (every build-time-known plugin id) MINUS (explicitly disabled ids).
@@ -116,11 +120,19 @@ export function usePluginEnabledSet(registry: SlotRegistry): PluginEnabledSetSta
       const plugins = (e as CustomEvent<{ plugins?: PluginStatusLike[] }>).detail?.plugins;
       if (Array.isArray(plugins)) applySnapshot(plugins);
     };
+    // A runtime plugin registered AFTER the status read: its id is now in the registry summaries, so
+    // re-applying the last snapshot (default-allow) puts it in the enabled set. No refetch; before the
+    // first read there is nothing to re-apply (the first read sees the registered plugin anyway).
+    const onRuntimeRegistered = () => {
+      if (lastPlugins.current) applySnapshot(lastPlugins.current);
+    };
     window.addEventListener("plugin-config-update", onPluginConfigUpdate);
+    window.addEventListener(RUNTIME_PLUGINS_REGISTERED_EVENT, onRuntimeRegistered);
     window.addEventListener("plugins-changed", onPluginsChanged);
     return () => {
       cancelled = true;
       window.removeEventListener("plugin-config-update", onPluginConfigUpdate);
+      window.removeEventListener(RUNTIME_PLUGINS_REGISTERED_EVENT, onRuntimeRegistered);
       window.removeEventListener("plugins-changed", onPluginsChanged);
     };
   }, [registry]);

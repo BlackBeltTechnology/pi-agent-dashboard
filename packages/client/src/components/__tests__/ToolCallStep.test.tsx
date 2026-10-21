@@ -3,6 +3,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { type ClaimEntry, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -907,5 +908,46 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
   it("leaves the non-error status branches untouched by this change", () => {
     const { container } = renderStep({ status: "complete" });
     expect((container.querySelector("span.inline-flex") as HTMLElement).className).toContain("text-green-400");
+  });
+});
+
+// ── Late tool renderer (runtime plugin registers after the row mounted) ──────
+// test-plan #E89. See change: decouple-plugins-from-core (task 6.16).
+describe("ToolCallStep late tool-renderer claim", () => {
+  afterEach(cleanup);
+
+  it("replaces Generic after addClaim + bump; a re-render without a bump reuses the lookup", () => {
+    const registry = createSlotRegistry();
+    const getClaims = vi.spyOn(registry, "getClaims");
+    const toolRendererLookups = () => getClaims.mock.calls.filter((c) => c[0] === "tool-renderer").length;
+    const view = (result: string) => (
+      <PluginContextProvider registry={registry}>
+        <ThemeProvider>
+          <ToolCallStep toolName="quota_check" toolCallId="tc-late" status="complete" result={result} context={defaultContext} />
+        </ThemeProvider>
+      </PluginContextProvider>
+    );
+    const { container, queryByTestId, rerender } = render(view("r1"));
+    fireEvent.click(container.querySelector("button")!);
+    expect(queryByTestId("late-renderer")).toBeNull();
+    const before = toolRendererLookups();
+
+    act(() => {
+      registry.addClaim({
+        pluginId: "quota-ui",
+        priority: 100,
+        slot: "tool-renderer",
+        toolName: "quota_check",
+        Component: () => <div data-testid="late-renderer">LATE</div>,
+      } as ClaimEntry);
+      bumpSlotClaimsVersion();
+    });
+    expect(queryByTestId("late-renderer")).not.toBeNull();
+    const afterBump = toolRendererLookups();
+    expect(afterBump).toBe(before + 1);
+
+    // result update, no bump → memo reused, no new lookup
+    rerender(view("r2"));
+    expect(toolRendererLookups()).toBe(afterBump);
   });
 });

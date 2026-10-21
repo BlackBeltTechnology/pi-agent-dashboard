@@ -108,3 +108,71 @@ describe("usePluginEnabledSet → plugins_changed", () => {
     expect(isPluginUnavailable("a")).toBe(false);
   });
 });
+
+// test-plan #E90 / task 6.14 (recompute on registration). See change: decouple-plugins-from-core.
+describe("usePluginEnabledSet → enable filter default-allow + recompute triggers", () => {
+  const SLOTS = ["settings-section", "session-card-badge", "command-route", "tool-renderer"] as const;
+  function registryWithFlows() {
+    const registry = createSlotRegistry();
+    registry.registerPlugin({ id: "flows", displayName: "Flows" });
+    for (const slot of SLOTS) registry.addClaim({ pluginId: "flows", priority: 1, slot });
+    return registry;
+  }
+  const idsIn = (registry: ReturnType<typeof createSlotRegistry>, slot: (typeof SLOTS)[number]) => registry.getClaims(slot).map((c) => c.pluginId);
+  async function mount(registry: ReturnType<typeof createSlotRegistry>) {
+    const view = renderHook(() => usePluginEnabledSet(registry));
+    await waitFor(() => expect(fetchMock()).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await fetchMock().mock.results[0]?.value;
+    });
+    return view;
+  }
+
+  it("never set → every claim; health [] → flows shown in every slot (default-allow)", async () => {
+    const registry = registryWithFlows();
+    for (const slot of SLOTS) expect(idsIn(registry, slot)).toEqual(["flows"]); // filter inactive
+    plugins = [];
+    await mount(registry);
+    for (const slot of SLOTS) expect(idsIn(registry, slot)).toEqual(["flows"]);
+  });
+
+  it("health {flows, enabled:false} → flows hidden in every slot, still listed for the activation UI", async () => {
+    const registry = registryWithFlows();
+    plugins = [{ id: "flows", enabled: false }];
+    await mount(registry);
+    for (const slot of SLOTS) expect(idsIn(registry, slot)).toEqual([]);
+    expect(registry.getAllPluginsForActivationUi().map((p) => p.id)).toContain("flows");
+  });
+
+  it("a runtime plugin registered after the health read joins the enabled set: one recompute on registration", async () => {
+    const registry = registryWithFlows();
+    const setEnabledSet = vi.spyOn(registry, "setEnabledSet");
+    plugins = []; // the server's snapshot predates the runtime plugin
+    await mount(registry);
+    const before = setEnabledSet.mock.calls.length;
+    expect(registry.getClaims("session-card-badge").map((c) => c.pluginId)).toEqual(["flows"]);
+
+    registry.registerPlugin({ id: "quota-ui", displayName: "Quota" });
+    registry.addClaim({ pluginId: "quota-ui", priority: 2, slot: "session-card-badge" });
+    expect(registry.getClaims("session-card-badge").map((c) => c.pluginId)).toEqual(["flows"]); // filtered until recompute
+    act(() => {
+      window.dispatchEvent(new CustomEvent("runtime-plugins-registered", { detail: { ids: ["quota-ui"], owners: [] } }));
+    });
+    expect(setEnabledSet.mock.calls.length).toBe(before + 1);
+    expect(fetchMock()).toHaveBeenCalledTimes(1); // no refetch
+    expect(registry.getClaims("session-card-badge").map((c) => c.pluginId)).toEqual(["flows", "quota-ui"]);
+  });
+
+  it("one recompute per trigger: plugin_config_update and plugins_changed each apply exactly once", async () => {
+    const registry = registryWithFlows();
+    const setEnabledSet = vi.spyOn(registry, "setEnabledSet");
+    await mount(registry);
+    const base = setEnabledSet.mock.calls.length;
+    await refreshEvent();
+    expect(setEnabledSet.mock.calls.length).toBe(base + 1);
+    act(() => {
+      window.dispatchEvent(new CustomEvent("plugins-changed", { detail: { plugins: [] } }));
+    });
+    expect(setEnabledSet.mock.calls.length).toBe(base + 2);
+  });
+});
