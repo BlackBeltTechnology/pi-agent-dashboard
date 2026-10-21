@@ -182,6 +182,16 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // missed them (replay/refresh seed at mount and are unaffected). Auto-expand
   // once when images first arrive; a ref guards against re-expanding a card the
   // user later collapsed. See change: inline-agent-screenshot-artifacts.
+  // A plugin re-enabled (or a claim registered late) while the row is still running: the
+  // `useState` seed above ran without the claim, so expand once when `expandWhileRunning`
+  // first becomes true. The ref makes it one-shot: a later user collapse sticks.
+  const autoExpandedForClaim = React.useRef(expandsWhileRunning);
+  React.useEffect(() => {
+    if (expandsWhileRunning && !autoExpandedForClaim.current) {
+      autoExpandedForClaim.current = true;
+      setExpanded(true);
+    }
+  }, [expandsWhileRunning]);
   const autoExpandedForImages = React.useRef(false);
   React.useEffect(() => {
     if (hasImages && !autoExpandedForImages.current) {

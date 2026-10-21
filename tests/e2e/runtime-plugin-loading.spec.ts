@@ -251,8 +251,14 @@ test.describe("runtime plugin client loading", () => {
     page.on("request", (r) => {
       if (r.url().includes(`/plugin-assets/${CANARY_ID}`)) assetRequests.push(r.url());
     });
-    // The intent is a global `settings-section` one (replayed on subscribe): it renders on the owning plugin's page.
-    await gotoSettings(page, `/settings/plugins/${CANARY_ID}`);
+    // The intent is a global `settings-section` one. The server replays it when a browser SUBSCRIBES to a session, so
+    // subscribe first (spawn a session), then client-navigate (a reload would drop the subscription) to the owner's page.
+    await spawnFreshGitSession(page);
+    await page.evaluate((p) => {
+      window.history.pushState({}, "", p);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }, `/settings/plugins/${CANARY_ID}`);
+    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Runtime canary server is up.").first()).toBeVisible({ timeout: 30_000 });
     expect(assetRequests).toEqual([]);
     await expect(page.getByTestId("canary-settings")).toHaveCount(0);

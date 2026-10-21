@@ -584,6 +584,23 @@ describe("ToolCallStep claim-driven behaviour", () => {
       expect(view.container.querySelector("pre")?.textContent).toContain("Explore"); // Generic: raw JSON args
     });
 
+    it("plugin re-enabled while the row is running → expands once; a user collapse afterwards sticks (F5)", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("Agent", { expandWhileRunning: true }));
+      registry.setEnabledSet(new Set()); // disabled at mount → collapsed
+      const view = mount(registry, { toolName: "Agent", status: "running" });
+      expect(isExpanded(view.container)).toBe(false);
+      act(() => {
+        registry.setEnabledSet(new Set(["p"]));
+        bumpSlotClaimsVersion();
+      });
+      expect(isExpanded(view.container)).toBe(true);
+      fireEvent.click(view.container.querySelector("button")!); // user collapses
+      expect(isExpanded(view.container)).toBe(false);
+      act(() => bumpSlotClaimsVersion());
+      expect(isExpanded(view.container)).toBe(false);
+    });
+
     it("a claim without expandWhileRunning stays collapsed while running", () => {
       const registry = createSlotRegistry();
       registry.addClaim(stubClaim("Agent"));
