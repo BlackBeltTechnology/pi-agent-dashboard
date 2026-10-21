@@ -19,6 +19,7 @@ One row per file. Non-source area. Rows split out of `tests/e2e/AGENTS.md` (byte
 | `fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `fake-google.ts.AGENTS.md` |
 | `folder-collapse.ts` | Folder-collapse L3 glue: bus setup/teardown… → see `folder-collapse.ts.AGENTS.md` |
 | `hidden-session.ts` | Live HIDDEN pi in the harness container: `startHiddenPiSession(request, cwd?)` (`docker exec -d` `pi --mode rpc` with `PI_DASHBOARD_HIDDEN=1`, polls `/api/sessions` for the new hidden row), `stopHiddenPiSession`, `HIDDEN_SESSION_CWD`. Stand-in for a hidden automation run (engine broken in harness, #683). See change: add-pending-question-stack. |
+| `init-banner.ts` | Worktree-init banner L3 glue: `stubActiveInits(page, runs)` (boot rehydration stub), `forceConcurrentInitStack`, `installFrameInjector` (shell-WS frame injection, re-captures the socket after reload). Re-exported from `index.ts`. See change: fix-worktree-init-chip-overflow. |
 | `index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits… → see `index.ts.AGENTS.md` |
 | `openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture… → see `openspec-board.ts.AGENTS.md` |
 | `operator-session.ts` | `OperatorSession`: arms an `operate` login-session cookie for the harness browser + REST; narrows the trust seed via `narrowTrust` (restored per test by the reap fixture; no `restore()`). See changes: add-credential-vault, triage-browser-e2e-offbox-poison. |

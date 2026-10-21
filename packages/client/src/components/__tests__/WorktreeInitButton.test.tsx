@@ -255,7 +255,7 @@ describe("WorktreeInitChip — inherited colour", () => {
     expect(screen.getByTestId("worktree-init-error").contains(retry)).toBe(false);
   });
 
-  it("opened log <pre> keeps code colours: --text-secondary on --bg-code, 11px; toggle inherits at 11px", () => {
+  it("opened log <pre> keeps code colours: --text-secondary on --bg-code, 11px; toggle inherits colour at 12px underlined", () => {
     render(<WorktreeInitChip run={failed} />);
     const log = screen.getByTestId("worktree-init-log");
     const pre = log.querySelector("pre");
@@ -263,7 +263,8 @@ describe("WorktreeInitChip — inherited colour", () => {
     expect(pre?.className).toContain("bg-[var(--bg-code)]");
     expect(pre?.className).toContain("text-[11px]");
     const summary = log.querySelector("summary");
-    expect(summary?.className).toContain("text-[11px]");
+    expect(summary?.className).toContain("text-[12px]");
+    expect(summary?.className).toContain("underline");
     expect(summary?.className).not.toContain("--text-");
   });
 });
