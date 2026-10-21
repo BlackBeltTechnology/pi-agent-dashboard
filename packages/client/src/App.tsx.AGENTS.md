@@ -73,3 +73,5 @@ Add-folders dialog forwards `piTrust` on pin / workspace add. See change: mirror
 See change: add-editor-pane-file-handlers — mounts `<FileHandlerLayer />` (a `React.lazy` chunk inside `<Suspense fallback={null}>`) once inside `SessionDiffProvider` beside `{children}` (outside EditorPane/SplitWorkspace, both layouts).
 
 - Mounts `TerminalLimitNotice inline` above the chat view. See change: harden-server-capability-bounds.
+
+- Mounts `ProvisionPromptHost` beside `GrantPromptHost` in both returns (provisioning dialog; capability owned by the grant host). See change: add-access-provisioning.

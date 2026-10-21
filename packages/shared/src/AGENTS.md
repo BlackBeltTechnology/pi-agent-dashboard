@@ -16,6 +16,7 @@ Files in this directory. One row per source file.
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter, decidePiTrust table. See change: mirror-dashboard-trust-to-pi. #E2 snapshot `liveCount` reader. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/pi-trust-resource-golden.test.ts` | #E17 our resource list vs installed pi `trust-manager.js`; verdict vs `hasTrustRequiringProjectResources`. See change: mirror-dashboard-trust-live-remote. |
+| `__tests__/project-root.test.ts` | `hasProjectRootMarker`: `.git` dir/file + `.pi` true; plain/missing false. See change: add-access-provisioning. |
 | `__tests__/tool-path-resolve.test.ts` | #E24: containment (sibling prefix, equality, probe-free exact hit, fold only when probe says, win32), D6 dangling-link following on a real temp tree (`sub/../x` from real target), loop throws, legacy env literal unchanged. See change: add-path-containment-guard-extension. |
 | `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between… → see `__tests__/ship-it-codeql-wiring.test.ts.AGENTS.md` |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
@@ -106,6 +107,7 @@ Files in this directory. One row per source file.
 | `pi-trust-resource-digest.ts` | Remote folder proof, Node-only. `trustResourceManifest(cwd,{home,signal})` async walk of pi's trust-requiring resources (`.pi/*` + ancestor `.agents/skills`), file content hashed; `null` on empty set, symlink, special file, >1,000 entries, >16 MiB, bad settings refs, abort. `trustResourceDigest(salt,cwdKey,manifest)` HMAC-SHA256. `TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES` literal, pinned to pi by golden test. See change: mirror-dashboard-trust-live-remote. |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
+| `project-root.ts` | `hasProjectRootMarker(dir)`: the ONE `.git`/`.pi` project-root test (`.git` dir or worktree file, or `.pi`); never throws. Used by `pi-trust-mirror-snapshot.ts` + server `pi-trust-mirror-service.ts`. Node-only. See change: add-access-provisioning. |
 | `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |
 | `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` `EventForwardMessage.replay?: true`; `SessionRegisterMessage.leafEntryId?` + `liveTailOpen?`. See change: fix-large-session-resume-replay. |
 | `question-types.ts` | `QuestionRow`/`QuestionDetail`/`BriefStatus`/`QuestionAnswerRequest`/`QuestionsUpdateMessage`. → see `question-types.ts.AGENTS.md` |
@@ -147,7 +149,7 @@ Files in this directory. One row per source file.
 | `vault-origin.ts` | Pure `normalizeOrigin(raw)`: SSH / SCP / HTTPS spellings of one repository → `host[:port]/path`; no node… → see `vault-origin.ts.AGENTS.md` |
 | `vault-project-key.ts` | `resolveSessionProject`: the vault project key; re-exports `normalizeOrigin` (moved to `vault-origin.ts`). → see `vault-project-key.ts.AGENTS.md` |
 | `worktree-init-hook.ts` | Pure worktree-init hook shape + hash moved from server: `normalizeHook`, `canonicalize`, `hookDefHash`,… → see `worktree-init-hook.ts.AGENTS.md` |
-| `ws-message-tiers.ts` | `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. See change: add-passkey-user-auth. |
+| `ws-message-tiers.ts` | `WS_MESSAGE_TIERS`, `wsMessageTier` (unlisted ⇒ operate), `LIVE_PREVIEW_TIER`, `TERMINAL_TIER`. WS half of the tier model. See change: add-passkey-user-auth. `provision_response: "operate"`. See change: add-access-provisioning. |
 | `zrok-env.ts` | Pure `readZrokEnvironment({homedir,fs})` returning `{found, kind: v2\|v1\|null, path, env, reason}`. → see `zrok-env.ts.AGENTS.md` |
 | `route-tiers.ts` | `ROUTE_TIERS`, `routeTier(method, pattern)`, `hasRouteTier`… → see `route-tiers.ts.AGENTS.md` |
 | `tiers.ts` | `TIERS`, `Tier`, `isTier`, `rank`, `minTier`, `defaultTierForSource`. → see `tiers.ts.AGENTS.md` |

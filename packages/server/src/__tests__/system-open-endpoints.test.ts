@@ -9,10 +9,11 @@
  *   - argv is an array; a path containing a comma is one un-interpolated
  *     element (no shell).
  */
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerFileRoutes } from "../routes/file-routes.js";
 import { computeSystemOpen } from "../system-open-capability.js";

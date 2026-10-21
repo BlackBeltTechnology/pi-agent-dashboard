@@ -2,7 +2,7 @@
  * Tests for isPiCommandLine (pure predicate used by isPiProcess).
  * See change: fix-windows-server-parity.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { isPiCommandLine } from "../browser-handlers/session-action-handler.js";
 
 describe("isPiCommandLine", () => {

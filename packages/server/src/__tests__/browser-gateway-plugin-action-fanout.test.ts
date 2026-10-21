@@ -9,12 +9,13 @@
  *
  * See change: fix-plugin-action-fanout-and-handlers.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { EventEmitter } from "node:events";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 function makeFakeWs() {
   const ws = new EventEmitter() as EventEmitter & {

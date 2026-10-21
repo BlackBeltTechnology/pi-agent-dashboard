@@ -12,9 +12,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { registerAuthPlugin } from "../auth/auth-plugin.js";
 import { registerSystemRoutes } from "../routes/system-routes.js";
 

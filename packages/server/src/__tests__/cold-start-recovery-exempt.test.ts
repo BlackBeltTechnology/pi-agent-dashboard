@@ -5,10 +5,11 @@
  * to `ended`.
  * See change: fix-recovery-offer-dismiss-and-phantom-reopen (task 4.1).
  */
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import path from "node:path";
+
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

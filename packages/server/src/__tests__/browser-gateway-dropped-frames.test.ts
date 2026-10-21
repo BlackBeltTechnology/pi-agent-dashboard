@@ -7,8 +7,9 @@
  *  - proves the drop is now COUNTED per-session + rate-limited-LOGGED (3.4)
  *  - proves the counters are surfaced via `getDroppedFrameStats()` (3.3/3.4)
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserGateway, frameClassOf } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";

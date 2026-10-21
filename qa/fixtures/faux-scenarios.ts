@@ -1037,6 +1037,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "read" },
   },
+  // Access provisioning (change: add-access-provisioning, tests/e2e/access-provisioning.spec.ts):
+  // two out-of-root reads the spec creates in the container. The first directory
+  // is the one the operator approves, the second the one they reject, so the
+  // spec can show the approved read is silent and the rejected read still prompts.
+  "tool-read-provisioned": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/srv/fixtures-outside/__prov-e2e__/lines/lib/x.txt" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/srv/fixtures-outside/__prov-e2e__/lines/other/x.txt" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("provisioned reads done")]),
+    ],
+    expect: { toolName: "read" },
+  },
   "tool-edit": toolScenario("edit", {
     // A file that REALLY exists in the sample-git fixture. The editor-pane
     // Changes rail renders its per-file rows inline in the DISK-backed file

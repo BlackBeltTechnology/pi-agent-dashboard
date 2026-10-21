@@ -44,6 +44,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/access/grants", tier: "observe" },
   // mirror-dashboard-trust-to-pi: read-only pi-trust disclosure; the choice write changes what pi trusts.
   { method: "GET", path: "/api/access/pi-trust", tier: "observe" },
+  // add-access-provisioning: reads are observe; the request and the settle are operate
+  // (settle additionally needs a live prompt capability, checked in the route).
+  { method: "GET", path: "/api/access/provision", tier: "observe" },
+  { method: "GET", path: "/api/access/provision/:id", tier: "observe" },
   { method: "GET", path: "/api/access/prompts", tier: "observe" },
   { method: "GET", path: "/api/access/store-stats", tier: "observe" },
   { method: "GET", path: "/api/access/yolo/roots", tier: "observe" },
@@ -59,6 +63,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/acp/agents", tier: "control" },
   { method: "POST", path: "/api/access/grants", tier: "operate" },
   { method: "POST", path: "/api/access/prompts/:promptId", tier: "operate" },
+  { method: "POST", path: "/api/access/provision", tier: "operate" },
+  { method: "POST", path: "/api/access/provision/:id/settle", tier: "operate" },
+  { method: "POST", path: "/api/access/provision/dismiss-all", tier: "operate" },
   { method: "POST", path: "/api/access/yolo", tier: "operate" },
   { method: "DELETE", path: "/api/kb/source-trust", tier: "operate" },
   { method: "DELETE", path: "/api/config/auth/providers/:id", tier: "control" },

@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { resolveOrderKey } from "../session/resolve-order-key.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { resolveOrderKey } from "../session/resolve-order-key.js";
 
 function session(partial: Partial<DashboardSession>): DashboardSession {
   return { id: "s", cwd: "/repo", status: "active", startedAt: 0, ...partial } as DashboardSession;

@@ -20,6 +20,7 @@ import {
   statFolderIdentity,
 } from "./pi-trust-mirror.js";
 import type { MirrorWithheldReason, PiTrustSnapshot, PiTrustSnapshotEntry } from "./pi-trust-mirror-types.js";
+import { hasProjectRootMarker } from "./project-root.js";
 import { hookDefHash, normalizeHook } from "./worktree-init-hook.js";
 
 /** `~/.pi/dashboard/pi-trust-mirror.json` — server-written, bridge-read. */
@@ -124,12 +125,7 @@ export function currentHookHash(configRoot: string): string | null {
 }
 
 function isProjectRoot(dir: string): boolean {
-  if (!isCanonicalAbsolutePath(dir)) return false;
-  try {
-    return fs.existsSync(path.join(dir, ".git")) || fs.existsSync(path.join(dir, ".pi"));
-  } catch {
-    return false;
-  }
+  return isCanonicalAbsolutePath(dir) && hasProjectRootMarker(dir);
 }
 
 export type SnapshotCoverage =

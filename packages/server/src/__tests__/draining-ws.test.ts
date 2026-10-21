@@ -5,7 +5,7 @@
  *
  * See change: add-ws-broadcast-load-harness.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createDrainingWs } from "./helpers/draining-ws.js";
 
 describe("DrainingFakeWs byte accounting", () => {

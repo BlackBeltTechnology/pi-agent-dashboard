@@ -1,11 +1,12 @@
 /**
  * HTTP-level tests for the openspec task list / toggle endpoints.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 
 const PASSTHRU_GUARD = async () => {};

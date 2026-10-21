@@ -102,6 +102,7 @@ export const NON_SESSION_MESSAGES: ReadonlySet<string> = new Set([
   "pin_directory",
   "plugin_action",
   "plugin_config_write",
+  "provision_response",
   "recovery_dismiss",
   "remove_folder_from_workspace",
   "remove_tag_globally",

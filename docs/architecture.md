@@ -3885,7 +3885,7 @@ YOLO requires `hostGate.mode === "enforce"` and a HELD-eligible denial; there is
 
 An operator's explicit `deny` on a YOLO-eligible plane or the `agent-path` surface is remembered in the **refusal ledger** (`access/refusal-ledger.ts`, `access-refusals.json`, `PI_ACCESS_REFUSALS_STORE` overrides the path) — durable, cleared only by the operator — so a later YOLO session refuses that subject (`refused-by-prior-refusal`) instead of auto-allowing it. Auto-answers are logged `(no human answered)` and kept in a bounded in-memory history. Store conventions mirror `access-grants.json`: atomic temp+rename, missing/malformed = empty, a failed write leaves the cache unchanged.
 
-**Opt-in and env vars** (D10). Prompting ships behind `accessGrants.promptEnabled` (**default `false`**). `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` is the kill switch — it engages only on the exact value `1` (`isGrantPromptKilled`). Both suppress *prompting only*: existing grants stay in force and denials still land in the pending list. The no-audience rule is necessary but not sufficient for automation — Playwright E2E runs with a browser connected, so CI relies on the env var. `PI_DASHBOARD_GRANT_YOLO` (`parseYoloEnv`) takes one plain absolute path, a JSON array of absolute paths for several, or the literal `unscoped`; anything else (`1`, `true`, relative, `[]`, malformed JSON, `UNSCOPED`) is `invalid` and leaves YOLO inactive.
+**Opt-in and env vars** (D10). Prompting is gated by `accessGrants.promptEnabled` (**default `true`** since D16 of `add-access-provisioning`; was `false`. Absent key = on; explicit `false` is kept). `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` is the kill switch — it engages only on the exact value `1` (`isGrantPromptKilled`). Both suppress *prompting only*: existing grants stay in force and denials still land in the pending list. The no-audience rule is necessary but not sufficient for automation — Playwright E2E runs with a browser connected, so CI relies on the env var. `PI_DASHBOARD_GRANT_YOLO` (`parseYoloEnv`) takes one plain absolute path, a JSON array of absolute paths for several, or the literal `unscoped`; anything else (`1`, `true`, relative, `[]`, malformed JSON, `UNSCOPED`) is `invalid` and leaves YOLO inactive.
 
 **REST** (`packages/server/src/routes/access-prompt-routes.ts`):
 
@@ -3897,6 +3897,108 @@ An operator's explicit `deny` on a YOLO-eligible plane or the `agent-path` surfa
 Access-page mutations (`POST /api/access/prompts/:promptId`, `POST`/`DELETE /api/access/yolo`, `DELETE /api/access/refusals`) run the global mutation-origin gate plus `networkGuard` only — genuinely local (tunnel-aware), local token, trusted network, or authenticated. Deliberately wider than `POST /api/access/grants` (auth or loopback, D15), because a trusted-network browser can already answer through the dialog WS (user decision C); a loopback caller behind a forwarding header (a tunnel) is not local. `GET /api/health.accessGrants` is additive and failure-isolated, served **only** to an authenticated or genuinely-local caller, because `/api/health` is unguarded and the field names the host-gate mode, YOLO state and whether an operator is online.
 
 **Coverage.** Browser E2E `tests/e2e/access-grant-dialog.spec.ts`; clean-install VM smoke `qa/tests/36-access-grant-dialog.sh`.
+
+### Access provisioning (change: add-access-provisioning)
+
+Companion to **Access-Grant Prompts and YOLO** above. Denial dialogs ask one subject at a time, after a denial. Provisioning asks once, up front: agent submits a project's declared folder needs, operator approves per line, approved lines become persisted grants.
+
+Design: `openspec/changes/add-access-provisioning/design.md` (D1–D16).
+
+**Flow.**
+- Agent runs skill `project-access` (`packages/extension/.pi/skills/project-access/SKILL.md`, beside `project-init`). Modes: `map` (read-only), `suggest` (drafts profile, writes after `ask_user` confirm), `provision` (submit + poll).
+- Profile `.pi/access.json`: `{ version: 1, folders: [{path, why}], remote: ("lan"|"internet"|"device")[] }`. Optional. Only the skill reads it. Server never reads it. Unknown `version` → skill refuses.
+- Skill calls `POST /api/access/provision`. Route validates, classifies, records pending request, delivers `provision_request`. Route writes no grant, no config.
+- Operator answers per line in `ProvisionPromptDialog` (`packages/client/src/components/access-grant/`). Answer settles request. Settle writes grants.
+- Skill polls `GET /api/access/provision/:id` until terminal. 404 (server restart) → reported "unknown".
+
+```mermaid
+flowchart TD
+    S["skill project-access: POST /api/access/provision"] --> L{"eligibility ladder (D7)"}
+    L -->|fail| X["refused: 503 / 409; nothing recorded"]
+    L -->|pass| V["validate root (D8) + classify lines (D4) + bounds (D6)"]
+    V -->|fail| X
+    V --> R[("provisioning registry (in memory)")]
+    R --> O["provision_request to operator sockets only"]
+    O --> A{"provision_response / POST :id/settle"}
+    A -->|no live capability| DR["dropped + counted; request stays pending"]
+    A -->|capability held| RS["re-check ladder + root; re-verify lines; one sync write section"]
+    RS --> G["recordGrant(via: provision, evict: false)"]
+    O -.->|terminal transition| DM["provision_dismiss to all tabs"]
+```
+
+**Registry.** `packages/server/src/access/provisioning.ts` (`ProvisioningRegistry`; `create` / `get` / `settle` / `dismiss` / `dismissAll` / `expire` / `list` / `stats`; `now` injected). Wiring `access/provisioning-wiring.ts`: operator-socket delivery, expiry timer, `provision_dismiss`, capability-gated `onResponse`. Own registry, not an access plane (D1): one record, N lines, one dialog. Never touches `PendingGrantRegistry`. Never consults YOLO. Memory only; restart loses pending requests, grants already written stay.
+
+**Routes** (`packages/server/src/routes/access-routes.ts`; all `networkGuard`).
+- `POST /api/access/provision` — create. Operate tier.
+- `GET /api/access/provision` — list pending. Observe tier.
+- `GET /api/access/provision/:id` — status + per-line outcome. Pending or last 50 ended.
+- `POST /api/access/provision/:id/settle` — answer. Needs `isPromptEligible(request)`, else 403 `no-capability`.
+- `POST /api/access/provision/dismiss-all` — dismiss every pending. Needs `isPromptEligible(request)`. Counts as dismissal per request; starts each root's cooldown.
+
+**WS messages** (`packages/shared/src/browser-protocol.ts`).
+- `provision_request` — server → browser. Carries lines + classification. Sent only to operator sockets.
+- `provision_response` — browser → server. `{requestId, lines: [{lineId, verdict: "approve"|"reject", piTrust?}]}`. Omitted line = reject. Tier `operate` (`ws-message-tiers.ts`).
+- `provision_dismiss` — server → browser. Sent on every terminal transition. Closes dialog in other tabs.
+
+**Capability-targeted delivery + settle** (D2/D3).
+- Operator socket = holds live prompt capability AND operate tier. New gateway send helper; not `broadcastToAll`. `no-operator` counts the same set.
+- `provision_response` settles only if `holdsLiveCapability(ws)` (`pairing/browser-gateway.ts`). Backed by `WeakMap<WebSocket, grantSocketId>` filled at capability issue, cleared at release, checked against live channel table in `prompt-channel.ts`. Capability A never authorises socket B. Failing message dropped + counted (`droppedResponses`).
+- HTTP settle needs `isPromptEligible(request)`. Client already attaches `X-Pi-Grant-Channel` to same-origin `/api/*` (`grant-channel.ts`). Access page needs no allowlist change.
+- Dialog close sends `provision_response` with every line rejected. Same gate.
+- Plain operate-tier request from agent (no capability) cannot settle.
+- Settle re-checks ladder. Now failing → answer refused; request stays pending until TTL.
+- Terminal transitions first-wins. Later answer → 409 `already-settled`.
+
+**Eligibility ladder** (D7; coupled to `accessGrants.promptEnabled`). Creation refused in order:
+1. `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` → 503 `disabled`.
+2. `accessGrants.promptEnabled === false` → 409 `prompting-disabled`.
+3. host gate `report` mode → 409 `report-mode`.
+4. `promptChannelCount() === 0` → 409 `no-operator`.
+
+Same ladder gates settle. One switch covers every dialog.
+
+**Project root** (D8). `projectRoot` absolute, exists, directory, holds `.git` or `.pi`, not ungrantable. Real path = pending key + grant `origin`. Agent can create `.git` anywhere it can write → origin is a *claimed* label. UI says "requested for `<path>`", never "belongs to".
+
+**Line classification** (D4; first match wins). Expand (absolute, `~/`, project-relative) → `invalid` | real path + must be directory → `missing` (file line is `missing`, never grants parent) → `forbidden` (`isUngrantableSubject`) → `sensitive` (D5a) → `in-root` → `covered` (persisted grant admits) → `grantable`. Same real path collapses; first `why` kept. Only `grantable` approvable. `why` capped 200 chars, control chars stripped, rendered as React text only, JSON-quoted in logs.
+
+**Bounds** (D6; `PROVISION_*` constants).
+
+| Bound | Value | On breach |
+|---|---|---|
+| Lines per request | 32 | 400 `too-many-lines` |
+| Pending per project root | 1 | 409 `pending-exists` + existing id |
+| Pending total | 4 | 429 `capacity` |
+| Creations per project root | 1 / 60 s | 429 `rate-limited` + retry-after |
+| Cooldown after request ended with no approved line | 5 min per root | 429 `cooldown` |
+| Creations total | 3 / 10 min | 429 `rate-limited` |
+| Request TTL | 10 min | `expired`; nothing granted |
+
+Residual: per-root limits do not bind an agent that creates `.git` in fresh directories. Global limit still allows 18 dialogs/hour; rotating agent can hold all 4 slots → legitimate requests get `429 capacity`. Mitigation: Access page lists every pending request with claimed root; "Dismiss all pending". Block-by-requester = follow-up.
+
+**Approval** (D5). Settle runs two phases.
+- Async: re-check ladder, re-validate root (fail → every approved line `refused`, `root-changed`), re-classify approved lines.
+- Sync, no `await`: `realpathSync` each approved line vs shown real path. Mismatch or no longer `grantable` → `changed` / `refused` before any write. Count net-new subjects; `persisted + net-new > 200` → every approved line `refused` (`capacity`). Else `recordGrant({subject, scope: "project", via: "provision", origin, evict: false})` per line. Write failure → `failed`; later lines still run.
+- Node runs sync section uninterleaved: no other grant write in this server process lands between compare, capacity check, writes. Home lock is advisory; other-process writers not serialised (they can write the file directly anyway).
+- Outcomes: `granted`, `rejected`, `changed`, `refused`, `failed`, `handed-off`.
+
+**Provisioned grants are never evicted.** `enforceCap` skips `via: "provision"`. Denial-path write at the 200 cap evicts oldest *non-provisioned* grant. All 200 provisioned → denial-path write refused like any failed write. Eviction logs `[access-grants] evicted subject= via=`. "Permanent" = until operator revokes on the Access page. Grants are machine-wide by folder (`scope: "project"` = persisted, not per-project); dialog copy says so.
+
+**Credential-folder refusal** (D5a). `forbiddenGrantSubjects().sensitive` covers only `~/.ssh`, `~/.pi`. Provisioning also classifies `sensitive` any line at, below, **or an ancestor of** `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, macOS `~/Library/Keychains` (grant admits whole subtree; `~/Library` would admit `Keychains`). Known gap, not closed here: denial path can still grant these folders and ancestors, no warning. Follow-up.
+
+**pi trust per line** (D9). `grantable` line whose real path holds `.git` or `.pi` shows `PiTrustCheckbox`, unchecked by default, with consequence statement. Approved project-root line with omitted `piTrust` → `false` (explicit choice always stored). Applied only to lines ending `granted`, via `mirror.setChoice("accessGrants", subject, piTrust)`.
+
+**Remote goals** (D10). `remote` entries render as "Open Remote access" actions naming the wizard task (lan → "Allow devices on my network"; internet → "Share over the internet"; device → "Let a phone or laptop in"). Action opens `RemoteAccessDialog` on its landing. Outcome `handed-off`. Provisioning writes nothing remote.
+
+**Observability** (D14). Logs `[access-provision] created|settled|dismissed|expired|refused id= project=<json> lines= approved= reason=`; dropped response `[access-provision] response-dropped reason=no-capability`; per-grant `[access-grant] persisted … via=provision`. `/api/health` `accessGrants.provisioning = {pending, created, approved, rejected, dismissed, expired, refused, droppedResponses}` (cumulative except `pending`; additive, optional) via `snapshotAccessGrantHealth` (`access/access-health.ts`).
+
+**Stated trust limit** (D11, operator decision A). Consent + audit on the honest path. **Not containment.** Approval proves a capability-holding connection answered, nothing more. Local process running as operator (incl. agent `bash`) can: write `access-grants.json` directly; create `.git` to claim a root; forge a browser-shaped WS to obtain a capability and settle its own request; already settle denial prompts via `POST /api/access/prompts/:promptId` (no capability check). What it does stop: *casual* self-approval via plain operate-tier request. Dialog, skill and docs state this. Operator-presence proof (passkey user verification) = follow-up.
+
+**Reversal of archived D12/D15** (`add-access-grants-and-review`; design D15 here).
+- D12 "Access tab reviews and revokes, never creates": *kept* — no free-form add control anywhere. *Revised* — Access page may answer a pending provisioning request it lists; same per-line verdict as dialog.
+- D15 "grant names only a subject a recorded denial named": *kept* — forbidden subjects on stored value, real-path subjects, authentication, no cross-origin. *Replaced for this path only* — binding becomes "line operator approved on a capability-holding connection, re-verified at approval".
+- Rationale: D15 protects callers that cannot see the denial. Provisioning protects the same property (operator saw this exact real path) through the dialog. Stricter than denial path in two ways: credential folders refused (D5a); settle requires capability (D3).
+
+**Default flip** (D16). `accessGrants.promptEnabled` default `true`; explicit value kept; no config migration. Denial dialogs now appear on default installs with host gate `enforce` and an operator browser open. Automation sets `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1`. Agent path gate does not read `promptEnabled` (own `agentPathGate` switch). Rollback: revert change; provisioned grants stay ordinary revocable grants.
 
 ### Plugin cwd admission (change: harden-plugin-cwd-admission)
 

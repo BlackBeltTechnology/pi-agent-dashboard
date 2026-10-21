@@ -21,9 +21,7 @@
  *
  * See change: mirror-dashboard-trust-live-remote (D3).
  */
-import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
 import type { PiTrustMirrorConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   type FolderIdentity,
@@ -37,6 +35,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror.js";
 import { currentHookHash, safePiTrustKey } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
 import type { MirrorSourceKind } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
+import { hasProjectRootMarker } from "@blackbelt-technology/pi-dashboard-shared/project-root.js";
 import type { YoloSession } from "./yolo-session.js";
 
 export type LiveSourceKind = Extract<MirrorSourceKind, "worktreeInit" | "accessGrants" | "yolo">;
@@ -99,14 +98,6 @@ export interface PiTrustLiveProvider {
 
 const idKey = (kind: string, key: string): string => `${kind}\u0000${key}`;
 
-function isProjectRootDir(dir: string): boolean {
-  try {
-    return fs.existsSync(path.join(dir, ".git")) || fs.existsSync(path.join(dir, ".pi"));
-  } catch {
-    return false;
-  }
-}
-
 interface RawCandidate {
   candidate: MirrorCandidate;
   lifetime: LiveLifetime;
@@ -137,7 +128,7 @@ export function createPiTrustLiveProvider(deps: LiveProviderDeps): PiTrustLivePr
     }
     for (const { subject } of deps.listSessionGrants()) {
       const key = keyOf(subject);
-      if (key) push({ sourceKind: "accessGrants", key, projectRoot: isProjectRootDir(key) }, { kind: "restart" });
+      if (key) push({ sourceKind: "accessGrants", key, projectRoot: hasProjectRootMarker(key) }, { kind: "restart" });
     }
     const session = deps.getYolo()?.status() ?? null;
     if (session && !session.unscoped) {

@@ -13,8 +13,8 @@
  */
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
+import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 

@@ -18,7 +18,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/claude-plugin-zip.test.mjs` | Release zip layout (E44) and version gate (E45) for `build-claude-plugin-zip.mjs`. |
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN` + temp git repos (test-plan #E2-#E13, #E16, #E23,… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). → see `__tests__/codeql-local-real.test.mjs.AGENTS.md` |
-| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1). See change: add-local-codeql-ratchet. |
+| `__tests__/codeql-local-mirror.test.mjs` | `--mirror-dismissal` vs fake `codeql` + fake `gh` (#M1-#M17). See change: codeql-model-pack-and-mirror. |
+| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1; #E11, #E13, #E14, #E16 reason grammar, spike glob, remote parser). See change: add-local-codeql-ratchet, codeql-model-pack-and-mirror. |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. |
@@ -27,9 +28,12 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
-| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, SARIF + baseline builders. See change: add-local-codeql-ratchet. |
+| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, optional fake-`gh` plan (`run(..., { gh })`), SARIF + baseline + `ghAlert` builders. See change: add-local-codeql-ratchet, codeql-model-pack-and-mirror. |
+| `__tests__/fixtures/codeql-resolve-extensions.json` | Captured real `codeql resolve extensions` JSON (CLI 2.27.2); `fake-codeql.mjs` substitutes the model file. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
 | `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`,… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
+| `__tests__/fixtures/fake-gh.mjs` | Fake `gh` (`PI_CODEQL_GH_BIN` seam). Plan `$FAKE_GH_PLAN` `{log, alerts, exit, stderr, sleepMs}`; logs argv first. See change: codeql-model-pack-and-mirror. |
+| `__tests__/fixtures/gh-code-scanning-alert.json` | Recorded real `gh api …/code-scanning/alerts/464` (trimmed); base of `ghAlert()`. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/helpers/ensure-dashboard-harness.mjs` | `makeCtx()` sandbox for the bootstrap tests: temp HOME, logging stub executables, fixture/pid helpers, async `run()`. |

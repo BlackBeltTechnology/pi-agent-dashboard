@@ -3,12 +3,12 @@
  * Verifies that existing valid extension paths are preserved,
  * while stale (non-existent) paths are removed.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 describe("non-destructive bridge registration", () => {
   let tmpDir: string;

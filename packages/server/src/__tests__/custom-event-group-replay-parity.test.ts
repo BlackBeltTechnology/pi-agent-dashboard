@@ -9,17 +9,18 @@
  *
  * See change: add-custom-event-group-filters.
  */
-import { describe, expect, it } from "vitest";
+
+import {
+  type CustomEventGroup,
+  RESERVED_OTHER_GROUP_ID,
+  SHIPPED_CUSTOM_EVENT_GROUPS,
+} from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups.js";
 
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
+import { describe, expect, it } from "vitest";
 import { stampEventGroup } from "../session/custom-event-group-annotation.js";
 import { CustomEventGroupMatcher } from "../session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "../session/custom-event-group-resolver.js";
-import {
-  SHIPPED_CUSTOM_EVENT_GROUPS,
-  RESERVED_OTHER_GROUP_ID,
-  type CustomEventGroup,
-} from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups.js";
 
 const SID = "s1";
 const TS = "2026-01-01T00:00:00.000Z";

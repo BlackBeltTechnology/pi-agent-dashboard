@@ -1231,34 +1231,6 @@
       "lineHash": "19afae016bcb4e81:1",
       "count": 1,
       "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "spike/identity-login-plane/lan-e2e.mjs",
-      "lineHash": "f88ce49deaf92667:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "spike/identity-login-plane/lib/identity-routes.mjs",
-      "lineHash": "4caa4fc914bb3ebc:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "spike/identity-login-plane/lib/identity-routes.mjs",
-      "lineHash": "4caa4fc914bb3ebc:2",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "spike/identity-login-plane/two-user-e2e.mjs",
-      "lineHash": "f88ce49deaf92667:1",
-      "count": 1,
-      "reason": "untriaged"
     }
   ]
 }

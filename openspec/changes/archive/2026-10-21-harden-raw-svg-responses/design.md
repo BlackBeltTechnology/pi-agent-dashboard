@@ -36,7 +36,7 @@ The policy is `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src d
 - `sandbox` (no tokens) gives the document an opaque origin and disables script, forms, popups and plugins. That alone removes access to the dashboard origin (cookies, storage, same-origin API calls).
 - `frame-ancestors 'self'` (matching the baseline) stops a third-party page from framing a raw SVG/HTML on the dashboard URL.
 - `default-src 'none'` stops a directly opened file from beaconing out (`<image href="https://…">`, CSS `url()`).
-- `style-src 'unsafe-inline'`, `img-src data:` and `font-src data:; frame-ancestors 'self'` keep self-contained SVG/HTML rendering when opened directly.
+- `style-src 'unsafe-inline'`, `img-src data:` and `font-src data:` keep self-contained SVG/HTML rendering when opened directly.
 - The policy goes out as the enforced `Content-Security-Policy` in every dashboard CSP mode, because the dashboard's default is report-only.
 - Alternative `Content-Disposition: attachment` was rejected. It also neutralizes, but it turns "Open raw" and "open image in new tab" into downloads. Fallback trigger: if a browser the dashboard supports runs script from a sandboxed raw SVG/HTML, switch these types to `attachment`. Chromium/Electron is checked by Playwright, which runs Chromium only (`playwright.config.ts:67-71`). Firefox and Safari are checked manually.
 - Alternative "attachment-routes policy verbatim (`default-src 'none'; sandbox`)" was rejected. It blocks inline styles, which breaks the appearance of directly opened SVGs, and script is already off under `sandbox`.

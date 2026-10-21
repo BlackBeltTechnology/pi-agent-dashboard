@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createSessionArchive } from "../session/session-archive.js";
-import { metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 
 describe("meta-persistence", () => {
   let tmpDir: string;

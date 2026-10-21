@@ -6,19 +6,20 @@
  *
  * See change: add-openspec-change-grouping.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
-import {
-  createOpenSpecGroupStore,
-  ConcurrentEditError,
-  UnsupportedSchemaVersionError,
-  GroupNotFoundError,
-  UnknownGroupIdError,
-  type OpenSpecGroupStore,
-} from "../openspec/openspec-group-store.js";
+import path from "node:path";
 import { OPENSPEC_GROUPS_SCHEMA_VERSION } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ConcurrentEditError,
+  createOpenSpecGroupStore,
+  GroupNotFoundError,
+  type OpenSpecGroupStore,
+  UnknownGroupIdError,
+  UnsupportedSchemaVersionError,
+} from "../openspec/openspec-group-store.js";
 
 describe("openspec-group-store", () => {
   let tmpDir: string;

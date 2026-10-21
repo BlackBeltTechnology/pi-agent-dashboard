@@ -81,6 +81,9 @@ function notifySessionGrantsChanged(): void {
 /** `session` = in-memory, until server restart. `project` = persisted JSON. */
 export type GrantScope = "session" | "project";
 
+/** Which write path produced a grant (absent = the Access page's grant route). */
+type GrantVia = "prompt" | "agent-prompt" | "provision";
+
 /** One grant. Session-scoped grants carry the SAME four fields (D17) — not a bare Set. */
 export interface AccessGrant {
   /** Directory, realpath'd at grant time (D2). */
@@ -96,11 +99,13 @@ export interface AccessGrant {
    */
   widenedFrom?: string;
   /**
+   * `"provision"` = an operator approved a line of a project's provisioning request
+   * (change: add-access-provisioning); such a grant is never an eviction victim.
    * `"prompt"` when an operator's allow-always answer to an access prompt wrote
    * this grant (change: add-access-grant-dialog, task 8.2). Absent = the Access
    * page's grant route. Optional and additive: older builds spread it through.
    */
-  via?: "prompt" | "agent-prompt";
+  via?: GrantVia;
 }
 
 /** D10: fixed cap, per scope. */
@@ -210,6 +215,8 @@ function loadFromDisk(): AccessGrant[] {
   // The cap is a property of the STORE, not of the write path: a hand-edited or
   // hostile file with 100k grants would otherwise be admitted in full, growing
   // the hot path's Set per request and memory without bound.
+  // Load does not spare provisioned grants: the bound wins, so a hostile file
+  // full of `via: "provision"` entries still cannot grow the Set.
   enforceCap(valid, "project");
   return valid;
 }
@@ -277,21 +284,36 @@ export function grantedSubjects(): string[] {
  * already in the file could make it sort oldest, and evicting it would let
  * `recordGrant` return `ok: true` for a grant that was never persisted: the UI
  * would claim a grant that does not exist, the exact failure D11 forbids.
+ *
+ * `spareProvisioned` — `via: "provision"` grants are never victims (change:
+ * add-access-provisioning, D5). Returns `false` and mutates nothing when the
+ * excess cannot be fully evicted (`evict: false`, or every candidate spared).
+ * Every eviction is logged.
  */
-function enforceCap(grants: AccessGrant[], scope: GrantScope, protect?: AccessGrant): void {
+function enforceCap(
+  grants: AccessGrant[],
+  scope: GrantScope,
+  opts: { protect?: AccessGrant; evict?: boolean; spareProvisioned?: boolean } = {},
+): boolean {
   const inScope = grants.filter((g) => g.scope === scope);
-  if (inScope.length <= GRANT_CAP_PER_SCOPE) return;
+  if (inScope.length <= GRANT_CAP_PER_SCOPE) return true;
+  if (opts.evict === false) return false;
   const excess = inScope.length - GRANT_CAP_PER_SCOPE;
   const evictOrder = inScope
-    .filter((g) => g !== protect)
+    .filter((g) => g !== opts.protect && !(opts.spareProvisioned && g.via === "provision"))
     .map((g, i) => ({ g, i }))
     .sort((a, b) => a.g.grantedAt - b.g.grantedAt || a.i - b.i)
     .slice(0, excess)
     .map((x) => x.g);
+  if (evictOrder.length < excess) return false;
   const doomed = new Set(evictOrder);
   for (let i = grants.length - 1; i >= 0; i -= 1) {
     if (doomed.has(grants[i])) grants.splice(i, 1);
   }
+  for (const g of evictOrder) {
+    console.warn(`[access-grants] evicted subject=${JSON.stringify(g.subject)} via=${g.via ?? "none"}`);
+  }
+  return true;
 }
 
 /** Atomic write: temp file in the same directory, then rename (D11). */
@@ -323,7 +345,12 @@ export interface RecordGrantInput {
   origin?: string;
   /** Set when the subject came from the denial's offered-ancestor ladder. */
   widenedFrom?: string;
-  via?: "prompt" | "agent-prompt";
+  via?: GrantVia;
+  /**
+   * `false` = refuse with `{ok:false, error:"capacity"}` at the cap instead of
+   * evicting the oldest grant (change: add-access-provisioning). Default `true`.
+   */
+  evict?: boolean;
   now?: number;
 }
 
@@ -336,7 +363,7 @@ export interface RecordGrantInput {
  * did not stick.
  */
 /** A grant with its optional provenance fields set only when present. */
-function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: "prompt" | "agent-prompt" | undefined): AccessGrant {
+function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: GrantVia | undefined): AccessGrant {
   const grant: AccessGrant = { ...base };
   if (widenedFrom) grant.widenedFrom = widenedFrom;
   if (via) grant.via = via;
@@ -371,7 +398,10 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
     if (existing) return { ok: true, grant: existing };
     const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
     sessionGrants.push(grant);
-    enforceCap(sessionGrants, "session", grant);
+    if (!enforceCap(sessionGrants, "session", { protect: grant, evict: input.evict, spareProvisioned: true })) {
+      sessionGrants.pop();
+      return { ok: false, error: "capacity" };
+    }
     notifySessionGrantsChanged();
     return { ok: true, grant };
   }
@@ -381,7 +411,9 @@ export function recordGrant(input: RecordGrantInput): RecordGrantResult {
   if (existing) return { ok: true, grant: existing };
   const grant = buildGrant({ subject, scope, grantedAt, origin }, widen, input.via);
   grants.push(grant);
-  enforceCap(grants, "project", grant);
+  if (!enforceCap(grants, "project", { protect: grant, evict: input.evict, spareProvisioned: true })) {
+    return { ok: false, error: "capacity" };
+  }
 
   const file: StoreFile = { version: 1, grants };
   try {

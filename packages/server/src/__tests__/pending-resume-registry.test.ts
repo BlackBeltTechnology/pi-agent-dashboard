@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPendingResumeRegistry } from "../pending/pending-resume-registry.js";
 
 describe("PendingResumeRegistry", () => {

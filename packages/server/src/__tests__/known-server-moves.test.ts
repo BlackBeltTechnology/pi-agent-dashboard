@@ -2,10 +2,11 @@
  * Verified move suggestions (test-plan #E20 #E21 #E22).
  * See change: stabilize-mdns-server-identity
  */
-import { describe, expect, it, vi } from "vitest";
+
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import type { ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
+import { describe, expect, it, vi } from "vitest";
 import { createKnownServerMoves } from "../known-server-moves.js";
 
 const F = "sha256:" + "A".repeat(43);

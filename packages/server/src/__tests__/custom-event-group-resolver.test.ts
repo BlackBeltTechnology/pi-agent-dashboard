@@ -4,11 +4,11 @@
  *
  * See change: add-custom-event-group-filters (tasks 2.1–2.3, 3.1–3.3).
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { type CustomEventGroup, RESERVED_OTHER_GROUP_ID } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CustomEventGroupMatcher } from "../session/custom-event-group-matcher.js";
 import { CustomEventGroupResolver } from "../session/custom-event-group-resolver.js";
-import { RESERVED_OTHER_GROUP_ID, type CustomEventGroup } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

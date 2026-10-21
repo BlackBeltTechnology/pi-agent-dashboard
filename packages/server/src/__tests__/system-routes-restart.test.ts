@@ -2,12 +2,13 @@
  * Tests for `/api/restart` and `/api/shutdown` `server_restarting` broadcast.
  * See change: fix-restart-bridge-auto-start-race.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
-import { registerSystemRoutes } from "../routes/system-routes.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PiGateway } from "../pi/pi-gateway.js";
+import { registerSystemRoutes } from "../routes/system-routes.js";
 
 function noGuard() {
   return async () => { /* allow all */ };

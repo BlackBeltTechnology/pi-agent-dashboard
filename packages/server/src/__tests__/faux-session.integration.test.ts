@@ -17,12 +17,13 @@
  *
  * See change: add-faux-model-integration-tests.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
+
+import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 

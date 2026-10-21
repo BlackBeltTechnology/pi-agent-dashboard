@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { translatePathSource } from "../package/package-manager-wrapper.js";
 
 describe("translatePathSource", () => {

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**
  * Tests for the auto-resume-on-prompt flow.

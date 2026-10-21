@@ -4,16 +4,17 @@
  *
  * See change: generalize-worktree-init-hook.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  readInitHook,
-  normalizeHook,
   evaluateGate,
-  runInitHook,
   hookDefHash,
+  normalizeHook,
+  readInitHook,
+  runInitHook,
   type WorktreeInitHook,
 } from "../git-worktree/worktree-init.js";
 
@@ -303,6 +304,7 @@ describe("hookDefHash", () => {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 import { EventEmitter } from "node:events";
+
 /** Minimal fake ChildProcess that exits with `code` on next tick. */
 function fakeChild(code: number): any {
   const ee: any = new EventEmitter();

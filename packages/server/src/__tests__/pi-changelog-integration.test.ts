@@ -5,16 +5,17 @@
  *
  * See change: pi-update-whats-new-panel; tasks.md §10.1.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
+import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  invalidateChangelogCache,
   _resetChangelogCache,
+  invalidateChangelogCache,
 } from "../changelog/changelog-parser.js";
+import { registerPiChangelogRoutes } from "../routes/pi-changelog-routes.js";
 
 const FIXTURE_PKG = "@earendil-works/pi-coding-agent";
 

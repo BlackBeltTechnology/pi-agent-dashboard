@@ -8,18 +8,18 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import nodeFs from "node:fs";
-import { join } from "node:path";
+import nodeFs, { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildGitFixtures,
   fixtureGit,
   type GitFixtures,
   restoreEnv,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { addWorktree, addWorktreeFromPr, listWorktrees, orphanCleanup, readHead, removeWorktree, resolveMainPath } from "../git-worktree/git-operations.js";
 import { parsePorcelainWorktrees } from "../git-worktree/git-worktree.js";
 

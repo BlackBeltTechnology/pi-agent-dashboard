@@ -4,13 +4,14 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
-import { scanAllSessions } from "../session/session-scanner.js";
+import { join } from "node:path";
 import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { describe, expect, it, vi } from "vitest";
+import { scanAllSessions } from "../session/session-scanner.js";
+import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 
 vi.mock("../session/session-stats-reader.js", () => ({
   extractSessionStats: vi.fn(() => null),

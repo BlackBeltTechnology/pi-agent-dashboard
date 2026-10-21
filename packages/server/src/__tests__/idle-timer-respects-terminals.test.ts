@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createIdleTimer } from "../spawn-process/idle-timer.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import type { ServerConfig } from "../server.js";
+import { createIdleTimer } from "../spawn-process/idle-timer.js";
 
 // See change: fix-terminal-half-height-dual-mount.
 // Pure unit tests against the idle-timer's predicate-driven gating.
@@ -38,7 +38,7 @@ describe("idle-timer respects active terminals", () => {
 
   it("does NOT shut down when one or more terminals are alive", async () => {
     const gateway = makeGateway(0);
-    let terminalCount = 1;
+    const terminalCount = 1;
     const timer = createIdleTimer(makeConfig(), gateway, () => terminalCount > 0);
     const stopFn = vi.fn().mockResolvedValue(undefined);
     timer.setStopFn(stopFn);

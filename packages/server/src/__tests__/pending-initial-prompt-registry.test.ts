@@ -2,7 +2,7 @@
  * Pending-initial-prompt registry: FIFO per cwd, cap, TTL, normalization.
  * See change: project-init-skill-and-profiles.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   createPendingInitialPromptRegistry,
   PENDING_INITIAL_PROMPT_QUEUE_CAP,

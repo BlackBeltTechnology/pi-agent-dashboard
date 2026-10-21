@@ -3,7 +3,7 @@
  * when the browser sends `attachProposal`, and does NOT enqueue when omitted.
  * See change: add-folder-task-checker-and-spawn-attach.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),

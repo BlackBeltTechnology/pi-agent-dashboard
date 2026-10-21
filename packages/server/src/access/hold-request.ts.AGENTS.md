@@ -1,0 +1,3 @@
+# hold-request.ts — index
+
+`awaitHold(request, reply, hold)` (design D7, task 6.3): the `git-routes` worktree-init transport in shape. Captures `socket.timeout`, `setTimeout(0)` for the hold, restores it on `reply.raw` `finish` behind `!socket.destroyed`. Client abort is detected on the RESPONSE (`reply.raw` `close` while `!writableFinished`), NOT `request.raw` `close` as D7 first named: measured on Node v24, `request.raw` emits `close` as soon as Fastify has consumed the body, BEFORE the handler returns, so the literal listener would abort every held request. Unheld holds pass straight through without touching the socket. See change: add-access-grant-dialog.
