@@ -25,7 +25,6 @@ import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/das
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, resolveAdvertisedAddresses, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
-import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
   deregisterPluginBridge,
   reconcilePluginBridgePackages,
@@ -151,7 +150,7 @@ import {
 } from "./browser-handlers/session-action-handler.js";
 import { runLifecycleAction } from "./browser-handlers/session-lifecycle.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
-import { readRawConfig, writeConfigPartial } from "./config-api.js";
+import { readRawConfig, seedWindowsSourceSettings, writeConfigPartial } from "./config-api.js";
 import {
   liveAcceptLanRequests,
   liveAllowedHosts,
@@ -628,7 +627,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Seed Windows git/bash source from config so spawn-env augmentation
   // (ToolResolver.buildSpawnEnv + PTY) picks bundled vs host correctly.
   // No-op on macOS/Linux. See change: embed-git-bash-on-windows.
-  setWindowsGitSourceSetting(loadConfig().windowsGitSource);
+  seedWindowsSourceSettings();
 
   // Run migration from sessions.json + state.json if needed
   if (needsMigration()) {

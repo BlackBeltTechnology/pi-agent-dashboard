@@ -183,3 +183,19 @@ describe("Forge makers (E15)", () => {
     expect(makers.map((m) => m.name)).toEqual(["@electron-forge/maker-deb"]);
   });
 });
+
+/**
+ * test-plan E26: the GO/NO-GO list and the runnable-bundle assertion both
+ * require `usr/bin/bash.exe` next to `usr/bin/sh.exe` (pi's getShellConfig only
+ * resolves a file named bash.exe). See change: fix-windows-bundled-bash-exe.
+ */
+describe("bundled git bash.exe required paths (E26)", () => {
+  for (const script of ["bundle-server.mjs", "assert-runnable-bundle.mjs"]) {
+    it(`${script} requires the bundled bash.exe alongside sh.exe`, () => {
+      const src = readFileSync(path.join(electronRoot, "scripts", script), "utf8");
+      expect(src).toMatch(/"usr",\s*"bin",\s*"sh\.exe"/);
+      expect(src).toMatch(/"usr",\s*"bin",\s*"bash\.exe"/);
+      expect(src).not.toMatch(/ships NO bash\.exe|NOT bash\.exe/);
+    });
+  }
+});

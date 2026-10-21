@@ -1,5 +1,5 @@
 /**
- * Download + verify + extract the pinned dugite-native git+sh bundle into
+ * Download + verify + extract the pinned dugite-native git+sh+bash bundle into
  * packages/electron/resources/git/ for Windows electron builds.
  *
  * Node-native (no curl/bash) — runs on the Windows runner inside
@@ -13,10 +13,12 @@
  *   - fetches the GitHub release tarball over https (follows redirects)
  *   - verifies SHA-256 fail-closed BEFORE extraction
  *   - streams tar.x() into resources/git/
+ *   - copies usr/bin/sh.exe → usr/bin/bash.exe (dugite-native ships no bash.exe;
+ *     pi's getShellConfig resolves only a file named bash.exe)
  *   - writes resources/git/THIRD-PARTY-LICENSE.txt (GPLv2 attribution +
  *     corresponding-source pointer)
  *
- * See change: embed-git-bash-on-windows. R1 spike (PR #124) verified the
+ * See change: embed-git-bash-on-windows, fix-windows-bundled-bash-exe. R1 spike (PR #124) verified the
  * v2.53.0-3 tarballs on real windows-latest + windows-11-arm runners.
  */
 import { createHash } from "node:crypto";
@@ -25,6 +27,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import https from "node:https";
 import { fileURLToPath } from "node:url";
+import { ensureBundledBashExe } from "./lib/ensure-bundled-bash-exe.mjs";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -166,6 +169,9 @@ async function main() {
     rmSync(GIT_OUT_DIR, { recursive: true, force: true });
     mkdirSync(GIT_OUT_DIR, { recursive: true });
     await extract({ file: tmp, cwd: GIT_OUT_DIR });
+    // dugite-native ships bash only as usr/bin/sh.exe; pi resolves a file named
+    // bash.exe. See change: fix-windows-bundled-bash-exe.
+    if (ensureBundledBashExe(GIT_OUT_DIR)) console.log("  [git-bundle] usr/bin/bash.exe ← usr/bin/sh.exe");
     writeLicense(manifest);
     console.log(`  [git-bundle] extracted to ${GIT_OUT_DIR}`);
   } finally {

@@ -490,20 +490,38 @@ describe("bash binary definition", () => {
     expect(trail).toEqual(["override", "bundled-git-bash", "managed", "where"]);
   });
 
-  // See change: resolve-bundled-bash-on-windows.
-  it("resolves bundled git sh.exe on Windows before PATH", () => {
-    const sh = "C:\\res\\git\\usr\\bin\\sh.exe";
-    const marker = "C:\\res\\git\\cmd\\git.exe";
+  // See change: resolve-bundled-bash-on-windows, fix-windows-bundled-bash-exe (E22, E23).
+  it("E22: resolves the bundled bash.exe (not sh.exe) on Windows before PATH", () => {
+    const bash = path.win32.join("C:\\res", "git", "usr", "bin", "bash.exe");
+    const marker = path.win32.join("C:\\res", "git", "cmd", "git.exe");
     const r = freshRegistry({
       platform: "win32",
       resourcesPath: "C:\\res",
-      exists: (p) => p === sh || p === marker,
+      exists: (p) => p === bash || p === marker,
       which: () => null,
     });
     const res = r.resolve("bash");
     expect(res.ok).toBe(true);
-    expect(res.path).toBe(sh);
+    expect(res.path).toBe(bash);
     expect(res.source).toBe("bundled");
+  });
+
+  it("E23: a bundle with only sh.exe does not satisfy the bundled strategy; where wins as system", () => {
+    const sh = path.win32.join("C:\\res", "git", "usr", "bin", "sh.exe");
+    const marker = path.win32.join("C:\\res", "git", "cmd", "git.exe");
+    const hostBash = "C:\\Git\\bin\\bash.exe";
+    const r = freshRegistry({
+      platform: "win32",
+      resourcesPath: "C:\\res",
+      exists: (p) => p === sh || p === marker || p === hostBash,
+      which: (n) => (n === "bash" ? hostBash : null),
+    });
+    const res = r.resolve("bash");
+    const bundledTry = res.tried.find((t) => t.strategy === "bundled-git-bash");
+    expect(bundledTry?.result).not.toBe("ok");
+    expect(bundledTry?.result).toContain("bash.exe");
+    expect(res.path).toBe(hostBash);
+    expect(res.source).toBe("system");
   });
 
   it("resolves via where on Unix (/bin/bash)", () => {

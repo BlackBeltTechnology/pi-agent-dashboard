@@ -14,7 +14,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
-import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { ToolResolver, whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
@@ -1307,8 +1307,12 @@ export function registerSystemRoutes(
       clientBuild,
       proxy: getModelProxyStatus(),
       // Windows-only: active git/sh source readout for Settings + Diagnostics.
-      // null on macOS/Linux. See change: embed-git-bash-on-windows.
-      gitSource: getGitSourceReadout(whichSync),
+      // null on macOS/Linux. `shellPath` is the bash.exe pi would resolve over the
+      // same env a real spawn gets (buildSpawnEnv). See change:
+      // embed-git-bash-on-windows, fix-windows-bundled-bash-exe.
+      gitSource: getGitSourceReadout(whichSync, {
+        spawnEnv: () => new ToolResolver({ processExecPath: process.execPath }).buildSpawnEnv(process.env),
+      }),
       // Event-loop delay (ms) over the window since the last /api/health read.
       // Correlates hydration spikes with real main-loop lag. Additive field.
       // See change: instrument-session-hydration-timing.

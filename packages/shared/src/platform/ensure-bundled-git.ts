@@ -6,8 +6,12 @@
  * Layout verified by the R1 CI spike (dugite-native v2.53.0-3):
  *   cmd/git.exe              git launcher
  *   usr/bin/sh.exe           POSIX shell (GNU bash under the name `sh`;
- *                            dugite-native ships NO bash.exe). pi's
- *                            `!`/`!!` call pi.exec("sh"), so this matches.
+ *                            dugite-native ships NO bash.exe).
+ *   usr/bin/bash.exe         byte copy of sh.exe added by the build step
+ *                            (download-git-windows.mjs). pi's getShellConfig()
+ *                            (bash tool, `!`, `!cmd`) resolves only a file named
+ *                            bash.exe — never sh.exe — so this is the file pi
+ *                            picks when usr/bin precedes System32 on PATH.
  *   <libdir>/bin             git core libs + DLLs. <libdir> is
  *                            arch-specific: `mingw64` on win32-x64,
  *                            `clangarm64` on win32-arm64.
@@ -19,11 +23,11 @@
  * This module is the ONLY place allowed to reference bundled-git paths
  * (enforced by no-hardcoded-bundled-git-paths.test.ts).
  *
- * See change: embed-git-bash-on-windows.
+ * See change: embed-git-bash-on-windows, fix-windows-bundled-bash-exe.
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { GitSource } from "./select-git-source.js";
+import type { GitSource, WindowsBashSourceSetting } from "./select-git-source.js";
 
 /** Arch-specific MinGW/Clang library dir names, in probe order. */
 const GIT_LIBDIRS = ["mingw64", "clangarm64"] as const;
@@ -90,7 +94,16 @@ export interface EnsureBundledGitOpts {
   candidates?: string[];
   /** Override `fs.existsSync` for tests. */
   exists?: (p: string) => boolean;
+  /**
+   * Where `usr/bin` (the bundled bash) sits on PATH. "bundled" (default) →
+   * prepended ahead of System32; "host" → appended last so pi resolves the
+   * host's first `bash.exe`. See change: fix-windows-bundled-bash-exe.
+   */
+  bashSource?: WindowsBashSourceSetting;
 }
+
+/** Trailing-separator-trimmed, case-folded PATH entry key. */
+const entryKey = (e: string): string => e.trim().replace(/[\\/]+$/, "").toLowerCase();
 
 /**
  * Prepend bundled git/sh dirs to `env.PATH` and set git env vars when the
@@ -126,37 +139,40 @@ export function ensureBundledGitOnPath(
   const join = path.win32.join;
   const libDir = resolveLibDir(gitDir, exists);
 
-  // PATH prepends, highest priority first. git launcher → shell+coreutils
-  // → arch DLLs/libexec. libDir-dependent entry omitted when absent.
-  const dirs = [join(gitDir, "cmd"), join(gitDir, "usr", "bin")];
-  if (libDir) dirs.push(join(gitDir, libDir, "bin"));
+  // Placement. `cmd` + `<libdir>/bin` always precede the inherited PATH.
+  // `usr/bin` (bash.exe + MSYS coreutils) precedes it in "bundled" mode and
+  // follows it in "host" mode. Existing entries for these dirs are stripped
+  // first (case/trailing-slash-insensitive) so switching mode MOVES usr/bin
+  // and re-applying is idempotent. Operates on the already-normalised `PATH`
+  // key (callers run normalizeEnvPathKey first).
+  const bashSource = opts.bashSource === "host" ? "host" : "bundled";
+  const front: string[] = [join(gitDir, "cmd")];
+  const usrBin = join(gitDir, "usr", "bin");
+  if (bashSource === "bundled") front.push(usrBin);
+  if (libDir) front.push(join(gitDir, libDir, "bin"));
+  const back: string[] = bashSource === "host" ? [usrBin] : [];
 
-  const currentPath = env.PATH ?? "";
-  // Exact per-entry equality (case-insensitive), NOT substring containment:
-  // substring matching would let `C:\x\usr\bin-old` block the required
-  // `C:\x\usr\bin` prepend. Trailing separators trimmed.
-  const present = new Set(
-    currentPath
-      .split(";")
-      .map((e) => e.trim().replace(/[\\/]+$/, "").toLowerCase())
-      .filter(Boolean),
-  );
-  const seen = new Set<string>();
-  const toAdd: string[] = [];
-  for (const dir of dirs) {
-    if (!exists(dir)) continue;
-    const lower = dir.replace(/[\\/]+$/, "").toLowerCase();
-    if (present.has(lower) || seen.has(lower)) continue;
-    seen.add(lower);
-    toAdd.push(dir);
-  }
+  const ours = new Set([...front, ...back].map(entryKey));
+  const rest = (env.PATH ?? "")
+    .split(";")
+    .filter((e) => e.trim() !== "" && !ours.has(entryKey(e)));
+
+  const place = (dirs: string[]): string[] => {
+    const seen = new Set<string>();
+    return dirs.filter((dir) => {
+      const k = entryKey(dir);
+      if (!exists(dir) || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+  const frontOk = place(front);
+  const backOk = place(back);
 
   const DELIM = ";";
+  const newPath = [...frontOk, ...rest, ...backOk].join(DELIM);
   let out = env;
-  if (toAdd.length > 0) {
-    const newPath = currentPath
-      ? `${toAdd.join(DELIM)}${DELIM}${currentPath}`
-      : toAdd.join(DELIM);
+  if (newPath !== (env.PATH ?? "")) {
     out = { ...out, PATH: newPath };
   }
 

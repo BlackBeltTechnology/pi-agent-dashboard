@@ -109,3 +109,82 @@ describe("ensureBundledGitOnPath", () => {
     expect(twice).toEqual(once);
   });
 });
+
+// ── windowsBashSource placement of usr/bin ────────────────────────────────
+// See change: fix-windows-bundled-bash-exe (test-plan E3–E9).
+describe("ensureBundledGitOnPath — bashSource placement", () => {
+  const SYS = "C:\\Windows\\System32";
+  const HOST = "C:\\host";
+  const base = (bashSource: "bundled" | "host", env: NodeJS.ProcessEnv, source: "bundled" | "host" = "bundled") =>
+    ensureBundledGitOnPath(env, { platform: "win32", source, gitDir: GIT_DIR, exists: x64Layout, bashSource });
+  const CMD = win(GIT_DIR, "cmd");
+  const USR = win(GIT_DIR, "usr", "bin");
+  const LIB = win(GIT_DIR, "mingw64", "bin");
+  const count = (p: string, dir: string) =>
+    p.split(";").filter((e) => e.replace(/[\\/]+$/, "").toLowerCase() === dir.toLowerCase()).length;
+
+  it("E3: bundled → cmd;usr\\bin;libdir prepended ahead of System32", () => {
+    const out = base("bundled", { PATH: `${SYS};${HOST}` });
+    expect(out.PATH).toBe([CMD, USR, LIB, SYS, HOST].join(";"));
+  });
+
+  it("E4: host → cmd;libdir prepended, usr\\bin appended once and last", () => {
+    const out = base("host", { PATH: `${SYS};${HOST}` });
+    expect(out.PATH).toBe([CMD, LIB, SYS, HOST, USR].join(";"));
+  });
+
+  it("E5: source host → env unchanged for both bashSource values", () => {
+    const env = { PATH: `${SYS};${HOST}` };
+    for (const bs of ["bundled", "host"] as const) {
+      expect(base(bs, env, "host")).toEqual(env);
+    }
+  });
+
+  it("E6: idempotent per mode (no duplicates)", () => {
+    for (const bs of ["bundled", "host"] as const) {
+      const once = base(bs, { PATH: `${SYS};${HOST}` });
+      expect(base(bs, once)).toEqual(once);
+      expect(count(once.PATH!, USR)).toBe(1);
+    }
+  });
+
+  it("E7: switching host → bundled moves usr\\bin to the front, once", () => {
+    const hosted = base("host", { PATH: `${SYS};${HOST}` });
+    expect(count(hosted.PATH!, USR)).toBe(1);
+    expect(hosted.PATH!.split(";").at(-1)).toBe(USR);
+    const bundled = base("bundled", hosted);
+    expect(count(bundled.PATH!, USR)).toBe(1);
+    expect(bundled.PATH!.split(";")[1]).toBe(USR);
+  });
+
+  it("E8: a pre-existing differently-cased/trailing-slash usr\\bin entry is replaced by the canonical one", () => {
+    const stale = "c:\\APP\\resources\\GIT\\usr\\bin\\";
+    const out = base("host", { PATH: `${stale};${SYS};${HOST}` });
+    expect(count(out.PATH!, USR)).toBe(1);
+    expect(out.PATH!.split(";")).not.toContain(stale);
+    expect(out.PATH!.split(";").at(-1)).toBe(USR);
+  });
+
+  it("E9: clangarm64-only bundle, host → libdir prepended, usr\\bin last", () => {
+    const arm = existsFor([
+      win(GIT_DIR, "cmd", "git.exe"),
+      CMD,
+      USR,
+      win(GIT_DIR, "clangarm64"),
+      win(GIT_DIR, "clangarm64", "bin"),
+    ]);
+    const out = ensureBundledGitOnPath(
+      { PATH: `${SYS};${HOST}` },
+      { platform: "win32", source: "bundled", gitDir: GIT_DIR, exists: arm, bashSource: "host" },
+    );
+    expect(out.PATH).toBe([CMD, win(GIT_DIR, "clangarm64", "bin"), SYS, HOST, USR].join(";"));
+  });
+
+  it("omitting bashSource behaves as 'bundled' (back-compat)", () => {
+    const out = ensureBundledGitOnPath(
+      { PATH: `${SYS};${HOST}` },
+      { platform: "win32", source: "bundled", gitDir: GIT_DIR, exists: x64Layout },
+    );
+    expect(out.PATH).toBe([CMD, USR, LIB, SYS, HOST].join(";"));
+  });
+});

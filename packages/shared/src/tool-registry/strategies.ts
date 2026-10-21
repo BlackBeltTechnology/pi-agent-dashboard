@@ -428,16 +428,17 @@ export function bundledNodeStrategy(
 
 /**
  * Windows-only: resolve `bash` to the bundled dugite-native shell at
- * `<resourcesPath>/git/usr/bin/sh.exe`. dugite-native ships GNU bash under
- * the name `sh` (no `bash.exe`), so `where bash` misses even though the
- * shell is on PATH. This strategy surfaces it as a `bundled` hit so the
- * Tools panel shows bash ✓ instead of "not found".
+ * `<resourcesPath>/git/usr/bin/bash.exe` — a byte copy of dugite-native's
+ * `sh.exe` (GNU bash under the name `sh`) added by the build step, because pi's
+ * getShellConfig resolves only a file named `bash.exe`. This strategy surfaces
+ * it as a `bundled` hit so the Tools panel shows bash ✓ instead of "not found".
+ * `sh.exe` alone does NOT satisfy it (pi would not find that shell).
  *
  * Fast-fails on non-win32 → chain falls through to `where` (finds
  * /bin/bash on Unix). Uses {@link resolveBundledGitDir} (cmd/git.exe
  * marker) for the bundle root.
  *
- * See change: resolve-bundled-bash-on-windows.
+ * See change: resolve-bundled-bash-on-windows, fix-windows-bundled-bash-exe.
  */
 export function bundledGitBashStrategy(deps?: StrategyDeps): Strategy {
   const { exists } = d(deps);
@@ -451,9 +452,9 @@ export function bundledGitBashStrategy(deps?: StrategyDeps): Strategy {
         exists,
       });
       if (!gitDir) return { ok: false, reason: "no bundled git tree" };
-      const sh = path.win32.join(gitDir, "usr", "bin", "sh.exe");
-      if (exists(sh)) return { ok: true, path: sh };
-      return { ok: false, reason: `missing: ${sh}` };
+      const bash = path.win32.join(gitDir, "usr", "bin", "bash.exe");
+      if (exists(bash)) return { ok: true, path: bash };
+      return { ok: false, reason: `missing: ${bash}` };
     },
   };
 }

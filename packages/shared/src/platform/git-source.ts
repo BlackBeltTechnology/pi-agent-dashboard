@@ -12,13 +12,17 @@
  * injected by the caller to avoid a binary-lookup ↔ git-source import
  * cycle.
  *
- * See change: embed-git-bash-on-windows.
+ * See change: embed-git-bash-on-windows, fix-windows-bundled-bash-exe.
  */
 import {
   selectGitSource,
   type GitSource,
+  type WindowsBashSourceSetting,
   type WindowsGitSourceSetting,
 } from "./select-git-source.js";
+import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
+import { normalizeEnvPathKey } from "./env-path-key.js";
+import { resolvePiShell } from "./resolve-pi-shell.js";
 import {
   ensureBundledGitOnPath,
   resolveBundledGitDir,
@@ -33,10 +37,25 @@ export interface ActiveGitSource {
   setting: WindowsGitSourceSetting;
   /** Bundled git root when source is "bundled" and present, else null. */
   gitDir: string | null;
+  /** Where bundled `usr/bin` sits on PATH (only matters when source is "bundled"). */
+  bashSetting: WindowsBashSourceSetting;
 }
 
 let configuredSetting: WindowsGitSourceSetting = "auto";
+let bashSetting: WindowsBashSourceSetting = "bundled";
 let cached: ActiveGitSource | null = null;
+
+/**
+ * Seed the configured bash placement (server reads `windowsBashSource` from
+ * DashboardConfig). Invalidates both caches. See change: fix-windows-bundled-bash-exe.
+ */
+export function setWindowsBashSourceSetting(setting: WindowsBashSourceSetting): void {
+  const next: WindowsBashSourceSetting = setting === "host" ? "host" : "bundled";
+  if (next !== bashSetting) {
+    bashSetting = next;
+    invalidateGitSourceCache();
+  }
+}
 
 /** Seed the configured setting (server reads it from DashboardConfig). */
 export function setWindowsGitSourceSetting(setting: WindowsGitSourceSetting): void {
@@ -56,6 +75,10 @@ export interface GitSourceResolveOpts {
   /** Override `process.resourcesPath` for tests / standalone bundles. */
   resourcesPath?: string;
   candidates?: string[];
+  /** Override `process.platform` (test seam). */
+  platform?: NodeJS.Platform;
+  /** Override `fs.existsSync` (test seam). */
+  exists?: (p: string) => boolean;
 }
 
 /**
@@ -64,15 +87,17 @@ export interface GitSourceResolveOpts {
  */
 export function getActiveGitSource(which: WhichFn, opts: GitSourceResolveOpts = {}): ActiveGitSource {
   if (cached) return cached;
-  const source = selectGitSource({ setting: configuredSetting, which });
+  const source = selectGitSource({ setting: configuredSetting, which, platform: opts.platform });
   const gitDir =
     source === "bundled"
       ? resolveBundledGitDir({
+          platform: opts.platform,
           resourcesPath: opts.resourcesPath ?? (process as { resourcesPath?: string }).resourcesPath,
           candidates: opts.candidates,
+          exists: opts.exists,
         })
       : null;
-  cached = { source, setting: configuredSetting, gitDir };
+  cached = { source, setting: configuredSetting, gitDir, bashSetting };
   return cached;
 }
 
@@ -87,8 +112,14 @@ export function augmentEnvWithGitSource(
   opts: GitSourceResolveOpts = {},
 ): NodeJS.ProcessEnv {
   try {
-    const { source, gitDir } = getActiveGitSource(which, opts);
-    return ensureBundledGitOnPath(env, { source, gitDir });
+    const { source, gitDir, bashSetting: bashSource } = getActiveGitSource(which, opts);
+    return ensureBundledGitOnPath(env, {
+      source,
+      gitDir,
+      bashSource,
+      platform: opts.platform,
+      exists: opts.exists,
+    });
   } catch {
     return env;
   }
@@ -101,8 +132,26 @@ export interface GitSourceReadout {
   gitPath: string | null;
   /** `git --version` output, or null when unresolved. */
   gitVersion: string | null;
-  /** Resolved POSIX shell path (bundled usr/bin/sh.exe or host), or null. */
+  /**
+   * The `bash.exe` pi-coding-agent would resolve for a fresh spawn (pi's
+   * getShellConfig order over the augmented spawn env), or null. Never `sh.exe`.
+   */
   shellPath: string | null;
+  /** Effective `windowsBashSource` placement. */
+  bashSetting: WindowsBashSourceSetting;
+  /** `shellPath` is the System32/Sysnative WSL launcher (pi stdin-transport shell). */
+  shellIsWslLauncher: boolean;
+}
+
+export interface GitSourceReadoutOpts extends GitSourceResolveOpts {
+  /**
+   * The env a real spawn would receive (`ToolResolver.buildSpawnEnv(process.env)`),
+   * or a thunk for it — evaluated only on a readout-cache miss on win32, so
+   * health polls on other platforms / cache hits pay nothing. When omitted, a
+   * minimal equivalent is derived from `process.env` (normalised PATH key +
+   * System32 + bundled git).
+   */
+  spawnEnv?: NodeJS.ProcessEnv | (() => NodeJS.ProcessEnv);
 }
 
 let readoutCache: GitSourceReadout | null = null;
@@ -119,27 +168,39 @@ function probeVersion(gitPath: string): string | null {
 /**
  * Windows-only diagnostic readout for /api/health + Diagnostics. Returns
  * null on macOS/Linux (the setting is a no-op there). Cached for the life
- * of the process; reset by invalidateGitSourceCache().
+ * of the process; reset by invalidateGitSourceCache() (config write) — NOT
+ * re-probed when Git for Windows is installed/removed at runtime.
+ *
+ * Documented residuals: the session cwd (`where.exe` searches it first) and a
+ * user-set pi `shellPath` (applies to the bash tool and `!` only).
  */
-export function getGitSourceReadout(which: WhichFn, opts: GitSourceResolveOpts = {}): GitSourceReadout | null {
-  if (process.platform !== "win32") return null;
+export function getGitSourceReadout(which: WhichFn, opts: GitSourceReadoutOpts = {}): GitSourceReadout | null {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== "win32") return null;
   if (readoutCache) return readoutCache;
-  const { source, setting, gitDir } = getActiveGitSource(which, opts);
-  let gitPath: string | null = null;
-  let shellPath: string | null = null;
-  if (source === "bundled" && gitDir) {
-    gitPath = path.win32.join(gitDir, "cmd", "git.exe");
-    shellPath = path.win32.join(gitDir, "usr", "bin", "sh.exe");
-  } else {
-    gitPath = which("git");
-    shellPath = which("bash") ?? which("sh");
-  }
+  const { source, setting, gitDir, bashSetting: bashSource } = getActiveGitSource(which, opts);
+  const exists = opts.exists;
+  const join = path.win32.join;
+
+  const gitPath = source === "bundled" && gitDir ? join(gitDir, "cmd", "git.exe") : which("git");
+
+  const spawnEnv =
+    (typeof opts.spawnEnv === "function" ? opts.spawnEnv() : opts.spawnEnv) ??
+    augmentEnvWithGitSource(
+      ensureWindowsSystemPath(normalizeEnvPathKey({ ...process.env }, platform), { platform, exists }),
+      which,
+      opts,
+    );
+  const shell = resolvePiShell({ env: spawnEnv, exists });
+
   readoutCache = {
     setting,
     source,
     gitPath,
     gitVersion: gitPath ? probeVersion(gitPath) : null,
-    shellPath,
+    shellPath: shell?.path ?? null,
+    bashSetting: bashSource,
+    shellIsWslLauncher: shell?.isWslLauncher ?? false,
   };
   return readoutCache;
 }

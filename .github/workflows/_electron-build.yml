@@ -426,6 +426,19 @@ jobs:
           GIT_TARGET_ARCH: ${{ matrix.arch }}
         run: node packages/electron/scripts/assert-runnable-bundle.mjs
 
+      - name: Assert pi resolves bundled bash
+        # Build-time proof that the SHIPPED pi-coding-agent resolves the SHIPPED
+        # usr/bin/bash.exe on the bundled spawn env (windowsBashSource "bundled"),
+        # and the host's bash on "host" — instead of the System32 WSL launcher
+        # that fails with "no installed distributions". Win32 legs only; the
+        # win32-arm64 leg (x64 runner) verifies resolution, exec is skipped.
+        # Node-native, no `shell:` key (Windows-reachable invariant pinned by
+        # publish-workflow-contract.test.ts). See change: fix-windows-bundled-bash-exe.
+        if: ${{ inputs.source_only_bundle == false && matrix.platform == 'win32' }}
+        env:
+          GIT_TARGET_ARCH: ${{ matrix.arch }}
+        run: node packages/electron/scripts/assert-bundled-bash-resolvable.mjs
+
       - name: Assert bundled plugins complete
         # Built-bundle plugin-completeness gate: after bundle-server.mjs runs,
         # the bundle's resources/plugins/ MUST contain every non-fixture

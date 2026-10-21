@@ -19,6 +19,13 @@
 export type GitSource = "host" | "bundled";
 export type WindowsGitSourceSetting = "auto" | "host" | "bundled";
 
+/**
+ * Windows-only: where `usr/bin` of the bundled git tree sits on the spawn PATH
+ * (decides which `bash.exe` pi resolves). No effect unless the git source is
+ * "bundled". See change: fix-windows-bundled-bash-exe.
+ */
+export type WindowsBashSourceSetting = "bundled" | "host";
+
 export interface SelectGitSourceOpts {
   /** Config value. Default "auto". */
   setting?: WindowsGitSourceSetting;

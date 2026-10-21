@@ -33,6 +33,12 @@ export default defineConfig({
 			"src/__tests__/assert-packaged-preloads.test.ts",
 			"src/__tests__/relativize-extra-resource-links.test.ts",
 			"src/__tests__/scan-packaged-symlinks.test.ts",
+			// Windows git bundle ships usr/bin/bash.exe (copy of sh.exe). Pure fs on a
+			// temp dir. See change: fix-windows-bundled-bash-exe (E24 E25 X1).
+			"src/__tests__/ensure-bundled-bash-exe.test.ts",
+			// Build-time pi-shell resolution gate: pure helpers + non-win32 no-op.
+			// See change: fix-windows-bundled-bash-exe (X10).
+			"src/__tests__/assert-bundled-bash-resolvable.test.ts",
 			// Launch-source precedence is shipped contract too, and the resolver
 			// takes every probe by injection (pure). See change:
 			// electron-runtime-overlay-updates (test-plan E4, E23).

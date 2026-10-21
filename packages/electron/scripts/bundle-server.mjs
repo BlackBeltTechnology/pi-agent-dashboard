@@ -494,7 +494,10 @@ if (resolveTargetPlatformForGit() === "win32") {
   const GIT_DIR = path.join(ELECTRON_DIR, "resources", "git");
   const required = [
     path.join("cmd", "git.exe"),
-    path.join("usr", "bin", "sh.exe"), // dugite-native ships NO bash.exe (R1 spike)
+    path.join("usr", "bin", "sh.exe"),
+    // download-git-windows.mjs copies sh.exe -> bash.exe: pi's getShellConfig only
+    // resolves a file named bash.exe. See change: fix-windows-bundled-bash-exe.
+    path.join("usr", "bin", "bash.exe"),
     "THIRD-PARTY-LICENSE.txt",
   ];
   const missing = required.filter((rel) => !existsSync(path.join(GIT_DIR, rel)));
@@ -506,7 +509,7 @@ if (resolveTargetPlatformForGit() === "win32") {
     console.error("  See change: embed-git-bash-on-windows.");
     process.exit(1);
   }
-  console.log(`  bundled git OK — git.exe + usr/bin/sh.exe + ${libDir}/ + license present`);
+  console.log(`  bundled git OK — git.exe + usr/bin/sh.exe + usr/bin/bash.exe + ${libDir}/ + license present`);
 }
 
 // ── strip __tests__ from workspace source ────────────────────────────────

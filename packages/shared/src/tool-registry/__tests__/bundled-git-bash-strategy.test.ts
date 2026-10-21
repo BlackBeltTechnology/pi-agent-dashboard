@@ -1,13 +1,14 @@
 /**
  * Unit tests for `bundledGitBashStrategy` — resolves `bash` to the
- * bundled dugite-native shell at `<resourcesPath>/git/usr/bin/sh.exe`
- * (GNU bash under the name `sh`; the bundle ships no `bash.exe`).
+ * bundled dugite-native shell at `<resourcesPath>/git/usr/bin/bash.exe`
+ * (a byte copy of dugite-native's `sh.exe`, added by the build step; pi's
+ * getShellConfig only resolves a file named bash.exe).
  *
  * Windows-only. On non-win32 it fast-fails so the chain falls through to
  * `where` (which finds /bin/bash). Pure: all fs probes route through the
  * injected `exists` dep.
  *
- * See change: resolve-bundled-bash-on-windows.
+ * See change: resolve-bundled-bash-on-windows, fix-windows-bundled-bash-exe.
  */
 import path from "node:path";
 import { describe, it, expect } from "vitest";
@@ -27,15 +28,16 @@ function ctx(opts: {
 
 const RES = "C:\\Users\\qa\\AppData\\Local\\Programs\\pi-dashboard\\resources";
 const GIT_MARKER = path.win32.join(RES, "git", "cmd", "git.exe");
+const BASH = path.win32.join(RES, "git", "usr", "bin", "bash.exe");
 const SH = path.win32.join(RES, "git", "usr", "bin", "sh.exe");
 
 describe("bundledGitBashStrategy — present", () => {
-  it("Windows: resolves <resourcesPath>\\git\\usr\\bin\\sh.exe", () => {
+  it("Windows: resolves <resourcesPath>\\git\\usr\\bin\\bash.exe", () => {
     const strat = bundledGitBashStrategy({
-      exists: (p) => p === GIT_MARKER || p === SH,
+      exists: (p) => p === GIT_MARKER || p === BASH,
     });
     const r = strat.run(ctx({ platform: "win32", resourcesPath: RES }));
-    expect(r).toEqual({ ok: true, path: SH });
+    expect(r).toEqual({ ok: true, path: BASH });
   });
 });
 
@@ -53,11 +55,17 @@ describe("bundledGitBashStrategy — absent", () => {
     if (!r.ok) expect(r.reason).toMatch(/no bundled git/i);
   });
 
-  it("fails when git tree exists but sh.exe missing", () => {
+  it("fails when git tree exists but bash.exe missing", () => {
     const strat = bundledGitBashStrategy({ exists: (p) => p === GIT_MARKER });
     const r = strat.run(ctx({ platform: "win32", resourcesPath: RES }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain(SH);
+    if (!r.ok) expect(r.reason).toContain(BASH);
+  });
+
+  it("sh.exe alone is NOT enough (pi never resolves sh.exe)", () => {
+    const strat = bundledGitBashStrategy({ exists: (p) => p === GIT_MARKER || p === SH });
+    const r = strat.run(ctx({ platform: "win32", resourcesPath: RES }));
+    expect(r.ok).toBe(false);
   });
 
   it("fails when resourcesPath is undefined", () => {
