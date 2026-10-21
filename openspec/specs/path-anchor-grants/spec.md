@@ -133,7 +133,7 @@ The check SHALL read the grant set from memory, never with a synchronous file re
 
 The grant store SHALL hold at most 200 entries **per scope**. When recording a grant would exceed that bound, the oldest entry by grant time **within the same scope** SHALL be evicted first. The bound exists because every containment miss scans the store linearly with a `realpath` per entry, so an unbounded store is an unbounded cold-path cost.
 
-Eviction SHALL NOT cross scopes: an in-memory session grant SHALL NOT cause a persisted project grant to be removed from disk.
+Eviction SHALL NOT cross scopes: an in-memory session grant SHALL NOT cause a persisted project grant to be removed from disk. A grant written from an approved provisioning line SHALL NOT evict: when the bound would be exceeded, that write SHALL be refused instead and no existing grant SHALL be removed. A provisioned grant SHALL NOT be chosen for eviction: another write at the bound SHALL evict the oldest non-provisioned grant, or be refused when every grant is provisioned. Every eviction SHALL be logged.
 
 Eviction SHALL narrow what is admitted, never widen it: an evicted subject SHALL be refused on its next read exactly as an ungranted subject is, and MAY be granted again from the resulting denial.
 
@@ -155,6 +155,25 @@ Eviction SHALL narrow what is admitted, never widen it: an evicted subject SHALL
 - **GIVEN** a grant for `/a/b` was evicted by the bound
 - **WHEN** a path under `/a/b` is read and no other layer admits it
 - **THEN** it SHALL be refused with HTTP 403
+
+#### Scenario: A provisioning write at the bound is refused, not evicting
+
+- **GIVEN** the store holds 200 grants
+- **WHEN** a grant from an approved provisioning line is recorded
+- **THEN** it SHALL be refused
+- **AND** all 200 existing grants SHALL remain
+
+#### Scenario: A provisioned grant is never evicted
+
+- **GIVEN** the store holds 200 grants and the oldest was provisioned
+- **WHEN** a grant from a denial verdict is recorded
+- **THEN** the oldest non-provisioned grant SHALL be evicted and the provisioned grant SHALL remain
+
+#### Scenario: A store full of provisioned grants refuses a denial-path grant
+
+- **GIVEN** the store holds 200 provisioned grants
+- **WHEN** a grant from a denial verdict is recorded
+- **THEN** it SHALL be refused and all 200 grants SHALL remain
 
 ### Requirement: A failed grant write does not record a grant
 
@@ -214,7 +233,7 @@ This requirement applies to the grant layer only. The pre-existing derived-ancho
 
 A grant request SHALL reference a recorded denial by its identifier, and the granted subject SHALL be either the subject that denial named or one of the **offered ancestors** of that subject as defined by the requirement below. An arbitrary directory SHALL NOT be grantable by supplying it directly to the grant endpoint. An expired or unrecognised denial identifier SHALL be refused.
 
-This binding applies to grant requests made through the dashboard's HTTP grant surfaces and dialog verdicts. A grant created from an agent path-gate verdict is instead bound as defined by the requirement "An agent path-gate verdict may create a grant bound to the gated path and its confirmation", because the gated call is observed by the session itself and produces no recorded HTTP denial. The forbidden-subject rules below apply to both.
+This binding applies to grant requests made through the dashboard's HTTP grant surfaces and dialog verdicts. A grant created from an agent path-gate verdict is instead bound as defined by the requirement "An agent path-gate verdict may create a grant bound to the gated path and its confirmation", because the gated call is observed by the session itself and produces no recorded HTTP denial. A grant created from an approved provisioning line is instead bound as defined by the requirement "A path grant may originate from an approved provisioning line", because it is created ahead of any denial. The forbidden-subject rules below apply to all three.
 
 The following SHALL be refused as grant subjects regardless of the denial that named them: the filesystem root, the user's home directory, `~/.ssh`, `~/.pi`, and the platform system directories (`/etc`, `/usr`, `/var`, `/Library` and their platform equivalents). Comparison SHALL be against **real paths**, because a system directory may be reached through a symlink (`/etc` resolves to `/private/etc` on macOS) and a home directory may itself be a symlink. The platform system directories SHALL be those of the running platform only: a system-directory literal of another platform SHALL NOT be resolved into a local path, and on Windows they SHALL be taken from the environment where set, so a system drive other than `C:` is covered. No entry outside this list SHALL be compared against.
 
@@ -291,6 +310,18 @@ This constrains callers that cannot observe the denial body. It SHALL NOT be cla
 - **GIVEN** an agent path-gate grant request that satisfies its own session and confirmation binding
 - **WHEN** no recorded denial names its subject
 - **THEN** the request SHALL NOT be refused for lacking a denial identifier
+
+#### Scenario: A provisioned grant needs no recorded denial identifier
+
+- **GIVEN** a provisioning line approved on a capability-holding connection
+- **WHEN** no recorded denial names its subject
+- **THEN** the grant SHALL NOT be refused for lacking a denial identifier
+
+#### Scenario: A provisioned forbidden subject is still refused
+
+- **GIVEN** a provisioning line whose real path is a platform system directory
+- **WHEN** it is approved
+- **THEN** no grant SHALL be recorded
 
 ### Requirement: Multiply-linked content is a stated limitation, not a silent one
 
@@ -722,3 +753,22 @@ This binding guards against cross-session, misrouted, replayed and path-substitu
 - **GIVEN** an agent path-gate grant `/w/other/docs`
 - **WHEN** it is revoked
 - **THEN** it SHALL stop admitting `/w/other/docs` for both dashboard file routes and the agent path gate
+
+### Requirement: A path grant may originate from an approved provisioning line
+
+A persisted path grant SHALL be creatable from a provisioning line the operator approved on a capability-holding connection. Its subject SHALL be the line's real path re-resolved at approval time. It SHALL be persisted (`scope: "project"`, machine-wide by folder), record the project root as origin, and be shown as provisioned; in effect and revocation it SHALL equal any other grant.
+
+#### Scenario: A provisioned grant admits its subtree
+
+- **WHEN** a provisioning line for `/w/lib` is approved
+- **THEN** the grant SHALL admit `/w/lib` and everything below it, and nothing outside it
+
+#### Scenario: A provisioned grant is revocable
+
+- **WHEN** a provisioned grant is revoked on the Access page
+- **THEN** it SHALL stop admitting its subtree on the next request
+
+#### Scenario: An unapproved line creates no grant
+
+- **WHEN** a provisioning line is rejected, its request expires, or its dialog is dismissed
+- **THEN** no grant SHALL be created for it

@@ -67,3 +67,9 @@ Pull-only condensed map. Source: packages/extension/.pi/skills/pi-dashboard/refe
 
 ## Pinned Directories
 - `GET /api/pinned-dirs` — `{ success, data: ["/path"] }`.
+
+## Access Provisioning
+- Proposal only: writes no grant/config. In-memory, expires 10 min. Prefer the `project-access` skill.
+- `POST /api/access/provision` — `{ projectRoot, lines:[{path, why?}] (≤32), remote?:["lan"|"internet"|"device"] }` → `data:{ requestId, status, projectRoot, lines:[{lineId, path, why, classification}], remote, expiresAt }`. Classification: `invalid|missing|forbidden|sensitive|in-root|covered|grantable`. Refusals `{success:false, error, reason?, requestId?, retryAfterMs?}`: 400 `empty|too-many-lines|invalid-request|invalid-root`; 409 `pending-exists|no-operator|prompting-disabled|report-mode`; 429 `capacity|rate-limited|cooldown`; 503 `disabled`.
+- `GET /api/access/provision` — `data.requests` (pending). `GET /api/access/provision/:id` — status `pending|settled|dismissed|expired` + per-line `outcome` (`granted|rejected|changed|refused|failed`, remote `handed-off`); 404 after restart.
+- `POST /api/access/provision/:id/settle`, `POST /api/access/provision/dismiss-all` — operator-only (`403 no-capability`); skills never call.
