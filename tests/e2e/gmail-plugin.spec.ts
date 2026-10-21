@@ -269,7 +269,8 @@ test.describe("gmail plugin", () => {
     await expect(toggle).not.toBeChecked();
 
     fakeGoogleControl(cid, "config", { nextEmail: "a@fake.test" });
-    await toggle.check();
+    // Off → on needs the extra scope, so the box stays unchecked until the grant lands (check() would assert it flips).
+    await toggle.click();
     await consentViaPaste(section, cid);
     await expect(toggle).toBeChecked({ timeout: 15_000 });
     const scopes = fakeGoogleState(cid).authorizeScopes;
