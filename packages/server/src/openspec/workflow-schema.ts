@@ -4,12 +4,12 @@
  * Generation (scratch root + empty XDG_DATA_HOME, `schema which/fork/validate`,
  * anchor-checked YAML patch, stamp, staged swap), component-wise stamp
  * comparison, the six writing actions (enable / disable / update / adopt / pin /
- * remove) behind one write guard, and the poll-side status. The filesystem
- * parts (`inspectSchema`, `computeWorkflowSchemaStatus`, `fingerprintDir`,
- * `enumerateActiveChanges`) never spawn the CLI so they can run in a worker
- * thread; every CLI call goes through the injectable `CliRunner`.
+ * remove) behind one write guard. The filesystem-only status (stamp, config,
+ * change enumeration, `inspectSchema`, `fingerprintDir`) lives in the
+ * worker-safe `workflow-schema-status.ts` and is re-exported here; every CLI
+ * call goes through the injectable `CliRunner`.
  *
- * See change: add-pi-spec-driven-schema.
+ * See changes: add-pi-spec-driven-schema, move-workflow-schema-status-to-poll-worker.
  */
 import crypto from "node:crypto";
 import fsp from "node:fs/promises";
@@ -31,15 +31,46 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import semver from "semver";
 import YAML from "yaml";
+import {
+  type ConfigFile,
+  CURRENT_PATCH,
+  changesDirOf,
+  compareStamp,
+  computeSchemaStatus,
+  enumerateActiveChanges,
+  errCode,
+  fingerprintDir,
+  inspectSchema,
+  isKebabCaseName,
+  lstatOrNull,
+  parseStamp,
+  readChangeSchema,
+  readConfigFile,
+  type SchemaInspection,
+  type SchemaStatusOptions,
+  type StampComparison,
+  schemaDirOf,
+  schemasDirOf,
+  STAMP_KEY,
+  WORKFLOW_SCHEMA_NAME,
+  type WorkflowSchemaStamp,
+} from "./workflow-schema-status.js";
 
-export const CURRENT_PATCH = 1;
-const WORKFLOW_SCHEMA_NAME = "pi-spec-driven";
+export {
+  CURRENT_PATCH,
+  compareStamp,
+  fingerprintDir,
+  inspectSchema,
+  parseStamp,
+  type SchemaInspection,
+  type StampComparison,
+  type WorkflowSchemaStamp,
+};
+
 const BASE_SCHEMA = "spec-driven";
-const STAMP_KEY = "x-pi-dashboard";
 const DESIGN_ANCHOR = "When to include design.md (create only if any apply):";
 const DESIGN_REPLACEMENT =
   'When a full design.md is warranted (otherwise still create design.md containing one line "Not needed: <reason>"):';
-const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const RETRYABLE_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
 /** Windows rename retry: initial attempt + 5 retries, delays sum to 1.55 s (< 2 s window). */
 const RETRY_DELAYS_MS: readonly number[] = [50, 100, 200, 400, 800];
@@ -174,10 +205,6 @@ const passThroughSemaphore: Semaphore = {
 
 // ── Small helpers ───────────────────────────────────────────────────────────
 
-function errCode(err: unknown): string | undefined {
-  return (err as NodeJS.ErrnoException | null)?.code;
-}
-
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -194,22 +221,7 @@ function parseJsonObject(stdout: string): Record<string, unknown> | null {
   }
 }
 
-async function lstatOrNull(p: string): Promise<import("node:fs").Stats | null> {
-  try {
-    return await fsp.lstat(p);
-  } catch {
-    return null;
-  }
-}
-
-const schemasDirOf = (root: string): string => path.join(root, "openspec", "schemas");
-const schemaDirOf = (root: string): string => path.join(schemasDirOf(root), WORKFLOW_SCHEMA_NAME);
-const changesDirOf = (root: string): string => path.join(root, "openspec", "changes");
 const rel = (root: string, p: string): string => path.relative(root, p).split(path.sep).join("/");
-
-function isKebabCaseName(name: unknown): name is string {
-  return typeof name === "string" && KEBAB.test(name);
-}
 
 /** Retry a rename on Windows `EPERM`/`EBUSY`/`EACCES`: 5 retries, 1.55 s of backoff in total. */
 async function renameWithRetry(deps: WorkflowSchemaDeps, from: string, to: string): Promise<void> {
@@ -225,112 +237,7 @@ async function renameWithRetry(deps: WorkflowSchemaDeps, from: string, to: strin
   }
 }
 
-// ── Fingerprint, stamp, comparison ──────────────────────────────────────────
-
-/** sha256 over every file's relative path + content hash (symlinks by target). `null` when `dir` is absent. */
-export async function fingerprintDir(dir: string): Promise<string | null> {
-  if (!(await lstatOrNull(dir))) return null;
-  const lines: string[] = [];
-  const walk = async (d: string): Promise<void> => {
-    const entries = (await fsp.readdir(d, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1));
-    for (const e of entries) {
-      const full = path.join(d, e.name);
-      const r = path.relative(dir, full).split(path.sep).join("/");
-      if (e.isDirectory()) {
-        lines.push(`${r}/`);
-        await walk(full);
-      } else if (e.isSymbolicLink()) {
-        lines.push(`${r}\0L:${await fsp.readlink(full)}`);
-      } else {
-        lines.push(`${r}\0${crypto.createHash("sha256").update(await fsp.readFile(full)).digest("hex")}`);
-      }
-    }
-  };
-  await walk(dir);
-  return crypto.createHash("sha256").update(lines.join("\n")).digest("hex");
-}
-
-export interface WorkflowSchemaStamp {
-  /** Version of the CLI that generated the schema (`spec-driven@<base>`). */
-  base: string;
-  patch: number;
-  /** Syntactically valid previous default, else `null` (treated as absent). */
-  previousDefault: string | null;
-}
-
-export function parseStamp(yamlText: string): WorkflowSchemaStamp | null {
-  let parsed: unknown;
-  try {
-    parsed = YAML.parse(yamlText);
-  } catch {
-    return null;
-  }
-  const raw = (parsed as Record<string, unknown> | null)?.[STAMP_KEY];
-  if (!raw || typeof raw !== "object") return null;
-  const s = raw as Record<string, unknown>;
-  const m = typeof s.derivedFrom === "string" ? /^spec-driven@(.+)$/.exec(s.derivedFrom) : null;
-  if (!m || !semver.valid(m[1])) return null;
-  if (typeof s.patch !== "number" || !Number.isInteger(s.patch) || s.patch < 0) return null;
-  const prev = isKebabCaseName(s.previousDefault) && s.previousDefault !== WORKFLOW_SCHEMA_NAME ? s.previousDefault : null;
-  return { base: m[1], patch: s.patch, previousDefault: prev };
-}
-
-export type StampComparison = "current" | "outdated" | "newer" | "conflict";
-
-/** Component-wise: base by semver, patch numerically. Never lexicographic. */
-export function compareStamp(
-  stamp: { base: string; patch: number },
-  local: { base: string; patch: number },
-): StampComparison {
-  const base = semver.compare(stamp.base, local.base);
-  const patch = Math.sign(stamp.patch - local.patch);
-  const newer = base > 0 || patch > 0;
-  const older = base < 0 || patch < 0;
-  if (newer && older) return "conflict";
-  if (newer) return "newer";
-  if (older) return "outdated";
-  return "current";
-}
-
-export interface SchemaInspection {
-  generated: WorkflowSchemaGenerated;
-  stamp: WorkflowSchemaStamp | null;
-  /** Whole-directory fingerprint; `null` when the dir is absent or a symlink. */
-  fingerprint: string | null;
-  symlink: boolean;
-}
-
-export interface InspectOptions {
-  /** Version of the resolved CLI. */
-  localVersion: string;
-  /** CLI part for `newer`/`conflict`: does `schema validate` pass locally? Default: assumed valid. */
-  validateLocal?: (fingerprint: string) => Promise<boolean>;
-}
-
-/** Filesystem-only status of `<root>/openspec/schemas/pi-spec-driven` (no CLI spawn except via `validateLocal`). */
-export async function inspectSchema(root: string, opts: InspectOptions): Promise<SchemaInspection> {
-  const dir = schemaDirOf(root);
-  const st = await lstatOrNull(dir);
-  if (!st) return { generated: "none", stamp: null, fingerprint: null, symlink: false };
-  if (st.isSymbolicLink()) return { generated: "unmanaged", stamp: null, fingerprint: null, symlink: true };
-  let stamp: WorkflowSchemaStamp | null = null;
-  if (st.isDirectory()) {
-    try {
-      stamp = parseStamp(await fsp.readFile(path.join(dir, "schema.yaml"), "utf8"));
-    } catch {
-      stamp = null;
-    }
-  }
-  const fingerprint = st.isDirectory() ? await fingerprintDir(dir).catch(() => null) : null;
-  if (!stamp || !fingerprint) return { generated: "unmanaged", stamp: null, fingerprint, symlink: false };
-  const localBase = semver.valid(opts.localVersion);
-  if (!localBase) return { generated: "incompatible", stamp, fingerprint, symlink: false };
-  let generated: WorkflowSchemaGenerated = compareStamp(stamp, { base: localBase, patch: CURRENT_PATCH });
-  if ((generated === "newer" || generated === "conflict") && opts.validateLocal) {
-    if (!(await opts.validateLocal(fingerprint))) generated = "incompatible";
-  }
-  return { generated, stamp, fingerprint, symlink: false };
-}
+// ── Status with the `newer`/`conflict` validate ─────────────────────────────
 
 async function runValidate(deps: WorkflowSchemaDeps, cwd: string, name: string, xdg?: string): Promise<boolean> {
   const r = await deps.cli({ op: "validate", name }, { cwd, ...(xdg ? { xdgDataHome: xdg } : {}) });
@@ -372,147 +279,45 @@ export function makeValidateLocal(
   };
 }
 
-function inspectWithValidate(root: string, localVersion: string, deps: WorkflowSchemaDeps): Promise<SchemaInspection> {
-  return inspectSchema(root, { localVersion, validateLocal: makeValidateLocal(root, localVersion, deps) });
-}
-
-// ── Config + change enumeration (filesystem only) ───────────────────────────
-
-interface ConfigFile {
-  path: string;
-  doc: YAML.Document;
-  /** `schema:` value; `null` when the key is absent. */
-  configured: string | null;
-}
-
-/** `config.yaml` wins over `config.yml`, as the CLI reads. `null` when neither exists; throws on unparseable YAML / non-string `schema`. */
-async function readConfigFile(root: string): Promise<ConfigFile | null> {
-  for (const name of ["config.yaml", "config.yml"]) {
-    const p = path.join(root, "openspec", name);
-    let text: string;
-    try {
-      text = await fsp.readFile(p, "utf8");
-    } catch (err) {
-      if (errCode(err) === "ENOENT") continue;
-      throw err;
-    }
-    const doc = YAML.parseDocument(text);
-    if (doc.errors.length > 0) throw new Error(`${name} is not valid YAML: ${doc.errors[0].message}`);
-    const v: unknown = doc.get("schema");
-    if (v != null && typeof v !== "string") throw new Error(`${name} has a non-string \`schema:\``);
-    return { path: p, doc, configured: typeof v === "string" ? v : null };
+async function inspectWithValidate(
+  root: string,
+  localVersion: string,
+  deps: WorkflowSchemaDeps,
+): Promise<SchemaInspection> {
+  const info = await inspectSchema(root, { localVersion, fingerprint: "full" });
+  if ((info.generated === "newer" || info.generated === "conflict") && info.fingerprint) {
+    if (!(await makeValidateLocal(root, localVersion, deps)(info.fingerprint))) return { ...info, generated: "incompatible" };
   }
-  return null;
+  return info;
 }
 
-/** Active changes as OpenSpec enumerates them: real directories only, no `archive/`, no dot-dirs, no symlinks. Sorted. */
-async function enumerateActiveChanges(root: string): Promise<string[]> {
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await fsp.readdir(changesDirOf(root), { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  return entries
-    .filter((e) => e.isDirectory() && !e.isSymbolicLink() && e.name !== "archive" && !e.name.startsWith("."))
-    .map((e) => e.name)
-    .sort();
-}
-
-/** `schema:` of `<dir>/.openspec.yaml`: `undefined` = no file, `null` = file without a usable `schema:`. */
-async function readChangeSchema(dir: string): Promise<string | null | undefined> {
-  let text: string;
-  try {
-    text = await fsp.readFile(path.join(dir, ".openspec.yaml"), "utf8");
-  } catch {
-    return undefined;
-  }
-  try {
-    const v = (YAML.parse(text) as Record<string, unknown> | null)?.schema;
-    return typeof v === "string" ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-export interface ComputeStatusOptions extends InspectOptions {
-  /** `<openspec package>/schemas`; `null` = unknown (the schema is then never reported missing). A function is resolved lazily, only when the config names a schema. */
-  packageSchemasDir: string | null | (() => Promise<string | null>);
+export interface ComputeStatusOptions extends Omit<SchemaStatusOptions, "userSchemasDirPath"> {
   /** Default: `userSchemasDir()`. */
   userSchemasDirPath?: string;
+  /** CLI part for `newer`/`conflict`: does `schema validate` pass locally? Default: assumed valid. */
+  validateLocal?: (fingerprint: string) => Promise<boolean>;
 }
 
 /**
- * Project-authored schema names under `<cwd>/openspec/schemas/`: real
- * directories only (no symlinks), excluding dot-prefixed staging dirs,
- * `*.fork-*` backups and the managed `pi-spec-driven`; sorted.
- */
-async function listProjectSchemas(cwd: string): Promise<string[]> {
-  const dir = schemasDirOf(cwd);
-  let names: string[];
-  try {
-    names = await fsp.readdir(dir);
-  } catch {
-    return [];
-  }
-  const kept = await Promise.all(
-    names.map(async (name) => {
-      if (name.startsWith(".") || name.includes(".fork-") || name === WORKFLOW_SCHEMA_NAME) return null;
-      const st = await lstatOrNull(path.join(dir, name));
-      return st?.isDirectory() ? name : null;
-    }),
-  );
-  return kept.filter((n): n is string => n !== null).sort();
-}
-
-/**
- * `OpenSpecData.workflowSchema` from files + the stamp (poll-worker safe: no
- * CLI spawn except through `opts.validateLocal`). See "Workflow schema status
- * is reported separately from readiness". Runs on the poll hot path, so the
- * independent filesystem reads are issued concurrently (one `.openspec.yaml`
- * read per change, all in flight at once).
+ * `OpenSpecData.workflowSchema` with the `newer`/`conflict` verdict applied
+ * through `validateLocal`. The poll no longer uses this (the worker computes
+ * the fs part, the main thread validates); kept as the single-call form for
+ * callers and tests that want the finished status.
  */
 export async function computeWorkflowSchemaStatus(
   cwd: string,
   opts: ComputeStatusOptions,
 ): Promise<OpenSpecWorkflowSchemaStatus> {
-  const configuredP = readConfigFile(cwd).then(
-    (c) => c?.configured ?? null,
-    () => null,
-  );
-  const inspectP = inspectSchema(cwd, opts);
-  const missingP = configuredP.then(async (configured) => {
-    if (configured === null) return false;
-    const pkgDir = typeof opts.packageSchemasDir === "function" ? await opts.packageSchemasDir() : opts.packageSchemasDir;
-    if (pkgDir === null) return false;
-    const dirs = [schemasDirOf(cwd), opts.userSchemasDirPath ?? userSchemasDir(), pkgDir];
-    const found = await Promise.all(dirs.map(async (d) => !!(await lstatOrNull(path.join(d, configured, "schema.yaml")))));
-    return !found.some(Boolean);
+  const { validateLocal, userSchemasDirPath, ...rest } = opts;
+  const { status, validateFingerprint } = await computeSchemaStatus(cwd, {
+    fingerprint: "when-needed",
+    ...rest,
+    userSchemasDirPath: userSchemasDirPath ?? userSchemasDir(),
   });
-  const pinsP = enumerateActiveChanges(cwd).then((names) =>
-    Promise.all(names.map(async (name) => ({ name, pinned: await readChangeSchema(path.join(changesDirOf(cwd), name)) }))),
-  );
-  const [configured, { generated }, missing, pins, projectSchemas] = await Promise.all([
-    configuredP,
-    inspectP,
-    missingP,
-    pinsP,
-    listProjectSchemas(cwd),
-  ]);
-
-  const unpinnedChanges: string[] = [];
-  const affectedChanges: string[] = [];
-  for (const { name, pinned } of pins) {
-    if (pinned === undefined) {
-      if (configured === WORKFLOW_SCHEMA_NAME) {
-        unpinnedChanges.push(name);
-        affectedChanges.push(name);
-      }
-    } else if (pinned === WORKFLOW_SCHEMA_NAME) {
-      affectedChanges.push(name);
-    }
+  if (validateFingerprint && validateLocal && !(await validateLocal(validateFingerprint))) {
+    return { ...status, generated: "incompatible" };
   }
-  return { configured, generated, missing, unpinnedChanges, affectedChanges, projectSchemas };
+  return status;
 }
 
 // ── Patch v1 + stamp ────────────────────────────────────────────────────────
