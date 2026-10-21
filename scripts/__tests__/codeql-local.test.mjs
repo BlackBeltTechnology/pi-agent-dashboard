@@ -217,6 +217,9 @@ describe("shared-config translation", () => {
   it("indexFilters drops a trailing /** and joins with newlines", () => {
     expect(indexFilters(["**/__tests__/**", "tests/**", "**/*.test.ts"])).toBe("exclude:**/__tests__\nexclude:tests\nexclude:**/*.test.ts");
   });
+  it("#E11 spike/** becomes exactly the root-only extractor filter", () => {
+    expect(indexFilters(["spike/**"])).toBe("exclude:spike");
+  });
   it("globToRegExp / matchingIgnoreGlob cover the config's glob shapes", () => {
     expect(globToRegExp("**/*.test.ts").test("a/b.test.ts")).toBe(true);
     expect(globToRegExp("**/*.test.ts").test("b.test.ts")).toBe(true);

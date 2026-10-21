@@ -57,6 +57,14 @@ describe.skipIf(!packsCached)("real CodeQL CLI", () => {
     expect(files).toEqual(new Set(["lib/a.js", "scripts/x.mjs"]));
   }, 600_000);
 
+  it("#E12 spike/** excludes the root spike directory only; a nested spike/ stays analyzed", () => {
+    const config = `${readFileSync(REAL_CONFIG, "utf8")}  - "spike/**"\n`;
+    const repo = makeRepo({ files: { "spike/a.mjs": FLAGGED, "packages/x/spike/b.mjs": FLAGGED }, config });
+    writeBaselineFile(repo, realBaseline());
+    const out = JSON.parse(realRun(repo, ["--json"]).stdout);
+    expect(new Set(out.newResults.map((x) => x.file))).toEqual(new Set(["packages/x/spike/b.mjs"]));
+  }, 600_000);
+
   it("#E18 code inserted above a baselined result keeps its key", () => {
     const repo = realRepo({ "lib/a.js": `${FLAGGED}${FILLER}` });
     unlinkSync(join(repo.dir, "codeql-baseline.json")); // --write-baseline seeds its own
