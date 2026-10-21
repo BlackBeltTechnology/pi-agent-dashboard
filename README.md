@@ -625,6 +625,23 @@ The skill has two modes:
 
 For the slot taxonomy, the manifest schema, and the plugin context API, see the skill's reference docs (or the runtime: [`@blackbelt-technology/dashboard-plugin-runtime`](https://www.npmjs.com/package/@blackbelt-technology/dashboard-plugin-runtime)). The reference fixture is [`packages/demo-plugin/`](packages/demo-plugin/).
 
+
+### Installing and trusting third-party dashboard plugins
+
+A dashboard plugin published as a pi package (keyword `pi-dashboard-plugin`) installs like any pi package:
+
+```bash
+pi install npm:<package> --scope global
+```
+
+- **Through the dashboard** (Packages tab, or `POST /api/packages/install` with `scope: "global"`): the plugin appears live in the Plugins tab, no restart.
+- **From a terminal `pi install`**: the dashboard is not told, so the plugin appears after a dashboard restart.
+- **Local scope** (`pi install -l`, project `.pi/settings.json`): detected for active sessions' folders and listed as `local-detected`, never loaded. Install it globally to enable it.
+- **Server code** of a plugin that arrives as a pi package (`pi-package` source) is default-deny: it stays `server-untrusted` until a local operator grants server trust in the Plugins tab (`POST /api/plugins/:id/trust {"server": true}`, localhost only). Plugins from other sources run under the existing pi extension trust.
+- **Client UI** of a prebuilt plugin (manifest `clientBundle`) is loaded at runtime only after a local operator trusts that exact build: the grant pins the bundle's content hash (`auth.trustedPlugins`). A rebuilt bundle needs a fresh grant ("Trust this version").
+
+Details: [`docs/runtime-plugin-clients.md`](docs/runtime-plugin-clients.md) and [`docs/publishing-plugins.md`](docs/publishing-plugins.md).
+
 ---
 
 ## Troubleshooting

@@ -3958,6 +3958,20 @@ describe("plugin-owned events in the default branch", () => {
     expect(payloads[payloads.length - 1].i).toBe(60);
   });
 
+  it("#P1 10,000 owned events collapse into one bounded group row (memory)", () => {
+    const base = applyEvents([ev("flow_step", 0, { i: 0 })]);
+    const before = base.messages.length;
+    let state = base;
+    for (let i = 1; i < 10_000; i++) state = reduceEvent(state, ev("flow_step", i + 1, { i }));
+    const g = groups(state);
+    expect(g).toHaveLength(1);
+    expect(g[0].ownedGroup?.count).toBe(10_000);
+    expect(g[0].ownedGroup?.payloads).toHaveLength(50);
+    expect(state.messages).toHaveLength(before); // the message array grew by exactly the one group row
+    const empty = applyEvents([]);
+    expect(state.messages.length - empty.messages.length).toBe(1);
+  });
+
   it("does not mutate the previous state's group row", () => {
     const s1 = applyEvents([ev("flow_step", 1, { i: 1 })]);
     const row = groups(s1)[0];

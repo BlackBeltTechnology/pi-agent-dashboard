@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createContentHasher } from "../client-content-hash.js";
@@ -218,6 +219,21 @@ describe("E70 bundled rule", () => {
     expect(reg.resolveClient(row("flows"))).toEqual({ delivery: "bundled" });
     expect(reg.resolveClient(row("goal"))).toEqual({ delivery: "bundled" });
     expect(reg.resolveClient(row("ext"))?.delivery).toBe("refused");
+  });
+
+  it("#E63 the real bundled `demo` (source workspace) reports `client.delivery:\"bundled\"` when the build declares it", () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
+    const discover = () => discoverPlugins(repoRoot);
+    const demo = discover().find((p) => p.manifest.id === "demo");
+    expect(demo?.source).toBe("workspace");
+    const reg = createRuntimeClientRegistry({
+      discover,
+      declaredIds: () => ["demo"],
+      isEnabled: () => true,
+      readTrust: () => [],
+      getStoredStatus: (id) => ({ id, displayName: id, enabled: true, loaded: true, claims: 1 }) as PluginStatus,
+    });
+    expect(reg.resolveClient(row("demo"))).toEqual({ delivery: "bundled" });
   });
 
   it("an undeclared build: a bundled-shaped plugin is runtime-eligible, never `bundled`", () => {

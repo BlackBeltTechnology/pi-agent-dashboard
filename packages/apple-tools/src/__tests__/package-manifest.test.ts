@@ -69,7 +69,7 @@ describe("package manifest", () => {
   });
 });
 
-// test-plan #E67 / PS › First-party plugins findable (task 5.13). The README half is task 5.16.
+// test-plan #E67 / PS › First-party plugins findable (task 5.13) + README states the trust model (task 5.16).
 describe("first-party plugin packages are findable by the dashboard-plugin keyword", () => {
   const packagesDir = join(here, "..", "..", "..");
   const manifestPackages = readdirSync(packagesDir).flatMap((name) => {
@@ -90,5 +90,15 @@ describe("first-party plugin packages are findable by the dashboard-plugin keywo
   it("every non-fixture manifest package carries keywords ∋ pi-dashboard-plugin", () => {
     const missing = manifestPackages.filter((p) => !p.fixture && !p.keywords.includes("pi-dashboard-plugin")).map((p) => p.name);
     expect(missing).toEqual([]);
+  });
+
+  it("README states the install paths and the trust model", () => {
+    const readme = readFileSync(join(packagesDir, "..", "README.md"), "utf8");
+    expect(readme).toContain("pi install npm:<package> --scope global");
+    expect(readme).toMatch(/Packages tab[^\n]*appears live|appears live[^\n]*Plugins tab/);
+    expect(readme).toMatch(/terminal `pi install`[^\n]*after a dashboard restart/);
+    expect(readme).toMatch(/`local-detected`, never loaded/);
+    expect(readme).toMatch(/server-untrusted[\s\S]*local operator grants server trust/);
+    expect(readme).toMatch(/pins the bundle's content hash/);
   });
 });

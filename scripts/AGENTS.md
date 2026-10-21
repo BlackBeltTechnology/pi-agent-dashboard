@@ -40,6 +40,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/helpers/fixture-dashboard-server.mjs` | Standalone fixture `/api/health` server (modes dashboard/wrong-pid/no-pid/recovery/foreign-html/hung); delayed bind, optional lock-meta write. |
 | `__tests__/merge-latest-mac.test.mjs` | Covers test-plan U6 for `merge-latest-mac.py`: the `minimumSystemVersion` update gate survives the arm64 +… → see `__tests__/merge-latest-mac.test.mjs.AGENTS.md` |
 | `__tests__/qa-pack-fixture-plugin.test.mjs` | Tests `qa/scripts/pack-fixture-plugin.mjs`. |
+| `__tests__/qa-dist-only-scripts.test.mjs` | Guards QA 47–51, #E103. → `__tests__/qa-dist-only-scripts.test.mjs.AGENTS.md` |
 | `__tests__/seed-settings-compaction.test.mjs` | Unit tests for the e2e-only `compaction.keepRecentTokens` seed (change: replay-compac… → see `__tests__/seed-settings-compaction.test.mjs.AGENTS.md` |
 | `__tests__/nightly-report.test.mjs` | Nightly report (X9–X11). → see `__tests__/nightly-report.test.mjs.AGENTS.md` |
 | `__tests__/shared-heavy-files.test.mjs` | Heavy shared groups. |

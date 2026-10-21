@@ -132,6 +132,19 @@ describe("GET /api/health.clientBuild (E12–E14, E13)", () => {
     expect(Array.isArray(body.plugins)).toBe(true);
   });
 
+  // #E72 endpoint parity. The scenario names `GET /api/plugins/manifest`; that endpoint was never
+  // implemented (spec-only), so parity is asserted against the surface the client actually reads:
+  // the unguarded `/api/health.bundleHash` (embedded-hash parity: registry-hash-parity.test.ts).
+  it("E72 /api/health.bundleHash is served unauthenticated and equals the build-set hash", async () => {
+    const decl = declaration();
+    const app = await makeApp({ clientDir: makeBuild(decl) });
+    const res = await app.inject({ method: "GET", url: "/api/health", headers: {} });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { bundleHash: string };
+    expect(body.bundleHash).toBe(runtimePluginRegistryHash(true));
+    expect(body.bundleHash).toBe(decl.pluginRegistryHash);
+  });
+
   it("E14 honours the artifact's declared fixture policy, not the server's mode", async () => {
     // Dev-mode server (config.dev true) + artifact declaring `excluded`:
     // the comparison must use the production selection, so `demo-plugin` being
