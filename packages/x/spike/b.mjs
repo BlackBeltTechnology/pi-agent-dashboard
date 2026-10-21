@@ -1,7 +1,8 @@
 // THROWAWAY spike fixture: a nested spike/ directory must STAY analyzed once the repo-root spike/** is ignored.
-import http from "http";
+import { exec } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
 http.createServer((req, res) => {
-  const password = req.body.password;
-  console.log("pw " + password);
-  res.end();
+  res.end(fs.readFileSync(req.url));
+  exec(`ls ${req.url}`);
 });
