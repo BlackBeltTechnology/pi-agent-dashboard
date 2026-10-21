@@ -195,7 +195,7 @@ Pinned by `packages/shared/src/__tests__/workflow-token-cache-contract.test.ts` 
 
 **Release-privileged job** = effective permissions grant any `write` / `write-all` / `id-token: write`, OR it can see a non-`GITHUB_TOKEN` secret (`secrets.X`, `secrets:` on a `uses:` job, `environment:`), OR it is in `SHIPS_IN_RELEASE` (top of that test file; update it when a new job's output is attached to a release). Such a job must not restore a cache. A `missing-workflow-permissions` alert means a job runs on the repo-default (write) token: add a top-level `permissions: contents: read`.
 
-**Expected residual `poisonable-step` alerts** (CodeQL cannot evaluate the input / sees read-only unreleased jobs). Dismiss only these, and only AFTER the post-merge CodeQL scan shows exactly this set still open (`_smoke.yml` ×4, `publish.yml` `ci-checks` ×4, `_electron-build.yml` ×10) — on any mismatch, stop and re-read design.md D4/D5:
+**Expected residual `poisonable-step` alerts** (CodeQL cannot evaluate the input / sees read-only unreleased jobs). Dismiss only these, and only AFTER the post-merge CodeQL scan shows exactly this set still open (`_smoke.yml` ×12, `publish.yml` `ci-checks` ×4, `_electron-build.yml` ×11 — all 27 dismissed 2026-10-20 and baselined as `github-dismissed (#n, won't fix)` in `codeql-baseline.json`; `_smoke` grew by 8 from the cache-free `eol-node` / `upgrade-continuity` jobs that check out `inputs.ref`, same D5 class) — on any mismatch, stop and re-read design.md D4/D5:
 
 ```bash
 gh api repos/{owner}/{repo}/code-scanning/alerts?state=open --paginate -q '.[]|select(.rule.id|test("cache-poisoning"))|[.number,.most_recent_instance.location.path]|@tsv'

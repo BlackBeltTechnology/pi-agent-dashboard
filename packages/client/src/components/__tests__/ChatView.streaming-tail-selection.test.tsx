@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
@@ -135,7 +135,9 @@ describe("ChatView streaming-tail selection preservation", () => {
     // Collapse → flush to the latest streamed text.
     await act(async () => collapseSelection());
     await flushMicrotasks();
-    expect(getTail(container)?.textContent).toContain("MORE text appended");
+    // With chat motion on, the flush is a paced reveal: the appended text is
+    // fully visible within the 500 ms lag bound rather than in the same render.
+    await waitFor(() => expect(getTail(container)?.textContent).toContain("MORE text appended"), { timeout: 1000 });
   });
 
   it("2.2 preserves a tail selection across turn completion, then reveals the committed twin on collapse", async () => {

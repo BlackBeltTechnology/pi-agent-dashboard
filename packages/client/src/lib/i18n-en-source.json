@@ -308,6 +308,8 @@
   "openspec.jumpToSpec": "Jump to spec...",
   "session.keepReasoningOpenUntilTurnEnds": "Keep reasoning open until turn ends",
   "common.keepToolGroupsCollapsed": "Keep tool groups collapsed",
+  "common.chatMotion": "Fluid chat motion",
+  "settings.chatMotion": "Fluid chat motion",
   "common.key": "Key",
   "common.keyLabel": "Key label",
   "common.label": "Label",

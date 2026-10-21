@@ -99,3 +99,5 @@ ACME source (add-acme-dns01-certs): `configureAcmeRuntime({credentials: createAc
 - Builds `browseRootSources` (pinned, session cwds, workspace folders, worktree-init roots, project grants) shared by file routes + gateway; `stampSocketLocality` at browser WS upgrade; passes `terminals.*` to `createTerminalManager`. See change: harden-server-capability-bounds.
 
 - `browse.confineRemote` read once at start: `browseRoots()` resolves `null` when off (gate + routes unconfined). See change: harden-server-capability-bounds.
+
+Passes `directoryService.semaphore` as the REST workflow-schema route's `spawnSemaphore` (one spawn cap for poll + route; no private `createSemaphore`). See change: move-workflow-schema-status-to-poll-worker.

@@ -51,6 +51,11 @@ interface Props {
    * See change: render-inline-reasoning-and-custom-entries (D6).
    */
   inlineFlow?: boolean;
+  /**
+   * Reports the open/closed state of the LIVE streaming block, so the parent
+   * can pace reasoning only while it is visible. See change: add-fluid-chat-motion.
+   */
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 export function ThinkingBlock({
@@ -65,6 +70,7 @@ export function ThinkingBlock({
   turnActive,
   onUserCollapse,
   inlineFlow,
+  onExpandedChange,
 }: Props) {
   // Live blocks mount expanded (0 disables the TIMER, not the open state);
   // replayed blocks mount collapsed. The streaming block uses defaultExpanded.
@@ -137,6 +143,10 @@ export function ThinkingBlock({
       setExpanded(false);
     }
   }, [keepOpenUntilTurnEnds, turnActive, streamedLive, isStreaming]);
+
+  useEffect(() => {
+    if (isStreaming) onExpandedChange?.(expanded);
+  }, [expanded, isStreaming, onExpandedChange]);
 
   const onToggle = () => {
     touchedRef.current = true;
