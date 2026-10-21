@@ -142,7 +142,7 @@ When a force kill has been initiated, the button SHALL show a "Killing..." label
 
 ### Requirement: Composer liveness is reconciled with the server session status
 
-The composer SHALL derive its liveness from a single reconciled value. When the server holds a status for the session, that status is authoritative: `ended` yields `ended`, `streaming` yields `streaming`, and `idle` or `active` yield `idle`, regardless of the event-derived chat status. When the server holds no status for the session (it is not in the live session map), the event-derived chat status is used unchanged. Every composer surface that presents run liveness — the Stop / Force-Stop control, the stop-after-turn affordance, the session-actions strip above the input, the activity line above the composer, the mobile session info strip's working label, and the liveness value handed to composer plugin panels — SHALL read that one reconciled value, so they can never disagree with each other or with the session card.
+The composer SHALL derive its liveness from a single reconciled value. When the server holds a status for the session, that status is authoritative: `ended` yields `ended`, `streaming` yields `streaming`, and `idle` or `active` yield `idle`, regardless of the event-derived chat status. When the server holds no status for the session (it is not in the live session map), the event-derived chat status is used unchanged. Every composer surface that presents run liveness — the Stop / Force-Stop control, the stop-after-turn affordance, the session-actions strip above the input, the activity line above the composer, the composer status line's working label (`StatusBar`, shown on desktop and mobile), and the liveness value handed to composer plugin panels — SHALL read that one reconciled value, so they can never disagree with each other or with the session card.
 
 Composer controls that gate on "the agent is working" — the Stop / Force-Stop control, the stop-after-turn affordance, and the session-actions strip's working state — SHALL share one working condition: the reconciled value is `streaming`, OR an LLM-provider retry is recorded AND the reconciled value is not `ended`. A recorded retry SHALL NOT make any of them read as working on a session whose reconciled value is `ended`. The session card's working state SHALL apply the same condition to its server-held status, so card and strip agree.
 
@@ -192,4 +192,4 @@ The reconciliation SHALL be a derivation only. The chat transcript SHALL remain 
 #### Scenario: Mobile info strip agrees with the composer
 - **GIVEN** a mobile viewport and a session whose chat status reads "idle" after a reload
 - **WHEN** the server-held status for the session is "streaming"
-- **THEN** the session info strip presents the session as working
+- **THEN** the composer status line (`StatusBar`, for example "Thinking..." or "Running <tool>...") presents the session as working

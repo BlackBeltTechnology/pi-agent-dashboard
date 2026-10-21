@@ -7,30 +7,30 @@ TBD - created by archiving change add-seek-to-session-card. Update Purpose after
 
 ### Requirement: Seek control reveals the active session's card
 
-The `SessionHeader` SHALL present a "Seek to card" control for an open session.
+The `SessionHeader` SHALL present an icon-only "Reveal in sidebar" button for an open session, next to the session title. The button SHALL use the `mdiDockLeft` icon, carry `aria-label` and `title` "Reveal in sidebar", and keep `data-testid="session-header-seek-card"`. The title menu SHALL also offer a "Reveal in sidebar" item. Both entry points SHALL trigger the same reveal.
 The session header renders above the ChatView body (ChatView itself has no
-header). Activating the control SHALL reveal that session's card in the sidebar
+header). Activating either entry point SHALL reveal that session's card in the sidebar
 `SessionList` by expanding every collapsed fold-ancestor, selecting the card,
 scrolling it to center, and applying a transient flash highlight.
 
 The reveal SHALL be triggerable repeatedly for the same session (each activation
 re-fires, even when the session is already selected).
 
-The Seek control SHALL be presented on desktop only. When the viewport is in the
+The Reveal in sidebar control SHALL be presented on desktop only. When the viewport is in the
 mobile layout (the sidebar is a separate overlay), the control SHALL NOT be
 rendered.
 
 #### Scenario: Seek control is hidden in the mobile layout
 
 - **WHEN** an open session is rendered in the mobile layout
-- **THEN** no Seek control SHALL appear in the session header
+- **THEN** no Reveal in sidebar control SHALL appear in the session header
 
 #### Scenario: Reveal a card buried under a collapsed workspace, folder, and ended group
 
 - **WHEN** the active session is `ended`, lives in a folder whose workspace tier
   is collapsed, whose folder group is collapsed, and whose ended sub-group is
   collapsed
-- **AND** the user activates the Seek control in the session header
+- **AND** the user activates the Reveal in sidebar control in the session header
 - **THEN** the workspace tier SHALL expand
 - **AND** the folder group SHALL expand
 - **AND** the ended sub-group SHALL expand
@@ -40,7 +40,7 @@ rendered.
 
 - **WHEN** the active session's card is already selected but has since been
   re-collapsed under a fold-ancestor
-- **AND** the user activates the Seek control again
+- **AND** the user activates the Reveal in sidebar control again
 - **THEN** the fold-ancestors SHALL expand and the card SHALL scroll into view
   again
 
@@ -66,12 +66,12 @@ seek cannot re-collapse an ancestor:
 #### Scenario: Repeat seek does not re-collapse an already-open ancestor
 
 - **WHEN** the active session's fold-ancestors are already expanded
-- **AND** the user activates the Seek control
+- **AND** the user activates the Reveal in sidebar control
 - **THEN** no ancestor SHALL become collapsed as a result
 
 #### Scenario: Repeat seek before the expand is acknowledged
 
-- **WHEN** the user activates the Seek control twice in quick succession on a
+- **WHEN** the user activates the Reveal in sidebar control twice in quick succession on a
   collapsed folder ancestor, the second time before the first expand has been
   acknowledged
 - **THEN** the folder SHALL end up expanded and SHALL NOT be re-collapsed by the
@@ -152,7 +152,7 @@ toast explaining why the card is not shown. The toast SHALL be informational onl
 #### Scenario: Seeking a hidden session does not flip the show-hidden toggle
 
 - **WHEN** the active session is hidden and the show-hidden toggle is off
-- **AND** the user activates the Seek control
+- **AND** the user activates the Reveal in sidebar control
 - **THEN** the show-hidden toggle SHALL remain off
 - **AND** an informational toast SHALL indicate the session is hidden
 
@@ -160,6 +160,6 @@ toast explaining why the card is not shown. The toast SHALL be informational onl
 
 - **WHEN** the active session is excluded from the list by any active filter
   (tag, phase, text search, or folder-path filter)
-- **AND** the user activates the Seek control
+- **AND** the user activates the Reveal in sidebar control
 - **THEN** the active filter SHALL remain unchanged
 - **AND** an informational toast SHALL indicate a filter is hiding the card
