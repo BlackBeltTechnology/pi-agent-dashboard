@@ -595,7 +595,7 @@ The resolution chain SHALL be, in order:
 2. Built-in renderer in `packages/client/src/components/tool-renderers/registry.ts` Map.
 3. `GenericToolRenderer` as final fallback.
 
-Resolution SHALL be one-shot at lookup time. If the resolved renderer throws during render, the existing per-tool ErrorBoundary catches it; dispatch SHALL NOT attempt to fall through to a lower tier.
+Resolution SHALL be one-shot per lookup. A lookup SHALL run on first render and again whenever the slot-claims version changes (a claim added or the enabled set changed), so a late-registered plugin claim replaces the lower-tier renderer. If the resolved renderer throws during render, the existing per-tool ErrorBoundary catches it; dispatch SHALL NOT attempt to fall through to a lower tier.
 
 When a plugin claim's `shouldRender` function THROWS, dispatch SHALL treat the result as `false` (fail closed), log a console warning naming the offending plugin id and `toolName`, and continue down the chain.
 
@@ -641,12 +641,23 @@ When the slot registry context is unavailable (e.g. test or storybook contexts w
 - **WHEN** `useSlotRegistryOrNull()` returns null because no `SlotRegistryProvider` is mounted (test / storybook context)
 - **THEN** dispatch skips the plugin lookup entirely and uses `getToolRenderer(toolName)`
 
+#### Scenario: Late claim re-resolves the row
+
+- **WHEN** a `quota_check` tool call rendered with `GenericToolRenderer` AND a plugin claim for `toolName: "quota_check"` is added afterwards and the slot-claims version is bumped
+- **THEN** the row SHALL re-run the lookup and render the plugin's component
+
+#### Scenario: Unchanged claims version does not re-resolve
+
+- **WHEN** the row re-renders for a result update and the slot-claims version is unchanged
+- **THEN** dispatch SHALL reuse the previous lookup result
+
 ### Requirement: Tool-renderer slot prop contract expanded with optional payload fields
 
 The `tool-renderer` slot prop contract SHALL include all of the following:
 
 - **Required** (unchanged): `toolName: string`, `toolInput: Record<string, unknown>`, `sessionId: string`.
 - **Optional** (added by this change): `status?: "running" | "complete" | "error"`, `result?: string`, `toolDetails?: Record<string, unknown>`, `images?: ChatImage[]`, `context?: ToolContext`.
+- **Optional on `context`** (added by `decouple-plugins-from-core`): `send?: (message) => void`, the same sender the built-in renderers receive in `ToolContext`, so a plugin renderer (the moved `Agent` renderer) can send steer or resync messages. Absent when the shell has no sender.
 
 Existing plugin claims that consume only the required core SHALL continue to work without changes. Plugin renderers MAY consume the optional fields to mirror the built-in renderer payload.
 
@@ -662,6 +673,12 @@ The slot SHALL NOT rename `toolInput` to `args` (the built-in renderers' field n
 - **WHEN** a plugin renderer reads `result` to populate an output panel AND `status` to drive a loading spinner
 - **THEN** the renderer receives both props from `ToolCallStep`'s mount call
 - **AND** the values match what the built-in renderers receive for the same tool call
+
+#### Scenario: Plugin renderer sends through the context
+
+- **WHEN** the subagents plugin's `Agent` renderer reads `context.send` while mounted by `ToolCallStep` in a connected session
+- **THEN** `context.send` SHALL be defined and SHALL be the function built-in renderers receive for that session
+- **AND** a plugin renderer that never reads `send` SHALL compile and render unchanged
 
 ### Requirement: `composer-panel` slot renders adjacent to the chat composer input
 

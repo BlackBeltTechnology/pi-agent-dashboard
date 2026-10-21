@@ -12,9 +12,9 @@ The motivating design notes live in `openspec/changes/adopt-server-driven-intent
 
 ### Requirement: Plugins SHALL emit UI intents via the bridge instead of running React code in the client
 
-Plugin server entries SHALL describe per-session UI contributions as JSON `IntentNode` trees and broadcast them via `ServerPluginContext.broadcastToSubscribers` with message type `"plugin_intents"`. The plugin's client-side code (if any) SHALL NOT call `useUiPrimitive(...)` and SHALL NOT import shell components directly. The single exception is the transient input primitive exception defined by `plugin-ui-primitive-registry`: a not-yet-migrated client claim MAY look up a stateless modal input primitive (for example `ui:path-picker`) with `useUiPrimitiveOrNull` only. The shell, on each connected client, SHALL render incoming intents by resolving primitive names through its local primitive registry.
+Plugin server entries that contribute per-session UI from the server or bridge SHALL describe it as JSON `IntentNode` trees and broadcast them via `ServerPluginContext.broadcastToSubscribers` with message type `"plugin_intents"`. Intents SHALL remain the only path for bridge- or server-originated UI, and the only path for plugins whose client code is not trusted. Trusted plugin client code — bundled into the build, or runtime-loaded after operator trust (`plugin-runtime-client-loading`) — MAY render React claims and MAY call `useUiPrimitive(...)` and `useUiPrimitiveOrNull(...)` from the public host API (`plugin-host-api`). Plugin client code SHALL NOT import shell components directly. The shell, on each connected client, SHALL render incoming intents by resolving primitive names through its local primitive registry.
 
-Plugins that ALREADY emit intent broadcasts (after migration) SHALL NOT also register React component claims for the same slot — the migration is per-claim, not parallel. Plugins that have NOT yet migrated MAY keep their refs-registry claims; the slot consumer renders the legacy claim until the intent path is wired.
+A plugin MAY both broadcast intents and register React claims for the same slot. Slot consumers render both per `dashboard-plugin-loader` "Slot consumers SHALL accept BOTH refs-registry claims AND intent broadcasts": for `one-active` slots the intent takes precedence when both come from the same plugin; for `many` slots both render. Plugins that have NOT migrated MAY keep only their refs-registry claims.
 
 #### Scenario: Plugin broadcasts an intent, every connected client receives it
 
@@ -39,7 +39,17 @@ Plugins that ALREADY emit intent broadcasts (after migration) SHALL NOT also reg
 
 - **WHEN** a not-yet-migrated plugin client claim calls `useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.pathPicker)`
 - **THEN** this is permitted, and the claim imports no shell component directly
-- **AND** a call to the strict `useUiPrimitive` from that claim remains non-conforming
+- **AND** a call to the strict `useUiPrimitive` from a trusted claim is equally permitted
+
+#### Scenario: Trusted client claim uses primitives directly
+
+- **WHEN** a bundled plugin client claim calls `useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent)`
+- **THEN** this is permitted, and the claim imports no shell component directly
+
+#### Scenario: Untrusted runtime client gets no client path
+
+- **WHEN** a runtime-delivered plugin is not trusted by the operator
+- **THEN** none of its client code SHALL run, and its UI SHALL reach the dashboard only through intents broadcast by its server entry
 
 ### Requirement: Intent trees SHALL declare action handlers as data, not function refs
 
