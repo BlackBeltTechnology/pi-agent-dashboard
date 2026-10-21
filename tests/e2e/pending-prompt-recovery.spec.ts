@@ -1,6 +1,6 @@
 import { ASK_BRIEF_MESSAGE } from "../../qa/fixtures/faux-scenarios.js";
 import { connectBus, expect, type Page, shutdownSession, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, reloadTranscript, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -426,7 +426,7 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
         .goto(`/session/${sessionId}`, { timeout: 60_000 })
         .catch(() => page2.goto(`/session/${sessionId}`, { timeout: 60_000 }));
       await page2.getByPlaceholder(/message/i).first().waitFor({ state: "visible", timeout: 60_000 });
-      await byTestId(page2, "refreshChat").click();
+      await reloadTranscript(page2);
 
       // THE assertion: the dialog converges despite the shed — the
       // pending-prompt frames ride the critical exemption.
@@ -562,7 +562,7 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
         .toBeGreaterThanOrEqual(1);
 
       // THE race: refresh → reset + subscribe(lastSeq 0) + prompt_resync_request.
-      await byTestId(page2, "refreshChat").click();
+      await reloadTranscript(page2);
 
       // Replay completes …
       await expect(
@@ -651,7 +651,7 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
     await input.fill("half-typed-probe");
 
     for (let i = 0; i < 2; i++) {
-      await byTestId(page, "refreshChat").click();
+      await reloadTranscript(page);
       // The carried `ui-` row keeps the SAME React key, so the component
       // instance — and the text in its input — survives the reset.
       await expect(input).toBeVisible({ timeout: 30_000 });
@@ -776,7 +776,7 @@ test.describe("pending-prompt recovery (fix-pending-prompt-lost-on-replay)", () 
     await page.waitForTimeout(1_000);
 
     // Refresh: full replay + resync — neither may resurrect the prompt.
-    await byTestId(page, "refreshChat").click();
+    await reloadTranscript(page);
     await expect(page.getByPlaceholder(/message/i).first()).toBeEnabled({ timeout: 60_000 });
     await page.waitForTimeout(1_500);
     await expect(page.getByRole("button", { name: /^b$/ })).toHaveCount(0);

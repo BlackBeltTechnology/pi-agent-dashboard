@@ -8,6 +8,7 @@
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCrosshairsGps } from "@mdi/js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInitialState } from "../../lib/chat/event-reducer.js";
@@ -77,5 +78,22 @@ describe("SessionHeader Seek-to-card button", () => {
     );
     fireEvent.click(screen.getByTestId("session-header-seek-card"));
     expect(onSeekToCard).toHaveBeenCalledTimes(1);
+  });
+
+  // E11 (test-plan): the Reveal button AND the title-menu item both call the
+  // callback; no crosshair glyph remains. See change: reorganize-session-header.
+  it("E11 Reveal button and menu item both call onSeekToCard; accessible name 'Reveal in sidebar'", async () => {
+    const SessionHeader = await loadHeader(false);
+    const onSeekToCard = vi.fn();
+    render(<SessionHeader session={makeSession()} state={createInitialState()} onSeekToCard={onSeekToCard} />);
+    const button = screen.getByTestId("session-header-seek-card");
+    expect(button.getAttribute("aria-label")).toBe("Reveal in sidebar");
+    expect(button.getAttribute("title")).toBe("Reveal in sidebar");
+    fireEvent.click(button);
+    fireEvent.click(screen.getByTestId("session-title-menu"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Reveal in sidebar/ }));
+    expect(onSeekToCard).toHaveBeenCalledTimes(2);
+    const paths = Array.from(document.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+    expect(paths).not.toContain(mdiCrosshairsGps);
   });
 });

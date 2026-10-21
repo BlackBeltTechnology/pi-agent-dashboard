@@ -49,9 +49,15 @@ interface Props {
    * fields accumulate rather than replacing each other).
    */
   currentOverride: PartialDisplayPrefs | undefined;
+  /**
+   * Icon-only 44 px trigger (mobile session header). The default trigger is a
+   * 32 px chip whose label hides below a 760 px header container.
+   * See change: reorganize-session-header.
+   */
+  iconOnly?: boolean;
 }
 
-export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React.ReactElement {
+export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = false }: Props): React.ReactElement {
   const { global } = useDisplayPrefsContext();
   const prefs = useDisplayPrefs(sessionId);
   const customGroups = useCustomEventGroups();
@@ -157,11 +163,18 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded"
+        className={
+          iconOnly
+            ? "inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded-md"
+            : "inline-flex items-center gap-1.5 min-h-8 px-2.5 text-xs font-semibold text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] hover:bg-[var(--bg-hover)] rounded-md whitespace-nowrap @max-[760px]:px-0 @max-[760px]:min-w-8 @max-[760px]:justify-center"
+        }
         title={i18nT("common.viewOptions", undefined, "View options")}
+        aria-label={iconOnly ? i18nT("common.viewOptions", undefined, "View options") : undefined}
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
-        <Icon path={mdiCog} size={0.6} />
-        <span>{i18nT("common.view", undefined, "View")}</span>
+        <Icon path={mdiCog} size={iconOnly ? 0.83 : 0.67} className="shrink-0" />
+        {!iconOnly && <span className="@max-[760px]:sr-only">{i18nT("common.view", undefined, "View")}</span>}
         {hasChanges && (
           <span
             data-testid="chat-view-modified-pill"

@@ -1,31 +1,28 @@
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiDockLeft, mdiFileCompare, mdiPlayCircleOutline, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
-import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
-import { AttachmentTrace } from "../openspec/AttachmentTrace.js";
-import { ArtifactLettersButton } from "../openspec/openspec-helpers.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
-import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
 import { MobileActionMenu } from "../shell/MobileActionMenu.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { TagChip } from "../tags/TagChip.js";
 import { TagEditor } from "../tags/TagEditor.js";
+import { ContextRing, ContextRingButton, type ContextUsageValue } from "./ContextRing.js";
 import { CountBadges } from "./CountBadges.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
+import { SessionClock } from "./SessionClock.js";
+import { SessionTitleMenu } from "./SessionTitleMenu.js";
 import { VaultBindingsChip } from "./VaultBindingsChip.js";
 
 interface Props {
@@ -37,16 +34,10 @@ interface Props {
   commands?: CommandInfo[];
 
   onSendPrompt?: (text: string, images?: ImageContent[]) => void;
-  openspecChanges?: OpenSpecChange[];
-  onAttachProposal?: (changeName: string) => void;
-  onDetachProposal?: () => void;
   hasFileChanges?: boolean;
   onOpenDiffView?: () => void;
+  /** Reload the transcript (title-menu item "Reload transcript"). */
   onRefresh?: () => void;
-  /** Open the artifact reader for an attached change. Wired into the
-   *  ArtifactLettersButton rendered in both desktop and mobile headers.
-   *  See change: add-attached-proposal-header-summary. */
-  onReadArtifact?: (changeName: string, artifactId: string) => void;
   /** Extension UI System (Phase 1): callback to open the modules picker. */
   onOpenExtensionModulePicker?: () => void;
   /** Resume / Fork the displayed session. Renders a green Resume + blue Fork
@@ -60,10 +51,19 @@ interface Props {
   /** Replace the session's full user-tag list. When set, the desktop header
    *  renders the editable tag strip. See change: add-session-tags. */
   onSetTags?: (tags: string[]) => void;
-  /** Seek to this session's card in the sidebar (expand fold-ancestors +
-   *  scroll + flash). Desktop-only button; hidden on mobile. When omitted
-   *  the button does not render. See change: add-seek-to-session-card. */
+  /** Reveal this session's card in the sidebar (expand fold-ancestors +
+   *  scroll + flash). Desktop-only; when omitted the Reveal button and menu
+   *  item do not render. See changes: add-seek-to-session-card,
+   *  reorganize-session-header. */
   onSeekToCard?: () => void;
+  /** Context-window usage for the header ring. Falls back to `state.contextUsage`. */
+  contextUsage?: ContextUsageValue;
+  /** Effective `contextUsageBar` preference (override ?? global ?? true). Gates the ring. */
+  showContextRing?: boolean;
+  /** Renders the chat View menu. The header mounts it immediately after the
+   *  layout switch; `iconOnly` is the mobile 44 px trigger. The caller owns the
+   *  lazy import + Suspense. See change: reorganize-session-header. */
+  renderViewMenu?: (opts: { iconOnly: boolean }) => React.ReactNode;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     openspecChanges?: OpenSpecChange[];
@@ -78,117 +78,8 @@ interface Props {
   };
 }
 
-/** Separate attach/detach icon button for mobile session header */
-function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
-  session: DashboardSession;
-  openspecChanges?: OpenSpecChange[];
-  onAttach?: (changeName: string) => void;
-  onDetach?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
-    open,
-    estimatedWidth: 256,
-    minPopoverHeight: 0,
-  });
-
-  // Close on outside click/touch — check portaled panel FIRST, then trigger.
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as Node;
-      if (panelRef.current?.contains(target)) return;
-      if (triggerRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, [open]);
-
-  const attached = session.attachedProposal;
-  const changes = openspecChanges ?? [];
-  const hasChanges = changes.length > 0;
-
-  // Nothing to show
-  if (!attached && !hasChanges) return null;
-
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        onClick={() => setOpen(!open)}
-        className={`p-2 min-w-[44px] min-h-[44px] flex items-center justify-center ${
-          attached ? "text-blue-400" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-        }`}
-        aria-label={attached ? `Attached: ${attached}` : "Attach change"}
-        data-testid="mobile-attach-btn"
-      >
-        <Icon path={mdiPaperclip} size={0.7} />
-      </button>
-
-      {open && (
-        <LayerPortal>
-        <div
-          ref={panelRef}
-          style={{
-            width: 256,
-            maxHeight,
-            maxWidth,
-            visibility: triggerRect ? "visible" : "hidden",
-            ...(triggerRect
-              ? flipUp
-                ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
-                : { top: Math.round(triggerRect.bottom + 4) }
-              : {}),
-            ...(triggerRect
-              ? anchorRight
-                ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
-                : { left: Math.round(triggerRect.left) }
-              : {}),
-          }}
-          className="fixed overflow-hidden z-popover bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-lg"
-          data-testid="mobile-attach-menu"
-        >
-          {attached ? (
-            <>
-              <div className="px-4 py-2 text-xs text-blue-400 border-b border-[var(--border-primary)]">
-                <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}
-              </div>
-              {onDetach && (
-                <button
-                  onClick={() => { setOpen(false); onDetach(); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left min-h-[44px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-                >
-                  {i18nT("common.detach", undefined, "Detach")}
-                </button>
-              )}
-            </>
-          ) : (
-            changes.map((change) => (
-              <button
-                key={change.name}
-                onClick={() => { setOpen(false); onAttach?.(change.name); }}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left min-h-[44px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-              >
-                {change.name}
-              </button>
-            ))
-          )}
-        </div>
-        </LayerPortal>
-      )}
-    </div>
-  );
-}
-
-/** Mobile header: back + name + attach icon + kebab */
-function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, onCancelRename, canRename, onStartRename, mobileActions, onReadArtifact }: {
+/** Mobile header: one 48 px row — back, title, ring, layout menu, View, ⋯. */
+function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, onCancelRename, canRename, onStartRename, mobileActions, contextUsage, showContextRing, cost, renderViewMenu }: {
   session: DashboardSession;
   showBack?: boolean;
   onBack?: () => void;
@@ -198,118 +89,56 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
   canRename: boolean;
   onStartRename: () => void;
   mobileActions?: SessionHeaderMobileActions;
-  onReadArtifact?: (changeName: string, artifactId: string) => void;
+  contextUsage?: ContextUsageValue;
+  showContextRing: boolean;
+  cost: number;
+  renderViewMenu?: Props["renderViewMenu"];
 }) {
-  // Look up the attached change in the polled openspecChanges list. When
-  // present, render the artifact-letters pill + task counter inside the
-  // existing mobile-header-attached-chip span.
-  // See change: add-attached-proposal-header-summary.
-  const attachmentResolution = useAttachmentResolution(session, mobileActions?.openspecChanges);
-  const attachedChange = attachmentResolution?.kind === "active" && attachmentResolution.cwd === session.cwd
-    ? attachmentResolution.change
-    : undefined;
-  const readArtifact = onReadArtifact ?? mobileActions?.onReadArtifact;
-  // Row 1: back + name + attach button + kebab. Always present.
-  // The attached-proposal chip used to live here too (between name and the
-  // MobileAttachButton), but it crowded the title down to ~8-10 visible chars
-  // on a 360px-wide phone. The chip now lives on row 2 so the title gets the
-  // full width of row 1. See change: fix-mobile-header-and-orientation.
-  const row1 = (
-    <div className="flex items-center gap-1 min-h-[44px]">
-      {showBack && onBack && (
-        <button
-          onClick={onBack}
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title={i18nT("common.goBack", undefined, "Go back")}
-          data-testid="back-button"
-        >
-          <Icon path={mdiArrowLeft} size={0.7} />
-        </button>
-      )}
-      {isRenaming ? (
-        <InlineRenameInput
-          currentName={getSessionDisplayName(session)}
-          onConfirm={onConfirmRename}
-          onCancel={onCancelRename}
-          className="font-medium flex-1"
-        />
-      ) : (
-        <span className="font-medium truncate flex-1">{getSessionDisplayName(session)}</span>
-      )}
-      {mobileActions && (
-        <MobileAttachButton
-          session={session}
-          openspecChanges={mobileActions.openspecChanges}
-          onAttach={mobileActions.onAttachProposal}
-          onDetach={mobileActions.onDetachProposal}
-        />
-      )}
-      {/* Layout-mode switch (Chat│Split│Editor; no-op without a split provider). */}
-      <LayoutModeSwitch />
-      {mobileActions && (
-        <MobileActionMenu
-          session={session}
-          openspecChanges={mobileActions.openspecChanges}
-          onRename={canRename ? onStartRename : undefined}
-          onArchive={mobileActions.onArchive}
-          onResume={mobileActions.onResume}
-          onShutdown={mobileActions.onShutdown}
-          onAttachProposal={mobileActions.onAttachProposal}
-          onDetachProposal={mobileActions.onDetachProposal}
-          onSendPrompt={mobileActions.onSendPrompt}
-          onReadArtifact={mobileActions.onReadArtifact}
-          onRefresh={mobileActions.onRefresh}
-        />
-      )}
-    </div>
-  );
-
-  // Row 2: attached-proposal chip. Read-only (action affordances stay in the
-  // MobileAttachButton popover on row 1). The chip's data-testid, content,
-  // tooltip, and reactivity are unchanged from fix-mobile-attach-proposal-display
-  // — only its parent moved from row-1 sibling to row-2 sibling.
-  // The previous max-w-[55%] is dropped because the chip no longer competes
-  // with the title for horizontal space; the inner change-name span keeps its
-  // truncate so very long names still ellipsize within the full row-2 width.
-  // See change: fix-mobile-header-and-orientation.
-  const chipRow = session.attachedProposal ? (
-    <div className="flex items-center min-h-[20px] pl-1">
-      <span
-        className="text-[10px] text-blue-400 flex items-center gap-0.5 min-w-0"
-        title={`Attached: ${session.attachedProposal}`}
-        data-testid="mobile-header-attached-chip"
-      >
-        <Icon path={mdiPaperclip} size={0.4} />
-        <span className="truncate min-w-0">{session.attachedProposal}</span>
-        <AttachmentTrace resolution={attachmentResolution} sessionCwd={session.cwd} />
-        {attachedChange && attachedChange.artifacts.length > 0 && (
-          <span className="flex-shrink-0">
-            <ArtifactLettersButton
-              artifacts={attachedChange.artifacts}
-              changeName={attachedChange.name}
-              onReadArtifact={readArtifact}
-            />
-          </span>
-        )}
-        {attachedChange && attachedChange.totalTasks > 0 && (
-          <span
-            className="text-[10px] text-[var(--text-muted)] flex-shrink-0"
-            data-testid="attached-proposal-task-counter"
-          >
-            ({attachedChange.completedTasks}/{attachedChange.totalTasks})
-          </span>
-        )}
-      </span>
-    </div>
-  ) : null;
-
-  // When there's an attached proposal, render two rows. When there isn't, the
-  // header stays a single-row container exactly as before — no empty row 2 is
-  // reserved. See change: fix-mobile-header-and-orientation.
   return (
-    <div className="px-2 py-1 border-b border-[var(--border-primary)] flex flex-col text-sm">
-      {row1}
-      {chipRow}
+    <div className="px-1 border-b border-[var(--border-primary)] flex flex-col text-sm">
+      <div className="flex items-center min-h-12" data-testid="mobile-header-row">
+        {showBack && onBack && (
+          <button
+            onClick={onBack}
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+            title={i18nT("common.goBack", undefined, "Go back")}
+            data-testid="back-button"
+          >
+            <Icon path={mdiArrowLeft} size={0.7} />
+          </button>
+        )}
+        {isRenaming ? (
+          <InlineRenameInput
+            currentName={getSessionDisplayName(session)}
+            onConfirm={onConfirmRename}
+            onCancel={onCancelRename}
+            className="text-base font-semibold flex-1 min-w-0"
+          />
+        ) : (
+          <span className="px-1 text-base font-semibold truncate flex-1 min-w-0" title={getSessionDisplayName(session)} data-testid="mobile-header-title">
+            {getSessionDisplayName(session)}
+          </span>
+        )}
+        {showContextRing && <ContextRingButton usage={contextUsage} cost={cost} />}
+        {/* Layout-mode menu (Chat / Split / Editor; no-op without a split provider). */}
+        <LayoutModeSwitch variant="menu" />
+        {renderViewMenu?.({ iconOnly: true })}
+        {mobileActions && (
+          <MobileActionMenu
+            session={session}
+            openspecChanges={mobileActions.openspecChanges}
+            onRename={canRename ? onStartRename : undefined}
+            onArchive={mobileActions.onArchive}
+            onResume={mobileActions.onResume}
+            onShutdown={mobileActions.onShutdown}
+            onAttachProposal={mobileActions.onAttachProposal}
+            onDetachProposal={mobileActions.onDetachProposal}
+            onSendPrompt={mobileActions.onSendPrompt}
+            onReadArtifact={mobileActions.onReadArtifact}
+            onRefresh={mobileActions.onRefresh}
+          />
+        )}
+      </div>
       {/* See change: update-pi-core-1-0-adopt-apis. */}
       {session.piBelowFloor ? (
         <div className="py-0.5">
@@ -324,48 +153,31 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
 /** Type for mobile action props to keep interface clean */
 type SessionHeaderMobileActions = NonNullable<Props["mobileActions"]>;
 
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
+/** Secondary chip button (32 px, 12 px label). */
+const CHIP_BTN =
+  "inline-flex items-center gap-1.5 min-h-8 px-2.5 rounded-md border text-xs font-semibold whitespace-nowrap shrink-0 disabled:opacity-50 disabled:cursor-not-allowed";
+const CHIP_NEUTRAL = `${CHIP_BTN} border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]`;
 
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-  return `${seconds}s`;
-}
-
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard }: Props) {
-  const [now, setNow] = useState(Date.now());
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, hasFileChanges, onOpenDiffView, onRefresh, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard, contextUsage, showContextRing = true, renderViewMenu }: Props) {
   const [isRenaming, setIsRenaming] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [openspecPickerOpen, setOpenspecPickerOpen] = useState(false);
+  const [tagEditSignal, setTagEditSignal] = useState(0);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusRef = useRef(false);
+  const wasRenamingRef = useRef(false);
+  const isMobile = useMobile();
   // Flow launcher button + dialogs removed: flow management is owned by
   // flows-plugin's command-route claims and SessionFlowActionsClaim.
   // See change: pluginize-flows-via-registry.
 
-  const attached = session?.attachedProposal;
-  // Resolve against active + archived data (hook must run before the mobile early return).
-  // See change: resolve-archived-attached-proposal.
-  const desktopResolution = useAttachmentResolution(session, openspecChanges);
-  const openspecOptions: SelectOption[] = (openspecChanges || []).map(c => {
-    const stateLabels: Record<string, string> = {
-      "no-tasks": "Planning",
-      "in-progress": `Implementing — ${c.completedTasks}/${c.totalTasks} tasks`,
-      "complete": `Complete — ${c.completedTasks}/${c.totalTasks} tasks`,
-    };
-    return {
-      value: c.name,
-      label: c.name,
-      description: stateLabels[c.status] || c.status,
-      badge: c.status === "complete" ? "✓" : c.status === "in-progress" ? `${c.completedTasks}/${c.totalTasks}` : undefined,
-      badgeColor: c.status === "complete" ? "text-green-400" : "text-blue-400",
-    };
-  });
-
+  // After rename ends via Enter/Escape (not a blur to another control), focus
+  // returns to the title button.
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (wasRenamingRef.current && !isRenaming && restoreFocusRef.current) {
+      titleButtonRef.current?.focus();
+    }
+    restoreFocusRef.current = false;
+    wasRenamingRef.current = isRenaming;
+  }, [isRenaming]);
 
   if (!session) {
     return (
@@ -375,19 +187,23 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
     );
   }
 
-  const duration = now - session.startedAt;
   const canRename = session.status !== "ended" && onRename;
+  const usage = contextUsage ?? state.contextUsage;
+
+  function endRename() {
+    // Enter / Escape leave the input focused; a blur to another control does not.
+    restoreFocusRef.current = document.activeElement?.tagName === "INPUT";
+    setIsRenaming(false);
+  }
 
   function handleConfirmRename(name: string) {
-    setIsRenaming(false);
+    endRename();
     if (onRename && session) {
       onRename(session.id, name);
     }
   }
 
-  const isMobile = useMobile();
-
-  // Mobile: compact header with back + name + attach icon + kebab
+  // Mobile: one 48 px row.
   if (isMobile) {
     return (
       <MobileHeader
@@ -396,211 +212,163 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         onBack={onBack}
         isRenaming={isRenaming}
         onConfirmRename={handleConfirmRename}
-        onCancelRename={() => setIsRenaming(false)}
+        onCancelRename={endRename}
         canRename={!!canRename}
         onStartRename={() => setIsRenaming(true)}
         mobileActions={mobileActions}
-        onReadArtifact={onReadArtifact}
+        contextUsage={usage}
+        showContextRing={showContextRing}
+        cost={state.cost}
+        renderViewMenu={renderViewMenu}
       />
     );
   }
 
-  // Desktop attached-change lookup for the artifact-letters pill + task counter.
-  // See change: add-attached-proposal-header-summary.
-  const desktopAttachedChange =
-    desktopResolution?.kind === "active" && session && desktopResolution.cwd === session.cwd ? desktopResolution.change : undefined;
-
   // Resume / Fork affordance gate: only render when the session is dead-but-resumable
-  // AND a parent callback was supplied. The render gate replaces the dimmed elapsed-
-  // duration span (a tombstone is meaningless) — see change: resume-button-in-session-header.
+  // AND a parent callback was supplied. See change: resume-button-in-session-header.
   // Remote-origin sessions have their files on ANOTHER host — the server
   // refuses resume/fork with HTTP 409, so the affordance is not offered.
   // See change: add-pi-gateway-transport-identity.
   const isEnded = session.status === "ended" && Boolean(session.sessionFile) && Boolean(onResume) && !isRemoteOrigin(session) && !isAcpSession(session);
 
-  // Desktop: full header
+  function onHeaderKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "F2" || !canRename || isRenaming) return;
+    if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable='true']")) return;
+    e.preventDefault();
+    setIsRenaming(true);
+  }
+
+  const displayName = getSessionDisplayName(session);
+
+  // Desktop: 48 px row of three zones (leading / middle / trailing). The header
+  // is a CSS container: below 760 px the meta line drops under the title and
+  // labels collapse to icons. See change: reorganize-session-header.
   return (
-    <div className="px-4 py-2 border-b border-[var(--border-primary)] flex items-center gap-4 text-sm">
-      {showBack && onBack && (
-        <button
-          onClick={onBack}
-          className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-          title={i18nT("common.goBack", undefined, "Go back")}
-          data-testid="back-button"
-        >
-          <Icon path={mdiArrowLeft} size={0.65} />
-        </button>
-      )}
-      {isRenaming ? (
-        <InlineRenameInput
-          currentName={getSessionDisplayName(session)}
-          onConfirm={handleConfirmRename}
-          onCancel={() => setIsRenaming(false)}
-          className="font-medium"
-        />
-      ) : (
-        <span className="font-medium flex items-center gap-1">
-          <span
-            onDoubleClick={() => canRename && setIsRenaming(true)}
-            className={canRename ? "cursor-pointer" : ""}
-          >
-            {getSessionDisplayName(session)}
-          </span>
-          {canRename && (
+    <div className="@container relative z-popover border-b border-[var(--border-primary)] text-sm" onKeyDown={onHeaderKeyDown} data-testid="session-header">
+      <div className="flex items-center gap-3 px-4 py-2 min-h-12" data-testid="session-header-row">
+        {/* Leading: back + title (menu button) + Reveal, with the meta line. */}
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          {showBack && onBack && (
             <button
-              onClick={() => setIsRenaming(true)}
-              className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-              title={i18nT("session.renameSession", undefined, "Rename session")}
+              onClick={onBack}
+              className="shrink-0 inline-flex items-center justify-center min-w-8 min-h-8 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              title={i18nT("common.goBack", undefined, "Go back")}
+              aria-label={i18nT("common.goBack", undefined, "Go back")}
+              data-testid="back-button"
             >
-              <Icon path={mdiPencilOutline} size={0.5} />
+              <Icon path={mdiArrowLeft} size={0.75} />
             </button>
           )}
-        </span>
-      )}
-      {/* Single view selector — sits after name+rename, immediately before Seek
-          (change: redesign-split-layout-controls). Model + thinking level were
-          dropped from the header (both already render on the session card); the
-          pi version segment below is kept as the only per-session pi surface. */}
-      <LayoutModeSwitch />
-      {onSeekToCard && (
-        <button
-          type="button"
-          onClick={onSeekToCard}
-          className="ml-0.5 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
-          title={i18nT("session.seekToCard", undefined, "Seek to this session's card in the sidebar")}
-          data-testid="session-header-seek-card"
-        >
-          <Icon path={mdiCrosshairsGps} size={0.45} />
-          {i18nT("session.seek", undefined, "Seek")}
-        </button>
-      )}
-      {/* pi version the session actually runs, reported by the bridge. */}
-      {/* See change: restore-pi-version-skew-surface. */}
-      {session.piVersion && (
-        <span className="text-[var(--text-tertiary)]" title="pi version">pi {session.piVersion}</span>
-      )}
-      {/* See change: update-pi-core-1-0-adopt-apis. */}
-      {session.piBelowFloor ? <PiBelowFloorWarning session={session} /> : null}
-      {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
-      {/* See change: add-extension-ui-decorations. */}
-      <FooterSegmentSlot session={session} />
-      {/* Vault key state for this session (hidden without bindings). See change: add-credential-vault. */}
-      <VaultBindingsChip sessionId={session.id} />
-      {/* Editable user-tag strip + read-only phase chip (D5: detail-header
-          primary). See change: add-session-tags. */}
-      {onSetTags && (
-        <div className="flex items-center gap-1.5">
-          <TagEditor tags={session.tags ?? []} allTags={allTags ?? []} onChange={onSetTags} />
-          {session.openspecPhase && <TagChip label={session.openspecPhase} variant="exec" />}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0 min-w-0 @max-[760px]:flex-col @max-[760px]:items-stretch @max-[760px]:gap-0">
+            <span className="inline-flex items-center gap-0.5 min-w-0 max-w-full @max-[760px]:self-start">
+              {isRenaming ? (
+                <InlineRenameInput
+                  currentName={displayName}
+                  onConfirm={handleConfirmRename}
+                  onCancel={endRename}
+                  className="text-base font-semibold min-w-0"
+                />
+              ) : (
+                <SessionTitleMenu
+                  name={displayName}
+                  buttonRef={titleButtonRef}
+                  onRename={canRename ? () => setIsRenaming(true) : undefined}
+                  onReveal={onSeekToCard}
+                  onEditTags={onSetTags ? () => setTagEditSignal((n) => n + 1) : undefined}
+                  onReload={onRefresh}
+                />
+              )}
+              {onSeekToCard && (
+                <button
+                  type="button"
+                  onClick={onSeekToCard}
+                  className="shrink-0 inline-flex items-center justify-center min-w-8 min-h-8 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                  title={i18nT("session.revealInSidebar", undefined, "Reveal in sidebar")}
+                  aria-label={i18nT("session.revealInSidebar", undefined, "Reveal in sidebar")}
+                  data-testid="session-header-seek-card"
+                >
+                  <Icon path={mdiDockLeft} size={0.75} />
+                </button>
+              )}
+            </span>
+            {/* Meta line: tags, phase, pi version (or below-floor warning), clock, context ring. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-xs text-[var(--text-secondary)]" data-testid="session-header-meta">
+              {onSetTags && (
+                <>
+                  <TagEditor tags={session.tags ?? []} allTags={allTags ?? []} onChange={onSetTags} openSignal={tagEditSignal} />
+                  {session.openspecPhase && <TagChip label={session.openspecPhase} variant="exec" />}
+                </>
+              )}
+              {/* pi version the session actually runs, reported by the bridge.
+                  See change: restore-pi-version-skew-surface. */}
+              {session.piBelowFloor ? (
+                // See change: update-pi-core-1-0-adopt-apis.
+                <PiBelowFloorWarning session={session} />
+              ) : (
+                session.piVersion && (
+                  <span className="@max-[760px]:hidden" title="pi version" data-testid="session-header-pi-version">
+                    pi {session.piVersion}
+                  </span>
+                )
+              )}
+              <SessionClock startedAt={session.startedAt} lastActivityAt={session.lastActivityAt} ended={session.status === "ended"} />
+              {showContextRing && <ContextRing usage={usage} />}
+            </div>
+          </div>
         </div>
-      )}
-      {/* OpenSpec + Flow buttons */}
-      <span className="flex-1" />
-      {onAttachProposal && ((openspecChanges && openspecChanges.length > 0) || attached) && (
-        attached ? (
-          <span className="text-[10px] flex items-center gap-1 mr-2">
-            <span className="text-blue-400"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
-            <AttachmentTrace resolution={desktopResolution} sessionCwd={session.cwd} />
-            {desktopAttachedChange && desktopAttachedChange.artifacts.length > 0 && (
-              <ArtifactLettersButton
-                artifacts={desktopAttachedChange.artifacts}
-                changeName={desktopAttachedChange.name}
-                onReadArtifact={onReadArtifact}
-              />
-            )}
-            {desktopAttachedChange && desktopAttachedChange.totalTasks > 0 && (
-              <span
-                className="text-[10px] text-[var(--text-muted)]"
-                data-testid="attached-proposal-task-counter"
-              >
-                ({desktopAttachedChange.completedTasks}/{desktopAttachedChange.totalTasks})
-              </span>
-            )}
-            {onDetachProposal && (
+        {/* Middle: extension-ui footer segments + vault chip. */}
+        <div className="flex items-center gap-2 min-w-0 shrink">
+          {/* Extension UI System (Phase 2): footer-segment decorator slot.
+              See change: add-extension-ui-decorations. */}
+          <FooterSegmentSlot session={session} />
+          {/* Vault key state for this session (hidden without bindings). See change: add-credential-vault. */}
+          <VaultBindingsChip sessionId={session.id} />
+        </div>
+        {/* Trailing: Modules · Changed Files · Resume · Fork · layout switch · View. */}
+        <div className="flex items-center gap-2 shrink-0" data-testid="session-header-trailing">
+          {/* Extension UI System (Phase 1): Modules entry point. Shown only when
+              the bridge has reported at least one module for this session.
+              See change: add-extension-ui-modal. */}
+          {(session.uiModules?.length ?? 0) > 0 && onOpenExtensionModulePicker && (
+            <button
+              onClick={onOpenExtensionModulePicker}
+              className={CHIP_NEUTRAL}
+              title={i18nT("packages.extensionModules", undefined, "Extension modules")}
+              data-testid="open-extension-modules"
+            >
+              <Icon path={mdiViewGridOutline} size={0.67} className="text-[var(--text-secondary)]" />
+              {i18nT("packages.modules", undefined, "Modules")}
+            </button>
+          )}
+          <ChangedFilesChip hasFileChanges={hasFileChanges} onOpenDiffView={onOpenDiffView} />
+          {isEnded && (
+            <>
               <button
-                onClick={onDetachProposal}
-                className="text-[var(--text-muted)] hover:text-red-400 px-0.5"
-                title={i18nT("openspec.detachChange", undefined, "Detach change")}
+                onClick={() => onResume!("continue")}
+                disabled={!!session.resuming}
+                className={`${CHIP_BTN} tint-action-green`}
+                title={i18nT("session.resumeSessionContinueSameSession", undefined, "Resume session (continue same session)")}
+                data-testid="header-resume-button"
               >
-                <Icon path={mdiLinkOff} size={0.45} />
+                <Icon path={mdiPlayCircleOutline} size={0.67} />
+                {i18nT("session.resume", undefined, "Resume")}
               </button>
-            )}
-          </span>
-        ) : (
-          <button
-            onClick={() => setOpenspecPickerOpen(true)}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 mr-1"
-            title={i18nT("openspec.attachOpenspecChange", undefined, "Attach OpenSpec change")}
-          >
-            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{i18nT("common.attach", undefined, "Attach")}
-          </button>
-        )
-      )}
-      {/* Flow launcher button removed: flows-plugin's SessionFlowActionsClaim
-          contributes its own "Run flow" button via the
-          session-card-action-bar slot. See change:
-          pluginize-flows-via-registry. */}
-      {/* Extension UI System (Phase 1): Modules entry point. Shown only when */}
-      {/* the bridge has reported at least one module for this session. */}
-      {/* See change: add-extension-ui-modal. */}
-      {(session.uiModules?.length ?? 0) > 0 && onOpenExtensionModulePicker && (
-        <button
-          onClick={onOpenExtensionModulePicker}
-          className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 mr-1"
-          title={i18nT("packages.extensionModules", undefined, "Extension modules")}
-          data-testid="open-extension-modules"
-        >
-          <Icon path={mdiViewGridOutline} size={0.4} className="inline mr-0.5" />{i18nT("packages.modules", undefined, "Modules")}
-        </button>
-      )}
-      <ChangedFilesChip hasFileChanges={hasFileChanges} onOpenDiffView={onOpenDiffView} />
-      {isEnded ? (
-        <>
-          <button
-            onClick={() => onResume!("continue")}
-            disabled={!!session.resuming}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed mr-1"
-            title={i18nT("session.resumeSessionContinueSameSession", undefined, "Resume session (continue same session)")}
-            data-testid="header-resume-button"
-          >
-            <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />{i18nT("session.resume", undefined, "Resume")}
-          </button>
-          <button
-            onClick={() => onResume!("fork")}
-            disabled={!!session.resuming}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={i18nT("session.forkSessionNewSessionFromThis", undefined, "Fork session (new session from this point)")}
-            data-testid="header-fork-button"
-          >
-            <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />{i18nT("session.fork", undefined, "Fork")}
-          </button>
-        </>
-      ) : (
-        <span className="text-[var(--text-muted)]">{formatDuration(duration)}</span>
-      )}
-      {onRefresh && (
-        <button
-          data-testid="refresh-chat"
-          onClick={() => { onRefresh(); setRefreshing(true); setTimeout(() => setRefreshing(false), 500); }}
-          className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-          title={i18nT("session.refreshChat", undefined, "Refresh chat")}
-        >
-          <Icon path={mdiRefresh} size={0.6} className={refreshing ? "animate-spin" : ""} />
-        </button>
-      )}
-      {openspecPickerOpen && onAttachProposal && (
-        <SearchableSelectDialog
-          title={i18nT("openspec.attachOpenspecChange2", undefined, "Attach OpenSpec Change")}
-          options={openspecOptions}
-          placeholder={i18nT("common.searchChanges", undefined, "Search changes...")}
-          emptyMessage="No changes available"
-          onSelect={(value) => {
-            onAttachProposal(value);
-            setOpenspecPickerOpen(false);
-          }}
-          onCancel={() => setOpenspecPickerOpen(false)}
-        />
-      )}
+              <button
+                onClick={() => onResume!("fork")}
+                disabled={!!session.resuming}
+                className={`${CHIP_BTN} tint-action-blue`}
+                title={i18nT("session.forkSessionNewSessionFromThis", undefined, "Fork session (new session from this point)")}
+                data-testid="header-fork-button"
+              >
+                <Icon path={mdiSourceFork} size={0.67} />
+                {i18nT("session.fork", undefined, "Fork")}
+              </button>
+            </>
+          )}
+          <LayoutModeSwitch />
+          {renderViewMenu?.({ iconOnly: false })}
+        </div>
+      </div>
       {/* Flow picker + launch dialog removed; owned by flows-plugin
           command-route claims (/flows, /flows:new, /flows:edit,
           /flows:delete) and SessionFlowActionsClaim. See change:
@@ -639,11 +407,11 @@ function ChangedFilesChip({
       type="button"
       onClick={() => activate()}
       data-testid="changed-files-chip"
-      className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 mr-1 inline-flex items-center gap-1"
-      title={i18nT("diff.viewChangedFiles", undefined, "View changed files")}
+      className={CHIP_NEUTRAL}
+      title={i18nT("diff.changedFiles", undefined, "Changed Files")}
     >
-      <Icon path={mdiFileCompare} size={0.4} className="inline" />
-      <span>{i18nT("diff.changedFiles", undefined, "Changed Files")}</span>
+      <Icon path={mdiFileCompare} size={0.67} className="text-[var(--text-secondary)]" />
+      <span className="@max-[760px]:sr-only">{i18nT("diff.changedFiles", undefined, "Changed Files")}</span>
       {hasCounts && <CountBadges additions={totalAdditions ?? 0} deletions={totalDeletions ?? 0} />}
       {nFiles > 0 && <span className="text-[var(--text-tertiary)]">· {nFiles}</span>}
     </button>

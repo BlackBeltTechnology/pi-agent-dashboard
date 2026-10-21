@@ -185,3 +185,52 @@ describe("SessionHeader Resume / Fork pills — mobile path unaffected", () => {
     expect(screen.queryByTestId("header-fork-button")).toBeNull();
   });
 });
+
+describe("SessionHeader trailing order (E9) and clock (E5)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.resetModules();
+    vi.doUnmock("../../hooks/useMobile.js");
+  });
+
+  it("E9 trailing DOM order: Modules, Changed Files, Resume, Fork, layout switch, View", async () => {
+    vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => false }));
+    const { SessionHeader } = await import("../session/SessionHeader.js");
+    const { SplitWorkspaceProvider } = await import("../split/SplitWorkspaceContext.js");
+    render(
+      <SplitWorkspaceProvider sessionId="s1" cwd="/tmp" orientation="h">
+        <SessionHeader
+          session={makeSession({ status: "ended", sessionFile: "/p", uiModules: [{ id: "m" }] as never })}
+          state={createInitialState()}
+          onResume={vi.fn()}
+          onOpenExtensionModulePicker={vi.fn()}
+          hasFileChanges
+          onOpenDiffView={vi.fn()}
+          renderViewMenu={() => <button type="button" data-testid="view-trigger">View</button>}
+        />
+      </SplitWorkspaceProvider>,
+    );
+    const ids = ["open-extension-modules", "changed-files-chip", "header-resume-button", "header-fork-button", "layout-mode-switch", "view-trigger"];
+    const nodes = ids.map((id) => screen.getByTestId(id));
+    for (let i = 0; i < nodes.length - 1; i++) {
+      expect(nodes[i].compareDocumentPosition(nodes[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("E5 SessionClock text for live, future, ended, reversed and no-activity cases", async () => {
+    const { SessionClock } = await import("../session/SessionClock.js");
+    const now = Date.now();
+    const cases: Array<[Parameters<typeof SessionClock>[0], string]> = [
+      [{ startedAt: now - 332_000, ended: false }, "running 5m 32s"],
+      [{ startedAt: now + 10_000, ended: false }, "running 0s"],
+      [{ startedAt: now - 3_000_000, lastActivityAt: now - 3_000_000 + 42 * 60_000, ended: true }, "ended · ran 42m"],
+      [{ startedAt: now, lastActivityAt: now - 5_000, ended: true }, "ended · ran 0s"],
+      [{ startedAt: now, ended: true }, "ended"],
+    ];
+    for (const [props, expected] of cases) {
+      const { unmount } = render(<SessionClock {...props} />);
+      expect(screen.getByTestId("session-clock").textContent).toBe(expected);
+      unmount();
+    }
+  });
+});

@@ -1,6 +1,7 @@
 import { expect, type Page, type WebSocket as PWWebSocket, test } from "./fixtures.js";
 import {
   byTestId,
+  reloadTranscript,
   sendPrompt,
   setSubagentTickThrottle,
   spawnFreshGitSession,
@@ -157,7 +158,7 @@ test.describe("Strategy A — delta replay on reload", () => {
     // Refresh Chat, then reload BEFORE the next 1 s debounce could re-persist.
     // The short settle lets the awaited durable delete land; it stays well under
     // the debounce so nothing is written back.
-    await byTestId(page, "refreshChat").click();
+    await reloadTranscript(page);
     await page.waitForTimeout(300);
     await page.reload();
     await byTestId(page, "headerAppBar").waitFor({ state: "visible" });

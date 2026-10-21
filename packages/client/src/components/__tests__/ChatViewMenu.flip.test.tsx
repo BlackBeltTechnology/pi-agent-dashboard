@@ -114,3 +114,47 @@ describe("ChatViewMenu viewport flip", () => {
     expect(popover.className).not.toContain("bottom-full");
   });
 });
+
+// E20 (test-plan): the View menu mounts in the session header, immediately
+// after the layout switch (desktop) / layout button (mobile), and not in the
+// composer strip. See change: reorganize-session-header.
+describe("ChatViewMenu header placement (E20)", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../../hooks/useMobile.js");
+  });
+
+  async function renderHeader(mobile: boolean) {
+    vi.doMock("../../hooks/useMobile.js", () => ({ useMobile: () => mobile }));
+    const { SessionHeader } = await import("../session/SessionHeader.js");
+    const { SplitWorkspaceProvider } = await import("../split/SplitWorkspaceContext.js");
+    const { createInitialState } = await import("../../lib/chat/event-reducer.js");
+    return render(
+      <SplitWorkspaceProvider sessionId="s1" cwd="/tmp" orientation="h">
+        <SessionHeader
+          session={{ id: "s1", status: "idle", cwd: "/tmp", startedAt: Date.now() } as never}
+          state={createInitialState()}
+          mobileActions={{}}
+          renderViewMenu={({ iconOnly }) => <ChatViewMenu sessionId="s1" iconOnly={iconOnly} send={() => {}} currentOverride={undefined} />}
+        />
+      </SplitWorkspaceProvider>,
+    );
+  }
+
+  it("desktop: the View trigger directly follows the layout switch", async () => {
+    await renderHeader(false);
+    const sw = screen.getByTestId("layout-mode-switch");
+    const view = screen.getByTitle("View options");
+    expect(sw.nextElementSibling?.contains(view)).toBe(true);
+    expect(view.textContent).toContain("View");
+    expect(screen.queryByTestId("composer-context-strip")).toBeNull();
+  });
+
+  it("mobile: an icon-only View trigger directly follows the layout button", async () => {
+    await renderHeader(true);
+    const sw = screen.getByTestId("layout-mode-switch");
+    const view = screen.getByLabelText("View options");
+    expect(sw.parentElement?.nextElementSibling?.contains(view)).toBe(true);
+    expect(view.textContent).toBe("");
+  });
+});
