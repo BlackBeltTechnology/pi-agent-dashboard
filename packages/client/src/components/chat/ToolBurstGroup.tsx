@@ -35,6 +35,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
+import { CHAT_CUE_CLASS, CHAT_ENTER_CLASS, useCompletionCue, useGroupEntering } from "../../lib/chat/chat-motion-context.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ChatItem, ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
@@ -109,6 +110,7 @@ function GroupFrame({
   onToggle,
   isRunning,
   stopSlot,
+  entering,
   children,
 }: {
   leftGlyph: ReactNode;
@@ -119,6 +121,7 @@ function GroupFrame({
   onToggle: () => void;
   isRunning: boolean;
   stopSlot?: ReactNode;
+  entering?: boolean;
   children: ReactNode;
 }) {
   const isMobile = useMobile();
@@ -130,7 +133,7 @@ function GroupFrame({
   return (
     <div
       ref={isRunning ? fxRef : undefined}
-      className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}
+      className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3${entering ? ` ${CHAT_ENTER_CLASS}` : ""}`}
       data-testid="tool-burst-group"
       data-running={isRunning ? "true" : "false"}
     >
@@ -171,6 +174,13 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
   };
   const visibleMembers = underlyingCalls(burst.items).filter((m) => isVisible(m.toolName));
 
+  // Live-arrival entry (latched per instance): the group enters only when ALL its
+  // visible members are new. Lines present in that first commit ride the group's
+  // entry; a member joining later animates its own line. See change: add-fluid-chat-motion.
+  const memberIds = visibleMembers.map((m) => m.toolCallId ?? m.id);
+  const entering = useGroupEntering(memberIds);
+  const [initialMemberIds] = useState<ReadonlySet<string> | null>(() => (entering ? new Set(memberIds) : null));
+
   const [override, setOverride] = useState<boolean | null>(null); // null = follow auto
   const isRunning = visibleMembers.some((m) => m.toolStatus === "running");
   // Pref only changes the body's default open state; the live header keys off
@@ -183,12 +193,16 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
   const runningId = visibleMembers.find((m) => m.toolStatus === "running")?.id;
   const stopController = useToolStopState({ active: isRunning, runKey: runningId, onAbort, onForceKill });
 
+  // Completion cue (live-follow only): replaces the flash below in that case.
+  const completionCue = useCompletionCue(isRunning ? "running" : "complete");
+  const completionCueRef = useRef(false);
+  completionCueRef.current = completionCue;
   // One-shot completion flash on the running→done flip.
   const prevRunning = useRef(isRunning);
   const [flash, setFlash] = useState(false);
   useEffect(() => {
     if (prevRunning.current && !isRunning) {
-      setFlash(true);
+      if (!completionCueRef.current) setFlash(true);
       const t = setTimeout(() => setFlash(false), 200);
       prevRunning.current = isRunning;
       return () => clearTimeout(t);
@@ -252,11 +266,7 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
    */
   const hasElided = visibleMembers.some((m) => m.toolStatus === "elided");
   const settledAccent = hasElided ? "text-[var(--text-muted)]" : "text-green-400";
-  const leftGlyph = (
-    <span
-      className={`inline-flex ${isRunning ? "text-yellow-400 tool-group-spin-pulse" : settledAccent} ${flash ? "tool-group-flash" : ""}`}
-      data-testid={!isRunning && hasElided ? "tool-burst-elided-glyph" : undefined}
-    >
+  const glyphIcon = (
       <Icon
         path={
           isRunning
@@ -271,6 +281,19 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
         spin={isRunning}
         className="fx-progress"
       />
+  );
+  const leftGlyph = (
+    <span
+      className={`inline-flex ${isRunning ? "text-yellow-400 tool-group-spin-pulse" : settledAccent} ${flash ? "tool-group-flash" : ""}`}
+      data-testid={!isRunning && hasElided ? "tool-burst-elided-glyph" : undefined}
+    >
+      {completionCue && !isRunning && !hasElided ? (
+        <span key="cue" data-testid="tool-completion-cue" className={`inline-flex ${CHAT_CUE_CLASS}`}>
+          {glyphIcon}
+        </span>
+      ) : (
+        glyphIcon
+      )}
     </span>
   );
 
@@ -296,6 +319,7 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
       expanded={expanded}
       onToggle={() => setOverride(!expanded)}
       isRunning={isRunning}
+      entering={entering}
       stopSlot={<ToolStopControl controller={stopController} testIdPrefix="tool-burst" labeled />}
     >
       {burst.items.map((it) => (
@@ -310,6 +334,7 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
           turnActive={isRunning}
           isVisible={isVisible}
           stopController={stopController}
+          initialMemberIds={initialMemberIds}
         />
       ))}
     </GroupFrame>
@@ -323,12 +348,15 @@ function BurstBodyItem({
   turnActive,
   isVisible,
   stopController,
+  initialMemberIds,
 }: {
   item: ChatItem;
   toolContext: ToolContext;
   turnActive?: boolean;
   isVisible: (name: string | undefined) => boolean;
   stopController?: StopController | null;
+  /** Members present when the enclosing group entered; their lines ride the group's entry. */
+  initialMemberIds?: ReadonlySet<string> | null;
 }) {
   const prefs = useDisplayPrefs();
   if (isGroup(item)) {
@@ -384,6 +412,7 @@ function BurstBodyItem({
       toolDetails={msg.toolDetails}
       showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
       stopController={msg.toolStatus === "running" ? stopController : undefined}
+      enterSuppressed={initialMemberIds?.has(msg.toolCallId ?? msg.id) ?? false}
     />
   );
 }

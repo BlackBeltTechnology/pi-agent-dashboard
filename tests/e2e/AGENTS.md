@@ -18,6 +18,7 @@ One row per file.
 | `canvas-loopback-url-chip.spec.ts` | L3 |
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
+| `chat-motion.spec.ts` | L3 chat motion → see `chat-motion.spec.ts.AGENTS.md` |
 | `composer-liveness-reload.spec.ts` | → see `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | → see `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
@@ -56,7 +57,7 @@ One row per file.
 | `automation-stop-tmux.spec.ts` | L3 (X19/X20). Stop kills a tmux run's real pi. → see `automation-stop-tmux.spec.ts.AGENTS.md` |
 | `background-stream-selection.spec.ts` | → see `background-stream-selection.spec.ts.AGENTS.md` |
 | `copy-insecure-context.spec.ts` | L3 test-plan #X3 (change: fix-long-session-u… → see `copy-insecure-context.spec.ts.AGENTS.md` |
-| `drag-body-style.spec.ts` | #F23 — breakpoint flip unmounts dragger mid-drag… → see `drag-body-style.spec.ts.AGENTS.md` |
+| `drag-body-style.spec.ts` | → see `drag-body-style.spec.ts.AGENTS.md` |
 | `idle-fx-pause.spec.ts` | L3 for idle FX pause (test-plan #F16-#F20): idle… → see `idle-fx-pause.spec.ts.AGENTS.md` |
 | `long-session-settle.spec.ts` | L3 test-plan #P4. → see `long-session-settle.spec.ts.AGENTS.md` |
 | `mobile-viewport-bound.spec.ts` | L3 mobile viewport bound (test-plan… → see `mobile-viewport-bound.spec.ts.AGENTS.md` |
@@ -96,7 +97,7 @@ One row per file.
 | `faux-tool.spec.ts` | Faux-provider tool-call round trip. → see `faux-tool.spec.ts.AGENTS.md` |
 | `file-mention-resolve.spec.ts` | L3 server-side-file-mention-resolution (S19). → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
-| `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY… → see `fixtures.ts.AGENTS.md` |
+| `fixtures.ts` | → see `fixtures.ts.AGENTS.md` |
 | `flow-attach-before-run.spec.ts` | L3 attach-flow-before-run F15/F16. → see `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | L3 (change: render-inline-reasonin… → see `flow-live-no-double-render.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-… → see `flow-roundtrip.spec.ts.AGENTS.md` |
@@ -120,7 +121,7 @@ One row per file.
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker prese… → see `global-teardown.ts.AGENTS.md` |
 | `headless-reload-dispatch.spec.ts` | L3 fix-out-of-band-reload #F1–#F3. → see `headless-reload-dispatch.spec.ts.AGENTS.md` |
 | `host-gate-allow.spec.ts` | L3 for the Host-gate operator flow (test-plan #F… → see `host-gate-allow.spec.ts.AGENTS.md` |
-| `host-pressure-badge.spec.ts` | L3 for `fix-false-unresponsive-badge` (#F3, #F4).… → see `host-pressure-badge.spec.ts.AGENTS.md` |
+| `host-pressure-badge.spec.ts` | → see `host-pressure-badge.spec.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artif… → see `inline-screenshot.spec.ts.AGENTS.md` |
@@ -266,7 +267,7 @@ One row per file.
 | `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |
 | `apple-tools-activation.spec.ts` | L3 apple-tools activation. → see `apple-tools-activation.spec.ts.AGENTS.md` |
-| `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token… → see `mcp-tiered-token.spec.ts.AGENTS.md` |
+| `mcp-tiered-token.spec.ts` | → see `mcp-tiered-token.spec.ts.AGENTS.md` |
 | `identity-matrix/` | L3 D21 identity setup matrix. → see `identity-matrix.AGENTS.md` |
 | `card-block-toggles.spec.ts` | L3 card block toggles → see `card-block-toggles.spec.ts.AGENTS.md` |
 | `card-visual-effects.spec.ts` | L3 card visual effects → see `card-visual-effects.spec.ts.AGENTS.md` |

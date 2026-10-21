@@ -5,6 +5,7 @@ import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { useToolFullResult } from "../../hooks/useToolFullResult.js";
+import { CHAT_CUE_CLASS, CHAT_ENTER_CLASS, useCompletionCue, useToolEntering } from "../../lib/chat/chat-motion-context.js";
 import type { ChatImage } from "../../lib/chat/event-reducer.js";
 import { TRUNCATION_MARKER_PREFIX } from "../../lib/chat/event-reducer.js";
 import type { NestedCallState } from "../../lib/chat/nested-tool-calls.js";
@@ -97,6 +98,12 @@ interface Props {
   nested?: NestedCallState[];
   /** `false` when pi's nested-call record is incomplete. */
   nestedComplete?: boolean;
+  /**
+   * The row is rendered inside a group that is itself entering in this commit:
+   * the group's entry covers it, so the row must not animate a second time.
+   * See change: add-fluid-chat-motion (D2).
+   */
+  enterSuppressed?: boolean;
 }
 
 const statusIcons: Record<string, ReactNode> = {
@@ -107,8 +114,12 @@ const statusIcons: Record<string, ReactNode> = {
   elided: <Icon path={mdiMinusCircleOutline} size={0.55} />,
 };
 
-export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill, stopController, nested, nestedComplete }: Props) {
+export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill, stopController, nested, nestedComplete, enterSuppressed = false }: Props) {
   const isMobile = useMobile();
+  // Live-arrival entry + in-instance completion cue (both inert unless ChatView
+  // supplies a ChatMotionContext). See change: add-fluid-chat-motion.
+  const entering = useToolEntering(toolCallId) && !enterSuppressed;
+  const completionCue = useCompletionCue(status);
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
   // Supersede heal: this row was finalized locally because its real result was
@@ -176,7 +187,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   }, [hasImages]);
 
   return (
-    <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}>
+    <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3${entering ? ` ${CHAT_ENTER_CLASS}` : ""}`}>
       <div className="flex items-center">
       <button
         type="button"
@@ -196,9 +207,16 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                     ? "text-green-400"
                     : "text-yellow-400"
           }`}>
-            {isAskUser && status !== "error" && status !== "running" && status !== "elided"
-              ? <Icon path={mdiHelpCircleOutline} size={0.55} />
-              : statusIcons[status]}
+            {(() => {
+              const icon = isAskUser && status !== "error" && status !== "running" && status !== "elided"
+                ? <Icon path={mdiHelpCircleOutline} size={0.55} />
+                : statusIcons[status];
+              // Completion cue: a freshly mounted, keyed wrapper so @starting-style
+              // plays on the running→done/error flip only. No height transition.
+              return completionCue
+                ? <span key={status} data-testid="tool-completion-cue" className={`inline-flex ${CHAT_CUE_CLASS}`}>{icon}</span>
+                : icon;
+            })()}
           </span>
         )}
         <span className="truncate">{getSummary(toolName, args)}</span>
@@ -249,7 +267,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
         <NestedToolCallList rootId={toolCallId} nested={nested ?? []} complete={nestedComplete} sessionId={context.sessionId} />
       )}
       {expanded && showResultBody && (
-        <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
+        <div className={`mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto${completionCue ? ` ${CHAT_ENTER_CLASS}` : ""}`}>
           <ErrorBoundary>
             {PluginComponent && pluginClaim ? (
               <React.Suspense fallback={null}>

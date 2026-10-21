@@ -611,6 +611,48 @@ const COALESCE_REASONING =
 export const COALESCE_PRE_TOOL_TEXT = "coalesce pre-tool text";
 export const COALESCE_TOOL_COMMAND = "echo coalesce-tool-ran";
 
+/**
+ * Chat-motion fixtures (change: add-fluid-chat-motion).
+ *
+ * `chat-motion-stream` streams ≥ 4000 chars of prose, a bullet list and fenced
+ * code at the default `FAUX_TPS` (~20 s): the D4 render-cost workload (P1/P2)
+ * and the paced-reveal / trailing-edge / freeze rows. `chat-motion-glide` first
+ * streams enough prose to overflow the viewport, then runs a ~3 s bash call (a
+ * tool row arriving below the fold while following), then a closing message —
+ * the follow-glide, completion-cue and idle-exemption rows.
+ */
+export const CHAT_MOTION_STREAM_TAIL = "chat-motion stream complete";
+const CHAT_MOTION_PROSE = Array.from(
+  { length: 6 },
+  (_unused, index) =>
+    `Section ${index + 1} explains how the transcript stays continuous while the answer arrives in bursts. ` +
+    "The bridge forwards one snapshot per window, the client reveals it on animation frames, and the lag " +
+    "stays bounded so nothing waits on motion. Every sentence here is plain prose so the trailing edge has " +
+    "somewhere to sit and a selection has text to hold on to.",
+).join("\n\n");
+const CHAT_MOTION_LIST = Array.from(
+  { length: 12 },
+  (_unused, index) => `- item ${index + 1}: a short list entry that keeps the markdown tree re-parsing on every step`,
+).join("\n");
+const CHAT_MOTION_CODE = [
+  "```ts",
+  ...Array.from(
+    { length: 24 },
+    (_unused, index) => `export function step${index}(input: number): number { return input * ${index + 2} + ${index}; }`,
+  ),
+  "```",
+].join("\n");
+const CHAT_MOTION_STREAM_TEXT = `${CHAT_MOTION_PROSE}\n\n${CHAT_MOTION_LIST}\n\n${CHAT_MOTION_CODE}\n\n${CHAT_MOTION_PROSE}\n\n${CHAT_MOTION_STREAM_TAIL}`;
+
+export const CHAT_MOTION_GLIDE_TAIL = "chat-motion glide complete";
+export const CHAT_MOTION_GLIDE_TOOL_OUTPUT = "motion-glide-tool-ran";
+const CHAT_MOTION_GLIDE_PRELUDE = Array.from(
+  { length: 12 },
+  (_unused, index) =>
+    `Prelude ${index + 1}. This paragraph exists only to push the transcript past the viewport so the next row arrives below the fold ` +
+    "while the view is following the bottom of a live session, which is exactly where the glide has to carry the user.",
+).join("\n\n");
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -650,6 +692,25 @@ export const SCENARIOS: Record<string, Scenario> = {
         fauxAssistantMessage([fauxText(extractDashboardFragment(context.systemPrompt))]),
     ],
     expect: { text: DASHBOARD_CONTEXT_DELIMITER },
+  },
+
+  "chat-motion-stream": {
+    script: [fauxAssistantMessage([fauxText(CHAT_MOTION_STREAM_TEXT)])],
+    expect: { text: CHAT_MOTION_STREAM_TAIL },
+  },
+
+  "chat-motion-glide": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxText(CHAT_MOTION_GLIDE_PRELUDE),
+          fauxToolCall("bash", { command: `sleep 3 && echo ${CHAT_MOTION_GLIDE_TOOL_OUTPUT}` }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(CHAT_MOTION_GLIDE_TAIL)]),
+    ],
+    expect: { text: CHAT_MOTION_GLIDE_TAIL },
   },
 
   "slow-stream": {

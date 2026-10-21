@@ -57,7 +57,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // store (useMessageHandler), the typed browse refusal (browse-api), and the PathPicker confined/refused
 // states + their English fallbacks (+~1.2 KB gz) -> 598,604 B on CI. Smallest KiB step that clears both
 // (435 B headroom); not a general raise.
-const INDEX_GZ_CAP_BYTES = 585 * 1024;
+// add-fluid-chat-motion (2026-10-20): 585 -> 589 KiB. Fluid chat motion is ChatView behaviour, so it is
+// unavoidably in the entry: the arrival tracker + context, the paced-reveal hook, the follow-glide
+// controller + pin planner, the parser-based tail block split, the trailing-edge overlay, `useChatMotion`
+// and the pref plumbing/i18n (~+3 KB gz) -> 602,323 B in this test's own gzip (1,283 B over the old cap). Smallest KiB step
+// that leaves ~800 B of headroom for CI's compressor variance; not a general raise.
+const INDEX_GZ_CAP_BYTES = 589 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

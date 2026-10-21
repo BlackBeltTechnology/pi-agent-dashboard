@@ -12,10 +12,13 @@ import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
+import { useChatMotion } from "../../hooks/useChatMotion.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
+import { ChatMotionContext, type ChatMotionValue } from "../../lib/chat/chat-motion-context.js";
+import { FollowGlide, planBottomPin } from "../../lib/chat/follow-glide.js";
 import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
 import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
 import { collapseRepeatedNotifies } from "../../lib/chat/collapse-repeated-notifies.js";
@@ -33,7 +36,10 @@ import {
   SETTLE_MS,
   shouldAutoLoadHistory,
 } from "../../lib/chat/history-gap.js";
+import { type ArrivalInput, ArrivalTracker, type ArrivalToolRow, BULK_ARRIVAL_LIMIT, NO_ARRIVALS, sameDecision } from "../../lib/chat/live-arrival.js";
 import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
+import { splitTopLevelBlocks } from "../../lib/chat/split-markdown-blocks.js";
+import { usePacedText } from "../../lib/chat/use-paced-text.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
@@ -55,6 +61,8 @@ import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
+import { ChatEnter } from "./ChatEnter.js";
+import { TrailingEdge } from "./TrailingEdge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 
 // D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
@@ -399,6 +407,9 @@ function hasMermaid(content: string): boolean {
 }
 
 const SCROLL_THRESHOLD = 50;
+/** Stable empties for the live-arrival inputs (motion off / no steering). See change: add-fluid-chat-motion. */
+const EMPTY_ARRIVAL_ROWS: readonly ArrivalToolRow[] = [];
+const EMPTY_STEERING_TEXTS: readonly string[] = [];
 
 /**
  * A scroll event whose position is the bottom-pin's own write after a
@@ -515,6 +526,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    */
   const programmaticScrollUntilRef = useRef(0);
   /**
+   * The follow-glide controller (change: add-fluid-chat-motion, D6). Created
+   * lazily next to the virtualizer; declared here so the relocation writers
+   * (`stampProgrammaticScroll`) can cancel an in-flight glide before writing.
+   */
+  const glideRef = useRef<FollowGlide | null>(null);
+  const [glideBusy, setGlideBusy] = useState(false);
+  /**
    * Suppress the scroll events a programmatic write is about to emit.
    *
    * `invalidateIntent` splits two genuinely different kinds of write, and the
@@ -545,6 +563,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    */
   const stampProgrammaticScroll = useCallback(
     (invalidateIntent = true, reason: "pin-bottom" | "jump" = "jump") => {
+      // Every relocating write cancels an in-flight glide BEFORE it writes; a
+      // glide step itself stamps "pin-bottom" and so never cancels itself.
+      if (reason === "jump") glideRef.current?.cancel();
       programmaticScrollUntilRef.current = Date.now() + SETTLE_MS;
       lastProgrammaticScrollRef.current = reason;
       if (reason === "jump") pinnedSnapshotRef.current = null;
@@ -896,10 +917,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const frozenTailTextRef = useRef<string | null>(null);
   // Mirror of the live streamingText read by the freeze effect (keyed on
   // isSelecting only) so per-chunk changes do not re-run the snapshot.
+  // Holds the text the tail currently SHOWS (the paced reveal's output, which is
+  // `state.streamingText` itself when motion is off), so a freeze snapshots what
+  // the user saw. See change: add-fluid-chat-motion (D3).
   const streamingTextRef = useRef("");
-  streamingTextRef.current = state.streamingText;
+  const thinkingContainerRef = useRef<HTMLDivElement>(null);
+  // Whether the live reasoning block is expanded (reported by ThinkingBlock): reveal
+  // inside a collapsed block is out of sight and buys nothing.
+  const [thinkingExpanded, setThinkingExpanded] = useState(true);
   // Effective display prefs for this session (configurable-chat-display).
   const prefs = useDisplayPrefs(sessionId);
+  // Effective motion = pref ∧ ¬reduced-motion ∧ document visible (D8).
+  const effectiveMotion = useChatMotion(prefs);
+  const effectiveMotionRef = useRef(effectiveMotion);
+  effectiveMotionRef.current = effectiveMotion;
   const showDebugTools = prefs.debugTools;
 
   // Per-turn change-summary blocks (change: add-change-summary-table). Derived
@@ -1267,6 +1298,79 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const anchorPrevTopRef = useRef<number | null>(null);
   const anchorPrevScrollTopRef = useRef(0);
 
+  const prevPinSessionRef = useRef(sessionId);
+  const prevPinMessageCountRef = useRef(state.messages.length);
+  if (glideRef.current === null) {
+    glideRef.current = new FollowGlide({
+      getEl: () => scrollRef.current,
+      // Blocked = the glide must end: selection held, motion inactive, follow released.
+      isBlocked: () => isSelectingRef.current || !effectiveMotionRef.current || !stickToBottomRef.current,
+      beforeWrite: () => stampProgrammaticScroll(true, "pin-bottom"),
+      afterWrite: (achieved) => {
+        pinnedSnapshotRef.current = achieved;
+        lastScrollHeightRef.current = achieved.height;
+      },
+      onBusyChange: setGlideBusy,
+    });
+  }
+  /**
+   * The ONE bottom-pin function (change: add-fluid-chat-motion, D6). Both writers
+   * route here:
+   *  - `"live"` — the content/reveal layout effect; may GLIDE (when `opts.glide`
+   *    and the remaining distance ≤ clientHeight), else today's instant write;
+   *  - `"measure"` — the virtualizer `onChange` grow-pin; re-targets an in-flight
+   *    glide only when `opts.guardsPass` and the remaining distance ≤ clientHeight,
+   *    otherwise cancels it and writes instantly.
+   * With no glide in flight and `opts.glide` false this is byte-for-byte the
+   * previous write path (stamp → write → snapshot).
+   */
+  /**
+   * True from render until the end of this commit's layout effects when the
+   * commit is a live, non-bulk growth in a followed session. A row mounting in
+   * that commit is measured (virtualizer `onChange`) BEFORE the content effect
+   * runs, so the measure path needs it to start the glide itself.
+   */
+  const liveGlideEligibleRef = useRef(false);
+  // Assigned IN RENDER on purpose: the measure `onChange` reads it before this commit's layout effects run.
+  liveGlideEligibleRef.current =
+    effectiveMotion &&
+    prevPinSessionRef.current === sessionId &&
+    state.messages.length - prevPinMessageCountRef.current <= BULK_ARRIVAL_LIMIT &&
+    !replayInFlight &&
+    !loadingHistory &&
+    !ascendingRef.current &&
+    !descendingRef.current;
+  const pinBottom = (kind: "live" | "measure", opts: { glide?: boolean; guardsPass?: boolean } = {}) => {
+    const el = scrollRef.current;
+    const glide = glideRef.current;
+    if (!el || !glide) return;
+    const plan = planBottomPin({
+      kind,
+      glideAllowed: kind === "measure" ? liveGlideEligibleRef.current : !!opts.glide,
+      guardsPass: !!opts.guardsPass,
+      glideActive: glide.isActive(),
+      remaining: glide.remaining(),
+      clientHeight: el.clientHeight,
+    });
+    if (plan === "glide") {
+      // Attribute the view's CURRENT position to this follow before any scroll
+      // event for it can land. A row that mounted in this commit may already have
+      // moved `scrollTop` (the virtualizer's above-viewport correction), and that
+      // event arrives a frame later, off the bottom: without a claim it falls
+      // through and releases follow. This is a stamp, not a write.
+      // Position-only claim (height 1): rows mounting in this commit are measured
+      // against estimates, so the extent routinely SHRINKS before the event lands.
+      stampProgrammaticScroll(true, "pin-bottom");
+      pinnedSnapshotRef.current = { top: el.scrollTop, height: 1 };
+      glide.start(); // no-op while a glide already runs: it re-reads its target each frame
+      return;
+    }
+    glide.cancel();
+    stampProgrammaticScroll(true, "pin-bottom");
+    el.scrollTop = el.scrollHeight;
+    pinnedSnapshotRef.current = { top: el.scrollTop, height: el.scrollHeight };
+  };
+
   const virtualizer = useVirtualizer({
     count: displayRows.length,
     getScrollElement: () => scrollRef.current,
@@ -1307,10 +1411,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // is NOT cleared — follow resumes on collapse.
       // A backfill splice grows the content from ABOVE the reading position, so
       // any user inside the near-bottom band would be yanked to the bottom (D6).
-      if (grew && stickToBottomRef.current && !isSelectingRef.current && !spliceSuppressRef.current) {
-        stampProgrammaticScroll(true, "pin-bottom");
-        el.scrollTop = el.scrollHeight;
-        pinnedSnapshotRef.current = { top: el.scrollTop, height: el.scrollHeight };
+      if (grew && stickToBottomRef.current && !isSelectingRef.current && (!spliceSuppressRef.current || glideRef.current?.isActive())) {
+        pinBottom("measure", { guardsPass: !spliceSuppressRef.current });
       }
       // Ascending: re-target index 0 whenever a measurement grows the total
       // size (an above-viewport row mounting/measuring, INCLUDING the async
@@ -1409,7 +1511,52 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // Streaming-tail content: the frozen snapshot while a tail selection is held
   // (buffers chunks; survives the message_end unmount), else the live text.
   // See change: preserve-streaming-tail-selection.
-  const streamingTailText = frozenTailText ?? state.streamingText;
+  //
+  // Paced reveal (change: add-fluid-chat-motion, D3): the answer tail and live
+  // inline reasoning show a prefix of the received text that grows on animation
+  // frames. With motion off (or scroll-locked, hidden, replaying) the hook is a
+  // pass-through, so this is exactly `state.streamingText` as before.
+  const motionLive = effectiveMotion && !replayInFlight && !loadingHistory;
+  const paceFollowing = motionLive && stickToBottomRef.current;
+  const selectionInside = (el: HTMLElement | null): boolean => {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    return !!(
+      sel &&
+      el &&
+      ((sel.anchorNode && el.contains(sel.anchorNode)) || (sel.focusNode && el.contains(sel.focusNode)))
+    );
+  };
+  const revealedTail = usePacedText(state.streamingText, {
+    active: paceFollowing,
+    frozen: effectiveMotion && isSelecting && selectionInside(tailContainerRef.current),
+    isFrozen: () => effectiveMotion && isSelectingRef.current && selectionInside(tailContainerRef.current),
+  });
+  const pacedReasoning = paceFollowing && prefs.reasoning && prefs.reasoningInlineFlow && thinkingExpanded;
+  const revealedThinking = usePacedText(state.streamingThinking, {
+    active: pacedReasoning,
+    // A NEW freeze, only while motion is active (motion off behaves as today).
+    frozen: effectiveMotion && isSelecting && selectionInside(thinkingContainerRef.current),
+    isFrozen: () => effectiveMotion && isSelectingRef.current && selectionInside(thinkingContainerRef.current),
+  });
+  streamingTextRef.current = revealedTail;
+  const streamingTailText = frozenTailText ?? revealedTail;
+  // Soft trailing edge: only while the reveal is paced and unfrozen (no overlay
+  // when inactive, scroll-locked, frozen on a selection, or ended).
+  // Render-cost step 2 (D4): while motion is on, render the tail as parser-derived
+  // top-level blocks so completed blocks skip re-render. Decided by `effectiveMotion`
+  // ALONE (never by following/frozen), so the DOM shape cannot flip mid-stream and
+  // remount a node a selection is anchored in. Motion off → one instance, as today.
+  const tailBlocks = useMemo(
+    () => (effectiveMotion && streamingTailText ? splitTopLevelBlocks(streamingTailText) : null),
+    [effectiveMotion, streamingTailText],
+  );
+  const trailingEdgeOn = paceFollowing && frozenTailText === null && !!state.streamingText;
+  // `data-chat-motion-busy` (design D9 observable): present only while pacing, the
+  // glide or the overlay schedule frames; absent otherwise.
+  const motionBusy =
+    glideBusy ||
+    (trailingEdgeOn && revealedTail.length < state.streamingText.length) ||
+    (pacedReasoning && revealedThinking.length < state.streamingThinking.length);
 
   // Async image-decode re-measure (issue #267). A base64 data-URL decodes after
   // mount, so an image-bearing row is first measured near-zero. The reused
@@ -1453,6 +1600,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // seen cannot be re-attributed to our own write when its event lands.
     lastProgrammaticScrollRef.current = null;
     pinnedSnapshotRef.current = null;
+    // Wheel / touch also ends a follow-glide: the user can always escape mid-flight.
+    glideRef.current?.cancel();
   }, []);
 
   const handleScroll = useCallback(() => {
@@ -1479,7 +1628,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       pinSnapshot.height > 0 &&
       Math.abs(el.scrollTop - pinSnapshot.top) <= 1 &&
       el.scrollHeight >= pinSnapshot.height;
-    const pinHolds = suppressedPinHolds || clampHolds;
+    // A glide step is an attributed bottom-pin that claims the position it
+    // achieved. Matching is by POSITION only: the extent may legitimately shrink
+    // or re-measure between the write and its event, which would defeat the
+    // extent checks above while the view is still exactly where the step put it.
+    // See change: add-fluid-chat-motion (D6).
+    const glideHolds =
+      lastProgrammaticScrollRef.current === "pin-bottom" && glideRef.current?.matches(el.scrollTop) === true;
+    const pinHolds = suppressedPinHolds || clampHolds || glideHolds;
     // SINGLE-USE: the first event tested against the snapshot consumes it,
     // matched or not. Without this a stale snapshot could survive a whole
     // scrollbar-only session and be re-matched by an unrelated event that
@@ -1513,6 +1669,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     } else {
       stickToBottomRef.current = nearBottom;
       setShowScrollButton(!nearBottom);
+      // A fall-through (scrollbar drag, keyboard, find-in-page, …) while gliding
+      // ends the glide before its next step. See change: add-fluid-chat-motion (D6).
+      glideRef.current?.cancel();
     }
     setShowScrollTopButton(!nearTop);
     // Persist scroll position for this session in VIRTUAL coordinates (CR-6):
@@ -1607,6 +1766,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // switch that needs it most.
       lastProgrammaticScrollRef.current = null;
       pinnedSnapshotRef.current = null;
+      // A glide never outlives the session it was chasing.
+      glideRef.current?.cancel();
 
       // Restore incoming session scroll state in virtual coordinates.
       const saved = sessionId ? scrollStateMap.get(sessionId) : undefined;
@@ -1676,6 +1837,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs are read at commit time, never dependencies
   useLayoutEffect(() => {
     const el = scrollRef.current;
+    // Glide eligibility (D6): live growth in the SAME session, non-bulk, motion
+    // active, not replaying / loading / splicing, not mid ascent/descent.
+    const sameSession = prevPinSessionRef.current === sessionId;
+    prevPinSessionRef.current = sessionId;
+    const bulk = state.messages.length - prevPinMessageCountRef.current > BULK_ARRIVAL_LIMIT;
+    prevPinMessageCountRef.current = state.messages.length;
+    const glideOk =
+      effectiveMotionRef.current &&
+      sameSession &&
+      !bulk &&
+      !replayInFlight &&
+      !loadingHistory &&
+      !spliceSuppressRef.current &&
+      !ascendingRef.current &&
+      !descendingRef.current;
     // Read BOTH clocks (D6). The `isSelecting` STATE crosses a queueMicrotask
     // AND a render, so on the first frame of a drag it is still false while the
     // synchronous ref already knows — and a chunk landing in that window would
@@ -1684,18 +1860,36 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // this effect on the → false edge so follow resumes with no new content.
     if (isSelecting || isSelectingRef.current) {
       wasSelectingRef.current = true;
+      glideRef.current?.cancel(); // a selection start ends the glide
       return;
     }
     const resumedFromSelection = wasSelectingRef.current;
     wasSelectingRef.current = false;
     if (resumedFromSelection && el) lastScrollHeightRef.current = el.scrollHeight;
     if (stickToBottomRef.current && el) {
-      stampProgrammaticScroll(true, "pin-bottom");
-      el.scrollTop = el.scrollHeight;
-      pinnedSnapshotRef.current = { top: el.scrollTop, height: el.scrollHeight };
+      pinBottom("live", { glide: glideOk });
       lastScrollHeightRef.current = el.scrollHeight;
     }
-  }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering, isSelecting]);
+  }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering, isSelecting, revealedTail.length, revealedThinking.length]);
+
+  // Eligibility is per COMMIT: clear it once this commit's layout effects have run.
+  useLayoutEffect(() => {
+    liveGlideEligibleRef.current = false;
+  });
+
+  // Motion turning inactive (pref off, reduced motion, document hidden) cancels an
+  // in-flight glide with ONE instant pin, so the view lands where the instant
+  // writer would have put it. See change: add-fluid-chat-motion (D6).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs read at commit time
+  useLayoutEffect(() => {
+    if (effectiveMotion) return;
+    const glide = glideRef.current;
+    if (!glide?.isActive()) return;
+    glide.cancel();
+    const el = scrollRef.current;
+    if (el && stickToBottomRef.current && !isSelectingRef.current) pinBottom("live");
+  }, [effectiveMotion]);
+  useEffect(() => () => glideRef.current?.cancel(), []);
 
   // Anchor the viewport to the selection's drag-origin row while a selection is
   // held (change: anchor-chat-selection-against-row-growth, D1/D3/D5).
@@ -1801,6 +1995,51 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     },
   }), [turnToFirstRowIndex, virtualizer, stampProgrammaticScroll]);
 
+  // ── Live-arrival detection (change: add-fluid-chat-motion, D2) ──────────────
+  // The decision is a READ in render; the commit is recorded in a layout effect
+  // after the commit lands (whether or not a row is mounted), so StrictMode
+  // double-render is stable and an off-screen arrival never animates later.
+  const arrivalTrackerRef = useRef<ArrivalTracker | null>(null);
+  if (arrivalTrackerRef.current === null) arrivalTrackerRef.current = new ArrivalTracker();
+  const arrivalTracker = arrivalTrackerRef.current;
+  // Unfiltered tool rows (display filters never make an id "new"). Built only
+  // while motion is active, so the motion-off cost is exactly today's.
+  const arrivalToolRows = useMemo<readonly ArrivalToolRow[]>(
+    () =>
+      effectiveMotion
+        ? state.messages
+            .filter((m) => m.role === "toolResult")
+            .map((m) => ({ id: m.toolCallId ?? m.id, running: m.toolStatus === "running" }))
+        : EMPTY_ARRIVAL_ROWS,
+    [effectiveMotion, state.messages],
+  );
+  const arrivalInput: ArrivalInput = {
+    sessionId,
+    toolRows: arrivalToolRows,
+    hasPendingPrompt: !!state.pendingPrompt,
+    hasTail: !!streamingTailText,
+    hasThinking: !!(state.streamingThinking && prefs.reasoning),
+    steering: pendingSteering ?? EMPTY_STEERING_TEXTS,
+    motionActive: effectiveMotion,
+    replayAware: replayInFlight !== undefined,
+    following: stickToBottomRef.current,
+    selecting: isSelectingRef.current,
+    replayInFlight: !!replayInFlight,
+    loadingHistory: !!loadingHistory,
+  };
+  const arrival = effectiveMotion ? arrivalTracker.decide(arrivalInput) : NO_ARRIVALS;
+  const motionValueRef = useRef<ChatMotionValue & { decision: typeof arrival }>({ enteringToolIds: arrival.enteringToolIds, cueAllowed: arrival.cueAllowed, decision: arrival });
+  if (!sameDecision(motionValueRef.current.decision, arrival)) {
+    motionValueRef.current = { enteringToolIds: arrival.enteringToolIds, cueAllowed: arrival.cueAllowed, decision: arrival };
+  }
+  const arrivalInputRef = useRef(arrivalInput);
+  arrivalInputRef.current = arrivalInput;
+  // Recorded after EVERY commit: cheap when nothing changed (identity checks),
+  // and the only way an off-screen arrival is guaranteed to be seen.
+  useLayoutEffect(() => {
+    arrivalTracker.commit(arrivalInputRef.current);
+  });
+
   return (
     // Key by sessionId so switching sessions (ChatView is reused, not remounted)
     // resets the hoisted preview — a preview open in session A never leaks into B.
@@ -1818,13 +2057,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         `scroll-behavior: smooth` here or on an ancestor — smooth would animate
         each synchronous measurement correction and race the next, reintroducing
         the scroll-to-top drift. See change: fix-chat-scroll-to-top-estimate-drift. */}
-    <div ref={scrollRef} onScroll={handleScroll} onCopy={handleCopy} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
+    <div ref={scrollRef} onScroll={handleScroll} onCopy={handleCopy} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" data-chat-motion-busy={motionBusy ? "" : undefined} className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
       {/* Windowed historical rows (TanStack Virtual): only viewport + overscan
           are mounted. The spacer reserves getTotalSize(); each row is absolutely
           positioned + re-measured on mount. chat-cv-skip keeps Step A's
           content-visibility off the spacer (windowing supersedes it). Bottom-pin
           + scroll-lock stay on the DOM scroll machine (CR-1). See change:
           virtualize-chat-transcript-tanstack. */}
+      <ChatMotionContext.Provider value={motionValueRef.current}>
       <div className="chat-cv-skip" style={{ position: "relative", width: "100%", height: totalSize }}>
         {virtualItems.map((vi) => {
           const item: BurstItem = displayRows[vi.index];
@@ -2147,21 +2387,23 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           );
         })}
       </div>
+      </ChatMotionContext.Provider>
 
       {/* Streaming thinking. `chat-cv-skip` opts the live tail out of the
           content-visibility optimization so it is never skipped. See change:
           reduce-chat-render-cpu-umbrella (Phase 2, task 4.2). */}
       {state.streamingThinking && prefs.reasoning && (
-        <div className="chat-cv-skip">
+        <ChatEnter ref={thinkingContainerRef} entering={arrival.thinking} className="chat-cv-skip">
           <ThinkingBlock
-            content={state.streamingThinking}
+            content={revealedThinking}
+            onExpandedChange={setThinkingExpanded}
             isStreaming
             defaultExpanded
             startedAt={state.thinkingStartedAt}
             onUserCollapse={onCollapseStreamingThinking}
             inlineFlow={prefs.reasoningInlineFlow}
           />
-        </div>
+        </ChatEnter>
       )}
 
       {/* Streaming text — carries the same liveness cue as a running group
@@ -2171,14 +2413,25 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           held (buffering chunks + surviving the message_end unmount), else the
           live streamingText. See change: preserve-streaming-tail-selection. */}
       {streamingTailText && (
-        <div ref={tailContainerRef} className="flex justify-start chat-cv-skip">
+        <ChatEnter ref={tailContainerRef} entering={arrival.tail} className="flex justify-start chat-cv-skip">
           <div ref={streamFxRef} className={`chat-stream-live bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${hasMermaid(streamingTailText) ? bubbleWide : bubbleMax}`}>
-            <MarkdownContent content={streamingTailText} context={toolContext} />
+            {tailBlocks ? (
+              <div className="markdown-split">
+                {tailBlocks.map((block, i) => (
+                  // Index keys are stable: blocks only append, and a completed block's text never changes.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: append-only parser blocks
+                  <MarkdownContent key={i} content={block} context={toolContext} />
+                ))}
+              </div>
+            ) : (
+              <MarkdownContent content={streamingTailText} context={toolContext} />
+            )}
+            {trailingEdgeOn && <TrailingEdge text={revealedTail} revealing={revealedTail.length < state.streamingText.length} />}
             {state.streamingText && (
               <span className="inline-block w-1.5 h-4 bg-[var(--bg-surface)] animate-pulse ml-0.5" />
             )}
           </div>
-        </div>
+        </ChatEnter>
       )}
 
       {/* Retry banner + Error banner replaced by the unified SessionBanner
@@ -2204,7 +2457,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           — pi exposes no queue-mutation API to extensions. See change:
           honest-mid-turn-queue-surface. */}
       {pendingSteering && pendingSteering.length > 0 && pendingSteering.map((steerText, idx) => (
-        <div key={`pending-steer-${idx}-${steerText.slice(0, 16)}`} data-testid="pending-steer-card" className="mt-4 mb-4 flex justify-end chat-cv-skip">
+        <ChatEnter key={`pending-steer-${idx}-${steerText.slice(0, 16)}`} entering={arrival.steering[idx] ?? false} data-testid="pending-steer-card" className="mt-4 mb-4 flex justify-end chat-cv-skip">
           <div className={`relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
             <div className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider text-blue-400/80 font-medium">
               <Icon path={mdiLoading} size={0.45} className="animate-spin" />
@@ -2212,7 +2465,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             </div>
             <MarkdownContent content={steerText} />
           </div>
-        </div>
+        </ChatEnter>
       ))}
 
       {/* Grouped multi-ask panel: concurrently-pending free-floating asks
@@ -2230,7 +2483,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           card can never co-exist with a mid-turn queue chip.
           See change: optimistic-prompt-progress. */}
       {state.pendingPrompt && (
-        <div data-testid="pending-prompt-card" data-status={state.pendingPrompt.status} className="mt-4 mb-4 flex justify-end">
+        <ChatEnter entering={arrival.pendingPrompt} data-testid="pending-prompt-card" data-status={state.pendingPrompt.status} className="mt-4 mb-4 flex justify-end">
           <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax} ${state.pendingPrompt.status === "sending" ? "opacity-60 prompt-sending-fx prompt-edge-pulse" : ""}`}>
             {state.pendingPrompt.images && state.pendingPrompt.images.length > 0 && (
               <ImageAttachments images={state.pendingPrompt.images} sessionId={sessionId} />
@@ -2302,7 +2555,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               </div>
             )}
           </div>
-        </div>
+        </ChatEnter>
       )}
 
       {/*
