@@ -80,3 +80,5 @@ Runtime plugins: build-time route descriptors kept as `_buildTimeRoutes` (the ba
 - Mounts `TerminalLimitNotice inline` above the chat view. See change: harden-server-capability-bounds.
 
 - Mounts `ProvisionPromptHost` beside `GrantPromptHost` in both returns (provisioning dialog; capability owned by the grant host). See change: add-access-provisioning.
+
+See change: add-composer-dock (8.1, 8.3) — `renderSessionDetail` mounts `<ComposerDockHost>` (lanes + Processes) inside the `!readOnly` gate right after `composer-stack-anchor`, replacing `composer-context-strip`, `StatusBar`, `QueuePanel`, `YoloComposerStrip`, `ComposerSessionActions` and `StatusBarRefreshButton`. `useDockAccordion(liveSelectedId)` owns `openLane` (reset on selection change; a frozen underlay passes `null` + noop). `columnEl` = anchor's parent (chat pane). Show → `chatViewRef.scrollToTool`; Kill → `handleKillProcess`; Queue → `edit/remove/promoteFollowUpEntry` + `clearFollowUpEntries("all")`; Review/file rows → `buildSessionDiffUrl`. `SessionHeader` gets `sendDisplayPrefs` (not for read-only) so `ChatViewMenu` lives in the header.

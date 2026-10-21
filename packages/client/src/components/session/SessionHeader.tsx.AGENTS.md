@@ -13,3 +13,5 @@ Mounts `<PiBelowFloorWarning>` next to `pi <version>` (desktop) and as a row in 
 Mobile attached chip shows `AttachmentTrace` (archived/missing/main-checkout), read-only. See change: resolve-archived-attached-proposal.
 
 - Mounts `VaultBindingsChip` (desktop + mobile). See change: add-credential-vault.
+
+- Mounts the lazy `ChatViewMenu` (`⚙ View`) immediately after `LayoutModeSwitch` (desktop + mobile) via `HeaderViewMenu`; new optional prop `sendDisplayPrefs` (`setSessionDisplayPrefs` transport) — omitted for read-only archived views → no menu. Popover opens toward the side with more room (downward here). Move performed by add-composer-dock (reorganize-session-header had not landed it). See change: add-composer-dock (8.3).

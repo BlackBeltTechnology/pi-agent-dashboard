@@ -2,7 +2,8 @@ import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/Lay
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useRef, useState } from "react";
+import type React from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
@@ -27,6 +28,26 @@ import { TagEditor } from "../tags/TagEditor.js";
 import { CountBadges } from "./CountBadges.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { VaultBindingsChip } from "./VaultBindingsChip.js";
+
+// Per-session View popover: its own chunk, off the entry gzip cap. It lived in the
+// composer context strip before the dock replaced it. See change: add-composer-dock (task 8.3),
+// add-set-global-view.
+const ChatViewMenu = lazy(() =>
+  import("../chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
+);
+
+/** Sends one `setSessionDisplayPrefs` message (the `ChatViewMenu` transport). */
+type SendDisplayPrefs = React.ComponentProps<typeof ChatViewMenu>["send"];
+
+/** `⚙ View` menu, right after the layout switch. Renders only for a session that can send prefs. */
+function HeaderViewMenu({ session, send }: { session: DashboardSession; send: SendDisplayPrefs | undefined }) {
+  if (!send) return null;
+  return (
+    <Suspense fallback={null}>
+      <ChatViewMenu sessionId={session.id} currentOverride={session.displayPrefsOverride ?? undefined} send={send} />
+    </Suspense>
+  );
+}
 
 interface Props {
   session?: DashboardSession;
@@ -64,6 +85,9 @@ interface Props {
    *  scroll + flash). Desktop-only button; hidden on mobile. When omitted
    *  the button does not render. See change: add-seek-to-session-card. */
   onSeekToCard?: () => void;
+  /** Transport for the per-session `⚙ View` menu, mounted right after the layout
+   *  switch. Omitted → no menu (read-only archived view). See change: add-composer-dock. */
+  sendDisplayPrefs?: SendDisplayPrefs;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     openspecChanges?: OpenSpecChange[];
@@ -188,7 +212,7 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
 }
 
 /** Mobile header: back + name + attach icon + kebab */
-function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, onCancelRename, canRename, onStartRename, mobileActions, onReadArtifact }: {
+function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, onCancelRename, canRename, onStartRename, mobileActions, onReadArtifact, sendDisplayPrefs }: {
   session: DashboardSession;
   showBack?: boolean;
   onBack?: () => void;
@@ -199,6 +223,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
   onStartRename: () => void;
   mobileActions?: SessionHeaderMobileActions;
   onReadArtifact?: (changeName: string, artifactId: string) => void;
+  sendDisplayPrefs?: SendDisplayPrefs;
 }) {
   // Look up the attached change in the polled openspecChanges list. When
   // present, render the artifact-letters pill + task counter inside the
@@ -246,6 +271,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
       )}
       {/* Layout-mode switch (Chat│Split│Editor; no-op without a split provider). */}
       <LayoutModeSwitch />
+      <HeaderViewMenu session={session} send={sendDisplayPrefs} />
       {mobileActions && (
         <MobileActionMenu
           session={session}
@@ -334,7 +360,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard }: Props) {
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags, onSeekToCard, sendDisplayPrefs }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -401,6 +427,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         onStartRename={() => setIsRenaming(true)}
         mobileActions={mobileActions}
         onReadArtifact={onReadArtifact}
+        sendDisplayPrefs={sendDisplayPrefs}
       />
     );
   }
@@ -462,6 +489,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           dropped from the header (both already render on the session card); the
           pi version segment below is kept as the only per-session pi surface. */}
       <LayoutModeSwitch />
+      {session && <HeaderViewMenu session={session} send={sendDisplayPrefs} />}
       {onSeekToCard && (
         <button
           type="button"

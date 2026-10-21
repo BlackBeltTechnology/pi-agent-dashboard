@@ -241,7 +241,7 @@ Then the copilot writes `-notes.md` (the one-shot write path is granted through 
 - Compatibility: additive slot; existing folder pages and the invalid-page fallback unchanged for plugins without the claim. Rollback: drop the slot and the nav group; voice-assistant falls back to a global-section folder selector.
 
 **D22. Composer toolbar action slot (core seam).**
-- New slot `composer-toolbar-action` in `CommandInput`'s input-row trailing cluster, before the inline terminal + morphing send/stop button. Props `{ pluginContext, sessionId, sessionStatus, draft, composer }`; claim requires `ariaLabel`.
+- New slot `composer-toolbar-action` in `CommandInput`'s composer toolbar row, directly before the action cluster (morphing send/stop button); never folds into `＋`. Props `{ pluginContext, sessionId, sessionStatus, draft, composer }`; claim requires `ariaLabel`.
 - `composer` handle = bounded writes: `insertAtCursor`, `snapshot`/`restore`, `submit` (honours `Steer | Queue`). No arbitrary replace. Handle inert after unmount/session switch.
 - Never displaced: visible with text, attachments, or while working; not folded into `⋯` at narrow width; 44 px target narrow.
 - Why: every surveyed chat UI (ChatGPT, Codex, Cursor, VS Code Copilot Chat, claude.ai) puts the mic in the composer next to send, inserting into the draft. Their reported bugs — mic hidden with text/attachments (claude.ai), replaced by stop while agent runs (Cursor), "recording" before audio flows (Codex) — become requirements here.

@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, expandQueueLane, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E for change: update-pi-core-1-3-adopt-apis (design D4).
@@ -22,8 +22,9 @@ async function selectedSessionId(page: import("@playwright/test").Page): Promise
   return id as string;
 }
 
+/** POST a prompt, then open the dock's Queue lane (the chips live in its body). */
 async function postFollowUp(page: import("@playwright/test").Page, sessionId: string, text: string): Promise<number> {
-  return page.evaluate(
+  const status = await page.evaluate(
     async ([id, body]) => {
       const r = await fetch(`/api/session/${id}/prompt`, {
         method: "POST",
@@ -34,6 +35,8 @@ async function postFollowUp(page: import("@playwright/test").Page, sessionId: st
     },
     [sessionId, { text }] as const,
   );
+  await expandQueueLane(page);
+  return status;
 }
 
 /** Spawn a session, select it and drive it into a streaming turn. */

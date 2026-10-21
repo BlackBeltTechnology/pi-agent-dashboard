@@ -431,11 +431,13 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
     await expect(row).toHaveAttribute("data-yolo", "scoped");
     await expect(page.getByTestId("yolo-pill")).toHaveCount(0);
 
-    // #F5: sidebar not rendered (mobile session view), the composer strip still says so.
+    // #F5: sidebar not rendered (mobile session view), the composer dock's YOLO footer
+    // (`yolo-composer-strip`, one line above the card) still says so. See change: add-composer-dock.
     await page.getByTestId("session-card-desktop").first().click();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByTestId("yolo-composer-strip").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("yolo-composer-strip").first()).toContainText(/\d+:\d\d/);
+    await expect(page.getByTestId("composer-dock").locator('[data-testid="yolo-composer-strip"]')).toHaveCount(1);
     await expect(page.getByTestId("yolo-session-indicator")).toHaveCount(0);
 
     // End it from the Access page.

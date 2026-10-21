@@ -8,8 +8,8 @@
  * member.
  */
 import { describe, expect, it } from "vitest";
+import type { ProcessGroupSummary, SlotPropsMap } from "../slot-props.js";
 import { SLOT_DEFINITIONS, type SlotId, type SlotPredicateInput } from "../slot-types.js";
-import type { SlotPropsMap } from "../slot-props.js";
 
 describe("composer-context-group slot taxonomy", () => {
   it("is a `many`, react-only slot", () => {
@@ -63,5 +63,43 @@ describe("custom-entry-renderer slot taxonomy (change: add-custom-entry-renderer
     };
     expect(props.customType).toBe("om.observations.recorded");
     expect(props.expanded).toBe(false);
+  });
+});
+
+describe("composer-dock-process-group slot taxonomy (change: add-composer-dock)", () => {
+  it("is a `many`, react-only slot", () => {
+    expect(SLOT_DEFINITIONS["composer-dock-process-group"].multiplicity).toBe("many");
+    expect(SLOT_DEFINITIONS["composer-dock-process-group"].payloadTier).toBe("react-only");
+  });
+
+  it("is a member of the SlotId union", () => {
+    const id: SlotId = "composer-dock-process-group";
+    expect(id).toBe("composer-dock-process-group");
+  });
+
+  it("is session-scoped: predicate input resolves to DashboardSession | null | undefined", () => {
+    const session: SlotPredicateInput<"composer-dock-process-group"> = {
+      id: "s1", cwd: "/repo", source: "tui", status: "active", startedAt: 0,
+    };
+    const none: SlotPredicateInput<"composer-dock-process-group"> = null;
+    const unset: SlotPredicateInput<"composer-dock-process-group"> = undefined;
+    // @ts-expect-error — a folder descriptor is not a session predicate input.
+    const bad: SlotPredicateInput<"composer-dock-process-group"> = { cwd: "/x" };
+    expect([session.id, none, unset, bad]).toEqual(["s1", null, undefined, { cwd: "/x" }]);
+  });
+
+  it("declares session + pluginContext + mode + reportSummary props", () => {
+    const reported: Array<ProcessGroupSummary | null> = [];
+    const props: SlotPropsMap["composer-dock-process-group"] = {
+      session: { id: "s1", cwd: "/repo", source: "tui", status: "active", startedAt: 0 },
+      pluginContext: {},
+      mode: "summary",
+      reportSummary: (summary) => { reported.push(summary); },
+    };
+    props.reportSummary({ count: 2, noun: "subagents" });
+    props.reportSummary(null);
+    expect(reported).toEqual([{ count: 2, noun: "subagents" }, null]);
+    const rows: SlotPropsMap["composer-dock-process-group"]["mode"] = "rows";
+    expect(rows).toBe("rows");
   });
 });

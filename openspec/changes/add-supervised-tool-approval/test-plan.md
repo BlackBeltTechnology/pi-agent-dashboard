@@ -110,7 +110,7 @@ Harness note: L3 rows run against the docker harness port from `.pi-test-harness
 | F20 | Deny with a reason reaches agent | state-transition | L3 | automated | pending `bash` card | Deny with reason `use a dry run` | tool row reason `supervised: denied — operator said: "use a dry run"` |
 | F21 | Abort withdraws pending card everywhere | state-transition | L3 | automated | pending card in two contexts | abort turn (Esc / abort button) | card cancelled in both; tool row reason `supervised: aborted`; no late allow |
 | F22 | Settings section bounds + undercut warning | EP + BVA | L3 | automated | Security tab section | enter 9, 3601, 10; set ask_user timeout 30 with supervised 120 | 9/3601 show field error, save disabled; 10 saves; undercut → warning visible stating effective 29 s |
-| F23 | Chip folds into ⋯ on narrow container | convergence | L3 | automated | viewport 375 px | open composer | mode control absent from settings row, present inside ⋯ menu with both options |
+| F23 | Chip folds into `＋` on narrow container | convergence | L3 | automated | viewport 375 px | open composer | mode control absent from the toolbar, present inside the `＋` menu with both options |
 
 ### Error-handling
 

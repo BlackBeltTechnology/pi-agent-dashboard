@@ -50,6 +50,14 @@ export const catalog = {
     agentError: "错误：",
     agentAborted: "已中止（超出最大回合数）",
     agentStopped: "已停止",
+    // SubagentDockGroup (composer dock Processes lane). en = call-site fallback.
+    dockNounSubagents: "子代理",
+    dockNounSubagentOne: "子代理",
+    dockSteps: "{count} 步",
+    dockStepOne: "{count} 步",
+    dockPending: "待处理",
+    dockOpen: "打开",
+    dockOpenSubagent: "打开子代理 {name}：{task}",
   },
   hu: {
     subagentNotFound: "Nem található alügynök ebben a munkamenetben.",
@@ -90,5 +98,12 @@ export const catalog = {
     agentError: "Hiba:",
     agentAborted: "Megszakítva (max. körök túllépve)",
     agentStopped: "Leállítva",
+    dockNounSubagents: "alügynök",
+    dockNounSubagentOne: "alügynök",
+    dockSteps: "{count} lépés",
+    dockStepOne: "{count} lépés",
+    dockPending: "függőben",
+    dockOpen: "Megnyitás",
+    dockOpenSubagent: "Alügynök megnyitása: {name} — {task}",
   },
 };

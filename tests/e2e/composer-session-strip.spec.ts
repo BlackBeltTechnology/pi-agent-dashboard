@@ -3,10 +3,11 @@
  * redesign-composer-session-strip. Rendered-UI behaviour jsdom cannot assert:
  *
  *   #F8  empty Status group hides via `[data-group]:has(> [data-group-content]:empty)`
- *   #F9  groups wrap inside themselves, never overflow the strip
- *   #F10 the send button follows the draft's bottom edge, stays ≥ 44×44
- *   #F11 the `@[44rem]` settings-row fold vs the longest model id
+ *   #F9  the Changes lane (the git group's successor) stays inside the dock, its actions unclipped
+ *   #F10 the action button sits at the toolbar's trailing end, below the draft, stays ≥ 44×44
+ *   #F11 the `@[26.25rem]` toolbar fold vs the longest model id (add-composer-dock)
  *   #F12 the composer lifecycle bar is in letters mode; the card bar keeps labels
+ *   #F19 the card border is the one focus indicator (add-composer-dock)
  *
  * A SYNTHETIC bridge drives the session (exemplar: `host-pressure-badge.spec.ts`):
  * it registers under the pre-trusted `FIXTURE_GIT` and pushes a worktree +
@@ -17,6 +18,7 @@
 
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
+import { colorDistance, contrastRatio, resolveColor } from "./helpers/computed-contrast.js";
 import { FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
@@ -156,44 +158,36 @@ test.describe("composer session strip (L3)", () => {
     }
   });
 
-  test("#F9: groups wrap without overflowing the strip; the label keeps the first item's top edge", async ({ page }) => {
+  test("#F9: the Changes lane stays inside the dock at 1440 / 700 / 420 px and its actions are never clipped", async ({ page }) => {
     await gotoDashboard(page);
     await ensurePinned(page);
     const b = await connectBridge(page, "f9");
     try {
       await openComposer(page, b.sessionId);
       pushWorktreeWithPr(b);
-      const strip = page.getByTestId("composer-session-actions");
-      await expect(page.getByTestId("composer-git-group").getByTestId("worktree-pr-segment")).toBeVisible({ timeout: 20_000 });
+      const dock = page.getByTestId("composer-dock");
+      const lane = page.getByTestId("composer-git-container");
+      await expect(lane.getByTestId("worktree-pr-segment")).toBeVisible({ timeout: 20_000 });
+      await expect(lane.getByTestId("composer-git-identity")).toBeVisible();
 
+      // Lane headers truncate (title, then meta) instead of wrapping; the actions are `flex-none`.
       for (const width of [1440, 700, 420]) {
-        await strip.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-        const { scrollWidth, clientWidth } = await strip.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
-        expect(scrollWidth, `strip overflow at ${width}px`).toBeLessThanOrEqual(clientWidth);
-        const stripBox = await box(strip);
-        const gitBox = await box(page.getByTestId("composer-git-container"));
-        expect(gitBox.x + gitBox.width, `git group escapes the strip at ${width}px`).toBeLessThanOrEqual(stripBox.x + stripBox.width + 1);
+        await dock.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; (el as HTMLElement).style.flex = "none"; }, width);
+        const { scrollWidth, clientWidth } = await dock.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+        expect(scrollWidth, `dock overflows horizontally at ${width}px`).toBeLessThanOrEqual(clientWidth);
+        const dockBox = await box(dock);
+        const laneBox = await box(lane);
+        expect(laneBox.x + laneBox.width, `Changes lane escapes the dock at ${width}px`).toBeLessThanOrEqual(dockBox.x + dockBox.width + 1);
+        const actions = await box(lane.getByTestId("composer-git-group"));
+        expect(actions.x + actions.width, `Changes actions clipped at ${width}px`).toBeLessThanOrEqual(dockBox.x + dockBox.width + 1);
+        expect(actions.x, `Changes actions start inside the dock at ${width}px`).toBeGreaterThanOrEqual(dockBox.x - 1);
       }
-
-      // At 420 px the Git content wraps INSIDE its container…
-      // Segments sit inside WorktreeActionsMenu's `display:contents` root, so
-      // collect laid-out boxes through it.
-      const tops = await page.getByTestId("composer-git-group").evaluate((el) =>
-        Array.from(el.querySelectorAll(":scope > *, :scope > [data-testid='worktree-actions-menu'] > *"))
-          .filter((c) => (c as HTMLElement).getBoundingClientRect().width > 0)
-          .map((c) => Math.round((c as HTMLElement).getBoundingClientRect().top)),
-      );
-      expect(new Set(tops).size, "git content should wrap onto >1 line at 420px").toBeGreaterThan(1);
-      // …and the label stays beside the first item.
-      const label = await box(page.getByTestId("composer-git-group-label"));
-      const first = await box(page.getByTestId("composer-git-identity"));
-      expect(Math.abs(label.y - first.y)).toBeLessThanOrEqual(2);
     } finally {
       b.close();
     }
   });
 
-  test("#F10: the action button follows the draft's bottom edge and stays ≥ 44×44", async ({ page }) => {
+  test("#F10: the action button ends the toolbar row below the draft and stays ≥ 44×44", async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 900 });
     await gotoDashboard(page);
     await ensurePinned(page);
@@ -207,16 +201,21 @@ test.describe("composer session strip (L3)", () => {
         await textarea.dispatchEvent("input");
         const ta = await box(textarea);
         const btn = await box(send);
-        expect(Math.abs(ta.y + ta.height - (btn.y + btn.height)), `bottom edges for ${JSON.stringify(draft)}`).toBeLessThanOrEqual(2);
+        const card = await box(page.getByTestId("composer-card"));
+        // Below the textarea's last line, at the card's bottom-right (add-composer-dock D7).
+        expect(btn.y, `button is below the textarea for ${JSON.stringify(draft)}`).toBeGreaterThanOrEqual(ta.y + ta.height - 1);
+        expect(btn.y + btn.height, "button stays inside the card").toBeLessThanOrEqual(card.y + card.height + 1);
+        expect(card.x + card.width - (btn.x + btn.width), "button hugs the card's right edge").toBeLessThanOrEqual(24);
         expect(btn.width).toBeGreaterThanOrEqual(44);
         expect(btn.height).toBeGreaterThanOrEqual(44);
+        await expect(page.getByTestId("composer-settings-row").getByTestId("send-button")).toBeVisible();
       }
     } finally {
       b.close();
     }
   });
 
-  test("#F11: the @[44rem] fold holds with the longest model id selected", async ({ page }) => {
+  test("#F11: the 26.25rem fold holds with the longest model id selected", async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 900 });
     await gotoDashboard(page);
     await ensurePinned(page);
@@ -224,14 +223,10 @@ test.describe("composer session strip (L3)", () => {
     try {
       await openComposer(page, b.sessionId);
       const card = page.getByTestId("composer-card");
-      // Wide composer: the terminal chip shares the delivery control's height and radius.
-      const row0 = page.getByTestId("composer-settings-row");
-      const chipStyle = (l: Locator) =>
-        l.evaluate((el) => ({ h: el.getBoundingClientRect().height, r: getComputedStyle(el).borderTopLeftRadius }));
-      const term = row0.getByTestId("open-inline-terminal-button");
-      await expect(term).toBeVisible();
-      expect(await chipStyle(term)).toEqual(await chipStyle(row0.getByTestId("delivery-control")));
-      await expect(term).toHaveAccessibleName("Open inline terminal");
+      const row = page.getByTestId("composer-settings-row");
+      const delivery = row.getByTestId("delivery-control");
+      await expect(delivery).toHaveAccessibleName(/Delivery mode: Steer/);
+      await expect(page.getByTestId("overflow-button")).toHaveCount(0);
 
       const setContentWidth = (delta: number) =>
         card.evaluate((el, d) => {
@@ -240,19 +235,21 @@ test.describe("composer session strip (L3)", () => {
           const chrome = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
             .map((k) => parseFloat(cs[k as keyof CSSStyleDeclaration] as string) || 0)
             .reduce((a, v) => a + v, 0);
-          (el as HTMLElement).style.width = `${44 * rem + d + chrome}px`;
+          (el as HTMLElement).style.width = `${26.25 * rem + d + chrome}px`;
           (el as HTMLElement).style.flex = "none";
         }, delta);
 
       await setContentWidth(1);
-      await expect(page.getByTestId("overflow-button")).toBeHidden();
-      await expect(page.getByTestId("composer-settings-row").getByTestId("delivery-control")).toBeVisible();
-      const row = page.getByTestId("composer-settings-row");
-      const { scrollWidth, clientWidth } = await row.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
-      expect(scrollWidth, `settings row overflows at 44rem+1px with ${LONGEST.id}`).toBeLessThanOrEqual(clientWidth);
+      await expect(delivery).toBeVisible();
+      const wide = await row.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+      expect(wide.scrollWidth, `toolbar overflows at 26.25rem+1px with ${LONGEST.id}`).toBeLessThanOrEqual(wide.clientWidth);
 
       await setContentWidth(-1);
-      await expect(page.getByTestId("overflow-button")).toBeVisible();
+      await expect(delivery).toBeHidden();
+      const narrow = await row.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+      expect(narrow.scrollWidth, `toolbar overflows at 26.25rem-1px with ${LONGEST.id}`).toBeLessThanOrEqual(narrow.clientWidth);
+      await page.getByTestId("attach-button").click();
+      await expect(page.getByTestId("attach-menu").getByTestId("delivery-steer")).toBeVisible();
     } finally {
       b.close();
     }
@@ -307,6 +304,47 @@ test.describe("composer session strip (L3)", () => {
       if ((await box(cardBar)).width >= 250) {
         await expect(cardBar.getByTestId("stepper-segment-proposal").locator(".openspec-seg-full")).toBeVisible();
       }
+    } finally {
+      b.close();
+    }
+  });
+
+  test("#F19: focusing the textarea turns the card border to the focus colour (≥ 3:1); the textarea draws no ring", async ({ page }) => {
+    await page.setViewportSize({ width: 1500, height: 900 });
+    await gotoDashboard(page);
+    await ensurePinned(page);
+    const b = await connectBridge(page, "f19");
+    try {
+      await openComposer(page, b.sessionId);
+      const card = page.getByTestId("composer-card");
+      const textarea = card.locator("textarea").first();
+      await textarea.focus();
+      await expect(textarea).toBeFocused();
+
+      const accent = await resolveColor(page, "var(--accent)");
+      const border = (): Promise<number[]> =>
+        card.evaluate((el) => {
+          const cv = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+          cv.fillStyle = "#000";
+          cv.fillStyle = getComputedStyle(el).borderTopColor;
+          cv.fillRect(0, 0, 1, 1);
+          const d = cv.getImageData(0, 0, 1, 1).data;
+          return [d[0], d[1], d[2]];
+        });
+      // The border transitions (`transition-colors`): poll to the settled colour.
+      await expect.poll(async () => colorDistance(await border(), accent), { timeout: 5_000 }).toBeLessThanOrEqual(1);
+
+      // Non-text contrast of the focused border against the surface around the card.
+      const surface = await resolveColor(page, "var(--bg-primary)");
+      expect(contrastRatio(await border(), surface), "focused card border vs surrounding surface").toBeGreaterThanOrEqual(3);
+
+      // ONE focus indicator: the textarea itself draws no outline and no box-shadow ring.
+      const ring = await textarea.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { outlineStyle: cs.outlineStyle, outlineWidth: Number.parseFloat(cs.outlineWidth) || 0, boxShadow: cs.boxShadow };
+      });
+      expect(ring.outlineStyle === "none" || ring.outlineWidth === 0, `textarea outline: ${JSON.stringify(ring)}`).toBe(true);
+      expect(ring.boxShadow, "textarea box-shadow").toBe("none");
     } finally {
       b.close();
     }

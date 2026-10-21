@@ -73,8 +73,8 @@ an in-dashboard Allow once / Deny prompt.
   PromptBus" (design `D17`).
 - **Unclassified tools run** — allow-first: only the configured set is gated; tool
   annotations are ignored; unclassified tools are logged (design `D2`).
-- **Per-session mode toggle** — a Full access ↔ Supervised chip in the composer settings
-  row (folds into ⋯ on narrow screens); machine default from shared config, live toggle
+- **Per-session mode toggle** — a Full access ↔ Supervised chip in the composer toolbar's
+  leading cluster (folds into `＋` below 420 px; see `add-composer-dock`); machine default from shared config, live toggle
   via a session-scoped control message; read per tool call (design `D4`). Hidden on
   gateway-spawned sessions whose guard is active (design `D12`). The mode is recorded in
   the session file and in server metadata, per session id, so reload, restart and

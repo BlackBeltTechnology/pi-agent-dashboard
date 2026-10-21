@@ -148,7 +148,7 @@ test.describe("popover container clip", () => {
     }
   });
 
-  test("F8 ThinkingLevelSelector — no clip in the (narrow) pane", async ({ page }) => {
+  test("F8 merged model chip — its thinking-level group is within the (narrow) pane", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
     await expect(page.getByTestId("send-button")).toBeVisible({ timeout: 30_000 });
@@ -157,22 +157,20 @@ test.describe("popover container clip", () => {
     await openSplit(page);
     await narrowChatPane(page);
 
-    // Thinking chip folds into the ⋯ overflow when the composer is narrow.
-    const overflow = page.getByTestId("overflow-button");
-    if (await overflow.isVisible().catch(() => false)) {
-      await overflow.click();
-      await expect(page.getByTestId("overflow-menu")).toBeVisible();
-    }
-    const thinkBtn = page.getByTestId("thinking-level-selector").getByRole("button").first();
-    if (await thinkBtn.isVisible().catch(() => false)) {
-      await thinkBtn.click();
-      const dd = page.getByTestId("thinking-level-dropdown");
+    // Thinking levels live inside the model chip's popover (add-composer-dock D8).
+    const chip = page.getByTestId("model-selector-button");
+    if (await chip.isEnabled().catch(() => false)) {
+      await chip.click();
+      const dd = page.getByTestId("model-dropdown");
       await expect(dd).toBeVisible();
       await expectWithinPaneX(dd, pane);
+      const levels = page.getByTestId("model-level-group");
+      await expect(levels).toBeVisible();
+      await expectWithinPaneX(levels, pane);
     }
   });
 
-  test("F11 CommandInput attach + overflow menus stay within the composer pane", async ({ page }) => {
+  test("F11 CommandInput ＋ menu stays within the composer pane", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
     await expect(page.getByTestId("send-button")).toBeVisible({ timeout: 30_000 });
@@ -187,14 +185,44 @@ test.describe("popover container clip", () => {
     await expect(attachMenu).toBeVisible();
     await expectWithinPaneX(attachMenu, pane);
     await attachBtn.click();
+    // The ⋯ overflow menu no longer exists: ＋ is the only fold host.
+    await expect(page.getByTestId("overflow-button")).toHaveCount(0);
+  });
 
-    const overflow = page.getByTestId("overflow-button");
-    if (await overflow.isVisible().catch(() => false)) {
-      await overflow.click();
-      const menu = page.getByTestId("overflow-menu");
-      await expect(menu).toBeVisible();
-      await expectWithinPaneX(menu, pane);
-    }
+  // #X12 (add-composer-dock) — the ＋ menu now hosts the terminal item and, below
+  // 420 px, Steer/Queue; in a short phone viewport it must stay on-screen and
+  // scroll its own list (popover-viewport-positioning surface 6: both height bounds).
+  test("X12 ＋ menu on a 375×500 viewport stays on-screen and scrolls within its bounds", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await expect(page.getByTestId("send-button")).toBeVisible({ timeout: 30_000 });
+    await dismissOverlays(page);
+    await page.setViewportSize({ width: 375, height: 500 });
+    const attachBtn = page.getByTestId("attach-button");
+    await expect(attachBtn).toBeVisible({ timeout: 15_000 });
+    await attachBtn.click();
+    const menu = page.getByTestId("attach-menu");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("open-inline-terminal-button")).toBeAttached();
+    await expect(menu.getByTestId("delivery-steer")).toBeAttached();
+
+    const box = await menu.boundingBox();
+    const trigger = await attachBtn.boundingBox();
+    expect(box).not.toBeNull();
+    expect(trigger).not.toBeNull();
+    // Fully on-screen on both axes.
+    expect(box!.x).toBeGreaterThanOrEqual(-SLACK);
+    expect(box!.y).toBeGreaterThanOrEqual(-SLACK);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375 + SLACK);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(500 + SLACK);
+    // The list scrolls internally rather than overflowing the viewport…
+    expect(await menu.evaluate((el) => getComputedStyle(el).overflowY)).toBe("auto");
+    // …and its height is the 120 px floor or the available space above the trigger.
+    const available = trigger!.y - 4;
+    expect(box!.height >= 120 - SLACK || Math.abs(box!.height - available) <= 2 + SLACK).toBe(true);
+    // Every item is reachable by scrolling.
+    await menu.getByTestId("delivery-queue").scrollIntoViewIfNeeded();
+    await expect(menu.getByTestId("delivery-queue")).toBeInViewport();
   });
 
   test("F12 CommandInput slash dropdown — dual-edge immunity within the composer", async ({ page }) => {

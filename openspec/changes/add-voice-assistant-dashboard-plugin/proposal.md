@@ -29,7 +29,7 @@
 - **Project config in folder settings:** the `set-copilot.config.json` editor moves to the folder section (no folder selector).
 - STT key from `video-transcription`'s configuration (shared with `pi-transcribe`), with an optional `ctx.credentials` override.
 - Owner gating, host-wide device guard, activation orphan reap.
-- Core seam: `composer-toolbar-action` slot — plugin controls in the composer input row before send/stop, with a bounded draft handle (`insertAtCursor`/`snapshot`/`restore`/`submit`).
+- Core seam: `composer-toolbar-action` slot — plugin controls in the composer toolbar row directly before send/stop, with a bounded draft handle (`insertAtCursor`/`snapshot`/`restore`/`submit`).
 - Core seam: `folder-settings-section` slot — plugins contribute per-folder settings pages at `/folder/<cwd>/settings/plugins/<pluginId>` (relaxes settings-panel's "folder settings host no plugin pages").
 
 ## Capabilities

@@ -30,7 +30,6 @@
 import type { ProcessKind } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mdiClose, mdiCogOutline, mdiPowerPlugOutline, mdiRobotOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { splitOverflow } from "../chat/collapse-summary.js";
 
@@ -53,7 +52,7 @@ const KIND_ICON: Record<ProcessKind, string> = {
   task: mdiCogOutline,
 };
 
-function kindIcon(kind: ProcessKind | undefined): string {
+export function kindIcon(kind: ProcessKind | undefined): string {
   return KIND_ICON[kind ?? "task"] ?? mdiCogOutline;
 }
 
@@ -75,7 +74,7 @@ const MAX_VISIBLE = 5;
  *  literal string referenced from session-process-tracking/spec.md. */
 export const KILL_TOOLTIP = "Force-kill process tree";
 
-function formatElapsed(ms: number): string {
+export function formatElapsed(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
@@ -88,7 +87,7 @@ function formatElapsed(ms: number): string {
 
 function truncateCommand(command: string, maxLen = 40): string {
   if (command.length <= maxLen) return command;
-  return command.slice(0, maxLen - 1) + "…";
+  return `${command.slice(0, maxLen - 1)}…`;
 }
 
 interface VisibleRows {
@@ -145,6 +144,7 @@ function ProcessRow({
       )}
       <span className="text-[var(--text-tertiary)] flex-shrink-0">{formatElapsed(p.elapsedMs)}</span>
       <button
+        type="button"
         onClick={(e) => { e.stopPropagation(); onKill(p.pgid); }}
         className="text-[var(--text-muted)] hover:text-red-400 flex-shrink-0 p-0.5"
         title={KILL_TOOLTIP}

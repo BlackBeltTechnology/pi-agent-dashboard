@@ -57,6 +57,11 @@
         "tab": "general"
       },
       {
+        "slot": "composer-dock-process-group",
+        "component": "SubagentDockGroup",
+        "module": "./src/client/SubagentDockGroup.tsx"
+      },
+      {
         "slot": "shell-overlay-route",
         "component": "SubagentPopoutClaim",
         "module": "./src/client/SubagentPopoutClaim.tsx",

@@ -2,7 +2,7 @@
  * Host API surface snapshot gate (`scripts/host-api-surface.mjs`), test-plan #E29.
  *
  * The bump rule is a pure function of two snapshots, so each scenario edits a copy
- * of the committed 1.0.0 snapshot and asks `checkBump`. The real-tree tests prove the
+ * of the committed snapshot and asks `checkBump`. The real-tree tests prove the
  * committed snapshot is current and that the CLI exits non-zero when it is stale.
  *
  * See change: decouple-plugins-from-core.
@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { PLUGIN_HOST_API_VERSION } from "../../packages/shared/src/dashboard-plugin/host-api.ts";
 import { HOST_IMPORT_MAP_SPECIFIERS } from "../../packages/shared/src/dashboard-plugin/host-import-map.ts";
 import { bumpKind, checkBump, computeSurface, diffSurface, IMPORT_MAP_SPECIFIERS, parseHostDesignTokens } from "../host-api-surface.mjs";
 
@@ -19,14 +20,15 @@ const SNAPSHOT = path.join(REPO_ROOT, "packages/dashboard-plugin-runtime/host-ap
 const SCRIPT = path.join(REPO_ROOT, "scripts/host-api-surface.mjs");
 const snapshot = () => JSON.parse(fs.readFileSync(SNAPSHOT, "utf8"));
 
-/** A copy of the 1.0.0 snapshot mutated by `mutate`, stamped with `version`. */
+/** A copy of the committed snapshot mutated by `mutate`, stamped with `version`. */
 function variant(mutate, version) {
   const s = snapshot();
   mutate(s);
   s.version = version;
   return s;
 }
-const BUMPS = { none: "1.0.0", patch: "1.0.1", minor: "1.1.0", major: "2.0.0" };
+const [MAJOR, MINOR, PATCH] = snapshot().version.split(".").map(Number);
+const BUMPS = { none: `${MAJOR}.${MINOR}.${PATCH}`, patch: `${MAJOR}.${MINOR}.${PATCH + 1}`, minor: `${MAJOR}.${MINOR + 1}.0`, major: `${MAJOR + 1}.0.0` };
 
 const MUTATIONS = {
   "delete useLanguage": { mutate: (s) => (s.publicExports = s.publicExports.filter((n) => n !== "useLanguage")), needs: "major", names: "useLanguage" },
@@ -96,7 +98,7 @@ describe("host API surface bump rule (#E29)", () => {
 describe("committed snapshot", () => {
   it("is current vs source and stamped with PLUGIN_HOST_API_VERSION", () => {
     expect(computeSurface(REPO_ROOT)).toEqual(snapshot());
-    expect(snapshot().version).toBe("1.0.0");
+    expect(snapshot().version).toBe(PLUGIN_HOST_API_VERSION);
   });
 
   it("records the 6 expanded accent-text tokens and no literal <hue>", () => {

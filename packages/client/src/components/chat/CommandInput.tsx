@@ -2,13 +2,14 @@ import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtim
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { CommandInfo, FileEntry, ImageContent, ModelInfo, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiDotsHorizontal, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlag, mdiFlash, mdiFolder, mdiImageOutline, mdiPlaylistPlus, mdiPlus, mdiSendVariant, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlertOctagon, mdiClipboardText, mdiConsole, mdiEyeOutline, mdiFile, mdiFileDocumentOutline, mdiFlash, mdiFolder, mdiImageOutline, mdiLoading, mdiPlus, mdiSendVariant, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
 import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
+import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
+import { workingStatusLabel } from "../../lib/chat/working-status.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import {
   CHAT_COMPOSER_BOUND,
@@ -19,7 +20,7 @@ import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { RolePickNoticeCallout } from "../settings/RolePickNotice.js";
-import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
+import { DELIVERY_ITEM_CLASS, DeliveryChip, type DeliveryMode, DeliveryRadioItems, useMenuKeys } from "./ComposerDeliveryMenu.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -161,9 +162,9 @@ interface Props {
   onToggleFavorite?: (label: string, makeFavorite: boolean) => void;
   /** Current thinking level. */
   thinkingLevel?: string;
-  /** Select a model (`"provider/id"`). When omitted the model chip is hidden. */
+  /** Select a model (`"provider/id"`). When omitted the merged model chip is hidden. */
   onSelectModel?: (model: string) => void;
-  /** Select a thinking level. When omitted the thinking chip is hidden. */
+  /** Select a thinking level (from the merged model chip's popover). */
   onSelectThinkingLevel?: (level: string) => void;
   /** Re-request the model list; fired on the model dropdown's open transition. */
   onRefreshModels?: () => void;
@@ -174,6 +175,13 @@ interface Props {
    * dropdown footer. See change: upgrade-model-selector-primitives.
    */
   modelRefreshErrors?: ProviderRefreshError[];
+  /**
+   * Working-status word inputs (moved from the deleted `StatusBar`): the running
+   * tool name and whether assistant text is streaming. Shown in the toolbar
+   * while `sessionStatus === "streaming"`. See change: add-composer-dock (D7).
+   */
+  currentTool?: string;
+  streamingText?: string;
   /**
    * Context-window usage for the focus-revealed footer indicator. Rendered
    * only when `contextWindow > 0` and `tokens` is available client-side.
@@ -189,11 +197,11 @@ interface Props {
   sendLabel?: string;
   /** Badge on the model chip (e.g. `default`). */
   modelTag?: string;
-  /** Badge on the thinking chip (e.g. `default`). */
+  /** Badge beside the level on the merged model chip (e.g. `default`). */
   thinkingTag?: string;
   /** Chip text when the model / thinking level is unset (e.g. `pi default`). */
   unsetLabel?: string;
-  /** Extra chips rendered in the settings row after the thinking chip (e.g. run location). */
+  /** Extra chips rendered in the toolbar after the delivery chip (e.g. run location). */
   toolbarExtra?: ReactNode;
 }
 
@@ -264,7 +272,25 @@ export function shouldWalkFileQuery(query: string): boolean {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
+/** Delivery states move from the toolbar chip into `＋` below this composer width (26.25rem = 420 px at the default root). */
+const DELIVERY_FOLD_REM = 26.25;
+
+/**
+ * Whether the composer card's content box is narrower than the delivery fold
+ * threshold. The `＋` menu is portaled out of the card's `@container`, so it
+ * cannot use a container query; this reads the same rem-based width once, at
+ * open time. An unmeasured card (0 wide) is treated as wide, like the dock.
+ */
+function isBelowDeliveryFold(card: HTMLElement | null): boolean {
+  if (!card) return false;
+  const style = getComputedStyle(card);
+  const padding = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
+  const width = card.clientWidth - padding;
+  const root = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  return width > 0 && width < DELIVERY_FOLD_REM * (Number.isFinite(root) && root > 0 ? root : 16);
+}
+
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, currentTool, streamingText, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
   const { t } = useI18n();
   // One-shot `@role` pick for the model chip (resolves once; never follows later
   // role changes). See change: add-role-aware-model-refs.
@@ -300,19 +326,19 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // --- v2 composer state (see change: redesign-prompt-input) ---
   // Delivery mode surfaces the hidden Enter(steer)/Alt+Enter(followUp)
   // contract as a visible Steer|Queue control. Default "steer".
-  const [deliveryMode, setDeliveryMode] = useState<"steer" | "queue">("steer");
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("steer");
   // Footer hint line is revealed on focus / first keystroke so the resting
   // footprint stays lean (design D4).
   const [focused, setFocused] = useState(false);
-  // ＋ attach menu + mobile ⋯ overflow popovers.
+  // ＋ menu: the toolbar's only fold host (no ⋯). `attachNarrow` records, at open
+  // time, whether the composer is below the delivery fold so the portaled menu
+  // can offer Steer/Queue.
   const [attachOpen, setAttachOpen] = useState(false);
-  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [attachNarrow, setAttachNarrow] = useState(false);
   const attachRef = useRef<HTMLDivElement>(null);
   const attachBtnRef = useRef<HTMLButtonElement>(null);
   const attachPanelRef = useRef<HTMLDivElement>(null);
-  const overflowRef = useRef<HTMLDivElement>(null);
-  const overflowBtnRef = useRef<HTMLButtonElement>(null);
-  const overflowPanelRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- History recall (bash-style) ---
@@ -463,14 +489,15 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
   // Attach (＋) menu boundary-awareness (fix-popover-container-clip): the
   // `left-0 w-56` menu overflows the composer pane's right edge once the split
-  // pane narrows to its 25% floor (~222px < 224px menu). Measure the horizontal
-  // axis against the chat pane so it clamps/flips within the pane; vertical
-  // stays hardcoded `bottom-full` (composer sits at the pane bottom).
-  // Height-agnostic on purpose: this menu consumes only the horizontal axis
-  // (`anchorRight`/`maxWidth`) — its vertical placement is a hardcoded
-  // `bottom-full` and it applies no height bound, so there is no floor to lose.
-  // See change: fix-popover-pane-bounded-height (task 4.6).
+  // pane narrows to its 25% floor (~222px < 224px menu). Measure both axes
+  // against the chat pane. The menu now hosts the terminal item and (below
+  // 26.25rem) the delivery states, so it can outgrow a short pane: it applies
+  // BOTH height bounds and scrolls its own list. Floor = the 120px default.
+  // See change: add-composer-dock (popover-viewport-positioning, surface 6).
   const {
+    flipUp: attachFlipUp,
+    maxHeight: attachMaxHeight,
+    minHeight: attachMinHeight,
     anchorRight: attachAnchorRight,
     maxWidth: attachMaxWidth,
     triggerRect: attachRect,
@@ -478,14 +505,6 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     open: attachOpen,
     estimatedWidth: 224, // w-56
     preferredAnchor: "left",
-    boundaryRef,
-  });
-
-  // Overflow (⋯) menu — right-anchored, opens upward from the far-right button.
-  // Now a portaled surface, so it needs the trigger rect for fixed placement.
-  // See change: portal-composer-action-popovers.
-  const { triggerRect: overflowRect } = usePopoverFlip(overflowBtnRef, {
-    open: overflowOpen,
     boundaryRef,
   });
 
@@ -755,20 +774,26 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     [dropdownMode, dropdownLength, filteredCommands, fileItems, urlItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList, pendingImages, deliveryMode]
   );
 
-  // Close ＋ attach / ⋯ overflow popovers on outside click.
+  // Close the ＋ popover on outside click.
   useEffect(() => {
-    if (!attachOpen && !overflowOpen) return;
+    if (!attachOpen) return;
     function onDown(e: MouseEvent) {
       const target = e.target as Node;
       // Panel FIRST: portaled panels are no longer DOM descendants of the
       // trigger container, so a click inside the menu would otherwise read as
       // "outside" and close it before the item's handler runs.
-      if (attachOpen && !attachPanelRef.current?.contains(target) && !attachRef.current?.contains(target)) setAttachOpen(false);
-      if (overflowOpen && !overflowPanelRef.current?.contains(target) && !overflowRef.current?.contains(target)) setOverflowOpen(false);
+      if (!attachPanelRef.current?.contains(target) && !attachRef.current?.contains(target)) setAttachOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [attachOpen, overflowOpen]);
+  }, [attachOpen]);
+
+  const closeAttach = useCallback(() => setAttachOpen(false), []);
+  const onAttachKeyDown = useMenuKeys(attachOpen, attachPanelRef, attachBtnRef, closeAttach);
+  const toggleAttach = () => {
+    if (!attachOpen) setAttachNarrow(isBelowDeliveryFold(cardRef.current));
+    setAttachOpen((v) => !v);
+  };
 
   // ＋ menu actions, each wired to an EXISTING composer path.
   const handleAttachImage = useCallback(() => {
@@ -793,6 +818,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [text, setText]);
 
+  const handleOpenTerminal = useCallback(() => {
+    setAttachOpen(false);
+    onOpenInlineTerminal?.();
+  }, [onOpenInlineTerminal]);
+
   // Clipboard paste + preview-strip are delegated to the shared hook +
   // component (useImagePaste / ImagePreviewStrip) so the OpenSpec
   // Explore dialog can reuse the exact same behavior.
@@ -807,7 +837,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     actionButton = (
       <button
         onClick={() => { onForceKill(); setStopState("killing"); }}
-        className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-orange-600 rounded-lg hover:bg-orange-500 self-end animate-pulse motion-reduce:animate-none"
+        className="focus-ring flex-none flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg border bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)] animate-pulse motion-reduce:animate-none"
         title={t("command.forceStop", undefined, "Force Stop - kill the process")}
         aria-label={t("command.forceStop", undefined, "Force Stop - kill the process")}
         data-testid="force-stop-button"
@@ -819,7 +849,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     actionButton = (
       <button
         disabled
-        className="flex items-center justify-center min-w-[44px] min-h-[44px] bg-orange-800 rounded-lg opacity-60 cursor-not-allowed self-end"
+        className="flex-none flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg border bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)] opacity-60 cursor-not-allowed"
         title={t("command.killing", undefined, "Killing process...")}
         aria-label={t("command.killing", undefined, "Killing process...")}
         data-testid="killing-button"
@@ -838,7 +868,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             if (onForceKill) setStopState("aborting");
           }
         }}
-        className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-red-600 rounded-lg hover:bg-red-500 self-end"
+        className="focus-ring flex-none flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90"
         title={pendingIdle ? t("command.cancelPending", undefined, "Cancel") : t("command.stop", undefined, "Stop")}
         aria-label={pendingIdle ? t("command.cancelPending", undefined, "Cancel") : t("command.stop", undefined, "Stop")}
         data-testid="stop-button"
@@ -851,7 +881,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       <button
         onClick={() => handleSend(deliveryMode === "queue" ? "followUp" : "steer")}
         disabled={disabled || pendingIdle || !text.trim()}
-        className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
+        className="focus-ring flex-none flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90 disabled:bg-[var(--bg-surface)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
         title={sendLabel ?? t("command.send", undefined, "Send")}
         aria-label={sendLabel ?? t("command.send", undefined, "Send")}
         data-testid="send-button"
@@ -863,9 +893,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
   // Stop-after-turn + Stop form ONE split control `[◎ after turn | ■]` while
   // working; once requested, the pill replaces the left half. The label
-  // collapses to `◎` below `@[30rem]` (aria-label kept). Action button stays
-  // 44 px. See changes: adopt-pi-071-072-073-features,
-  // redesign-composer-session-strip (D7).
+  // collapses to `◎` below `@[55rem]` (aria-label kept). Action button stays
+  // 44 px and renders at the toolbar row's trailing end. See changes:
+  // adopt-pi-071-072-073-features, redesign-composer-session-strip (D7),
+  // add-composer-dock (D7, D9).
   const showStopAfterTurn = isWorking && onStopAfterTurn && stopState === "idle" && pendingPrompt !== "sending";
   const actionCluster =
     showStopAfterTurn && !stopAfterTurnRequested ? (
@@ -873,18 +904,18 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         data-testid="stop-split"
         role="group"
         aria-label={t("command.stopOptions", undefined, "Stop options")}
-        className="inline-flex items-stretch self-end rounded-lg [&>button:last-child]:rounded-l-none"
+        className="flex-none inline-flex items-stretch rounded-lg [&>button:last-child]:rounded-l-none"
       >
         <button
           type="button"
           onClick={() => { onStopAfterTurn?.(); setStopAfterTurnRequested(true); }}
-          className="focus-ring flex items-center gap-1 px-2 min-h-[44px] rounded-l-lg text-xs text-red-300 bg-red-600/15 hover:bg-red-600/25 border-r border-red-900/60"
+          className="focus-ring flex items-center gap-1 px-2 min-h-[44px] rounded-l-lg text-xs text-[var(--text-primary)] bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border-r border-[var(--border-secondary)]"
           title={t("command.stopAfterTurn", undefined, "Stop after turn — finish this turn, then end cleanly")}
           aria-label={t("command.stopAfterTurn", undefined, "Stop after turn")}
           data-testid="stop-after-turn-button"
         >
           <Icon path={mdiStopCircleOutline} size={0.6} />
-          <span className="hidden @[30rem]:inline">{t("command.afterTurn", undefined, "after turn")}</span>
+          <span className="hidden @[55rem]:inline">{t("command.afterTurn", undefined, "after turn")}</span>
         </button>
         {actionButton}
       </div>
@@ -892,7 +923,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       <>
         {showStopAfterTurn && stopAfterTurnRequested && (
           <span
-            className="flex items-center gap-1 px-2 self-end min-h-[44px] text-xs text-[var(--text-muted)]"
+            className="flex-none flex items-center gap-1 px-2 min-h-[44px] text-xs text-[var(--text-muted)]"
             data-testid="stop-after-turn-pill"
           >
             <Icon path={mdiStopCircleOutline} size={0.6} />
@@ -903,63 +934,9 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       </>
     );
 
-  // Delivery segmented control (Steer | Queue) — shared desktop + overflow.
-  const deliveryControl = (
-    <div
-      className="inline-flex rounded-lg overflow-hidden border border-[var(--border-secondary)] h-[30px]"
-      data-testid="delivery-control"
-      role="group"
-      aria-label={t("command.deliveryMode", undefined, "Delivery mode")}
-    >
-      <button
-        type="button"
-        onClick={() => setDeliveryMode("steer")}
-        aria-pressed={deliveryMode === "steer"}
-        data-testid="delivery-steer"
-        className={`inline-flex items-center gap-1 px-2 text-[11px] ${deliveryMode === "steer" ? "bg-[color-mix(in_srgb,var(--accent-primary)_18%,transparent)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"}`}
-      >
-        <Icon path={mdiFlag} size={0.5} />{t("command.steer", undefined, "Steer")}
-      </button>
-      <button
-        type="button"
-        onClick={() => setDeliveryMode("queue")}
-        aria-pressed={deliveryMode === "queue"}
-        data-testid="delivery-queue"
-        className={`inline-flex items-center gap-1 px-2 text-[11px] ${deliveryMode === "queue" ? "bg-[color-mix(in_srgb,var(--accent-purple)_20%,transparent)] text-[var(--text-primary)]" : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"}`}
-      >
-        <Icon path={mdiPlaylistPlus} size={0.5} />{t("command.queue", undefined, "Queue")}
-      </button>
-    </div>
-  );
-
-  // Terminal chip — same chip language as the delivery control. "wide": label
-  // collapses to icon-only below @[52rem] (settings row); "always": ⋯ menu.
-  const terminalButton = (showLabel: "always" | "wide") => onOpenInlineTerminal ? (
-    <button
-      type="button"
-      onClick={() => onOpenInlineTerminal()}
-      disabled={disabled}
-      className="focus-ring inline-flex items-center justify-center gap-1 px-2 h-[30px] rounded-lg border border-[var(--border-secondary)] text-[11px] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
-      title={t("command.inlineTerminal", undefined, "Open inline terminal")}
-      aria-label={t("command.inlineTerminal", undefined, "Open inline terminal")}
-      data-testid="open-inline-terminal-button"
-    >
-      <Icon path={mdiConsole} size={0.5} />
-      <span className={showLabel === "wide" ? "hidden @[52rem]:inline" : undefined}>
-        {t("command.terminal", undefined, "Terminal")}
-      </span>
-    </button>
-  ) : null;
-
-  const thinkingChip = onSelectThinkingLevel ? (
-    <ThinkingLevelSelector
-      current={thinkingLevel}
-      placeholder={unsetLabel}
-      tag={thinkingTag}
-      onSelect={onSelectThinkingLevel}
-      supportedLevels={models?.find((m) => `${m.provider}/${m.id}` === model)?.supportedThinkingLevels}
-    />
-  ) : null;
+  // Working-status word (moved from StatusBar): visible from 40rem, visually
+  // hidden (sr-only, still in the a11y tree) below; the shape stays visible.
+  const workingStatus = workingStatusLabel(sessionStatus ?? "idle", currentTool, streamingText);
 
   const footerVisible = focused || text.trim().length > 0 || pendingImages.length > 0;
   const ctxWindow = contextUsage?.contextWindow ?? 0;
@@ -1104,6 +1081,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
       {/* One unified bordered card: attachments → textarea → inner toolbar. */}
       <div
+        ref={cardRef}
         data-testid="composer-card"
         /* `min-h-0 overflow-y-auto`: absorbs the pane's height deficit by scrolling
            its own content, so the composer honours its `max-h-[40%]` bound without
@@ -1118,8 +1096,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         {/* Pasted-image error banner + thumbnail strip (attachments row). */}
         <ImagePreviewStrip images={pendingImages} error={imageError} onRemove={removeImage} />
 
-        {/* Input row: the text field with send/stop, bottom-aligned so it
-            follows the draft. */}
+        {/* Input row: the text field only. The action cluster lives at the end
+            of the toolbar row below. See change: add-composer-dock (D7). */}
         <div data-testid="composer-input-row" className="flex items-end gap-1.5">
         <textarea
           ref={inputRef}
@@ -1149,18 +1127,22 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
-          {actionCluster}
         </div>
 
         <div aria-hidden="true" className="h-px bg-[var(--border-subtle)] my-1" />
 
-        {/* Settings row: ＋ · model · thinking · Steer|Queue · Terminal. */}
-        <div data-testid="composer-settings-row" className="flex items-center gap-1.5">
-          {/* ＋ attach menu. */}
-          <div className="relative" ref={attachRef}>
+        {/* The single toolbar row: ＋ · Steer ▾ · [extras] ··· status · model·level · action.
+            Folds by composer container width (rem): <55rem after-turn label →
+            icon; <40rem status word sr-only + delivery label dropped; <26.25rem
+            delivery → ＋ menu and the level leaves the chip face. `＋` is the only
+            fold host (no ⋯). The model chip is the only shrinking item: its id
+            truncates before anything else folds. See change: add-composer-dock. */}
+        <div data-testid="composer-settings-row" className="flex items-center gap-1.5 min-w-0">
+          {/* ＋ menu. */}
+          <div className="relative flex-none" ref={attachRef}>
             <button
               type="button"
-              onClick={() => setAttachOpen((v) => !v)}
+              onClick={toggleAttach}
               disabled={disabled}
               className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
               title={t("command.attach", undefined, "Attach")}
@@ -1182,12 +1164,17 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               <LayerPortal>
               <div
                 ref={attachPanelRef}
+                onKeyDown={onAttachKeyDown}
                 style={{
                   position: "fixed",
                   width: Math.min(224, attachMaxWidth), // w-56, pane-capped
+                  maxHeight: attachMaxHeight,
+                  minHeight: attachMinHeight,
                   visibility: attachRect ? "visible" : "hidden",
                   ...(attachRect
-                    ? { bottom: Math.round(window.innerHeight - attachRect.top + POPOVER_GAP) }
+                    ? attachFlipUp
+                      ? { bottom: Math.round(window.innerHeight - attachRect.top + POPOVER_GAP) }
+                      : { top: Math.round(attachRect.bottom + POPOVER_GAP) }
                     : {}),
                   ...(attachRect
                     ? attachAnchorRight
@@ -1195,8 +1182,9 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
                       : { left: Math.round(attachRect.left) }
                     : {}),
                 }}
-                className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-hidden shadow-lg z-popover"
+                className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-popover"
                 role="menu"
+                aria-label={t("command.attach", undefined, "Attach")}
                 data-testid="attach-menu"
               >
                 <button role="menuitem" onClick={handleAttachImage} data-testid="attach-image" className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] text-left">
@@ -1211,84 +1199,103 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
                   <Icon path={mdiEyeOutline} size={0.7} /><span>{t("command.previewInline", undefined, "Preview inline")}</span>
                   <span className="ml-auto text-[10px] text-[var(--text-muted)]">/view</span>
                 </button>
+                {onOpenInlineTerminal && (
+                  <>
+                    <div aria-hidden="true" className="h-px bg-[var(--border-subtle)] my-1" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleOpenTerminal}
+                      disabled={disabled}
+                      title={t("command.inlineTerminal", undefined, "Open inline terminal")}
+                      aria-label={t("command.inlineTerminal", undefined, "Open inline terminal")}
+                      data-testid="open-inline-terminal-button"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Icon path={mdiConsole} size={0.7} /><span>{t("command.inlineTerminal", undefined, "Open inline terminal")}</span>
+                    </button>
+                  </>
+                )}
+                {attachNarrow && (
+                  <>
+                    <div aria-hidden="true" className="h-px bg-[var(--border-subtle)] my-1" />
+                    <p className="m-0 px-3 pt-1 text-[11px] font-semibold text-[var(--text-secondary)]">{t("command.deliveryHeading", undefined, "Delivery")}</p>
+                    <DeliveryRadioItems
+                      mode={deliveryMode}
+                      itemClassName={DELIVERY_ITEM_CLASS}
+                      onSelect={(next) => {
+                        setDeliveryMode(next);
+                        setAttachOpen(false);
+                        requestAnimationFrame(() => attachBtnRef.current?.focus());
+                      }}
+                    />
+                  </>
+                )}
               </div>
               </LayerPortal>
             )}
           </div>
 
-          {/* Model chip. */}
+          {/* Delivery dropdown chip; below 26.25rem it lives in ＋ instead. */}
+          <span className="hidden @[26.25rem]:inline-flex flex-none">
+            <DeliveryChip mode={deliveryMode} onSelect={setDeliveryMode} />
+          </span>
+
+          {toolbarExtra}
+
+          <span className="flex-1" />
+
+          {/* Working-status word: aria-hidden shape + text; the text is sr-only below 40rem. */}
+          {workingStatus && (
+            <span
+              data-testid="working-status"
+              className="flex-none inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
+            >
+              <span className="inline-flex flex-none">
+                <Icon
+                  path={workingStatus.kind === "tool" ? mdiFlash : mdiLoading}
+                  size={0.5}
+                  spin={workingStatus.kind !== "tool"}
+                  className="fx-progress"
+                  aria-hidden
+                />
+              </span>
+              <span className="sr-only @[40rem]:not-sr-only max-w-[12rem] truncate" title={workingStatus.label}>
+                {workingStatus.label}
+              </span>
+            </span>
+          )}
+
+          {/* Merged model · thinking chip: the existing ModelSelector trigger with
+              `· level` appended; its popover adds the level radio group. */}
           {onSelectModel && (
-            <ModelSelector
-              current={model}
-              models={models}
-              allowRoles
-              placeholder={unsetLabel}
-              tag={modelTag}
-              viaRole={rolePick.viaRole}
-              onSelect={rolePick.onSelect}
-              onRefresh={onRefreshModels}
-              onOpenProviderSettings={onOpenProviderSettings}
-              refreshErrors={modelRefreshErrors}
-              favorites={favorites}
-              onToggleFavorite={onToggleFavorite}
-            />
+            <div className="min-w-0 flex">
+              <ModelSelector
+                current={model}
+                models={models}
+                allowRoles
+                placeholder={unsetLabel}
+                tag={modelTag}
+                viaRole={rolePick.viaRole}
+                onSelect={rolePick.onSelect}
+                onRefresh={onRefreshModels}
+                onOpenProviderSettings={onOpenProviderSettings}
+                refreshErrors={modelRefreshErrors}
+                favorites={favorites}
+                onToggleFavorite={onToggleFavorite}
+                level={thinkingLevel}
+                levelPlaceholder={unsetLabel}
+                levelTag={thinkingTag}
+                supportedLevels={models?.find((m) => `${m.provider}/${m.id}` === model)?.supportedThinkingLevels}
+                onSelectLevel={onSelectThinkingLevel}
+              />
+            </div>
           )}
 
           {rolePick.notice && <RolePickNoticeCallout notice={rolePick.notice} testId="role-pick-notice" />}
 
-          {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}
-          <span className="hidden @[44rem]:inline-flex">{thinkingChip}</span>
-          {toolbarExtra}
-          <span className="hidden @[44rem]:inline-flex">{deliveryControl}</span>
-          <span className="hidden @[44rem]:inline-flex">{terminalButton("wide")}</span>
-
-          <span className="flex-1" />
-
-          {/* Mobile overflow (⋯) hosts thinking / delivery / terminal. */}
-          <div className="relative @[44rem]:hidden" ref={overflowRef}>
-            <button
-              type="button"
-              onClick={() => setOverflowOpen((v) => !v)}
-              className="focus-ring inline-flex items-center justify-center w-[34px] h-[30px] rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-              title={t("command.more", undefined, "More")}
-              aria-label={t("command.more", undefined, "More")}
-              aria-haspopup="menu"
-              aria-expanded={overflowOpen}
-              data-testid="overflow-button"
-              ref={overflowBtnRef}
-            >
-              <Icon path={mdiDotsHorizontal} size={0.7} />
-            </button>
-            {/* Overflow (⋯) menu: portaled, placed `fixed` from the trigger
-                rect — up from and right-anchored to the far-right ⋯ button.
-                See change: portal-composer-action-popovers (was an inline
-                `absolute right-0 bottom-full` surface). */}
-            {overflowOpen && (
-              <LayerPortal>
-              <div
-                ref={overflowPanelRef}
-                style={{
-                  position: "fixed",
-                  visibility: overflowRect ? "visible" : "hidden",
-                  ...(overflowRect
-                    ? {
-                        bottom: Math.round(window.innerHeight - overflowRect.top + POPOVER_GAP),
-                        right: Math.max(0, Math.round(window.innerWidth - overflowRect.right)),
-                      }
-                    : {}),
-                }}
-                className="flex flex-col gap-2 p-2 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl shadow-lg z-popover"
-                role="menu"
-                data-testid="overflow-menu"
-              >
-                {thinkingChip}
-                {deliveryControl}
-                {terminalButton("always")}
-              </div>
-              </LayerPortal>
-            )}
-          </div>
-
+          {/* Action cluster: the toolbar's trailing end, logic unchanged. */}
+          {actionCluster}
         </div>
       </div>
 

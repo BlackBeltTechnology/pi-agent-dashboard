@@ -45,10 +45,14 @@ function expectSameBoxes(after: Record<string, Box | null>, before: Record<strin
   }
 }
 
-/** Top edge (viewport px) of the topmost composer-stack row currently rendered. */
+/**
+ * Top edge (viewport px) of the topmost composer-stack row currently rendered:
+ * the composer dock when it renders, else the composer card's wrapper.
+ * See change: add-composer-dock (the strip, StatusBar and QueuePanel rows are gone).
+ */
 async function composerStackTop(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const ids = ["composer-context-strip", "status-bar", "queue-panel", "composer-root"];
+    const ids = ["composer-dock", "composer-root"];
     const tops = ids
       .map((id) => document.querySelector(`[data-testid="${id}"]`))
       .filter((el): el is Element => el != null)
@@ -86,7 +90,8 @@ test.describe("canvas chip tray — floats out of layout flow", () => {
 
     await sendPrompt(page, "[[faux:canvas-declare-server]] go");
     await expect(chip(page)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("status-bar")).toHaveCount(0, { timeout: 60_000 });
+    // The turn has ended (no working-status word in the toolbar).
+    await expect(page.getByTestId("working-status")).toHaveCount(0, { timeout: 60_000 });
 
     // Same state, tray rendered vs hidden: no layout probe may move. (A
     // before/after-prompt baseline would also capture the usage row a turn adds
@@ -151,17 +156,17 @@ test.describe("canvas chip tray — tracks the composer stack", () => {
     expect(bottomAfter).toBeGreaterThan(bottomBefore);
   });
 
-  test("#F2: a StatusBar row mounting/unmounting keeps the chip above the stack", async ({ page }) => {
+  test("#F2: the toolbar's working state coming and going keeps the chip above the stack", async ({ page }) => {
     await openSessionWithServerChip(page, "canvas-declare-server-slow");
 
-    // While streaming the StatusBar row is part of the stack.
-    await expect(page.getByTestId("status-bar")).toBeVisible({ timeout: 30_000 });
+    // While streaming the toolbar shows the working-status word (the StatusBar row it replaced is gone).
+    await expect(page.getByTestId("working-status")).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(async () => (await chipBottom(page)) <= (await composerStackTop(page)) + 0.5, { timeout: 10_000 })
       .toBe(true);
 
-    // After the turn ends the row unmounts; the invariant still holds.
-    await expect(page.getByTestId("status-bar")).toHaveCount(0, { timeout: 60_000 });
+    // After the turn ends the word unmounts; the invariant still holds.
+    await expect(page.getByTestId("working-status")).toHaveCount(0, { timeout: 60_000 });
     await expect
       .poll(async () => (await chipBottom(page)) <= (await composerStackTop(page)) + 0.5, { timeout: 10_000 })
       .toBe(true);
@@ -250,7 +255,7 @@ test.describe("canvas chip tray — mobile file chip", () => {
     await sendPrompt(page, "[[faux:canvas-write-md]] go");
     const fileChip = page.getByTestId("canvas-file-chip");
     await expect(fileChip).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId("status-bar")).toHaveCount(0, { timeout: 60_000 });
+    await expect(page.getByTestId("working-status")).toHaveCount(0, { timeout: 60_000 });
     await expect(page.getByTestId("split-chat-pane")).toBeVisible();
 
     // Same state, tray present vs removed from rendering: the chat pane must not
@@ -269,5 +274,50 @@ test.describe("canvas chip tray — mobile file chip", () => {
     await fileChip.click();
     await expect(page.getByTestId("split-editor-pane")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("tab", { selected: true })).toContainText("report.md", { timeout: 15_000 });
+  });
+});
+
+// ── #F12 (add-composer-dock): the tray tracks the DOCK's top edge, or the card's ──
+// The dock is an extra row between the anchor and the composer card. With a Context
+// lane (a stubbed `/api/quota` gives every session one) the tray must clear the dock's
+// top; on a quiet session (no dock) it clears the card's wrapper, as before.
+
+const QUOTA_BODY = {
+  providers: [
+    {
+      provider: "anthropic",
+      windows: [{ label: "5h", usedPercent: 14, resetsAt: new Date(Date.now() + 3 * 3600_000).toISOString(), windowSeconds: 5 * 3600 }],
+    },
+  ],
+  unavailable: [],
+};
+
+async function topOf(page: Page, testId: string): Promise<number | null> {
+  return page.evaluate((id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? null, testId);
+}
+
+test.describe("canvas chip tray — tracks the composer dock", () => {
+  test("#F12a: with a dock the tray's bottom clears the dock's top edge", async ({ page }) => {
+    await page.route("**/api/quota", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUOTA_BODY) }),
+    );
+    await openSessionWithServerChip(page);
+    await expect(page.getByTestId("composer-dock")).toBeVisible({ timeout: 20_000 });
+    const dockTop = await topOf(page, "composer-dock");
+    const rootTop = await topOf(page, "composer-root");
+    expect(dockTop, "dock renders").not.toBeNull();
+    expect(dockTop as number, "the dock sits above the card").toBeLessThan(rootTop as number);
+    await expect.poll(async () => (await chipBottom(page)) <= (await topOf(page, "composer-dock"))! + 0.5).toBe(true);
+    // The anchor sits directly above the dock, not above the card: the tray must not hug the card.
+    expect(await chipBottom(page), "chip is above the dock, not merely above the card").toBeLessThanOrEqual((dockTop as number) + 0.5);
+  });
+
+  test("#F12b: a quiet session (no dock) keeps the tray above the card's top edge", async ({ page }) => {
+    await page.route("**/api/quota", (route) => route.abort());
+    await openSessionWithServerChip(page);
+    await expect(page.getByTestId("composer-dock")).toHaveCount(0);
+    await expect
+      .poll(async () => (await chipBottom(page)) <= (await topOf(page, "composer-root"))! + 0.5, { timeout: 10_000 })
+      .toBe(true);
   });
 });

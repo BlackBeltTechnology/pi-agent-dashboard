@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, expandQueueLane, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E for change: optimistic-prompt-progress.
@@ -102,7 +102,8 @@ test.describe("optimistic prompt — mid-turn suppression", () => {
 
     // Mid-turn sends never write pendingPrompt (idle-scoped) → no optimistic card.
     await expect(byTestId(page, "pendingPromptCard")).toHaveCount(0);
-    // The authoritative follow-up queue chip renders instead.
+    // The authoritative follow-up queue chip renders instead (in the dock's Queue lane body).
+    await expandQueueLane(page);
     await expect(byTestId(page, "queueChipFollowup").first()).toBeVisible({ timeout: 15_000 });
   });
 });

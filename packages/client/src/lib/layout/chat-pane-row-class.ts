@@ -66,6 +66,19 @@ export const CHAT_HEADER_FLOOR = 1;
 export const CHAT_HEADER_WEIGHT = 2;
 
 /**
+ * Declared bound/floor/weight for the composer dock (`composer-dock`).
+ *
+ * The YOLO footer has a fixed one-line height (`h-8`, 32px), so the dock's
+ * lower bound is that height (0 without YOLO) and the lanes give height by
+ * scrolling down to it. Floor = bound + 41 with lanes (one lane header plus a
+ * hairline); `composer-dock:footer-only` (YOLO, no lanes) floors one px above
+ * its bound. App picks the key by state. See change: add-composer-dock (D10).
+ */
+export const YOLO_FOOTER_HEIGHT = 32;
+export const DOCK_LANE_HEADER_FLOOR = 41;
+export const DOCK_WEIGHT = 1;
+
+/**
  * Single source of truth for row classifications in `split-chat-pane`.
  * Covers every row rendered by `App.tsx` into the chat pane, including conditionals.
  */
@@ -84,6 +97,21 @@ export const CHAT_PANE_ROW_TABLE: Record<string, ChatPaneRowSpec> = {
     floor: CHAT_COMPOSER_BOUND + 1, // nominal base > bound
     bound: CHAT_COMPOSER_BOUND,
     weight: CHAT_COMPOSER_WEIGHT,
+  },
+  // Composer dock with lanes: bound = YOLO footer height or 0 (App binds the
+  // live value); the static entry declares the YOLO-on case.
+  "composer-dock": {
+    rowClass: "shrinkable",
+    floor: YOLO_FOOTER_HEIGHT + DOCK_LANE_HEADER_FLOOR,
+    bound: YOLO_FOOTER_HEIGHT,
+    weight: DOCK_WEIGHT,
+  },
+  // YOLO footer alone (no lanes).
+  "composer-dock:footer-only": {
+    rowClass: "shrinkable",
+    floor: YOLO_FOOTER_HEIGHT + 1,
+    bound: YOLO_FOOTER_HEIGHT,
+    weight: DOCK_WEIGHT,
   },
   "content-header-sticky": {
     rowClass: "shrinkable",
@@ -105,18 +133,6 @@ export const CHAT_PANE_ROW_TABLE: Record<string, ChatPaneRowSpec> = {
   // Zero-height sentinel anchoring the floating canvas chip tray; adds no height.
   // See change: fix-canvas-chip-tray-overlay.
   "composer-stack-anchor": {
-    rowClass: "fixed",
-    bound: "content",
-  },
-  "composer-context-strip": {
-    rowClass: "fixed",
-    bound: "content",
-  },
-  "status-bar": {
-    rowClass: "fixed",
-    bound: "content",
-  },
-  "queue-panel": {
     rowClass: "fixed",
     bound: "content",
   },

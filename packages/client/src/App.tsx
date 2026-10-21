@@ -1,16 +1,15 @@
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiRefresh } from "@mdi/js";
-import { Icon } from "@mdi/react";
 import type React from "react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
-import { YoloComposerStrip } from "./components/access-grant/YoloIndicators.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
+import { ComposerDockHost } from "./components/chat/ComposerDockHost.js";
+import { useDockAccordion } from "./components/chat/composer-dock-model.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
@@ -35,10 +34,8 @@ import { MarkdownPreviewView } from "./components/preview/MarkdownPreviewView.js
 import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
 import { Toast, useToast } from "./components/primitives/Toast.js";
 import { AcpEndedCallout } from "./components/session/AcpEndedCallout.js";
-import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
 import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
-import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
@@ -54,7 +51,6 @@ import { MobileShell } from "./components/shell/MobileShell.js";
 import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
 import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
-import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
@@ -89,7 +85,6 @@ import { composerLiveness, isComposerWorking } from "./lib/chat/composer-livenes
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, carryInteractiveRequests, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
-import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { createProjectAndPin } from "./lib/create-project.js";
@@ -169,11 +164,6 @@ const NAV_TRACKER = { predecessor, popNav };
 // See change: electron-runtime-overlay-updates.
 const RuntimeUpdateBadge = lazy(() =>
   import("./components/packages/RuntimeUpdateBadge.js").then((m) => ({ default: m.RuntimeUpdateBadge })),
-);
-// Per-session View popover: its own chunk, off the entry gzip cap.
-// See change: add-set-global-view.
-const ChatViewMenu = lazy(() =>
-  import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
 );
 // Provisioning dialog host: its own chunk, off the entry gzip cap (mdi-chunk-size).
 // See change: add-access-provisioning.
@@ -442,6 +432,8 @@ function archivedSummaryToSession(item: ArchivedSessionSummary): DashboardSessio
 // does not hand ChatView a fresh [] literal every render, which would defeat
 // its React.memo. See change: reduce-chat-render-cpu-umbrella (Phase 4).
 const EMPTY_STEERING: string[] = [];
+/** A frozen underlay renders a dock it can never open. */
+const NOOP_OPEN_LANE = () => {};
 
 export default function App() {
   const { t, language } = useI18n();
@@ -2380,6 +2372,10 @@ export default function App() {
   // Live-selection aliases, captured BEFORE the shadowing block below.
   const liveSelectedId = selectedId;
   const liveSelectedHistory = selectedHistory;
+  // Composer dock accordion: ONE open lane for the live selection, reset to
+  // collapsed on every selection change, never auto-expanded.
+  // See change: add-composer-dock (task 2.2).
+  const dockAccordion = useDockAccordion(liveSelectedId);
 
   // Session chat, parameterised by session id so a FROZEN underlay can render a
   // session that is not the live selection. The four `selected*` names below
@@ -2454,6 +2450,11 @@ export default function App() {
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
         onRefresh={() => handleRefreshChat(selectedId)}
+        sendDisplayPrefs={
+          !readOnly && selectedId
+            ? (msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })
+            : undefined
+        }
       />
       {/* Mobile info strip */}
       {isMobile && selectedSession && (
@@ -2644,10 +2645,6 @@ export default function App() {
               });
             } : undefined}
           />
-          {/* Context strip above the composer card: OpenSpec refresh + View
-              menu + session-action groups (relocated from the retired
-              StatusBar model row). Read-only archived open hides it with the
-              rest of the composer (archive-sessions-lazy-load). */}
           {/* Anchor for the floating canvas chip tray: 0 height, no gap unit, so it
               leaves the pane's flex budget untouched. Live stack only — a frozen
               underlay never anchors it. See change: fix-canvas-chip-tray-overlay. */}
@@ -2659,77 +2656,48 @@ export default function App() {
               ref={setComposerAnchor}
             />
           )}
-          {selectedSession && !readOnly && (
-            <div
-              /* `shrink-0`: thin furniture row — cannot compress below its content,
-                 so absorbing a pane height deficit here would clip it rather than
-                 shrink it. See change: fix-quota-widget-clipping. */
-              className="flex items-center gap-2 flex-wrap px-3 pt-2 text-xs shrink-0"
-              data-testid="composer-context-strip"
-            >
-              {selectedCwd && (
-                <>
-                  <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
-                  {selectedId && (
-                    <Suspense fallback={null}>
-                      <ChatViewMenu
-                        sessionId={selectedId}
-                        currentOverride={selectedSession?.displayPrefsOverride ?? undefined}
-                        send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
-                      />
-                    </Suspense>
-                  )}
-                </>
-              )}
-              <ComposerSessionActions
-                session={selectedSession}
-                changes={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
-                openspecHasDir={selectedCwd ? openspecMap.get(selectedCwd)?.hasOpenspecDir : undefined}
-                openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}
-                openspecReadiness={selectedCwd ? openspecMap.get(selectedCwd)?.readiness : undefined}
-                onSendPrompt={(text, images) => wrappedHandleSend(text, images)}
-                onReadArtifact={selectedCwd ? (changeName, artifactId) => openArtifact(selectedCwd, changeName, artifactId) : undefined}
-                onBulkArchive={selectedCwd ? () => handleBulkArchive(selectedCwd) : undefined}
-                allSessions={Array.from(sessions.values())}
-                showGitInfo={true}
-                openspecConfig={openspecConfig}
-                /* Attach / detach from the change chip, same sources as the
-                   session card; working = streaming ∨ retrying (D9).
-                   See change: redesign-composer-session-strip. */
-                onAttach={(changeName) => handleAttachProposal(selectedSession.id, changeName)}
-                onDetach={() => handleDetachProposal(selectedSession.id)}
-                groups={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.groups : undefined}
-                assignments={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.assignments : undefined}
-                working={isComposerWorking(composerStatus, retrySessionIds.has(selectedSession.id))}
-              />
-            </div>
-          )}
+          {/* Composer dock: the session's live context (Processes, Changes, OpenSpec,
+              Queue, Context lanes + the YOLO footer) directly above the composer card,
+              replacing the context strip, StatusBar, QueuePanel and YoloComposerStrip.
+              `composer-stack-anchor` sits directly above it, so the canvas chip tray
+              tracks the dock's top edge, or the card's when no dock renders. The follow-up
+              queue is DISPLAY-ONLY plus bridge-owned mutation senders (Edit/Remove/Promote/
+              Clear all); `pendingQueues.followUp` is normalised inside the lanes hook.
+              See change: add-composer-dock (task 8.1). */}
           {!readOnly && (
             <>
-          <StatusBar
-            status={composerStatus}
-            currentTool={selectedState.currentTool}
-            streamingText={selectedState.streamingText || undefined}
+          <ComposerDockHost
+            session={selectedSession}
+            state={selectedState}
+            cwd={selectedCwd}
+            working={isComposerWorking(composerStatus, retrySessionIds.has(selectedId))}
+            openLane={frozen ? null : dockAccordion.openLane}
+            onOpenLaneChange={frozen ? NOOP_OPEN_LANE : dockAccordion.setOpenLane}
+            columnEl={frozen ? null : composerAnchor?.parentElement ?? null}
+            onKillProcess={(pgid) => handleKillProcess(selectedId, pgid)}
+            onShowTool={(toolCallId) => chatViewRef.current?.scrollToTool(toolCallId)}
+            onNavigateToSession={handleSelect}
+            allSessions={Array.from(sessions.values())}
+            onShutdownSession={handleShutdownSession}
+            onReview={() => navigate(buildSessionDiffUrl(selectedId))}
+            onOpenFile={() => navigate(buildSessionDiffUrl(selectedId))}
+            changes={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
+            openspecHasDir={selectedCwd ? openspecMap.get(selectedCwd)?.hasOpenspecDir : undefined}
+            openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}
+            openspecReadiness={selectedCwd ? openspecMap.get(selectedCwd)?.readiness : undefined}
+            openspecConfig={openspecConfig}
+            groups={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.groups : undefined}
+            assignments={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.assignments : undefined}
+            onSendPrompt={(text, images) => wrappedHandleSend(text, images)}
+            onAttach={(changeName) => handleAttachProposal(selectedId, changeName)}
+            onDetach={() => handleDetachProposal(selectedId)}
+            onReadArtifact={selectedCwd ? (changeName, artifactId) => openArtifact(selectedCwd, changeName, artifactId) : undefined}
+            onRefresh={selectedCwd ? () => handleOpenSpecRefresh(selectedCwd) : undefined}
+            onEditFollowUp={editFollowUpEntry}
+            onRemoveFollowUp={removeFollowUpEntry}
+            onPromoteFollowUp={promoteFollowUpEntry}
+            onClearFollowUps={() => clearFollowUpEntries("all")}
           />
-          {/* Pi-native follow-up queue — DISPLAY-ONLY (cycle with ↑/↓).
-              Mutation controls (clear / edit / promote / remove) removed:
-              pi's ExtensionAPI doesn't expose queue mutation; the previous
-              implementation called fictional `clearFollowUpQueue` and
-              corrupted pi's queue with append-duplicates. Empirical test:
-              /tmp/pi-queue-experiment.mjs. See change:
-              unify-status-banner-and-terminal-limit-stop. */}
-          {/* Tolerant read of the follow-up wire shape: normalise legacy
-              `string[]` and current `{text,imageCount}[]` to ONE shape before
-              the queue surface sees it. See change: fix-bridge-followup-image-drop (D2b). */}
-          <QueuePanel
-            followUp={normalizeFollowUpEntries(selectedSession?.pendingQueues?.followUp)}
-            onEdit={(index, text) => editFollowUpEntry(index, text)}
-            onRemove={removeFollowUpEntry}
-            onPromote={promoteFollowUpEntry}
-            onClearAll={() => clearFollowUpEntries("all")}
-          />
-          {/* Active-YOLO strip directly above the composer. See change: fix-yolo-indicator-overflow. */}
-          <YoloComposerStrip cwd={selectedSession?.cwd} />
           <CommandInput
             commands={selectedCommands}
             onSend={wrappedHandleSend}
@@ -2737,6 +2705,8 @@ export default function App() {
             fileResults={fileResults}
             disabled={false}
             sessionStatus={composerStatus}
+            currentTool={selectedState.currentTool}
+            streamingText={selectedState.streamingText || undefined}
             retrying={selectedState.retryState !== undefined}
             onAbort={handleAbort}
             onForceKill={handleForceKill}
@@ -3657,32 +3627,5 @@ export default function App() {
       )}
       {addFoldersDialog}
     </div>
-  );
-}
-
-/**
- * StatusBar refresh button — local state for a brief spinner so the user
- * gets visual confirmation that the click registered. The actual refetch
- * is fire-and-forget over the websocket; the spin timeout is purely UX
- * affordance.
- * See change: redesign-session-card-and-composer (refresh-before-model).
- */
-function StatusBarRefreshButton({ cwd, onRefresh }: { cwd: string; onRefresh: (cwd: string) => void }) {
-  const { t } = useI18n();
-  const [spinning, setSpinning] = useState(false);
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        onRefresh(cwd);
-        setSpinning(true);
-        setTimeout(() => setSpinning(false), 600);
-      }}
-      title={t("status.refreshOpenSpec", undefined, "Refresh OpenSpec data")}
-      data-testid="statusbar-refresh-btn"
-      className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] p-0.5"
-    >
-      <Icon path={mdiRefresh} size={0.55} spin={spinning} className="fx-progress" />
-    </button>
   );
 }

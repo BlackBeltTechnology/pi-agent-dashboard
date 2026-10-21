@@ -124,7 +124,7 @@ test.describe("composer liveness after reload (L3)", () => {
     page.on("websocket", (ws) => ws.on("framereceived", (f) => { frames.push(String(f.payload)); }));
     try {
       await reloadMidRun(page, b);
-      // F1: card, composer and StatusBar agree.
+      // F1: card, composer and the toolbar status word agree.
       await expect(cardOf(page, b.sessionId).getByTestId("session-status-icon")).toHaveAttribute("data-status-shape", "working");
       await expect(stopBtn(page)).toBeVisible({ timeout: 20_000 });
       await expect(sendBtn(page)).toHaveCount(0);

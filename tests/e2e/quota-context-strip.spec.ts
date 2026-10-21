@@ -2,11 +2,12 @@ import { expect, type Page, test } from "./fixtures.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 /**
- * Browser E2E — move-quota-to-context-strip.
+ * Browser E2E — move-quota-to-context-strip, relocated by add-composer-dock.
  *
- * The quota widget left `content-inline-footer` (below the composer hints) for
- * the `composer-context-group` slot inside `ComposerSessionActions`, so it now
- * reads as a sibling of `OPENSPEC` / `GIT` / `STATUS` above the composer.
+ * The quota widget renders through the `composer-dock`'s Context lane
+ * (`composer-context-group` slot; the former composer context strip is gone), so
+ * it reads as the dock's last lane directly above the composer card. The lane is
+ * not expandable and its plugin groups are never working-gated.
  *
  * `/api/quota` is stubbed with `page.route` (the harness has no provider
  * credentials); the real client component, slot mount and Dialog primitive are
@@ -29,26 +30,28 @@ const QUOTA_BODY = {
   unavailable: [],
 };
 
-/** Stub `/api/quota`, open a fresh session and return the live context strip. */
+/** Stub `/api/quota`, open a fresh session and return the dock's Context lane. */
 async function openSessionWithQuota(page: Page) {
   await page.route("**/api/quota", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(QUOTA_BODY) }),
   );
   const card = await spawnFreshGitSession(page);
   await card.click();
-  const strip = page.getByTestId("composer-context-strip");
-  await expect(strip).toBeVisible({ timeout: 30_000 });
-  return strip;
+  const dock = page.getByTestId("composer-dock");
+  await expect(dock).toBeVisible({ timeout: 30_000 });
+  const lane = dock.getByRole("group", { name: "Context", exact: true });
+  await expect(lane).toBeVisible({ timeout: 20_000 });
+  return lane;
 }
 
-test.describe("quota context strip", () => {
-  test("F7: the Quota group renders in the strip with every window inline", async ({ page }) => {
-    const strip = await openSessionWithQuota(page);
+test.describe("quota context lane", () => {
+  test("F7: the Quota group renders in the Context lane with every window inline", async ({ page }) => {
+    const lane = await openSessionWithQuota(page);
 
-    const group = strip.getByTestId("quota-context-group");
+    const group = lane.getByTestId("quota-context-group");
     await expect(group).toBeVisible({ timeout: 20_000 });
 
-    const chip = strip.getByTestId("quota-chip-anthropic");
+    const chip = lane.getByTestId("quota-chip-anthropic");
     await expect(chip).toBeVisible();
     await expect(chip).toContainText("14%");
     await expect(chip).toContainText("32%");
@@ -63,15 +66,18 @@ test.describe("quota context strip", () => {
     await expect(group).toHaveCSS("border-top-style", "dashed");
     await expect(chip).toHaveCSS("border-top-width", "0px");
 
-    // The chip renders ONCE, in the strip — no duplicate quota widget elsewhere
+    // The lane is a plain (non-expandable) header: no disclosure control in it.
+    await expect(lane.locator("[data-dock-toggle]")).toHaveCount(0);
+
+    // The chip renders ONCE, in the lane — no duplicate quota widget elsewhere
     // (the old footer mount's wrapper carries no testid, so a `` footer``-scoped
     // locator would be structurally unfailable).
     await expect(page.getByTestId("quota-chip-anthropic")).toHaveCount(1);
   });
 
   test("F8: clicking the chip opens the shared dialog, Escape closes it", async ({ page }) => {
-    const strip = await openSessionWithQuota(page);
-    const chip = strip.getByTestId("quota-chip-anthropic");
+    const lane = await openSessionWithQuota(page);
+    const chip = lane.getByTestId("quota-chip-anthropic");
     await expect(chip).toBeVisible({ timeout: 20_000 });
     await chip.click();
 
@@ -85,14 +91,15 @@ test.describe("quota context strip", () => {
   });
 
   test("F9: the label stays on the same line as its chips, inside the viewport", async ({ page }) => {
-    const strip = await openSessionWithQuota(page);
-    await page.setViewportSize({ width: 900, height: 800 });
+    const lane = await openSessionWithQuota(page);
+    // Wide enough that the composer column stays in the dock's row layout (≥ 32.5rem).
+    await page.setViewportSize({ width: 1000, height: 800 });
 
-    const group = strip.getByTestId("quota-context-group");
+    const group = lane.getByTestId("quota-context-group");
     await expect(group).toBeVisible({ timeout: 20_000 });
 
-    const label = strip.getByTestId("quota-context-group-label");
-    const chip = strip.getByTestId("quota-chip-anthropic");
+    const label = lane.getByTestId("quota-context-group-label");
+    const chip = lane.getByTestId("quota-chip-anthropic");
     await expect(chip).toBeVisible();
 
     // A narrow group now wraps INSIDE its container (ToolbarGroup, D1), so the
@@ -130,13 +137,11 @@ test.describe("quota context strip", () => {
     const card = await spawnFreshGitSession(page);
     await card.click();
 
-    const strip = page.getByTestId("composer-context-strip");
-    await expect(strip).toBeVisible({ timeout: 30_000 });
-    // The host strip survives the degraded plugin: its refresh control is still
-    // there (a freshly spawned harness session has no worktree, so there is no
-    // GIT group to anchor on).
-    await expect(strip.getByTestId("statusbar-refresh-btn")).toBeVisible({ timeout: 15_000 });
-    // …but no quota chip/group appears.
+    // The composer survives the degraded plugin (a freshly spawned harness
+    // session has no worktree, so the dock may not render at all)…
+    await expect(page.getByTestId("composer-card")).toBeVisible({ timeout: 30_000 });
+    // …but no quota chip/group appears, and no Context lane is left behind.
+    await expect(page.getByRole("group", { name: "Context", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("quota-context-group")).toHaveCount(0);
     expect(pageErrors).toEqual([]);
   });

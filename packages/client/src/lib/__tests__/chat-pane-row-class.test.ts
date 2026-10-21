@@ -47,9 +47,10 @@ describe("chat-pane-row-class constants & table (L1, #E1)", () => {
       ([, spec]) => spec.rowClass === "shrinkable",
     ) as [string, ShrinkableRowSpec][];
 
-    // transcript + composer + sticky header. NOTE: bound is a LOWER bound, so
+    // transcript + composer + sticky header + the dock's two static shapes
+    // (`composer-dock`, `composer-dock:footer-only`; add-composer-dock). NOTE: bound is a LOWER bound, so
     // 0 is legal (the header's); no assertion may demand bound > 0.
-    expect(shrinkableRows.length).toBe(3);
+    expect(shrinkableRows.length).toBe(5);
 
     for (const [name, row] of shrinkableRows) {
       expect(

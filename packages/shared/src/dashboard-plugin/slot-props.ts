@@ -33,6 +33,16 @@ export interface FolderDescriptor {
 export type SlotPlacement = "sidebar" | "card";
 
 /**
+ * What a `composer-dock-process-group` claim reports in `"summary"` mode: how many
+ * items it has running and their plural noun (e.g. `{ count: 2, noun: "subagents" }`).
+ * See change: add-composer-dock.
+ */
+export interface ProcessGroupSummary {
+  count: number;
+  noun: string;
+}
+
+/**
  * Image payload forwarded to `tool-renderer` plugins. Structural mirror of the
  * client's `ChatImage` (kept inline so this types-only package stays free of a
  * client dependency). See change: wire-tool-renderer-slot.
@@ -259,6 +269,14 @@ export interface SlotPropsMap {
   "composer-context-group": {
     session: DashboardSession;
     pluginContext: AnyPluginContext;
+  };
+  "composer-dock-process-group": {
+    session: DashboardSession;
+    pluginContext: AnyPluginContext;
+    /** `"summary"`: always mounted, render `null`, only call `reportSummary`. `"rows"`: mounted while the Processes lane body is shown. */
+    mode: "summary" | "rows";
+    /** Report this claim's running count; `null` means nothing runs (clears the entry). The dock drops the entry when the component unmounts. */
+    reportSummary: (summary: ProcessGroupSummary | null) => void;
   };
   "anchored-popover": {
     anchorEl: HTMLElement;

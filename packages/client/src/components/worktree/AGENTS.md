@@ -10,6 +10,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `BranchSwitchDialog.tsx` | Modal dialog for git branch switch. Exports `BranchSwitchDialog`. → see `BranchSwitchDialog.tsx.AGENTS.md` |
 | `CloseWorktreeDialog.tsx` | Confirms worktree removal. Handles `active_sessions` guard: shuts listed sessions down then retries with… → see `CloseWorktreeDialog.tsx.AGENTS.md` |
 | `CommitDialog.tsx` | Placement-agnostic commit dialog (`cwd` + `sessionId`). File picker (checkbox + `+/−`, select-all/none),… → see `CommitDialog.tsx.AGENTS.md` |
+| `GitIdentity.tsx` | `GitIdentity({session})`: worktree identity for the dock Changes lane header (moved from the composer strip). Branch, `← base` only when known, dirty count, `↑ahead`/`↓behind`, `no local changes` marker only with `gitStatus` (never claims sync); every marker has a text alternative; tooltip `name — mainPath`. Test ids `composer-git-*`. See change: add-composer-dock (4.1). |
 | `GitDirtyPill.tsx` | Shared dirty/drift indicator on both git surfaces (`GitInfo` card, `GroupGitInfo` header). → see `GitDirtyPill.tsx.AGENTS.md` |
 | `lazy-worktree-dialogs.ts` | Code-splits click-only worktree dialogs off the entry chunk. Exports `worktreeDialogLoaders` + `LazyCloseWorktreeDialog`, `LazyMergeConfirmDialog`. See change: redesign-composer-session-strip. |
 | `ManageWorktreesDialog.tsx` | Manage-worktrees `Dialog size="lg"` hosting `<WorktreeList mode="manage" />`. Owns fetch, bulk `remove-batch`, prune;… → see `ManageWorktreesDialog.tsx.AGENTS.md` |

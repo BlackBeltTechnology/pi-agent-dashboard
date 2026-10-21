@@ -124,16 +124,44 @@ export const TESTIDS = {
   commitSubmit: "commit-submit",
   commitCancel: "commit-cancel",
   commitError: "commit-error",
-  // Terminal (scenario 5.4). open-inline-terminal-button lives in the selected
-  // session's composer (CommandInput); terminal-card mounts in the chat stream.
+  // Terminal (scenario 5.4). open-inline-terminal-button is an item of the
+  // composer's `＋` menu (attach-menu) — reach it via `openInlineTerminalFromAddMenu`;
+  // terminal-card mounts in the chat stream. See change: add-composer-dock.
   terminalCard: "terminal-card",
   openInlineTerminalButton: "open-inline-terminal-button",
+  attachButton: "attach-button",
+  attachMenu: "attach-menu",
   // Top-level / folder route containers (scenario 5.6 navigation).
   settingsContent: "settings-content",
   openspecBoard: "openspec-board",
   archiveBrowser: "archive-browser",
   specsBrowser: "specs-browser",
 } as const;
+
+/**
+ * Open the composer `＋` menu and choose "Open inline terminal". The terminal
+ * chip left the toolbar row (and the `⋯` overflow is gone), so the menu item is
+ * the only entry point at every width. See change: add-composer-dock.
+ */
+export async function openInlineTerminalFromAddMenu(page: Page): Promise<void> {
+  await byTestId(page, "attachButton").first().click();
+  const menu = byTestId(page, "attachMenu");
+  await menu.waitFor({ state: "visible", timeout: 10_000 });
+  await byTestId(menu, "openInlineTerminalButton").click();
+}
+
+/**
+ * Expand the composer dock's Queue lane. Queued follow-ups render in the lane's
+ * body (`queue-panel` / `queue-chip-followup`), which mounts only while the lane
+ * is open — the lane itself shows collapsed (`N queued follow-ups`). Works in rows
+ * and compact layout (the chip carries the same `data-dock-toggle`). Idempotent.
+ * See change: add-composer-dock.
+ */
+export async function expandQueueLane(page: Page): Promise<void> {
+  const toggle = page.locator('[data-dock-toggle="queue"]').first();
+  await toggle.waitFor({ state: "visible", timeout: 15_000 });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+}
 
 export function byTestId(scope: Page | Locator, key: keyof typeof TESTIDS): Locator {
   // Accepts a Locator as well as a Page so a lookup can be scoped to a dialog
