@@ -334,8 +334,8 @@ not declare intent SHALL default to **foreground**.
 ### Requirement: Chat pane SHALL budget its height so no row is clipped
 
 The chat pane renders a scrollable transcript among a stack of furniture rows
-(sticky header slot, session banner, context strip, status bar, queue panel,
-composer, and any `content-inline-footer` plugin contributions). The pane SHALL
+(sticky header slot, session banner, composer dock, composer, and any
+`content-inline-footer` plugin contributions). The pane SHALL
 apportion its height so that the composer cannot grow at the expense of the rows
 below it, and so that the transcript is never reduced to nothing.
 
@@ -364,7 +364,7 @@ height it SHALL render at that height with no scrollbar; when the pane gives it
 less, the row SHALL render at its allocated height and scroll internally, keeping
 every control inside it reachable.
 
-Rows that render conditionally (session banner, queue panel, plugin slot
+Rows that render conditionally (session banner, composer dock, plugin slot
 contributions, the transcript's error-boundary fallback) are classified the same
 way and are part of the pane's budget whenever they are present, so the floor sum
 — the declared transcript floor, plus the composer's base height, plus the content
@@ -467,7 +467,7 @@ fixed pixel height, and SHALL scroll its own content when it reaches that bound.
 
 #### Scenario: A conditional row raises the floor sum while it is rendered
 
-- **GIVEN** a pane rendering a conditional row (session banner, queue panel, or a
+- **GIVEN** a pane rendering a conditional row (session banner, composer dock, or a
   plugin slot contribution)
 - **WHEN** the pane sits at a height that was at or above the floor sum without
   that row
