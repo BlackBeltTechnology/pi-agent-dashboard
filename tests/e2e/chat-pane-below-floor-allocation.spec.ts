@@ -210,7 +210,8 @@ test.describe("chat-pane below-floor allocation — sticky header row", () => {
     // Nothing is painted outside its own row's box.
     const inside = await chatPane.evaluate((pane) => {
       const pr = pane.getBoundingClientRect();
-      return [...pane.children].every((c) => {
+      // A `hidden` row (an empty dock) paints nothing: it has no rect to be outside of.
+      return [...pane.children].filter((c) => c.getClientRects().length > 0).every((c) => {
         const r = c.getBoundingClientRect();
         return r.top >= pr.top - 1 && r.bottom <= pr.bottom + 1;
       });
