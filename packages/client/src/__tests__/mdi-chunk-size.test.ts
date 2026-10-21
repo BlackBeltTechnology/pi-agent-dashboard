@@ -62,7 +62,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // controller + pin planner, the parser-based tail block split, the trailing-edge overlay, `useChatMotion`
 // and the pref plumbing/i18n (~+3 KB gz) -> 602,323 B in this test's own gzip (1,283 B over the old cap). Smallest KiB step
 // that leaves ~800 B of headroom for CI's compressor variance; not a general raise.
-const INDEX_GZ_CAP_BYTES = 589 * 1024;
+// add-openspec-change-dependencies (2026-10-21): 589 -> 591 KiB. Size win first: the dependencies dialog
+// (the largest new component, click-only) is code-split via lazy-openspec-dialogs (-1.6 KB gz; 605,474 ->
+// 603,857 B). What stays is board behaviour that cannot split: the per-card chips + wave/issue badges, the
+// execution-order sort/drop helpers, the API client and the inline English fallbacks. 603,857 B is 721 B
+// over the old cap; 591 KiB (605,184 B) leaves ~1.3 KB. Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 591 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
