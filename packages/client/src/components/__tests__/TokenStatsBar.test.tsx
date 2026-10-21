@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import React from "react";
-import { TokenStatsBar } from "../session/TokenStatsBar.js";
+import { describe, expect, it, vi } from "vitest";
 import type { TurnStat } from "../../lib/chat/event-reducer.js";
+import { ContextRing } from "../session/ContextRing.js";
+import { TokenStatsBar } from "../session/TokenStatsBar.js";
 
 function makeTurn(overrides: Partial<TurnStat> = {}): TurnStat {
   return { input: 1000, output: 500, cacheRead: 3000, cacheWrite: 200, turnIndex: 0, ...overrides };
@@ -39,33 +40,6 @@ describe("TokenStatsBar", () => {
     );
     const axis = container.querySelector(".h-px.bg-\\[var\\(--border-subtle\\)\\]");
     expect(axis).not.toBeNull();
-  });
-
-  it("renders stacked context bar with segments", () => {
-    const { container } = render(
-      <TokenStatsBar
-        turnStats={[makeTurn()]}
-        contextUsage={{ tokens: 50000, contextWindow: 200000 }}
-        {...defaultProps}
-      />
-    );
-    const contextBar = container.querySelector('[data-testid="context-bar"]');
-    expect(contextBar).not.toBeNull();
-  });
-
-  it("uses gradient color for context bar", () => {
-    const { container } = render(
-      <TokenStatsBar
-        turnStats={[makeTurn()]}
-        contextUsage={{ tokens: 185000, contextWindow: 200000 }}
-        {...defaultProps}
-      />
-    );
-    const bar = container.querySelector('[data-testid="context-bar"]');
-    const segments = bar?.querySelectorAll<HTMLElement>(".h-full");
-    expect(segments!.length).toBeGreaterThan(0);
-    const seg = segments![0]!;
-    expect(seg.style.backgroundColor).toBeTruthy();
   });
 
   it("shows cumulative input (tokensIn + cacheRead) in stats panel", () => {
@@ -184,47 +158,71 @@ describe("TokenStatsBar", () => {
     expect(bar?.className).not.toContain("cursor-pointer");
   });
 
-  it("hides stats sections when showStats is false", () => {
-    const { container } = render(
-      <TokenStatsBar
-        turnStats={[makeTurn()]}
-        contextUsage={{ tokens: 50000, contextWindow: 200000 }}
-        {...defaultProps}
-        showStats={false}
-      />
-    );
-    expect(container.querySelector('[data-testid="butterfly-chart"]')).toBeNull();
-    expect(container.querySelector('[data-testid="stats-panel"]')).toBeNull();
-    // context bar still present
-    expect(container.querySelector('[data-testid="context-bar"]')).not.toBeNull();
+  // E18 (test-plan): the context bar left the content header; the ring owns it.
+  // See change: reorganize-session-header.
+  it("E18 never renders a context progress bar; the turn chart follows showStats", () => {
+    const on = render(<TokenStatsBar turnStats={[makeTurn()]} {...defaultProps} showStats />);
+    expect(on.container.querySelector('[data-testid="context-bar"]')).toBeNull();
+    expect(on.container.querySelector('[data-testid="butterfly-chart"]')).not.toBeNull();
+    on.unmount();
+    const off = render(<TokenStatsBar turnStats={[makeTurn()]} {...defaultProps} showStats={false} />);
+    expect(off.container.querySelector('[data-testid="context-bar"]')).toBeNull();
+    expect(off.container.querySelector('[data-testid="butterfly-chart"]')).toBeNull();
+    expect(off.container.querySelector('[data-testid="stats-panel"]')).toBeNull();
+  });
+});
+
+describe("ContextRing", () => {
+  // E1 (test-plan): arc tier by the ROUNDED percentage.
+  it.each([
+    [30, "neutral", "var(--text-secondary)"],
+    [31, "blue", "var(--accent-blue-text)"],
+    [50, "blue", "var(--accent-blue-text)"],
+    [51, "green", "var(--accent-green-text)"],
+    [70, "green", "var(--accent-green-text)"],
+    [71, "orange", "var(--accent-orange-text)"],
+    [90, "orange", "var(--accent-orange-text)"],
+    [91, "red", "var(--accent-red-text)"],
+  ])("E1 %i%% uses the %s arc", (pct, tier, stroke) => {
+    const { getByTestId } = render(<ContextRing usage={{ tokens: pct * 1000, contextWindow: 100_000 }} />);
+    const arc = getByTestId("context-ring-arc");
+    expect(arc.getAttribute("data-tier")).toBe(tier);
+    expect(arc.getAttribute("stroke")).toBe(stroke);
   });
 
-  it("hides context bar when showContextBar is false", () => {
-    const { container } = render(
-      <TokenStatsBar
-        turnStats={[makeTurn()]}
-        contextUsage={{ tokens: 50000, contextWindow: 200000 }}
-        {...defaultProps}
-        showContextBar={false}
-      />
-    );
-    expect(container.querySelector('[data-testid="context-bar"]')).toBeNull();
-    // stats still present
-    expect(container.querySelector('[data-testid="butterfly-chart"]')).not.toBeNull();
+  it("E1 rounds before choosing the tier (30.4% is neutral, 30.5% is blue)", () => {
+    const a = render(<ContextRing usage={{ tokens: 30_400, contextWindow: 100_000 }} />);
+    expect(a.getByTestId("context-ring-arc").getAttribute("data-tier")).toBe("neutral");
+    a.unmount();
+    const b = render(<ContextRing usage={{ tokens: 30_500, contextWindow: 100_000 }} />);
+    expect(b.getByTestId("context-ring-arc").getAttribute("data-tier")).toBe("blue");
   });
 
-  it("renders only the context bar when showStats is false but showContextBar is true", () => {
-    const { container } = render(
-      <TokenStatsBar
-        turnStats={[makeTurn()]}
-        contextUsage={{ tokens: 50000, contextWindow: 200000 }}
-        {...defaultProps}
-        showStats={false}
-        showContextBar={true}
-      />
-    );
-    expect(container.querySelector('[data-testid="butterfly-chart"]')).toBeNull();
-    expect(container.querySelector('[data-testid="stats-panel"]')).toBeNull();
-    expect(container.querySelector('[data-testid="context-bar"]')).not.toBeNull();
+  it("E2 shows % text, meter value and token tooltip", () => {
+    const { getByRole } = render(<ContextRing usage={{ tokens: 127_000, contextWindow: 1_000_000 }} />);
+    const meter = getByRole("meter");
+    expect(meter.textContent).toBe("13%");
+    expect(meter.getAttribute("aria-valuenow")).toBe("13");
+    expect(meter.getAttribute("aria-valuemax")).toBe("100");
+    expect(meter.getAttribute("title")).toBe("127.0k of 1.0M tokens");
+  });
+
+  it("E2 caps at 100% over the window; the tooltip keeps the real count; arc is red", () => {
+    const { getByRole, getByTestId } = render(<ContextRing usage={{ tokens: 1_020_000, contextWindow: 1_000_000 }} />);
+    const meter = getByRole("meter");
+    expect(meter.textContent).toBe("100%");
+    expect(meter.getAttribute("aria-valuenow")).toBe("100");
+    expect(meter.getAttribute("title")).toBe("1.02M of 1.0M tokens");
+    expect(getByTestId("context-ring-arc").getAttribute("data-tier")).toBe("red");
+  });
+
+  it.each([
+    ["usage undefined", undefined],
+    ["window 0", { tokens: 100, contextWindow: 0 }],
+    ["tokens null", { tokens: null, contextWindow: 200_000 }],
+  ])("E3 renders nothing when %s", (_label, usage) => {
+    const { queryByRole, container } = render(<ContextRing usage={usage} />);
+    expect(queryByRole("meter")).toBeNull();
+    expect(container.firstChild).toBeNull();
   });
 });

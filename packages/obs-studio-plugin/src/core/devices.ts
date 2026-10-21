@@ -46,6 +46,9 @@ export interface Device {
 
 export interface Display {
   id: string;
+  /** Global CoreGraphics position (left monitor x = 0); absent from older listers. */
+  x?: number;
+  y?: number;
   width: number;
   height: number;
   main: boolean;
@@ -183,17 +186,20 @@ export async function bindInput(
   return { input: inputName, property, value };
 }
 
-/** JXA source listing active displays with their CoreGraphics UUID (spike F4). */
+/**
+ * JXA source listing active displays with their CoreGraphics UUID (spike F4).
+ * Display ids come from `NSScreen.screens`: a JXA `Ref()` passed to
+ * `CGGetActiveDisplayList` only exposes element 0 (`ids[1]` is `undefined`),
+ * which made every display report the main display's UUID.
+ */
 export const JXA_DISPLAYS = `
-ObjC.import("CoreGraphics"); ObjC.import("ColorSync");
-var max = 16, ids = Ref(), count = Ref();
-$.CGGetActiveDisplayList(max, ids, count);
-var out = [];
-for (var i = 0; i < count[0]; i++) {
-  var id = ids[i];
+ObjC.import("AppKit"); ObjC.import("CoreGraphics"); ObjC.import("ColorSync");
+var screens = $.NSScreen.screens, out = [];
+for (var i = 0; i < screens.count; i++) {
+  var id = screens.objectAtIndex(i).deviceDescription.objectForKey("NSScreenNumber").unsignedIntValue;
   var uuid = ObjC.castRefToObject($.CFUUIDCreateString(null, $.CGDisplayCreateUUIDFromDisplayID(id))).js;
   var b = $.CGDisplayBounds(id);
-  out.push({ id: uuid, width: b.size.width, height: b.size.height, main: $.CGDisplayIsMain(id) === 1, mirrored: $.CGDisplayIsInMirrorSet(id) === 1 });
+  out.push({ id: uuid, x: b.origin.x, y: b.origin.y, width: b.size.width, height: b.size.height, main: $.CGDisplayIsMain(id) === 1, mirrored: $.CGDisplayIsInMirrorSet(id) === 1 });
 }
 JSON.stringify(out);
 `;
@@ -203,5 +209,70 @@ export function parseDisplays(stdout: string): Display[] {
   const rows = JSON.parse(stdout.trim()) as Array<Partial<Display>>;
   return rows
     .filter((r) => typeof r.id === "string" && r.id.length > 0)
-    .map((r) => ({ id: String(r.id), width: Number(r.width ?? 0), height: Number(r.height ?? 0), main: r.main === true, ...(r.mirrored ? { mirrored: true } : {}) }));
+    .map((r) => ({
+      id: String(r.id),
+      ...(typeof r.x === "number" ? { x: r.x } : {}),
+      ...(typeof r.y === "number" ? { y: r.y } : {}),
+      width: Number(r.width ?? 0),
+      height: Number(r.height ?? 0),
+      main: r.main === true,
+      ...(r.mirrored ? { mirrored: true } : {}),
+    }));
+}
+
+/** How long a flipped display is held so OBS tears down and restarts the capture stream. */
+export const CAPTURE_REFRESH_HOLD_MS = 1500;
+
+export interface CaptureRefreshResult {
+  refreshed: Array<{ input: string; via: "flip" | "reapply" }>;
+}
+
+/**
+ * Unfreeze macOS screen captures after sleep (observed OBS 31.1.2): the
+ * ScreenCaptureKit stream stops on sleep (`Stream stopped with error 0`) and
+ * never restarts; toggling visibility or re-applying the same settings does
+ * not restart it. Flip each input's `display_uuid` to another display, hold
+ * `CAPTURE_REFRESH_HOLD_MS`, then restore the original settings exactly
+ * (`overlay:false`, so `{}` stays `{}`). The restore runs in `finally`.
+ * One display → re-apply only (`via: "reapply"`). Never enumerates
+ * `screen_capture` properties (crashes OBS).
+ */
+export async function refreshScreenCaptures(
+  obs: GuardedObs,
+  opts: { input?: string },
+  deps: DeviceDeps & { sleep: (ms: number) => Promise<void> },
+): Promise<CaptureRefreshResult> {
+  if (deps.platform !== "darwin") throw new ObsError("refused", "capture refresh is macOS-only (ScreenCaptureKit sleep freeze)");
+  const { inputs = [] } = await obs.request<{ inputs?: InputRow[] }>("GetInputList");
+  let targets = inputs.filter((i) => i.inputKind === SCREEN_KIND.darwin).map((i) => i.inputName);
+  if (opts.input !== undefined) {
+    const hit = inputs.find((i) => i.inputName === opts.input);
+    if (!hit) throw new ObsError("not-found", `no input named ${JSON.stringify(opts.input)}`);
+    if (hit.inputKind !== SCREEN_KIND.darwin) throw new ObsError("refused", `${opts.input} is not a screen-capture input`);
+    targets = [opts.input];
+  }
+  const listed = await deps.listDisplays();
+  const displays = listed === "unsupported" ? [] : listed;
+  const mainId = displays.find((d) => d.main)?.id;
+  const refreshed: CaptureRefreshResult["refreshed"] = [];
+  for (const inputName of targets) {
+    const { inputSettings = {} } = await obs.request<{ inputSettings?: Record<string, unknown> }>("GetInputSettings", { inputName });
+    const original = { ...inputSettings };
+    // Empty settings capture OBS's default, the main display.
+    const current = typeof original.display_uuid === "string" ? original.display_uuid : mainId;
+    const other = displays.find((d) => d.id !== current)?.id;
+    if (!other) {
+      await obs.request("SetInputSettings", { inputName, inputSettings: original, overlay: false });
+      refreshed.push({ input: inputName, via: "reapply" });
+      continue;
+    }
+    await obs.request("SetInputSettings", { inputName, inputSettings: { display_uuid: other }, overlay: true });
+    try {
+      await deps.sleep(CAPTURE_REFRESH_HOLD_MS);
+    } finally {
+      await obs.request("SetInputSettings", { inputName, inputSettings: original, overlay: false });
+    }
+    refreshed.push({ input: inputName, via: "flip" });
+  }
+  return { refreshed };
 }

@@ -187,17 +187,6 @@ When a change is attached to a session, the mobile kebab menu (⋮) SHALL displa
 - **WHEN** a session has an attached change in complete state
 - **THEN** the menu SHALL show Read, Explore, Verify, and Archive commands
 
-### Requirement: Separate attach/detach icon in mobile session header
-The mobile session header SHALL display a paperclip icon button for attach/detach operations, separate from the kebab menu.
-
-#### Scenario: No change attached
-- **WHEN** no change is attached and available changes exist
-- **THEN** tapping the paperclip icon SHALL show a dropdown listing available changes to attach
-
-#### Scenario: Change is attached
-- **WHEN** a change is attached to the session
-- **THEN** the paperclip icon SHALL appear in blue and tapping it SHALL show the attached change name with a detach option
-
 ### Requirement: Disable browser pull-to-refresh
 The dashboard SHALL disable the browser's native pull-to-refresh gesture and overscroll bounce effects on all viewports. Normal in-page scrolling (chat views, sidebars, settings) SHALL NOT be affected.
 

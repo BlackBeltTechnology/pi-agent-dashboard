@@ -6,7 +6,7 @@
  * - `setPiTrustChoice`        PUT /api/access/pi-trust/choice
  * - `setPiTrustMirrorConfig`  PUT /api/config { piTrustMirror } (server merges nested keys)
  *
- * See change: mirror-dashboard-trust-to-pi.
+ * See change: mirror-dashboard-trust-to-pi, mirror-dashboard-trust-live-remote.
  */
 import type {
   MirrorIgnoreReason,
@@ -17,14 +17,25 @@ import { getApiBase } from "../api/api-context.js";
 export interface PiTrustMirrorSettings {
   enabled: boolean;
   coverInteractive: boolean;
+  /** Bridge asks the running server about live (server-lifetime) entries. */
+  liveQuery: boolean;
+  /** Live-query deadline override; absent = 300 ms local / 1000 ms remote (clamped 50–1000). */
+  liveQueryTimeoutMs?: number;
   sources: Record<MirrorSourceKind, boolean>;
 }
 
 export const DEFAULT_PI_TRUST_MIRROR_SETTINGS: PiTrustMirrorSettings = {
   enabled: true,
   coverInteractive: false,
-  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false },
+  liveQuery: true,
+  sources: { worktreeInit: true, workflow: true, pinned: true, folderWorkspaces: true, accessGrants: false, yolo: true },
 };
+
+/** How long a live (server-lifetime) entry lasts; mirrors the server's `LiveLifetime`. */
+export type PiTrustLiveLifetime =
+  | { kind: "restart" }
+  | { kind: "yolo-until"; until: number }
+  | { kind: "yolo-process" };
 
 export interface PiTrustAccessEntry {
   sourceKind: MirrorSourceKind;
@@ -35,6 +46,9 @@ export interface PiTrustAccessEntry {
   confers: boolean;
   reason?: MirrorIgnoreReason;
   reasonLabel?: string;
+  /** Live entry (memory-only, server lifetime). */
+  live?: boolean;
+  lifetime?: PiTrustLiveLifetime;
 }
 
 export interface PiTrustAccessView {
@@ -42,7 +56,14 @@ export interface PiTrustAccessView {
   config: PiTrustMirrorSettings;
   agentDir: string;
   piEntries: Array<{ folder: string; decision: boolean }>;
-  effective: Array<{ folder: string; sourceKind: MirrorSourceKind; sourceLabel: string; coversSubfolders: boolean }>;
+  effective: Array<{
+    folder: string;
+    sourceKind: MirrorSourceKind;
+    sourceLabel: string;
+    coversSubfolders: boolean;
+    live?: boolean;
+    lifetime?: PiTrustLiveLifetime;
+  }>;
   ignored: PiTrustAccessEntry[];
   entries: PiTrustAccessEntry[];
   sourcesNotInstalled: MirrorSourceKind[];
@@ -75,6 +96,10 @@ function normalizeMirrorSettings(raw: unknown): PiTrustMirrorSettings {
     enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_PI_TRUST_MIRROR_SETTINGS.enabled,
     coverInteractive:
       typeof r.coverInteractive === "boolean" ? r.coverInteractive : DEFAULT_PI_TRUST_MIRROR_SETTINGS.coverInteractive,
+    liveQuery: typeof r.liveQuery === "boolean" ? r.liveQuery : DEFAULT_PI_TRUST_MIRROR_SETTINGS.liveQuery,
+    ...(typeof r.liveQueryTimeoutMs === "number" && Number.isFinite(r.liveQueryTimeoutMs)
+      ? { liveQueryTimeoutMs: r.liveQueryTimeoutMs }
+      : {}),
     sources: { ...DEFAULT_PI_TRUST_MIRROR_SETTINGS.sources, ...(r.sources ?? {}) },
   };
 }
@@ -100,6 +125,9 @@ export function setPiTrustChoice(
 export function setPiTrustMirrorConfig(partial: {
   enabled?: boolean;
   coverInteractive?: boolean;
+  liveQuery?: boolean;
+  /** `null` clears the override (server falls back to its per-class default). */
+  liveQueryTimeoutMs?: number | null;
   sources?: Partial<Record<MirrorSourceKind, boolean>>;
 }): Promise<{ ok: boolean; error?: string }> {
   return call("PUT", "/api/config", { piTrustMirror: partial });

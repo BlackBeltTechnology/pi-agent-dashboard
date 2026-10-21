@@ -74,6 +74,7 @@ Split and Editor open the right-hand pane, so the control sits over the region i
   - `ended · ran <duration>` once ended, where the duration is `lastActivityAt − startedAt` (`lastActivityAt?: number`, `packages/shared/src/types.ts:256`), clamped at 0 (`ended · ran 0s`). When `lastActivityAt` is absent, show `ended` alone.
 - **The tick moves into a `SessionClock` leaf component** that owns its own 1 s interval. `SessionHeader` no longer holds `now` state.
   - Measure: React Profiler commits of `SessionHeader` per second, before ≈ 1/s, after 0/s while idle.
+  - **Measured (jsdom, fake timers, `React.Profiler` around the header):** before = 10 commits in 10 s (1.0/s, the old `setInterval` at `SessionHeader.tsx:366`); after = 0 `SessionHeader` renders in 3 s while `SessionClock` commits once per tick (test-plan P1, `SessionHeader.layout-redesign.test.tsx`).
   - Hidden tabs keep the existing behaviour; no new visibility handling.
 
 ### D5 Attach leaves the header

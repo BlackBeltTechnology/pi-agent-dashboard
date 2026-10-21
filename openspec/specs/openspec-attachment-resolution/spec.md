@@ -33,7 +33,7 @@ An `unresolved` attachment SHALL render exactly as a bare attachment (name + `â‹
 
 An archive entry SHALL match when its name equals `<YYYY-MM-DD>-<attachedProposal>`. Regex metacharacters in the name SHALL be escaped.
 
-Every session surface that reads the attached change SHALL use this function. That covers the session card, the desktop session header, composer session actions, the mobile action menu, and the session OpenSpec block.
+Every session surface that reads the attached change SHALL use this function. That covers the session card, composer session actions, the mobile action menu, and the session OpenSpec block.
 
 #### Scenario: Active change wins
 - **WHEN** `attachedProposal = "add-auth"` and `session.cwd` has active change `add-auth`

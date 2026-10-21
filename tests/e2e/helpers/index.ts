@@ -44,10 +44,13 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
-  // Session-header "Refresh Chat" control (SessionHeader.tsx). Drives the
-  // durable replay-cache purge the reset-path specs assert against.
-  // See change: purge-replay-cache-on-reset-paths.
+  // Session-header "Reload transcript" title-menu item (SessionTitleMenu.tsx).
+  // Drives the durable replay-cache purge the reset-path specs assert against.
+  // It only exists while the title menu is open — use `reloadTranscript(page)`.
+  // See changes: purge-replay-cache-on-reset-paths, reorganize-session-header.
   refreshChat: "refresh-chat",
+  // Session title button: opens the menu (Rename, Reveal, Edit tags, Reload).
+  sessionTitleMenu: "session-title-menu",
   // Flow launch dialog submit (flow-roundtrip L3 spec drives a real pi-flows
   // run through it). Existing app testid on FlowLaunchDialog's Run button — no
   // new app testid added. See change: add-flow-plugin-e2e-tests.
@@ -134,6 +137,29 @@ export const TESTIDS = {
   archiveBrowser: "archive-browser",
   specsBrowser: "specs-browser",
 } as const;
+
+/**
+ * Reload the transcript from the session header: open the title menu, then
+ * activate "Reload transcript" (`refresh-chat`). The header ⟳ button is gone.
+ * See change: reorganize-session-header.
+ */
+export async function reloadTranscript(page: Page): Promise<void> {
+  await byTestId(page, "sessionTitleMenu").click();
+  await byTestId(page, "refreshChat").click();
+}
+
+/**
+ * Rename the open session through the header title menu (the ✎ button and
+ * double-click are gone). See change: reorganize-session-header.
+ */
+export async function renameSessionViaTitleMenu(page: Page, name: string): Promise<void> {
+  await byTestId(page, "sessionTitleMenu").click();
+  await page.getByRole("menuitem", { name: /^Rename/ }).click();
+  const input = page.getByTestId("session-header").locator("input").first();
+  await input.fill(name);
+  await input.press("Enter");
+  await expect(byTestId(page, "sessionTitleMenu")).toHaveAttribute("title", name, { timeout: 15_000 });
+}
 
 export function byTestId(scope: Page | Locator, key: keyof typeof TESTIDS): Locator {
   // Accepts a Locator as well as a Page so a lookup can be scoped to a dialog
