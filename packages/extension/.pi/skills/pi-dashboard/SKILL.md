@@ -151,6 +151,16 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 | Read config | `curl -s "$BASE/api/config" \| jq .` |
 | Update config | `curl -s -X PUT "$BASE/api/config" -H 'Content-Type: application/json' -d '{"autoShutdown":false}'` |
 
+### Access Provisioning
+
+Propose-only: the dashboard operator approves each folder. Prefer the `project-access` skill (map / suggest / provision); never call the operator-only `settle` / `dismiss-all` routes.
+
+| Action | Command |
+|--------|---------|
+| Submit request | `curl -s -X POST "$BASE/api/access/provision" -H 'Content-Type: application/json' -d '{"projectRoot":"/abs/project","lines":[{"path":"../lib","why":"tests"}]}'` |
+| Pending requests | `curl -s "$BASE/api/access/provision" \| jq .` |
+| Request status | `curl -s "$BASE/api/access/provision/ID" \| jq .` |
+
 ### Tunnel
 
 | Action | Command |

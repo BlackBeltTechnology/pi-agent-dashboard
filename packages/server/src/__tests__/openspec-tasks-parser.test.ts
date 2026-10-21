@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  LineMismatchError,
+  NotACheckboxError,
+  NotFoundError,
   parseTasksMarkdown,
   readTasks,
   toggleTask,
-  NotFoundError,
-  LineMismatchError,
-  NotACheckboxError,
 } from "../openspec/openspec-tasks.js";
 
 describe("parseTasksMarkdown", () => {

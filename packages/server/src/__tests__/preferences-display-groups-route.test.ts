@@ -4,10 +4,11 @@
  *
  * See change: add-custom-event-group-filters.
  */
-import { describe, expect, it, vi } from "vitest";
-import Fastify from "fastify";
+
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import Fastify from "fastify";
+import { describe, expect, it, vi } from "vitest";
 
 import { registerPreferencesDisplayRoutes } from "../routes/preferences-display-routes.js";
 

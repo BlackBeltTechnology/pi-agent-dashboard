@@ -2,8 +2,9 @@
  * Tests for GET /api/spawn-failures endpoint.
  * See change: spawn-failure-diagnostics.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerSystemRoutes } from "../routes/system-routes.js";
 
 // Mock the spawn-failure-log module.

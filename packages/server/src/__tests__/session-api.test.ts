@@ -1,18 +1,19 @@
 /**
  * Tests for session control REST API endpoints (session-api.ts).
  */
-import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import Fastify from "fastify";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createMetaPersistence } from "../persistence/meta-persistence.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import { createSessionArchive } from "../session/session-archive.js";
 import { registerSessionRoutes } from "../routes/session-routes.js";
 import { createServer, type DashboardServer } from "../server.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { createSessionArchive } from "../session/session-archive.js";
 
 let httpPort: number;
 let piPort: number;

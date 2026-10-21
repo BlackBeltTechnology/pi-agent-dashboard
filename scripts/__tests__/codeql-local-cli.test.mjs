@@ -7,10 +7,10 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createHash } from "node:crypto";
 import { processStartTime, serializeBaseline, snapshotId } from "../codeql-local.mjs";
 import {
   analyzes,
@@ -570,5 +570,135 @@ describe("failures around the snapshot and lock (#X3, #X4)", () => {
     const r = run(repo, [], { plan: bothLanguages([]) });
     expect(r.status).toBe(0);
     expect(existsSync(join(stateDirOf(repo), "lock"))).toBe(false); // released on exit
+  });
+});
+
+/* ── local model pack (change codeql-model-pack-and-mirror) ── */
+
+const MODEL_DIR = ".github/codeql/extensions";
+const modelYaml = (rows, marker = "") =>
+  `${marker}extensions:\n  - addsTo: { pack: codeql/javascript-all, extensible: barrierModel }\n    data:\n${Array.from({ length: rows }, (_, i) => `      - ["'p/m${i}.js'", "Member[f].Argument[0]", "path-injection"]`).join("\n")}\n`;
+const modelRepo = (files = { "a.model.yml": modelYaml(2) }, extra = {}) => {
+  const repo = makeRepo({ files: Object.fromEntries(Object.entries(files).map(([n, c]) => [`${MODEL_DIR}/${n}`, c])), ...extra });
+  writeBaselineFile(repo, baselineOf());
+  return repo;
+};
+const jsAnalyze = (cs) => analyzes(cs).find((c) => c.argv[2].endsWith("db-javascript-typescript"));
+const flagOf = (c, name) => c.argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
+const resolveExt = (cs) => cs.filter((c) => c.argv[0] === "resolve" && c.argv[1] === "extensions");
+const MODEL_PACK = "pi-dashboard/local-models";
+
+describe("local model pack — loading (#E6–#E10)", () => {
+  it("#E6 only the JavaScript analysis gets the pack; never --download", () => {
+    const repo = modelRepo();
+    const r = run(repo, ["--json"], { plan: bothLanguages([]) });
+    expect(r.status).toBe(0);
+    const js = jsAnalyze(r.calls);
+    const dir = flagOf(js, "--additional-packs");
+    expect(dir).toBeTruthy();
+    expect(dir.startsWith(join(stateDirOf(repo)))).toBe(true);
+    expect(dir.includes("/src/") || dir.endsWith("/src")).toBe(false); // outside <run>/src
+    expect(flagOf(js, "--model-packs")).toBe(MODEL_PACK);
+    for (const c of analyzes(r.calls).filter((x) => x !== js)) {
+      expect(c.argv.some((a) => a.startsWith("--additional-packs") || a.startsWith("--model-packs"))).toBe(false);
+    }
+    for (const c of r.calls) expect(c.argv).not.toContain("--download");
+  });
+
+  it("#E7 the pack holds exactly the manifest and the snapshot's model files; the snapshot id is untouched", () => {
+    const repo = modelRepo({ "a.model.yml": modelYaml(1) });
+    write(repo.dir, `${MODEL_DIR}/AGENTS.md`, "# not a model\n");
+    git(repo.dir, ["add", "-A"]);
+    git(repo.dir, ["commit", "-q", "-m", "agents"]);
+    const before = snapshotId(repo.dir);
+    const r = run(repo, [], { plan: bothLanguages([]) });
+    expect(r.status).toBe(0);
+    expect(Object.keys(jsAnalyze(r.calls).modelPack).sort()).toEqual(["a.model.yml", "codeql-pack.yml"]);
+    expect(jsAnalyze(r.calls).modelPack["codeql-pack.yml"]).toContain(MODEL_PACK);
+    expect(JSON.parse(readFileSync(join(stateDirOf(repo), "last-run.json"), "utf8")).snapshotId).toBe(before);
+    expect(snapshotId(repo.dir)).toBe(before);
+  });
+
+  it("#E8 an uncommitted model edit is what gets analyzed", () => {
+    const repo = modelRepo({ "a.model.yml": modelYaml(1) });
+    write(repo.dir, `${MODEL_DIR}/a.model.yml`, modelYaml(1, "# UNSTAGED-MARKER\n"));
+    const r = run(repo, [], { plan: bothLanguages([]) });
+    expect(r.status).toBe(0);
+    expect(jsAnalyze(r.calls).modelPack["a.model.yml"]).toContain("UNSTAGED-MARKER");
+  });
+
+  it("#E9 a git-ignored model file is not applied", () => {
+    const repo = modelRepo({ "a.model.yml": modelYaml(1) });
+    write(repo.dir, ".gitignore", `node_modules\n${MODEL_DIR}/x.model.yml\n`);
+    write(repo.dir, `${MODEL_DIR}/x.model.yml`, modelYaml(1));
+    const r = run(repo, [], { plan: bothLanguages([]) });
+    expect(r.status).toBe(0);
+    expect(Object.keys(jsAnalyze(r.calls).modelPack)).not.toContain("x.model.yml");
+  });
+
+  it("#E10 versions.models is sha256 over the files in byte-wise sorted path order", () => {
+    const a = modelYaml(1, "# a\n");
+    const b = modelYaml(2, "# b\n");
+    const repo = modelRepo({ "b.model.yml": b, "a.model.yml": a });
+    const r = run(repo, ["--json"], { plan: bothLanguages([]) });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).versions.models).toBe(createHash("sha256").update(a).update(b).digest("hex"));
+  });
+
+  it("a repo without model files runs without the pack flags", () => {
+    const repo = seeded();
+    const r = run(repo, ["--json"], { plan: bothLanguages([]) });
+    expect(r.status).toBe(0);
+    expect(jsAnalyze(r.calls).argv.some((a) => a.startsWith("--additional-packs"))).toBe(false);
+    expect(resolveExt(r.calls)).toHaveLength(0);
+    expect(JSON.parse(r.stdout).versions.models).toBeNull();
+  });
+});
+
+describe("local model pack — verification (#X1–#X4)", () => {
+  const failsBeforeAnalysis = (r) => {
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(MODEL_PACK);
+    expect(r.stderr).not.toContain("SKIPPED");
+    expect(analyzes(r.calls)).toHaveLength(0);
+  };
+
+  it("#X1 a rowCount below the file's data rows is exit 2", () => {
+    const repo = modelRepo({ "a.model.yml": modelYaml(10) });
+    failsBeforeAnalysis(run(repo, [], { plan: { ...bothLanguages([]), resolveExtensions: { rowCountDelta: -3 } } }));
+  });
+
+  it("#X2 a copied file the resolver does not list is exit 2", () => {
+    const repo = modelRepo({ "a.model.yml": modelYaml(2) });
+    failsBeforeAnalysis(run(repo, [], { plan: { ...bothLanguages([]), resolveExtensions: { omitFile: "a.model.yml" } } }));
+  });
+
+  it("#X3 an unresolvable pack is an error, not a skip — also with --json", () => {
+    const repo = modelRepo();
+    const stderr = `ERROR: Could not find extension pack '${MODEL_PACK}'`;
+    const plan = { ...bothLanguages([]), resolveExtensions: { exit: 2, stderr } };
+    failsBeforeAnalysis(run(repo, [], { plan }));
+    const j = run(repo, ["--json"], { plan });
+    expect(j.status).toBe(2);
+    expect(j.stderr).not.toMatch(/^CODEQL SKIPPED:/m);
+    expect(JSON.parse(j.stdout).status).toBe("error");
+  });
+
+  it("#X4 unparsable resolver output is exit 2", () => {
+    const repo = modelRepo();
+    failsBeforeAnalysis(run(repo, [], { plan: { ...bothLanguages([]), resolveExtensions: { stdout: "not json at all" } } }));
+  });
+});
+
+describe("run record (#E15)", () => {
+  it("#E15 last-run.json carries headCommit and clean", () => {
+    const repo = seeded();
+    const head = gitOut(repo.dir, ["rev-parse", "HEAD"]).trim();
+    const recorded = () => JSON.parse(readFileSync(join(stateDirOf(repo), "last-run.json"), "utf8"));
+    expect(run(repo, [], { plan: bothLanguages([]) }).status).toBe(0);
+    expect(recorded()).toMatchObject({ headCommit: head, clean: true }); // the baseline file itself never counts
+    write(repo.dir, "untracked.js", "x\n");
+    expect(run(repo, [], { plan: bothLanguages([]) }).status).toBe(0);
+    expect(recorded()).toMatchObject({ headCommit: head, clean: false });
   });
 });

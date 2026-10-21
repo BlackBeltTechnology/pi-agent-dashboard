@@ -16,17 +16,17 @@
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SpawnDetachedOptions,
   SpawnDetachedResult,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createKeeperManager,
+  type KeeperManagerOptions,
   pidPathFor,
   sockPathFor,
-  type KeeperManagerOptions,
 } from "../rpc-keeper/keeper-manager.js";
 
 // ── Fake spawnDetached ───────────────────────────────────────────────────────

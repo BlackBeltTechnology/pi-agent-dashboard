@@ -10,13 +10,14 @@
  *
  * See change: scope-openspec-poll-to-active-cwds (broadcast serialize-once).
  */
-import { describe, it, expect, vi } from "vitest";
+
 import { EventEmitter } from "node:events";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { describe, expect, it, vi } from "vitest";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 function makeFakeWs(opts?: { bufferedAmount?: number; readyState?: number }) {
   const ws = new EventEmitter() as EventEmitter & {
@@ -153,6 +154,9 @@ describe("browser-gateway broadcast serialize-once", () => {
   });
 });
 
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { wireEvents } from "../event-wiring.js";
+import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
 // ─────────────────────────────────────────────────────────────────────────
 // Live sessions_reordered windowed at the gateway choke point (D4) — E19, E20.
 // See change: fix-connect-snapshot-frame-loss.
@@ -163,11 +167,8 @@ describe("browser-gateway broadcast serialize-once", () => {
 // ids and out-of-window ended ids are dropped at one place.
 // ─────────────────────────────────────────────────────────────────────────
 import type { PreferencesStore } from "../persistence/preferences-store.js";
-import { createPendingForkRegistry } from "../pending/pending-fork-registry.js";
-import { wireEvents } from "../event-wiring.js";
 import { applyReattachPolicy } from "../session/reattach-placement.js";
 import { createSessionOrderManager } from "../session/session-order-manager.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { makeFakeDirectoryService } from "./helpers/load-fixtures.js";
 
 /** Minimal prefs store backing a REAL SessionOrderManager. */

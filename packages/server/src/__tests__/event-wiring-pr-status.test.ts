@@ -8,12 +8,13 @@
  *
  * See change: redesign-composer-session-strip (D5).
  */
+
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import os from "node:os";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -6,10 +6,11 @@
  * If createServer / piGateway ever stop propagating resolved ports, this
  * fails loudly before the other tests are touched.
  */
-import { describe, it, expect, afterAll } from "vitest";
+
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { afterAll, describe, expect, it } from "vitest";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;

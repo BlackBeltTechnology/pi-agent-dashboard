@@ -10,13 +10,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BUILD_DECLARATION_SCHEMA_VERSION,
   type BuildDeclaration,
   writeBuildDeclaration,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clientBuildDiagnostic,
   readClientBuildSnapshot,

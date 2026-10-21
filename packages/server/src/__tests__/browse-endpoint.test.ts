@@ -1,12 +1,13 @@
 /**
  * Tests for the browse directory endpoint logic.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { listDirectories, createDirectory, validateMkdirName } from "../browse.js";
-import path from "node:path";
-import os from "node:os";
+
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createDirectory, listDirectories, validateMkdirName } from "../browse.js";
 
 describe("listDirectories", () => {
   it("should return directory entries for a valid path", async () => {
@@ -389,7 +390,7 @@ describe("listDirectories word-boundary ranking", () => {
 
 // ─── classifyPaths + parseFlagsQuery (change: split-browse-flags) ────────────
 
-import { classifyPaths, parseFlagsQuery, MAX_FLAG_PATHS } from "../browse.js";
+import { classifyPaths, MAX_FLAG_PATHS, parseFlagsQuery } from "../browse.js";
 
 describe("classifyPaths", () => {
   let tmp: string;
@@ -483,8 +484,8 @@ describe("parseFlagsQuery", () => {
 
 // ─── Route integration: GET /api/browse/flags ────────────────────────────────
 
-import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import { registerFileRoutes } from "../routes/file-routes.js";
 
 describe("GET /api/browse/flags route", () => {

@@ -5,10 +5,10 @@
  * a stale session from loading the wrong conversation AND an un-archivable card.
  * See change: fix-orphaned-ended-session-archive.
  */
-import { describe, it, expect, afterAll } from "vitest";
-import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
-import type { DashboardServer } from "../server.js";
+import { afterAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import type { DashboardServer } from "../server.js";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {

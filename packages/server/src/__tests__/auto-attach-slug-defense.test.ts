@@ -10,7 +10,7 @@
  * Approach: mock `detectOpenSpecActivity` to return a UUID-shaped result,
  * drive a tool_execution_start event end-to-end, assert no mutation.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js", async (importOriginal) => {

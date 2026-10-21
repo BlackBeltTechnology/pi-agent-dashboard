@@ -16,8 +16,8 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 import type { WsRouteScope } from "../auth/ws-ticket.js";
+import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 // A loopback source IP carrying a proxy-forwarding header is NOT genuine-local
 // (D10, narrowed) — the same shape a zrok/tunnel-relayed device presents.

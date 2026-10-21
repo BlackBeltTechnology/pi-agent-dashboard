@@ -105,6 +105,23 @@ import {
 import { type FileHandlerDeps, registerFileWriteBinaryRoute } from "./file-write-binary-routes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
+/** Per-response sandbox for scriptable raw responses. See change: harden-raw-svg-responses. */
+export const RAW_SANDBOX_CSP =
+  "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'";
+
+const SCRIPTABLE_MEDIA_TYPES = new Set([
+  "text/html",
+  "image/svg+xml",
+  "application/xhtml+xml",
+  "application/xml",
+  "text/xml",
+]);
+
+/** True when a browser would execute script from this `Content-Type` (params/case ignored). */
+export function isScriptableMediaType(contentType: string): boolean {
+  return SCRIPTABLE_MEDIA_TYPES.has(contentType.split(";")[0].trim().toLowerCase());
+}
+
 // Per-target write serialization. The optimistic mtime check + atomic rename
 // must run as one critical section per file, else two concurrent writes can
 // both read the same mtime, both pass, and the later rename clobbers the earlier
@@ -1236,6 +1253,15 @@ export function registerFileRoutes(
 
       reply.header("Content-Type", contentType);
       reply.header("Content-Disposition", "inline");
+      // Scriptable media types (SVG/HTML/XML) opened directly would run with the
+      // dashboard origin. Enforce an opaque-origin sandbox in EVERY dashboard CSP
+      // mode, on 200/206/416 and every admission path. The baseline CSP hook
+      // only adds a header that is absent, so this is never overwritten.
+      // See change: harden-raw-svg-responses.
+      if (isScriptableMediaType(contentType)) {
+        reply.header("Content-Security-Policy", RAW_SANDBOX_CSP);
+        reply.header("X-Content-Type-Options", "nosniff");
+      }
       reply.header("Cache-Control", "private, max-age=60");
       reply.header("Accept-Ranges", "bytes");
 

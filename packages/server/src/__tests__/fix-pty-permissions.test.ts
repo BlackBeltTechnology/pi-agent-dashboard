@@ -6,10 +6,11 @@
  * bit set. Without this, `pty.spawn(...)` fails with "posix_spawnp failed."
  * and the dashboard's "New Terminal" button appears dead.
  */
-import { describe, it, expect } from "vitest";
+
 import { existsSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { describe, expect, it } from "vitest";
 
 describe("fix-pty-permissions", () => {
   it.skipIf(process.platform === "win32")(

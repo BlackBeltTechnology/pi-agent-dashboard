@@ -1,11 +1,12 @@
 /**
  * Tests for the GET /api/packages/recommended route and its helpers.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock pi dependency (pulled transitively by package-manager-wrapper)
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -28,14 +29,14 @@ vi.mock("../package/npm-search-proxy.js", async (importActual) => {
 	};
 });
 
-import { fetchPackageMeta, fetchGithubPackageJson } from "../package/npm-search-proxy.js";
 import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import { fetchGithubPackageJson, fetchPackageMeta } from "../package/npm-search-proxy.js";
 import {
-	registerRecommendedRoutes,
 	invalidateRecommendedCache,
-	parseSourceKey,
-	sourcesMatch,
 	npmNameMatchesPath,
+	parseSourceKey,
+	registerRecommendedRoutes,
+	sourcesMatch,
 } from "../routes/recommended-routes.js";
 
 function makeWrapper(installed: {

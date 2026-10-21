@@ -3,7 +3,7 @@
  * rule for /api/health.launchSourceEffective.
  * See change: electron-attach-ownership-fixes.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 
 describe("computeEffectiveLaunchSource", () => {

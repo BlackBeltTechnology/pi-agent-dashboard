@@ -5,12 +5,13 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { execSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerGitRoutes } from "../routes/git-routes.js";
 
 function git(cmd: string, cwd: string) {

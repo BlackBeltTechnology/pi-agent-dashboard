@@ -13,8 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
 import { createMetaPersistence, type MetaPersistence } from "../persistence/meta-persistence.js";
+import { createMemorySessionManager, type SessionManager } from "../session/memory-session-manager.js";
 import { scanAllSessions } from "../session/session-scanner.js";
 import { sessionToMeta } from "../session/session-to-meta.js";
 

@@ -7,16 +7,17 @@
  * - Malformed JSON frames MUST still be silently dropped (no log noise
  *   for garbage input).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { EventEmitter } from "node:events";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
-import type { TerminalManager } from "../terminal/terminal-manager.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { SessionOrderManager } from "../session/session-order-manager.js";
+import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 function makeFakeWs() {
   const ws = new EventEmitter() as EventEmitter & {

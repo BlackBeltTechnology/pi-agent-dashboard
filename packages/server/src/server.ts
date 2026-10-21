@@ -67,6 +67,8 @@ import { createPiTrustMirrorService, setPiTrustMirror } from "./access/pi-trust-
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane, createPreviewEgressPlane } from "./access/planes.js";
 import { projectEgressGrants } from "./access/preview-egress-store.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
+import { createDefaultProvisioningGrantStore } from "./access/provisioning.js";
+import { installProvisioning } from "./access/provisioning-wiring.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
 import { sourceChannel } from "./access/source-channel.js";
 import { YOLO_ENV } from "./access/yolo-env.js";
@@ -2109,6 +2111,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         console.error(`[access-grant] grant_response failed: ${(err as Error)?.message ?? err}`);
       });
   });
+  // Access provisioning (change: add-access-provisioning): the registry wired to the gateway's
+  // operator sockets (live capability AND operate tier), with its per-request expiry timers.
+  const provisioning = installProvisioning({
+    gateway: browserGateway,
+    deps: {
+      now: Date.now,
+      grants: createDefaultProvisioningGrantStore(),
+      // Same two calls as `storePiTrustChoiceOfVerdict`: store the choice, then refresh the snapshot.
+      mirror: () => ({
+        setChoice: (kind, folder, choice) => {
+          piTrustMirror.setChoice(kind, folder, choice);
+          piTrustMirror.refresh();
+        },
+      }),
+      ladder: {
+        killSwitch: () => isGrantPromptKilled(),
+        promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true,
+        hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+      },
+    },
+  });
+  browserGateway.registerHandler("provision_response", provisioning.onResponse);
   setNetworkDenialObserver((request) => {
     // `pair`: a network match grants nothing, so a denial is not a trust request
     // — the block event is still recorded (by the guard), but no network prompt
@@ -2685,7 +2709,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   // Settings → Access review surface + the one endpoint that can create a
   // filesystem grant. See change: add-access-grants-and-review.
-  registerAccessRoutes(fastify, { networkGuard, preferencesStore, writeConfigPartial });
+  registerAccessRoutes(fastify, {
+    networkGuard,
+    preferencesStore,
+    writeConfigPartial,
+    provisioning: { registry: provisioning.registry, announce: provisioning.announce },
+  });
   // Pending-question stack REST roads (list/detail/answer/summarize); the answer
   // claim is shared with the browser `prompt_response` road.
   // See change: add-pending-question-stack (D8, D9).
@@ -2837,7 +2866,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   registerAcpRoutes(fastify);
   registerTlsRoutes(fastify, { networkGuard, listener: tlsListener });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.

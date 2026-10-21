@@ -2,10 +2,11 @@
  * Unit / integration tests for the folder-HEAD watcher.
  * See change: refresh-folder-header-branch.
  */
-import { describe, it, expect, vi } from "vitest";
+
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { createFolderHeadWatcher, matchesHeadFile } from "../git-worktree/folder-head-watcher.js";
 
 const skipFsWatch = process.env.SKIP_FS_WATCH_TESTS === "1";

@@ -23,8 +23,8 @@ import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryEventStore, type EventStore } from "../persistence/memory-event-store.js";
-import { registerSessionRoutes } from "../routes/session-routes.js";
 import type { NetworkGuard } from "../routes/route-deps.js";
+import { registerSessionRoutes } from "../routes/session-routes.js";
 import { createRemoteTranscriptStore } from "../session/remote-transcript-store.js";
 
 const REMOTE_ID = "sess-remote";

@@ -6,12 +6,13 @@
  * shape (which PID, which timeout, in which order) without spawning real
  * subprocesses.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ChildProcess } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the platform helper BEFORE importing the registry so the registry's
 // `import { killProcess } from ".../platform/process.js"` resolves to the spy.

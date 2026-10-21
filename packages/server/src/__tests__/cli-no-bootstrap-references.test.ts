@@ -21,10 +21,11 @@
  * to match — but reaching back into any of the forbidden symbols means
  * runtime install has crept back into the standalone arm.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = path.resolve(HERE, "..", "cli.ts");

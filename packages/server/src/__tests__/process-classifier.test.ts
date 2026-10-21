@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
-import {
-  classifyProcesses,
-  buildPidIndex,
-  type RawProcessEntry,
-  type PidIndex,
-} from "../spawn-process/process-classifier.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import {
+  buildPidIndex,
+  classifyProcesses,
+  type PidIndex,
+  type RawProcessEntry,
+} from "../spawn-process/process-classifier.js";
 
 function raw(partial: Partial<RawProcessEntry> & { pid: number; command: string }): RawProcessEntry {
   return { pgid: partial.pid, elapsedMs: 60_000, ...partial };

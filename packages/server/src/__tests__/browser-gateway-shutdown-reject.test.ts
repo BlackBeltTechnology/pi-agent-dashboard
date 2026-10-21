@@ -9,8 +9,9 @@
  *
  * See change: cleanup-async-semantics-server-extension (test-plan #X12).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { EventEmitter } from "node:events";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asWs, attachCapturedWs, buildDebtGateway } from "./helpers/status-debt-fixtures.js";
 
 // Reject only `handleShutdown`; every other handler the gateway imports keeps
@@ -26,9 +27,9 @@ vi.mock("../browser-handlers/session-action-handler.js", async (importOriginal) 
 });
 
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 function makeFakeWs() {
   const ws = new EventEmitter() as EventEmitter & {

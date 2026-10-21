@@ -1,0 +1,3 @@
+# cors-denial.ts — index
+
+CORS origin denial -> DEFERRED `cors`-plane denial (server-cors spec "An origin denial may be answered by prompt"). `deniedCorsOrigin(origin, host, opts)` returns the origin exactly as received, or null for absent/empty/repeated/`null` Origin, any origin `classifyCorsOrigin` admits, and same-origin-by-Host pages. `createCorsDenialObserver(opts, onDenied(origin, ip))` onRequest hook; never alters the response; observer throw logged, swallowed. server.ts registers it after the host gate, before `@fastify/cors`; channel `sourceChannel(ip)`, never held. See change: add-access-grant-dialog (tasks 10.65 precondition).

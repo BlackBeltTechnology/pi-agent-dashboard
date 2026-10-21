@@ -3,13 +3,14 @@
  *
  * See change: add-custom-event-group-filters (tasks 4.1–4.3).
  */
-import { describe, expect, it } from "vitest";
+
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 
 import {
+  customEventTypeOfEvent,
   isGroupableCustomEvent,
   stampEventGroup,
-  customEventTypeOfEvent,
 } from "../session/custom-event-group-annotation.js";
 
 function event(eventType: string, data: Record<string, unknown>): DashboardEvent {

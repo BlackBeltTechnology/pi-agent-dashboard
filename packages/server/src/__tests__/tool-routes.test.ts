@@ -9,9 +9,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  ingestSkillTools,
   OverridesStore,
   registerDefaultTools,
-  ingestSkillTools,
   type Strategy,
   ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
