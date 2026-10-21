@@ -1660,6 +1660,32 @@ Cross-refs:
 - README.md:466
 - packages/dashboard-plugin-runtime/src/slot-registry.ts
 
+## How do I install a dashboard plugin with `pi install`?
+
+Plugin = pi package with `pi-dashboard-plugin` manifest. Install globally. Operator trust required before its client or (for `pi-package` source) server code runs.
+
+Steps:
+1. Install globally:
+   - Packages tab ▸ search `pi-dashboard-plugin` ▸ Install. **Appears live.** No restart.
+   - Terminal `pi install <package>`. **Appears after a dashboard restart.** Only dashboard-run installs reach the discovery refresh hook.
+2. Settings ▸ Plugins. Plugin row shows `source: pi-package`.
+3. Client UI (`clientBundle`): row shows `refused` / `untrusted`. Check package path + full hash. Click **Trust**. Live: claims appear without reload.
+4. Server entry: row shows error `server-untrusted`. Click **Trust server code**. Entry loads without restart (new id only).
+5. Needs local operator. Paired remote device cannot grant. Trust writes `auth.trustedPlugins`.
+
+Gotchas:
+- `--scope local` install (`<cwd>/.pi/settings.json`): row `local-detected`, never loaded. Install with `--scope global`. Session end prunes local-detected rows (no active session with that cwd left).
+- Rebuilt bundle → `pin-mismatch` → click **Trust this version**. Reload browser for changed/removed code ("Plugin changes need a reload").
+- Update or remove of a loaded plugin → `restartRequired`. Restart dashboard: `curl -X POST http://localhost:8000/api/restart`.
+- Same id as a first-party plugin: build's own copy wins. Installed copy shows under `shadowed`.
+- `refused` reason `host-api`: plugin `hostApi` range excludes host `PLUGIN_HOST_API_VERSION`. Update plugin or dashboard.
+- `build-undeclared`: served client build predates `bundledPluginIds`. Rebuild + restart client.
+- Remote-server page (Electron paired window) or `--dev` page: Plugins tab says "Runtime plugins are unavailable…" / "need the production page". Build-time plugins unaffected.
+
+Docs: `docs/runtime-plugin-clients.md`, `docs/architecture.md` § "Plugin Discovery, Trust and Runtime Delivery".
+
+See change: decouple-plugins-from-core.
+
 ## How to add a new session-card subcard?
 
 Mirror MEMORY/FLOWS pattern. Five edits.

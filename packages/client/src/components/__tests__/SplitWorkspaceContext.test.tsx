@@ -1,4 +1,7 @@
-import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, renderHook } from "@testing-library/react";
 import type React from "react";
 import { useCallback, useState } from "react";

@@ -4,6 +4,7 @@ Test entrypoint wrapper. `HOST_CWD` set → mounts overlayfs (lower `/mnt/test-l
 
 Seeds `plugins["craft-web"].enabled=true` into the harness config before boot (opt-in plugin; its `/apps/craft-<app>/` mounts are restart-effective). See change: edit-office-in-pane-with-craft-web.
 
+Runtime canary: copies `${HOST_CWD}/.pi-test-canary/plugins/*` into `~/.pi/dashboard/plugins/` and merges `auth-trust.json` into `config.json` `auth.trustedPlugins` (canary-trust-seed node program; read-modify-write, malformed pins dropped). Inert without a staged canary.
 - `PI_E2E_SEED` block seeds `cfg.terminals.maxConcurrent` from `PI_E2E_TERMINALS_MAX_CONCURRENT` (7th node argv). See change: harden-server-capability-bounds.
 
 - `PI_E2E_SEED` block seeds `cfg.browse.confineRemote=false` unless `PI_E2E_BROWSE_CONFINEMENT=1` (8th node argv): the harness browser is a remote peer via the port mapping. See change: harden-server-capability-bounds.

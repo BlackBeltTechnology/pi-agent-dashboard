@@ -1,4 +1,3 @@
-import { AgentToolRenderer } from "./AgentToolRenderer.js";
 import { AskUserToolRenderer } from "./AskUserToolRenderer.js";
 import { BashToolRenderer } from "./BashToolRenderer.js";
 import { CtxToolRenderer } from "./CtxToolRenderer.js";
@@ -15,7 +14,6 @@ const renderers = new Map<string, ToolRenderer>([
   ["write", WriteToolRenderer],
   ["bash", BashToolRenderer],
   ["canvas", LazyCanvasToolRenderer],
-  ["Agent", AgentToolRenderer],
   ["ask_user", AskUserToolRenderer],
   ["ctx_execute", CtxToolRenderer],
   ["ctx_execute_file", CtxToolRenderer],

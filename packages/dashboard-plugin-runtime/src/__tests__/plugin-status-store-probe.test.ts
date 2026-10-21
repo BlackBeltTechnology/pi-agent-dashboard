@@ -85,3 +85,41 @@ describe("PluginStatusStore.recordBridgeProbe", () => {
     expect(store.listAll()[0].lastProbe?.status).toBe("active");
   });
 });
+
+// decouple-plugins-from-core (tasks 6.6, 6.7): read-time client resolver + serveApp side map.
+describe("PluginStatusStore client resolver and serveApp outcome", () => {
+  const row = { id: "demo", displayName: "demo", enabled: true, loaded: true, claims: 0 };
+
+  it("resolves `client` at every read, never stores it", () => {
+    const store = createPluginStatusStore();
+    let state: "runtime" | "bundled" = "runtime";
+    store.setStatus(row);
+    store.setClientResolver(() => ({ delivery: state }));
+    expect(store.getStatus("demo")?.client).toEqual({ delivery: "runtime" });
+    state = "bundled";
+    expect(store.listAll()[0].client).toEqual({ delivery: "bundled" });
+    expect(store.getStoredStatus("demo")?.client).toBeUndefined();
+  });
+
+  it("a resolver returning undefined keeps the stored client; clearing the resolver restores stored rows", () => {
+    const store = createPluginStatusStore();
+    store.setStatus({ ...row, client: { delivery: "refused", refusedReason: "host-api" } });
+    store.setClientResolver(() => undefined);
+    expect(store.getStatus("demo")?.client?.refusedReason).toBe("host-api");
+    store.setClientResolver(() => ({ delivery: "bundled" }));
+    store.setClientResolver(null);
+    expect(store.getStatus("demo")?.client?.refusedReason).toBe("host-api");
+  });
+
+  it("serveApp outcome survives a later setStatus from the loader; refusal is sticky", () => {
+    const store = createPluginStatusStore();
+    store.recordServeApp("demo", "mounted");
+    store.setStatus(row);
+    expect(store.getStatus("demo")?.serveApp).toBe("mounted");
+    store.recordServeApp("demo", "refused");
+    store.setStatus({ ...row, loaded: false });
+    expect(store.listAll()[0].serveApp).toBe("refused");
+    store.recordServeApp("demo", "mounted");
+    expect(store.getStatus("demo")?.serveApp).toBe("refused");
+  });
+});

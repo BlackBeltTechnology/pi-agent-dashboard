@@ -1193,7 +1193,7 @@ Authoring rules: [`plugin-seams.md`](plugin-seams.md#lazy-claim-modules-module).
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
-**Future Work — external plugin discovery:** Phase 1 scans `packages/*/package.json` only. The manifest format (`pi-dashboard-plugin` field in any `package.json`) is intentionally **format-compatible with arbitrary npm packages**, which unblocks an eventual progression where stable plugins can be PR'd into upstream packages (e.g. `pi-dashboard-subagents/dashboard/`) and discovered from `node_modules`. The deferred work (trust model, SemVer pinning of the plugin context API, build integration with `node_modules` paths) is documented in `dashboard-plugin-architecture/design.md` §"Future Work: external plugin discovery".
+**External plugin discovery (shipped):** `decouple-plugins-from-core` adds the `settings.json#packages[]` discovery source, manifest `hostApi` pinning, operator trust, and runtime-delivered clients. See "Plugin Discovery, Trust and Runtime Delivery" below and `docs/runtime-plugin-clients.md`.
 
 #### JSX slot wrappers and `??` fallback chains — anti-pattern
 
@@ -1255,7 +1255,7 @@ All producers hash deterministic manifest serialization via `pluginRegistryHash(
 
 **Served-artifact build declaration (`pi-dashboard-build.json`):**
 Production Vite build writes `packages/client/dist/pi-dashboard-build.json`:
-- Schema: `{ schemaVersion: 1, pluginRegistryHash: "<sha256>", fixturePolicy: "excluded" | "included" }`.
+- Schema: `{ schemaVersion: 1, pluginRegistryHash: "<sha256>", fixturePolicy: "excluded" | "included", bundledPluginIds?: string[] }`. `bundledPluginIds` = sorted ids of plugins the build bundled (additive; decides bundled-vs-runtime on every host — see "Plugin Discovery, Trust and Runtime Delivery").
 - Byte-reproducible: no timestamps, no host paths. Dev/HMR emits nothing.
 - SDK: `build-declaration-sdk.ts` + `build-metadata.ts` in `dashboard-plugin-runtime`.
 
@@ -1327,6 +1327,110 @@ flowchart TD
 Client banner flow: `PluginStalenessBanner` fetches `/api/health` on mount. Compares `bundleHash` against imported `PLUGIN_REGISTRY_HASH`. Mismatch ⇒ render banner with Refresh + Dismiss buttons. Refresh calls `location.reload()`. Dismiss persists in `sessionStorage` key `pi-plugin-staleness-dismissed` (tab-scoped, clears on browser close). Dismissed banner stays hidden until next session.
 
 See change: `add-served-build-coherence-and-hash-parity`.
+
+#### Plugin Discovery, Trust and Runtime Delivery (`decouple-plugins-from-core`)
+
+Plugins separable from core. Core imports no plugin. Plugin client reaches stock dashboard at runtime. Detail: `docs/runtime-plugin-clients.md`, `docs/plugin-seams.md`, `docs/publishing-plugins.md`, `docs/plugin-ui-primitives.md`.
+
+**Discovery sources.** `discoverPlugins()` (`packages/dashboard-plugin-runtime/src/server/loader.ts`). `source` on `DiscoveredPlugin` + `PluginStatus`.
+
+| Priority | `source` | Location |
+|---|---|---|
+| 1 | `workspace` | `<repo>/packages` |
+| 2 | `installed` | `~/.pi/dashboard/plugins` |
+| 3 | `bundled` | `resources/plugins` (Electron) |
+| 4 | `pi-package` | `~/.pi/agent/settings.json#packages[]` via `listPiPackages({scope:"user"})` (`packages/shared/src/pi-package-resolver.ts`) |
+| report only | `local-detected` | `<cwd>/.pi/settings.json#packages[]` of active sessions |
+
+- `pi-package` entries: package dirs carrying a manifest. Files + manifest-less dirs skipped silently. Missing install paths invisible. `npm root -g` memoized once per process.
+- Exception to priority: id ∈ served build's `bundledPluginIds` → build's own copy wins (`workspace` if a copy exists, else `bundled`, else plain priority), both halves.
+- Discovery cache keyed by effective root set + digest of `bundledPluginIds` (absent → fixed "undeclared" key). Server reads declaration (`readBuildDeclaration`, `client-dist.ts`) at startup + on every refresh, before any discovery call.
+- Vite build-time call (explicit `repoRoot`) scans only workspace. No declaration. Unaffected.
+
+**One row per id (shadowing).** Losing duplicate → winner's `shadowed: {source, packageDir}[]`. Logged at warn. Never loaded. No second `loaded:false` row. `PluginsSection` renders `shadowed` as sub-line.
+
+**Local-scope detection** (`local-scope-detector.ts`).
+- Per active-session cwd: `listPiPackages({scope:"project", cwd})` entries with plugin manifest → row `source: "local-detected"`, `loaded: false`, `enabled: false`, error "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable."
+- Same id already has a row → local copy goes to that row's `shadowed[]`.
+- Server entry, bridge, claims, client never loaded.
+- Rerun: each discovery refresh, session registers a new cwd, after each successful local-scope package op, on session end (prunes rows no active session has).
+- `plugins_changed` on session end only when the detected set changed.
+
+**Refresh on completion.** Hook: package-operation completion listener (`setCompleteListener`, `packages/server/src/server.ts`), not `package-routes.ts` (routes return 202 before completion). Wiring: `packages/server/src/plugin-discovery-wiring.ts`. Implementation: `plugin-refresh.ts` `refreshPluginDiscovery()`.
+
+```mermaid
+flowchart TD
+    OP["package op completes"] --> SC{"success?"}
+    SC -- no --> NOP["no refresh"]
+    SC -- "yes, scope local" --> LOC["rerun local-scope detection"]
+    SC -- "yes, scope global/user" --> R1["re-read served declaration"]
+    R1 --> R2["clear discovery cache + content-hash stat cache"]
+    R2 --> R3["discoverPlugins()"]
+    R3 --> R4["flag changed/vanished loaded plugins restartRequired"]
+    R4 --> R5["additive loadServerEntries: NEW ids only; hostApi-gated; pi-package server-trust-gated"]
+    R5 --> LOC
+    LOC --> R6["probe refresh + status store update"]
+    R6 --> BC["ONE plugins_changed {plugins: PluginStatus[]} broadcast"]
+```
+
+- Calls coalesce: refresh requested while one runs → exactly one follow-up.
+- Server entry throwing during refresh → `loaded:false` + error, broadcast, refresh continues.
+- Server entries load additively. Loaded plugin changed/vanished → `restartRequired: true`. Routes + handlers stay until restart.
+- Hot-added entry registering Fastify routes: refused (`FST_ERR_INSTANCE_ALREADY_LISTENING`). Recorded `loaded:false`, `restartRequired:true`, `HOT_ROUTE_RESTART_ERROR`.
+- Re-enable of discovered plugin whose server entry never loaded → restart.
+- Terminal `pi install` NOT visible live: only dashboard installs (Packages tab / `POST /api/packages/install`) reach the listener. Appears after dashboard restart. `pi-resources-watcher.ts` not wired to discovery.
+- `POST /api/plugins/:id/toggle` keeps contract (dependency graph, 409, cascade). Also broadcasts one `plugins_changed`.
+
+**`plugins_changed`.** WS message `{type: "plugins_changed", plugins: PluginStatus[]}` (`packages/shared/src/browser-protocol.ts`). Emitted after refresh, toggle, trust write, local detection change. Client re-fetches runtime listing, recomputes enabled set, feeds `pluginAvailability`.
+
+**Status shape (additive).** `PluginStatus.{source, shadowed, restartRequired, hostApi, client, serveApp}` (`packages/shared/src/dashboard-plugin/plugin-status.ts`).
+- `/api/health.plugins[]`: unauthenticated, tunnel-reachable → path- and hash-free subset only (`source`, `restartRequired`, `hostApi`, `client.delivery`, `client.refusedReason`, `serveApp`).
+- Paths, `client.sha256`, `shadowed[].packageDir`, `local-detected` rows → guarded `GET /api/plugins` + `plugins_changed` only.
+
+**Host API version gate.** `PLUGIN_HOST_API_VERSION` (`packages/shared/src/dashboard-plugin/host-api.ts`) vs manifest `hostApi` caret range. Checked at discovery for BOTH halves.
+- `workspace`/`bundled`: warn only.
+- `installed`/`pi-package`: refuse server entry (error `host-api`) + client (`refused`, `host-api`).
+- Required for `pi-package` + `clientBundle` plugins.
+
+**Trust defaults.**
+
+| Thing | Default | Opt-in |
+|---|---|---|
+| `workspace` / `bundled` / `installed` server entry | loads (as before) | n/a |
+| `pi-package` server entry + bridge | DENIED (`server-untrusted`) | local `POST /api/plugins/:id/trust {server:true}` |
+| Runtime client (`clientBundle`) | refused (`untrusted`) | local `POST /api/plugins/:id/trust {sha256}`, pinned to content hash |
+| `serveApp` mount | trusted if bundled ∨ in `auth.trustedPlugins` ∨ in legacy `auth.capabilityRoutePlugins` | edit list; restart-effective |
+| `local-detected` | never loaded | install globally |
+
+- `isServeAppTrusted` (`packages/server/src/auth/serve-app-host.ts`): bundled = source ∈ {`workspace`,`bundled`,`installed`} + realpath containment + basename in `piDashboard.bundledPlugins`. Basename alone no longer trusts. `pi-package` + `local-detected` never bundled.
+- `auth.trustedPlugins: {id, clientSha256?, server?}[]` written only by trust endpoints (`plugin-trust-store.ts`). `PUT /api/config` cannot write it.
+- Grant needs `operate` + genuinely local. Revoke needs `operate`. Tiers in `packages/shared/src/route-tiers.ts`.
+
+**Runtime delivery pipeline.**
+
+```mermaid
+flowchart LR
+    DECL["pi-dashboard-build.json bundledPluginIds"] --> ADM["admission: not bundled, enabled, deps loaded, hostApi ok, trusted + pin"]
+    DISC["discoverPlugins"] --> ADM
+    TRUST["auth.trustedPlugins"] --> ADM
+    ADM --> LIST["GET /api/plugins/runtime-clients"]
+    ADM --> ASSETS["GET /plugin-assets/id/sha/*"]
+    IDX["sendIndexWithImportMap: / and /index.html"] --> MAP["importmap -> /host/*.js shims"]
+    LIST --> LOADER["runtime-plugin-loader.ts"]
+    ASSETS --> LOADER
+    MAP --> LOADER
+    LOADER --> REG["claims, i18n, routes, reducers, eventTypes owners, bumpSlotClaimsVersion"]
+```
+
+- Server pieces: `packages/dashboard-plugin-runtime/src/server/{runtime-client-registry,runtime-client-listing,plugin-assets-route,confined-static}.ts`, `packages/server/src/{plugin-runtime-clients,lib/index-html}.ts`, `routes/plugin-runtime-client-routes.ts`.
+- Client pieces: `packages/client/src/lib/plugins/runtime-plugin-loader.ts`, `packages/client/src/host-shims/*`.
+- Remote-server mode (`getApiBase()` non-empty) + Vite `--dev` page: loader does nothing.
+
+**Core/plugin boundary.** `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`, ratcheting `scripts/plugin-boundary-allowlist.json`, vitest wrapper). Plugin set from manifests. Shared contracts + `packages/mcp-core` in `docs/plugin-seams.md`.
+
+**Absent-owner UX.** Manifest `eventTypes` → one group row per owned event type; availability decided at render time by `pluginAvailability`. Subagent state written by subagents-plugin slice + finalizers; generic heals in core. See `docs/plugin-seams.md`.
+
+See change: decouple-plugins-from-core.
 
 #### Plugin Activation UI
 

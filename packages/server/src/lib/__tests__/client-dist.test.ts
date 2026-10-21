@@ -11,7 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveStaticClientDir } from "../client-dist.js";
+import { readServedBundledPluginIds, resolveStaticClientDir } from "../client-dist.js";
 
 const dirs: string[] = [];
 
@@ -99,5 +99,32 @@ describe("resolveStaticClientDir (E10, E11)", () => {
     });
 
     expect(resolved).toBeNull();
+  });
+});
+
+// tasks 5.4 / 6.2: the served declaration's ids reach discovery (absent → undeclared), validated.
+describe("readServedBundledPluginIds", () => {
+  const write = (dir: string, body: unknown) => fs.writeFileSync(path.join(dir, "pi-dashboard-build.json"), typeof body === "string" ? body : JSON.stringify(body));
+  const valid = { schemaVersion: 1, pluginRegistryHash: "c".repeat(64), fixturePolicy: "excluded" };
+
+  it("reads the sorted string array from a valid declaration", () => {
+    const dir = tmpDir();
+    write(dir, { ...valid, bundledPluginIds: ["goal", "flows"] });
+    expect(readServedBundledPluginIds(dir)).toEqual(["flows", "goal"]);
+  });
+
+  it.each([
+    ["no served build", null],
+    ["missing file", "missing"],
+    ["malformed json", "{bad"],
+    ["field absent", valid],
+    ["not a string array", { ...valid, bundledPluginIds: [1, "a"] }],
+    ["not a usable declaration (no hash)", { schemaVersion: 1, bundledPluginIds: ["goal"] }],
+    ["schema mismatch", { ...valid, schemaVersion: 2, bundledPluginIds: ["goal"] }],
+  ])("%s → undeclared", (_n, body) => {
+    const dir = tmpDir();
+    if (body === null) return expect(readServedBundledPluginIds(null)).toBeUndefined();
+    if (body !== "missing") write(dir, body);
+    expect(readServedBundledPluginIds(dir)).toBeUndefined();
   });
 });

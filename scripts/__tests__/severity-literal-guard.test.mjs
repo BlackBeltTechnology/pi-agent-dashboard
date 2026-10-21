@@ -27,7 +27,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const GOVERNED = [
   "packages/client/src/components/tool-renderers/CtxToolRenderer.tsx",
   "packages/client/src/components/tool-renderers/AskUserToolRenderer.tsx",
-  "packages/client/src/components/tool-renderers/AgentToolRenderer.tsx",
+  "packages/subagents-plugin/src/client/AgentToolRenderer.tsx",
   "packages/client/src/components/chat/ToolBurstGroup.tsx",
   "packages/client/src/components/chat/BashOutputCard.tsx",
   "packages/client/src/components/chat/ToolCallStep.tsx",
@@ -48,6 +48,16 @@ export function rawRedViolations(file, content) {
   return out;
 }
 
+/** Violations across the GOVERNED set only; `read(file)` returns a file's content or undefined. */
+export function governedViolations(read) {
+  const out = [];
+  for (const file of GOVERNED) {
+    const content = read(file);
+    if (content !== undefined) out.push(...rawRedViolations(file, content));
+  }
+  return out;
+}
+
 /** Every tracked client source file, for the anti-vacuity sample below. */
 function walkClientSources() {
   const out = execFileSync("git", ["ls-files", "packages/client/src/**/*.tsx"], {
@@ -64,12 +74,10 @@ describe("governed tool-result error surfaces use severity tokens, not raw red l
   });
 
   it("no governed file carries an unexempted raw red-<NNN> literal", () => {
-    const violations = [];
-    for (const file of GOVERNED) {
+    const violations = governedViolations((file) => {
       const abs = path.join(repoRoot, file);
-      if (!fs.existsSync(abs)) continue;
-      violations.push(...rawRedViolations(file, fs.readFileSync(abs, "utf8")));
-    }
+      return fs.existsSync(abs) ? fs.readFileSync(abs, "utf8") : undefined;
+    });
     const report = violations.map((v) => `${v.file}:${v.line} — ${v.text}`);
     expect(report, `raw red literals in governed error surfaces:\n${report.join("\n")}`).toEqual([]);
   });
@@ -95,5 +103,29 @@ describe("governed tool-result error surfaces use severity tokens, not raw red l
 
     expect(outside.length, "no out-of-scope red literals found — the sample is vacuous").toBeGreaterThan(0);
     for (const { file } of outside) expect(GOVERNED).not.toContain(file);
+  });
+});
+
+// #E50 (decouple-plugins-from-core, task 4.4): moving the Agent renderer into the
+// plugin must not drop it from the governed set, and must not widen the guard.
+describe("the moved Agent renderer stays governed; non-error surfaces are unaffected (E50)", () => {
+  const MOVED = "packages/subagents-plugin/src/client/AgentToolRenderer.tsx";
+  const UNGOVERNED = "packages/client/src/components/some/DeleteButton.tsx";
+
+  it("a raw red literal injected into the moved renderer fails with file:line", () => {
+    const real = fs.readFileSync(path.join(repoRoot, MOVED), "utf8");
+    const injected = `${real}\nconst leaked = "text-red-400";\n`;
+    const injectedLine = injected.split("\n").indexOf('const leaked = "text-red-400";') + 1;
+    const hits = governedViolations((file) => (file === MOVED ? injected : undefined));
+    expect(hits.map((h) => `${h.file}:${h.line}`)).toEqual([`${MOVED}:${injectedLine}`]);
+  });
+
+  it("an ungoverned destructive button keeps its bg-red-500 without tripping the guard", () => {
+    const button = '<button className="bg-red-500 text-white">Delete</button>';
+    expect(GOVERNED).not.toContain(UNGOVERNED);
+    // The literal IS a raw red (the sample is not vacuous) ...
+    expect(rawRedViolations(UNGOVERNED, button)).toHaveLength(1);
+    // ... but only enrolled files are scanned, so the guard passes.
+    expect(governedViolations((file) => (file === UNGOVERNED ? button : undefined))).toEqual([]);
   });
 });

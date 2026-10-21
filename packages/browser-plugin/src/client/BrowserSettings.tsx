@@ -41,15 +41,7 @@
  * add-dedicated-agent-browser (tasks 7.1–7.3); retro-ux-plugin-settings-wave-2.
  */
 
-import {
-  SettingsGroup,
-  SettingsItem,
-  SettingsNotice,
-  SettingsStatusPill,
-  ToggleField,
-  useT,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { SettingsGroup, SettingsItem, SettingsNotice, SettingsStatusPill, ToggleField, usePluginConfig, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { AgentBrowsingGroup, resolveAgentSettings } from "./AgentBrowsingGroup.js";

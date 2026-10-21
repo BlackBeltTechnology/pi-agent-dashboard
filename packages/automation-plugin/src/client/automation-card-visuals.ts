@@ -3,12 +3,12 @@
  * automation board. The plugin package does NOT depend on `@client`, so it
  * cannot import `packages/client/src/lib/session-status-visuals.ts`; instead it
  * reproduces the small status→class mapping here and applies the host's
- * already-global FX classes by name (`.card-stripes-fx`/`.card-stripes-running`,
- * `.card-glow-fx`/`.card-glow-fx-outer`/`.card-ring-fx`), all gated by
- * `prefers-reduced-motion` in the host CSS.
+ * already-global FX classes through `HOST_FX_CLASSES` (runtime `./sdk`; no
+ * literal class names here), all gated by `prefers-reduced-motion` in the host CSS.
  *
- * See change: automation-ui-mockup-parity.
+ * See change: automation-ui-mockup-parity, decouple-plugins-from-core.
  */
+import { HOST_FX_CLASSES } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { mdiRobotOutline } from "@mdi/js";
 
 /** Automation card state, derived from validity + disabled + a running run. */
@@ -87,13 +87,13 @@ export function pillClass(state: AutomationCardState): string {
 
 /** Barber-pole stripe overlay class for a running card (empty otherwise). */
 export function stripeFxClass(state: AutomationCardState): string {
-  return state === "running" ? "card-stripes-fx card-stripes-running" : "";
+  return state === "running" ? `${HOST_FX_CLASSES.stripes} ${HOST_FX_CLASSES.stripesRunning}` : "";
 }
 
 /** Headless source icon (spawned automation runs). */
 export const headlessSourceIcon = mdiRobotOutline;
 
 /** Static neon glow + rim overlay classes for the selected card. */
-export const GLOW_FX_CLASS = "card-glow-fx";
-export const GLOW_FX_OUTER_CLASS = "card-glow-fx-outer";
-export const RING_FX_CLASS = "card-ring-fx";
+export const GLOW_FX_CLASS = HOST_FX_CLASSES.glow;
+export const GLOW_FX_OUTER_CLASS = HOST_FX_CLASSES.glowOuter;
+export const RING_FX_CLASS = HOST_FX_CLASSES.ring;

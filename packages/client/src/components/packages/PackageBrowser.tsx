@@ -13,7 +13,7 @@ import { PackageCard } from "./PackageCard.js";
 import { PackageRow } from "./PackageRow.js";
 import { RecommendedExtensions } from "./RecommendedExtensions.js";
 
-const TYPE_PILLS = ["extension", "skill", "theme", "prompt"] as const;
+const TYPE_PILLS = ["extension", "skill", "theme", "prompt", "dashboard-plugin"] as const;
 
 interface PackageBrowserProps {
   scope: "global" | "local";

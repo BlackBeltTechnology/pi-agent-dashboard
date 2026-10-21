@@ -1,4 +1,4 @@
-import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCompassOutline } from "@mdi/js";

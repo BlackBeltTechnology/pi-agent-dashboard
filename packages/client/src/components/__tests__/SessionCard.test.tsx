@@ -1,4 +1,7 @@
-import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
@@ -1557,7 +1560,7 @@ describe("SessionCard — New worktree session menu item (session-card-plus-sess
  */
 describe("SessionCard — widget-bar-placed prompt (test-plan #F7)", () => {
   it("#F7 shows the ask_user tool label, never 'Idle', when a widget-bar prompt owns the prompt", async () => {
-    const runtime = await import("@blackbelt-technology/dashboard-plugin-runtime");
+    const runtime = await import("@blackbelt-technology/dashboard-plugin-runtime/host");
     const spy = vi.spyOn(runtime, "useHasWidgetBarPrompt").mockReturnValue(true);
     try {
       // `status: "idle"` is the exact pair the change makes newly legal: an

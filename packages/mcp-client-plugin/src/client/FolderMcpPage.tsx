@@ -20,11 +20,11 @@
  * See change: migrate-mcp-to-pi-builtin; mcp-client-project-overrides.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { isProjectOverride } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import type { EffectiveServerView, EffectiveView, Provenance, Scope } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { isProjectOverride } from "../core/pi-rules.js";
-import type { EffectiveServerView, EffectiveView, Provenance, Scope } from "../core/types.js";
 import { ApiError, convertToOverride, removeServer, saveServer, scopeToWire, setProjectOverride } from "./api.js";
 import { folderOverrideDraftOf, isFolderOwned, overrideRestorePatch } from "./folder-view.js";
 import { invalidateEffective, useEffectiveConfig } from "./hooks.js";

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // must treat as "excluded from every bucket".
 const widgetBarIds = new Set<string>();
 const unclassifiedIds = new Set<string>();
-vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
+vi.mock("@blackbelt-technology/dashboard-plugin-runtime/host", () => ({
   useHasWidgetBarPrompt: (sessionId: string) =>
     unclassifiedIds.has(sessionId) ? undefined : widgetBarIds.has(sessionId),
 }));

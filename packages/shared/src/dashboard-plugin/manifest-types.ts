@@ -211,6 +211,21 @@ export interface PluginClaim {
    * See change: auto-hide-empty-session-subcards.
    */
   shouldRender?: string;
+  /**
+   * `tool-renderer` claims only: when true the tool row starts EXPANDED while
+   * its status is `running` (the card is the live progress surface). Replaces
+   * the shell's hard-coded per-tool auto-expand. Absent = false.
+   * See change: decouple-plugins-from-core (design D5 item 7).
+   */
+  expandWhileRunning?: boolean;
+  /**
+   * `tool-renderer` claims only: exported sync predicate name
+   * `(toolDetails, session) => boolean` that says the row's result never reached
+   * this browser; the shell then shows its neutral "recovered" badge. `session`
+   * is `ToolContext.session`. MUST be synchronous.
+   * See change: decouple-plugins-from-core (design D5 item 7).
+   */
+  resultPending?: string;
 }
 
 /**
@@ -290,8 +305,16 @@ export interface PluginManifest {
    * Default 1000. First-party plugins use 100.
    */
   priority?: number;
-  /** Relative path to the bundled client entry (from package root). */
+  /** Relative path to the bundled client entry (from package root). The build-time source entry. */
   client?: string;
+  /**
+   * Package-relative path to a PREBUILT ES entry module for runtime delivery. Its directory is the
+   * served asset root and must be a dedicated client output dir (not the package root, no server/bridge
+   * entry inside). See change: decouple-plugins-from-core (design D10).
+   */
+  clientBundle?: string;
+  /** Package-relative path to a prebuilt CSS file; must lie inside the `clientBundle` directory. */
+  clientStyles?: string;
   /** Optional relative path to the server entry. */
   server?: string;
   /** Optional relative path to a pi-extension/bridge entry. */
@@ -354,6 +377,22 @@ export interface PluginManifest {
    * while this plugin is loaded and enabled. See change: add-project-scoped-apps.
    */
   projectTypes?: ProjectTypeRule[];
+  /**
+   * Event types this plugin owns: exact names or `prefix_*` (one trailing `*`).
+   * The shell groups an owned event that no reducer slice consumed into one row
+   * per type and names this plugin when it is unavailable. Ownership is known
+   * for every registered plugin, enabled or not.
+   * See change: decouple-plugins-from-core (design D5).
+   */
+  eventTypes?: string[];
+  /**
+   * Host API range this plugin was built against: `^MAJOR.MINOR[.PATCH]` or an
+   * exact `MAJOR.MINOR.PATCH`. Evaluated at discovery against
+   * `PLUGIN_HOST_API_VERSION`; one range covers the server and client halves.
+   * Required for `pi-package`-source plugins and `clientBundle` plugins.
+   * See change: decouple-plugins-from-core (design D7).
+   */
+  hostApi?: string;
 }
 
 /**

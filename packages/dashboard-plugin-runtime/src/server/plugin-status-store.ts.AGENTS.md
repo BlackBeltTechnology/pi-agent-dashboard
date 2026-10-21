@@ -1,0 +1,3 @@
+# plugin-status-store.ts — index
+
+In-memory `PluginStatusStore` for `/api/health.plugins[]`. `removeStatus(id)` drops a row. Adds `recordBridgeProbe(pluginId, snapshot)` + `getBridgeProbe(pluginId)`. `listAll()` enriches returned status rows with `lastProbe`. Plugins (e.g. flows-anthropic-bridge) push runtime telemetry via `recordBridgeProbe`; surfaces in health endpoint without dedicated REST route. See change: fix-pi-flows-end-to-end. Adds read-time `setClientResolver(fn|null)` (resolved `client` on `getStatus`/`listAll`, never stored), `getStoredStatus`/`listStored` (raw rows for read-modify-write), `recordServeApp(id, "mounted"|"refused")` side map spliced as `serveApp` (refusal sticky, survives `setStatus`). See change: decouple-plugins-from-core (tasks 6.6, 6.7).

@@ -25,6 +25,14 @@ export default defineConfig({
       "@blackbelt-technology/dashboard-plugin-runtime/bridge": path.resolve(__dirname, "../dashboard-plugin-runtime/src/bridge/index.ts"),
       "@blackbelt-technology/dashboard-plugin-runtime/context": path.resolve(__dirname, "../dashboard-plugin-runtime/src/plugin-context.tsx"),
       "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(__dirname, "../dashboard-plugin-runtime/src/test-support/index.ts"),
+      "@blackbelt-technology/dashboard-plugin-runtime/host": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/host.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/sdk": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/sdk.ts",
+      ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(__dirname, "../dashboard-plugin-runtime/src/index.ts"),
     },
   },

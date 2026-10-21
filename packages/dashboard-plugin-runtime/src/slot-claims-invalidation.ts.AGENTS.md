@@ -1,0 +1,3 @@
+# slot-claims-invalidation.ts — index
+
+Slot-claims invalidation store (design D3) — the re-render nudge for gates whose signal arrives after first render. Module-level version counter + listener set. Exports `bumpSlotClaimsVersion()` (version++ + fire listeners synchronously), `getSlotClaimsVersion`, `subscribeSlotClaimsVersion`, `useSlotClaimsVersion()` (`useSyncExternalStore` subscription; invoke BEFORE any registry-null early return), `__resetSlotClaimsVersionForTests`. Global signals only — no per-session payload rides a bump. Until a bump, behaviour identical to pre-change. See change: add-blackhole-session-pipeline.

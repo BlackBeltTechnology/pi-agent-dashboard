@@ -7,19 +7,20 @@
 
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
 
 // A switch for the "no client build" mode; everything else sees the real resolver.
-const clientDist = vi.hoisted(() => ({ noBuild: false }));
+const clientDist = vi.hoisted(() => ({ noBuild: false, dir: null as string | null }));
 vi.mock("../lib/client-dist.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/client-dist.js")>();
   return {
     ...actual,
     resolveStaticClientDir: (...args: Parameters<typeof actual.resolveStaticClientDir>) =>
-      clientDist.noBuild ? null : actual.resolveStaticClientDir(...args),
+      clientDist.noBuild ? null : (clientDist.dir ?? actual.resolveStaticClientDir(...args)),
   };
 });
 
@@ -205,5 +206,143 @@ describe("SPA fallback — development mode", () => {
     expectRefusedNotSpa(await rawGet(port, DOTTED_MISS), DOTTED_MISS);
     expectRefusedNotSpa(await rawGet(port, GUARD_REFUSED_MISS), GUARD_REFUSED_MISS);
     expect(viteRequests).toBe(0);
+  });
+});
+
+// ── Import map on every HTML path (PRCL › import map; test-plan #E74) ──────
+
+const HTML_PAGE = `<!doctype html><html><head><title>fixture-page</title><script type="module" crossorigin src="/assets/index-abc.js"></script></head><body><div id="root"></div></body></html>`;
+const GZ_MARKER = "GZ-BODY-MARKER";
+const NO_STORE = "no-cache, no-store, must-revalidate";
+
+/** A GET that keeps the gzip header honest: node `fetch` would transparently inflate, raw http does not. */
+function rawGetWith(port: number, rawPath: string, headers: Record<string, string>): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path: rawPath, method: "GET", headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf-8") }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function mapBlocks(body: string): string[] {
+  return [...body.matchAll(/<script type="importmap"[^>]*>[\s\S]*?<\/script>/g)].map((m) => m[0]);
+}
+
+describe("import map on every HTML path", () => {
+  let fixtureDir: string;
+  let prodServer: DashboardServer;
+
+  beforeAll(async () => {
+    fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "spa-importmap-"));
+    fs.writeFileSync(path.join(fixtureDir, "index.html"), HTML_PAGE);
+    fs.writeFileSync(path.join(fixtureDir, "index.html.gz"), GZ_MARKER);
+    fs.mkdirSync(path.join(fixtureDir, "assets"));
+    fs.writeFileSync(path.join(fixtureDir, "assets", "index-abc.js"), "export {};");
+    clientDist.dir = fixtureDir;
+    prodServer = await createServer({ ...serverConfig, dev: false });
+    await prodServer.start();
+  });
+  afterAll(async () => {
+    clientDist.dir = null;
+    await prodServer?.stop();
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
+  it("E74: `/`, `/index.html` and a deep link each carry exactly one importmap before the first module script, no-store, never the .gz, identical map bytes", async () => {
+    const port = prodServer.httpPort()!;
+    const maps = new Set<string>();
+    for (const accept of ["identity", "gzip"]) {
+      for (const p of ["/", "/index.html", "/settings/plugins/ext-demo"]) {
+        const res = await rawGetWith(port, p, { "accept-encoding": accept });
+        const label = `${p} [${accept}]`;
+        expect(res.status, label).toBe(200);
+        expect(res.headers["cache-control"], label).toBe(NO_STORE);
+        expect(res.headers["content-type"], label).toContain("text/html");
+        expect(res.body, label).toContain("fixture-page");
+        expect(res.body, label).not.toContain(GZ_MARKER);
+        const blocks = mapBlocks(res.body);
+        expect(blocks, label).toHaveLength(1);
+        expect(res.body.indexOf(blocks[0]), label).toBeLessThan(res.body.indexOf('type="module"'));
+        maps.add(blocks[0]);
+      }
+    }
+    expect(maps.size).toBe(1);
+  });
+
+  it("E74: the static handler serves neither /index.html.gz nor assets' siblings as the HTML shell's bytes", async () => {
+    const port = prodServer.httpPort()!;
+    const gz = await rawGetWith(port, "/index.html.gz", { "accept-encoding": "gzip" });
+    expect(gz.body).not.toContain(GZ_MARKER);
+    expect(gz.body).toContain('type="importmap"');
+    // Real assets are still served statically.
+    expect((await rawGetWith(port, "/assets/index-abc.js", {})).status).toBe(200);
+  });
+});
+
+/** True when none of the dev-probe ports answers (a real Vite on this machine would defeat the "Vite down" cases). */
+async function vitePortsFree(): Promise<boolean> {
+  for (const port of [3000, 5173, 5174]) {
+    try {
+      await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(500) });
+      return false;
+    } catch { /* closed */ }
+  }
+  return true;
+}
+
+describe("dev mode keeps Vite in front of the HTML (E74)", () => {
+  let fixtureDir: string;
+  beforeAll(() => {
+    fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "spa-importmap-dev-"));
+    fs.writeFileSync(path.join(fixtureDir, "index.html"), HTML_PAGE);
+    clientDist.dir = fixtureDir;
+  });
+  afterAll(() => {
+    clientDist.dir = null;
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+
+  it("Vite down: `/` and `/index.html` fall back to the production HTML WITH the map", async (ctx) => {
+    if (!(await vitePortsFree())) return ctx.skip();
+    const devServer = await createServer({ ...serverConfig, dev: true });
+    await devServer.start();
+    try {
+      for (const p of ["/", "/index.html", "/session/x"]) {
+        const res = await rawGetWith(devServer.httpPort()!, p, {});
+        expect(res.status, p).toBe(200);
+        expect(res.body, p).toContain("fixture-page");
+        expect(mapBlocks(res.body), p).toHaveLength(1);
+      }
+    } finally {
+      await devServer.stop();
+    }
+  });
+
+  it("Vite up: `/` and `/index.html` return Vite's HTML, no injected map", async (ctx) => {
+    let vite: http.Server | undefined;
+    for (const port of [3000, 5173, 5174]) {
+      const candidate = http.createServer((_req, res) => { res.setHeader("content-type", "text/html"); res.end("<html>vite-html</html>"); });
+      const bound = await new Promise<boolean>((resolve) => { candidate.once("error", () => resolve(false)); candidate.listen(port, () => resolve(true)); });
+      if (bound) { vite = candidate; break; }
+    }
+    if (!vite) return ctx.skip();
+    const devServer = await createServer({ ...serverConfig, dev: true });
+    await devServer.start();
+    try {
+      const control = (await rawGetWith(devServer.httpPort()!, "/session/x", {})).body;
+      if (!control.includes("vite-html")) return ctx.skip(); // another service owns a higher-precedence Vite port
+      for (const p of ["/", "/index.html"]) {
+        const res = await rawGetWith(devServer.httpPort()!, p, {});
+        expect(res.body, p).toContain("vite-html");
+        expect(mapBlocks(res.body), p).toHaveLength(0);
+      }
+    } finally {
+      await devServer.stop();
+      await new Promise<void>((resolve) => vite?.close(() => resolve()));
+    }
   });
 });

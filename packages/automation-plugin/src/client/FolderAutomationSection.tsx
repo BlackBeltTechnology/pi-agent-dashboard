@@ -19,6 +19,7 @@ import {
   useFolderMenuRefresher,
   useT,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiCogOutline, mdiPlus } from "@mdi/js";
 import type React from "react";
@@ -26,7 +27,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { useLocation } from "wouter";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 import { listAutomations } from "./api.js";
-import { encodeFolderPath } from "./folder-encoding.js";
 
 // The create dialog (~27 KB raw) only opens on click; keep it out of the
 // cold-landing chunk. See change: lazy-plugin-claim-modules.

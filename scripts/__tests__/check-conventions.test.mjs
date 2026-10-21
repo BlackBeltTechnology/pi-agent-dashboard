@@ -17,8 +17,10 @@ import {
   disciplineSkillsViolations,
   mermaidViolations,
   mermaidViolationsIn,
+  onlySyncsPathsOrPins,
   rootIndexViolations,
   shellBrowserViolations,
+  templateGateViolations,
   unionTouched,
 } from "../check-conventions.mjs";
 
@@ -268,5 +270,75 @@ describe("Touched proposals carry ## Discipline Skills (#E10-#E15)", () => {
       { status: "A", path: "openspec/changes/x/proposal.md", content: withHeading },
     ]);
     expect(v).toHaveLength(0);
+  });
+});
+
+describe("Skill template change is gated on a change proposal (#E99)", () => {
+  const tpl = "packages/dashboard-plugin-skill/src/templates/client.tsx.tmpl";
+  const proposal = "openspec/changes/x/proposal.md";
+  const rewrite = "@@ -1 +1 @@\n-export function Old() {}\n+export function Fresh() {}\n";
+  const pinBump = '@@ -3 +3 @@\n-    "@scope/runtime": "^0.10.0",\n+    "@scope/runtime": "^0.11.0",\n';
+  const pathSync = '@@ -1 +1 @@\n-import { a } from "@scope/runtime/context";\n+import { a } from "@scope/runtime";\n';
+
+  it("#E99 fails a template edit with no openspec/changes/* in the diff", () => {
+    const v = templateGateViolations([
+      { status: "M", path: tpl, content: "x", diff: rewrite },
+      { status: "M", path: "openspec/specs/foo/spec.md", content: "x" },
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0].file).toBe(tpl);
+  });
+
+  it("passes when a change proposal is in the same diff", () => {
+    const touched = [
+      { status: "M", path: tpl, content: "x", diff: rewrite },
+      { status: "A", path: proposal, content: "# P" },
+    ];
+    expect(templateGateViolations(touched)).toHaveLength(0);
+  });
+
+  it("any artifact of a change (e.g. tasks.md of an already-planned change) counts as the change being present", () => {
+    const touched = [
+      { status: "M", path: tpl, content: "x", diff: rewrite },
+      { status: "M", path: "openspec/changes/x/tasks.md", content: "- [x]" },
+    ];
+    expect(templateGateViolations(touched)).toHaveLength(0);
+  });
+
+  it("an archived proposal counts as a present proposal", () => {
+    const touched = [
+      { status: "M", path: tpl, content: "x", diff: rewrite },
+      { status: "A", path: "openspec/changes/archive/2026-01-01-x/proposal.md", content: "# P" },
+    ];
+    expect(templateGateViolations(touched)).toHaveLength(0);
+  });
+
+  it("passes a diff that only syncs version pins or paths, with no proposal", () => {
+    expect(templateGateViolations([{ status: "M", path: tpl, content: "x", diff: pinBump }])).toHaveLength(0);
+    expect(templateGateViolations([{ status: "M", path: tpl, content: "x", diff: pathSync }])).toHaveLength(0);
+  });
+
+  it("fails a pin bump that also changes behaviour", () => {
+    const mixed = `${pinBump}+  extra: true,\n`;
+    expect(templateGateViolations([{ status: "M", path: tpl, content: "x", diff: mixed }])).toHaveLength(1);
+  });
+
+  it("fails an ADDED template and one with no diff at all", () => {
+    expect(templateGateViolations([{ status: "A", path: tpl, content: "x", diff: pinBump }])).toHaveLength(1);
+    expect(templateGateViolations([{ status: "M", path: tpl, content: "x" }])).toHaveLength(1);
+  });
+
+  it("ignores non-template files, the templates' dox row, and pure renames", () => {
+    const other = [
+      { status: "M", path: "packages/dashboard-plugin-skill/src/render.ts", content: "x" },
+      { status: "M", path: "packages/dashboard-plugin-skill/src/templates/AGENTS.md", content: "x" },
+      { status: "R", path: tpl, content: "x" },
+    ];
+    expect(templateGateViolations(other)).toHaveLength(0);
+  });
+
+  it("onlySyncsPathsOrPins rejects an empty or one-sided diff", () => {
+    expect(onlySyncsPathsOrPins("")).toBe(false);
+    expect(onlySyncsPathsOrPins("@@ -0,0 +1 @@\n+const a = 1;\n")).toBe(false);
   });
 });

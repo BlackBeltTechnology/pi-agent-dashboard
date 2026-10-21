@@ -4,13 +4,7 @@
  * Save Bar, status/versions, and the immediate Download/Update action.
  * See change: track-latest-craft-web-version (D4).
  */
-import {
-  createSlotRegistry,
-  type RegisteredSource,
-  SettingsDraftProvider,
-  type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { CurrentPluginLayer, initPluginConfigs, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { CurrentPluginLayer, createSlotRegistry, initPluginConfigs, PluginContextProvider, type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CraftWebSettings } from "../CraftWebSettings.js";

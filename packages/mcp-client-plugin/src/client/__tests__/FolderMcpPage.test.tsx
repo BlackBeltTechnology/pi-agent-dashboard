@@ -7,9 +7,10 @@
  * folder disable, override removal + undo (raw entry re-PUT), and 403.
  * Test-plan: E12; spec mcp-client-folder-section.
  */
+
+import schemaDoc from "@blackbelt-technology/pi-dashboard-mcp-core/schema/mcp-config.schema.json";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { FolderMcpPage } from "../FolderMcpPage.js";
 import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
 

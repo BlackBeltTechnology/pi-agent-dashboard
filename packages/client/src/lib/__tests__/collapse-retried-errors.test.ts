@@ -1,7 +1,8 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../chat/collapse-retried-errors.js";
 import { type ChatMessage, createInitialState, reduceEvent } from "../chat/event-reducer.js";
+import { setEventTypeOwners } from "../plugins/event-type-owners.js";
 
 let _counter = 0;
 function nextId() {
@@ -73,6 +74,35 @@ describe("findSurfaceSuppressedErrorIds (single red surface)", () => {
     const suppressed = findSurfaceSuppressedErrorIds(msgs, true);
     // ChatView renders a compact badge (not a full red card) for suppressed ids.
     expect(suppressed.has(err.id)).toBe(true);
+  });
+});
+
+// See change: decouple-plugins-from-core (test-plan #E20): an owned-event group
+// row is `role:"rawEvent"`, already a skip role, so the retry look-ahead needs no change.
+describe("findRetriedErrorIds — owned-event group row", () => {
+  afterEach(() => setEventTypeOwners([]));
+
+  const groupRow = (): ChatMessage => ({
+    id: nextId(),
+    role: "rawEvent",
+    content: "",
+    timestamp: Date.now(),
+    toolName: "subagent_entry",
+    ownedGroup: { ownerId: "subagents", count: 3, payloads: [{}, {}, {}] },
+  });
+
+  it("an error still collapses into the retry pill across a group row", () => {
+    const err = tool({ toolStatus: "error" });
+    expect(findRetriedErrorIds([err, groupRow(), tool({ toolStatus: "complete" })])).toEqual(new Set([err.id]));
+  });
+
+  it("holds for a group row produced by the reducer", () => {
+    setEventTypeOwners([{ ownerId: "subagents", displayName: "Subagents", eventTypes: ["subagent_*"] }]);
+    const grouped = reduceEvent(createInitialState(), { eventType: "subagent_custom", timestamp: 1, data: {} });
+    const row = grouped.messages[0];
+    expect(row.ownedGroup?.ownerId).toBe("subagents");
+    const err = tool({ toolStatus: "error" });
+    expect(findRetriedErrorIds([err, row, tool({ toolStatus: "complete" })])).toEqual(new Set([err.id]));
   });
 });
 

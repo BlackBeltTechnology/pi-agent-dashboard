@@ -42,6 +42,40 @@ see [`docs/release-process.md`](docs/release-process.md).
   and optional `FileHandlerProps.openFile(path, claimId?)`; `POST /api/file/write-binary` accepts
   `mode=copy&siblingExt=<.ext>`. An older runtime drops the claim field (native saves then download).
 
+- **Versioned plugin host API.** `@blackbelt-technology/dashboard-plugin-runtime` now has a
+  public surface (`src/public.ts`, re-exported by the package root) versioned by
+  `PLUGIN_HOST_API_VERSION` (`1.0.0`), a new `./sdk` subpath with the pure helpers a plugin bundles
+  (`encodeFolderPath`, `decodeFolderPath`, `folderRouteHref`, `HOST_FX_CLASSES`, the primitive and
+  slot-props types, `satisfiesHostApiRange`), and an optional manifest field `hostApi` (`^MAJOR.MINOR`
+  or an exact version). Installed plugins built for an incompatible host API are refused at
+  discovery. The surface is snapshotted in `host-api-surface.json`; removing a name needs a major
+  bump, adding one a minor bump. `shell-overlay-route` claims now also receive a decoded `cwd`.
+
+### Changed
+
+- **Plugin runtime root split (deprecation).** Shell-internal names (every `*Slot` consumer,
+  `createSlotRegistry`, the providers, the `publish*`/`clear*` stores, `setSender`, `intentStore`,
+  `IntentRenderer`, `SlotErrorBoundary`, `use*ClaimsVersion`, `useSlotRegistry`, graph helpers, ...)
+  moved to the new `@blackbelt-technology/dashboard-plugin-runtime/host` subpath. The package root
+  still re-exports them as `@deprecated` for one minor release; **build-time consumers of the root
+  should import them from `./host` now — the deprecated root re-exports will be removed in the
+  release after.** The `__reset*ForTests` helpers moved to `./test-support` and are no longer
+  exported by the root. `./context` stays one minor release as a deprecated alias; prefer the root
+  for plugin hooks.
+
+- **Craft web editors for ten ArtCraft apps.** The opt-in Craft Web Editors plugin now edits more file
+  types in the editor pane: GridCraft (`.xlsx`), PdfCraft (`.pdf`), CADCraft (`.dxf`), DesignCraft
+  (`.designcraft`) and SoundCraft (`.scraftz`) save in place; PhotoCraft (`.psd`, and `.png .jpg .jpeg
+  .webp .tif .tiff` saved as a `.psd` next to the file), VectorCraft (`.svg` → `.vectorcraft`) and
+  DeckCraft 0.7.0 (`.pptx` → `.deckcraft`, `.deckcraft` in place) save their native format as a new
+  sibling file; LightCraft views camera RAW files (`.dng .cr2 .cr3 .nef .arw .raf .orf .rw2`) without
+  ever changing them. Every save passes a per-format validator (SVG saves are filtered for script). New apps
+  use their verified web build only; an installed WordCraft build keeps loading and is offered an update.
+  The binary-file notice now offers the matching editor. **`pi-dashboard-shared` minor:** additive
+  `siblingExtensions` on `editor-pane-file-handler` claims, `FileHandlerProps.save({target:"sibling", ext})`
+  and optional `FileHandlerProps.openFile(path, claimId?)`; `POST /api/file/write-binary` accepts
+  `mode=copy&siblingExt=<.ext>`. An older runtime drops the claim field (native saves then download).
+
 ### Changed
 
 - **Access-grant prompts are now on by default.** `accessGrants.promptEnabled` defaults to `true` when it

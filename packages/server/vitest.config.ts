@@ -39,7 +39,13 @@ export default defineConfig({
     // Config-relative path (not the package name) so the worktree-local source
     // wins over the hoisted-workspace node_modules symlink, mirroring the
     // client config's resolve.alias rationale. See change: parallelize-test-suite.
-    setupFiles: [path.resolve(__dirname, "../shared/src/test-support/setup-home-perfile.ts")],
+    // `subagents-reducer-slice` registers the subagents plugin's reducer slice + Agent finalizer so the
+    // replay suites that fold events through the client reducer keep asserting `SessionState.subagents`.
+    // See change: decouple-plugins-from-core (design D5 item 11).
+    setupFiles: [
+      path.resolve(__dirname, "../shared/src/test-support/setup-home-perfile.ts"),
+      path.resolve(__dirname, "./src/__tests__/setup/subagents-reducer-slice.ts"),
+    ],
   },
   resolve: {
     // Worktree-local shared source wins over the hoisted-workspace symlink
@@ -47,12 +53,11 @@ export default defineConfig({
     // build does. Mirrors packages/client/vitest.config.ts resolve.alias.
     alias: {
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
-      // `./core` only (no host/React imports). Worktree-local for the same
-      // reason as shared. See change: add-radius-provider-login (D5).
-      "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core": path.resolve(
-        __dirname,
-        "../mcp-client-plugin/src/core/index.ts",
-      ),
+      // Host-free MCP config library (no host/React imports). Worktree-local for the
+      // same reason as shared. The `/schema` key MUST precede the bare key (alias matches by prefix).
+      // See change: add-radius-provider-login (D5), decouple-plugins-from-core.
+      "@blackbelt-technology/pi-dashboard-mcp-core/schema": path.resolve(__dirname, "../mcp-core/schema"),
+      "@blackbelt-technology/pi-dashboard-mcp-core": path.resolve(__dirname, "../mcp-core/src"),
       // Worktree-local runtime source wins for the same reason — server.ts
       // calls `createIsPiExtensionInstalled`, an export that exists only in
       // this worktree until it lands. Specific `/server` key MUST precede the
@@ -61,6 +66,18 @@ export default defineConfig({
       "@blackbelt-technology/dashboard-plugin-runtime/server": path.resolve(
         __dirname,
         "../dashboard-plugin-runtime/src/server/index.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/host": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/host.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/sdk": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/sdk.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/test-support/index.ts",
       ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(
         __dirname,

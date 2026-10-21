@@ -1,3 +1,5 @@
 # __tests__/severity-literal-guard.test.mjs — index
 
 Static guard: no raw `red-<NN(N)>` Tailwind literal (2- or 3-digit shade, so `red-50` is caught too) in the six governed tool-result error surfaces (`CtxToolRenderer`, `AskUserToolRenderer`, `AgentToolRenderer`, `ToolBurstGroup`, `BashOutputCard`, `ToolCallStep`). Exports `rawRedViolations(file, content) → [{file,line,text}]`. File-scoped allowlist, not repo-wide (~40 legitimate literals outside it). One-line escape hatch: `severity-exempt: <reason>` on the literal's own or preceding line — used by the ToolCallStep stop button. Lives here, not in `check-conventions.mjs` (4-rule cap; runs only in ship-it step 4.4) so CI + `quality:changed` gate it via `npm test`. See change: repair-tool-error-surfaces.
+
+Governed path of the Agent renderer is now `packages/subagents-plugin/src/client/AgentToolRenderer.tsx`; exports `governedViolations(read)`; #E50 proves the moved renderer stays governed and an ungoverned destructive `bg-red-500` button is unaffected. See change: decouple-plugins-from-core (tasks 4.4, 8.64).

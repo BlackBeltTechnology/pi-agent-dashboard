@@ -22,6 +22,10 @@
  */
 
 import type { CwdHoldOrigin, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { isValidServerName, OVERRIDE_KEYS } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import { errorFields, mcpConfigSchema, validateServerEntry } from "@blackbelt-technology/pi-dashboard-mcp-core/schema-validation.js";
+import type { McpClientRuntime } from "@blackbelt-technology/pi-dashboard-mcp-core/service.js";
+import type { ConfigRefusal, ProjectOverridePatch, Scope, ServerEntry } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import {
   type AdmitCwdOptions,
   admissionAllows,
@@ -30,10 +34,6 @@ import {
   releaseAdmission,
 } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isValidServerName, OVERRIDE_KEYS } from "../core/pi-rules.js";
-import { errorFields, mcpConfigSchema, validateServerEntry } from "../core/schema-validation.js";
-import type { McpClientRuntime } from "../core/service.js";
-import type { ConfigRefusal, ProjectOverridePatch, Scope, ServerEntry } from "../core/types.js";
 
 export interface McpClientRouteDeps {
   runtime: McpClientRuntime;

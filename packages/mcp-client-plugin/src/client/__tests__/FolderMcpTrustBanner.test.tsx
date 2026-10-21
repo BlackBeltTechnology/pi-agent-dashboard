@@ -4,9 +4,10 @@
  * #F4 (mirror-dashboard-trust-live-remote): a live dashboard entry names its source and lifetime.
  * See change: mirror-dashboard-trust-to-pi, mirror-dashboard-trust-live-remote.
  */
+
+import schemaDoc from "@blackbelt-technology/pi-dashboard-mcp-core/schema/mcp-config.schema.json";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { FolderMcpPage } from "../FolderMcpPage.js";
 import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
 

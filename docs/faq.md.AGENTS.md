@@ -42,4 +42,5 @@ Gains "HTTPS on the tailnet (built-in TLS listener)": enable steps (Tailscale HT
 
 Gains domain-certificate FAQs: "HTTPS on a private IP without Tailscale", ACME credentials gate, staging/not-trusted cert, `_acme-challenge` CNAME check, renewal blocked, acme-dns registration busy. Guide: `acme-dns01-certs.md`. See change: add-acme-dns01-certs.
 
+Gains "How do I install a dashboard plugin with `pi install`?": Packages-tab install live; terminal `pi install` after dashboard restart; Trust / Trust this version / Trust server code; `local-detected` pruned on session end; `restartRequired`; refusal reasons. See change: decouple-plugins-from-core.
 Gains pi-trust live-query FAQs: remote pi gets no trust, `live-*`/`identity-weak`/`identity-mismatch` codes + fixes, `ssh -L` + shared home, `.pi/settings.json` edit drops remote trust, YOLO confers pi trust (`piTrustMirror.sources.yolo`). See change: mirror-dashboard-trust-live-remote.

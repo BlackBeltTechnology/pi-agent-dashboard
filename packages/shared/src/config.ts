@@ -194,6 +194,18 @@ function parseNetworkConfig(raw: any): NetworkConfig | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * One operator trust grant for a plugin (design D12). `clientSha256` pins the runtime client bundle to
+ * its content hash (an entry without it never admits a client); `server: true` trusts a `pi-package`
+ * plugin's server entry. Written ONLY by the trust endpoints (`writePluginTrust`), never by `PUT /api/config`.
+ * See change: decouple-plugins-from-core (task 6.5).
+ */
+export interface TrustedPluginEntry {
+  id: string;
+  clientSha256?: string;
+  server?: true;
+}
+
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
@@ -206,6 +218,12 @@ export interface AuthConfig {
    * (restart-effective). Default `[]`. See change: add-plugin-capability-routes (D2).
    */
   capabilityRoutePlugins?: string[];
+  /**
+   * The single operator trust list for plugin capabilities that need consent: runtime client code
+   * (pinned by `clientSha256`), `pi-package` server entries (`server: true`) and `serveApp` mounts.
+   * Only the trust endpoints write it. See change: decouple-plugins-from-core (task 6.5, design D12).
+   */
+  trustedPlugins?: TrustedPluginEntry[];
   /** Base URL for OAuth redirect URIs — overrides the tunnel URL when set. */
   redirectBaseUrl?: string;
   /** Admin email override — can list/revoke every user's proxy API keys. */
@@ -1830,6 +1848,25 @@ function parseGroupTiers(raw: unknown): Record<string, Tier> | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Normalize `auth.trustedPlugins`: object entries with a non-empty string id; a malformed pin is dropped (never widened). */
+export function parseTrustedPlugins(raw: unknown): TrustedPluginEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: TrustedPluginEntry[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+    const { id, clientSha256, server } = e as { id?: unknown; clientSha256?: unknown; server?: unknown };
+    if (typeof id !== "string" || id === "" || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      ...(typeof clientSha256 === "string" && /^[0-9a-f]{64}$/.test(clientSha256) ? { clientSha256 } : {}),
+      ...(server === true ? { server: true as const } : {}),
+    });
+  }
+  return out;
+}
+
 function parseAuthConfig(raw: any): AuthConfig | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const providers = raw.providers;
@@ -1839,7 +1876,9 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   const hasUrls = Array.isArray(raw.bypassUrls) && raw.bypassUrls.length > 0;
   const hasPasskeys = raw.passkeys?.enabled === true;
   const hasCapabilityPlugins = Array.isArray(raw.capabilityRoutePlugins) && raw.capabilityRoutePlugins.length > 0;
-  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) return undefined;
+  const trustedPlugins = parseTrustedPlugins(raw.trustedPlugins);
+  const hasTrustedPlugins = trustedPlugins.length > 0;
+  if (!hasProviders && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins && !hasTrustedPlugins) return undefined;
 
   // Validate each provider has at least clientId and clientSecret.
   // validProviders may end up empty when providers is {} or all entries
@@ -1863,7 +1902,7 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
   // If providers was declared but all entries are malformed AND there is no
   // bypass content, fall back to undefined — same "nothing auth-relevant"
   // rule as the top-level gate.
-  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins) {
+  if (Object.keys(validProviders).length === 0 && !hasHosts && !hasUrls && !hasPasskeys && !hasCapabilityPlugins && !hasTrustedPlugins) {
     return undefined;
   }
 
@@ -1878,6 +1917,7 @@ function parseAuthConfig(raw: any): AuthConfig | undefined {
     capabilityRoutePlugins: Array.isArray(raw.capabilityRoutePlugins)
       ? raw.capabilityRoutePlugins.filter((u: unknown) => typeof u === "string")
       : [],
+    ...(hasTrustedPlugins ? { trustedPlugins } : {}),
     ...(typeof raw.redirectBaseUrl === "string" && raw.redirectBaseUrl.trim()
       ? { redirectBaseUrl: raw.redirectBaseUrl.trim() }
       : {}),

@@ -1,5 +1,4 @@
-import { type ClaimEntry, CurrentPluginLayer, forToolName } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { type ClaimEntry, CurrentPluginLayer, forToolName, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
@@ -22,24 +21,6 @@ import { type StopController, ToolStopControl, useToolStopState } from "./ToolSt
  * → render. Returns false → fall through. Throws → fail closed (false) + warn.
  * See change: wire-tool-renderer-slot.
  */
-/**
- * The "recovered" badge for an Agent card whose real result never reached this
- * browser: a neutral settle heal (`resultMissing`) while no subagent result is
- * known, or a server `session_ended` orphan-close. A `subagent_stopped` heal or a
- * settle with a known result carries the real result and is not badged.
- * See change: finalize-agent-card-on-subagent-stop (D6).
- */
-export function isAgentResultNotReceived(
-  toolDetails: Record<string, unknown> | undefined,
-  subagents: ReadonlyMap<string, { result?: string }> | undefined,
-): boolean {
-  if (!toolDetails) return false;
-  if (toolDetails.healedBy === "session_ended") return true;
-  if (toolDetails.resultMissing !== true) return false;
-  const agentId = typeof toolDetails.agentId === "string" ? toolDetails.agentId : undefined;
-  return !(agentId && subagents?.get(agentId)?.result);
-}
-
 function claimShouldRender(claim: ClaimEntry, toolName: string): boolean {
   if (!claim.shouldRender) return true;
   try {
@@ -49,6 +30,24 @@ function claimShouldRender(claim: ClaimEntry, toolName: string): boolean {
   } catch (err) {
     console.warn(
       `[tool-renderer] shouldRender threw for plugin "${claim.pluginId}" toolName "${toolName}"; treating as false (fail-closed)`,
+      err,
+    );
+    return false;
+  }
+}
+
+/**
+ * Evaluate a `tool-renderer` claim's optional `resultPending` predicate (the
+ * "result never reached this browser" badge). Absent → false. Throws → false + warn.
+ * See change: decouple-plugins-from-core (design D5 item 7).
+ */
+function claimResultPending(claim: ClaimEntry | null, toolName: string, toolDetails: Record<string, unknown> | undefined, session: unknown): boolean {
+  if (!claim?.resultPending) return false;
+  try {
+    return claim.resultPending(toolDetails, session) === true;
+  } catch (err) {
+    console.warn(
+      `[tool-renderer] resultPending threw for plugin "${claim.pluginId}" toolName "${toolName}"; treating as false`,
       err,
     );
     return false;
@@ -121,7 +120,6 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const entering = useToolEntering(toolCallId) && !enterSuppressed;
   const completionCue = useCompletionCue(status);
   const hasImages = images && images.length > 0;
-  const isAgentRunning = toolName === "Agent" && status === "running";
   // Supersede heal: this row was finalized locally because its real result was
   // unrecoverable but a later inference proved it finished. Badge it loudly so
   // a real result loss is never mistaken for a silent bodyless success.
@@ -130,12 +128,34 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // Eviction heal: the server vouched the real end was trimmed from its store.
   // See change: distinguish-tool-result-pending-vs-gone (D4).
   const isEvicted = toolDetails?.healedBy === "result_evicted";
-  const resultNotReceived = isAgentResultNotReceived(toolDetails, context.session?.subagents);
   const isAskUser = toolName === "ask_user";
   const isFailedAskUser = isAskUser && status === "error";
-  // A `canvas` card IS its target (title, kind, link): starting it collapsed hides the
-  // only thing it shows. See change: improve-canvas-html-and-url-ux (D8).
-  const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser) || toolName === "canvas");
+
+  // Resolution chain: plugin `tool-renderer` claim → built-in registry → Generic.
+  // One-shot at lookup time; a chosen plugin renderer that throws is caught by
+  // the per-tool ErrorBoundary below (no silent fall-through). When no
+  // SlotRegistryProvider is mounted (tests/storybook) the lookup is skipped.
+  // Resolved BEFORE the expand state: the claim's `expandWhileRunning` seeds it.
+  // See change: wire-tool-renderer-slot, decouple-plugins-from-core.
+  // `claimsVersion` is a memo dep: a runtime plugin registering a late `tool-renderer` claim
+  // bumps it, so an already-mounted Generic row re-resolves (unchanged version → reuse).
+  const claimsVersion = useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `claimsVersion` is an invalidation key, not a value read inside
+  const pluginClaim = React.useMemo<ClaimEntry | null>(() => {
+    if (!registry) return null;
+    const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
+    for (const c of claims) {
+      if (claimShouldRender(c, toolName)) return c;
+    }
+    return null;
+  }, [registry, toolName, claimsVersion]);
+  const PluginComponent = pluginClaim?.Component;
+  // The claim, not the shell, says a running row starts expanded and when its
+  // result never arrived (the plugin owns both notions).
+  const expandsWhileRunning = pluginClaim?.expandWhileRunning === true && status === "running";
+  const resultNotReceived = claimResultPending(pluginClaim, toolName, toolDetails, context.session);
+  const [expanded, setExpanded] = useState(hasImages || expandsWhileRunning || (isAskUser && !isFailedAskUser) || toolName === "canvas");
   // Hook always called (rules of hooks); inactive when a burst controller is supplied.
   const ownStop = useToolStopState({ active: status === "running" && !stopController, onAbort, onForceKill });
   const stop = stopController ?? ownStop;
@@ -157,27 +177,21 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const fullResult = useToolFullResult(context.sessionId, toolCallId);
   const displayResult = showFull && fullResult.result != null ? fullResult.result : result;
 
-  // Resolution chain: plugin `tool-renderer` claim → built-in registry → Generic.
-  // One-shot at lookup time; a chosen plugin renderer that throws is caught by
-  // the per-tool ErrorBoundary below (no silent fall-through). When no
-  // SlotRegistryProvider is mounted (tests/storybook) the lookup is skipped.
-  // See change: wire-tool-renderer-slot.
-  const registry = useSlotRegistryOrNull();
-  const pluginClaim = React.useMemo<ClaimEntry | null>(() => {
-    if (!registry) return null;
-    const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
-    for (const c of claims) {
-      if (claimShouldRender(c, toolName)) return c;
-    }
-    return null;
-  }, [registry, toolName]);
-  const PluginComponent = pluginClaim?.Component;
-
   // Live tool results attach images at tool_execution_end, AFTER this card
   // mounted at tool_execution_start — so the useState(hasImages) seed above
   // missed them (replay/refresh seed at mount and are unaffected). Auto-expand
   // once when images first arrive; a ref guards against re-expanding a card the
   // user later collapsed. See change: inline-agent-screenshot-artifacts.
+  // A plugin re-enabled (or a claim registered late) while the row is still running: the
+  // `useState` seed above ran without the claim, so expand once when `expandWhileRunning`
+  // first becomes true. The ref makes it one-shot: a later user collapse sticks.
+  const autoExpandedForClaim = React.useRef(expandsWhileRunning);
+  React.useEffect(() => {
+    if (expandsWhileRunning && !autoExpandedForClaim.current) {
+      autoExpandedForClaim.current = true;
+      setExpanded(true);
+    }
+  }, [expandsWhileRunning]);
   const autoExpandedForImages = React.useRef(false);
   React.useEffect(() => {
     if (hasImages && !autoExpandedForImages.current) {

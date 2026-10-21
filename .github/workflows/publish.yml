@@ -339,6 +339,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-shared"
             "@blackbelt-technology/pi-path-containment-guard"
             "@blackbelt-technology/pi-dashboard-bus-client"
+            "@blackbelt-technology/pi-dashboard-mcp-core"
             "@blackbelt-technology/pi-dashboard-extension"
             "@blackbelt-technology/pi-dashboard-web"
             "@blackbelt-technology/pi-dashboard-app-kit"

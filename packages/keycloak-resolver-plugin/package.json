@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin",
   "version": "0.10.0",
   "description": "Bundled dashboard resolver plugin: validates a Keycloak JWT access token as an OAuth resource server (RFC 9068 + conditional DPoP) and resolves it to an (iss, sub) principal. Fully config-seeded; dashboard core imports nothing Keycloak-specific.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

@@ -16,7 +16,7 @@ import {
   PluginContextProvider,
   publishSessionEvent,
   clearSessionEvents,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 
 // We don't import __resetSessionEventsStoreForTests across the package
 // boundary (it's marked @internal). Each test scopes events to a unique

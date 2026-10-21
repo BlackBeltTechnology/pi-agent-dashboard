@@ -29,6 +29,14 @@ export default defineConfig({
         __dirname,
         "../dashboard-plugin-runtime/src/test-support/index.ts",
       ),
+      "@blackbelt-technology/dashboard-plugin-runtime/host": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/host.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/sdk": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/sdk.ts",
+      ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(
         __dirname,
         "../dashboard-plugin-runtime/src/index.ts",

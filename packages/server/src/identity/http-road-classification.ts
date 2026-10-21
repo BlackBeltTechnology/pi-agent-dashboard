@@ -189,6 +189,8 @@ export function classifyHttpRoad(
   if (seg === "plugins") {
     if (second === undefined) return core("plugins", method, route);
     if (second === ":id") return core("plugins", method, route);
+    // The runtime-client listing is core plugin management, not a plugin named "runtime-clients".
+    if (second === "runtime-clients") return core("plugins", method, route);
     return plugin(second, method, route);
   }
   if (seg === "config" && second === "plugins") return core("plugins", method, route);
