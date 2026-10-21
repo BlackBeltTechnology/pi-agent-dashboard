@@ -3254,6 +3254,97 @@ Shell overlays dispatch by route match (see Shell overlay routing). Mutual exclu
 
 Plugin content-view claims (flows-plugin) still predicate-driven via SlotRegistry. See change `overlay-url-routing`.
 
+### Live Preview: Static Targets, Exposure, Egress (change: improve-canvas-html-and-url-ux)
+
+Source: `packages/server/src/live-server/` (`live-static.ts`, `live-csp.ts`, `live-exposure.ts`, `live-browser-gate.ts`, `live-egress.ts`, `live-csp-report.ts`, `live-origin-scan.ts`, `live-capability.ts`), `packages/server/src/access/planes.ts`, `packages/shared/src/live-server.ts`, `packages/shared/src/preview-egress.ts`. Design: `openspec/changes/improve-canvas-html-and-url-ux/design.md` (D1-D10).
+
+#### Target kinds
+- `port`: proxied loopback `host:port`. Persisted only when `addedBy:"user"`. Preset (agent declare, confirm-chip tap) in memory, ≤16/session LRU. Rejects dashboard listen ports.
+- `static`: `{cwd, root}` via `POST /api/live-server/start-static`. In memory, keyed `(cwd, root)`, ≤32/session LRU.
+- Eviction: LRU. Evicted target tokens revoked. "Use" = register or accepted request.
+
+#### Static roots and servable files (D2)
+- In cwd: nearest ancestor (inclusive, ≤ cwd) with `index.html` or `package.json`. None → file dir. No whole-cwd fallback.
+- Granted file outside cwd: root = file dir. Per-request gate limits to grant.
+- Extension allowlist (`STATIC_WEB_EXTENSIONS`): html htm css js mjs json svg png jpg jpeg gif webp avif ico woff woff2 ttf otf mp4 webm ogg mp3 wav m4a. No `.map`, `.txt`.
+- 404: dot / `.git` / `node_modules` segments, forbidden subjects, `isCredentialName` names.
+- Realpath containment. `%2e`/`%2f` decoded once, re-checked. Symlink escape → 404.
+- Single `Range` → 206. Headers: `Cache-Control: no-store`, `nosniff`, `Referrer-Policy: no-referrer`.
+- Every request re-runs `gateFilePath(cwd, <real path>)`. Revoked grant or pin applies next request.
+
+#### Capability URL and policy (D1, D4)
+- Mint: `POST /api/live-server/:id/capability` → `/live/<id>/~c/<token>/`. Body `{egress:"open"|"restricted", scripts:boolean, runScripts?:true}`.
+- Fail-closed: absent/invalid `egress` → `restricted`. Absent `scripts` → `false`.
+- Policy stored on token. Never read from request path, query or header.
+- Idle / max: port 30 min / 12 h; static 10 min / 2 h (`CAPABILITY_*_MS`).
+- `POST /api/live-server/:id/touch {tokenId}` every 5 min while viewer mounted + visible.
+- Token reused only when (target, policy, exposure epoch, viewer) unchanged.
+- Logs: `redactCapability` → `/~c/<redacted>`.
+
+#### Response isolation (D3)
+| Mode | Frame `sandbox` | Response CSP |
+|---|---|---|
+| open, scripts | `allow-scripts allow-forms allow-popups allow-downloads` | `sandbox …; object-src 'none'; frame-ancestors 'self'` |
+| restricted, scripts | `allow-scripts allow-forms` | `sandbox …` + egress directives |
+| scripts off | empty | `sandbox` (+ egress directives if restricted) |
+- Applies to port AND static targets on every capability response (`buildLiveCsp`).
+- Our CSP appended to upstream CSP. Upstream never stripped. Browser enforces intersection.
+- Restricted: `default-src 'none'`; `script-src` / `style-src` = `<P> 'unsafe-inline'` (+ `'unsafe-eval'` with scripts) + `<G>`; `connect-src <P> <G>`; `form-action 'none'`; `base-uri 'none'`; `frame-src 'none'`; `object-src 'none'`; `worker-src <P> blob:`; `manifest-src 'none'`; `frame-ancestors 'self'`; `report-uri` / `report-to`.
+- `<P>` = prefix from validated `Host`. Never `'self'`. Never dashboard origin.
+- `<G>` = project grants ∪ viewer allow-once set.
+
+#### Exposure policy (D5)
+- `exposed` if ANY: bind host not loopback (unparseable → exposed); `collectEndpoints()` non-empty (tunnel, `publicBaseUrls`, TLS); forwarding-header request seen since start (sticky); `liveServer.previewExposure: "exposed"` in `config.json`. Else `local-only`.
+- Same-host relay adding no header (`ssh -L`, socat) is undetectable. Operators set `previewExposure`. Residual.
+- `GET /api/live-server/policy` (observe) → `{exposure, epoch, promptingEnabled}`.
+- Epoch bumps on every change. Change to `exposed`: revoke restricted scripts-on `local-only` tokens; broadcast `preview_exposure_changed {epoch}`; viewers re-mint without scripts within 2 s.
+- Scripts on restricted mint: `local-only` → allowed. `exposed` → refused unless `runScripts:true` (viewer "Run scripts" only).
+- Frames cannot mint: opaque origin, CORS rejects `null`, no token on `/api`. Client-asserted marker is safe.
+- Local-minted token accepted only from genuinely-local requests.
+- Residual: remote operator open with scripts → token valid to expiry. Documented in viewer tooltip.
+- Provenance: operator open → `open`. Agent / undeclared → `restricted`. Confirm-chip tap → restricted preset (consents to connect, not egress).
+- Agent-declared loopback URL never auto-opened. Routed to confirm chip.
+
+#### Browser-capability rule (D10)
+- `isBrowserOriginated(headers)`: `Origin: null` or any `Sec-Fetch-*` header.
+- Browser-originated `/live/` HTTP or WS upgrade without valid capability → 404 (`live-server-proxy.ts`).
+- Non-browser local callers (curl, `fastify.inject`) keep admission for port targets.
+- Static targets: never reachable without capability, by any caller.
+
+```mermaid
+flowchart TD
+  A["Request /live/:id/…"] --> B{"Browser-originated?<br/>Origin null or Sec-Fetch-*"}
+  B -- yes --> C{"Valid capability?<br/>/~c/token/"}
+  C -- no --> X["404"]
+  C -- yes --> K{"Target kind"}
+  B -- no --> D{"Capability present?"}
+  D -- yes --> K
+  D -- no --> E{"Port target admitted?<br/>static never"}
+  E -- no --> X
+  E -- yes --> P["Proxy upstream<br/>no capability CSP"]
+  K -- port --> Q["Proxy upstream<br/>CSP from token policy"]
+  K -- static --> G{"gateFilePath(cwd, real path)<br/>per request"}
+  G -- denied --> X
+  G -- ok --> S["serveStatic<br/>CSP from token policy"]
+```
+
+#### Preview egress plane (D6, D7)
+- Origin scan (`live-origin-scan.ts`): HTML ≤ 2 MiB (`SCAN_MAX_HTML_BYTES`) + same-root CSS. Reads `src`, `srcset`, `poster`, `data`, `<link href>`, `@import`. Plain `<a href>` ignored.
+- Output `{source:"markup"}`. Truncation → `scanIncomplete`. Root-absolute refs → `rootAbsolute`.
+- Runtime reports: `POST /live/<id>/~c/<token>/__pi/csp-report` (`CSP_REPORT_SUBPATH`). Types `application/csp-report`, `application/reports+json`.
+- Limits: body ≤ 64 KiB (413), 20/s and 600/h per token (429). Reads `blocked-uri` only.
+- Runtime reports best-effort. Page may forge → labelled "reported by this page", allow-once only.
+- Blocked set per token ≤ 64 (`MAX_BLOCKED_ORIGINS`). Eviction drops runtime entries first.
+- `GET /api/live-server/:id/egress?token=` and `POST /api/live-server/:id/allow-once {tokenId, origin}`: control tier. Minting principal only.
+- Allow-once keyed by client `viewerId` (per tab), ≤ 32.
+- Grant = deferred plane `preview-egress` (`planes.ts`). `allow-always` / `deny`. Never YOLO-eligible.
+- "Allow for this project" (operator click) → deferred registry entry → standard dialog. Prompting off (default) → Allow once only.
+- Subject: `canonicalHttpsOrigin` (https only, no userinfo, punycode, default port elided).
+- Ungrantable (`isUngrantableEgressOrigin`): non-https, `localhost`, loopback / private / link-local / CGNAT / ULA IP literals, single-label, `.local` `.internal` `.lan` `.home.arpa`, IPv4-embedding labels, dashboard origins.
+- Grant-time DNS: 3 s (`EGRESS_DNS_TIMEOUT_MS`). Private / loopback / fail → "Could not verify this origin; try again". Later rebinding = residual.
+- Store: `~/.pi/dashboard/preview-egress.json` `{[projectKey]: string[]}` via `auth/locked-json-file.ts`. Override `PI_PREVIEW_EGRESS_STORE`.
+- `projectKey` = canonical subject of git common root, else cwd.
+
 ### Network Access Control
 
 One universal network guard plus the auth plugin. Universal guard runs whether or not auth is configured.

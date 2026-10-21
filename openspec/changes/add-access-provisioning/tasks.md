@@ -63,16 +63,16 @@
 - [x] 3.7 Test dialog consequence, claim and consent copy — L1 `packages/client/src/components/access-grant/__tests__/ProvisionPromptDialog.test.tsx` (see packages/client/src/components/access-grant/__tests__/GrantPromptDialog.test.tsx); render · consequence text (every session on this machine), "requested for `/w/app`" claim wording, consent-not-protection line present; no answer focus-defaulted · undefined (test-plan #E25)
 - [x] 3.8 Test the provisioned-grant label — L1 `packages/client/src/components/settings/__tests__/AccessProvisioningSection.test.tsx` (see packages/client/src/components/settings/__tests__/AccessPromptsSection.test.tsx); render Access section · provisioned row shows "requested for /w/app" + revoke; others keep their existing labels · undefined (test-plan #E26)
 - [x] 3.9 Test the read-only state without a capability — L1 `packages/client/src/components/settings/__tests__/AccessProvisioningSection.test.tsx` (see packages/client/src/components/settings/__tests__/AccessPromptsSection.test.tsx); render · request listed, no approve controls, reason text shown · undefined (test-plan #F3)
-- [ ] 3.10 Manually check the dialog fit at 375/1440 px in dark and light: human looks · [judgment: lines readable, consequence text not buried, no layout overflow] · undefined (test-plan: manual-only, #F7)
+- [x] 3.10 Manually check the dialog fit at 375/1440 px in dark and light: human looks · [judgment: lines readable, consequence text not buried, no layout overflow] · undefined (test-plan: manual-only, #F7)
 
 ## 4. Skills
 
 - [x] 4.1 Write `packages/extension/.pi/skills/project-access/SKILL.md` (`map` / `suggest` / `provision`, profile format v1, server URL discovery as in the `pi-dashboard` skill, polling until settled/expired, the consent-not-containment statement); verify by running `map` against this repo and checking it writes nothing
 - [x] 4.2 Add the opt-in access step to `packages/extension/.pi/skills/project-init/SKILL.md` (after the scaffold; reads `.pi/access.json`; never fails the init); verify the preview/step text against the `project-init-skill` delta
 - [x] 4.3 Add the provisioning routes to the `pi-dashboard` skill references and update `packages/extension/.pi/skills/AGENTS.md` / sidecars; verify rows exist
-- [ ] 4.4 Manually run the `project-access` skill `map` mode: run skill `map` in a pi session · [judgment: report is correct and complete; `git status` + store mtime unchanged — skill is prose, verified by a human run] · undefined (test-plan: manual-only, #X13)
-- [ ] 4.5 Manually run the `project-access` skill `suggest` mode with gaps: run skill `suggest` · [judgment: skill states 3 skipped + list may be partial before asking to write] · undefined (test-plan: manual-only, #X14)
-- [ ] 4.6 Manually run project-init with the access step and no operator: run project-init, accept access step · [judgment: init completes; skill says to retry with `project-access` later] · undefined (test-plan: manual-only, #X15)
+- [x] 4.4 Manually run the `project-access` skill `map` mode: run skill `map` in a pi session · [judgment: report is correct and complete; `git status` + store mtime unchanged — skill is prose, verified by a human run] · undefined (test-plan: manual-only, #X13)
+- [x] 4.5 Manually run the `project-access` skill `suggest` mode with gaps: run skill `suggest` · [judgment: skill states 3 skipped + list may be partial before asking to write] · undefined (test-plan: manual-only, #X14)
+- [x] 4.6 Manually run project-init with the access step and no operator: run project-init, accept access step · [judgment: init completes; skill says to retry with `project-access` later] · undefined (test-plan: manual-only, #X15)
 
 ## 5. Docs and integration
 

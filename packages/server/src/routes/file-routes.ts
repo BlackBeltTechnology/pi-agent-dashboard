@@ -71,14 +71,14 @@ import { loadPurify } from "../lib/purify.js";
  * the denial can name its remedy and bind a later grant to this refusal (D15).
  * `{ code, error }` stays INTERNAL — callers convert via `denialBody`.
  */
-type GateFailure = { code: number; error: string } & Partial<DenialRemedy>;
+export type GateFailure = { code: number; error: string } & Partial<DenialRemedy>;
 
 /**
  * The single conversion from a gate failure to the wire body. Every containment
  * caller uses this so the additive fields cannot drift between sites, and so
  * pre-existing fields stay byte-identical (task 3.2).
  */
-function denialBody(gate: GateFailure): ApiResponse {
+export function denialBody(gate: GateFailure): ApiResponse {
   const body: Record<string, unknown> = { success: false, error: gate.error };
   if (gate.reason !== undefined) body.reason = gate.reason;
   if (gate.hint !== undefined) body.hint = gate.hint;
@@ -333,12 +333,15 @@ async function sanitizeAdocHtml(html: string): Promise<string> {
 // `/api/file/raw` (known session + `isAllowed` against the cwd anchor), factored
 // so both new routes CALL it rather than re-implementing the containment logic
 // (design D5). Returns the resolved abs path or a {code,error} reply mapping.
-async function gateFilePath(
+export async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
   sessionManager: SessionManager,
-  /** `disclosure`: the caller may see `promptOutcome` (`canDiscloseAccessPosture`). */
-  opts: { allowGrant?: boolean; disclosure?: boolean } = {},
+  /**
+   * `disclosure`: the caller may see `promptOutcome` (`canDiscloseAccessPosture`).
+   * `quiet`: record no denial and raise no prompt (a per-request re-check on a static preview).
+   */
+  opts: { allowGrant?: boolean; disclosure?: boolean; quiet?: boolean } = {},
 ): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
@@ -349,6 +352,7 @@ async function gateFilePath(
     site: "file-routes:gateFilePath",
     allowGrant: opts.allowGrant,
     disclosure: opts.disclosure,
+    ...(opts.quiet ? { quiet: true } : {}),
   });
   if (!decision.allowed) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };

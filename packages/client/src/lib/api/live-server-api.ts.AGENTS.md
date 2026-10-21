@@ -5,3 +5,5 @@ Client helper for live-server REST. `listLiveServers()`, `startLiveServer({host,
 ## retire-trusted-networks-bypass
 
 `mintLiveCapability(id)` — `POST /api/live-server/:id/capability` → `{ok,path,expiresAt}` (flat response, not under `data`); `path` must match `/live/<id>/~c/<token>/` else refused. Used by `LiveServerViewer`. See change: retire-trusted-networks-bypass.
+
+Adds `startStaticTarget`, `getLivePolicy`, `touchLiveCapability`, `getLiveEgress`, `allowOnceEgress`, `requestEgressGrant`; `mintLiveCapability(id,{policy,runScripts,viewerId})` → `{path,expiresAt,tokenId?,policy?}` (policy on every mint); `startLiveServer` gains `addedBy`/`sessionId`. See change: improve-canvas-html-and-url-ux.

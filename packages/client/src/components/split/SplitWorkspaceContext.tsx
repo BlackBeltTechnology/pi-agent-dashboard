@@ -30,6 +30,7 @@ import {
 } from "../../lib/layout/editor-pane-state.js";
 import { type SplitMode, type SplitOrientation, type SplitState, useSplitState } from "../../lib/layout/split-state.js";
 import { type TerminalPaneTabs, useTerminalPaneTabs } from "../../lib/layout/use-terminal-pane-tabs.js";
+import type { Opener } from "../../lib/live-preview/preview-policy.js";
 import { saveTreeVisible } from "../../lib/util/tree-visible.js";
 import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
 import { type TrackedFileWrite, TrackedFileWriteProvider } from "./tracked-file-write.js";
@@ -69,8 +70,22 @@ export interface SplitWorkspaceContextValue {
     restrictCsp?: boolean,
     opts?: { background?: boolean; autoOpened?: boolean },
   ) => void;
-  /** Open a loopback dev-server URL in the `live-server` split viewer (auto-launched). */
-  openLiveTarget: (url: string, opts?: { background?: boolean }) => void;
+  /**
+   * Open a loopback dev-server URL in the `live-server` split viewer (auto-launched).
+   * `opener` is provenance: `operator` (default: a click) vs `agent` (the confirm-chip
+   * tap, which consents to connecting only → restricted egress). `bump` marks a
+   * re-declare of an already-open target (see `openStaticTarget`).
+   */
+  openLiveTarget: (url: string, opts?: { background?: boolean; opener?: Opener; bump?: boolean }) => void;
+  /**
+   * Open a local HTML file as a served page in the `live-server` viewer under a
+   * `static:<absolute file path>` tab (one tab per file; the static target is a
+   * shared backing resource). `opener` decides the egress policy: `agent` →
+   * restricted + autoOpened, `operator` (default) → open. `bump` = the canvas
+   * re-declared an already-open tab: inactive → `reloadNonce`, active →
+   * `updatedByAgent`. See change: improve-canvas-html-and-url-ux (D8).
+   */
+  openStaticTarget: (cwd: string, path: string, opts?: { background?: boolean; opener?: Opener; bump?: boolean }) => void;
   /** Open a generic URL/youtube target in the `url` split viewer (auto-canvas S35). */
   openUrlTarget: (url: string, opts?: { background?: boolean }) => void;
   /**
@@ -288,12 +303,38 @@ export function SplitWorkspaceProvider({
   );
 
   const openLiveTarget = useCallback(
-    (url: string, opts?: { background?: boolean }) => {
+    (url: string, opts?: { background?: boolean; opener?: Opener; bump?: boolean }) => {
       // NOT via openInSplit — that derives the viewer from fileKind and can
       // never yield `live-server`. The `openFile` reducer is idempotent by
       // path, so the same URL reuses its tab.
       const background = opts?.background === true && split.mode !== "closed";
-      dispatch({ type: "openFile", path: `live:${url}`, viewer: "live-server", activate: !background });
+      dispatch({
+        type: "openFile",
+        path: `live:${url}`,
+        viewer: "live-server",
+        activate: !background,
+        autoOpened: opts?.opener === "agent",
+        bump: opts?.bump,
+      });
+      ensureRevealed();
+    },
+    [dispatch, ensureRevealed, split.mode],
+  );
+
+  const openStaticTarget = useCallback(
+    (targetCwd: string, path: string, opts?: { background?: boolean; opener?: Opener; bump?: boolean }) => {
+      if (!path) return;
+      // One tab per file, keyed by its absolute path (also for files outside the cwd).
+      const abs = /^(\/|[A-Za-z]:[\\/])/.test(path) ? path : absOf(targetCwd, path);
+      const background = opts?.background === true && split.mode !== "closed";
+      dispatch({
+        type: "openFile",
+        path: `static:${abs}`,
+        viewer: "live-server",
+        activate: !background,
+        autoOpened: opts?.opener === "agent",
+        bump: opts?.bump,
+      });
       ensureRevealed();
     },
     [dispatch, ensureRevealed, split.mode],
@@ -429,6 +470,7 @@ export function SplitWorkspaceProvider({
       ensureRevealed,
       openInSplit,
       openLiveTarget,
+      openStaticTarget,
       openUrlTarget,
       openPluginTab,
       openDiffTab,
@@ -448,7 +490,7 @@ export function SplitWorkspaceProvider({
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
   );
 
   return (

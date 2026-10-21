@@ -21,3 +21,5 @@ Knock source classification. `parseIpAddress(raw)` → IPv4/IPv6 (zone id stripp
 Trust-mode: `hasNetworkPassCondition` evaluates `isAuthenticated` BEFORE the trusted match and counts network-only admissions (`noteNetworkOnlyAdmission`, once per request via `networkOnlyCounted`). Trusted list read via admission thunk (`[]` in `pair`). Denial `reason`/`hint` mode-neutral: "Pair this device (Request access) or sign in.". New `isKnockListedPeer`. Denial log redacts `/~c/<token>`. See change: retire-trusted-networks-bypass.
 
 - `PLUGIN_PROXY_FORWARDING_HEADERS` now exported (recovery gate parity test). See change: harden-server-capability-bounds.
+
+- `redactCapability` now imported from `live-server/capability-redact.ts` (breaks the guard↔capability-store cycle). See change: improve-canvas-html-and-url-ux.

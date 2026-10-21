@@ -53,3 +53,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 - `terminals` block: `TerminalsConfig`, `DEFAULT_TERMINALS_CONFIG` (32/16/600000), `parseTerminalsConfig` (integer >= 1 else default + one warn). See change: harden-server-capability-bounds.
 
 - `browse` block: `BrowseConfig {confineRemote}`, `DEFAULT_BROWSE_CONFIG`, `parseBrowseConfig` (only explicit `false` disables remote browse confinement; read at server start). See change: harden-server-capability-bounds.
+
+- `liveServer?: {previewExposure?: "exposed"}`: forces live-preview exposure to `exposed` (same-host relay with no forwarding header). Parsed only when exactly `"exposed"`. See change: improve-canvas-html-and-url-ux.

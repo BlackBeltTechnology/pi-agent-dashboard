@@ -114,6 +114,11 @@ export function liveRequireLocalProof(): boolean {
   return getConfigSnapshot().requireLocalProof === true;
 }
 
+/** `liveServer.previewExposure` as of this request (`"exposed"` forces exposed; otherwise `undefined`). See change: improve-canvas-html-and-url-ux. */
+export function livePreviewExposureOverride(): string | undefined {
+  return getConfigSnapshot().liveServer?.previewExposure;
+}
+
 /** `pairing.acceptLanRequests` as of this request (live, no restart). See change: add-lan-knock-pairing. */
 export function liveAcceptLanRequests(): boolean {
   return getConfigSnapshot().pairing?.acceptLanRequests === true;

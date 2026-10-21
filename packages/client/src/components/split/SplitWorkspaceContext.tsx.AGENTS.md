@@ -11,3 +11,5 @@ See change: add-browser-editor-pane-tab — `openPluginTab(path): boolean` (clai
 Session scope (`changeDetection`): candidates (`changedFiles` prop is now Map<path,gen>) are verified by `use-change-verification`; context `changedFiles` = verified set; adds `captureBaseline`, `trackedFileWrite`, `resyncWatch`, `changeDetection`; `watchNonce` re-sends `watch_files`; wraps children in `TrackedFileWriteProvider`. See change: gate-changed-on-disk-by-content.
 
 See change: add-editor-pane-file-handlers — context adds `setBaseline(path, digest)`; `trackedFileWrite` type = `TrackedFileWrite` (optional `send`). Consumed by `FileHandlerLayer`'s pane bridge.
+
+See change: improve-canvas-html-and-url-ux — adds `openStaticTarget(cwd,path,{background,opener,bump})` (tab `static:<abs file>`, viewer `live-server`, one tab per file); `openLiveTarget` opts gain `opener` (`agent` sets `autoOpened`) and `bump`. `bump` on an existing tab: inactive → `reloadNonce+1`, active → `updatedByAgent`.

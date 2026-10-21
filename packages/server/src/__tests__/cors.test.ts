@@ -391,9 +391,13 @@ describe("origin admission (fix-ws-origin-cswsh)", () => {
       });
     }
 
-    it("`null` is admitted ONLY for the live scope (opaque preview iframe, D3)", () => {
-      expect(isWsOriginTrusted("null", undefined, "live", admissionOpts)).toBe(true);
+    it("`null` is admitted ONLY for the live scope, and only with a valid capability (D3, D10)", () => {
+      expect(isWsOriginTrusted("null", undefined, "live", admissionOpts, true)).toBe(true);
+      // An opaque frame without a valid capability would reach any port target.
+      expect(isWsOriginTrusted("null", undefined, "live", admissionOpts)).toBe(false);
+      expect(isWsOriginTrusted("null", undefined, "live", admissionOpts, false)).toBe(false);
       for (const scope of ["browser", "terminal", "bridge", null] as const) {
+        expect(isWsOriginTrusted("null", undefined, scope, admissionOpts, true)).toBe(false);
         expect(isWsOriginTrusted("null", undefined, scope, admissionOpts)).toBe(false);
       }
     });

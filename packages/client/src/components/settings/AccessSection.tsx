@@ -44,6 +44,7 @@ const STORE_LABEL_EN: Record<AccessStoreId, string> = {
   bypassHosts: "Auth bypass hosts — auth.bypassHosts",
   corsOrigins: "CORS allowed origins — cors.allowedOrigins",
   pinnedDirectories: "Pinned directories — preferences",
+  previewEgress: "Preview egress origins — preview-egress.json",
 };
 
 /** In `pair` mode a list entry admits nothing — the stores say what they now mean. */
@@ -260,6 +261,13 @@ export function AccessSection({ configTrustMode }: { configTrustMode?: "pair" | 
                       </span>
                     )}
                   </div>
+                  {entry.project && (
+                    <div className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+                      <span data-testid="access-entry-project">
+                        {i18nT("access.columnProject", undefined, "Project")}: {entry.project}
+                      </span>
+                    </div>
+                  )}
                   {entry.scope && (
                     <div className="flex flex-wrap gap-2 mt-0.5 text-xs text-[var(--text-tertiary)]">
                       <span data-testid="access-entry-scope">
