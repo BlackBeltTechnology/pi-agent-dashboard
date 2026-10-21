@@ -18,7 +18,7 @@ import {
 } from "./heap-limits.js";
 import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
-import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
 import { isTier, type Tier } from "./tiers.js";
 import {
@@ -28,7 +28,7 @@ import {
 } from "./tunnel-provider.js";
 import { clampVaultGraceHours, VAULT_GRACE_DEFAULT_HOURS } from "./vault-delivery.js";
 
-export type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
+export type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".pi", "dashboard");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -1367,6 +1367,14 @@ export interface DashboardConfig {
    */
   windowsGitSource: WindowsGitSourceSetting;
   /**
+   * Windows-only: which `bash.exe` pi resolves while the git source is bundled.
+   *   "bundled" — bundled `usr/bin` ahead of System32 → bundled bash (default).
+   *   "host"    — bundled `usr/bin` last → first host `bash.exe` (e.g. WSL);
+   *               falls back to the bundled bash when the host has none.
+   * No-op on macOS/Linux and for host git source. See change: fix-windows-bundled-bash-exe.
+   */
+  windowsBashSource: WindowsBashSourceSetting;
+  /**
    * Per-plugin config namespaces. Reserved top-level key.
    * Each plugin's config lives at plugins.<id>.*
    * Plugin-shaped legacy top-level keys (e.g. openspec.*) stay at top-level
@@ -1817,6 +1825,7 @@ const DEFAULTS: DashboardConfig = {
   spawnRegisterTimeoutMs: 30000,
   gitWorktreeEnabled: true,
   windowsGitSource: "auto",
+  windowsBashSource: "bundled",
   identity: { ...DEFAULT_IDENTITY },
 };
 
@@ -2715,6 +2724,10 @@ export function loadConfig(): DashboardConfig {
         parsed.windowsGitSource === "auto"
           ? parsed.windowsGitSource
           : defaults.windowsGitSource,
+      windowsBashSource:
+        parsed.windowsBashSource === "host" || parsed.windowsBashSource === "bundled"
+          ? parsed.windowsBashSource
+          : defaults.windowsBashSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
       tls: parseTlsConfig(parsed.tls),
       terminals: parseTerminalsConfig(parsed.terminals),

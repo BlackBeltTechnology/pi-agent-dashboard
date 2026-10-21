@@ -5659,9 +5659,11 @@ Electron-bound presentation concerns (tray icons, menu template, dock behavior, 
 
 ### Windows runtime dependencies (git + bash)
 
-On Windows agent needs `git.exe` + POSIX shell. git backs repo ops; `pi.exec("sh")` backs `!`/`!!` bang commands. macOS/Linux ship both system-wide; Windows-only problem.
+On Windows agent needs `git.exe` + bash. git backs repo ops. bash backs agent `bash` tool, `!`/`!!` bang commands, `!cmd` config values. Pi resolves bash itself (`getShellConfig()`, pi-coding-agent 1.3.0). Dashboard never calls `pi.exec("sh")`. macOS/Linux ship both system-wide; Windows-only problem.
 
-Installers embed dugite-native (git 2.53.0 + GNU bash as `usr/bin/sh.exe`). Config key `windowsGitSource`: `"auto"`\|`"host"`\|`"bundled"`, default `"auto"`.
+Installers embed dugite-native (git 2.53.0.windows.4). Bundle ships GNU bash only as `usr/bin/sh.exe`. Config key `windowsGitSource`: `"auto"`\|`"host"`\|`"bundled"`, default `"auto"`.
+
+Bundled bash copy: `ensureBundledBashExe` (`packages/electron/scripts/lib/ensure-bundled-bash-exe.mjs`) byte-copies `usr/bin/sh.exe` → `usr/bin/bash.exe`. `sh.exe` kept. Throws if `sh.exe` missing. MSYS bash picks `posix off` from argv[0] `bash` (`posix on` for `sh`). Cost: +~2.5 MB per Windows artifact. See change: fix-windows-bundled-bash-exe.
 
 - `auto` → host when git+bash both on PATH, else bundled (atomic).
 - `host` → host, bundled fallback + Doctor error.
@@ -5669,13 +5671,59 @@ Installers embed dugite-native (git 2.53.0 + GNU bash as `usr/bin/sh.exe`). Conf
 
 `selectGitSource()` decides. Cached process-lifetime (`git-source.ts`); invalidated on `/api/restart` (fresh process) + config-write.
 
-`ensureBundledGitOnPath()` prepends `resources/git/{cmd,usr/bin,<libdir>/bin}` to PATH (after `ensureWindowsSystemPath`, lands before System32). Sets `GIT_EXEC_PATH` + `SSL_CERT_FILE`. `<libdir>` = `mingw64` (x64) / `clangarm64` (arm64).
+`ensureBundledGitOnPath()` prepends to PATH (after `ensureWindowsSystemPath`, lands before System32). Sets `GIT_EXEC_PATH` + `SSL_CERT_FILE`. `<libdir>` = `mingw64` (x64) / `clangarm64` (arm64).
+
+- `windowsBashSource: "bundled"` (default) → prepends `resources/git/{cmd,usr/bin,<libdir>/bin}`. pi picks bundled `bash.exe` only if no Git for Windows under `%ProgramFiles%` / `%ProgramFiles(x86)%`.
+- `windowsBashSource: "host"` → prepends `resources/git/{cmd,<libdir>/bin}`. Appends `usr/bin` LAST. pi picks host's first `bash.exe` on PATH only if no Git for Windows under `%ProgramFiles%` / `%ProgramFiles(x86)%`.
+- Both modes: installed Git for Windows `bash.exe` in `%ProgramFiles%\Git\bin` wins over PATH (pi step 2 precedes `where bash.exe`). `windowsBashSource` only orders PATH; it does not override that check.
+- Mode applies only while active git source is bundled. Windows-only.
 
 Hooked into `ToolResolver.buildSpawnEnv` (covers server-launcher + process-manager) and `terminal-manager` PTY env separately (PTY bypasses `buildSpawnEnv`).
 
-Build-time: `download-git-windows.mjs` runs in `bundle-server.mjs`, SHA-256 fail-closed, GO/NO-GO.
+Build-time: `download-git-windows.mjs` runs in `bundle-server.mjs`, SHA-256 fail-closed, calls `ensureBundledBashExe`. GO/NO-GO in `bundle-server.mjs` + `assert-runnable-bundle.mjs` requires `usr/bin/bash.exe`.
 
-PATH semantics: bundled entries lead. Takes effect for newly spawned sessions only (existing children keep old PATH). No-op on macOS/Linux.
+PATH semantics: bundled entries lead (except `usr/bin` under `windowsBashSource: "host"`). Takes effect for newly spawned sessions only (existing children keep old PATH). No-op on macOS/Linux.
+
+**Pi bash resolution** (`getShellConfig()`, never `sh.exe`, never `pi.exec("sh")`). Order:
+
+1. pi `shellPath` setting (bash tool + `!` only; not `!cmd`).
+2. `%ProgramFiles%\Git\bin\bash.exe`, then `%ProgramFiles(x86)%\Git\bin\bash.exe`.
+3. First `where bash.exe` hit.
+4. Else throw `No bash shell found`.
+
+First `where` hit `C:\Windows\System32\bash.exe` (WSL launcher):
+
+- No WSL distro → `no installed distributions` failure.
+- Distro present → commands run inside Linux.
+
+Dashboard never writes pi `shellPath`. Git for Windows in `%ProgramFiles%` wins regardless of `windowsBashSource`.
+
+**`windowsBashSource`** (`"bundled"` default \| `"host"`). Setter `setWindowsBashSourceSetting` (`packages/shared/src/platform/git-source.ts`). Seeded at startup by `seedWindowsSourceSettings()` (`packages/server/src/config-api.ts`). UI: Settings → Sessions → Worktrees → "Bash for agent commands" (beside "Git & Bash source"). PATCH `/api/config` applies live to new sessions/terminals, no restart. Persists.
+
+Side effects:
+
+- `bundled`: every child resolving `bash` by name (pi, dashboard terminal `bash`, `#!/usr/bin/env bash` git hooks) gets bundled bash. WSL-distro users who got WSL bash before now get bundled Windows bash unless `host`.
+- `host`: MSYS tools in `usr/bin` (`find`, `sort`) shadowed by System32 tools for children. No host `bash.exe` on PATH → falls back to bundled bash. Bundled git still works incl. `#!/bin/sh` hooks.
+
+**Diagnostics.** `resolvePiShell({env, exists})` (`packages/shared/src/platform/resolve-pi-shell.ts`) replicates pi order over augmented spawn env. `/api/health` `gitSource` = `{ setting, source, gitPath, gitVersion, shellPath, bashSetting, shellIsWslLauncher }` (null on macOS/Linux). `shellPath` = bash pi would resolve, never `sh.exe`.
+
+Doctor "bash source" row:
+
+- No shell → warning `doctor.no_posix_shell`.
+- WSL launcher, `bashSetting` ≠ `host` → warning `doctor.bash_is_wsl_launcher`.
+- WSL launcher, `host` → ok "requires an installed WSL distro".
+
+Residuals: process cwd searched first by `where.exe`. User pi `shellPath` wins for bash tool/`!`.
+
+**Build gate.** `packages/electron/scripts/assert-bundled-bash-resolvable.mjs`, step "Assert pi resolves bundled bash" in `.github/workflows/_electron-build.yml` (win32 full-bundle legs):
+
+- Loads SHIPPED pi `getShellConfig` + shipped shared helpers.
+- `ProgramFiles*` → empty dir. Stub host `bash.exe` on PATH.
+- Bundled mode → expects `usr\bin\bash.exe`. Host mode → expects stub.
+- Exec checks (`posix off`, git commit through `#!/bin/sh` hook) only when target arch == runner arch. win32-arm64 = resolution-only.
+- Re-verify on pi version bump.
+
+See change: fix-windows-bundled-bash-exe.
 
 ### Session spawn dispatch
 
