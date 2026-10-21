@@ -35,4 +35,12 @@ TBD at planning.
 8. **`admissionContains` semantics.** Decide lexical vs realpath. Model only the canonical value that reaches the sink. Define Linux case-sensitivity and a TOCTOU fence (cf. `access/cwd-verdict.ts` `admitIfUnchanged`). Add a symlink-escape test.
 9. **Token release.** Release the token in `finally` / `onResponse` in every route, including folder-project, whose current release is on `reply.raw` close (`:84`).
 10. **Hot-path latency.** `admitCwd` realpaths every known folder plus git probes (cap 4, deadline 3000 ms). Add p99 and an indeterminate-rate budget, not only p50.
-11. **Tests first.** Write tests per requirement first (TDD); "suite passes" is not verification.
+11. **Wrapper location (cross-change).** `design.md` D4's `$TMPDIR` wrapper and in-repo `qlpack.yml` are superseded by `codeql-model-pack-and-mirror` D1 (run-dir wrapper; repo layout unchanged; CI already auto-loads the bare model file). Drop D4 here and depend on that change. Likewise the old D6 `--mirror-dismissal … --dismissed-reason` CLI is superseded by that change's D4 (reason read from GitHub; owned there).
+12. **Tests first.** Write tests per requirement first (TDD); "suite passes" is not verification.
+
+## Discipline Skills
+
+- `security-hardening`: caller-supplied `cwd`/path on file, git and openspec routes; the widening and the tightening.
+- `doubt-driven-review`: the widening/tightening decision and the status-code contract before they stand.
+- `performance-optimization`: async admission on the `/api/file` hot path.
+- `review-code`: before commit.

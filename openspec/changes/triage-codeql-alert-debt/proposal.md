@@ -31,3 +31,9 @@ TBD at planning.
 6. **Bounded residue.** Enumerate every `js/path-injection` file and its disposition before any dismissal. That includes `verified-read.ts`, `pi-installs/*`, `platform/git.ts`, `lib/path-containment.ts`, `lib/grep.ts` and `browse.ts`. Make the doubt review a gate on that list.
 7. **Archive order.** Archive only after the dismissals, so the "mirrored" requirement is never archived while it is false.
 8. **Tests first.** Write tests first per fix: an href allowlist unit test, an argv spawn matrix on the CI OS matrix, and so on.
+
+## Discipline Skills
+
+- `security-hardening`: XSS, request-forgery and command-injection triage fixes.
+- `doubt-driven-review`: before the bulk residue dismissal (irreversible signal loss if wrong).
+- `review-code`: before commit.
