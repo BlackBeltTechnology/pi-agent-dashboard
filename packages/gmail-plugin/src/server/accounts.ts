@@ -13,7 +13,7 @@ import { isTier, type Tier } from "../shared/scopes.js";
 
 export const CLIENT_KEY = "client";
 /** Non-secret automatic-setup record (confirmed publishing links). See change: add-gmail-auto-setup. */
-export const SETUP_KEY = "setup";
+const SETUP_KEY = "setup";
 const ACCT_PREFIX = "acct:";
 
 type AccountStatus = "ok" | "reauth_required";

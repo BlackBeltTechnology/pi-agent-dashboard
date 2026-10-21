@@ -6,7 +6,7 @@
  * See change: add-gmail-auto-setup.
  */
 
-export function isLoopbackAddress(addr: string | undefined): boolean {
+function isLoopbackAddress(addr: string | undefined): boolean {
   if (!addr) return false;
   const a = addr.startsWith("::ffff:") ? addr.slice(7) : addr;
   return a === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a);

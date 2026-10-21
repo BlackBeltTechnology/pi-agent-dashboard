@@ -24,7 +24,7 @@ export const OWNER = "owner@example.com";
 export const PID = "pi-dashboard-abc123";
 
 /** Fast polling for real-timer tests; limits stay at their defaults. */
-export const FAST: Partial<Timing> = { pollMs: 2, markerWaitMs: 100, verifyWaitMs: 300, publishGracePolls: 3 };
+const FAST: Partial<Timing> = { pollMs: 2, markerWaitMs: 100, verifyWaitMs: 300, publishGracePolls: 3 };
 
 const dirs: string[] = [];
 const apps: Array<ReturnType<typeof Fastify>> = [];

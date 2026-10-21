@@ -28,12 +28,12 @@ import { SetupHandoff } from "./errors.js";
 
 // ───────────────────────── constants block (adjust here) ─────────────────────────
 
-export const CONSOLE_ORIGIN = "https://console.cloud.google.com";
+const CONSOLE_ORIGIN = "https://console.cloud.google.com";
 export const SIGN_IN_ORIGIN = "https://accounts.google.com";
 /** Domains the dedicated browser must allow; named in the `domain_blocked` hand-off. */
 export const REQUIRED_DOMAINS = ["console.cloud.google.com", "accounts.google.com"] as const;
 
-export const CLIENT_NAME = "pi-dashboard";
+const CLIENT_NAME = "pi-dashboard";
 
 export const PATHS = {
   projectInfo: "/iam-admin/settings",
@@ -91,7 +91,7 @@ export const SEL = {
 } as const satisfies Record<string, Sel>;
 
 /** Page-text patterns (read in-process; the text is never logged). */
-export const TEXT = {
+const TEXT = {
   projectId: /Project ID\s*[:\n]?\s*([a-z][a-z0-9-]{3,}[a-z0-9])/,
   noOrganization: /No organization/i,
   organization: /Organization\s*[:\n]\s*([^\n]+)/,
@@ -249,7 +249,7 @@ export function consoleUrl(env: Pick<StepEnv, "ownerEmail" | "projectId">, path:
  * A denied navigation is `domain_blocked` — unless the redirect guard stopped
  * it, which is a sign-in.
  */
-export async function loadConsole(env: StepEnv, path: string, opts?: { noProject?: boolean }): Promise<void> {
+async function loadConsole(env: StepEnv, path: string, opts?: { noProject?: boolean }): Promise<void> {
   try {
     await env.navigate(consoleUrl(env, path, opts));
   } catch (err) {

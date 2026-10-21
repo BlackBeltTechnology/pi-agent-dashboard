@@ -4,7 +4,7 @@
  * See change: add-gmail-auto-setup.
  */
 
-export const API = "/api/plugins/gmail";
+const API = "/api/plugins/gmail";
 
 /** JSON helper for the plugin routes; a failed reply throws `{ code: body.error, status, detail: body.message }`. */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

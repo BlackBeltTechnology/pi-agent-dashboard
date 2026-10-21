@@ -69,7 +69,7 @@ async function pollOnce(runId: string): Promise<PollResult> {
 }
 
 /** Poll the run view every second while the run is live; a 404 means the run is gone. */
-export function useSetupRun(runId: string | null): { view: SetupRunView | null; lost: boolean; refresh: () => void } {
+function useSetupRun(runId: string | null): { view: SetupRunView | null; lost: boolean; refresh: () => void } {
   const [view, setView] = useState<SetupRunView | null>(null);
   const [lost, setLost] = useState(false);
   const tickRef = useRef<() => void>(() => {});

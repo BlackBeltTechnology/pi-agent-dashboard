@@ -13,7 +13,7 @@ import type { DedicatedStatusBody, RelayManager } from "./relay/relay-manager.js
 
 export const BROWSER_DEDICATED_SERVICE = "browser.dedicated";
 
-export interface BrowserRefusal {
+interface BrowserRefusal {
   ok: false;
   status: number;
   reason: string;
@@ -22,7 +22,7 @@ export interface BrowserRefusal {
   message?: string;
 }
 
-export interface DedicatedBrowserStatus {
+interface DedicatedBrowserStatus {
   /** Plugin loaded AND kill switch on. */
   enabled: boolean;
   available: boolean;
@@ -32,7 +32,7 @@ export interface DedicatedBrowserStatus {
   holder?: { sessionId?: string; client?: string };
 }
 
-export interface DedicatedConnectOptions {
+interface DedicatedConnectOptions {
   client: string;
   takeover?: boolean;
   private?: boolean;

@@ -40,7 +40,7 @@ export const CHECKPOINT_KEY: Record<CheckpointKind, string> = {
 };
 
 /** Run states in which the run is still going (polled every second). */
-export const LIVE_STATES: readonly SetupRunState[] = ["starting", "running", "waiting_user", "waiting_decision", "busy"];
+const LIVE_STATES: readonly SetupRunState[] = ["starting", "running", "waiting_user", "waiting_decision", "busy"];
 export const isLive = (state: SetupRunState): boolean => LIVE_STATES.includes(state);
 
 /**
