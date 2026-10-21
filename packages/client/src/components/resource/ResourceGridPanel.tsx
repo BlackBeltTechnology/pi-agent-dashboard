@@ -15,7 +15,7 @@
  */
 
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { ResourcePageSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ResourcePageSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiLoading, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type { ResourceActivationController } from "../../hooks/useResourceActivation.js";

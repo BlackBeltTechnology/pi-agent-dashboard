@@ -1,0 +1,82 @@
+/**
+ * mcp-core · entry (extracted from mcp-client-plugin `./core`) — pure, host-free logic over pi's built-in
+ * MCP config.
+ *
+ * No host, pi or React imports: this entry is consumed by the dashboard server,
+ * the mcp-client / mcp-server plugins AND the hostless `apple-tools` installer CLI.
+ * See change: decouple-plugins-from-core; migrate-mcp-to-pi-builtin; earlier: extract-mcp-client-plugin.
+ */
+
+export { createRealConfigIO, writeFileAtomic } from "./config-io.js";
+export {
+  type ConfigWriter,
+  type ConfigWriterDeps,
+  createConfigWriter,
+  FOLDER_COPY_OMITTED,
+  folderCopyOf,
+  isLegacyFolderCopy,
+  NotAllowedCwdError,
+} from "./config-writer.js";
+export {
+  createEffectiveViewReader,
+  type EffectiveViewReader,
+  isSecretKey,
+  redactEntry,
+} from "./effective-view.js";
+export { defaultLayerPaths, type LayerPaths, piAgentDir, readLayer } from "./layers.js";
+export {
+  createLiveStateReader,
+  LIVE_STATE_CACHE_TTL_MS,
+  LIVE_STATE_TIMEOUT_MS,
+  type LiveStateReader,
+  parseMcpListJson,
+} from "./live-state.js";
+export {
+  ADAPTER_ONLY_KEYS,
+  adapterLeftovers,
+  authModeOf,
+  classifyProjectEntry,
+  displayExposure,
+  ignoredKeys,
+  isFullEntry,
+  isProjectOverride,
+  isValidServerName,
+  type KeptGlobal,
+  keptGlobalOf,
+  MCP_EXPOSURE_ALIASES,
+  MCP_EXPOSURES,
+  type McpExposure,
+  mcpNamespace,
+  OVERRIDE_KEYS,
+  type ProjectEntryClass,
+  transportOf,
+  validatePiEntry,
+} from "./pi-rules.js";
+export { errorFields, mcpConfigSchema, type PatchValidation, validateServerEntry } from "./schema-validation.js";
+export { createMcpClientConfigService, type McpClientConfigServiceDeps, type McpClientRuntime } from "./service.js";
+export type {
+  AuthMode,
+  ConfigIO,
+  ConfigRefusal,
+  ConfigRefusalCode,
+  ConfigWriteResult,
+  ConvertLegacyResult,
+  EffectiveServerView,
+  EffectiveView,
+  InactiveReason,
+  LayerStatus,
+  LiveServerState,
+  LiveState,
+  McpClientConfigService,
+  OverrideIssue,
+  ParseStatus,
+  PiMcpListRunner,
+  ProjectOverridePatch,
+  ProjectOverrideResult,
+  Provenance,
+  RemoveResult,
+  Scope,
+  ServerEntry,
+  SetEnabledResult,
+} from "./types.js";
+export { MCP_CLIENT_CONFIG_SERVICE_KEY } from "./types.js";

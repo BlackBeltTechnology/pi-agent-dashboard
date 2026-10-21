@@ -1,4 +1,6 @@
-import { setSender as setPluginActionSender } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  setSender as setPluginActionSender,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";

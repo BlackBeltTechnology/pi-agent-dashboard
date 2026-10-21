@@ -78,6 +78,13 @@ export const UI_PRIMITIVE_KEYS = {
    *  (`useUiPrimitiveOrNull`) and hide the affordance when absent.
    *  See change: improve-kb-settings-sources-and-search. */
   pathPicker: "ui:path-picker",
+  /** Live chat of one session (transcript + composer), host-styled. Self-providing:
+   *  mounts the chat/session providers it needs, inside the app's registry.
+   *  See change: decouple-plugins-from-core (D8). */
+  chatView: "ui:chat-view",
+  /** Small elapsed-time badge: live ticking from `startedAt`, static for `duration`.
+   *  See change: decouple-plugins-from-core (D8). */
+  elapsedBadge: "ui:elapsed-badge",
 } as const;
 
 /** Union of all valid UI primitive keys (literal-string narrowed). */
@@ -412,6 +419,25 @@ export interface UiPathPickerDialogProps {
   onCancel: () => void;
 }
 
+/**
+ * Public prop signature for the chat-view primitive: the live chat of session
+ * `sessionId`. `readOnly` hides the prompt composer; `compact` asks for a dense
+ * layout. See change: decouple-plugins-from-core (D8).
+ */
+export interface UiChatViewProps {
+  sessionId: string;
+  readOnly?: boolean;
+  compact?: boolean;
+}
+
+/** Public prop signature for the elapsed-badge primitive (the host `ElapsedBadge` props). */
+export interface UiElapsedBadgeProps {
+  /** Epoch ms when the operation started (live counter). */
+  startedAt?: number;
+  /** Duration in ms (static display; wins over the live counter). */
+  duration?: number;
+}
+
 export interface UiPrimitiveMap {
   "ui:agent-card": ComponentType<UiAgentCardProps>;
   "ui:markdown-content": ComponentType<UiMarkdownContentProps>;
@@ -432,6 +458,8 @@ export interface UiPrimitiveMap {
   "ui:log-block": ComponentType<UiLogBlockProps>;
   "ui:oauth-flow": ComponentType<UiOAuthFlowViewProps>;
   "ui:path-picker": ComponentType<UiPathPickerDialogProps>;
+  "ui:chat-view": ComponentType<UiChatViewProps>;
+  "ui:elapsed-badge": ComponentType<UiElapsedBadgeProps>;
 }
 
 /**

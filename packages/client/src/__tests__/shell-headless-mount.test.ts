@@ -33,6 +33,6 @@ describe("ShellHeadlessSlot mount in App.tsx (#E7)", () => {
   });
 
   it("is imported from the plugin runtime", () => {
-    expect(src).toMatch(/ShellHeadlessSlot[^;]*from "@blackbelt-technology\/dashboard-plugin-runtime"/s);
+    expect(src).toMatch(/ShellHeadlessSlot[^;]*from "@blackbelt-technology\/dashboard-plugin-runtime\/host"/s);
   });
 });

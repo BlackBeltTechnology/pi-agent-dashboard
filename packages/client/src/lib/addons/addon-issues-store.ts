@@ -6,7 +6,10 @@
  *
  * A failed health request leaves `health: null` — plugin issues only, no error.
  * Refreshed on Settings mount, after a cleanup Apply and after a plugin toggle
- * (`plugin-config-update`).
+ * (`plugin-config-update`). A finished package operation refreshes HEALTH only: the plugin half arrives in the
+ * `plugins_changed` snapshot (`applyPluginsSnapshot`), never as a second `GET /api/plugins`.
+ *
+ * See change: decouple-plugins-from-core (F6, task 8.86).
  *
  * See change: addons-hub-folder-view (design D5, D9).
  */
@@ -70,6 +73,49 @@ export function refreshAddonIssues(): Promise<void> {
 		inFlight = null;
 	});
 	return inFlight;
+}
+
+/** Health-only refresh (a finished package operation); plugin issues are kept and folded from `plugins_changed`. */
+export function refreshAddonHealth(): Promise<void> {
+	return fetchPackageHealth()
+		.catch(() => null)
+		.then((fetched) => {
+			const health = fetched ?? snapshot.health;
+			publish({
+				...snapshot,
+				health,
+				count: snapshot.pluginIssues.length + (health ? countHealthIssues(health) : 0),
+				loaded: true,
+			});
+		});
+}
+
+/** Recompute the plugin-issue half from a `plugins_changed` status snapshot (no request). */
+export function applyPluginsSnapshot(statuses: readonly NonNullable<PluginRow["status"]>[]): void {
+	const known = new Map(snapshot.pluginIssues.map((r) => [r.id, r] as const));
+	const pluginIssues: PluginRow[] = [];
+	for (const status of statuses) {
+		const row: PluginRow = known.get(status.id) ?? {
+			id: status.id,
+			displayName: status.displayName,
+			priority: 1000,
+			hasServer: status.loaded,
+			hasBridge: false,
+			hasClient: false,
+			claims: [],
+			requires: null,
+			dependsOn: [],
+			dependents: [],
+			status,
+		};
+		const next = { ...row, status };
+		if (isPluginIssue(next)) pluginIssues.push(next);
+	}
+	publish({
+		...snapshot,
+		pluginIssues,
+		count: pluginIssues.length + (snapshot.health ? countHealthIssues(snapshot.health) : 0),
+	});
 }
 
 /** Test seam. */

@@ -23,5 +23,7 @@ export interface AccountInfo {
   tier: Tier;
   status: "ok" | "reauth_required";
   testingHint?: boolean;
+  /** Filters option (Gmail filter tools); absent = off. */
+  filters?: boolean;
   addedAt: number;
 }

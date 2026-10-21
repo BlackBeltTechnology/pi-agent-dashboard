@@ -20,14 +20,13 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
+  type BuildDeclaration,
   type FixturePolicy,
-  bundleRootsFor,
   discoverPlugins,
   findMonorepoRoot,
   isUsableDeclaration,
-  pluginRegistryHash,
   readBuildDeclaration,
-  selectClientRegistryPlugins,
+  serverRegistryHash,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 
 /** Four-state coherence of the served artifact against the runtime plugin set. */
@@ -83,24 +82,27 @@ export function resolveStaticClientDir(opts: ResolveStaticClientOptions = {}): s
  * diverge (spec: *Comparison uses the same basis as the staleness hash*).
  *
  * `isProd` maps the fixture policy: `"excluded"` is a production selection,
- * `"included"` a dev one.
+ * `"included"` a dev one. `declaration` is the served build's declaration: with
+ * `bundledPluginIds` the set follows it (`serverRegistryHash`: build copies of the declared ids,
+ * else the declaration's own hash; runtime-only plugins never count); without it the
+ * pre-change selection applies (`bundleRootsFor` where a monorepo root resolves — a root-less host
+ * counts every discovered client plugin, the same mismatch that existed before). `bundleRoots` is
+ * deliberately omitted when no monorepo marker is discoverable: an EMPTY allowlist would exclude
+ * every plugin. See change: decouple-plugins-from-core (task 6.2, design D11).
  */
-export function runtimePluginRegistryHash(isProd: boolean): string {
-  const root = findMonorepoRoot();
-  // `bundleRoots` is deliberately omitted when no monorepo marker is
-  // discoverable: an allowlist needs a known root, and an EMPTY list would
-  // exclude every plugin (a guaranteed mismatch on any installed host). On such
-  // hosts a user-installed client plugin is therefore still counted at runtime
-  // but absent from a published build — the same mismatch that existed before
-  // this change, and the plugin contributes no client UI anyway (proposal.md —
-  // known gap). On repository/bundled layouts every hash producer resolves the
-  // same root.
-  return pluginRegistryHash(
-    selectClientRegistryPlugins(discoverPlugins(), {
-      isProd,
-      ...(root ? { bundleRoots: bundleRootsFor(root) } : {}),
-    }),
-  );
+export function runtimePluginRegistryHash(isProd: boolean, declaration?: BuildDeclaration): string {
+  return serverRegistryHash(discoverPlugins(undefined, [], { bundledPluginIds: declaration?.bundledPluginIds }), {
+    isProd,
+    declaration,
+    monorepoRoot: findMonorepoRoot(),
+  });
+}
+
+/** The served build's validated declaration, or `undefined` (no served build / unreadable / schema mismatch). */
+export function readServedDeclaration(clientDir: string | null): BuildDeclaration | undefined {
+  if (!clientDir) return undefined;
+  const read = readBuildDeclaration(clientDir);
+  return isUsableDeclaration(read) ? read.declaration : undefined;
 }
 
 /**
@@ -156,7 +158,20 @@ export function clientBuildDiagnostic(snapshot: ClientBuildSnapshot): string {
  * hash. Convenience wrapper for the server bootstrap.
  */
 export function clientBuildSnapshotFor(clientDir: string | null): ClientBuildSnapshot {
+  const declaration = readServedDeclaration(clientDir);
   return readClientBuildSnapshot(clientDir, (policy) =>
-    runtimePluginRegistryHash(policy === "excluded"),
+    runtimePluginRegistryHash(policy === "excluded", declaration),
   );
+}
+
+/**
+ * Ids the served build declares bundled (`pi-dashboard-build.json#bundledPluginIds`), from the VALIDATED
+ * declaration (a usable schema-1 file; sorted, deduped). `undefined` = undeclared (no served build,
+ * unreadable / malformed / schema-mismatched file, or the field is absent / not a string array) —
+ * discovery then falls back to plain source priority. Handed to the loader via
+ * `setDeclaredBundledPluginIds` before any server-side discovery call, and re-read by
+ * `refreshPluginDiscovery()`. See change: decouple-plugins-from-core (tasks 5.4, 6.2, design D11/D15).
+ */
+export function readServedBundledPluginIds(clientDir: string | null): readonly string[] | undefined {
+  return readServedDeclaration(clientDir)?.bundledPluginIds;
 }

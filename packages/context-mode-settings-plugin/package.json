@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin",
   "version": "0.10.0",
   "description": "Dashboard settings surface for the context-mode pi extension — persists logical tuning keys to ~/.pi/context-mode/settings.json and projects them to context-mode's environment for dashboard-spawned and terminal-launched sessions.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

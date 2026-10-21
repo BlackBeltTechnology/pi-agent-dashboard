@@ -16,7 +16,8 @@
 import {
   buildGraph,
   computeToggleImpact,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import type { PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LINK_BG, LINK_BG_HOVER, LINK_BORDER, LINK_FG } from "../components/packages/plugin-row-parts.js";
@@ -70,7 +71,42 @@ export function applyDesiredEnabled(
 }
 
 /**
- * Fetch the plugin list and keep it live across `plugin-config-update` events.
+ * Fold a `plugins_changed` status snapshot into the fetched rows (no refetch). A row keeps its
+ * manifest summary and takes the snapshot's status; a row whose status the server no longer
+ * reports is dropped (a removed, never-loaded plugin); an id the list has not seen yet becomes a
+ * minimal row (its manifest summary arrives with the next full `GET /api/plugins`). Exported for tests.
+ * See change: decouple-plugins-from-core (task 5.11).
+ */
+function applyPluginsChanged(rows: PluginRow[], snapshot: readonly PluginStatus[]): PluginRow[] {
+  const byId = new Map(snapshot.map((s) => [s.id, s] as const));
+  const next: PluginRow[] = [];
+  for (const r of rows) {
+    const status = byId.get(r.id);
+    if (status) next.push({ ...r, status: status as PluginRow["status"] });
+    else if (r.status === null) next.push(r);
+  }
+  const known = new Set(rows.map((r) => r.id));
+  for (const status of snapshot) {
+    if (known.has(status.id)) continue;
+    next.push({
+      id: status.id,
+      displayName: status.displayName,
+      priority: 1000,
+      hasServer: status.loaded,
+      hasBridge: false,
+      hasClient: false,
+      claims: [],
+      requires: null,
+      dependsOn: status.dependsOn ?? [],
+      dependents: status.dependents ?? [],
+      status: status as PluginRow["status"],
+    });
+  }
+  return next;
+}
+
+/**
+ * Fetch the plugin list and keep it live across `plugin-config-update` and `plugins-changed` events.
  * Every consumer that needs plugin rows (activation index, plugin settings
  * page, settings nav rail) mounts this.
  */
@@ -138,8 +174,17 @@ export function usePluginList(): PluginList {
       }
       void refresh();
     };
+    // `plugins_changed` carries the status snapshot: fold it in, never refetch.
+    const onPluginsChanged = (e: Event) => {
+      const plugins = (e as CustomEvent<{ plugins?: PluginStatus[] }>).detail?.plugins;
+      if (Array.isArray(plugins)) setFetched((prev) => applyPluginsChanged(prev, plugins));
+    };
     window.addEventListener("plugin-config-update", onUpdate);
-    return () => window.removeEventListener("plugin-config-update", onUpdate);
+    window.addEventListener("plugins-changed", onPluginsChanged);
+    return () => {
+      window.removeEventListener("plugin-config-update", onUpdate);
+      window.removeEventListener("plugins-changed", onPluginsChanged);
+    };
   }, [refresh]);
 
   const setDesired = useCallback((id: string, enabled: boolean) => {

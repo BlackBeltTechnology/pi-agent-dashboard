@@ -3,6 +3,8 @@
  * socket. Uses the REAL headless `useSessionState` and a fake socket.
  * See change: add-team-plugin.
  */
+import fs from "node:fs";
+import path from "node:path";
 import type { MinimalSocket } from "@blackbelt-technology/pi-dashboard-app-kit";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -96,5 +98,31 @@ describe("F13: reconnect without duplication", () => {
     const idle = renderHook(() => useTeamChat(host, null));
     act(() => idle.result.current.sendPrompt("x"));
     expect(idle.result.current.status).toBe("disconnected");
+  });
+});
+
+// test-plan #E32 — embeds use the chat-embed factory, not deep client imports.
+/**
+ * @structural-pin "no deep import of client components" is a property of team-app's import lines, so the sources are read as text
+ */
+describe("team-app consumes the host primitive registry factory", () => {
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) return e.name === "__tests__" ? [] : walk(p);
+      return /\.(ts|tsx)$/.test(e.name) ? [p] : [];
+    });
+  const srcFiles = walk(path.resolve(__dirname, ".."));
+
+  it("has no deep import of ThinkingBlock / ToolCallStep / MarkdownContent ", () => {
+    const offenders = srcFiles.filter((f) => /components\/(chat\/ThinkingBlock|chat\/ToolCallStep|preview\/MarkdownContent)/.test(fs.readFileSync(f, "utf-8")));
+    expect(offenders.map((f) => path.relative(path.resolve(__dirname, ".."), f))).toEqual([]);
+  });
+
+  it("chat-providers builds the registry with createHostPrimitiveRegistry and mounts EmbedProviders", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../agent/chat-providers.tsx"), "utf-8");
+    expect(src).toContain("createHostPrimitiveRegistry");
+    expect(src).toContain("EmbedProviders");
+    expect(src).not.toContain("registerUiPrimitive");
   });
 });

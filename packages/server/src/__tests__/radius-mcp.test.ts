@@ -15,7 +15,7 @@ import path from "node:path";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import { ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import Fastify from "fastify";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -338,6 +338,31 @@ describe("via the routes (X3, X5, E21)", () => {
     } finally {
       if (prev !== null) fs.writeFileSync(authPath, prev);
       else fs.rmSync(authPath, { force: true });
+    }
+  });
+});
+
+describe("core uses the mcp-core library, not the mcp-client plugin (X1)", () => {
+  const serverRoot = path.resolve(import.meta.dirname, "..", "..");
+  const read = (...p: string[]) => fs.readFileSync(path.join(serverRoot, ...p), "utf8");
+
+  it("radius-mcp.ts and server.ts import the service factories/types from mcp-core", () => {
+    for (const f of [["src", "auth", "radius-mcp.ts"], ["src", "server.ts"]]) {
+      const src = read(...f);
+      expect(src, f.join("/")).toContain("@blackbelt-technology/pi-dashboard-mcp-core");
+      expect(src, f.join("/")).not.toContain("pi-dashboard-mcp-client-plugin");
+    }
+  });
+
+  it("keeps the lazy factory call so Radius MCP works with mcp-client disabled", () => {
+    expect(read("src", "server.ts")).toMatch(/radiusMcpService \?\?= createMcpClientConfigService\(/);
+  });
+
+  it("server package.json depends on mcp-core and not on the mcp-client plugin", () => {
+    const pkg = JSON.parse(read("package.json")) as Record<string, Record<string, string> | undefined>;
+    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-core"]).toBeTruthy();
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      expect(pkg[field]?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"], field).toBeUndefined();
     }
   });
 });

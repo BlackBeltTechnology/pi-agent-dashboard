@@ -8,17 +8,7 @@
  * fixed channel (`latestChannel:false`) is a read-only fact "Verified <v>" + reason, never a selector.
  * See change: track-latest-craft-web-version (D4), extend-craft-web-to-all-apps (D8, D11).
  */
-import {
-  SelectField,
-  SettingsFacts,
-  SettingsGroup,
-  SettingsNotice,
-  SettingsStatusPill,
-  type SettingsStatusTone,
-  ToggleField,
-  useSettingsDraftSource,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { SelectField, SettingsFacts, SettingsGroup, SettingsNotice, SettingsStatusPill, type SettingsStatusTone, ToggleField, usePluginConfig, usePluginSend, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { appKind, type CraftAppKind, type CraftAppProfile, profileFor } from "../shared/app-profiles.js";
 import { fetchCraftStatus, prepareCraftApp, type StatusOutcome } from "./craft-api.js";

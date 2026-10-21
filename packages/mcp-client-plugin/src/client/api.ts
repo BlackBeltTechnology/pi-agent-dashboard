@@ -8,7 +8,7 @@
  * Wire shapes mirror the route handlers in `../server/routes.ts`.
  * See change: migrate-mcp-to-pi-builtin.
  */
-import type { EffectiveView, LiveState, ProjectOverridePatch, Scope, SetEnabledResult } from "../core/types.js";
+import type { EffectiveView, LiveState, ProjectOverridePatch, Scope, SetEnabledResult } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 
 const API_BASE = "/api/mcp-client";
 

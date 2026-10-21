@@ -12,6 +12,7 @@
  * See change: add-project-scoped-apps.
  */
 import * as fs from "node:fs";
+import { nextSteps } from "../next-steps.js";
 import { writeProjectId } from "../project-identity.js";
 import type { Answers } from "../render.js";
 import { FsSink, render } from "../render.js";
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`scaffold complete: ${answers.outDir}`);
+  console.log(`\n${nextSteps(answers)}`);
 }
 
 void main();

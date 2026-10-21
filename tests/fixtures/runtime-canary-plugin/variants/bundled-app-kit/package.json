@@ -1,0 +1,27 @@
+{
+  "name": "pi-dashboard-runtime-canary-bundled-app-kit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime canary FAILURE variant (bundles its own app-kit). Built by scripts/build-runtime-canary.mjs; fixture only.",
+  "type": "module",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "runtime-canary-bundled-app-kit",
+    "displayName": "Runtime Canary variant: bundled-app-kit (fixture)",
+    "fixture": true,
+    "hostApi": "^1.0.0",
+    "clientBundle": "./dist/client/index.js",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "VariantPanel",
+        "tab": "general"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "@blackbelt-technology/pi-dashboard-app-kit": "*"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "pi-dashboard-runtime-canary-missing-export",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime canary FAILURE variant (imports a host export that does not exist). Built by scripts/build-runtime-canary.mjs; fixture only.",
+  "type": "module",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "runtime-canary-missing-export",
+    "displayName": "Runtime Canary variant: missing-export (fixture)",
+    "fixture": true,
+    "hostApi": "^1.0.0",
+    "clientBundle": "./dist/client/index.js",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "VariantPanel",
+        "tab": "general"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "*"
+  }
+}

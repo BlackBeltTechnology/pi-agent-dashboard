@@ -2,15 +2,15 @@
  * Verb→tier resolution for the chat team-controls layer.
  *
  * The tier required by a verb is READ from the dashboard's shared effective
- * table (`GENERATED_TOOLS` re-exported from the mcp-server plugin's `./manifest`
- * entry), never re-declared here — so the chat surface and the MCP surface
+ * table (`GENERATED_VERB_TIERS`, generated into `packages/shared/src/mcp/` by the
+ * mcp-server codegen), never re-declared here — so the chat surface and the MCP surface
  * cannot drift apart. A curated command allowlist narrows what chat may invoke
  * at all, and a non-configurable deny-list carves credential/state-minting
  * verbs out of `operate`.
  *
- * See change: add-chat-gateway-team-controls (D3).
+ * See change: add-chat-gateway-team-controls (D3); decouple-plugins-from-core (task 2.6).
  */
-import { GENERATED_TOOLS } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest";
+import { GENERATED_VERB_TIERS } from "@blackbelt-technology/pi-dashboard-shared/mcp/verb-tiers.generated.js";
 import { minTier, rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 
 /** Roles may never grant `operate` — see `authorize.ts` / `tier-config.ts`. */
@@ -83,9 +83,9 @@ export const CHAT_LOCAL_VERB_TIERS: ReadonlyMap<string, Tier> = new Map([
   ["close_session", "control"],
 ]);
 
-/** The effective per-verb tier table, read from the shared generated manifest. */
+/** The effective per-verb tier table, read from the shared generated table. */
 export const VERB_TIERS: ReadonlyMap<string, Tier> = new Map(
-  GENERATED_TOOLS.map((t) => [t.name, t.tier] as const),
+  GENERATED_VERB_TIERS.map((t) => [t.name, t.tier] as const),
 );
 
 /** `undefined` means the verb has no row in the shared table — never infer one. */

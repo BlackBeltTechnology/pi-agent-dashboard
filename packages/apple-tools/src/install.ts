@@ -9,7 +9,7 @@
 import type {
   ConfigRefusal,
   McpClientConfigService,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import {
   discoverServer,
   IMCP_BREW_CASK,

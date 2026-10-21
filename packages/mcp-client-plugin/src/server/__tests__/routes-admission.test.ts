@@ -7,12 +7,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { CwdHoldDecision } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createMcpClientConfigService } from "@blackbelt-technology/pi-dashboard-mcp-core/service.js";
+import type { ConfigIO, PiMcpListRunner, Scope } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type { GitProbeRunner } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { runAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMcpClientConfigService } from "../../core/service.js";
-import type { ConfigIO, PiMcpListRunner, Scope } from "../../core/types.js";
 import { mountMcpClientRoutes } from "../routes.js";
 
 // Spy on the SYNCHRONOUS guard: no route may reach it for a project scope.

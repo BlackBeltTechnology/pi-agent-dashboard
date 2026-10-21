@@ -1,7 +1,7 @@
 /**
  * Tests for slot-registry enable filter — see change add-plugin-activation-ui.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSlotRegistry } from "../slot-registry.js";
 
 function claim(pluginId: string, slot: string, componentName = pluginId + "Comp") {
@@ -40,10 +40,35 @@ describe("slot-registry enable filter", () => {
     r.addClaim(claim("b", "settings-section"));
     r.setEnabledSet(new Set(["a"]));
 
-    const grouped = r.getAllPluginsForActivationUi();
-    expect([...grouped.keys()].sort()).toEqual(["a", "b"]);
-    expect(grouped.get("a")).toHaveLength(1);
-    expect(grouped.get("b")).toHaveLength(1);
+    const all = r.getAllPluginsForActivationUi();
+    expect(all.map((p) => p.id).sort()).toEqual(["a", "b"]);
+    expect(all.find((p) => p.id === "a")?.claims).toHaveLength(1);
+    expect(all.find((p) => p.id === "b")?.claims).toHaveLength(1);
+  });
+
+  // See change: decouple-plugins-from-core (test-plan #E21).
+  it("a disabled owner keeps its displayName and event-type metadata", () => {
+    const r = createSlotRegistry();
+    r.registerPlugin({ id: "subagents", displayName: "Subagents", eventTypes: ["subagent_*"] });
+    r.registerPlugin({ id: "flows", displayName: "Flows", eventTypes: ["flow_*"] });
+    r.setEnabledSet(new Set());
+
+    expect(r.getAllPluginsForActivationUi()).toContainEqual(
+      expect.objectContaining({ id: "subagents", displayName: "Subagents", eventTypes: ["subagent_*"] }),
+    );
+    expect(r.getEventTypeOwners()).toEqual([
+      { ownerId: "flows", displayName: "Flows", eventTypes: ["flow_*"] },
+      { ownerId: "subagents", displayName: "Subagents", eventTypes: ["subagent_*"] },
+    ]);
+  });
+
+  it("a claim-only plugin is summarised with its id as displayName and no event types", () => {
+    const r = createSlotRegistry();
+    r.addClaim(claim("a", "settings-section"));
+    expect(r.getAllPluginsForActivationUi()).toEqual([
+      expect.objectContaining({ id: "a", displayName: "a", eventTypes: [] }),
+    ]);
+    expect(r.getEventTypeOwners()).toEqual([]);
   });
 
   it("setEnabledSet can be re-called to update the active set", () => {

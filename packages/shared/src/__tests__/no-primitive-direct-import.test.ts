@@ -29,12 +29,26 @@
  *   ...
  *   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
  *
- * See change: add-plugin-ui-primitive-registry.
+ * Plugin code MAY call `useUiPrimitive` / `useUiPrimitiveOrNull` (public host
+ * API, `plugin-host-api`): only direct imports of primitive IMPLEMENTATIONS are
+ * flagged — never the hook calls (test-plan #X3).
+ *
+ * The same file hosts the allowed-subpaths lint (#E33, `dashboard-plugin-loader`
+ * "Plugins SHALL import from … only"): plugin production source may import the
+ * runtime root, `./context` (deprecated), `./sdk`, `./server`, `./bridge`,
+ * `./embedded-app`, `./manifest-validator`, `./vite-plugin`, `./test-support`;
+ * plugin TESTS may also import `./host`; nobody imports the client/server
+ * packages directly.
+ *
+ * @structural-pin this is a repo lint: it scans plugin source TEXT (imports, local codec definitions, class literals) by design
+ *
+ * See changes: add-plugin-ui-primitive-registry, decouple-plugins-from-core.
  */
-import { describe, expect, it } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -232,5 +246,201 @@ describe("no-primitive-direct-import (repo-lint)", () => {
     } finally {
       fs.unlinkSync(tmp);
     }
+  });
+});
+
+// ── `useUiPrimitive` calls are not flagged (test-plan #X3 c) ────────────────
+
+describe("useUiPrimitive calls", () => {
+  it("are allowed in plugin source: only direct primitive IMPLEMENTATION imports are flagged", () => {
+    const tmp = path.join(REPO_ROOT, ".tmp-no-primitive-direct-import-hook-fixture.tsx");
+    fs.writeFileSync(
+      tmp,
+      [
+        'import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";',
+        'import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";',
+        "const Markdown = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);",
+      ].join("\n"),
+    );
+    try {
+      expect(scanFile(tmp)).toHaveLength(0);
+    } finally {
+      fs.unlinkSync(tmp);
+    }
+  });
+
+  it("the useUiPrimitive JSDoc carries no @deprecated tag", () => {
+    const src = fs.readFileSync(
+      path.join(REPO_ROOT, "packages/dashboard-plugin-runtime/src/ui-primitive-context.tsx"),
+      "utf-8",
+    );
+    expect(src).not.toContain("@deprecated");
+  });
+});
+
+// ── Allowed runtime subpaths (test-plan #E33) ───────────────────────────────
+
+const RUNTIME = "@blackbelt-technology/dashboard-plugin-runtime";
+const RUNTIME_ALLOWED = new Set(["", "context", "sdk", "server", "bridge", "embedded-app", "manifest-validator", "vite-plugin", "test-support"]);
+const SPECIFIER_RE = /(?:\bfrom\s+|\bimport\s*\(\s*|\bvi\.(?:do)?mock\s*\(\s*|\bimport\s+)["']([^"']+)["']/g;
+/** Direct imports of the client or server packages (`-client-utils` is a different package). */
+const FORBIDDEN_CORE_RE = /^@blackbelt-technology\/pi-dashboard-(?:client|web|server)(?:\/|$)/;
+
+interface SubpathScan {
+  violations: string[];
+  deprecations: string[];
+}
+
+/** Lint one plugin source file's runtime/core specifiers. `file` only feeds the messages. */
+function scanSubpaths(source: string, file: string, isTest: boolean): SubpathScan {
+  const out: SubpathScan = { violations: [], deprecations: [] };
+  for (const m of source.matchAll(SPECIFIER_RE)) {
+    const spec = m[1]!;
+    if (FORBIDDEN_CORE_RE.test(spec)) {
+      out.violations.push(
+        `${file}: imports "${spec}" — plugins must not import core packages; use ${RUNTIME} instead`,
+      );
+      continue;
+    }
+    if (spec !== RUNTIME && !spec.startsWith(`${RUNTIME}/`)) continue;
+    const sub = spec.slice(RUNTIME.length + 1);
+    if (sub === "host") {
+      if (!isTest) out.violations.push(`${file}: imports the ./host subpath in non-test source — shell-only names belong to packages/client`);
+      continue;
+    }
+    if (!RUNTIME_ALLOWED.has(sub)) {
+      out.violations.push(`${file}: imports internal-only path "${spec}" — use ${RUNTIME}`);
+      continue;
+    }
+    if (sub === "context") out.deprecations.push(`${file}: ./context is deprecated — import from ${RUNTIME}`);
+  }
+  return out;
+}
+
+const TEST_FILE_RE = /(^|\/)(__tests__|test-support|tests?)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+
+function findManifestPluginSrcDirs(): string[] {
+  const packagesDir = path.join(REPO_ROOT, "packages");
+  return fs
+    .readdirSync(packagesDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => path.join(packagesDir, d.name))
+    .filter((dir) => {
+      try {
+        return "pi-dashboard-plugin" in JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8"));
+      } catch {
+        return false;
+      }
+    })
+    .map((dir) => path.join(dir, "src"));
+}
+
+/** Like `collectSourceFiles`, but keeps `__tests__` (tests have their own rule). */
+function collectAllSourceFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    if (e.name === "node_modules" || e.name === "dist" || e.name === "build") return [];
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) return collectAllSourceFiles(full);
+    return /\.(ts|tsx)$/.test(e.name) && !e.name.endsWith(".d.ts") ? [full] : [];
+  });
+}
+
+describe("allowed plugin subpaths (lint)", () => {
+  const imp = (spec: string) => `import { x } from "${spec}";`;
+
+  it("fails a production source that imports ./host, naming the file and subpath", () => {
+    const r = scanSubpaths(imp(`${RUNTIME}/host`), "packages/x-plugin/src/client/a.tsx", false);
+    expect(r.violations).toHaveLength(1);
+    expect(r.violations[0]).toContain("packages/x-plugin/src/client/a.tsx");
+    expect(r.violations[0]).toContain("./host");
+  });
+
+  it("passes a plugin TEST that imports ./host", () => {
+    const r = scanSubpaths(imp(`${RUNTIME}/host`), "packages/x-plugin/src/__tests__/a.test.tsx", true);
+    expect(r).toEqual({ violations: [], deprecations: [] });
+  });
+
+  it("fails an import of the client package and directs the author to the runtime", () => {
+    const r = scanSubpaths(imp("@blackbelt-technology/pi-dashboard-client/App"), "a.tsx", false);
+    expect(r.violations).toHaveLength(1);
+    expect(r.violations[0]).toContain(RUNTIME);
+    expect(scanSubpaths(imp("@blackbelt-technology/pi-dashboard-web/chat-embed"), "a.tsx", false).violations).toHaveLength(1);
+  });
+
+  it("does not confuse client-utils with the client package", () => {
+    const r = scanSubpaths(imp("@blackbelt-technology/pi-dashboard-client-utils/useMobile"), "a.tsx", false);
+    expect(r.violations).toEqual([]);
+  });
+
+  it("passes the runtime root and every allowed subpath", () => {
+    for (const sub of ["", "/sdk", "/server", "/bridge", "/embedded-app", "/manifest-validator", "/vite-plugin", "/test-support"]) {
+      expect(scanSubpaths(imp(`${RUNTIME}${sub}`), "a.tsx", false)).toEqual({ violations: [], deprecations: [] });
+    }
+  });
+
+  it("passes ./context but emits a deprecated diagnostic", () => {
+    const r = scanSubpaths(imp(`${RUNTIME}/context`), "a.tsx", false);
+    expect(r.violations).toEqual([]);
+    expect(r.deprecations).toHaveLength(1);
+    expect(r.deprecations[0]).toContain("deprecated");
+  });
+
+  it("fails an unknown runtime subpath, and catches vi.mock / dynamic import specifiers", () => {
+    expect(scanSubpaths(imp(`${RUNTIME}/slot-registry`), "a.tsx", false).violations).toHaveLength(1);
+    expect(scanSubpaths(`vi.mock("${RUNTIME}/host", () => ({}));`, "a.test.tsx", false).violations).toHaveLength(1);
+    expect(scanSubpaths(`await import("${RUNTIME}/host");`, "a.tsx", false).violations).toHaveLength(1);
+  });
+
+  it("every in-repo plugin source passes (no ./host in prod, no client/server imports) and none still uses ./context", () => {
+    const srcDirs = findManifestPluginSrcDirs();
+    expect(srcDirs.length).toBeGreaterThan(10); // sanity: manifest plugins found
+    const violations: string[] = [];
+    const deprecations: string[] = [];
+    for (const dir of srcDirs) {
+      for (const file of collectAllSourceFiles(dir)) {
+        const rel = path.relative(REPO_ROOT, file);
+        const r = scanSubpaths(fs.readFileSync(file, "utf-8"), rel, TEST_FILE_RE.test(rel));
+        violations.push(...r.violations);
+        deprecations.push(...r.deprecations);
+      }
+    }
+    expect(violations).toEqual([]);
+    // Phase 2 migrates every in-repo ./context import to the root (task 3.16).
+    expect(deprecations).toEqual([]);
+  });
+});
+
+// ── ./sdk: folder codec one source; host CSS FX classes (test-plan #E25) ─────
+
+describe("plugins consume ./sdk for the folder codec and host FX classes", () => {
+  it("no plugin source defines its own encode/decodeFolderPath (the ./sdk copy is the only one)", () => {
+    const defs: string[] = [];
+    for (const dir of findManifestPluginSrcDirs()) {
+      for (const file of collectAllSourceFiles(dir)) {
+        const src = fs.readFileSync(file, "utf-8");
+        if (/\b(?:function|const|let)\s+(?:en|de)codeFolderPath\b/.test(src)) defs.push(path.relative(REPO_ROOT, file));
+      }
+    }
+    expect(defs).toEqual([]);
+  });
+
+  it("automation-card-visuals applies HOST_FX_CLASSES.stripes and holds no literal FX class name", () => {
+    const file = path.join(REPO_ROOT, "packages/automation-plugin/src/client/automation-card-visuals.ts");
+    const src = fs.readFileSync(file, "utf-8");
+    expect(src).toContain("HOST_FX_CLASSES.stripes");
+    // Comments may name the classes; code may not. Strip comments before scanning.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code).not.toMatch(/card-(?:stripes|glow|ring)/);
+  });
+
+  it("the snapshot's ./sdk export list holds neither PLUGIN_HOST_API_VERSION nor satisfiesHostApi", () => {
+    const snap = JSON.parse(
+      fs.readFileSync(path.join(REPO_ROOT, "packages/dashboard-plugin-runtime/host-api-surface.json"), "utf-8"),
+    ) as { sdkExports?: string[] };
+    expect(Array.isArray(snap.sdkExports)).toBe(true);
+    expect(snap.sdkExports).not.toContain("PLUGIN_HOST_API_VERSION");
+    expect(snap.sdkExports).not.toContain("satisfiesHostApi");
+    expect(snap.sdkExports).toContain("satisfiesHostApiRange");
   });
 });

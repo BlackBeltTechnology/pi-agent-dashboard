@@ -2,6 +2,9 @@
   "name": "@blackbelt-technology/pi-dashboard-blackhole-plugin",
   "version": "0.10.0",
   "description": "Dashboard surface for the pi-blackhole extension — settings (config file editor + fallback chains) and the per-session memory pipeline subcard/detail view.",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

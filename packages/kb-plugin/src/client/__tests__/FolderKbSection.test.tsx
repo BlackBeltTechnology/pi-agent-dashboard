@@ -15,7 +15,7 @@ import {
   FolderMenuProvider,
   type FolderMenuStore,
   PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiAlertOutline, mdiPinOutline } from "@mdi/js";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";

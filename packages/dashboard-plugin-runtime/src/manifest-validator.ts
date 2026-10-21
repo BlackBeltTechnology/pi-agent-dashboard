@@ -7,6 +7,8 @@ import {
   PANE_TAB_PREFIX_RE,
   RESERVED_PANE_TAB_PREFIXES,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
+import { isValidHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
   FILE_HANDLER_EXT_RE,
@@ -495,12 +497,29 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     "sessionParam",
     "predicate",
     "shouldRender",
+    "resultPending",
   ] as const) {
     if (c[field] !== undefined && typeof c[field] !== "string") {
       throw new ManifestValidationError(
         pluginId,
         `claims[${index}].${field} must be a string if provided`,
       );
+    }
+  }
+
+  // tool-renderer fields: `expandWhileRunning` is a boolean, and both fields are
+  // meaningless on any other slot. See change: decouple-plugins-from-core (D5 item 7).
+  if (c.expandWhileRunning !== undefined && typeof c.expandWhileRunning !== "boolean") {
+    throw new ManifestValidationError(pluginId, `claims[${index}].expandWhileRunning must be a boolean if provided`);
+  }
+  if (slotId !== "tool-renderer") {
+    for (const field of ["expandWhileRunning", "resultPending"] as const) {
+      if (c[field] !== undefined) {
+        throw new ManifestValidationError(
+          pluginId,
+          `claims[${index}] slot "${slotId}" must not declare "${field}" (tool-renderer claims only)`,
+        );
+      }
     }
   }
 
@@ -561,6 +580,8 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(navHint ? { nav: navHint } : {}),
     ...(typeof c.predicate === "string" ? { predicate: c.predicate } : {}),
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
+    ...(c.expandWhileRunning === true ? { expandWhileRunning: true } : {}),
+    ...(typeof c.resultPending === "string" ? { resultPending: c.resultPending } : {}),
     ...(c.config && typeof c.config === "object" && !Array.isArray(c.config)
       ? { config: c.config as Record<string, unknown> }
       : {}),
@@ -599,7 +620,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   }
 
   // optional string paths
-  for (const field of ["client", "server", "bridge", "configSchema"] as const) {
+  for (const field of ["client", "clientBundle", "clientStyles", "server", "bridge", "configSchema"] as const) {
     if (m[field] !== undefined && typeof m[field] !== "string") {
       throw new ManifestValidationError(pluginId, `manifest.${field} must be a string if provided`);
     }
@@ -781,12 +802,37 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
 
   const projectTypes = m.projectTypes !== undefined ? validateProjectTypes(m.projectTypes, pluginId) : undefined;
 
+  // eventTypes: exact names or `prefix_*`. See change: decouple-plugins-from-core (D5).
+  let eventTypes: string[] | undefined;
+  if (m.eventTypes !== undefined) {
+    if (
+      !Array.isArray(m.eventTypes) ||
+      !m.eventTypes.every((t) => typeof t === "string" && isValidEventTypePattern(t))
+    ) {
+      throw new ManifestValidationError(
+        pluginId,
+        'manifest.eventTypes must be an array of exact event names or "prefix_*" patterns',
+      );
+    }
+    eventTypes = [...(m.eventTypes as string[])];
+  }
+
+  // hostApi: `^MAJOR.MINOR[.PATCH]` or exact. See change: decouple-plugins-from-core (D7).
+  if (m.hostApi !== undefined && !isValidHostApiRange(m.hostApi)) {
+    throw new ManifestValidationError(
+      pluginId,
+      'manifest.hostApi must be a caret range "^MAJOR.MINOR[.PATCH]" or an exact "MAJOR.MINOR.PATCH" version',
+    );
+  }
+
   return {
     id: pluginId,
     displayName: m.displayName,
     priority,
     claims,
     ...(typeof m.client === "string" ? { client: m.client } : {}),
+    ...(typeof m.clientBundle === "string" ? { clientBundle: m.clientBundle } : {}),
+    ...(typeof m.clientStyles === "string" ? { clientStyles: m.clientStyles } : {}),
     ...(typeof m.server === "string" ? { server: m.server } : {}),
     ...(typeof m.bridge === "string" ? { bridge: m.bridge } : {}),
     ...(typeof m.configSchema === "string" ? { configSchema: m.configSchema } : {}),
@@ -798,5 +844,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(vaultBindings ? { vaultBindings } : {}),
 
     ...(projectTypes ? { projectTypes } : {}),
+    ...(eventTypes ? { eventTypes } : {}),
+    ...(typeof m.hostApi === "string" ? { hostApi: m.hostApi } : {}),
   };
 }

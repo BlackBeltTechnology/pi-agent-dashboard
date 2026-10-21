@@ -1,18 +1,26 @@
 import {
   ComposerContextGroup,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
   createSlotRegistry,
   PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { BrowserRelayBadge, hasRelayTabsForBadge } from "../../../../browser-plugin/src/client/index.js";
-import { __resetRelayStoreForTests, setRelayStatus } from "../../../../browser-plugin/src/client/relay-store.js";
 import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
+import {
+  hasStandInItems,
+  resetStandIn,
+  STAND_IN_FRAME_TYPE,
+  STAND_IN_PLUGIN_ID,
+  StandInBadge,
+  setStandInStatus,
+} from "../../test-support/statusGateStandIn.js";
 import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
 
 afterEach(() => cleanup());
@@ -712,13 +720,15 @@ describe("ComposerSessionActions change chip for non-live attachments (resolve-a
   });
 });
 
-// ── STATUS group follows the gated browser badge claim (fix-empty-status-subcard #E4) ──
-describe("ComposerSessionActions STATUS group with the browser relay badge", () => {
-  afterEach(() => __resetRelayStoreForTests());
+// ── STATUS group follows a gated badge claim (fix-empty-status-subcard #E4) ──
+// Uses the core-owned stand-in (`test-support/statusGateStandIn.tsx`), not a real plugin.
+// See change: decouple-plugins-from-core (task 2.12).
+describe("ComposerSessionActions STATUS group with a gated status badge", () => {
+  afterEach(() => resetStandIn());
 
   function renderComposer() {
     const registry = createSlotRegistry();
-    registry.addClaim({ pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge, shouldRender: hasRelayTabsForBadge });
+    registry.addClaim({ pluginId: STAND_IN_PLUGIN_ID, priority: 500, slot: "session-card-badge", Component: StandInBadge, shouldRender: hasStandInItems });
     return render(
       <Router hook={memoryLocation({ path: "/" }).hook}>
         <PluginContextProvider registry={registry}>
@@ -728,21 +738,21 @@ describe("ComposerSessionActions STATUS group with the browser relay badge", () 
     );
   }
   const oneTab = {
-    type: "browser_relay_status" as const,
+    type: STAND_IN_FRAME_TYPE,
     auditSeq: 1,
     instances: [{ instanceId: "i1", profileDirectory: "OSS", host: "dashboard", state: "connected" as const, tabs: [{ tabId: 1, title: "T", url: "https://x.test", state: "live" as const }] }],
   };
 
-  it("renders no STATUS group label with zero relay tabs", () => {
+  it("renders no STATUS group label with zero tabs", () => {
     renderComposer();
     expect(screen.queryByTestId("composer-status-group-label")).toBeNull();
   });
 
-  it("renders the STATUS label + badge when a relay tab appears", () => {
+  it("renders the STATUS label + badge when a tab appears", () => {
     renderComposer();
-    act(() => setRelayStatus(oneTab));
+    act(() => setStandInStatus(oneTab));
     expect(screen.getByTestId("composer-status-group-label")).toBeTruthy();
-    expect(screen.getByTestId("browser-relay-badge")).toBeTruthy();
+    expect(screen.getByTestId("standin-badge")).toBeTruthy();
   });
 });
 

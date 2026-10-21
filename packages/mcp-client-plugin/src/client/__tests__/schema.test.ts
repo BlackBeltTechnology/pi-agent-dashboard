@@ -5,8 +5,9 @@
  * spares ${REF}/! literals, transport visibility, whole-entry `buildEntry`,
  * redaction-sentinel stripping, and save validation.
  */
+
+import schemaDoc from "@blackbelt-technology/pi-dashboard-mcp-core/schema/mcp-config.schema.json";
 import { describe, expect, it } from "vitest";
-import schemaDoc from "../../../schema/mcp-config.schema.json";
 import {
   buildEntry,
   clone,

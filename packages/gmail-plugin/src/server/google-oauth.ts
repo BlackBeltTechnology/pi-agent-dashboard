@@ -53,6 +53,8 @@ export interface GoogleLoginOptions {
   client: ClientRecord;
   endpoints: GoogleEndpoints;
   tier: Tier;
+  /** Also request `gmail.settings.basic` (filters option on). */
+  filters?: boolean;
   /** Email of the account being re-authenticated (sets `login_hint`). */
   loginHint?: string;
   /** Test seam: fetch used for the token endpoint. */
@@ -89,6 +91,8 @@ export function buildAuthUrl(p: {
   clientId: string;
   redirectUri: string;
   tier: Tier;
+  /** Also request `gmail.settings.basic` (Gmail filter management). */
+  filters?: boolean;
   state: string;
   nonce: string;
   codeChallenge: string;
@@ -99,7 +103,7 @@ export function buildAuthUrl(p: {
   q.set("client_id", p.clientId);
   q.set("redirect_uri", p.redirectUri);
   q.set("response_type", "code");
-  q.set("scope", authScopeParam(p.tier));
+  q.set("scope", authScopeParam(p.tier, { filters: p.filters }));
   q.set("access_type", "offline");
   q.set("prompt", "consent select_account");
   q.set("state", p.state);
@@ -193,6 +197,7 @@ export function createGoogleLoginFlow(opts: GoogleLoginOptions): PluginOAuthLogi
         clientId: opts.client.clientId,
         redirectUri: cb.redirectUri,
         tier: opts.tier,
+        filters: opts.filters,
         state: cb.state,
         nonce,
         codeChallenge: await oauth.calculatePKCECodeChallenge(verifier),

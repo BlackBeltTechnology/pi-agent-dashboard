@@ -18,18 +18,7 @@
  * See change: add-chat-gateway, retro-ux-plugin-settings-wave-2.
  */
 
-import {
-  SelectField,
-  SettingsGroup,
-  SettingsNotice,
-  SettingsStatusPill,
-  SettingsTable,
-  TextAreaField,
-  TextField,
-  ToggleField,
-  useSettingsDraftSource,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { SelectField, SettingsGroup, SettingsNotice, SettingsStatusPill, SettingsTable, TextAreaField, TextField, ToggleField, usePluginConfig, usePluginSend, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import type React from "react";
 import { useEffect, useState } from "react";

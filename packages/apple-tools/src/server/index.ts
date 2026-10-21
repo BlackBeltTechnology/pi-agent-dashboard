@@ -16,15 +16,14 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   displayExposure,
+  MCP_CLIENT_CONFIG_SERVICE_KEY,
   type McpClientConfigService,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+} from "@blackbelt-technology/pi-dashboard-mcp-core";
 import { createInstallerEnv } from "../env.js";
 import { runInstaller, type TerminalState } from "../install.js";
 import { DEFAULT_IMCP_PATH, shouldReconcilePath } from "../reconcile.js";
 
 const PLUGIN_ID = "apple-tools";
-/** The service key the `mcp-client` plugin provides. */
-const SERVICE_KEY = "mcp-client.config";
 /** Status readout TTL — the traversal shells out to `sw_vers`/`which`, so a
  *  polling panel must not re-run it per request. Mirrors the 30s requirement-
  *  probe cache. */
@@ -59,7 +58,7 @@ interface StatusReadout {
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("apple-tools server entry activated");
 
-  const consumed = ctx.consume<McpClientConfigService>(SERVICE_KEY);
+  const consumed = ctx.consume<McpClientConfigService>(MCP_CLIENT_CONFIG_SERVICE_KEY);
   if (!consumed) {
     throw new Error(
       "apple-tools requires the `mcp-client.config` service (plugin id `mcp-client`); " +

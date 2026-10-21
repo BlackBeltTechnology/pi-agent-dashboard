@@ -44,10 +44,11 @@ import {
   stripeFxClass,
 } from "./automation-card-visuals.js";
 import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
-import { decodeFolderPath } from "./folder-encoding.js";
 
 export interface AutomationBoardProps {
   params?: Record<string, string>;
+  /** Decoded folder path of the `/folder/:encodedCwd/automations` route (host-provided). */
+  cwd?: string;
   onBack?: () => void;
 }
 
@@ -65,11 +66,10 @@ interface EditTarget {
   promptBody?: string;
 }
 
-export function AutomationBoard({ params, onBack }: AutomationBoardProps): React.ReactElement {
+export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): React.ReactElement {
   const t = useT();
-  const decoded = params?.encodedCwd ? decodeFolderPath(params.encodedCwd) : undefined;
-  const invalidRoute = !!params?.encodedCwd && decoded === null;
-  const cwd = decoded ?? undefined;
+  // The host decodes the folder segment; a route that carries one but yields no `cwd` is malformed.
+  const invalidRoute = !!params?.encodedCwd && cwd === undefined;
   const repoCrumb = cwd ? cwd.replace(/[/\\]+$/, "").split(/[/\\]/).pop() || cwd : undefined;
   const [automations, setAutomations] = useState<DiscoveredAutomation[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);

@@ -3,7 +3,7 @@
  * See change: add-plugin-activation-ui.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
@@ -39,8 +39,9 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
   }),
 }));
 
+const apiBaseMock = vi.hoisted(() => ({ value: "" }));
 vi.mock("../../lib/api/api-context.js", () => ({
-  getApiBase: () => "",
+  getApiBase: () => apiBaseMock.value,
 }));
 
 // The cog navigates instead of expanding inline, so capture wouter's navigate.
@@ -87,6 +88,8 @@ function pluginRow(over: any = {}) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  apiBaseMock.value = "";
+  document.head.querySelectorAll('script[type="importmap"]').forEach((n) => n.remove());
 });
 
 describe("PluginsSection", () => {
@@ -264,5 +267,174 @@ describe("PluginsSection — promoted rows", () => {
     expect(roles.textContent).toContain("Models");
     expect(roles.textContent).not.toContain("not in Settings nav");
     expect(screen.getByTestId("plugin-disabled-note-subagents").textContent).toContain("not in Settings nav");
+  });
+});
+
+// decouple-plugins-from-core test-plan #E65 (task 8.83) + live `plugins_changed` (#F6 mechanism).
+describe("PluginsSection — discovery fields and live updates", () => {
+  const status = (id: string, over: any = {}) => ({ id, displayName: id, enabled: true, loaded: true, claims: 0, ...over });
+  const mount = (plugins: any[]) => {
+    const { fetchImpl, calls } = makeFetchSequence([
+      { url: /\/api\/plugins$/, body: { success: true, plugins } },
+      { url: /\/api\/health/, body: { ok: true, startedAt: "2025-01-01T00:00:00Z", plugins: [] } },
+    ]);
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<MountedPluginsSection />);
+    return calls;
+  };
+
+  it("E65: renders source, the restart hint, a refusal + reason, and one row per id with the shadowed copy as a sub-line", async () => {
+    mount([
+      pluginRow({
+        id: "quota",
+        displayName: "Quota",
+        status: status("quota", {
+          source: "workspace",
+          restartRequired: true,
+          shadowed: [{ source: "pi-package", packageDir: "/home/u/.pi/agent/npm/node_modules/quota" }],
+        }),
+      }),
+      pluginRow({
+        id: "quota-ui",
+        displayName: "Quota UI",
+        status: status("quota-ui", { source: "installed", client: { delivery: "refused", refusedReason: "missing-dep" } }),
+      }),
+    ]);
+    expect(await screen.findByTestId("plugin-row-quota")).toBeTruthy();
+    expect(screen.getAllByTestId("plugin-row-quota")).toHaveLength(1);
+    expect(screen.getByTestId("plugin-source-quota").textContent).toContain("workspace");
+    expect(screen.getByTestId("plugin-restart-hint-quota")).toBeTruthy();
+    const sub = screen.getByTestId("plugin-shadowed-quota");
+    expect(sub.textContent).toContain("pi-package");
+    expect(sub.textContent).toContain("/home/u/.pi/agent/npm/node_modules/quota");
+    expect(screen.queryByTestId("plugin-shadowed-quota-ui")).toBeNull();
+    expect(screen.getByTestId("plugin-source-quota-ui").textContent).toContain("installed");
+    const refused = screen.getByTestId("plugin-client-refused-quota-ui");
+    expect(refused.textContent).toContain("missing-dep");
+    expect(screen.queryByTestId("plugin-restart-hint-quota-ui")).toBeNull();
+  });
+
+  it("a local-detected row shows the amber badge + install-globally copy, no failed-to-load notice, toggle disabled", async () => {
+    mount([
+      pluginRow({
+        id: "loc",
+        displayName: "Loc",
+        status: status("loc", {
+          source: "local-detected",
+          enabled: false,
+          loaded: false,
+          error: "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable.",
+        }),
+      }),
+    ]);
+    expect(await screen.findByTestId("plugin-local-detected-loc")).toBeTruthy();
+    expect(screen.getByTestId("plugin-local-detected-note-loc").textContent).toContain("--scope global");
+    expect(screen.queryByTestId("plugin-status-error-loc")).toBeNull();
+    expect((screen.getByTestId("plugin-toggle-loc") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByTestId("plugin-row-loc").textContent).not.toContain("Failed to load");
+  });
+
+  it("F6: a plugins-changed event adds a new row, updates a changed one and drops a vanished one, with NO refetch", async () => {
+    const calls = mount([pluginRow({ id: "a", displayName: "A", status: status("a") }), pluginRow({ id: "gone", displayName: "Gone", status: status("gone", { enabled: false, loaded: false }) })]);
+    await screen.findByTestId("plugin-row-a");
+    const listCalls = () => calls.filter((c) => /\/api\/plugins$/.test(c.url)).length;
+    expect(listCalls()).toBe(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("plugins-changed", {
+          detail: {
+            type: "plugins_changed",
+            plugins: [status("a", { restartRequired: true, source: "workspace" }), status("fresh", { displayName: "Fresh", source: "pi-package" })],
+          },
+        }),
+      );
+    });
+    expect(await screen.findByTestId("plugin-row-fresh")).toBeTruthy();
+    expect(screen.getByTestId("plugin-source-fresh").textContent).toContain("pi-package");
+    expect(screen.getByTestId("plugin-restart-hint-a")).toBeTruthy();
+    expect(screen.queryByTestId("plugin-row-gone")).toBeNull();
+    expect(listCalls()).toBe(1);
+  });
+});
+
+// decouple-plugins-from-core test-plan #E104 (8.98) + #E75 notices (8.95) — task 6.13.
+describe("PluginsSection — runtime trust actions and notices", () => {
+  const HASH = "0123456789abcdef".repeat(4);
+  const status = (id: string, over: any = {}) => ({ id, displayName: id, enabled: true, loaded: true, claims: 0, ...over });
+  const row = (id: string, over: any = {}, st: any = {}) => pluginRow({ id, displayName: id, packageDir: `/pkgs/${id}`, status: status(id, st), ...over });
+  function mount(plugins: any[], extra: Array<{ url: RegExp; body: any; status?: number }> = []) {
+    const { fetchImpl, calls } = makeFetchSequence([
+      ...extra,
+      { url: /\/api\/plugins$/, body: { success: true, plugins } },
+      { url: /\/api\/health/, body: { ok: true, startedAt: "2025-01-01T00:00:00Z", plugins: [] } },
+    ]);
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<MountedPluginsSection />);
+    return calls;
+  }
+
+  it("E104: a structural reason shows its reason and no Trust button; untrusted → Trust; pin-mismatch → Trust this version", async () => {
+    mount([
+      row("dis", {}, { client: { delivery: "refused", refusedReason: "disabled", sha256: HASH } }),
+      row("unt", {}, { client: { delivery: "refused", refusedReason: "untrusted", sha256: HASH } }),
+      row("pin", {}, { client: { delivery: "refused", refusedReason: "pin-mismatch", sha256: HASH } }),
+    ]);
+    await screen.findByTestId("plugin-row-dis");
+    expect(screen.getByTestId("plugin-client-refused-dis").textContent).toContain("disabled");
+    expect(screen.queryByTestId("plugin-trust-dis")).toBeNull();
+    expect(screen.queryByTestId("plugin-trust-panel-dis")).toBeNull();
+    expect(screen.getByTestId("plugin-trust-unt").textContent).toBe("Trust");
+    expect(screen.getByTestId("plugin-trust-pin").textContent).toBe("Trust this version");
+    // shows the package path and the FULL 64-hex hash
+    expect(screen.getByTestId("plugin-trust-path-unt").textContent).toContain("/pkgs/unt");
+    expect(screen.getByTestId("plugin-trust-hash-unt").textContent).toContain(HASH);
+  });
+
+  it("Trust posts the displayed hash; Revoke deletes; local_only is explained", async () => {
+    const calls = mount(
+      [row("unt", {}, { client: { delivery: "refused", refusedReason: "untrusted", sha256: HASH } }), row("ok", {}, { client: { delivery: "runtime", sha256: HASH } })],
+      [{ url: /\/api\/plugins\/unt\/trust$/, body: { success: false, error: "local_only", message: "local only" }, status: 403 }, { url: /\/api\/plugins\/ok\/trust$/, body: { success: true } }],
+    );
+    fireEvent.click(await screen.findByTestId("plugin-trust-unt"));
+    await screen.findByTestId("plugin-trust-error-unt");
+    const post = calls.find((c) => /unt\/trust$/.test(c.url))!;
+    expect(post.init?.method).toBe("POST");
+    expect(JSON.parse(String(post.init?.body))).toEqual({ sha256: HASH });
+    expect(screen.getByTestId("plugin-trust-error-unt").textContent).toContain("machine running the dashboard");
+
+    fireEvent.click(screen.getByTestId("plugin-revoke-ok"));
+    await waitFor(() => expect(calls.some((c) => /ok\/trust$/.test(c.url) && c.init?.method === "DELETE")).toBe(true));
+  });
+
+  it("a server-untrusted pi-package row offers Trust server code → {server:true}", async () => {
+    const calls = mount(
+      [row("pkg", {}, { source: "pi-package", loaded: false, error: "server-untrusted" })],
+      [{ url: /\/api\/plugins\/pkg\/trust$/, body: { success: true } }],
+    );
+    fireEvent.click(await screen.findByTestId("plugin-trust-server-pkg"));
+    await waitFor(() => expect(calls.some((c) => /pkg\/trust$/.test(c.url))).toBe(true));
+    expect(JSON.parse(String(calls.find((c) => /pkg\/trust$/.test(c.url))!.init?.body))).toEqual({ server: true });
+  });
+
+  it("E75: notices — no import map → production-page notice; remote server → unavailable notice; neither → none", async () => {
+    mount([row("a")]);
+    expect((await screen.findByTestId("plugins-runtime-notice-no-import-map")).textContent).toContain("Runtime plugins need the production page");
+    cleanup();
+
+    apiBaseMock.value = "https://remote:8000";
+    mount([row("a")]);
+    expect((await screen.findByTestId("plugins-runtime-notice-remote-server")).textContent).toContain("Runtime plugins are unavailable while connected to a remote server");
+    cleanup();
+
+    apiBaseMock.value = "";
+    const map = document.createElement("script");
+    map.type = "importmap";
+    map.textContent = "{}";
+    document.head.appendChild(map);
+    mount([row("a")]);
+    await screen.findByTestId("plugin-row-a");
+    expect(screen.queryByTestId("plugins-runtime-notice-no-import-map")).toBeNull();
+    expect(screen.queryByTestId("plugins-runtime-notice-remote-server")).toBeNull();
   });
 });

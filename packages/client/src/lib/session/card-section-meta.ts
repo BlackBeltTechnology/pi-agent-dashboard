@@ -6,7 +6,10 @@
  * See changes: configurable-session-card-sections (design D9),
  * add-focus-mode-and-card-block-toggles (design D3).
  */
-import { useSlotHasAnyClaims, useSlotPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  useSlotHasAnyClaims,
+  useSlotPluginIds,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { type PluginSectionKind, pluginSectionId } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { t as i18nT } from "../i18n/i18n.js";
 import { usePluginNames } from "../state/CardSectionsContext.js";

@@ -7,7 +7,7 @@ Plugin loader, slot registry, slot consumers, plugin context API, and Vite plugi
 | Path | Contents |
 |------|----------|
 | `@blackbelt-technology/dashboard-plugin-runtime` | Slot consumers, registry types, barrel |
-| `@blackbelt-technology/dashboard-plugin-runtime/context` | Client-side hooks (`usePluginConfig`, `useAllSessions`, etc.) |
+| `@blackbelt-technology/dashboard-plugin-runtime/context` | DEPRECATED alias (one minor): import hooks (`usePluginConfig`, `useAllSessions`, etc.) from the root, shell-only names from `./host` |
 | `@blackbelt-technology/dashboard-plugin-runtime/server` | Loader, `ServerPluginContext`, config validator |
 | `@blackbelt-technology/dashboard-plugin-runtime/vite-plugin` | `viteDashboardPluginsPlugin` |
 
@@ -107,7 +107,7 @@ import {
   usePluginLogger,
   usePluginSend,
   usePluginRouter,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 
 function MyBadge({ session }) {
   const config = usePluginConfig<{ enabled: boolean }>();

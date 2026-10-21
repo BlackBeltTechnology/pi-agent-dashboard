@@ -12,7 +12,7 @@
  *
  * Control API (POST JSON unless noted):
  *   GET  /_control/health           → {ok:true}
- *   GET  /_control/state            → {sends, drafts, calls, revokes}
+ *   GET  /_control/state            → {sends, drafts, calls, revokes, filters, authorizeScopes}
  *   POST /_control/config {nextEmail?, invalidGrant?, revokeDown?, expiresIn?}
  *   POST /_control/reset
  */
@@ -66,11 +66,20 @@ interface FakeState {
   config: Config;
   codes: Map<string, CodeGrant>;
   refreshTokens: Map<string, string>; // refresh → email
-  log: { sends: unknown[]; drafts: unknown[]; calls: string[]; revokes: number };
+  log: {
+    sends: unknown[];
+    drafts: unknown[];
+    calls: string[];
+    revokes: number;
+    /** Bodies POSTed to `settings/filters` (improve-gmail-plugin-setup-ux). */
+    filters: unknown[];
+    /** `scope` query of every authorization request. */
+    authorizeScopes: string[];
+  };
 }
 
 function freshState(): FakeState {
-  return { config: defaultConfig(), codes: new Map(), refreshTokens: new Map(), log: { sends: [], drafts: [], calls: [], revokes: 0 } };
+  return { config: defaultConfig(), codes: new Map(), refreshTokens: new Map(), log: { sends: [], drafts: [], calls: [], revokes: 0, filters: [], authorizeScopes: [] } };
 }
 
 type Handler = (st: FakeState, url: URL, body: string, res: ServerResponse) => void;
@@ -91,6 +100,7 @@ const control: Record<string, Handler> = {
 const authorize: Handler = (st, url, _body, res) => {
   const code = randomBytes(12).toString("hex");
   const q = url.searchParams;
+  st.log.authorizeScopes.push(q.get("scope") ?? "");
   st.codes.set(code, {
     email: st.config.nextEmail,
     nonce: q.get("nonce") ?? "",
@@ -161,6 +171,14 @@ function gmail(st: FakeState, rest: string, body: string, res: ServerResponse): 
     const to = /^To: (.*)$/m.exec(raw)?.[1]?.trim() ?? "";
     st.log.sends.push({ to: to.split(",").map((s) => s.trim()), threadId: msg.threadId ?? null });
     return json(res, 200, { id: `sent-${st.log.sends.length}`, threadId: msg.threadId ?? "t-new" });
+  }
+  if (rest === "settings/filters") {
+    if (body) {
+      const f = JSON.parse(body) as Record<string, unknown>;
+      st.log.filters.push(f);
+      return json(res, 200, { id: `filter-${st.log.filters.length}`, ...f });
+    }
+    return json(res, 200, { filter: st.log.filters.map((f, i) => ({ id: `filter-${i + 1}`, ...(f as object) })) });
   }
   if (rest === "drafts") {
     st.log.drafts.push(JSON.parse(body || "{}"));
@@ -263,6 +281,8 @@ export interface FakeGoogleState {
   drafts: unknown[];
   calls: string[];
   revokes: number;
+  filters: Array<{ criteria?: Record<string, unknown>; action?: { addLabelIds?: string[]; removeLabelIds?: string[] } }>;
+  authorizeScopes: string[];
 }
 
 export function fakeGoogleState(containerId: string): FakeGoogleState {

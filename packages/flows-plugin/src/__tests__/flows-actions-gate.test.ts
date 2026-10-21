@@ -5,11 +5,13 @@
  * See change: add-session-actions-flyout (D12).
  */
 import {
-  __resetSessionDataStoreForTests,
   clearSessionEvents,
   publishSessionData,
   publishSessionEvent,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import {
+  __resetSessionDataStoreForTests,
+} from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { flowsActionsAvailable, hasFlowsCommand } from "../client/flowsActionsGate.js";
 import { __resetFlowsAvailabilityForTests } from "../client/flowsAvailability.js";

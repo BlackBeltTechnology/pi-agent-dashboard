@@ -1,13 +1,19 @@
-import { type ClaimEntry, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+/**
+ * @structural-pin ToolCallStep.tsx must carry no hard-coded tool-name literal for Agent (the claim's `expandWhileRunning` decides); the absence of a literal is only observable in the source text
+ */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { bumpSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { type ClaimEntry, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { ToolCallStep } from "../chat/ToolCallStep.js";
 import { FORCE_STOP_ARM_MS, type StopController } from "../chat/ToolStopControl.js";
-import type { ToolContext } from "../tool-renderers/index.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { registerToolRenderer, type ToolContext } from "../tool-renderers/index.js";
+import type { ToolRenderer } from "../tool-renderers/types.js";
 
 const defaultContext: ToolContext = {};
 
@@ -529,6 +535,191 @@ describe("ToolCallStep plugin tool-renderer dispatch", () => {
   });
 });
 
+// ── Claim fields + prop contract (decouple-plugins-from-core, test-plan #E38/#E39/#E40) ──
+
+describe("ToolCallStep claim-driven behaviour", () => {
+  afterEach(cleanup);
+
+  const stubClaim = (toolName: string, extra: Partial<ClaimEntry> = {}): ClaimEntry => ({
+    pluginId: "p",
+    priority: 100,
+    slot: "tool-renderer",
+    toolName,
+    Component: () => <div data-testid="plugin-renderer">PLUGIN</div>,
+    ...extra,
+  });
+
+  function mount(registry: ReturnType<typeof createSlotRegistry> | null, props: Partial<React.ComponentProps<typeof ToolCallStep>>) {
+    const step = (
+      <ThemeProvider>
+        <ToolCallStep toolName="bash" toolCallId="tc-x" status="complete" context={defaultContext} {...props} />
+      </ThemeProvider>
+    );
+    return render(registry ? <PluginContextProvider registry={registry}>{step}</PluginContextProvider> : step);
+  }
+  const isExpanded = (c: HTMLElement) => c.querySelector(".overflow-x-auto") !== null;
+
+  // #E38 — auto-expand while running comes from the claim, not a tool-name literal.
+  describe("#E38 expandWhileRunning (Agent rows with / without the plugin)", () => {
+    it("claim.expandWhileRunning + running (live) → expanded", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("Agent", { expandWhileRunning: true }));
+      expect(isExpanded(mount(registry, { toolName: "Agent", status: "running" }).container)).toBe(true);
+    });
+
+    it("claim.expandWhileRunning + complete (replay) → collapsed", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("Agent", { expandWhileRunning: true }));
+      expect(isExpanded(mount(registry, { toolName: "Agent", status: "complete" }).container)).toBe(false);
+    });
+
+    it("plugin disabled + running → collapsed, and expanding it shows the GenericToolRenderer", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("Agent", { expandWhileRunning: true }));
+      registry.setEnabledSet(new Set()); // plugin "p" disabled
+      const view = mount(registry, { toolName: "Agent", status: "running", args: { subagent_type: "Explore" } });
+      expect(isExpanded(view.container)).toBe(false);
+      fireEvent.click(view.container.querySelector("button")!);
+      expect(view.queryByTestId("plugin-renderer")).toBeNull();
+      expect(view.container.querySelector("pre")?.textContent).toContain("Explore"); // Generic: raw JSON args
+    });
+
+    it("plugin re-enabled while the row is running → expands once; a user collapse afterwards sticks (F5)", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("Agent", { expandWhileRunning: true }));
+      registry.setEnabledSet(new Set()); // disabled at mount → collapsed
+      const view = mount(registry, { toolName: "Agent", status: "running" });
+      expect(isExpanded(view.container)).toBe(false);
+      act(() => {
+        registry.setEnabledSet(new Set(["p"]));
+        bumpSlotClaimsVersion();
+      });
+      expect(isExpanded(view.container)).toBe(true);
+      fireEvent.click(view.container.querySelector("button")!); // user collapses
+      expect(isExpanded(view.container)).toBe(false);
+      act(() => bumpSlotClaimsVersion());
+      expect(isExpanded(view.container)).toBe(false);
+    });
+
+    it("a claim without expandWhileRunning stays collapsed while running", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("Agent"));
+      expect(isExpanded(mount(registry, { toolName: "Agent", status: "running" }).container)).toBe(false);
+    });
+
+    it("the collapsed Agent summary is identical with the plugin claim present and absent (E37)", () => {
+      const args = { subagent_type: "Explore", description: "Fix auth bug" };
+      const withPlugin = createSlotRegistry();
+      withPlugin.addClaim(stubClaim("Agent", { expandWhileRunning: true }));
+      const on = mount(withPlugin, { toolName: "Agent", status: "complete", args }).container.querySelector("button")!.textContent;
+      cleanup();
+      const off = mount(createSlotRegistry(), { toolName: "Agent", status: "complete", args }).container.querySelector("button")!.textContent;
+      expect(on).toContain("Explore: Fix auth bug");
+      expect(on).toBe(off);
+    });
+
+    it("no tool-name literal for Agent remains in ToolCallStep.tsx", () => {
+      const src = readFileSync(resolve(__dirname, "../chat/ToolCallStep.tsx"), "utf8");
+      expect(src).not.toMatch(/["'`]Agent["'`]/);
+    });
+  });
+
+  // #E39 — dispatch chain over the extra decision rows (3.1–3.8 above cover the rest).
+  describe("#E39 tool-renderer dispatch chain", () => {
+    function expand(view: ReturnType<typeof render>) {
+      fireEvent.click(view.container.querySelector("button")!);
+      return view;
+    }
+
+    it("bash claim → plugin renderer wins over the built-in Bash", () => {
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("bash"));
+      expect(expand(mount(registry, { toolName: "bash", args: { command: "ls" } })).queryByTestId("plugin-renderer")).not.toBeNull();
+    });
+
+    it("unclaimed unknown tool → GenericToolRenderer (raw JSON args)", () => {
+      const view = expand(mount(createSlotRegistry(), { toolName: "totally_unknown_tool", args: { marker: "RAW_ARGS" } }));
+      expect(view.queryByTestId("plugin-renderer")).toBeNull();
+      expect(view.container.querySelector("pre")?.textContent).toContain("RAW_ARGS");
+    });
+
+    it("ctx_execute: unclaimed → built-in; claim shouldRender:false → built-in again", () => {
+      const unclaimed = expand(mount(createSlotRegistry(), { toolName: "ctx_execute", args: { language: "shell", code: "echo hi" } }));
+      expect(unclaimed.queryByTestId("plugin-renderer")).toBeNull();
+      cleanup();
+      const registry = createSlotRegistry();
+      registry.addClaim(stubClaim("ctx_execute", { shouldRender: () => false }));
+      const gated = expand(mount(registry, { toolName: "ctx_execute", args: { language: "shell", code: "echo hi" } }));
+      expect(gated.queryByTestId("plugin-renderer")).toBeNull();
+    });
+  });
+
+  // #E40 — prop contract: legacy claims keep working; result/status mirror the built-in props;
+  // `context.send` is the SAME sender reference the built-in renderer receives.
+  describe("#E40 tool-renderer prop contract", () => {
+    it("a legacy claim reading only toolName/toolInput/sessionId renders without error", () => {
+      const registry = createSlotRegistry();
+      const seen: Record<string, unknown> = {};
+      registry.addClaim(
+        stubClaim("legacy", {
+          Component: ((p: { toolName: string; toolInput: unknown; sessionId: string }) => {
+            Object.assign(seen, { toolName: p.toolName, toolInput: p.toolInput, sessionId: p.sessionId });
+            return <div data-testid="plugin-renderer" />;
+          }) as ClaimEntry["Component"],
+        }),
+      );
+      const view = mount(registry, { toolName: "legacy", args: { a: 1 }, context: { sessionId: "s-1" } });
+      fireEvent.click(view.container.querySelector("button")!);
+      expect(view.queryByTestId("plugin-renderer")).not.toBeNull();
+      expect(seen).toEqual({ toolName: "legacy", toolInput: { a: 1 }, sessionId: "s-1" });
+    });
+
+    it("a claim receives result/status equal to the built-in props", () => {
+      const registry = createSlotRegistry();
+      let got: { result?: string; status?: string } = {};
+      registry.addClaim(
+        stubClaim("legacy", {
+          Component: ((p: { result?: string; status?: string }) => {
+            got = { result: p.result, status: p.status };
+            return <div data-testid="plugin-renderer" />;
+          }) as ClaimEntry["Component"],
+        }),
+      );
+      const view = mount(registry, { toolName: "legacy", status: "error", result: "boom body" });
+      fireEvent.click(view.container.querySelector("button")!);
+      expect(got).toEqual({ result: "boom body", status: "error" });
+    });
+
+    it("context.send is the same reference for a plugin renderer and the built-in renderer", () => {
+      const send = vi.fn();
+      let builtInSend: unknown;
+      registerToolRenderer("send_probe", ((p: { context: ToolContext }) => {
+        builtInSend = p.context.send;
+        return <div data-testid="builtin-renderer" />;
+      }) as unknown as ToolRenderer);
+      const builtIn = mount(null, { toolName: "send_probe", context: { sessionId: "s-1", send } as ToolContext });
+      fireEvent.click(builtIn.container.querySelector("button")!);
+      expect(builtInSend).toBe(send);
+      cleanup();
+
+      const registry = createSlotRegistry();
+      let pluginSend: unknown;
+      registry.addClaim(
+        stubClaim("send_probe", {
+          Component: ((p: { context?: { send?: unknown } }) => {
+            pluginSend = p.context?.send;
+            return <div data-testid="plugin-renderer" />;
+          }) as ClaimEntry["Component"],
+        }),
+      );
+      const plugin = mount(registry, { toolName: "send_probe", context: { sessionId: "s-1", send } as ToolContext });
+      fireEvent.click(plugin.container.querySelector("button")!);
+      expect(pluginSend).toBe(send);
+      expect(pluginSend).toBe(builtInSend);
+    });
+  });
+});
+
 describe("ToolCallStep inline stop button", () => {
   it("shows stop button when running and onAbort provided", () => {
     const onAbort = vi.fn();
@@ -652,23 +843,68 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
     expect(badge?.textContent).not.toBe(supersededText);
   });
 
-  // See change: finalize-agent-card-on-subagent-stop (test-plan F9, D6).
-  it.each([
-    ["resultMissing, no subagent result", { resultMissing: true, healedBy: "turn_settled", agentId: "ag" }, undefined, true],
-    ["resultMissing, subagent result known", { resultMissing: true, healedBy: "turn_settled", agentId: "ag" }, "done", false],
-    ["session_ended orphan-close", { healedBy: "session_ended", agentId: "ag" }, undefined, true],
-    ["subagent_stopped heal", { healedBy: "subagent_stopped", agentId: "ag" }, "done", false],
-    ["turn_settled with a known result", { healedBy: "turn_settled", agentId: "ag" }, "done", false],
-  ] as const)("recovered badge for an Agent heal: %s (F9)", (_label, toolDetails, subResult, badged) => {
-    const subagents = new Map([["ag", { id: "ag", type: "t", description: "d", status: "completed", result: subResult }]]);
-    const { container } = renderStep({
-      toolName: "Agent",
-      status: "complete",
-      toolDetails: { ...toolDetails },
-      context: { session: { subagents } } as unknown as ToolContext,
+  // See change: finalize-agent-card-on-subagent-stop (test-plan F9, D6). The badge
+  // CONDITION is the subagents plugin's `resultPending` predicate (tested in the
+  // plugin); here the shell contract: it shows exactly when the claim's predicate
+  // says so, receives (toolDetails, context.session), and never without a claim.
+  describe("recovered badge is driven by the claim's resultPending predicate (F9, D5 item 7)", () => {
+    const session = { subagents: new Map() };
+    function renderWithClaim(claim: Partial<ClaimEntry> | null, toolDetails: Record<string, unknown>) {
+      const registry = createSlotRegistry();
+      if (claim) {
+        registry.addClaim({
+          pluginId: "p",
+          priority: 100,
+          slot: "tool-renderer",
+          toolName: "Agent",
+          Component: () => <div data-testid="plugin-renderer" />,
+          ...claim,
+        });
+      }
+      return render(
+        <PluginContextProvider registry={registry}>
+          <ThemeProvider>
+            <ToolCallStep
+              toolName="Agent"
+              toolCallId="tc-1"
+              status="complete"
+              toolDetails={toolDetails}
+              context={{ session } as unknown as ToolContext}
+            />
+          </ThemeProvider>
+        </PluginContextProvider>,
+      );
+    }
+    const badge = (c: HTMLElement) => c.querySelector('[data-testid="tool-recovered-badge"]');
+
+    it("shows the badge when the predicate is true and passes (toolDetails, context.session)", () => {
+      const resultPending = vi.fn(() => true);
+      const { container } = renderWithClaim({ resultPending }, { healedBy: "session_ended", agentId: "ag" });
+      expect(badge(container)).not.toBeNull();
+      expect(resultPending).toHaveBeenCalledWith({ healedBy: "session_ended", agentId: "ag" }, session);
+      expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();
     });
-    expect(container.querySelector('[data-testid="tool-recovered-badge"]') !== null).toBe(badged);
-    expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();
+
+    it("hides the badge when the predicate is false", () => {
+      const { container } = renderWithClaim({ resultPending: () => false }, { healedBy: "session_ended" });
+      expect(badge(container)).toBeNull();
+    });
+
+    it("hides the badge when no claim (plugin absent/disabled) or the claim has no predicate", () => {
+      expect(badge(renderWithClaim(null, { healedBy: "session_ended" }).container)).toBeNull();
+      expect(badge(renderWithClaim({}, { healedBy: "session_ended" }).container)).toBeNull();
+    });
+
+    it("a throwing predicate fails closed with a warning naming plugin and tool", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { container } = renderWithClaim(
+        { resultPending: () => { throw new Error("pending boom"); } },
+        { healedBy: "session_ended" },
+      );
+      expect(badge(container)).toBeNull();
+      expect(warnSpy.mock.calls.some((c) => c.join(" ").includes('"p"') && c.join(" ").includes("Agent"))).toBe(true);
+      warnSpy.mockRestore();
+    });
   });
 
   it("omits the 'recovered' badge for a normal completion", () => {
@@ -689,5 +925,46 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
   it("leaves the non-error status branches untouched by this change", () => {
     const { container } = renderStep({ status: "complete" });
     expect((container.querySelector("span.inline-flex") as HTMLElement).className).toContain("text-green-400");
+  });
+});
+
+// ── Late tool renderer (runtime plugin registers after the row mounted) ──────
+// test-plan #E89. See change: decouple-plugins-from-core (task 6.16).
+describe("ToolCallStep late tool-renderer claim", () => {
+  afterEach(cleanup);
+
+  it("replaces Generic after addClaim + bump; a re-render without a bump reuses the lookup", () => {
+    const registry = createSlotRegistry();
+    const getClaims = vi.spyOn(registry, "getClaims");
+    const toolRendererLookups = () => getClaims.mock.calls.filter((c) => c[0] === "tool-renderer").length;
+    const view = (result: string) => (
+      <PluginContextProvider registry={registry}>
+        <ThemeProvider>
+          <ToolCallStep toolName="quota_check" toolCallId="tc-late" status="complete" result={result} context={defaultContext} />
+        </ThemeProvider>
+      </PluginContextProvider>
+    );
+    const { container, queryByTestId, rerender } = render(view("r1"));
+    fireEvent.click(container.querySelector("button")!);
+    expect(queryByTestId("late-renderer")).toBeNull();
+    const before = toolRendererLookups();
+
+    act(() => {
+      registry.addClaim({
+        pluginId: "quota-ui",
+        priority: 100,
+        slot: "tool-renderer",
+        toolName: "quota_check",
+        Component: () => <div data-testid="late-renderer">LATE</div>,
+      } as ClaimEntry);
+      bumpSlotClaimsVersion();
+    });
+    expect(queryByTestId("late-renderer")).not.toBeNull();
+    const afterBump = toolRendererLookups();
+    expect(afterBump).toBe(before + 1);
+
+    // result update, no bump → memo reused, no new lookup
+    rerender(view("r2"));
+    expect(toolRendererLookups()).toBe(afterBump);
   });
 });

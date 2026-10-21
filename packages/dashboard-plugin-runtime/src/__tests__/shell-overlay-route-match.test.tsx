@@ -23,6 +23,7 @@ import {
   useShellOverlayRouteMatched,
   useShellOverlayRoutePresentation,
 } from "../index.js";
+import { encodeFolderPath } from "../sdk.js";
 
 function Probe({ onResult }: { onResult: (matched: boolean) => void }) {
   const matched = useShellOverlayRouteMatched();
@@ -304,5 +305,47 @@ describe("params follow in-claim navigation (CodeRabbit #845)", () => {
     expect(seen.at(-1)).toBe("");
     await act(async () => mem.navigate("/folder/x/wall/graph/node-1"));
     expect(seen.at(-1)).toBe("graph/node-1");
+  });
+});
+
+describe("shell overlay routes receive a decoded folder (test-plan #E30)", () => {
+  function renderRoute(location: string, path: string) {
+    const seen: Array<{ cwd?: string; params: Record<string, string> }> = [];
+    const Comp = (props: { cwd?: string; params: Record<string, string> }) => {
+      seen.push({ cwd: props.cwd, params: props.params });
+      return null;
+    };
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "goals",
+      priority: 100,
+      slot: "shell-overlay-route",
+      path,
+      depth: 1,
+      presentation: "content",
+      Component: Comp as unknown as React.ComponentType<Record<string, unknown>>,
+    } as ClaimEntry);
+    const mem = memoryLocation({ path: location });
+    render(
+      <Router hook={mem.hook}>
+        <PluginContextProvider registry={registry}>
+          <ShellOverlayRouteSlot onBack={() => {}} registry={registry} />
+        </PluginContextProvider>
+      </Router>,
+    );
+    return seen;
+  }
+
+  it("passes the decoded cwd next to the still-present encodedCwd", () => {
+    const cwd = "/Users/a b/ü";
+    const encoded = encodeFolderPath(cwd);
+    const seen = renderRoute(`/folder/${encoded}/goals`, "/folder/:encodedCwd/goals");
+    expect(seen.at(-1)?.cwd).toBe(cwd);
+    expect(seen.at(-1)?.params.encodedCwd).toBe(encoded);
+  });
+
+  it("leaves cwd undefined when the route has no encodedCwd or it does not decode", () => {
+    expect(renderRoute("/x/goals", "/x/goals").at(-1)?.cwd).toBeUndefined();
+    expect(renderRoute("/folder/%25%25/goals", "/folder/:encodedCwd/goals").at(-1)?.cwd).toBeUndefined();
   });
 });
