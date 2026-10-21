@@ -106,6 +106,7 @@ React-based responsive web UI that:
 - Shows all active sessions organized by directory, with pinned directories always visible at the top
 - Renders chat messages with markdown, syntax highlighting, streaming, and a small raw-HTML pass that strips React-only `ref` attributes before render
 - Persists scroll position per session — switching sessions restores exact scroll position if locked, or scrolls to bottom if following
+- Animates live arrivals, paces streamed text, glides follow-scroll; `chatMotion` pref (rollback: `PATCH /api/preferences/display {"chatMotion":false}`). Full ref: [`chat-motion.md`](chat-motion.md)
 - Displays collapsed tool call steps with lazy-loaded content and elapsed time badges
 - Shows live ticking elapsed counters on running operations (thinking, tool calls) and final duration on completed ones
 - Provides command autocomplete with `/` prefix

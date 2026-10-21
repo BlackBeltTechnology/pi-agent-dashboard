@@ -13,6 +13,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys, dashboard-session `!sessions`/`!attach`/`!close` + auto-mirror. → see `chat-gateway.md` |
 | `chat-gateway.md` | Operator setup guide for `@blackbelt-technology/pi-dashboard-chat-gateway-plugin`. → see `chat-gateway.md.AGENTS.md` |
+| `chat-motion.md` | Fluid chat motion. `chatMotion` pref (rollback PATCH). Arrival entry, paced reveal, trailing edge, glide follow-scroll attributed as `pin-bottom`, idle/energy bound. See change: add-fluid-chat-motion. |
 | `ci.md` | Affected-test CI. ci.yml parallel jobs (`select`, `ci`, `unit` ×4, `real-process`, `ci-scenarios`, `docker-plugin-load`, `music-pytest`, `ci-result`); `decide()` selection layers; fail-safes; nightly full-suite net. See change: speed-up-ci-affected-tests. |
 | `code-quality.md` | Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. CodeQL ratchet section. → see `code-quality.md.AGENTS.md` |
 | `codeql-baseline.json` | (repo root) CodeQL ratchet baseline. Per-alert debt ceiling keyed rule+file+lineHash with typed reasons. Edit only via `scripts/codeql-local.mjs`. See change: add-local-codeql-ratchet. |
