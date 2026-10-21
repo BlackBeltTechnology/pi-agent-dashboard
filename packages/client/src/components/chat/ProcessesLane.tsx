@@ -12,7 +12,9 @@
  * The lane exists for a positive total from any source, so a plugin-only count
  * renders it collapsed. Kill progress (`Stopping…` → gone / `Still running`)
  * lives here, not in the body, so collapsing the lane does not reset it. Scans
- * are detected by the identity of `session.processes` (one new array per scan).
+ * are detected by the identity of `session.processes`, but the bridge sends a new
+ * list only when the PID set changes, so `Still running` also escalates on the
+ * clock (`KILL_STILL_RUNNING_MS`).
  *
  * The header's "longest elapsed" is a leaf (`LongestElapsed`) that owns its
  * tick and is `aria-hidden`, so nothing here re-renders per second and no

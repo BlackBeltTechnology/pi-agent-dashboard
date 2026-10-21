@@ -14,7 +14,8 @@
  * - Row layout (≥ 32.5rem column): each lane is a `role="group"`; an expandable
  *   header is one stretched disclosure button (`aria-expanded`/`aria-controls`),
  *   its actions are siblings above it, never nested in it.
- * - Compact layout (< 32.5rem): one sticky chip per lane, every lane included;
+ * - Compact layout (< 32.5rem): one sticky chip per lane, every lane included except a
+ *   `hideWhenEmpty` lane whose claims render nothing (no chip, no label);
  *   a chip opens a sheet below the chips (actions + body), one lane at a time.
  *   `openLane` survives a flip; focus moves to the lane's chip/toggle only if
  *   it was inside the open lane.
