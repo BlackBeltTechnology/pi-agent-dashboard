@@ -76,7 +76,9 @@ describe("armed rule (E31)", () => {
     const r = start([sb.project], { PI_HARNESS_AUDIT_POLL_SECS: "1", PI_HARNESS_AUDIT_MAX_SECS: "4" });
     const exitedAt = await Promise.race([r.exited, sleep(8000).then(() => null)]);
     expect(exitedAt).not.toBeNull();
-    expect(exitedAt - t0).toBeGreaterThanOrEqual(3500);
+    // The script tracks lifetime with whole-second `date +%s`, so a start just
+    // before a second boundary can trip MAX up to ~1 s early.
+    expect(exitedAt - t0).toBeGreaterThanOrEqual(2900);
     expect(exitedAt - t0).toBeLessThan(5600);
   }, 15_000);
 
