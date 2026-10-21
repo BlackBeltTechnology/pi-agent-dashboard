@@ -4,3 +4,4 @@ Hook-run-only Initialize control per directory/worktree row. Accepts shared `sta
 
 See change: add-folder-actions-menu — the button's own gate is extracted as an exported pure fn `shouldShowWorktreeInitButton(status)` (`status.hasHook===true && (trusted===false || needsInit===true)`); the component delegates to it. It does NOT cover the live-run branch — a `useInitRun(cwd)` run short-circuits to `WorktreeInitChip` before the gate is read, so a caller testing for emptiness must check BOTH (`FolderActionBar` does).
 Trust dialog shows the pi-trust checkbox; 'Always trust' sends `piTrust`. See change: mirror-dashboard-trust-to-pi.
+'Trust until dashboard restarts' (session) also sends the checkbox value as `piTrust`. See change: mirror-dashboard-trust-live-remote.

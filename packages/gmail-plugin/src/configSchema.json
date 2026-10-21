@@ -1,1 +1,14 @@
-{"type":"object","properties":{},"additionalProperties":false}
+{
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "description": "Google Cloud project id of the OAuth client (saved by the setup wizard)."
+    },
+    "ownerAccount": {
+      "type": "string",
+      "description": "Email of the Google account that owns the project; sets authuser on console links and --account on gcloud commands."
+    }
+  },
+  "additionalProperties": false
+}

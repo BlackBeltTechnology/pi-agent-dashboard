@@ -162,6 +162,11 @@ const NAV_TRACKER = { predecessor, popNav };
 // cap). See change: add-pairing-approval-dialog.
 // Electron-only header badge: its own chunk, off the entry gzip cap.
 // See change: electron-runtime-overlay-updates.
+// Per-session View popover: its own chunk, off the entry gzip cap.
+// See change: add-set-global-view.
+const ChatViewMenu = lazy(() =>
+  import("./components/chat/ChatViewMenu.js").then((m) => ({ default: m.ChatViewMenu })),
+);
 const RuntimeUpdateBadge = lazy(() =>
   import("./components/packages/RuntimeUpdateBadge.js").then((m) => ({ default: m.RuntimeUpdateBadge })),
 );
@@ -2429,6 +2434,18 @@ export default function App() {
         showBack
         onBack={goBack}
         onResume={!readOnly && selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
+        contextUsage={selectedContextUsage}
+        showContextRing={selectedSession?.displayPrefsOverride?.contextUsageBar ?? displayPrefs?.contextUsageBar ?? true}
+        renderViewMenu={selectedSession && !readOnly && selectedCwd && selectedId ? ({ iconOnly }) => (
+          <Suspense fallback={null}>
+            <ChatViewMenu
+              sessionId={selectedId}
+              iconOnly={iconOnly}
+              currentOverride={selectedSession?.displayPrefsOverride ?? undefined}
+              send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
+            />
+          </Suspense>
+        ) : undefined}
         mobileActions={isMobile ? {
           openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,
           onArchive: () => handleArchiveSession(selectedId),
@@ -2442,71 +2459,22 @@ export default function App() {
         } : undefined}
         commands={selectedCommands}
         onSendPrompt={wrappedHandleSend}
-        openspecChanges={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
-        onAttachProposal={(changeName) => handleAttachProposal(selectedId, changeName)}
-        onDetachProposal={() => handleDetachProposal(selectedId)}
-        onReadArtifact={selectedCwd ? (changeName, artifactId) => openArtifact(selectedCwd, changeName, artifactId) : undefined}
         hasFileChanges={selectedState.hasFileChanges}
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
         onRefresh={() => handleRefreshChat(selectedId)}
-        sendDisplayPrefs={
-          !readOnly && selectedId
-            ? (msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })
-            : undefined
-        }
       />
-      {/* Mobile info strip */}
-      {isMobile && selectedSession && (
-        <div className="px-4 py-1.5 border-b border-[var(--border-primary)] text-xs text-[var(--text-tertiary)]">
-          <div className="flex items-center gap-2 flex-wrap">
-            {(selectedState.model || selectedSession.model) && (
-              <span>{selectedState.model || selectedSession.model}</span>
-            )}
-            {(selectedState.thinkingLevel || selectedSession.thinkingLevel) && (
-              <span>💭 {selectedState.thinkingLevel || selectedSession.thinkingLevel}</span>
-            )}
-            {composerStatus === "streaming" && selectedState.currentTool && (
-              <span className="text-yellow-400">⚡ {selectedState.currentTool}</span>
-            )}
-            {composerStatus === "streaming" && !selectedState.currentTool && (
-              <span className="text-green-400">{t("status.thinking", undefined, "Thinking...")}</span>
-            )}
-            <span className="flex-1" />
-            {selectedState.cost > 0 && <span>${selectedState.cost.toFixed(2)}</span>}
-          </div>
-          {selectedContextUsage && selectedContextUsage.contextWindow > 0 && (
-            <div className="mt-1">
-              <div className="flex items-center gap-2 text-[10px]">
-                <span>{selectedContextUsage.tokens != null ? `${Math.round((selectedContextUsage.tokens / 1000))}k` : "—"}</span>
-                <div className="flex-1 h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-                  {selectedContextUsage.tokens != null && (
-                    <div
-                      className="h-full bg-blue-500 rounded-full"
-                      style={{ width: `${Math.min((selectedContextUsage.tokens / selectedContextUsage.contextWindow) * 100, 100)}%` }}
-                    />
-                  )}
-                </div>
-                <span>{Math.round(selectedContextUsage.contextWindow / 1000)}k</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
       {!isMobile && (() => {
         // Effective pref = override ?? global ?? true (default visible while
         // prefs load). "Token stats bar" gates the butterfly chart + stats;
-        // "Context usage bar" independently gates the progress bar.
-        // See change: configurable-chat-display.
+        // "Context usage bar" independently gates the header context ring.
+        // See changes: configurable-chat-display, reorganize-session-header.
         const statsOverride = selectedSession?.displayPrefsOverride?.tokenStatsBar;
         const showStats = statsOverride ?? displayPrefs?.tokenStatsBar ?? true;
-        const ctxOverride = selectedSession?.displayPrefsOverride?.contextUsageBar;
-        const showContextBar = ctxOverride ?? displayPrefs?.contextUsageBar ?? true;
-        if (!showStats && !showContextBar) return null;
+        if (!showStats) return null;
         return (
           <TokenStatsBar
             turnStats={selectedState.turnStats}
-            contextUsage={selectedContextUsage}
             tokensIn={selectedState.tokensIn}
             tokensOut={selectedState.tokensOut}
             cacheRead={selectedState.cacheRead}
@@ -2514,7 +2482,6 @@ export default function App() {
             cost={selectedState.cost}
             onTurnClick={(turnIndex) => chatViewRef.current?.scrollToTurn(turnIndex)}
             showStats={showStats}
-            showContextBar={showContextBar}
           />
         );
       })()}

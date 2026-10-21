@@ -9,7 +9,7 @@ import {
   openComposerSession,
   setComposerContentWidth,
 } from "./helpers/composer-bridge.js";
-import { gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
+import { gotoDashboard, renameSessionViaTitleMenu, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — the composer toolbar must not overflow a narrow pane, and its
 // folds fire on the composer CONTAINER width in rem.
@@ -208,5 +208,79 @@ test.describe("composer toolbar folds (rem container queries)", () => {
     } finally {
       bridge.close();
     }
+  });
+});
+
+// ── Session header: narrow content collapses by priority ──────────────────
+// Real-DOM geometry only: the header is a CSS container (below 760 px the meta
+// line drops under the title and labels collapse to icons). jsdom has no layout.
+// Covers test-plan F1, F2. See change: reorganize-session-header.
+const LONG_NAME = "Reorganize the session header so the layout switch stays whole and usable";
+
+test.describe("session header narrow content", () => {
+  test("F1: a 66-character title truncates on one line; controls keep their size and stay inside the header", async ({ page }) => {
+    test.setTimeout(180_000);
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.setViewportSize({ width: 1100, height: 800 });
+    const header = page.getByTestId("session-header");
+    await expect(header).toBeVisible({ timeout: 30_000 });
+    await renameSessionViaTitleMenu(page, LONG_NAME);
+
+    const headerBox = (await header.boundingBox())!;
+    expect(headerBox.height, "header stays one compact block").toBeLessThanOrEqual(96);
+
+    const title = page.getByTestId("session-title-text");
+    const t = await title.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        overflowing: el.scrollWidth > el.clientWidth,
+        height: el.getBoundingClientRect().height,
+        lineHeight: Number.parseFloat(cs.lineHeight) || Number.parseFloat(cs.fontSize) * 1.5,
+      };
+    });
+    expect(t.overflowing, "title ellipsizes").toBe(true);
+    expect(t.height, "title is one line").toBeLessThanOrEqual(t.lineHeight * 1.5);
+
+    for (const mode of ["closed", "split", "full"]) {
+      const box = (await page.getByTestId(`layout-mode-${mode}`).boundingBox())!;
+      expect(box.width, `${mode} segment width`).toBeGreaterThanOrEqual(32);
+      expect(box.height, `${mode} segment height`).toBeGreaterThanOrEqual(32);
+      expect(box.x, `${mode} inside header (left)`).toBeGreaterThanOrEqual(headerBox.x - 1);
+      expect(box.x + box.width, `${mode} inside header (right)`).toBeLessThanOrEqual(headerBox.x + headerBox.width + 1);
+    }
+
+    // Below the 760 px container the `pi <version>` text hides; `+ tag` stays.
+    const container = await header.evaluate((el) => el.getBoundingClientRect().width);
+    if (container < 760) {
+      await expect(page.getByTestId("session-header-pi-version")).toBeHidden();
+    }
+    await expect(header.getByText("+ tag")).toBeVisible();
+  });
+
+  test("F2: trailing controls stay whole when the title is long and the content is narrow", async ({ page }) => {
+    test.setTimeout(180_000);
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.setViewportSize({ width: 900, height: 800 });
+    const header = page.getByTestId("session-header");
+    await expect(header).toBeVisible({ timeout: 30_000 });
+    await renameSessionViaTitleMenu(page, LONG_NAME);
+
+    const headerBox = (await header.boundingBox())!;
+    // Every control that is present (Modules, Changed Files, Resume, Fork when
+    // they apply to the session) plus the switch and View sits inside the header.
+    const trailing = page.getByTestId("session-header-trailing");
+    const controls = trailing.locator("button");
+    const n = await controls.count();
+    expect(n).toBeGreaterThanOrEqual(4); // 3 layout segments + View
+    for (let i = 0; i < n; i++) {
+      const box = await controls.nth(i).boundingBox();
+      if (!box) continue;
+      expect(box.x, `control ${i} left`).toBeGreaterThanOrEqual(headerBox.x - 1);
+      expect(box.x + box.width, `control ${i} right`).toBeLessThanOrEqual(headerBox.x + headerBox.width + 1);
+    }
+    const ellipsized = await page.getByTestId("session-title-text").evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(ellipsized, "the title ends in an ellipsis").toBe(true);
   });
 });

@@ -419,6 +419,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/obs-studio/:service/record", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/scene", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/virtualcam", tier: "operate" },
+  { method: "POST", path: "/api/plugins/gmail/accounts/:sub/filters", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/level", tier: "operate" },
   { method: "POST", path: "/api/plugins/gmail/accounts/:sub/reauth", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
@@ -484,6 +485,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/vault/grants", tier: "operate" },
   { method: "POST", path: "/api/vault/import/confirm", tier: "operate" },
   { method: "POST", path: "/api/vault/import/propose", tier: "operate" },
+  // Live pi-trust query: a device that may run a bridge may ask (same tier as the ticket mint).
+  // See change: mirror-dashboard-trust-live-remote.
+  { method: "POST", path: "/api/pi-trust/query", tier: "operate" },
   { method: "POST", path: "/api/ws-ticket", tier: "operate" },
   { method: "PUT", path: "/api/access/pi-trust/choice", tier: "operate" },
   { method: "PUT", path: "/api/config", tier: "operate" },
@@ -498,6 +502,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/pi-settings/raw", tier: "operate" },
   { method: "PUT", path: "/api/plugins/blackhole/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/gmail/setup", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "PUT", path: "/api/plugins/team/personas/:key", tier: "operate" },

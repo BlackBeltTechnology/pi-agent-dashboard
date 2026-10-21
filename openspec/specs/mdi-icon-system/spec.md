@@ -128,11 +128,13 @@ Action buttons with visible text labels SHALL display an MDI icon inline before 
 
 #### Scenario: Changed files button has icon and text
 - **WHEN** SessionHeader renders the Changed Files button
-- **THEN** it SHALL display `<Icon path={mdiFileCompare} size={0.4} />` followed by text "Changed Files"
+- **THEN** it SHALL display the `mdiFileCompare` icon followed by the text "Changed Files" and its counts
+- **AND** when the header container is narrower than 760 px the text MAY hide, in which case "Changed Files" SHALL remain the button's accessible name and tooltip
 
 #### Scenario: Attach button has icon and text
-- **WHEN** SessionHeader renders the Attach OpenSpec button
-- **THEN** it SHALL display `<Icon path={mdiPaperclip} size={0.4} />` followed by text "Attach"
+- **WHEN** the composer session actions render the unattached "Attach change..." chip (`composer-attach-chip`)
+- **THEN** it SHALL display a `mdiPaperclip` icon followed by the text "Attach change..."
+- **AND** the session header SHALL NOT render an Attach button
 
 ### Requirement: OpenSpec ActionButton accepts optional icon prop
 The SessionOpenSpecActions ActionButton helper SHALL accept an optional `icon` string prop (MDI path). When provided, it SHALL render `<Icon path={icon} size={0.4} className="inline mr-0.5" />` before the label text.

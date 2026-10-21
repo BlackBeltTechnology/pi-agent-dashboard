@@ -25,6 +25,7 @@ Files in this directory. One row per source file.
 | `hold-request.ts` | `awaitHold(request, reply, hold)` (design D7, task 6.3): the `git-routes` worktree-init transport in shape. → see `hold-request.ts.AGENTS.md` |
 | `named-grant.ts` | `grantNamedPathSubject` (task 5.2): the ONE path-grant creation sequence, extracted from `POST… → see `named-grant.ts.AGENTS.md` |
 | `pending-grant-registry.ts` | The pending access-request registry (design D4/D8/D9/D11, tasks 4.1-4.4 + 2b.6). → see `pending-grant-registry.ts.AGENTS.md` |
+| `pi-trust-live.ts` | Live trust entries (server lifetime): session worktree-init trust, session grants, YOLO roots. `createPiTrustLiveProvider`: `reconcile`, `enumerate`, `covering`, `isStillLive`, `setChoice` (memory only). Identity recorded at creation. See change: mirror-dashboard-trust-live-remote. |
 | `pi-trust-mirror-service.ts` | Server side of the dashboard-trust → pi mirror. `createPiTrustMirrorService(deps)`: durable registry over… → see `pi-trust-mirror-service.ts.AGENTS.md` |
 | `planes.ts` | The four registered planes (tasks 5.2-5.4): `createFilesystemPlane` (held, YOLO-eligible,… → see `planes.ts.AGENTS.md` |
 | `preview-egress-store.ts` | `~/.pi/dashboard/preview-egress.json` `{[projectKey]: origins[]}` (env `PI_PREVIEW_EGRESS_STORE`). Reads stat-cached, tolerant, never rewrite. Writes `addPreviewEgressGrant`/`revokePreviewEgressGrant` under `locked-json-file`. `projectEgressGrants`, `listPreviewEgressRows`. See change: improve-canvas-html-and-url-ux. |

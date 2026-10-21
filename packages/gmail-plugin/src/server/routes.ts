@@ -17,7 +17,8 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { validateClientJson } from "../shared/client-json.js";
 import type { GoogleEndpoints } from "../shared/endpoints.js";
 import { knownFlowCode } from "../shared/flow-codes.js";
-import { isTier, scopesCoverTier, type Tier } from "../shared/scopes.js";
+import { isTier, scopesCoverFilters, scopesCoverTier, TIERS, type Tier } from "../shared/scopes.js";
+import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../shared/setup.js";
 import { AccountError, type AccountStore, summarize } from "./accounts.js";
 import { revokeToken } from "./gmail-rest.js";
 import {
@@ -35,6 +36,11 @@ export interface GmailRouteDeps {
   fetchImpl?: typeof fetch;
   createCallback?: GoogleLoginOptions["createCallback"];
   newId?: () => string;
+  /** Plugin config seam (`ctx.getPluginConfig` / `ctx.updatePluginConfig`) for the saved setup fields. */
+  config?: {
+    get(): Record<string, unknown>;
+    update(partial: Record<string, unknown>): Promise<void>;
+  };
 }
 
 const PREFIX = "/api/plugins/gmail";
@@ -64,6 +70,8 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
     reply: FastifyReply,
     tier: Tier,
     expect?: { sub: string; email: string },
+    /** `filters` set (level / re-auth / toggle) → request + require `gmail.settings.basic` iff true; unset (Add account) → leave the account's flag alone. */
+    opts?: { filters?: boolean },
   ) {
     if (!deps.oauth) return reply.code(501).send({ error: "oauth_unavailable" });
     const client = await store.getClient();
@@ -81,6 +89,7 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       client,
       endpoints,
       tier,
+      filters: opts?.filters === true,
       loginHint: expect?.email,
       fetchImpl: deps.fetchImpl,
       createCallback: deps.createCallback,
@@ -105,7 +114,10 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
             const c = credential as GoogleSignInResult;
             if (expect && c.sub !== expect.sub) throw new GmailFlowError("account_mismatch");
             // Consent-screen checkboxes can be cleared: never store a level the grant cannot serve.
-            if (!scopesCoverTier(c.grantedScopes, c.tier)) throw new GmailFlowError("scope_missing");
+            // The filter scope is required whenever the flow asked for it (partial grant → nothing stored).
+            if (!scopesCoverTier(c.grantedScopes, c.tier) || (opts?.filters === true && !scopesCoverFilters(c.grantedScopes))) {
+              throw new GmailFlowError("scope_missing");
+            }
             const acct = await store.upsertFromSignIn({
               sub: c.sub,
               email: c.email,
@@ -115,6 +127,7 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
               refresh: c.refresh || undefined,
               expires: c.expires,
               testingHint: c.testingHint,
+              filters: opts?.filters,
             });
             logger.info(`[gmail] sign-in ${acct.email} tier=${acct.tier}: ok`);
           } catch (err) {
@@ -127,6 +140,24 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       logFailure(err);
       return sendError(reply, err);
     }
+  }
+
+  /** Saved setup fields from plugin config (non-secret operator settings). */
+  function readSetup(): { projectId?: string; ownerAccount?: string } {
+    const cfg = deps.config?.get() ?? {};
+    const out: { projectId?: string; ownerAccount?: string } = {};
+    if (typeof cfg.projectId === "string" && cfg.projectId) out.projectId = cfg.projectId;
+    if (typeof cfg.ownerAccount === "string" && cfg.ownerAccount) out.ownerAccount = cfg.ownerAccount;
+    return out;
+  }
+
+  // The host's updatePluginConfig merges a snapshot taken before its awaits, so
+  // interleaved partial writes could drop a key: serialize them.
+  let setupQueue: Promise<unknown> = Promise.resolve();
+  function queueSetupWrite(fn: () => Promise<void> | undefined): Promise<void | undefined> {
+    const run = setupQueue.then(fn, fn);
+    setupQueue = run.catch(() => undefined);
+    return run;
   }
 
   await fastify.register(async (scope) => {
@@ -143,7 +174,30 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       return {
         client: client ? { configured: true, clientId: client.clientId, projectId: client.projectId } : { configured: false },
         accounts: (await store.list()).map(summarize),
+        setup: readSetup(),
       };
+    });
+
+    scope.put(`${PREFIX}/setup`, guarded, async (request, reply) => {
+      if (!deps.config) return reply.code(501).send({ error: "config_unavailable" });
+      const body = (request.body ?? {}) as { projectId?: unknown; ownerAccount?: unknown };
+      const partial: Record<string, unknown> = {};
+      // Validate every provided key before any write; project id is reported first.
+      if (body.projectId !== undefined) {
+        if (typeof body.projectId !== "string") return reply.code(400).send({ error: "invalid_project_id" });
+        const id = normalizeProjectId(body.projectId);
+        if (id && classifyProjectId(id) !== "ok") return reply.code(400).send({ error: "invalid_project_id" });
+        partial.projectId = id || undefined;
+      }
+      if (body.ownerAccount !== undefined) {
+        if (typeof body.ownerAccount !== "string") return reply.code(400).send({ error: "invalid_owner_account" });
+        const email = normalizeEmail(body.ownerAccount);
+        if (email && !isEmail(email)) return reply.code(400).send({ error: "invalid_owner_account" });
+        partial.ownerAccount = email || undefined;
+      }
+      await queueSetupWrite(() => deps.config?.update(partial));
+      logger.info("[gmail] setup saved");
+      return { ok: true, setup: readSetup() };
     });
 
     scope.put(`${PREFIX}/client`, guarded, async (request, reply) => {
@@ -174,20 +228,42 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       if (!isTier(tier)) return reply.code(400).send({ error: "invalid_tier" });
       const acct = await store.get(request.params.sub);
       if (!acct) return reply.code(404).send({ error: "not_found" });
-      // Lowering (or a level the existing grant already covers) applies at once;
-      // raising re-consents with the FULL scope set of the new level.
-      if (acct.status === "ok" && scopesCoverTier(acct.scopes, tier)) {
+      // Lowering applies at once whatever the status or filters option (every
+      // lease is refused while `reauth_required`). A raise applies at once only
+      // when the account is `ok` and the stored grant covers the new level (and
+      // the filter scope when filters are on); else it re-consents with the FULL
+      // scope set of the new level plus `gmail.settings.basic` iff filters are on.
+      const lowering = TIERS.indexOf(tier) < TIERS.indexOf(acct.tier);
+      const covered =
+        acct.status === "ok" &&
+        scopesCoverTier(acct.scopes, tier) &&
+        (!acct.filters || scopesCoverFilters(acct.scopes));
+      if (lowering || covered) {
         const next = await store.setTier(acct.sub, tier);
         logger.info(`[gmail] level ${next.email} → ${tier}`);
         return { applied: true, account: summarize(next) };
       }
-      return startSignIn(reply, tier, { sub: acct.sub, email: acct.email });
+      return startSignIn(reply, tier, { sub: acct.sub, email: acct.email }, { filters: acct.filters === true });
     });
 
     scope.post<{ Params: { sub: string } }>(`${PREFIX}/accounts/:sub/reauth`, guarded, async (request, reply) => {
       const acct = await store.get(request.params.sub);
       if (!acct) return reply.code(404).send({ error: "not_found" });
-      return startSignIn(reply, acct.tier, { sub: acct.sub, email: acct.email });
+      return startSignIn(reply, acct.tier, { sub: acct.sub, email: acct.email }, { filters: acct.filters === true });
+    });
+
+    scope.post<{ Params: { sub: string } }>(`${PREFIX}/accounts/:sub/filters`, guarded, async (request, reply) => {
+      const enabled = (request.body as { enabled?: unknown } | null)?.enabled;
+      if (typeof enabled !== "boolean") return reply.code(400).send({ error: "invalid_enabled" });
+      const acct = await store.get(request.params.sub);
+      if (!acct) return reply.code(404).send({ error: "not_found" });
+      // Off is immediate; on is immediate only when the stored grant already covers tier + filters.
+      if (!enabled || (acct.status === "ok" && scopesCoverTier(acct.scopes, acct.tier) && scopesCoverFilters(acct.scopes))) {
+        const next = await store.setFilters(acct.sub, enabled);
+        logger.info(`[gmail] filters ${next.email} → ${enabled ? "on" : "off"}`);
+        return { applied: true, account: summarize(next) };
+      }
+      return startSignIn(reply, acct.tier, { sub: acct.sub, email: acct.email }, { filters: true });
     });
 
     scope.patch<{ Params: { sub: string } }>(`${PREFIX}/accounts/:sub`, guarded, async (request, reply) => {

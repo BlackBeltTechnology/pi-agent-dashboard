@@ -37,6 +37,19 @@ async function expectWithinPaneX(popover: Locator, pane: Locator): Promise<void>
 }
 
 /**
+ * The View menu now lives in the session HEADER (above the split), not in the
+ * chat pane, so there is no pane boundary to clip against: its bounds must fall
+ * inside the viewport. See change: reorganize-session-header.
+ */
+async function expectWithinViewportX(popover: Locator, page: Page): Promise<void> {
+  const p = await popover.boundingBox();
+  const vw = page.viewportSize()!.width;
+  expect(p, "popover has a box").not.toBeNull();
+  expect(p!.x, "popover.left ≥ 0").toBeGreaterThanOrEqual(0 - SLACK);
+  expect(p!.x + p!.width, "popover.right ≤ viewport").toBeLessThanOrEqual(vw + SLACK);
+}
+
+/**
  * Dismiss any leaked modal overlay (specs share one container; a prior spec can
  * leave e.g. a `propose-dialog-overlay` that intercepts pointer events). Press
  * Escape until no known overlay is visible.
@@ -90,7 +103,8 @@ test.describe("popover container clip", () => {
     const popover = page.getByTestId("chat-view-popover");
     await expect(popover).toBeVisible();
     // The proven bug: labels sliced off the LEFT by the pane's overflow-hidden.
-    await expectWithinPaneX(popover, pane);
+    // The View menu is mounted in the header now: it must stay inside the viewport.
+    await expectWithinViewportX(popover, page);
     // A representative row label is fully rendered (proves no left truncation).
     await expect(popover.getByText("Turn metadata", { exact: false })).toBeVisible();
   });
@@ -133,7 +147,7 @@ test.describe("popover container clip", () => {
     await page.getByTitle("View options").first().click();
     const view = page.getByTestId("chat-view-popover");
     await expect(view).toBeVisible();
-    await expectWithinPaneX(view, pane);
+    await expectWithinViewportX(view, page);
     await page.getByTitle("View options").first().click();
 
     const modelBtn = page.getByTestId("model-selector-button");

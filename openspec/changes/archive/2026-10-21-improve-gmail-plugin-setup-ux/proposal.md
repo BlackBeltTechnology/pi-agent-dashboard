@@ -42,7 +42,7 @@ _None._
   - Settings section is readable and guarded: the project ID and owner-account fields with hints and linked errors; the per-account filters control named after the account.
   - Per-account permission levels: an orthogonal, opt-in filters option (`gmail.settings.basic`) kept across level changes and re-auth.
   - Confirmed writes: filter create/delete are confirmed writes.
-  - New requirement "Opt-in Gmail filter management": `gmail_filters_list`, `gmail_filter_create`, `gmail_filter_delete` (label actions only; forwarding, `TRASH`/`SPAM` and match-all filters refused).
+  - New requirements "Opt-in Gmail filter management", "Filter permission survives re-authentication and level raises", "Filter operations are gated before confirmation", "Gmail filter tools" and "Filter create requests are allow-listed": `gmail_filters_list`, `gmail_filter_create`, `gmail_filter_delete` (label actions only; forwarding, `TRASH`/`SPAM` and match-all filters refused).
 
 ## Impact
 

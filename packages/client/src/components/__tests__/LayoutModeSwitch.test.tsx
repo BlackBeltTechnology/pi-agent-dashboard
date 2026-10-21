@@ -1,3 +1,4 @@
+import { mdiFileDocumentOutline, mdiViewSplitHorizontal } from "@mdi/js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -94,5 +95,53 @@ describe("LayoutModeSwitch", () => {
     full.focus();
     fireEvent.keyDown(full, { key: " " });
     expect(loadSplitState("sSelect").mode).toBe("full");
+  });
+});
+
+describe("LayoutModeSwitch menu variant (mobile, E15)", () => {
+  function renderMenu(sessionId: string) {
+    return render(
+      <SplitWorkspaceProvider sessionId={sessionId} cwd="/proj" orientation="v">
+        <LayoutModeSwitch variant="menu" />
+      </SplitWorkspaceProvider>,
+    );
+  }
+
+  it("E15 opens a menu of three menuitemradio items; Arrow keys + Enter choose Editor", () => {
+    renderMenu("sMenu");
+    const trigger = screen.getByTestId("layout-mode-switch");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    const items = screen.getAllByRole("menuitemradio");
+    expect(items).toHaveLength(3);
+    expect(items[0].getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("layout-mode-split").textContent).toContain("Chat above, editor below");
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(items[0], { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[2]);
+    fireEvent.keyDown(items[2], { key: "Enter" });
+    expect(loadSplitState("sMenu").mode).toBe("full");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    // The trigger now shows the Editor glyph.
+    expect(trigger.querySelector("svg path")?.getAttribute("d")).toBe(mdiFileDocumentOutline);
+  });
+
+  it("Escape closes without changing the mode and refocuses the trigger", () => {
+    renderMenu("sMenuEsc");
+    const trigger = screen.getByTestId("layout-mode-switch");
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(loadSplitState("sMenuEsc").mode).toBe("closed");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("the Split trigger shows the stacked (horizontal-divider) glyph", () => {
+    renderMenu("sMenuSplit");
+    fireEvent.click(screen.getByTestId("layout-mode-switch"));
+    fireEvent.click(screen.getByTestId("layout-mode-split"));
+    expect(screen.getByTestId("layout-mode-switch").querySelector("svg path")?.getAttribute("d")).toBe(mdiViewSplitHorizontal);
   });
 });

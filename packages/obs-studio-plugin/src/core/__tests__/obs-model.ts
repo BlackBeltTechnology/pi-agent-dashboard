@@ -81,9 +81,16 @@ export function obsModel(init: Partial<Pick<ObsModel, "filterKinds" | "cameraIte
       return {};
     },
     SetSceneItemTransform: () => ({}),
+    GetInputSettings: (d) => {
+      const i = m.inputs.get(String(d.inputName));
+      if (!i) return err(600, "No source was found by the name of the input.");
+      return { inputKind: i.kind, inputSettings: { ...i.settings } };
+    },
     SetInputSettings: (d) => {
       const i = m.inputs.get(String(d.inputName));
-      if (i) Object.assign(i.settings, d.inputSettings);
+      // obs-websocket: `overlay` defaults to true (merge); false replaces the settings object.
+      if (i && d.overlay === false) i.settings = { ...(d.inputSettings as object) };
+      else if (i) Object.assign(i.settings, d.inputSettings);
       return {};
     },
     GetInputPropertiesListPropertyItems: () => {

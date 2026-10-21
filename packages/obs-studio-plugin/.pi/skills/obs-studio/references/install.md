@@ -36,3 +36,9 @@ Windows `%APPDATA%\obs-studio\…`, Linux `~/.config/obs-studio/…` (flatpak
 Plugin: royshil/obs-backgroundremoval (OBS ≥ 31.1.1, native build). Install its `.pkg`/installer,
 fully quit and reopen OBS (plugins load only at startup). It registers the filter kind
 `background_removal`; `preset apply pip-bgremoval` reports `plugin-missing` until it loads.
+
+**macOS alternative already in use:** `obs-mac-backgroundremoval` (Apple Vision; log line
+`[obs-mac-backgroundremoval] Loaded successfully`) registers filter kind `mac_vision_filter`, not
+`background_removal`. `filter add … bgremoval`, `pip-bgremoval` and doctor's `backgroundRemovalLoaded` only
+know the royshil kind, so they report missing/false while this plugin works. Check the real kinds with
+`call GetSourceFilterKindList`; add it via `call CreateSourceFilter` (see gotchas).

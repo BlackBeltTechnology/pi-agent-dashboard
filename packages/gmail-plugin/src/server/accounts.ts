@@ -33,6 +33,8 @@ export interface AccountRecord {
   expires: number;
   status: AccountStatus;
   testingHint?: boolean;
+  /** Opt-in Gmail filter management (`gmail.settings.basic`); absent = off. */
+  filters?: boolean;
   addedAt: number;
 }
 
@@ -44,6 +46,7 @@ export interface AccountSummary {
   tier: Tier;
   status: AccountStatus;
   testingHint?: boolean;
+  filters?: boolean;
   addedAt: number;
 }
 
@@ -84,6 +87,7 @@ export function summarize(a: AccountRecord): AccountSummary {
   const s: AccountSummary = { sub: a.sub, email: a.email, tier: a.tier, status: a.status, addedAt: a.addedAt };
   if (a.alias) s.alias = a.alias;
   if (a.testingHint) s.testingHint = true;
+  if (a.filters) s.filters = true;
   return s;
 }
 
@@ -174,6 +178,16 @@ export class AccountStore {
     return this.patch(sub, (prev) => ({ ...prev, tier }));
   }
 
+  /** Turn the filters option on or off (off removes the key). */
+  async setFilters(sub: string, on: boolean): Promise<AccountRecord> {
+    return this.patch(sub, (prev) => {
+      const next = { ...prev };
+      if (on) next.filters = true;
+      else delete next.filters;
+      return next;
+    });
+  }
+
   /** Mark `reauth_required` ONLY while the record still holds the grant that failed (a concurrent re-auth wins). */
   async markReauthIf(sub: string, failedRefresh: string): Promise<boolean> {
     let marked = false;
@@ -220,6 +234,8 @@ export class AccountStore {
     refresh?: string;
     expires: number;
     testingHint?: boolean;
+    /** Defined → written; undefined → the previous value is kept (Add account never changes it). */
+    filters?: boolean;
     now?: number;
   }): Promise<AccountRecord> {
     let missingRefresh = false;
@@ -243,6 +259,8 @@ export class AccountStore {
       };
       if (input.testingHint) rec.testingHint = true;
       else delete rec.testingHint;
+      if (input.filters === true) rec.filters = true;
+      else if (input.filters === false) delete rec.filters;
       return rec;
     });
     if (missingRefresh) {

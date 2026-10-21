@@ -1,10 +1,8 @@
 import React from "react";
-import { contextGradientColor } from "../../lib/theme/context-gradient.js";
 import type { TurnStat } from "../../lib/chat/event-reducer.js";
 
 interface Props {
   turnStats: TurnStat[];
-  contextUsage?: { tokens: number | null; contextWindow: number };
   tokensIn: number;
   tokensOut: number;
   cacheRead: number;
@@ -13,8 +11,6 @@ interface Props {
   onTurnClick?: (turnIndex: number) => void;
   /** Gate butterfly chart + token stats (default true). */
   showStats?: boolean;
-  /** Gate context-window progress bar (default true). */
-  showContextBar?: boolean;
 }
 
 function formatTokens(n: number): string {
@@ -23,7 +19,7 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-export function TokenStatsBar({ turnStats, contextUsage, tokensIn, tokensOut, cacheRead, cacheWrite, cost, onTurnClick, showStats = true, showContextBar = true }: Props) {
+export function TokenStatsBar({ turnStats, tokensIn, tokensOut, cacheRead, cacheWrite, cost, onTurnClick, showStats = true }: Props) {
   // Independent normalization per half
   const maxInput = turnStats.reduce(
     (max, t) => Math.max(max, t.input + t.cacheRead),
@@ -33,19 +29,6 @@ export function TokenStatsBar({ turnStats, contextUsage, tokensIn, tokensOut, ca
     (max, t) => Math.max(max, t.output),
     0
   );
-
-  const contextPercent =
-    contextUsage?.tokens != null && contextUsage.contextWindow > 0
-      ? (contextUsage.tokens / contextUsage.contextWindow) * 100
-      : null;
-
-  const gradientColor = contextPercent != null ? contextGradientColor(contextPercent) : null;
-
-  // Latest turn for context bar segment proportions
-  const latestTurn = turnStats.length > 0 ? turnStats[turnStats.length - 1] : null;
-  const latestTotal = latestTurn
-    ? latestTurn.cacheRead + latestTurn.cacheWrite + latestTurn.input + latestTurn.output
-    : 0;
 
   return (
     <div className="px-3 py-1.5 border-b border-[var(--border-primary)] space-y-1">
@@ -124,51 +107,6 @@ export function TokenStatsBar({ turnStats, contextUsage, tokensIn, tokensOut, ca
           {cacheRead > 0 && <span>R{formatTokens(cacheRead)}</span>}
           {cacheWrite > 0 && <span>W{formatTokens(cacheWrite)}</span>}
           {cost > 0 && <span>${cost.toFixed(2)}</span>}
-        </div>
-      )}
-
-      {/* Context window stacked progress bar. Segments update their width
-          instantly (no `transition-all`): a width transition is a
-          non-composited, layout-animating offender and the value change is
-          imperceptible without the tween. See change:
-          reduce-chat-render-cpu-umbrella (Phase 1, task 2.2). */}
-      {showContextBar && contextUsage && contextUsage.contextWindow > 0 && (
-        <div className="flex items-center gap-2 text-[9px] text-[var(--text-tertiary)]">
-          <span>{contextUsage.tokens != null ? formatTokens(contextUsage.tokens) : "—"}</span>
-          <div className="flex-1 h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden flex" data-testid="context-bar">
-            {contextPercent != null && latestTurn && latestTotal > 0 ? (
-              <>
-                {latestTurn.cacheRead > 0 && (
-                  <div
-                    className="h-full"
-                    style={{ width: `${(latestTurn.cacheRead / latestTotal) * contextPercent}%`, backgroundColor: gradientColor! }}
-                  />
-                )}
-                {latestTurn.cacheWrite > 0 && (
-                  <div
-                    className="h-full"
-                    style={{ width: `${(latestTurn.cacheWrite / latestTotal) * contextPercent}%`, backgroundColor: gradientColor! }}
-                  />
-                )}
-                <div
-                  className="h-full"
-                  style={{ width: `${(latestTurn.input / latestTotal) * contextPercent}%`, backgroundColor: gradientColor! }}
-                />
-                {latestTurn.output > 0 && (
-                  <div
-                    className="h-full"
-                    style={{ width: `${(latestTurn.output / latestTotal) * contextPercent}%`, backgroundColor: gradientColor! }}
-                  />
-                )}
-              </>
-            ) : contextPercent != null ? (
-              <div
-                className="h-full"
-                style={{ width: `${Math.min(contextPercent, 100)}%`, backgroundColor: gradientColor! }}
-              />
-            ) : null}
-          </div>
-          <span>{formatTokens(contextUsage.contextWindow)}</span>
         </div>
       )}
     </div>

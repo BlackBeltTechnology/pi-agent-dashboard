@@ -9,11 +9,11 @@ import {
   mdiCompassOutline,
   mdiDotsVertical,
   mdiFastForward,
+  mdiHistory,
   mdiLinkVariant,
   mdiPencilOutline,
   mdiPlay,
   mdiPlayCircleOutline,
-  mdiRefresh,
   mdiSourceBranch,
   mdiSourceFork,
 } from "@mdi/js";
@@ -256,7 +256,7 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
 
           {/* Refresh Chat */}
           {onRefresh && (
-            <MenuRow icon={mdiRefresh} label={i18nT("session.refreshChat2", undefined, "Refresh Chat")} onClick={() => act(onRefresh)} />
+            <MenuRow icon={mdiHistory} label={i18nT("session.refreshChat2", undefined, "Reload transcript")} onClick={() => act(onRefresh)} />
           )}
 
           {/* Exit */}
