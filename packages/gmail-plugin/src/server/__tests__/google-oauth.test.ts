@@ -3,10 +3,25 @@
  * endpoint and a fake/real loopback callback. See change: add-gmail-plugin.
  */
 import { request } from "node:http";
-import { createLoopbackCallback, type PluginLoginInteraction } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import {
+  createLoopbackCallback,
+  type PluginLoginInteraction,
+  type PluginOAuthStartOptions,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CLIENT, fakeGoogleFetch, idToken, TEST_ENDPOINTS, validClaims } from "../../__tests__/fakes.js";
+import {
+  CLIENT,
+  capturingLogger,
+  fakeGoogleFetch,
+  idToken,
+  memoryCredentials,
+  TEST_ENDPOINTS,
+  validClaims,
+} from "../../__tests__/fakes.js";
+import { AccountStore, CLIENT_KEY } from "../accounts.js";
 import { buildAuthUrl, createGoogleLoginFlow, type GmailFlowError, parsePastedRedirect } from "../google-oauth.js";
+import { mountGmailRoutes } from "../routes.js";
 
 const STATE = "S".repeat(43);
 
@@ -237,5 +252,85 @@ describe("X7 — cancel closes the loopback listener", () => {
     } finally {
       process.off("unhandledRejection", unhandled);
     }
+  });
+});
+
+describe("E10 — POST /accounts {email} → login_hint", () => {
+  async function app() {
+    const a = Fastify();
+    const started: PluginOAuthStartOptions[] = [];
+    await mountGmailRoutes(a, {
+      store: new AccountStore(memoryCredentials({ [CLIENT_KEY]: { ...CLIENT } })),
+      oauth: {
+        startFlow: vi.fn(async (o: PluginOAuthStartOptions) => {
+          started.push(o);
+          return { flowId: `flow-${started.length}` };
+        }),
+      },
+      endpoints: TEST_ENDPOINTS,
+      networkGuard: async () => {},
+      logger: capturingLogger(),
+      createCallback: fakeCallback().factory as never,
+    });
+    return { a, started };
+  }
+
+  /** Run the started flow far enough to read the authorization URL it announces. */
+  async function authUrl(o: PluginOAuthStartOptions): Promise<URL> {
+    const { ix, events } = fakeInteraction();
+    void (o.loginFlow as { login: (i: PluginLoginInteraction) => Promise<unknown> }).login(ix).catch(() => {});
+    await vi.waitFor(() => expect(events.length).toBeGreaterThan(0));
+    return new URL((events.find((e) => (e as { type: string }).type === "auth_url") as { url: string }).url);
+  }
+
+  const post = (a: Awaited<ReturnType<typeof app>>["a"], payload: unknown) =>
+    a.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: payload as object });
+
+  it("a valid email is sent as login_hint (URL-encoded)", async () => {
+    const { a, started } = await app();
+    expect((await post(a, { tier: "readonly", email: "robson@semmi.se" })).statusCode).toBe(200);
+    const url = await authUrl(started[0] as PluginOAuthStartOptions);
+    expect(url.searchParams.get("login_hint")).toBe("robson@semmi.se");
+    expect(url.search).toContain("login_hint=robson%40semmi.se");
+    // It is a hint only: the flow still is an "add account" flow, not a re-auth of that email.
+    expect(started[0]?.key).toMatch(/^add-/);
+    await a.close();
+  });
+
+  it("the email is normalized (trim + lower-case) before it is sent", async () => {
+    const { a, started } = await app();
+    await post(a, { email: "  Robson@Semmi.SE " });
+    expect((await authUrl(started[0] as PluginOAuthStartOptions)).searchParams.get("login_hint")).toBe("robson@semmi.se");
+    await a.close();
+  });
+
+  it.each([[undefined], [""], [null]])("no email (%s) → no login_hint", async (email) => {
+    const { a, started } = await app();
+    expect((await post(a, { tier: "readonly", ...(email === undefined ? {} : { email }) })).statusCode).toBe(200);
+    expect((await authUrl(started[0] as PluginOAuthStartOptions)).searchParams.has("login_hint")).toBe(false);
+    await a.close();
+  });
+
+  it.each([
+    ["not an email", "not-an-email"],
+    ["255 characters", `${"a".repeat(243)}@example.com`],
+    ["not a string", 42],
+  ])("%s → 400 and no sign-in starts", async (_name, email) => {
+    const { a, started } = await app();
+    if (typeof email === "string" && email.endsWith("@example.com")) expect(email).toHaveLength(255);
+    const r = await post(a, { email });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toBe("invalid_email");
+    expect(started).toHaveLength(0);
+    await a.close();
+  });
+
+  it("a 254-character address is accepted", async () => {
+    const { a, started } = await app();
+    const email = `${"a".repeat(242)}@example.com`;
+    expect(email).toHaveLength(254);
+    expect((await post(a, { email })).statusCode).toBe(200);
+    expect(started).toHaveLength(1);
+    await a.close();
   });
 });

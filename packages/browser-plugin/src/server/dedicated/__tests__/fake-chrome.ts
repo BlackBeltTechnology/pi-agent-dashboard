@@ -15,6 +15,8 @@ export interface FakeChromeBehavior {
   ignoreClose?: boolean;
   /** Answer `Browser.setDownloadBehavior` with a CDP error. */
   failDownloads?: boolean;
+  /** Answer the server's ephemeral-context commands (`Target.createBrowserContext` → `ctx-N`, `Browser.setDownloadBehavior`/`Target.disposeBrowserContext` → `{}`). */
+  autoContexts?: boolean;
 }
 
 export class FakeChromeChild extends EventEmitter {
@@ -26,6 +28,7 @@ export class FakeChromeChild extends EventEmitter {
   private readonly decoder = new NulFrameDecoder();
 
   readonly behavior: FakeChromeBehavior;
+  private contextSeq = 0;
 
   constructor(pid: number, behavior: FakeChromeBehavior = {}) {
     super();
@@ -52,11 +55,21 @@ export class FakeChromeChild extends EventEmitter {
       if (b.ignoreClose) return;
       this.reply(msg.id, {});
       this.exit(0);
+    } else if (b.autoContexts && this.answerContextCommand(msg)) {
+      // handled
     } else if (msg.method === "Browser.setDownloadBehavior" && b.failDownloads) {
       this.emitFrame({ id: msg.id, error: { code: -32000, message: "no download support" } });
     } else if (msg.id >= CHROME_INTERNAL_ID_BASE) {
       this.reply(msg.id, {}); // server-owned commands; client commands are answered by the test
     }
+  }
+
+  /** `autoContexts`: the ephemeral-context commands of the server (ids below the internal range). */
+  private answerContextCommand(msg: { id: number; method: string }): boolean {
+    if (msg.method === "Target.createBrowserContext") this.reply(msg.id, { browserContextId: `ctx-${++this.contextSeq}` });
+    else if (msg.id < CHROME_INTERNAL_ID_BASE && (msg.method === "Browser.setDownloadBehavior" || msg.method === "Target.disposeBrowserContext")) this.reply(msg.id, {});
+    else return false;
+    return true;
   }
 
   reply(id: number, result: object): void {

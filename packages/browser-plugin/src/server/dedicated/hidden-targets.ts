@@ -87,6 +87,8 @@ export class HiddenTargets {
 
 export interface OpenHiddenTabOptions {
   timeoutMs?: number;
+  /** Open in this (ephemeral) browser context instead of the default one. */
+  browserContextId?: string;
 }
 
 /**
@@ -103,7 +105,12 @@ export async function openHiddenTab(
 ): Promise<{ targetId: string }> {
   const end = registry.beginCreate();
   try {
-    const result = (await pipeCall(chrome, "Target.createTarget", { url }, opts)) as { targetId?: unknown } | undefined;
+    const result = (await pipeCall(
+      chrome,
+      "Target.createTarget",
+      { url, ...(opts.browserContextId ? { browserContextId: opts.browserContextId } : {}) },
+      { timeoutMs: opts.timeoutMs },
+    )) as { targetId?: unknown } | undefined;
     const targetId = result?.targetId;
     if (typeof targetId !== "string" || targetId === "") throw new Error("Target.createTarget returned no targetId");
     registry.addOwned(targetId);

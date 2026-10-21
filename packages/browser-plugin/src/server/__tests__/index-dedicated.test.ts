@@ -19,6 +19,7 @@ type Handler = (payload: unknown, meta: { sessionId: string }) => unknown;
 let app: ReturnType<typeof Fastify>;
 let requestHandlers: Map<string, Handler>;
 let shutdown: Array<() => void>;
+let provided: Map<string, unknown>;
 let config: Record<string, unknown>;
 let tmpHome: string;
 const priorHome = process.env.HOME;
@@ -28,6 +29,7 @@ async function activate(initial: Record<string, unknown> = { enabled: true, brow
   config = initial;
   requestHandlers = new Map();
   shutdown = [];
+  provided = new Map();
   app = Fastify();
   const ctx = {
     fastify: app,
@@ -42,6 +44,7 @@ async function activate(initial: Record<string, unknown> = { enabled: true, brow
     registerBrowserHandler: () => {},
     registerPiRequestHandler: (type: string, handler: Handler) => requestHandlers.set(type, handler),
     openEditorTab: () => {},
+    provide: (name: string, value: unknown) => provided.set(name, value),
   } as unknown as ServerPluginContext;
   await registerPlugin(ctx);
   await app.ready();
@@ -115,5 +118,52 @@ describe("dedicated wiring in the server entry", () => {
     for (const fn of shutdown) fn();
     expect(vi.getTimerCount()).toBeLessThan(running);
     shutdown = [];
+  });
+});
+
+describe("browser.dedicated service wiring (change: add-gmail-auto-setup)", () => {
+  type Service = {
+    status(): Promise<{ enabled: boolean; available: boolean; downloadsDir: string }>;
+    connect(opts: { client: string }): Promise<Record<string, unknown>>;
+    open(opts: { url: string }): Promise<Record<string, unknown>>;
+    focus(tabId: string): Promise<Record<string, unknown>>;
+    tabOrigin(tabId: string): Promise<string | null>;
+    disconnect(instanceId: string): Promise<void>;
+  };
+  const service = () => provided.get("browser.dedicated") as Service;
+
+  it("provides browser.dedicated once, with every method of the contract", async () => {
+    await activate();
+    expect([...provided.keys()]).toEqual(["browser.dedicated"]);
+    for (const m of ["status", "connect", "open", "focus", "tabOrigin", "disconnect"]) expect(typeof (service() as never)[m]).toBe("function");
+  });
+
+  it("status() reports the plugin enabled with the dedicated downloads dir; the kill switch turns enabled off", async () => {
+    await activate();
+    expect(await service().status()).toMatchObject({
+      enabled: true,
+      downloadsDir: path.join(tmpHome, ".pi", "dashboard", "agent-chrome-downloads"),
+    });
+    config.enabled = false;
+    expect(await service().status()).toMatchObject({ enabled: false });
+  });
+
+  it("kill switch off → connect is {403, disabled} and nothing is launched", async () => {
+    await activate({ enabled: false, browsers: {} });
+    expect(await service().connect({ client: "gmail-setup" })).toMatchObject({ ok: false, status: 403, reason: "disabled" });
+    expect(fs.existsSync(path.join(tmpHome, ".pi", "dashboard", "agent-chrome"))).toBe(false);
+  });
+
+  it("server shutdown unloads it: every method refuses {503, unloaded} afterwards", async () => {
+    await activate();
+    const s = service();
+    for (const fn of shutdown) fn();
+    shutdown = [];
+    const unloaded = { ok: false, status: 503, reason: "unloaded" };
+    expect(await s.connect({ client: "gmail-setup" })).toEqual(unloaded);
+    expect(await s.open({ url: "https://accounts.google.com/" })).toEqual(unloaded);
+    expect(await s.focus("T1")).toEqual(unloaded);
+    expect(await s.tabOrigin("T1")).toBeNull();
+    expect(await s.status()).toMatchObject({ enabled: false, available: false });
   });
 });

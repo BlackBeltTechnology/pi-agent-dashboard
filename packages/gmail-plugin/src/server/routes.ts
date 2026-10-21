@@ -14,7 +14,6 @@ import type {
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { validateClientJson } from "../shared/client-json.js";
 import type { GoogleEndpoints } from "../shared/endpoints.js";
 import { knownFlowCode } from "../shared/flow-codes.js";
 import { isTier, scopesCoverFilters, scopesCoverTier, TIERS, type Tier } from "../shared/scopes.js";
@@ -26,6 +25,10 @@ import {
   GmailFlowError,
   type GoogleLoginOptions, type GoogleSignInResult,
 } from "./google-oauth.js";
+import type { DedicatedBrowserService } from "./setup/browser-service.js";
+import { type RunDeps, SetupRunManager } from "./setup/run.js";
+import { autoSetupState, registerSetupRoutes } from "./setup/setup-routes.js";
+import { storeClient } from "./store-client.js";
 
 export interface GmailRouteDeps {
   store: AccountStore;
@@ -41,9 +44,41 @@ export interface GmailRouteDeps {
     get(): Record<string, unknown>;
     update(partial: Record<string, unknown>): Promise<void>;
   };
+  /** Lazy lookup of the browser plugin's `browser.dedicated` service (`ctx.consume`), per request. */
+  getBrowserService?: () => DedicatedBrowserService | undefined;
+  /** Test seams for the automatic setup run. */
+  setup?: Pick<RunDeps, "timing" | "wsFactory" | "newId">;
 }
 
 const PREFIX = "/api/plugins/gmail";
+
+/** Optional `email` body field → `login_hint`; absent/empty is fine, a non-email is not. */
+function parseLoginHint(raw: unknown): { ok: true; loginHint?: string } | { ok: false } {
+  if (raw === undefined || raw === null || raw === "") return { ok: true };
+  const email = typeof raw === "string" ? normalizeEmail(raw) : "";
+  return isEmail(email) ? { ok: true, loginHint: email } : { ok: false };
+}
+
+/** Validate a `PUT /setup` body; project id is checked (and reported) before the owner account. */
+function parseSetupBody(
+  raw: unknown,
+): { ok: true; partial: Record<string, unknown> } | { ok: false; error: "invalid_project_id" | "invalid_owner_account" } {
+  const body = (raw ?? {}) as { projectId?: unknown; ownerAccount?: unknown };
+  const partial: Record<string, unknown> = {};
+  if (body.projectId !== undefined) {
+    if (typeof body.projectId !== "string") return { ok: false, error: "invalid_project_id" };
+    const id = normalizeProjectId(body.projectId);
+    if (id && classifyProjectId(id) !== "ok") return { ok: false, error: "invalid_project_id" };
+    partial.projectId = id || undefined;
+  }
+  if (body.ownerAccount !== undefined) {
+    if (typeof body.ownerAccount !== "string") return { ok: false, error: "invalid_owner_account" };
+    const email = normalizeEmail(body.ownerAccount);
+    if (email && !isEmail(email)) return { ok: false, error: "invalid_owner_account" };
+    partial.ownerAccount = email || undefined;
+  }
+  return { ok: true, partial };
+}
 
 function accountErrorStatus(err: AccountError): number {
   if (err.code === "not_found") return 404;
@@ -71,7 +106,7 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
     tier: Tier,
     expect?: { sub: string; email: string },
     /** `filters` set (level / re-auth / toggle) → request + require `gmail.settings.basic` iff true; unset (Add account) → leave the account's flag alone. */
-    opts?: { filters?: boolean },
+    opts?: { filters?: boolean; loginHint?: string },
   ) {
     if (!deps.oauth) return reply.code(501).send({ error: "oauth_unavailable" });
     const client = await store.getClient();
@@ -90,7 +125,7 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       endpoints,
       tier,
       filters: opts?.filters === true,
-      loginHint: expect?.email,
+      loginHint: expect?.email ?? opts?.loginHint,
       fetchImpl: deps.fetchImpl,
       createCallback: deps.createCallback,
     });
@@ -160,6 +195,17 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
     return run;
   }
 
+  const setupManager = new SetupRunManager({
+    getService: () => deps.getBrowserService?.(),
+    store,
+    logger,
+    saveSetup: async (partial) => {
+      await queueSetupWrite(() => deps.config?.update(partial));
+    },
+    ...deps.setup,
+  });
+  const setupRoutes = { prefix: PREFIX, guard: deps.networkGuard, store, manager: setupManager, getService: () => deps.getBrowserService?.() };
+
   await fastify.register(async (scope) => {
     await scope.register(rateLimit, {
       global: true,
@@ -169,58 +215,43 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
     });
     const guarded = { preHandler: deps.networkGuard };
 
-    scope.get(`${PREFIX}/state`, guarded, async () => {
+    scope.get(`${PREFIX}/state`, guarded, async (request) => {
       const client = await store.getClient();
       return {
         client: client ? { configured: true, clientId: client.clientId, projectId: client.projectId } : { configured: false },
         accounts: (await store.list()).map(summarize),
         setup: readSetup(),
+        autoSetup: await autoSetupState(request, setupRoutes),
       };
     });
 
+    registerSetupRoutes(scope, setupRoutes);
+
     scope.put(`${PREFIX}/setup`, guarded, async (request, reply) => {
       if (!deps.config) return reply.code(501).send({ error: "config_unavailable" });
-      const body = (request.body ?? {}) as { projectId?: unknown; ownerAccount?: unknown };
-      const partial: Record<string, unknown> = {};
       // Validate every provided key before any write; project id is reported first.
-      if (body.projectId !== undefined) {
-        if (typeof body.projectId !== "string") return reply.code(400).send({ error: "invalid_project_id" });
-        const id = normalizeProjectId(body.projectId);
-        if (id && classifyProjectId(id) !== "ok") return reply.code(400).send({ error: "invalid_project_id" });
-        partial.projectId = id || undefined;
-      }
-      if (body.ownerAccount !== undefined) {
-        if (typeof body.ownerAccount !== "string") return reply.code(400).send({ error: "invalid_owner_account" });
-        const email = normalizeEmail(body.ownerAccount);
-        if (email && !isEmail(email)) return reply.code(400).send({ error: "invalid_owner_account" });
-        partial.ownerAccount = email || undefined;
-      }
+      const parsed = parseSetupBody(request.body);
+      if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+      const partial = parsed.partial;
       await queueSetupWrite(() => deps.config?.update(partial));
       logger.info("[gmail] setup saved");
       return { ok: true, setup: readSetup() };
     });
 
     scope.put(`${PREFIX}/client`, guarded, async (request, reply) => {
-      const result = validateClientJson((request.body as { json?: unknown } | null)?.json ?? request.body);
-      if (!result.ok) return reply.code(400).send({ error: result.error.code, step: result.error.step });
-      // Refresh tokens are bound to the client that minted them: swapping the
-      // client under connected accounts would break every refresh silently.
-      const current = await store.getClient();
-      const changed =
-        current &&
-        (current.clientId !== result.client.clientId || current.clientSecret !== result.client.clientSecret);
-      if (changed && (await store.list()).length > 0) {
-        return reply.code(409).send({ error: "client_in_use", step: 5 });
-      }
-      await store.setClient(result.client);
-      logger.info("[gmail] oauth client configured");
+      const result = await storeClient(store, (request.body as { json?: unknown } | null)?.json ?? request.body, logger);
+      if (!result.ok) return reply.code(result.status).send({ error: result.error, step: result.step });
       return { ok: true, clientId: result.client.clientId, projectId: result.client.projectId };
     });
 
     scope.post(`${PREFIX}/accounts`, guarded, async (request, reply) => {
-      const tier = (request.body as { tier?: unknown } | null)?.tier ?? "readonly";
+      const body = (request.body ?? {}) as { tier?: unknown; email?: unknown };
+      const tier = body.tier ?? "readonly";
       if (!isTier(tier)) return reply.code(400).send({ error: "invalid_tier" });
-      return startSignIn(reply, tier);
+      // Optional email → `login_hint` so Google skips the account chooser.
+      const hint = parseLoginHint(body.email);
+      if (!hint.ok) return reply.code(400).send({ error: "invalid_email" });
+      return startSignIn(reply, tier, undefined, { loginHint: hint.loginHint });
     });
 
     scope.post<{ Params: { sub: string } }>(`${PREFIX}/accounts/:sub/level`, guarded, async (request, reply) => {

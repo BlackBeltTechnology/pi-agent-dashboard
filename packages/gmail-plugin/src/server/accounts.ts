@@ -12,6 +12,8 @@ import type {
 import { isTier, type Tier } from "../shared/scopes.js";
 
 export const CLIENT_KEY = "client";
+/** Non-secret automatic-setup record (confirmed publishing links). See change: add-gmail-auto-setup. */
+const SETUP_KEY = "setup";
 const ACCT_PREFIX = "acct:";
 
 type AccountStatus = "ok" | "reauth_required";
@@ -116,6 +118,10 @@ export class AccountStore {
 
   async setClient(client: ClientRecord): Promise<void> {
     await this.creds.set(CLIENT_KEY, { ...client });
+  }
+
+  async setSetupRecord(record: Record<string, unknown>): Promise<void> {
+    await this.creds.set(SETUP_KEY, record);
   }
 
   async list(): Promise<AccountRecord[]> {

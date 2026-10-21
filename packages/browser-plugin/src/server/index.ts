@@ -41,6 +41,7 @@ import { canOpenChrome, dedicatedAvailability, resolveChromeBinary } from "./cap
 import { createConnectHandler } from "./connect-handler.js";
 import { DedicatedChrome } from "./dedicated/chrome-process.js";
 import { HiddenTargets } from "./dedicated/hidden-targets.js";
+import { BROWSER_DEDICATED_SERVICE, createDedicatedService } from "./dedicated-service.js";
 import { IdleSweeper } from "./idle-sweep.js";
 import { LiveViewOnConnect } from "./live-view.js";
 import { OpenHandler } from "./open-handler.js";
@@ -193,7 +194,13 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   });
   sweeper.start();
 
+  // In-process `browser.dedicated` service for other plugins (change: add-gmail-auto-setup, D2). The only
+  // stop signal a plugin gets is server shutdown, which turns every method into `{503, "unloaded"}`.
+  const dedicatedService = createDedicatedService(manager);
+  ctx.provide?.(BROWSER_DEDICATED_SERVICE, dedicatedService);
+
   ctx.onShutdown(() => {
+    dedicatedService.unload();
     sweeper.stop();
     status.dispose();
     // Also asks the dedicated Chrome to exit (`Browser.close`); the shutdown hook is synchronous,

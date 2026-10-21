@@ -32,7 +32,9 @@ import type { DedicatedChrome } from "../dedicated/chrome-process.js";
 import { DedicatedChromeError } from "../dedicated/chrome-process.js";
 import { checkOpenUrl } from "../dedicated/dedicated-deny.js";
 import { DEDICATED_PROFILE, type DedicatedHolder, DedicatedInstance } from "../dedicated/dedicated-instance.js";
+import { createEphemeralContext, disposeEphemeralContext } from "../dedicated/ephemeral-context.js";
 import { type HiddenTargets, openHiddenTab as openHiddenTabOnPipe } from "../dedicated/hidden-targets.js";
+import { pipeCall } from "../dedicated/pipe-call.js";
 import { type HostBinding, OperatorHostRegistry, type OperatorHostsDeps, safeHostId } from "../operator-hosts.js";
 import type { ProfileSource } from "../profiles.js";
 import { type RelaySocket, WS_OPEN } from "./extension-socket.js";
@@ -161,7 +163,9 @@ export type DedicatedFailReason =
   | "launch-failed"
   | "owned-by-other-server"
   | "url-denied"
-  | "open-failed";
+  | "open-failed"
+  | "unknown-instance"
+  | "unknown-tab";
 
 export type DedicatedConnectResult =
   | { ok: true; cdpUrl: string; instanceId: string }
@@ -178,6 +182,18 @@ export type DedicatedConnectResult =
 export type DedicatedOpenResult =
   | { ok: true; targetId: string }
   | { ok: false; status: 400 | 403 | 409 | 503; reason: DedicatedFailReason; message?: string };
+
+/** Options of `connectDedicated` beyond the holder (change: add-gmail-auto-setup, `browser.dedicated` service). */
+export interface DedicatedConnectOptions {
+  client?: string;
+  holder?: DedicatedHolder;
+  /** Close the live holder and register this instance in the same synchronous step. */
+  takeover?: boolean;
+  /** Tabs excluded from the status composition; viewer subscribe refused. */
+  private?: boolean;
+  /** Own server-created browser context, discarded with the instance. */
+  ephemeral?: boolean;
+}
 
 export type DedicatedResetResult = { ok: true } | { ok: false; status: 409; reason: "not-stopped"; message: string };
 
@@ -518,12 +534,37 @@ export class RelayManager {
     return holder?.sessionId ?? holder?.client;
   }
 
+  /** The 409 `busy` refusal naming the live holder. */
+  private static _busy(live: DedicatedInstance): DedicatedConnectResult {
+    const holder = RelayManager._holderLabel(live.holder);
+    return { ok: false, status: 409, reason: "busy", instanceId: live.instanceId, ...(holder ? { holder } : {}) };
+  }
+
+  /** Synchronous: `busy` while another instance holds the slot, unless `takeover` — then close that holder and report free. */
+  private _claimSlot(takeover: boolean | undefined): DedicatedConnectResult | undefined {
+    const live = this.liveDedicated();
+    if (!live) return undefined;
+    if (!takeover) return RelayManager._busy(live);
+    live.closeWithDetach("takeover");
+    return undefined;
+  }
+
+  /** Server-created ephemeral context of an ephemeral connect (create + per-context downloads dir). */
+  private async _createContext(ded: DedicatedDeps): Promise<{ ok: true; id: string } | { ok: false; refusal: DedicatedConnectResult }> {
+    try {
+      return { ok: true, id: await createEphemeralContext(ded.chrome, ded.chrome.downloadsDir) };
+    } catch (err) {
+      this.deps.logger.warn("[browser-relay] dedicated connect refused reason=launch-failed (context)", (err as Error).message);
+      return { ok: false, refusal: { ok: false, status: 503, reason: "launch-failed", message: "could not create the browser context" } };
+    }
+  }
+
   /**
    * Mint a dedicated instance: ensure Chrome (single-flight), register under
    * `@dedicated`, start the 30 s no-client timer. No handshake — the agent's CDP
    * client dials `cdpUrl` itself.
    */
-  async connectDedicated(opts: { client?: string; holder?: DedicatedHolder } = {}): Promise<DedicatedConnectResult> {
+  async connectDedicated(opts: DedicatedConnectOptions = {}): Promise<DedicatedConnectResult> {
     const gate = this._dedicatedGate();
     if (!gate.ok) return gate;
     const ded = gate.ded;
@@ -532,15 +573,8 @@ export class RelayManager {
     const epoch = this.disableEpoch;
     const disabledSince = (): boolean => !this.enabled || this.disableEpoch !== epoch;
 
-    const busy = (live: DedicatedInstance): DedicatedConnectResult => ({
-      ok: false,
-      status: 409,
-      reason: "busy",
-      instanceId: live.instanceId,
-      ...(RelayManager._holderLabel(live.holder) ? { holder: RelayManager._holderLabel(live.holder) } : {}),
-    });
     const early = this.liveDedicated();
-    if (early) return busy(early);
+    if (early && !opts.takeover) return RelayManager._busy(early);
 
     try {
       await ded.chrome.ensureRunning();
@@ -550,13 +584,26 @@ export class RelayManager {
       this.deps.logger.warn(`[browser-relay] dedicated connect refused reason=${f.reason}`);
       return { ok: false, ...f };
     }
+    // The ephemeral context is created BEFORE the holder is touched: a failure here must not cost a takeover its victim.
+    const context = opts.ephemeral ? await this._createContext(ded) : undefined;
+    if (context && !context.ok) return context.refusal;
+    const ephemeralContextId = context?.id;
+    const discardContext = (): void => {
+      if (ephemeralContextId) disposeEphemeralContext(ded.chrome, ephemeralContextId);
+    };
     if (disabledSince()) {
+      discardContext();
       await this._stopChrome();
       return { ok: false, status: 403, reason: "disabled" };
     }
-    // A concurrent connect may have registered while Chrome was starting.
-    const raced = this.liveDedicated();
-    if (raced) return busy(raced);
+    // From here to the registration below there is NO await: a takeover closes the holder and registers
+    // the new instance in one synchronous step, so a reconnect fired by the close (or any other connect)
+    // sees the new holder, never a free slot. A concurrent connect may also have registered while Chrome started.
+    const refused = this._claimSlot(opts.takeover);
+    if (refused) {
+      discardContext();
+      return refused;
+    }
 
     const holder: DedicatedHolder | undefined =
       opts.holder ?? (opts.client !== undefined ? { client: opts.client } : undefined);
@@ -571,6 +618,8 @@ export class RelayManager {
       logger: this.deps.logger,
       timers: this.timers,
       holder,
+      private: opts.private,
+      ephemeralContextId,
       onClosed: (reason) => {
         const entry = this.byInstanceId.get(instanceId);
         if (!entry) return;
@@ -598,12 +647,19 @@ export class RelayManager {
    * `dedicated/open`: a hidden, server-owned tab (sign-in window). `https:` only
    * and the effective allowed domains, else 400 before anything starts.
    */
-  async openDedicated(url: string): Promise<DedicatedOpenResult> {
+  async openDedicated(url: string, instanceId?: string): Promise<DedicatedOpenResult> {
     const gate = this._dedicatedGate();
     if (!gate.ok) return gate;
     const ded = gate.ded;
     const check = checkOpenUrl(url, this.globalAllowedDomains());
     if (!check.ok) return { ok: false, status: 400, reason: "url-denied", message: check.reason };
+    // With an `instanceId` the tab opens in THAT instance's context: no such live instance → refuse before launching.
+    const unknownInstance = (): DedicatedOpenResult | undefined =>
+      instanceId !== undefined && this.liveDedicated()?.instanceId !== instanceId
+        ? { ok: false, status: 409, reason: "unknown-instance" }
+        : undefined;
+    const missing = unknownInstance();
+    if (missing) return missing;
     const epoch = this.disableEpoch;
     const disabledSince = (): boolean => !this.enabled || this.disableEpoch !== epoch;
 
@@ -618,6 +674,8 @@ export class RelayManager {
       await this._stopChrome();
       return { ok: false, status: 403, reason: "disabled" };
     }
+    const gone = unknownInstance();
+    if (gone) return gone;
     try {
       const live = this.liveDedicated();
       if (live) return { ok: true, ...(await live.openHiddenTab(url)) }; // audits `open`, stamps lastUsed
@@ -629,6 +687,33 @@ export class RelayManager {
     } catch (err) {
       this.deps.logger.warn("[browser-relay] dedicated open failed", (err as Error).message);
       return { ok: false, status: 503, reason: "open-failed", message: "could not open the sign-in tab" };
+    }
+  }
+
+  /** Origin (never path/query) of a server-owned hidden tab; `null` when it is closed, unknown or Chrome is down. */
+  async dedicatedTabOrigin(tabId: string): Promise<string | null> {
+    const ded = this.deps.dedicated;
+    if (!this.enabled || !ded || ded.chrome.state() !== "running" || !ded.hidden.isOwned(tabId)) return null;
+    try {
+      const res = (await pipeCall(ded.chrome, "Target.getTargetInfo", { targetId: tabId })) as { targetInfo?: { url?: unknown } } | undefined;
+      const url = res?.targetInfo?.url;
+      const origin = typeof url === "string" ? new URL(url).origin : "null";
+      return origin === "null" ? null : origin;
+    } catch {
+      return null; // Chrome answers an error for a closed target
+    }
+  }
+
+  /** Bring a server-owned hidden tab to the front. */
+  async focusDedicatedTab(tabId: string): Promise<{ ok: true } | { ok: false; status: 403 | 404; reason: DedicatedFailReason }> {
+    const ded = this.deps.dedicated;
+    if (!this.enabled) return { ok: false, status: 403, reason: "disabled" };
+    if (ded?.chrome.state() !== "running" || !ded.hidden.isOwned(tabId)) return { ok: false, status: 404, reason: "unknown-tab" };
+    try {
+      await pipeCall(ded.chrome, "Target.activateTarget", { targetId: tabId });
+      return { ok: true };
+    } catch {
+      return { ok: false, status: 404, reason: "unknown-tab" };
     }
   }
 
