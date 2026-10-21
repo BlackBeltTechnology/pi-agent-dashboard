@@ -3400,30 +3400,68 @@ Rebuild re-runs `bundle-server.mjs`. Bundler hard-fails (exit 1) when client mis
 
 ## How do I switch between bundled and host git on Windows?
 
-Three ways. Takes effect for newly spawned sessions.
+Git and bash are two independent selectors. Both take effect for newly spawned sessions.
 
-- Settings → general → "Git & Bash source" selector (Windows-only): Auto / Host only / Bundled only.
+- Settings → general → "Git & Bash source" selector (Windows-only): Auto / Host only / Bundled only. Sets `windowsGitSource`.
+- Settings → Sessions → Worktrees → "Bash for agent commands" (beside it). Sets `windowsBashSource` to `"bundled"` or `"host"`. Applies live, no restart. Only effective while active git source is bundled.
 - Diagnostics → git source row → Switch to host / Switch to bundled buttons.
-- Set `windowsGitSource` in `~/.pi/dashboard/config.json`.
+- Set `windowsGitSource` / `windowsBashSource` in `~/.pi/dashboard/config.json`.
 
-Live "Currently active" readout shows source + path + version.
+Live "Currently active" readout shows source + path + version. `/api/health` `gitSource.shellPath` shows bash pi resolves.
 
 Cross-refs:
 - packages/client/src/components/SettingsPanel.tsx
 - packages/client/src/components/DiagnosticsSection.tsx
 - packages/shared/src/platform/select-git-source.ts
+- packages/shared/src/platform/git-source.ts
+- packages/shared/src/platform/resolve-pi-shell.ts
 
 ## Why does my Windows installer include a copy of git?
 
 Windows lacks system git + bash. Fresh Windows without Git for Windows → git status, branch picker, `!`/`!!` bang commands all fail.
 
-Installer embeds dugite-native (git 2.53.0 + sh) so agent works out of box. ~110 MB Windows-only. macOS/Linux installers unchanged (ship git + `/bin/sh`).
+Installer embeds dugite-native (git 2.53.0.windows.4). Bundle ships GNU bash as `usr/bin/sh.exe` plus byte copy `usr/bin/bash.exe` (~2.5 MB). Agent bash tool resolves `bash.exe`, so agent works out of box. ~110 MB Windows-only. macOS/Linux installers unchanged (ship git + `/bin/sh`).
 
-`windowsGitSource="auto"` prefers host git when installed.
+`windowsGitSource="auto"` prefers host git when installed. Git for Windows in `%ProgramFiles%` is used by pi regardless of `windowsBashSource`.
 
 Cross-refs:
 - packages/electron/scripts/download-git-windows.mjs
+- packages/electron/scripts/lib/ensure-bundled-bash-exe.mjs
 - packages/shared/src/platform/ensure-bundled-git.ts
+
+## Why does the agent bash tool fail with "No bash shell found" or WSL "no installed distributions" on Windows?
+
+Pi resolves bash, not the dashboard. Pi order: `shellPath` setting → `%ProgramFiles%\Git\bin\bash.exe` → `%ProgramFiles(x86)%\Git\bin\bash.exe` → first `where bash.exe` hit → else throws `No bash shell found`.
+
+- `No bash shell found`: no bash resolved. Older builds shipped only `usr/bin/sh.exe`.
+- `no installed distributions`: first `where` hit is `C:\Windows\System32\bash.exe` (WSL launcher) and no WSL distro installed.
+
+Fix:
+
+- Update or reinstall the dashboard app. Bundled default ships `usr/bin/bash.exe`.
+- Keep `windowsBashSource` = `"bundled"` (default).
+- Alternative: install Git for Windows. `%ProgramFiles%\Git\bin\bash.exe` wins regardless of `windowsBashSource`.
+- Diagnostics → bash source row shows cause: `doctor.no_posix_shell` or `doctor.bash_is_wsl_launcher`. `/api/health` `gitSource.shellPath` shows bash pi resolves.
+
+## How do I make the agent use WSL bash on Windows?
+
+Set `windowsBashSource` = `"host"` (Settings → Sessions → Worktrees → "Bash for agent commands", or `~/.pi/dashboard/config.json`). Requires an installed WSL distro.
+
+- `"host"` alone does NOT force WSL. Git for Windows under `%ProgramFiles%\Git\bin\bash.exe` (or `%ProgramFiles(x86)%`) is checked before PATH → pi uses it.
+- Git for Windows installed → to get WSL: remove/rename that Git `bash.exe`, or set pi `shellPath` (bash tool + `!` only) to WSL launcher `C:\Windows\System32\bash.exe`.
+- No Git for Windows under `%ProgramFiles%` → pi picks first `where bash.exe` hit.
+- WSL used only when `C:\Windows\System32\bash.exe` is that first hit.
+- Any other `bash.exe` earlier on PATH wins over WSL.
+- Doctor "bash source" row shows the bash pi will actually use.
+- Bundled git still works, incl. `#!/bin/sh` hooks.
+- Side effect: MSYS tools in bundled `usr/bin` (`find`, `sort`) shadowed by System32 tools for child processes.
+- No host `bash.exe` on PATH → falls back to bundled bash.
+- Doctor "bash source" row: ok "requires an installed WSL distro" when `host`. Warning `doctor.bash_is_wsl_launcher` when WSL launcher resolved without `host`.
+- Verify: Doctor "bash source" row, or `/api/health` `gitSource.shellIsWslLauncher` = `true`.
+
+Cross-refs:
+- packages/shared/src/platform/git-source.ts
+- packages/shared/src/platform/resolve-pi-shell.ts
 
 ## How do I auto-initialize worktrees on spawn?
 

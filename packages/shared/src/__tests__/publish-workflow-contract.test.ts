@@ -32,6 +32,7 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -202,6 +203,22 @@ describe("_electron-build.yml — reusable workflow contract", () => {
           "See change: fix-ci-electron-runnable-bundles.",
       );
     }
+  });
+
+  it("E27: has an 'Assert pi resolves bundled bash' step — node-run, no `shell:`, win32 + full-bundle only (fix-windows-bundled-bash-exe)", () => {
+    const wf = parseYaml(reusableYaml) as {
+      jobs: { build: { steps: Array<{ name?: string; run?: string; if?: string; shell?: string; env?: Record<string, string> }> } };
+    };
+    const step = wf.jobs.build.steps.find((st) => st.name === "Assert pi resolves bundled bash");
+    expect(step, "step 'Assert pi resolves bundled bash' is missing from _electron-build.yml").toBeDefined();
+    // Windows runners default to PowerShell; `shell: bash` would reintroduce the
+    // bash dependency this gate exists to prove (no-bash-on-windows invariant).
+    expect(step!.shell).toBeUndefined();
+    expect(step!.run).toMatch(/^node /);
+    expect(step!.run).toContain("assert-bundled-bash-resolvable.mjs");
+    expect(step!.if).toContain("source_only_bundle == false");
+    expect(step!.if).toMatch(/matrix\.platform == 'win32'/);
+    expect(step!.env?.GIT_TARGET_ARCH).toBeDefined();
   });
 
   it("contains no forbidden side-effect actions (npm publish, gh-release, tag push)", () => {

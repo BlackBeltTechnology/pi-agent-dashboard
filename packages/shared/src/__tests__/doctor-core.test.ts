@@ -25,6 +25,7 @@ import {
   SUGGESTIONS,
   stampSectionsAndSuggestions,
 } from "../doctor-core.js";
+import type { GitSourceReadout } from "../platform/git-source.js";
 import type { ProbeOutcome } from "../platform/native-module-abi.js";
 import type { ResolvedRuntime } from "../platform/spawn-runtime.js";
 
@@ -647,5 +648,70 @@ describe("attachedServerVersionSuggestion (E21)", () => {
     expect(row.suggestion).toBe(text);
     expect(row.message).toBe("Dashboard server reports v0.9.0; this app bundle is v0.10.0");
     expect(row.detail).toBe(`launchSource: ${ls ?? "unknown"}`);
+  });
+});
+
+// ── Windows "bash source" row: reports what pi will actually resolve ──────
+// See change: fix-windows-bundled-bash-exe (test-plan E20, X2, X3).
+describe("bash source row (test-plan E20 / X2 / X3)", () => {
+  const GIT_DIR = "C:\\res\\git";
+  const readout = (over: Partial<GitSourceReadout>): GitSourceReadout => ({
+    setting: "bundled",
+    source: "bundled",
+    gitPath: `${GIT_DIR}\\cmd\\git.exe`,
+    gitVersion: "git version 2.53.0.windows.4",
+    shellPath: `${GIT_DIR}\\usr\\bin\\bash.exe`,
+    bashSetting: "bundled",
+    shellIsWslLauncher: false,
+    ...over,
+  });
+  const WSL = "C:\\Windows\\System32\\bash.exe";
+  const row = async (r: GitSourceReadout): Promise<DoctorCheck> => {
+    const checks = await runSharedChecks(baseDeps({ gitSourceReadout: () => r }));
+    stampSectionsAndSuggestions(checks);
+    const c = checks.find((x) => x.name === "bash source");
+    expect(c).toBeDefined();
+    return c as DoctorCheck;
+  };
+  const text = (c: DoctorCheck) => `${c.message}\n${c.detail}\n${c.suggestion ?? ""}`;
+
+  it("no shell resolved → warning doctor.no_posix_shell (X2)", async () => {
+    const c = await row(readout({ shellPath: null }));
+    expect(c.status).toBe("warning");
+    expect(c.code).toBe("doctor.no_posix_shell");
+  });
+
+  it("WSL launcher, bundled source (bundle lacks bash.exe) → warning, update/reinstall remedy (X3)", async () => {
+    const c = await row(readout({ shellPath: WSL, shellIsWslLauncher: true }));
+    expect(c.status).toBe("warning");
+    expect(c.code).toBe("doctor.bash_is_wsl_launcher");
+    expect(text(c)).toContain("update or reinstall the dashboard app");
+  });
+
+  it("WSL launcher, host git source → same code, Git for Windows remedy", async () => {
+    const c = await row(readout({ source: "host", setting: "host", gitPath: "C:\\Git\\cmd\\git.exe", shellPath: WSL, shellIsWslLauncher: true }));
+    expect(c.status).toBe("warning");
+    expect(c.code).toBe("doctor.bash_is_wsl_launcher");
+    expect(text(c)).toContain("install Git for Windows or set windowsGitSource to bundled");
+  });
+
+  it("WSL launcher with windowsBashSource 'host' → ok, needs a WSL distro", async () => {
+    const c = await row(readout({ shellPath: WSL, shellIsWslLauncher: true, bashSetting: "host" }));
+    expect(c.status).toBe("ok");
+    expect(text(c)).toContain("requires an installed WSL distro");
+  });
+
+  it("bundled bash while windowsBashSource is 'host' → ok, says it fell back to bundled", async () => {
+    const c = await row(readout({ bashSetting: "host" }));
+    expect(c.status).toBe("ok");
+    expect(text(c)).toContain("host bash requested, none found — using bundled");
+  });
+
+  it("Git for Windows bash with bundled source → plain ok naming the path", async () => {
+    const pf = "C:\\PF\\Git\\bin\\bash.exe";
+    const c = await row(readout({ shellPath: pf }));
+    expect(c.status).toBe("ok");
+    expect(c.code).toBeUndefined();
+    expect(text(c)).toContain(pf);
   });
 });

@@ -25,8 +25,8 @@ import {
   npmGlobalStrategy,
   overrideStrategy,
   pwBrowserProbeStrategy,
-  staticNpmStrategy,
   type StrategyDeps,
+  staticNpmStrategy,
   whereStrategy,
 } from "./strategies.js";
 import type { InstallHints, Source, Strategy, ToolDefinition } from "./types.js";
@@ -74,7 +74,7 @@ const INSTALL_HINTS: Record<string, InstallHints> = {
       commands: { brew: "brew install bash" },
     },
     win32: {
-      manual: "bash ships inside Git for Windows — install Git, then use its bundled bash. (WSL bash also works but must be set as an override.)",
+      manual: "The desktop app ships its own bash. Otherwise install Git for Windows and use its bundled bash. To use WSL bash instead, set windowsBashSource to \"host\" (or set a bash override).",
       commands: {
         winget: "winget install --id Git.Git -e",
         choco: "choco install git",
@@ -341,9 +341,9 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
           managedRuntimeStrategy("node", deps),
         ]
       : []),
-    // bash resolves the Windows bundled git shell (sh.exe == GNU bash)
-    // before PATH lookup. No-op on Unix. See change:
-    // resolve-bundled-bash-on-windows.
+    // bash resolves the Windows bundled git shell (usr/bin/bash.exe, a copy
+    // of dugite-native's sh.exe) before PATH lookup. No-op on Unix. See
+    // change: resolve-bundled-bash-on-windows, fix-windows-bundled-bash-exe.
     ...(isBash ? [bundledGitBashStrategy(deps)] : []),
     managedBinStrategy(binaryName, deps),
     whereStrategy(binaryName, deps),

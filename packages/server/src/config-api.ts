@@ -13,7 +13,10 @@ import {
   loadConfig,
   writeConfigFileSecure,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import {
+  setWindowsBashSourceSetting,
+  setWindowsGitSourceSetting,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { getPiTrustMirror } from "./access/pi-trust-mirror-service.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
 
@@ -487,11 +490,27 @@ export function writeConfigPartial(
     if (partial.windowsGitSource === "auto" || partial.windowsGitSource === "host" || partial.windowsGitSource === "bundled") {
       setWindowsGitSourceSetting(partial.windowsGitSource);
     }
+    // windowsBashSource: same live-apply contract (moves bundled usr/bin on the
+    // spawn PATH for new children). See change: fix-windows-bundled-bash-exe.
+    if (partial.windowsBashSource === "bundled" || partial.windowsBashSource === "host") {
+      setWindowsBashSourceSetting(partial.windowsBashSource);
+    }
 
     return { success: true, restartRequired };
   } catch (err: any) {
     return { success: false, restartRequired: false, error: err.message };
   }
+}
+
+/**
+ * Seed the Windows git/bash source state from the stored config so spawn-env
+ * augmentation (ToolResolver.buildSpawnEnv + PTY) places the bundled tree
+ * correctly. Called once at server startup; reads, never writes. No-op effect
+ * on macOS/Linux. See change: embed-git-bash-on-windows, fix-windows-bundled-bash-exe.
+ */
+export function seedWindowsSourceSettings(cfg: DashboardConfig = loadConfig()): void {
+  setWindowsGitSourceSetting(cfg.windowsGitSource);
+  setWindowsBashSourceSetting(cfg.windowsBashSource);
 }
 
 /**

@@ -2275,9 +2275,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               the Directory home page and ChatView.
               `flex-wrap` + `justify-between`: the small idle Initialize button
               sits inline right of the git info, but a wide init state (the
-              running / failed `WorktreeInitChip`, min-w ~240px) wraps to its own
-              line instead of overflowing and overlapping the git row.
-              See change: compact-folder-header-actions. */}
+              running / failed `WorktreeInitChip`, which fills its banner and is
+              capped at 420/460 px) wraps to its own line instead of overflowing
+              and overlapping the git row.
+              See change: compact-folder-header-actions, fix-worktree-init-chip-overflow. */}
           {/* Git row — tier 2, FACTS ONLY (branch/dirty). Its former call-to-
               action controls moved to the tier-0 banner below and the folder
               actions menu. See change: add-folder-action-banner. */}

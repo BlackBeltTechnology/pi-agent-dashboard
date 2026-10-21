@@ -1,0 +1,3 @@
+blocked_by:
+  - change: add-voice-wall-plugin
+    reason: "build-time dependency: copilot extension imports the wall ./emit subpath (proposal: land it first)"

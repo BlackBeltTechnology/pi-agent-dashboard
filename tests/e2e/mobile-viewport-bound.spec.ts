@@ -23,7 +23,7 @@
  * See change: fix-long-session-ux-degradation.
  */
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { byTestId, ensureGitSession, gotoDashboard } from "./helpers/index.js";
+import { byTestId, ensureGitSession, forceConcurrentInitStack, gotoDashboard, installFrameInjector } from "./helpers/index.js";
 
 /** The repro device from the design: 390×844 with a ~43 px banner. */
 const MOBILE = { width: 390, height: 844 } as const;
@@ -81,53 +81,6 @@ async function forceStaleBanner(page: Page): Promise<void> {
     const body = (await response.json()) as Record<string, unknown>;
     await route.fulfill({ response, json: { ...body, bundleHash: "e2e-forced-stale-bundle-hash" } });
   });
-}
-
-/** Two concurrent runs in the boot rehydration endpoint → the concurrent stack renders. */
-async function forceConcurrentInitStack(page: Page): Promise<void> {
-  const now = Date.now();
-  await page.route("**/api/git/worktree/active-inits", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        success: true,
-        data: {
-          runs: [
-            { cwd: "/fixtures/sample-git", phase: "running", startedAt: now, lastLine: "installing" },
-            { cwd: "/fixtures/sample-hook-ok", phase: "running", startedAt: now, lastLine: "linking" },
-          ],
-        },
-      }),
-    }),
-  );
-}
-
-interface FrameInjector {
-  /** Deliver a synthetic server→client frame to the page's shell WebSocket. */
-  send(frame: unknown): void;
-}
-
-/**
- * Capture the page's shell WebSocket so the test can deliver a server→client
- * frame. `routeWebSocket` must be installed BEFORE navigation; the first socket
- * the app opens is the shell socket (plugin relay sockets open later, only when
- * a live view is requested).
- */
-async function installFrameInjector(page: Page): Promise<FrameInjector> {
-  let live: { send(data: string): void } | undefined;
-  await page.routeWebSocket(/.*/, (ws) => {
-    live ??= ws;
-    const server = ws.connectToServer();
-    ws.onMessage((message) => server.send(message));
-    server.onMessage((message) => ws.send(message));
-  });
-  return {
-    send(frame) {
-      if (!live) throw new Error("the page has not opened its shell WebSocket yet");
-      live.send(JSON.stringify(frame));
-    },
-  };
 }
 
 /** Open the add-folders dialog through whichever affordance the container exposes. */

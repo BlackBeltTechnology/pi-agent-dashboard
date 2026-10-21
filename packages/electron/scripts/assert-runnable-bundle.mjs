@@ -48,13 +48,16 @@ const required = [
 ];
 
 // Bundled Windows git+sh — only on win32 builds (which run on a Windows
-// runner). dugite-native ships sh.exe, NOT bash.exe (R1 spike). Arch libdir
-// is mingw64 (x64) / clangarm64 (arm64). See change: embed-git-bash-on-windows.
+// runner). dugite-native ships sh.exe only; download-git-windows.mjs copies it to
+// bash.exe because pi's getShellConfig resolves only a file named bash.exe. Arch
+// libdir is mingw64 (x64) / clangarm64 (arm64). See change:
+// embed-git-bash-on-windows, fix-windows-bundled-bash-exe.
 if (process.platform === "win32") {
   const gitDir = path.join("packages", "electron", "resources", "git");
   required.push(
     path.join(gitDir, "cmd", "git.exe"),
     path.join(gitDir, "usr", "bin", "sh.exe"),
+    path.join(gitDir, "usr", "bin", "bash.exe"),
     path.join(gitDir, "THIRD-PARTY-LICENSE.txt"),
   );
   // Assert the EXACT libdir for the target arch (x64 -> mingw64,
