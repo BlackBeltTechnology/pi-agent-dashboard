@@ -22,9 +22,12 @@ const SANDBOX =
 
 const sh = (script: string): string =>
   execFileSync("docker", ["exec", container, "sh", "-c", script], { encoding: "utf8" }).trim();
+// Bytes travel base64-encoded: the payloads contain single quotes, which a
+// single-quoted `sh -c` string would silently consume.
 const put = (rel: string, content: string): void => {
   created.push(rel);
-  sh(`printf '%s' '${content}' > '${FIXTURE_GIT}/${rel}'`);
+  const b64 = Buffer.from(content).toString("base64");
+  sh(`printf '%s' '${b64}' | base64 -d > '${FIXTURE_GIT}/${rel}'`);
 };
 const rawUrl = (rel: string): string =>
   `/api/file/raw?cwd=${encodeURIComponent(FIXTURE_GIT)}&path=${encodeURIComponent(rel)}`;

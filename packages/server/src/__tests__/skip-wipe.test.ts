@@ -2,10 +2,11 @@
  * Tests for bridge reconnect skip-wipe logic in event-wiring.
  * When bridge sends eventCount matching server's stored count, skip the event wipe.
  */
-import { describe, it, expect, vi } from "vitest";
+
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it, vi } from "vitest";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };

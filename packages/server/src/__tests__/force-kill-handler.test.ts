@@ -7,7 +7,7 @@
  * behavior of `killProcess` itself is covered in
  * `packages/shared/src/__tests__/platform-process.test.ts`.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Spy on the platform module so we can assert the handler routes through it.
 const killProcessSpy = vi.fn(async (_pid: number, _opts?: any) => ({ ok: true, forced: false }));

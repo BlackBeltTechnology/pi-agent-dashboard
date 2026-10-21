@@ -7,7 +7,7 @@
  *
  * See change: add-folder-task-checker-and-spawn-attach.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyAttachProposal } from "../browser-handlers/session-meta-handler.js";
 import { createPendingAttachRegistry } from "../pending/pending-attach-registry.js";
 

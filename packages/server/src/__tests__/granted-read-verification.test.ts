@@ -91,6 +91,7 @@ describe("grant-admitted byte serving is verified against the open handle (task 
   it("E7 sandboxes a grant-admitted HTML served from /api/file/raw", async () => {
     const file = path.join(granted, "page.html");
     await fsp.writeFile(file, "<script>1</script>");
+    await expectContainmentAdmits(file); // admitted by the grant layer, not ①/②
     const app = makeApp();
     await app.ready();
     const res = await app.inject({

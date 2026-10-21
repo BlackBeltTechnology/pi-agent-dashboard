@@ -15,13 +15,14 @@
  *
  * Unix-only: relies on POSIX signals + sockets. Windows verification per §6.8.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
+
+import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
-import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 const KEEPER_PATH = path.resolve(__dirname, "..", "rpc-keeper", "keeper.cjs");
 const FIXTURES_DIR = path.resolve(__dirname, "..", "rpc-keeper", "__tests__", "fixtures");

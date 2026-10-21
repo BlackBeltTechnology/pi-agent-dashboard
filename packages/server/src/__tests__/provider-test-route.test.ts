@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerProviderRoutes } from "../routes/provider-routes.js";
 
 // Pass-through network guard — we're testing the endpoint contract, not auth

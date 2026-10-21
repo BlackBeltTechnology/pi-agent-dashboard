@@ -7,15 +7,16 @@
  *
  * These tests exercise the managed-install and global-npm fallbacks.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import * as os from "node:os";
+
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   OverridesStore,
   registerDefaultTools,
   ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Force the direct import to fail so resolution falls through to the
 // managed-install / global-npm paths. vi.mock is hoisted; the factory

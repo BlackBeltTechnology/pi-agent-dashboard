@@ -338,6 +338,7 @@ describe("GET /api/file/raw — scriptable media types are sandboxed", () => {
     ] as const) {
       const res = await app.inject({ method: "GET", url: rawUrl(n) });
       expect(res.headers["content-security-policy"]).toBeUndefined();
+      expect(res.headers["x-content-type-options"]).toBeUndefined();
       expect(res.headers["content-type"]).toBe(type);
     }
   });
@@ -377,6 +378,8 @@ describe("GET /api/file/raw — scriptable media types are sandboxed", () => {
     const res = await app.inject({ method: "GET", url: rawUrl("evil.svg"), headers: { range: "bytes=abc" } });
     expect(res.statusCode).toBe(416);
     expect(res.headers["content-range"]).toBe("bytes */6");
+    expect(res.headers["content-security-policy"]).toBe(SANDBOX);
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.rawPayload.length).toBe(0);
   });
 });

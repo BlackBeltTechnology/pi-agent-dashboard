@@ -4,10 +4,11 @@
  * angle: if the bridge ever stamps a correct entry id on a bubble, this
  * function must produce a file whose tail entry equals that id.
  */
-import { describe, it, expect } from "vitest";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 
 const FIXTURE = join(__dirname, "fixtures", "fork-jsonl-roundtrip.jsonl");

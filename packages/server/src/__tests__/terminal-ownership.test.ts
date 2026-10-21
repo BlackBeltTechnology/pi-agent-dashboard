@@ -8,8 +8,8 @@
  */
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
+import { handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { LOCAL_OPERATOR } from "../identity/session-access.js";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";

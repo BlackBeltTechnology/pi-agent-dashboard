@@ -1,7 +1,7 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { grepWithJsScan, parseRipgrepJson } from "../lib/grep.js";
 import { detectRipgrep, resetRipgrepCache } from "../ripgrep-detection.js";
 

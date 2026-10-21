@@ -7,12 +7,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  type FsOps,
   generateWorkflowSchema,
   resolveDeps,
   runWorkflowSchemaAction,
-  type FsOps,
 } from "../openspec/workflow-schema.js";
-import { listDirNames, makeFakeCli, mkRepo, snapshotTree, stubDeps, type FakeCli } from "./helpers/workflow-schema-fixtures.js";
+import { type FakeCli, listDirNames, makeFakeCli, mkRepo, snapshotTree, stubDeps } from "./helpers/workflow-schema-fixtures.js";
 
 let root: string;
 let fake: FakeCli;

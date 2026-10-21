@@ -13,8 +13,8 @@ import { readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dash
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decideArchiveAction, requestArchive } from "../browser-handlers/session-meta-handler.js";
-import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import { createPendingArchiveIntentRegistry } from "../pending/pending-archive-intent-registry.js";
+import { createMetaPersistence } from "../persistence/meta-persistence.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createSessionArchive } from "../session/session-archive.js";
 

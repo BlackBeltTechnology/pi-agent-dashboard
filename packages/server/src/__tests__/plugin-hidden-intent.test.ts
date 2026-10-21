@@ -9,10 +9,11 @@
  * register decision honours on every non-reattach re-register.
  * See change: fix-plugin-hidden-across-restart.
  */
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { sessionFromMeta } from "../session/session-scanner.js";

@@ -15,19 +15,19 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
+import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   KeeperManager,
   KeeperSpawnResult,
 } from "../rpc-keeper/keeper-manager.js";
 import {
+  resetResolver,
   setKeeperManager,
   setResolver,
-  resetResolver,
   spawnPiSession,
 } from "../spawn-process/process-manager.js";
-import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 
 // Fake resolver returning a fixed pi argv so spawnHeadlessViaKeeper's
 // resolvePiCommand() call succeeds. The PI_NOT_FOUND branch is exercised

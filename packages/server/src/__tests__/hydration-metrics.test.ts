@@ -2,7 +2,7 @@
  * Tests for hydration-metrics.ts ring buffer.
  * See change: instrument-session-hydration-timing.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createHydrationMetrics, type HydrationSample } from "../metrics/hydration-metrics.js";
 
 function makeSample(overrides: Partial<HydrationSample> = {}): HydrationSample {

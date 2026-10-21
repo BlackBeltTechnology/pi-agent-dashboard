@@ -7,12 +7,13 @@
  * (regular text) end-to-end via readJsonlHeaderSync (the path firstMessage
  * actually flows through).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { scanAllSessions } from "../session/session-scanner.js";
+import { join } from "node:path";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { scanAllSessions } from "../session/session-scanner.js";
 
 const SESSION_HEADER = {
   type: "session",

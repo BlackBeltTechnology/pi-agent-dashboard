@@ -4,16 +4,17 @@
  *
  * See change: pi-update-whats-new-panel.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
-  parseChangelog,
-  readAndParseChangelog,
   _resetChangelogCache,
   invalidateChangelogCache,
+  parseChangelog,
+  readAndParseChangelog,
 } from "../changelog/changelog-parser.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

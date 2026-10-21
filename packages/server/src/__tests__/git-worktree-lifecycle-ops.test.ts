@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addWorktree,
   addWorktreeFromPr,
@@ -634,13 +634,13 @@ describe("pruneWorktrees", () => {
 // ── apply-checkout-root-to-worktree-ops: removal guard routes (E5–E11, E10) ──
 
 import { realpathSync as rp2 } from "node:fs";
-import Fastify2, { type FastifyInstance } from "fastify";
 import * as sharedGit2 from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import {
   buildGitFixtures,
   type GitFixtures,
   restoreEnv,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import Fastify2, { type FastifyInstance } from "fastify";
 import { registerGitRoutes } from "../routes/git-routes.js";
 
 async function makeRouteApp(): Promise<FastifyInstance> {

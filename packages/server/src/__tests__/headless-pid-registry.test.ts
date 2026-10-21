@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
-import { EventEmitter } from "node:events";
-import { join } from "node:path";
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
 import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 function mockProcess(): ChildProcess {
   return new EventEmitter() as any;

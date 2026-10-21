@@ -5,9 +5,10 @@
  *
  * See change: expand-mcp-tiered-surface (D4).
  */
+
+import type { McpCaller } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/dispatch";
 import { dispatchRpc } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/dispatch";
 import type { GeneratedTool } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest";
-import type { McpCaller } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/dispatch";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { isHostAdmitted } from "../auth/host-admission.js";

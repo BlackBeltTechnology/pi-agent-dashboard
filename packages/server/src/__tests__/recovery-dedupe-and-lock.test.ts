@@ -4,9 +4,10 @@
  *            never the home-lock.
  * See change: reopen-sessions-after-shutdown.
  */
-import { describe, it, expect } from "vitest";
-import { createPendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
+
 import { isRecoveryCandidate } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { describe, expect, it } from "vitest";
+import { createPendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 
 describe("reopen dedupe (pendingResumeIntents)", () => {
   it("two acceptances for one session consume at most once", () => {
