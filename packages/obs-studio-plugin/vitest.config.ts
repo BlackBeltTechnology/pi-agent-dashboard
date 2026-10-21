@@ -23,6 +23,14 @@ export default defineConfig({
       "@blackbelt-technology/dashboard-plugin-runtime/context": path.resolve(__dirname, "../dashboard-plugin-runtime/src/plugin-context.tsx"),
       "@blackbelt-technology/dashboard-plugin-runtime/embedded-app": path.resolve(__dirname, "../dashboard-plugin-runtime/src/embedded-app.tsx"),
       "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(__dirname, "../dashboard-plugin-runtime/src/test-support/index.ts"),
+      "@blackbelt-technology/dashboard-plugin-runtime/host": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/host.ts",
+      ),
+      "@blackbelt-technology/dashboard-plugin-runtime/sdk": path.resolve(
+        __dirname,
+        "../dashboard-plugin-runtime/src/sdk.ts",
+      ),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(__dirname, "../dashboard-plugin-runtime/src/index.ts"),
       "@blackbelt-technology/pi-dashboard-app-kit/react": path.resolve(__dirname, "../app-kit/src/react/index.ts"),
       "@blackbelt-technology/pi-dashboard-app-kit": path.resolve(__dirname, "../app-kit/src/index.ts"),

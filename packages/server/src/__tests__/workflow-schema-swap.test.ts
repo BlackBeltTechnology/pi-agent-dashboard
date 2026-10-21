@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  CURRENT_PATCH,
   type FsOps,
   generateWorkflowSchema,
   resolveDeps,
@@ -79,7 +80,7 @@ describe("staged swap", () => {
   it("#E7 a failing backup delete keeps the new schema and warns without rolling back", async () => {
     // make the existing schema outdated so the new one is distinguishable
     const yaml = path.join(schemasDir(), "pi-spec-driven", "schema.yaml");
-    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace("patch: 1", "patch: 0"));
+    fs.writeFileSync(yaml, fs.readFileSync(yaml, "utf8").replace(`patch: ${CURRENT_PATCH}`, "patch: 0"));
     const res = await update({
       rm: async (target) => {
         if (path.basename(target).includes(".fork-backup-")) throw new Error("EBUSY backup");
@@ -88,7 +89,7 @@ describe("staged swap", () => {
     });
     expect(res.ok).toBe(true);
     expect(res.warnings?.some((w) => w.includes("backup"))).toBe(true);
-    expect(fs.readFileSync(yaml, "utf8")).toContain("patch: 1");
+    expect(fs.readFileSync(yaml, "utf8")).toContain(`patch: ${CURRENT_PATCH}`);
     expect(res.status).toBe("current");
   });
 

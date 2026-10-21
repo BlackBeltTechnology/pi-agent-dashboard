@@ -22,7 +22,10 @@ interface PluginManifest {
   displayName: string;
   priority?: number;             // default 1000; first-party uses 100; lower = earlier
   requiredApi: string;           // semver range, e.g. "^0.x"
-  client?: string;               // path to bundled client entry (package-relative)
+  hostApi?: string;              // host API range, e.g. "^1.0.0" (`^MAJOR.MINOR[.PATCH]` or exact); the scaffold writes it
+  client?: string;               // path to the client SOURCE entry (package-relative; build-time)
+  clientBundle?: string;         // path to a PREBUILT ES entry for runtime delivery, in a dedicated dir (e.g. "./dist/client/index.js"); augment mode writes it
+  clientStyles?: string;         // prebuilt CSS inside the clientBundle dir (e.g. "./dist/client/client.css"); only when the project has styles
   server?: string;               // optional path to server entry (package-relative)
   bridge?: string;               // optional path to pi-extension entry (package-relative)
   configSchema?: string;         // optional path to JSON Schema 7 file (package-relative)
@@ -100,13 +103,16 @@ See change: add-route-backed-overlay-dialogs.
 
 ## Forward-compat contract
 
-The skill enforces these at scaffold time so augmented external extensions Just Work when the dashboard's future `node_modules` discovery scan ships:
+The skill enforces these at scaffold time so augmented external extensions load in the stock dashboard at runtime and resolve from a `node_modules/<pkg>/` layout:
 
 1. The manifest field is **at the top level** of `package.json`.
-2. All paths in the manifest (`client`, `server`, `bridge`, `configSchema`) are **package-relative**, do not begin with `/`, and do not contain `..` segments that escape the package root.
+2. All paths in the manifest (`client`, `clientBundle`, `clientStyles`, `server`, `bridge`, `configSchema`) are **package-relative**, do not begin with `/`, and do not contain `..` segments that escape the package root.
 3. The manifest does **NOT reference workspace-only constructs** (no `workspace:*` deps, no monorepo-relative imports).
 4. The package's `exports` field declares `./client`, `./server`, `./bridge` subpaths matching the manifest paths.
 5. The manifest includes `requiredApi` (semver range string).
+6. The manifest includes `hostApi` (`^<major>.<minor>.0` of `PLUGIN_HOST_API_VERSION`) and `package.json#keywords` includes `pi-dashboard-plugin`. Augmented (runtime-delivered) projects additionally carry `clientBundle` in a dedicated client dir with `server`/`bridge` entries outside it (see `build-integration.md`).
+
+Enforced by `src/__tests__/forward-compat.test.ts` (items 1-6, both modes, and the `node_modules/@scope/foo/` layout).
 
 ## Example — minimal
 
@@ -126,6 +132,7 @@ The skill enforces these at scaffold time so augmented external extensions Just 
     "displayName": "Acme",
     "priority": 100,
     "requiredApi": "^0.x",
+    "hostApi": "^1.0.0",
     "client": "./src/client.tsx",
     "claims": [
       { "slot": "session-card-badge", "component": "AcmeBadge" }

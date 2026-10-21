@@ -346,6 +346,35 @@ describe("loadConfig", () => {
     expect(config.auth?.capabilityRoutePlugins).toEqual(["x", "y"]);
   });
 
+  // decouple-plugins-from-core #E79 (task 6.5): a config holding only trustedPlugins survives parsing.
+  it("keeps auth.trustedPlugins when it is the only auth key", () => {
+    const sha = "a".repeat(64);
+    fs.writeFileSync(configFile, JSON.stringify({ auth: { trustedPlugins: [{ id: "ext", clientSha256: sha }] } }));
+    expect(loadConfig().auth?.trustedPlugins).toEqual([{ id: "ext", clientSha256: sha }]);
+  });
+
+  it("normalizes trustedPlugins: drops bad entries / malformed pins, keeps server:true, first id wins", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      auth: {
+        trustedPlugins: [
+          { id: "a", server: true },
+          { id: "a", clientSha256: "b".repeat(64) },
+          { id: "b", clientSha256: "short", server: "yes" },
+          { id: "" },
+          { clientSha256: "c".repeat(64) },
+          "str",
+          null,
+        ],
+      },
+    }));
+    expect(loadConfig().auth?.trustedPlugins).toEqual([{ id: "a", server: true }, { id: "b" }]);
+  });
+
+  it("an auth block with an empty trustedPlugins and nothing else is dropped", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ auth: { trustedPlugins: [] } }));
+    expect(loadConfig().auth).toBeUndefined();
+  });
+
   it("defaults auth.capabilityRoutePlugins to [] when absent", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       auth: { providers: { github: { clientId: "id1", clientSecret: "s1" } } },

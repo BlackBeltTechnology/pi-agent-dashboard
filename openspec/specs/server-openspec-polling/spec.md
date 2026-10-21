@@ -416,7 +416,7 @@ When `enabled` flips back to `true` via `PUT /api/config` and `directoryService.
 
 ### Requirement: Push refresh on local filesystem change to openspec/changes/
 
-The server SHALL maintain, for every known directory, a recursive filesystem watcher on `<cwd>/openspec/changes/`, plus a non-recursive watcher on `<cwd>/openspec/` (for `config.yaml`) and a recursive watcher on `<cwd>/openspec/schemas/` when it exists. Main specs under `<cwd>/openspec/specs/` SHALL NOT be watched. A relevant event is a write, rename, or create that affects: (a) a change directory itself (creation or rename of `changes/<change>/`), or under any `changes/<change>/` directory `tasks.md`, `proposal.md`, `design.md`, `specs/**/*.md` or `.openspec.yaml` (also for change directories not yet in the cached result); (b) under a change directory present in the cached `openspec status --all` result, a path matching one of that change's artifact outputs — tested against each `artifactPaths.<id>.resolvedOutputPath` (glob-aware, relativized against `root.path` as emitted and mapped onto the server's canonical `<cwd>/openspec/`, separator-normalized), so a not-yet-created output such as `dependencies.yaml` matches; or (c) `openspec/config.yaml` or any file under `openspec/schemas/`. On a relevant event the server SHALL trigger an mtime-gated re-poll of that cwd within a debounce window of ≤ 1 second (default 300 ms), reusing the same `pollOne(cwd, force=false)` path as the periodic timer. The watcher SHALL NOT bypass the mtime-gate, the concurrency cap, or the broadcast dedup — it is a *trigger*, not a parallel poll path.
+The server SHALL maintain, for every known directory, a recursive filesystem watcher on `<cwd>/openspec/changes/`, plus a non-recursive watcher on `<cwd>/openspec/` (for `config.yaml`) and a recursive watcher on `<cwd>/openspec/schemas/` when it exists. Main specs under `<cwd>/openspec/specs/` SHALL NOT be watched. A relevant event is a write, rename, or create that affects: (a) a change directory itself (creation or rename of `changes/<change>/`), or under any `changes/<change>/` directory `tasks.md`, `proposal.md`, `design.md`, `dependencies.yaml`, `specs/**/*.md` or `.openspec.yaml` (also for change directories not yet in the cached result); (b) under a change directory present in the cached `openspec status --all` result, a path matching one of that change's artifact outputs — tested against each `artifactPaths.<id>.resolvedOutputPath` (glob-aware, relativized against `root.path` as emitted and mapped onto the server's canonical `<cwd>/openspec/`, separator-normalized), so a not-yet-created output such as `dependencies.yaml` matches; or (c) `openspec/config.yaml` or any file under `openspec/schemas/`. On a relevant event the server SHALL trigger an mtime-gated re-poll of that cwd within a debounce window of ≤ 1 second (default 300 ms), reusing the same `pollOne(cwd, force=false)` path as the periodic timer. The watcher SHALL NOT bypass the mtime-gate, the concurrency cap, or the broadcast dedup — it is a *trigger*, not a parallel poll path.
 
 #### Scenario: User ticks a checkbox in tasks.md
 - **WHEN** an editor writes a modified `<cwd>/openspec/changes/<change>/tasks.md` and the file's mtime advances
@@ -458,6 +458,11 @@ The server SHALL maintain, for every known directory, a recursive filesystem wat
 #### Scenario: Server graceful shutdown
 - **WHEN** the server stops (SIGTERM / `pi-dashboard stop` / `/api/restart`)
 - **THEN** all attached watchers SHALL be detached before process exit
+
+#### Scenario: Editing a spec-driven change's dependencies refreshes the board
+- **GIVEN** a `spec-driven` change (no dependencies artifact in its schema)
+- **WHEN** its `dependencies.yaml` is written
+- **THEN** a gated re-poll SHALL run within the watcher debounce window and the broadcast SHALL carry the new edges
 
 ### Requirement: Periodic poll derives artifact status without per-change CLI spawn
 
@@ -901,7 +906,9 @@ On the `--all` path the server SHALL support an mtime-based change-detection gat
 
 Tracked paths for a directory SHALL be:
 - `<cwd>/openspec/` itself, `<cwd>/openspec/changes/`, `<cwd>/openspec/config.yaml`, and every directory and file under `<cwd>/openspec/schemas/` (directory mtimes catch deletions and renames that a max-over-files would miss);
-- for every change in the cached result: the change directory, its `.openspec.yaml`, the legacy fixed set (`tasks.md`, `proposal.md`, `design.md`, `specs/`, `specs/<cap>/`, `specs/<cap>/spec.md`), every path in `artifactPaths.<id>.existingOutputPaths`, the parent directory of each such path, for a non-glob output its `resolvedOutputPath` and that path's parent directory (so a not-yet-created output is detected when it appears), and for a glob output its static directory prefix (e.g. `specs/`) plus every directory beneath that prefix (so a first file created in an empty nested directory is detected).
+- for every change in the cached result: the change directory, its `.openspec.yaml`, the legacy fixed set (`tasks.md`, `proposal.md`, `design.md`, `dependencies.yaml`, `specs/`, `specs/<cap>/`, `specs/<cap>/spec.md`), every path in `artifactPaths.<id>.existingOutputPaths`, the parent directory of each such path, for a non-glob output its `resolvedOutputPath` and that path's parent directory (so a not-yet-created output is detected when it appears), and for a glob output its static directory prefix (e.g. `specs/`) plus every directory beneath that prefix (so a first file created in an empty nested directory is detected).
+- `<cwd>/openspec/specs/` and, for every capability that has a delta in any active change, `<cwd>/openspec/specs/<cap>/` and `<cwd>/openspec/specs/<cap>/spec.md` (stat only, never watched; the directory mtimes catch deletions), because dependency inference reads whether that main spec exists;
+- `<cwd>/openspec/changes/archive/` (its directory mtime changes when a change is archived, which satisfies dependency edges).
 
 The gate governs the `openspec status --all` invocation and the reuse of per-change data. It does NOT govern `OpenSpecData.workflowSchema`, which is recomputed on every tick regardless of a gate hit (see "Workflow-schema status is computed in the poll worker on every poll tick").
 
@@ -946,9 +953,21 @@ Before the first successful `--all` result (cold cache, or after a whole-call fa
 - **WHEN** `openspec_refresh { cwd }` is received or `refreshOpenSpec(cwd)` is called
 - **THEN** the gate SHALL be bypassed and `openspec status --all` SHALL run
 
+#### Scenario: Dependencies file of a spec-driven change is tracked
+
+- **GIVEN** a `spec-driven` change `foo` (no dependencies artifact in its schema) in the cached result
+- **WHEN** `foo/dependencies.yaml` is created or edited
+- **THEN** the effective mtime SHALL advance and the next gated poll SHALL spawn `openspec status --all`
+
+#### Scenario: Main spec creation or deletion is noticed by the gate
+
+- **GIVEN** an active change has a delta for `push-notifications`
+- **WHEN** `openspec/specs/push-notifications/spec.md` is created by a spec sync, or deleted by a branch switch
+- **THEN** the next periodic gated poll SHALL rebuild the directory's data
+
 ### Requirement: TOCTOU-safe stamping around the status-all invocation
 
-On the `--all` path the server SHALL take each change's pre-call effective mtime in the worker probe before invoking `openspec status --all` and re-take it in the worker after the call returns. A change whose effective mtime changed during the call SHALL be marked racy: its cache entry SHALL NOT be updated on this tick (previous entry preserved) and its stamp SHALL NOT advance, so the next gated tick re-polls. Non-racy changes SHALL be stamped with their pre-call mtime. The cwd-level stamp (`openspec/`, `changes/`, `config.yaml`, `schemas/**`) SHALL be the pre-call value; if any cwd-level path changed during the call, the cwd-level stamp SHALL NOT advance, so the next gated tick re-polls. A change present in the result but absent from the pre-call probe (created between probe and spawn) SHALL be applied from the result but left unstamped, so the next gated tick re-polls it once. A change deleted during the call SHALL be pruned (pruning wins over preservation). With `DEBUG` matching `pi-dashboard|openspec-poll`, each discard SHALL emit one `console.warn` naming the change and both mtimes; otherwise silent.
+On the `--all` path the server SHALL take each change's pre-call effective mtime in the worker probe before invoking `openspec status --all` and re-take it in the worker after the call returns. A change whose effective mtime changed during the call SHALL be marked racy: its cache entry SHALL NOT be updated on this tick (previous entry preserved, except its `dependencies` field, which is always recomputed for every change from the files read in this build — see `openspec-change-dependencies`) and its stamp SHALL NOT advance, so the next gated tick re-polls. Non-racy changes SHALL be stamped with their pre-call mtime. The cwd-level stamp (`openspec/`, `changes/`, `config.yaml`, `schemas/**`, `changes/archive/`, `openspec/specs/` and the tracked main-spec paths) SHALL be the pre-call value; if any cwd-level path changed during the call, the cwd-level stamp SHALL NOT advance, so the next gated tick re-polls. A change present in the result but absent from the pre-call probe (created between probe and spawn) SHALL be applied from the result but left unstamped, so the next gated tick re-polls it once. A change deleted during the call SHALL be pruned (pruning wins over preservation). With `DEBUG` matching `pi-dashboard|openspec-poll`, each discard SHALL emit one `console.warn` naming the change and both mtimes; otherwise silent.
 
 #### Scenario: No write during the call
 
@@ -971,6 +990,11 @@ On the `--all` path the server SHALL take each change's pre-call effective mtime
 
 - **WHEN** `/opsx:ff` writes `proposal.md`, `design.md`, `specs/**` and `tasks.md` in rapid succession while a gated tick runs
 - **THEN** within one additional gated tick after authoring completes the broadcast SHALL carry the post-authoring statuses
+
+#### Scenario: Archive during the call
+
+- **WHEN** a change is archived (its directory moves under `changes/archive/`) while `openspec status --all` runs
+- **THEN** the cwd-level stamp SHALL NOT advance and the next gated tick SHALL re-poll
 
 ### Requirement: Fallback when `openspec status --all` is unsupported
 

@@ -15,7 +15,7 @@ secret store — you never see, print or pass it.
    config rotation, secret import), `stop`, and before ANY use of `--yes`. Say exactly what will
    run. `--yes` skips only the CLI's own prompt; the user's consent comes from you asking first.
 2. **Offline verbs run directly** (no secret, work while OBS is down or `blocked`):
-   `pi-obs doctor`, `install`, `provision`, `launch`, `stop`, `preset list`.
+   `pi-obs doctor`, `install`, `provision`, `launch`, `stop`, `preset list`, `wake-hook install|uninstall`.
 3. **Live verbs run through `service exec`** — always pass the id explicitly:
 
    ```bash
@@ -56,6 +56,11 @@ plain `ws://`, LAN or tunnel only).
 **Devices** — `devices list --kind camera|audio|display`, `input bind <input> --device <id>|--display <uuid>`.
 The OBS Virtual Camera is excluded and refused (feedback loop). Displays are macOS-only.
 
+**Screen capture frozen after sleep** (macOS) — `capture refresh [--input <name>]` flips each screen capture to
+another display and restores it exactly (OBS never restarts a capture that stopped during sleep). Permanent fix:
+`ask_user`, then `pi-obs wake-hook install --service obs --yes` (LaunchAgent; refreshes after every wake; log
+`~/.pi/dashboard/plugins/obs-studio/wake-hook.log`; `wake-hook uninstall` removes it).
+
 **Outputs** — `vcam on|off`, `record on|off`, `stream target <url> --key-stdin` (key on stdin).
 
 **Text / filters / pixels** — `text set <input> <text>`, `filter add <input> bgremoval`,
@@ -69,7 +74,10 @@ The OBS Virtual Camera is excluded and refused (feedback loop). Displays are mac
 | `recovery-suspended` | Two early crashes in a row. After the user answered the prompt: `pi-obs launch --reset-recovery`. |
 | `auth-failed` | Stored password rejected → `ask_user`, then `pi-obs provision --update`. |
 | blank screen capture | `doctor` → `stale-display-binding` → `devices list --kind display` → `input bind <input> --display <uuid>`. |
+| screen capture frozen / stale image after sleep | log `mac-screencapture: Stream stopped with error 0`. `capture refresh` (live). Recurs every sleep → offer `wake-hook install` (ask first). |
 | `unsupported-request` | The connected OBS lacks that request; do not retry with `call`. |
+| background not removed in vcam | `call GetSourceFilterList` on the scene's camera input; macOS plugin kind is `mac_vision_filter` (not `background_removal`) → `ask_user`, then `call CreateSourceFilter`. No screenshot right after (crash risk). See gotchas. |
+| service `failed` right after a crash | safe-mode prompt pending; user picks *Launch normally* → `service ensure obs` again. |
 
 `pi-obs stop` stops active outputs, then quits. It crashes OBS 32 during teardown (measured 3/3). It warns and asks; the next
 `service start` recovers automatically. Never offer it as routine.

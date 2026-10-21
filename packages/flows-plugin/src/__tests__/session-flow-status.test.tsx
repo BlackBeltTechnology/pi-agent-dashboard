@@ -8,7 +8,7 @@ import {
   CurrentPluginLayer,
   PluginContextProvider,
   publishSessionEvents,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { DashboardEvent, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

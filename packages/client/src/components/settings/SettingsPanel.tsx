@@ -1,4 +1,18 @@
-import { FieldShell, NumberField, type RegisteredSource, SelectField, SettingsDraftProvider, type SettingsDraftRegistry, SettingsNotice, TextField, ToggleField, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  FieldShell,
+  NumberField,
+  SelectField,
+  SettingsNotice,
+  TextField,
+  ToggleField,
+  useSettingsDraftSource,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  type RegisteredSource,
+  SettingsDraftProvider,
+  type SettingsDraftRegistry,
+  useSlotIntents,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { TrustMode } from "@blackbelt-technology/pi-dashboard-shared/config.js";

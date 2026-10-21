@@ -7,14 +7,14 @@ The "SDK" the skill installs is the public exports of:
 
 There is no separate `pi-dashboard-sdk` package. Both packages are added as `dependencies`.
 
-## Hooks (from `@blackbelt-technology/dashboard-plugin-runtime/context`)
+## Hooks (from the public root `@blackbelt-technology/dashboard-plugin-runtime`; the `/context` subpath is a deprecated alias)
 
 ### `usePluginConfig<T>(): T`
 
 Reactive read of `plugins.<id>.*` from `~/.pi/dashboard/config.json`. The config is validated against the manifest's `configSchema` on read; defaults from the schema fill missing keys. Re-renders subscribers on every successful write to the same plugin's config.
 
 ```tsx
-import { usePluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { usePluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 interface MyConfig { greeting: string; count: number }
 
@@ -29,7 +29,7 @@ export function MyComponent() {
 Returns a `send` function for dispatching browser-protocol messages. Use `plugin_config_write` to persist config changes:
 
 ```tsx
-import { usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
 
 export function MyForm() {
   const send = usePluginSend();

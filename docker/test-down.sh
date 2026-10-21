@@ -118,8 +118,9 @@ if [ "$down_status" -ne 0 ]; then
   exit "$down_status"
 fi
 
-# Drop the per-worktree state file after a successful down.
+# Drop the per-worktree state file after a successful down (and the staged runtime canary).
 rm -f "$STATE_FILE"
+rm -rf "$(dirname "$STATE_FILE")/.pi-test-canary"
 
 # Remove this worktree's baked image so per-worktree tags don't accumulate.
 # Runs AFTER down -v (no container references it). Best-effort/non-fatal: a

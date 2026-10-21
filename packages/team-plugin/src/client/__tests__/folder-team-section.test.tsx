@@ -7,7 +7,7 @@ import {
   createFolderMenuStore,
   FolderMenuProvider,
   type FolderMenuStore,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";

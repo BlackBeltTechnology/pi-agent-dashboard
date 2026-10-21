@@ -4,13 +4,7 @@
  * DO NOT use in production.
  */
 
-import {
-  folderHasProjectType,
-  oauthFlowClient,
-  useEmbeddedAppShell,
-  useUiPrimitive,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { folderHasProjectType, oauthFlowClient, useEmbeddedAppShell, usePluginConfig, usePluginSend, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { lazy, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";

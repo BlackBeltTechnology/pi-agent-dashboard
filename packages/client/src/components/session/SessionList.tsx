@@ -1,4 +1,7 @@
-import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SidebarFolderSectionSlot,
+  useFolderMenuRefreshRunner,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { cardSectionFolderKey, isPluginSectionVisible, resolveCardSectionVisible, resolveFolderListMode } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
@@ -382,10 +385,10 @@ function ToggleButton({
   return (
     <button
       onClick={onClick}
-      className={`text-[10px] px-1.5 py-0.5 rounded border ${
+      className={`text-[12px] px-1.5 py-0.5 rounded border ${
         active
-          ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
-          : "border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+          ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
+          : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       }`}
     >
       {children}
@@ -1655,7 +1658,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             e.stopPropagation();
             setAddToWsMenuFor(menuOpen ? null : scopeKey);
           }}
-          className="focus-ring text-xs px-2 py-1 min-h-[44px] md:min-h-0 rounded border inline-flex items-center gap-0.5 text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
+          className="focus-ring text-xs px-2 py-1 min-h-[44px] md:min-h-0 rounded border inline-flex items-center gap-0.5 text-[var(--text-primary)] border-[var(--border-secondary)] hover:bg-[var(--bg-hover)]"
           title={label}
           aria-label={label}
           aria-haspopup="menu"
@@ -2187,7 +2190,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               <span
                 aria-hidden="true"
                 data-testid={`folder-pinned-indicator-${group.cwd}`}
-                className="shrink-0 text-yellow-400"
+                className="shrink-0 text-[var(--accent-yellow-text)]"
               >
                 <Icon path={mdiPin} size={0.5} />
               </span>
@@ -2893,10 +2896,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             onClick={toggleIncludeArchive}
             aria-pressed={includeArchive}
             data-testid="search-include-archive"
-            className={`flex-shrink-0 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border ${
+            className={`flex-shrink-0 inline-flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 rounded border ${
               includeArchive
-                ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
-                : "border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
+                : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
             title={t("sessionList.includeArchive", undefined, "archive")}
           >

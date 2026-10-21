@@ -118,6 +118,83 @@ export function contrastFailures(ms: TextMeasure[], floor?: number): string[] {
     .map((m) => `${m.where} "${m.text}" ${m.ratio}:1 (need ${floor ?? m.need})`);
 }
 
+/**
+ * Non-text contrast (WCAG 1.4.11) of the graphics under `scope` against `floor`
+ * (default 3): every visible `svg` glyph (its computed `color`, which the MDI
+ * `fill="currentColor"` paints) and every `.animate-spin` arc (its
+ * `border-top-color`), each against the composited ancestor backdrop. Resolves
+ * colours through the same canvas + ancestor-stack path as `measureText`.
+ * Returns one human-readable line per failing graphic (empty = pass).
+ * See change: fix-folder-card-pill-contrast (design D8).
+ */
+export function nonTextFailures(scope: Locator, floor = 3): Promise<string[]> {
+  return scope.evaluate((root, need) => {
+    const cv = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+    const rgba = (c: string): number[] => {
+      cv.clearRect(0, 0, 1, 1);
+      cv.fillStyle = "#000";
+      cv.fillStyle = c;
+      cv.fillRect(0, 0, 1, 1);
+      const d = cv.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3] / 255];
+    };
+    const over = (top: number[], bot: number[]): number[] => {
+      const a = top[3];
+      return [0, 1, 2].map((i) => top[i] * a + bot[i] * (1 - a)).concat(1);
+    };
+    const bgOf = (el: Element): number[] => {
+      const stack: number[][] = [];
+      for (let e: Element | null = el; e; e = e.parentElement) {
+        const c = rgba(getComputedStyle(e).backgroundColor);
+        if (c[3] > 0) stack.push(c);
+        if (c[3] >= 1) break;
+      }
+      let acc = [255, 255, 255, 1];
+      for (const c of stack.reverse()) acc = over(c, acc);
+      return acc;
+    };
+    const lum = ([r, g, b]: number[]): number => {
+      const f = (v: number) => {
+        const s = v / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const ratio = (a: number[], b: number[]) => {
+      const x = lum(a);
+      const y = lum(b);
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+    const visible = (e: Element): boolean => {
+      const cs = getComputedStyle(e);
+      return (
+        (e as HTMLElement).getBoundingClientRect().width > 0 &&
+        cs.opacity !== "0" &&
+        cs.visibility !== "hidden" &&
+        !e.closest(".sr-only") &&
+        !e.closest("[disabled]")
+      );
+    };
+    const out: string[] = [];
+    const check = (e: Element, kind: string, paint: string) => {
+      const bg = bgOf(e);
+      const fg = over(rgba(paint), bg);
+      const r = Number(ratio(fg, bg).toFixed(2));
+      if (r + 0.01 < need) {
+        const tid = e.closest("[data-testid]")?.getAttribute("data-testid") ?? "";
+        out.push(`${kind}${tid ? `@${tid}` : ""} ${r}:1 (need ${need})`);
+      }
+    };
+    for (const e of root.querySelectorAll("svg")) {
+      if (visible(e)) check(e, "svg", getComputedStyle(e).color);
+    }
+    for (const e of [root, ...root.querySelectorAll(".animate-spin")]) {
+      if (e.classList.contains("animate-spin") && visible(e)) check(e, "spinner", getComputedStyle(e).borderTopColor);
+    }
+    return out;
+  }, floor);
+}
+
 /** Text below 11 px anywhere, or below 12 px on interactive text. */
 export function sizeFailures(ms: TextMeasure[], opts: { dense?: number; interactive?: number } = {}): string[] {
   const dense = opts.dense ?? 11;

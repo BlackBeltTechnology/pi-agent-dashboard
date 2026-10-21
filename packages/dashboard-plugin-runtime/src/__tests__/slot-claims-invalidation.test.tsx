@@ -15,7 +15,7 @@
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, render } from "@testing-library/react";
-import React from "react";
+import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetFolderProjectsForTests,
@@ -33,7 +33,20 @@ import {
   getSlotClaimsVersion,
   subscribeSlotClaimsVersion,
 } from "../slot-claims-invalidation.js";
-import { useSlotHasClaimsForSession } from "../slot-consumers.js";
+import {
+  AnchoredPopoverSlot,
+  AutomationActionEditorSlot,
+  CommandRouteSlot,
+  ComposerPanelSlot,
+  SettingsSectionByPluginSlot,
+  ShellOverlayRouteSlot,
+  ToolRendererSlot,
+  useHasAutomationActionEditor,
+  useShellOverlayRouteDepth,
+  useShellOverlayRouteMatched,
+  useShellOverlayRoutePresentation,
+  useSlotHasClaimsForSession,
+} from "../slot-consumers.js";
 import { createSlotRegistry } from "../slot-registry.js";
 
 const session = { id: "019fe770-a0a4-70bb-ac85-2e92e6aa8216" } as DashboardSession;
@@ -288,5 +301,41 @@ describe("folder project cache + predicates", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(gate({ cwd: "/a" })).toBe(true);
+  });
+});
+
+// test-plan #E88 / task 6.16: the direct registry readers that did NOT subscribe before runtime
+// plugins existed. A reader subscribes iff a bump makes it re-read the registry.
+describe("direct registry readers subscribe to the claims version (6.16)", () => {
+  const noop = () => undefined;
+  const readers: Array<[string, () => React.ReactElement]> = [
+    ["ComposerPanelSlot", () => <ComposerPanelSlot draft="" onApplyText={noop} />],
+    ["AnchoredPopoverSlot", () => <AnchoredPopoverSlot anchorEl={document.createElement("div")} onDismiss={noop} />],
+    ["CommandRouteSlot", () => <CommandRouteSlot command="c" session={session} routeParams={{}} onClose={noop} />],
+    ["SettingsSectionByPluginSlot", () => <SettingsSectionByPluginSlot pluginId="p" />],
+    ["ToolRendererSlot", () => <ToolRendererSlot toolName="t" toolInput={{}} sessionId="s" />],
+    ["AutomationActionEditorSlot", () => <AutomationActionEditorSlot actionId="a" payload={{}} onChange={noop} />],
+    ["useHasAutomationActionEditor", () => { const H = () => { useHasAutomationActionEditor("a"); return null; }; return <H />; }],
+    ["ShellOverlayRouteSlot", () => <ShellOverlayRouteSlot onBack={noop} />],
+    ["useShellOverlayRouteMatched", () => { const H = () => { useShellOverlayRouteMatched(); return null; }; return <H />; }],
+    ["useShellOverlayRoutePresentation", () => { const H = () => { useShellOverlayRoutePresentation(); return null; }; return <H />; }],
+    ["useShellOverlayRouteDepth", () => { const H = () => { useShellOverlayRouteDepth(); return null; }; return <H />; }],
+  ];
+
+  it.each(readers)("%s re-reads the registry on a bump, and not without one", (_name, make) => {
+    __resetSlotClaimsVersionForTests();
+    const registry = createSlotRegistry();
+    const getClaims = vi.spyOn(registry, "getClaims");
+    render(<PluginContextProvider registry={registry}>{make()}</PluginContextProvider>);
+    const baseline = getClaims.mock.calls.length;
+    expect(baseline).toBeGreaterThan(0);
+    // unbumped: nothing re-renders the reader
+    expect(getClaims.mock.calls.length).toBe(baseline);
+    act(() => bumpSlotClaimsVersion());
+    expect(getClaims.mock.calls.length).toBeGreaterThan(baseline);
+  });
+
+  it("covers all 11 slot-consumers readers (+ ToolCallStep, pinned in its own test)", () => {
+    expect(readers).toHaveLength(11);
   });
 });

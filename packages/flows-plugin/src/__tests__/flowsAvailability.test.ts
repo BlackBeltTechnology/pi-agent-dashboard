@@ -5,14 +5,12 @@
  * longer matter (they gate the flow actions, see flows-actions-gate.test.ts).
  * See change: fix-empty-flows-subcard, add-session-actions-flyout (E25).
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { clearSessionEvents, initPluginConfigs, publishSessionData, publishSessionEvent } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import {
   __resetSessionDataStoreForTests,
-  clearSessionEvents,
-  publishSessionData,
-  publishSessionEvent,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { initPluginConfigs } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+} from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetFlowsAvailabilityForTests, sessionHasFlowEvents } from "../client/flowsAvailability.js";
 import { shouldRenderFlowsSubcard } from "../client/shouldRender.js";
 

@@ -994,6 +994,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "gmail_send" },
   },
+  // Archive rule → Gmail filter: raises the tool's own confirm card.
+  // See change: improve-gmail-plugin-setup-ux (test-plan F3).
+  "gmail-filter-create": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("gmail_filter_create", {
+            account: "a@fake.test",
+            criteria: { from: "newsletter@dest.test" },
+            filterAction: { removeLabelIds: ["INBOX"] },
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("gmail filter done")]),
+    ],
+    expect: { toolName: "gmail_filter_create" },
+  },
   "gmail-search": {
     script: [
       fauxAssistantMessage([fauxToolCall("gmail_search", { account: "a@fake.test", query: "is:unread" })], {

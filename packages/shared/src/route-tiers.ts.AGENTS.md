@@ -3,7 +3,7 @@
 `ROUTE_TIERS`, `routeTier(method, pattern)`, `hasRouteTier`. ONE route→tier map for `/api/*`; unlisted → `operate` (fail closed). Read by the REST tier gate AND the MCP manifest's `rest` rows, so both agree. Adds `PATCH`/`DELETE /api/providers/:name` (`operate`) + `GET /api/provider-auth/catalogue-ready` (`observe`). See changes: expand-mcp-tiered-surface, redesign-providers-settings-page. Access prompts/YOLO/refusals: `GET /api/access/prompts` + `GET /api/access/yolo/roots` `observe`; `POST /api/access/prompts/:promptId`, `POST`/`DELETE /api/access/yolo`, `DELETE /api/access/refusals` `operate` (trust-widening like a grant write; MCP already denylists `/api/access/`). See change: add-access-grant-dialog (9.5). `/api/system-one/*` triaged (status reads observe; config/keys/eval/calibration/lifecycle operate). See change: add-system-one-registry.
 
 `GET /api/pair/pending`, `POST /api/pair/approve-pending`, `POST /api/pair/deny` → `operate`. See change: add-pairing-approval-dialog.
-`/api/plugins/gmail/*` (state, client, accounts, accounts/:sub, :sub/level, :sub/reauth) all `operate` — credential-bearing sign-in/level/revoke surface; MCP-denylisted. See change: add-gmail-plugin.
+`/api/plugins/gmail/*` (state, client, setup, accounts, accounts/:sub, :sub/level, :sub/reauth, :sub/filters) all `operate` — credential-bearing sign-in/level/revoke surface; MCP-denylisted (prefix `/api/plugins/gmail/`). See change: add-gmail-plugin; improve-gmail-plugin-setup-ux.
 
 ## electron-runtime-overlay-updates
 
@@ -53,9 +53,13 @@ Adds `GET /api/file/digest` (observe). See change: gate-changed-on-disk-by-conte
 `POST /api/file/write-binary` → `control`. See change: add-editor-pane-file-handlers.
 
 `GET /api/plugins/craft-web/status` → `observe`; `POST /api/plugins/craft-web/prepare/:app` + `POST /api/plugins/craft-web/csp-report` → `control`. See change: edit-office-in-pane-with-craft-web.
+`GET /api/plugins/runtime-clients` → `observe`; `POST|DELETE /api/plugins/:id/trust` → `operate` (POST also needs `isLocallyTrusted` in its handler). See change: decouple-plugins-from-core (6.11, 6.12).
 
 `POST /api/plugins/craft-web/telemetry` control (open outcome / validator reject counters, log only). See change: extend-craft-web-to-all-apps.
 
 `GET /api/access/provision`, `GET /api/access/provision/:id` → `observe`; `POST /api/access/provision`, `POST /api/access/provision/:id/settle`, `POST /api/access/provision/dismiss-all` → `operate` (settle + dismiss-all also need a live prompt capability, checked in the route). See change: add-access-provisioning.
 improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` (port targets still need `control`, enforced in the handler); added `start-static`, `:id/touch`, `GET policy` as `observe`. `GET :id/egress`, `POST :id/allow-once`, `POST :id/egress-grant-request` are `control` (handler also requires the token's minting principal); `DELETE /api/access/preview-egress` is `operate`.
 
+`GET /api/openspec/dependencies` → `observe`; `PUT /api/openspec/dependencies` → `control`. See change: add-openspec-change-dependencies.
+
+`POST /api/pi-trust/query` at `operate` (same tier as `POST /api/ws-ticket`). See change: mirror-dashboard-trust-live-remote.

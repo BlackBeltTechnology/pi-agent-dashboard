@@ -32,6 +32,8 @@ import {
   safePiTrustKey,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-snapshot.js";
 import type { MirrorSourceKind } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-mirror-types.js";
+import { liveLifetimeText } from "../access/pi-trust-live.js";
+import { getPiTrustMirror } from "../access/pi-trust-mirror-service.js";
 import { getPiCore } from "./pi-resource-activation.js";
 
 export type { DefaultProjectTrust };
@@ -45,7 +47,7 @@ export interface HostProjectTrustDeps {
   /** Durable dashboard trust. Absent → none (mirror off). */
   mirror?: {
     enabled: () => boolean;
-    covering: (cwd: string) => { sourceKind: MirrorSourceKind; key: string } | null;
+    covering: (cwd: string) => { sourceKind: MirrorSourceKind; key: string; lifetime?: string } | null;
   };
 }
 
@@ -105,20 +107,26 @@ export function createHostProjectTrust(deps: HostProjectTrustLegacyDeps): (cwd: 
 }
 
 /**
- * The durable dashboard-trust entry covering `cwd` (snapshot bytes + the bridge's
- * rules), or null — also null when the mirror is disabled. Shared by the host
- * predicate and the resource-toggle gate. Never throws.
+ * The dashboard-trust entry covering `cwd`, or null — also null when the mirror is
+ * disabled. Durable entries first (snapshot bytes + the bridge's rules), then live
+ * ones (server-lifetime trust: session worktree trust, session grants, YOLO),
+ * evaluated with no folder proof because this server observes its own folders.
+ * Shared by the host predicate and the resource-toggle gate (which passes
+ * `live: false`: its prompt text describes a durable entry). Never throws.
  */
 export function coveringDashboardEntry(
   cwd: string,
   home: string = os.homedir(),
-): { sourceKind: MirrorSourceKind; key: string } | null {
+  opts: { live?: boolean } = {},
+): { sourceKind: MirrorSourceKind; key: string; lifetime?: string } | null {
   try {
     if (!loadConfig().piTrustMirror.enabled) return null;
     const key = safePiTrustKey(cwd, home);
     if (key === null) return null;
     const coverage = coverSnapshot(readPiTrustMirrorSnapshot(), key);
-    return coverage.covered ? { sourceKind: coverage.entry.sourceKind, key: coverage.entry.key } : null;
+    if (coverage.covered) return { sourceKind: coverage.entry.sourceKind, key: coverage.entry.key };
+    const live = opts.live === false ? undefined : getPiTrustMirror()?.live?.covering(key);
+    return live ? { sourceKind: live.sourceKind, key: live.key, lifetime: liveLifetimeText(live.lifetime) } : null;
   } catch {
     return null;
   }

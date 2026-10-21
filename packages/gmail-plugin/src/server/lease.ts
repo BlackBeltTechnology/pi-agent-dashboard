@@ -19,7 +19,7 @@
 import * as oauth from "oauth4webapi";
 import type { GoogleEndpoints } from "../shared/endpoints.js";
 import type { LeaseReply } from "../shared/protocol.js";
-import { isOp, type Op, scopesCover, tierAllows } from "../shared/scopes.js";
+import { isFilterOp, isOp, type Op, scopesCover, tierAllows } from "../shared/scopes.js";
 import { AccountError, type AccountRecord, type AccountStore } from "./accounts.js";
 import { oauthClient, oauthServer, requestOptions } from "./google-oauth.js";
 
@@ -32,6 +32,7 @@ type LeaseErrorCode =
   | "not_found"
   | "ambiguous"
   | "no_client"
+  | "filters_disabled"
   | "tier_denied"
   | "scope_missing"
   | "reauth_required"
@@ -140,6 +141,9 @@ export function createLeaseHandler(deps: LeaseDeps) {
 
   /** Level + granted-scope + status gate. Returns the refusal, or null when allowed. */
   function refusal(acct: AccountRecord, op: Op): LeaseError | null {
+    if (isFilterOp(op) && acct.filters !== true) {
+      return new LeaseError("filters_disabled", `filters are not enabled for ${acct.email}; turn them on in the Gmail settings`);
+    }
     if (!tierAllows(acct.tier, op)) {
       return new LeaseError("tier_denied", `${acct.email} is at level "${acct.tier}", which does not allow "${op}"`);
     }

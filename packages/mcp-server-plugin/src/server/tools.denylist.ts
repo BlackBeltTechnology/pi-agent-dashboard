@@ -63,6 +63,9 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/users/", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
+  // See change: decouple-plugins-from-core (6.11, 6.12).
+  { pattern: "/api/plugins/runtime-clients", reason: "runtime plugin client listing for the dashboard page loader; UI-only" },
+  { pattern: "/api/plugins/:id/trust", reason: "grants/revokes operator trust of plugin code (client hash pin, pi-package server entry); a host-owner decision, never an MCP/LLM action" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
   // add-team-plugin: per-user, owner-gated persona/conversation surface for the team app; not an LLM action.
   { pattern: "/api/plugins/skill-atlas/", reason: "derived UI view over getpi_resources (skill relation graph); agents read skills directly" },
@@ -85,6 +88,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/vault", reason: "credential vault: accounts, grants, import; operator-only, secret-bearing" },
   { pattern: "/api/session/:id/vault-bindings", reason: "vault binding state for the session view; UI-only" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
+  { pattern: "/api/pi-trust/query", reason: "bridge-to-server trust query at project_trust; authenticated by the bridge's own credential, not an agent action" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
   { pattern: "/api/pair/challenge", reason: "pairing ceremony" },

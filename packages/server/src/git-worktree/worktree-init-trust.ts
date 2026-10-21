@@ -43,6 +43,24 @@ export function setTrustChangedListener(fn: (() => void) | undefined): void {
   trustChanged = fn;
 }
 
+/**
+ * Notified SYNCHRONOUSLY when the in-memory session set changes (record / revoke
+ * of a `session` entry). Separate from {@link setTrustChangedListener}: that one
+ * fires only after a persisted write, and a session entry must never reach disk.
+ * Feeds the pi-trust live count. See change: mirror-dashboard-trust-live-remote.
+ */
+let sessionTrustChanged: (() => void) | undefined;
+export function setSessionTrustChangedListener(fn: (() => void) | undefined): void {
+  sessionTrustChanged = fn;
+}
+function notifySessionTrustChanged(): void {
+  try {
+    sessionTrustChanged?.();
+  } catch {
+    /* a listener never fails a grant */
+  }
+}
+
 /** Trust scope. `session` = memory-only; `project` = persisted JSON store. */
 export type TrustScope = "session" | "project";
 
@@ -107,6 +125,22 @@ export function listPersistedTrust(): Array<{ repoRoot: string; hash: string }> 
 }
 
 /**
+ * The IN-MEMORY session entries as `{ repoRoot, hash }` ("until the dashboard
+ * restarts"). Live pi-trust source only: never persisted, never in the snapshot.
+ * Keys are `path.resolve`d; the live provider translates them to pi's key form.
+ * See change: mirror-dashboard-trust-live-remote.
+ */
+export function listSessionTrust(): Array<{ repoRoot: string; hash: string }> {
+  const out: Array<{ repoRoot: string; hash: string }> = [];
+  for (const key of sessionTrust) {
+    const i = key.indexOf("\u0000");
+    if (i <= 0) continue;
+    out.push({ repoRoot: key.slice(0, i), hash: key.slice(i + 1) });
+  }
+  return out;
+}
+
+/**
  * True iff trust was recorded for this `repoRoot + hash` in EITHER the in-memory
  * session set OR the persisted project store (OR-combine).
  */
@@ -131,6 +165,7 @@ export function recordTrust(
   const key = trustKey(repoRoot, hash);
   if (scope === "session") {
     sessionTrust.add(key);
+    notifySessionTrustChanged();
     return;
   }
   const map = load();
@@ -162,7 +197,14 @@ export function revokeTrust(repoRoot: string, hash?: string, opts: { strict?: bo
   const matches = (key: string): boolean =>
     hash ? key === trustKey(repoRoot, hash) : key.startsWith(trustKey(repoRoot, ""));
 
-  for (const key of [...sessionTrust]) if (matches(key)) sessionTrust.delete(key);
+  let sessionRemoved = false;
+  for (const key of [...sessionTrust]) {
+    if (matches(key)) {
+      sessionTrust.delete(key);
+      sessionRemoved = true;
+    }
+  }
+  if (sessionRemoved) notifySessionTrustChanged();
 
   const map = load();
   let changed = false;

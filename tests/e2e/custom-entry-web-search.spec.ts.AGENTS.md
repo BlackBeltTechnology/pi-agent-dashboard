@@ -1,3 +1,5 @@
 # custom-entry-web-search.spec.ts — index
 
 L3 (change: render-unclaimed-custom-entries, F17/F18). `[[faux:web-search-entry]]` drives real `pi.appendEntry("web-search-results", ...)` between two tool calls of one burst. The `search` group is visible by default (no popover step). Asserts: the web-access `custom-entry-renderer` owns the row INSIDE the burst, collapsed summary `2 queries · 8 results`, zero payload requests while collapsed, exactly one `/api/sessions/:id/entry/:entryId` request on expand, the https result is a `rel="noopener noreferrer"` link while `javascript:` URLs stay text, and a cold reload rebuilds the same summary and detail.
+
+Summary (moved from directory AGENTS.md row): L3 F17/F18.

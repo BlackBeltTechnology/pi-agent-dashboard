@@ -12,11 +12,11 @@ import {
   CurrentPluginLayer,
   createFolderMenuStore,
   FolderMenuProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { encodeFolderPath } from "../client/folder-encoding.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 const { listAutomations } = vi.hoisted(() => ({
@@ -123,5 +123,26 @@ describe("FolderAutomationSection", () => {
     // The dialog is `lazy()` (change: lazy-plugin-claim-modules) — await its chunk.
     await waitFor(() => expect(getByTestId("create-automation-dialog")).toBeTruthy());
     expect(setLocation).not.toHaveBeenCalled();
+  });
+});
+
+// See change: fix-folder-card-pill-contrast (test-plan #E21).
+describe("FolderAutomationSection pill colour roles", () => {
+  it("E21: unit + invalid marker are 11 px; marker uses the orange text token", async () => {
+    listAutomations.mockResolvedValueOnce([
+      { name: "a", scope: "folder", dir: "/r/.pi/automation/a", valid: true },
+      { name: "b", scope: "folder", dir: "/r/.pi/automation/b", valid: false },
+      { name: "c", scope: "folder", dir: "/r/.pi/automation/c", valid: false },
+    ]);
+    const { getByTestId } = renderSection("/r");
+    const board = await waitFor(() => getByTestId("folder-automation-open-board"));
+    const unit = getByTestId("folder-automation-count").nextElementSibling as HTMLElement;
+    expect(unit.className).toContain("text-[11px]");
+    expect(unit.className).not.toContain("text-[10px]");
+    const marker = unit.nextElementSibling as HTMLElement;
+    expect(marker.textContent).toContain("2");
+    expect(marker.className).toContain("text-[var(--accent-orange-text)]");
+    expect(marker.className).toContain("text-[11px]");
+    expect(board.innerHTML).not.toMatch(/amber|#27272a|text-\[10px\]/);
   });
 });

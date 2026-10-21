@@ -4,14 +4,13 @@
  * and cancelling go through the host callbacks.
  * See change: expose-plugin-credential-and-oauth-seams (D6).
  */
-import fs from "node:fs";
-import path from "node:path";
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { UiOAuthFlowViewProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OAuthFlowView } from "../components/settings/OAuthFlowView.js";
+import { createHostPrimitiveRegistry } from "../lib/plugins/host-primitives.js";
 
 afterEach(cleanup);
 
@@ -31,9 +30,6 @@ const manualFlow: UiOAuthFlowViewProps["flow"] = {
   },
 };
 
-/**
- * @structural-pin main.tsx renders the whole app on import, so the ui:oauth-flow registration can only be checked in its text
- */
 describe("ui:oauth-flow primitive (E31)", () => {
   it("renders via useUiPrimitive: auth link + paste field; submit and cancel reach the host", async () => {
     const onSendInput = vi.fn(async () => {});
@@ -63,8 +59,7 @@ describe("ui:oauth-flow primitive (E31)", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("is registered under ui:oauth-flow at client startup (main.tsx)", () => {
-    const main = fs.readFileSync(path.resolve(__dirname, "../main.tsx"), "utf-8");
-    expect(main).toMatch(/registerUiPrimitive\(primitiveRegistry, UI_PRIMITIVE_KEYS\.oauthFlow, OAuthFlowView\)/);
+  it("is registered under ui:oauth-flow at client startup (createHostPrimitiveRegistry, used by main.tsx)", () => {
+    expect(createHostPrimitiveRegistry()._impls.get("ui:oauth-flow")).toBe(OAuthFlowView);
   });
 });

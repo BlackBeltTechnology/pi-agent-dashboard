@@ -14,7 +14,7 @@
  *
  * See change: migrate-mcp-to-pi-builtin.
  */
-import { displayExposure, MCP_EXPOSURE_ALIASES } from "../core/pi-rules.js";
+import { displayExposure, MCP_EXPOSURE_ALIASES } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
 
 export type Transport = "command" | "url";
 

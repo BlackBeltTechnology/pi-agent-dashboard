@@ -43,12 +43,13 @@ On the desktop session card, attaching is offered as the **Attach change…** it
 - **AND** selecting `"add-auth"` there SHALL send `{ type: "attach_proposal", sessionId: "s1", changeName: "add-auth" }`
 
 ### Requirement: PDST rendered as single button navigating to proposal
-The chat-view session header (desktop and mobile) SHALL render the attached change's artifact letters as a single combined button (`ArtifactLettersButton`). Each letter keeps its status color. Clicking the button navigates to the proposal artifact. The session card SHALL NOT render this button; there the lifecycle bar carries per-artifact state and navigation.
+Wherever the session OpenSpec block shows the attached change's artifact letters, it SHALL render them as a single combined button (`ArtifactLettersButton`). The session header SHALL NOT render this button. Each letter keeps its status color: done → `--accent-green-text`, ready → `--accent-yellow-text`, any other status → `--text-secondary`. Clicking the button navigates to the proposal artifact. The session card SHALL NOT render this button; there the lifecycle bar carries per-artifact state and navigation.
 
 #### Scenario: Single PDST button in attached session
 - **WHEN** session `"s1"` has `attachedProposal = "add-auth"` with artifacts `[proposal: done, design: ready, specs: blocked, tasks: blocked]`
-- **THEN** the chat-view session header SHALL show a single clickable button containing `P D S T` with green, yellow, muted, muted colors respectively
+- **THEN** the session OpenSpec block SHALL show a single clickable button containing `P D S T` painted `--accent-green-text`, `--accent-yellow-text`, `--text-secondary`, `--text-secondary` respectively
 - **AND** the session card SHALL NOT show that button
+- **AND** the session header SHALL NOT show that button
 
 #### Scenario: Clicking PDST button opens proposal
 - **WHEN** the user clicks the PDST button for change `"add-auth"`
@@ -89,45 +90,6 @@ The `SessionOpenSpecActions` component SHALL render a "Bulk Archive" button **on
 - **WHEN** unattached session `"s1"` in cwd `/project/foo` renders as a desktop session card, and the folder contains a completed change
 - **THEN** no inline "Bulk Archive" button SHALL render on the card
 - **AND** the session actions menu's OPENSPEC group SHALL contain **Bulk archive…**, whose confirmation sends `{ type: "openspec_bulk_archive", cwd: "/project/foo" }`
-
-### Requirement: Mobile session header shows attached-proposal chip
-On mobile viewports, the session header SHALL render a paperclip-prefixed chip displaying `session.attachedProposal` whenever that field is non-empty. When the chip is rendered, the mobile session header SHALL use a **two-row layout**: When the attachment does not resolve `kind: "active"` with the resolved cwd equal to `session.cwd` (see `openspec-attachment-resolution`), the chip content additionally follows "Archived or missing attachment renders a traceable header".
-
-- **Row 1**: back button (when applicable), session title (which now claims the full available width of row 1, no longer competing with the chip), `MobileAttachButton` (paperclip icon + popover), and `MobileActionMenu` (kebab).
-- **Row 2**: the attached-proposal chip — paperclip icon, change name, `ArtifactLettersButton` pill (when `openspecChanges` matches), and `attached-proposal-task-counter` (when `totalTasks > 0`).
-
-When `session.attachedProposal` is `null`, `undefined`, or empty string, the mobile session header SHALL render as a single row exactly as before — there is no empty second row reserved.
-
-The chip remains visually distinct (blue accent) and continues to degrade gracefully on narrow widths via truncation with the full change name available as a `title` attribute. The chip SHALL be read-only — action affordances (attach, detach) remain in the existing `MobileAttachButton` popover.
-
-#### Scenario: Attached proposal is rendered as a chip on row 2
-- **WHEN** the viewport is mobile and `session.attachedProposal === "add-auth"`
-- **THEN** the mobile session header SHALL render with a `flex-col` (two-row) container
-- **AND** row 1 SHALL contain the session title, `MobileAttachButton`, and `MobileActionMenu`
-- **AND** row 2 SHALL contain the chip with the paperclip icon and the text `add-auth`
-- **AND** the chip SHALL carry `data-testid="mobile-header-attached-chip"`
-- **AND** the chip SHALL NOT be a child of the same row as the session title
-
-#### Scenario: No attached proposal hides the chip and keeps a single row
-- **WHEN** the viewport is mobile and `session.attachedProposal` is `null`, `undefined`, or empty string
-- **THEN** the mobile session header SHALL render as a single-row container (no `flex-col` wrapper, no empty second row)
-- **AND** the chip SHALL NOT be present in the DOM
-
-#### Scenario: Long change name is truncated with full text in tooltip
-- **WHEN** the viewport is mobile and `session.attachedProposal` is a string longer than the chip's row-2 width
-- **THEN** the visible chip text SHALL be truncated with CSS ellipsis
-- **AND** the chip's `title` attribute SHALL contain the full change name prefixed with `Attached: `
-
-#### Scenario: Chip updates reactively on session_updated
-- **WHEN** the server broadcasts `session_updated` with `updates.attachedProposal = "feature-x"`
-- **THEN** the mobile session header SHALL re-render as a two-row layout with `feature-x` in the row-2 chip within the next paint frame
-- **WHEN** the server broadcasts `session_updated` with `updates.attachedProposal = null`
-- **THEN** the mobile session header SHALL collapse back to a single-row layout and the chip SHALL be removed from the DOM
-
-#### Scenario: Session name claims full row-1 width
-- **WHEN** the viewport is 360px wide on mobile and `session.attachedProposal === "add-extension-ui-decorations"`
-- **THEN** the row-1 session-title `<span>` SHALL have access to all horizontal space between the back button and the `MobileAttachButton` + `MobileActionMenu` group
-- **AND** the title SHALL NOT be constrained by the chip's previous `max-w-[55%]` (which only applied when chip and title shared a row)
 
 ### Requirement: Mobile session card shows attached-proposal chip
 On mobile viewports, each session card SHALL render a paperclip-prefixed chip displaying `session.attachedProposal` whenever that field is non-empty. The chip SHALL coexist with `OpenSpecActivityBadge` (which reads the distinct `openspecPhase` / `openspecChange` fields) — both MAY render simultaneously and MUST NOT visually collide. When the attachment does not resolve `kind: "active"` with the resolved cwd equal to `session.cwd` (see `openspec-attachment-resolution`), the chip content additionally follows "Archived or missing attachment renders a traceable header".
@@ -651,19 +613,19 @@ This requirement governs attachments that resolve `kind: "active"` with the reso
 - **AND** **Detach** SHALL remain reachable in its OPENSPEC group
 
 ### Requirement: Archived or missing attachment renders a traceable header
-When the attachment resolves `kind: "archived"`, the desktop session card, the desktop session header, and the composer session actions SHALL render the following, for running and ended sessions alike:
+When the attachment resolves `kind: "archived"`, the desktop session card and the composer session actions SHALL render the following, for running and ended sessions alike:
 - the paperclip and the attached name;
 - an `Archived <YYYY-MM-DD>` badge, using the entry date;
 - archive artifact letters for each artifact in `entry.artifacts`, in that order (as the archive browser renders them). Activating a letter SHALL navigate (push) to `/folder/<encoded resolved cwd>/openspec/archive/<entry.name>/<artifactId>`;
 - a `⋯` menu containing only **Detach**. On the desktop session card, this `⋯` SHALL NOT render. Detach, and an item per archive letter with the same navigation, are offered in the session actions menu's OPENSPEC group instead. The badge and the letters stay on the card.
 
-On mobile, the read-only attached-proposal chips in the header and the card SHALL show the name, the `Archived <YYYY-MM-DD>` badge, and the same archive letters. Detach SHALL remain in the existing `MobileAttachButton` popover. `MobileActionMenu` SHALL NOT offer workflow actions for an archived attachment.
+On mobile, the read-only attached-proposal chip on the session card SHALL show the name, the `Archived <YYYY-MM-DD>` badge, and the same archive letters. The mobile session header SHALL NOT render an attached-proposal chip. Detach SHALL remain available in the `MobileActionMenu`, which SHALL NOT offer workflow actions for an archived attachment.
 
 No lifecycle bar, no primary action, and no workflow action (Continue, Fast-forward, Apply, Verify, Archive, Explore) SHALL render for an archived attachment.
 
-When the attachment resolves `kind: "missing"`, those surfaces SHALL render the name, then a muted `Not found` badge titled "Not in active changes or archive (pull may be needed)". Desktop shows `⋯` with only **Detach** (on the desktop session card: Detach in the session actions menu); mobile keeps Detach in the popover.
+When the attachment resolves `kind: "missing"`, those surfaces SHALL render the name, then a muted `Not found` badge titled "Not in active changes or archive (pull may be needed)". Desktop shows `⋯` with only **Detach** (on the desktop session card: Detach in the session actions menu); mobile keeps Detach in the `MobileActionMenu`.
 
-When the attachment resolves `kind: "active"` but the resolved cwd differs from `session.cwd` (a removed worktree whose change is still active in `gitWorktree.mainPath`), the surfaces SHALL render read-only: the name, an `In main checkout` badge, the change's artifact letters linking to the preview route for the resolved cwd, and Detach (desktop `⋯`, or the session actions menu on the desktop session card; mobile popover). No lifecycle bar, no primary action, and no workflow action SHALL render.
+When the attachment resolves `kind: "active"` but the resolved cwd differs from `session.cwd` (a removed worktree whose change is still active in `gitWorktree.mainPath`), the surfaces SHALL render read-only: the name, an `In main checkout` badge, the change's artifact letters linking to the preview route for the resolved cwd, and Detach (desktop `⋯`, or the session actions menu on the desktop session card; the mobile `MobileActionMenu`). No lifecycle bar, no primary action, and no workflow action SHALL render.
 
 When the attachment resolves `kind: "unresolved"`, the surfaces SHALL render the bare attached name with no badge. Desktop shows `⋯` with only **Detach** (on the desktop session card: Detach in the session actions menu).
 
@@ -694,9 +656,10 @@ When the attachment resolves `kind: "unresolved"`, the surfaces SHALL render the
 
 #### Scenario: Mobile chip stays read-only
 - **WHEN** the viewport is mobile and the attachment resolves `archived`
-- **THEN** `mobile-header-attached-chip` SHALL show the name, the `Archived` badge and the archive letters
-- **AND** the chip SHALL contain no Detach control
-- **AND** `MobileAttachButton`'s popover SHALL still offer Detach
+- **THEN** the mobile session header SHALL render no attached-proposal chip
+- **AND** `mobile-card-attached-chip` on the session card SHALL show the name, the `Archived` badge and the archive letters
+- **AND** the card chip SHALL contain no Detach control
+- **AND** the `MobileActionMenu` SHALL still offer Detach
 
 #### Scenario: Detach still works on an archived attachment
 - **WHEN** the user selects **Detach** on an archived attachment

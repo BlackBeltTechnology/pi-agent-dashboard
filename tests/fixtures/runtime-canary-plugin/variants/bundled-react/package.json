@@ -1,0 +1,27 @@
+{
+  "name": "pi-dashboard-runtime-canary-bundled-react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime canary FAILURE variant (bundles its own React). Built by scripts/build-runtime-canary.mjs; fixture only.",
+  "type": "module",
+  "keywords": [
+    "pi-dashboard-plugin"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "runtime-canary-bundled-react",
+    "displayName": "Runtime Canary variant: bundled-react (fixture)",
+    "fixture": true,
+    "hostApi": "^1.0.0",
+    "clientBundle": "./dist/client/index.js",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "VariantPanel",
+        "tab": "general"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  }
+}

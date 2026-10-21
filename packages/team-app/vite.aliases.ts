@@ -19,6 +19,8 @@ export const aliases = [
   { find: "@blackbelt-technology/pi-dashboard-shared", replacement: p("shared/src") },
   { find: "@blackbelt-technology/pi-dashboard-client-utils", replacement: p("client-utils/src") },
   { find: "@blackbelt-technology/dashboard-plugin-runtime/server", replacement: p("dashboard-plugin-runtime/src/server/index.ts") },
+  { find: "@blackbelt-technology/dashboard-plugin-runtime/host", replacement: p("dashboard-plugin-runtime/src/host.ts") },
+  { find: "@blackbelt-technology/dashboard-plugin-runtime/sdk", replacement: p("dashboard-plugin-runtime/src/sdk.ts") },
   { find: "@blackbelt-technology/dashboard-plugin-runtime/context", replacement: p("dashboard-plugin-runtime/src/plugin-context.tsx") },
   { find: "@blackbelt-technology/dashboard-plugin-runtime", replacement: p("dashboard-plugin-runtime/src/index.ts") },
 ];

@@ -7,10 +7,10 @@
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createMcpClientConfigService } from "@blackbelt-technology/pi-dashboard-mcp-core/service.js";
+import type { ConfigIO, PiMcpListRunner } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createMcpClientConfigService } from "../../core/service.js";
-import type { ConfigIO, PiMcpListRunner } from "../../core/types.js";
 import { mountMcpClientRoutes } from "../routes.js";
 
 const GLOBAL = "/agent/mcp.json";

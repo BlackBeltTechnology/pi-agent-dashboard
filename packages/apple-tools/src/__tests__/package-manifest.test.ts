@@ -3,7 +3,7 @@
  * See change: add-apple-tools-imcp-plugin.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -23,9 +23,27 @@ describe("package manifest", () => {
     expect(pkg.bin?.["pi-apple-tools-install"]).toBeTruthy();
   });
 
-  it("declares the mcp-client plugin as a dependency but NOT bundledDependencies", () => {
-    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"]).toBeTruthy();
-    expect(pkg.bundledDependencies ?? []).not.toContain("@blackbelt-technology/pi-dashboard-mcp-client-plugin");
+  it("declares the mcp-core library (NOT the mcp-client plugin) as a dependency, never bundled", () => {
+    expect(pkg.dependencies?.["@blackbelt-technology/pi-dashboard-mcp-core"]).toBeTruthy();
+    expect(pkg.bundledDependencies ?? []).not.toContain("@blackbelt-technology/pi-dashboard-mcp-core");
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      expect(pkg[field]?.["@blackbelt-technology/pi-dashboard-mcp-client-plugin"], field).toBeUndefined();
+    }
+  });
+
+  // #E12 / test-plan: shared contracts live in non-plugin packages (task 2.5).
+  it("#E12: sources take the service type + key from mcp-core, consume it, and never import mcp-client", () => {
+    const srcDir = join(here, "..");
+    const read = (f: string) => readFileSync(join(srcDir, f), "utf8");
+    for (const f of ["env.ts", "install.ts", "server/index.ts"]) {
+      const src = read(f);
+      expect(src, f).toContain("@blackbelt-technology/pi-dashboard-mcp-core");
+      expect(src, f).not.toMatch(/pi-dashboard-mcp-client-plugin/);
+    }
+    const server = read("server/index.ts");
+    expect(server).toMatch(/McpClientConfigService/);
+    expect(server).toMatch(/ctx\.consume<McpClientConfigService>\(MCP_CLIENT_CONFIG_SERVICE_KEY\)/);
+    expect(server).not.toMatch(/const SERVICE_KEY = "mcp-client\.config"/);
   });
 
   it("server entry satisfies the loader contract (default export function)", async () => {
@@ -48,5 +66,39 @@ describe("package manifest", () => {
     const claim = (m?.claims ?? []).find((c: { slot: string }) => c.slot === "settings-section");
     expect(claim).toBeTruthy();
     expect(claim.tab).toBeUndefined();
+  });
+});
+
+// test-plan #E67 / PS › First-party plugins findable (task 5.13) + README states the trust model (task 5.16).
+describe("first-party plugin packages are findable by the dashboard-plugin keyword", () => {
+  const packagesDir = join(here, "..", "..", "..");
+  const manifestPackages = readdirSync(packagesDir).flatMap((name) => {
+    const pkgPath = join(packagesDir, name, "package.json");
+    if (!existsSync(pkgPath)) return [];
+    const raw = JSON.parse(readFileSync(pkgPath, "utf8")) as { keywords?: string[]; "pi-dashboard-plugin"?: { fixture?: boolean } };
+    const adjacent = join(packagesDir, name, "dashboard-plugin.json");
+    const manifest = existsSync(adjacent)
+      ? (JSON.parse(readFileSync(adjacent, "utf8")) as { fixture?: boolean })
+      : raw["pi-dashboard-plugin"];
+    return manifest ? [{ name, keywords: raw.keywords ?? [], fixture: manifest.fixture === true }] : [];
+  });
+
+  it("finds the manifest packages (guards against a vacuous pass)", () => {
+    expect(manifestPackages.length).toBeGreaterThan(20);
+  });
+
+  it("every non-fixture manifest package carries keywords ∋ pi-dashboard-plugin", () => {
+    const missing = manifestPackages.filter((p) => !p.fixture && !p.keywords.includes("pi-dashboard-plugin")).map((p) => p.name);
+    expect(missing).toEqual([]);
+  });
+
+  it("README states the install paths and the trust model", () => {
+    const readme = readFileSync(join(packagesDir, "..", "README.md"), "utf8");
+    expect(readme).toContain("pi install npm:<package> --scope global");
+    expect(readme).toMatch(/Packages tab[^\n]*appears live|appears live[^\n]*Plugins tab/);
+    expect(readme).toMatch(/terminal `pi install`[^\n]*after a dashboard restart/);
+    expect(readme).toMatch(/`local-detected`, never loaded/);
+    expect(readme).toMatch(/server-untrusted[\s\S]*local operator grants server trust/);
+    expect(readme).toMatch(/pins the bundle's content hash/);
   });
 });

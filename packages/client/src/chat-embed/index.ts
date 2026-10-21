@@ -14,8 +14,10 @@
  * npm-registry install. The consumer's own bundler owns the TS/JSX transform.
  *
  * ── REQUIRED HOST MOUNT CONTRACT ─────────────────────────────────────────────
- * `ChatView` reaches app-shell concerns via React context. A host MUST mount,
- * around `<ChatView>`:
+ * `ChatView` reaches app-shell concerns via React context. The shortcut: wrap in
+ * `<UiPrimitiveProvider value={createHostPrimitiveRegistry()}>` and
+ * `<EmbedProviders apiBase="">` (both below). The individual pieces, which a host
+ * MUST mount around `<ChatView>` if it does not use `EmbedProviders`:
  *   - `ThemeProvider`            — THROWS if absent (defines theme CSS vars).
  *   - `UiPrimitiveProvider`      — from `@blackbelt-technology/dashboard-plugin-runtime`
  *                                  (re-exported here for convenience); pass a
@@ -97,7 +99,13 @@ export {
 } from "../hooks/useSessionState.js";
 // Raw api-context (no `ApiProvider` component exists — wrap `ApiContext.Provider`).
 export { ApiContext, useApiBase } from "../lib/api/api-context.js";
-export { DisplayPrefsProvider } from "../lib/state/DisplayPrefsContext.js";
 // ── Boundary types ───────────────────────────────────────────────────────────
 export type { ChatImage, InteractiveUiRequest, SessionState } from "../lib/chat/event-reducer.js";
+// ── Standalone-embed wiring (no more copying main.tsx) ───────────────────────
+// `createHostPrimitiveRegistry()` (no params) → pass as `<UiPrimitiveProvider value>`;
+// `EmbedProviders` mounts the rest of the stack (everything except the primitive
+// provider and ModelConfigContext). See change: decouple-plugins-from-core (D8).
+export { createHostPrimitiveRegistry } from "../lib/plugins/host-primitives.js";
 export { SessionAssetsProvider } from "../lib/session/SessionAssetsContext.js";
+export { DisplayPrefsProvider } from "../lib/state/DisplayPrefsContext.js";
+export { EmbedProviders } from "./EmbedProviders.js";

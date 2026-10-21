@@ -9,10 +9,10 @@
  * See change: mcp-client-project-overrides (D9).
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { displayExposure, MCP_EXPOSURES } from "@blackbelt-technology/pi-dashboard-mcp-core/pi-rules.js";
+import type { EffectiveServerView, Scope } from "@blackbelt-technology/pi-dashboard-mcp-core/types.js";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { displayExposure, MCP_EXPOSURES } from "../core/pi-rules.js";
-import type { EffectiveServerView, Scope } from "../core/types.js";
 import { ApiError, scopeToWire, setProjectOverride } from "./api.js";
 import { invalidateEffective } from "./hooks.js";
 

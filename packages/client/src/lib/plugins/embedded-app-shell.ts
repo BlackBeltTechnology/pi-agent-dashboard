@@ -10,11 +10,13 @@
  *
  * See change: add-plugin-app-host (D4).
  */
+import type {
+  EmbeddedAppShell,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   createReturnTargetStore,
-  type EmbeddedAppShell,
   isSafeDashboardPath,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 
 export interface EmbeddedAppShellDeps {
   fetch: (input: string, init?: RequestInit) => Promise<Response>;

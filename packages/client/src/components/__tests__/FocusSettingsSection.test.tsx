@@ -3,7 +3,10 @@
  * current globals, Edit one profile row, First edit copies the built-in profile).
  * See change: add-focus-mode-and-card-block-toggles.
  */
-import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  createSlotRegistry,
+  PluginContextProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

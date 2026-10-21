@@ -296,3 +296,37 @@ test.describe("desktop card header — geometry and contrast", () => {
     }
   });
 });
+
+// F3 (session-header): the SESSION header (content pane), not the card header.
+// Covers test-plan #F3. See change: reorganize-session-header.
+test.describe("desktop session header — one 48 px row", () => {
+  test.setTimeout(180_000);
+
+  test("F3: row height 48–56 px and every control label is at least 12 px", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const id = `e2e-hdr-f3-${Date.now().toString(36)}`;
+    await seed({ id, name: id, model: "anthropic/claude-opus-4-1" });
+    const card = await reveal(page, id, id);
+    await card.click();
+
+    const row = page.getByTestId("session-header-row");
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    const h = (await row.boundingBox())!.height;
+    expect(h, "header row height").toBeGreaterThanOrEqual(48);
+    expect(h, "header row height").toBeLessThanOrEqual(56);
+
+    const targets = [
+      page.getByTestId("session-title-menu"),
+      page.getByTestId("layout-mode-closed"),
+      page.getByTitle("View options").first(),
+    ];
+    // Changed Files only exists once the session has file changes.
+    const changed = page.getByTestId("changed-files-chip");
+    if (await changed.isVisible().catch(() => false)) targets.push(changed);
+    for (const t of targets) {
+      await expect(t).toBeVisible();
+      const px = await t.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontSize));
+      expect(px, "font-size px").toBeGreaterThanOrEqual(12);
+    }
+  });
+});

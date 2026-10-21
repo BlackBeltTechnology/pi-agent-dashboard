@@ -63,14 +63,14 @@ describe("probeTrackedPaths", () => {
   });
 
   it("an in-place edit only a schema-declared output can see moves that change's mtime", async () => {
-    writeFile(cwd, "openspec/changes/c001/dependencies.yaml", "deps: []\n");
+    writeFile(cwd, "openspec/changes/c001/research.yaml", "notes: []\n");
     backdate(openspecDir);
     const extras = {
-      c001: { files: [path.join(openspecDir, "changes/c001/dependencies.yaml")], globPrefixes: [], outputs: ["dependencies.yaml"] },
+      c001: { files: [path.join(openspecDir, "changes/c001/research.yaml")], globPrefixes: [], outputs: ["research.yaml"] },
     };
     const before = await probeTrackedPaths({ openspecDir, extras });
     const legacyBefore = await probeTrackedPaths({ openspecDir, extras: null });
-    touchFuture(path.join(openspecDir, "changes/c001/dependencies.yaml"));
+    touchFuture(path.join(openspecDir, "changes/c001/research.yaml"));
     const after = await probeTrackedPaths({ openspecDir, extras });
     const legacyAfter = await probeTrackedPaths({ openspecDir, extras: null });
     expect(after.changes.c001).toBeGreaterThan(before.changes.c001!);

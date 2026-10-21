@@ -6,7 +6,10 @@
  * with Close. Never falls through to `CappedViewer`, so no `/api/file` request
  * is ever made for a virtual path. See change: add-browser-editor-pane-tab (D1/D2).
  */
-import { EditorPaneTabSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  EditorPaneTabSlot,
+  useShellSessionOrNull,
+} from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { useI18n } from "../../lib/i18n/i18n.js";
 
 export interface PluginTabHostProps {

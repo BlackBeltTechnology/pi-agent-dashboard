@@ -1,5 +1,4 @@
-import { isWidgetBarPrompt, useSlotClaimsVersion } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { isWidgetBarPrompt, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
 import {
@@ -47,6 +46,8 @@ import {
   CHAT_TRANSCRIPT_FLOOR,
   CHAT_TRANSCRIPT_WEIGHT,
 } from "../../lib/layout/chat-pane-row-class.js";
+import { ownerDisplayName } from "../../lib/plugins/event-type-owners.js";
+import { usePluginAvailability } from "../../lib/plugins/plugin-availability.js";
 import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
 import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
@@ -82,6 +83,7 @@ import { CustomEntryRow } from "./CustomEntryRow.js";
 import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { MultiAskPanel } from "./MultiAskPanel.js";
+import { OwnedEventGroupCard } from "./OwnedEventGroupCard.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { SlowLoadNotice } from "./SlowLoadNotice.js";
@@ -932,6 +934,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const effectiveMotionRef = useRef(effectiveMotion);
   effectiveMotionRef.current = effectiveMotion;
   const showDebugTools = prefs.debugTools;
+  // Plugin availability for owned-event group rows; a status change swaps the
+  // snapshot, re-renders and re-filters — it never re-reduces.
+  const availability = usePluginAvailability();
 
   // Per-turn change-summary blocks (change: add-change-summary-table). Derived
   // client-side from the raw (unfiltered) Edit/Write events so counts are
@@ -1119,6 +1124,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           );
         }
         case "rawEvent":
+          // An owned-event group row ignores the debug-tools setting: it shows
+          // only while its owner is unavailable (decided here at render time,
+          // never in the reducer). A plain raw row keeps the debug gate.
+          // See change: decouple-plugins-from-core.
+          if (msg.ownedGroup) return availability.isUnavailable(msg.ownedGroup.ownerId);
           return showDebugTools;
         case "custom":
           // Render-time gate only (rawEvent precedent): rows stay in state, so
@@ -1131,7 +1141,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           return true;
       }
     },
-    [prefs, showDebugTools, hiddenToolResultIds, panelRequestIds],
+    [prefs, showDebugTools, hiddenToolResultIds, panelRequestIds, availability],
   );
   const displayRows = useMemo(() => {
     const rows = groupedMessages.filter(isRowVisible);
@@ -2357,6 +2367,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
 
         if (msg.role === "rawEvent") {
+          if (msg.ownedGroup) {
+            // Mirrors the visibility gate above (second gate site).
+            if (!availability.isUnavailable(msg.ownedGroup.ownerId)) return null;
+            return (
+              <OwnedEventGroupCard
+                key={msg.id}
+                eventType={msg.toolName ?? "unknown"}
+                pluginName={ownerDisplayName(msg.ownedGroup.ownerId)}
+                count={msg.ownedGroup.count}
+                payloads={msg.ownedGroup.payloads}
+              />
+            );
+          }
           if (!showDebugTools) return null;
           return (
             <RawEventCard

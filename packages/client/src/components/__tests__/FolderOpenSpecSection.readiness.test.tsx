@@ -12,7 +12,7 @@
  *   folder-actions-menu (dismiss → opt-out).
  */
 
-import { SLOT_PILL_LEGEND } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SLOT_PILL_LEGEND } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

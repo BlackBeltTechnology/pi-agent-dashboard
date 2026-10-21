@@ -5,7 +5,7 @@
  */
 
 export type Tier = "readonly" | "draft" | "send";
-export type Op = "read" | "draft" | "send" | "modify" | "trash";
+export type Op = "read" | "draft" | "send" | "modify" | "trash" | "filters_read" | "filters_write";
 
 export const TIERS: readonly Tier[] = ["readonly", "draft", "send"];
 
@@ -14,6 +14,7 @@ export const SCOPE = {
   readonly: `${SCOPE_BASE}gmail.readonly`,
   compose: `${SCOPE_BASE}gmail.compose`,
   modify: `${SCOPE_BASE}gmail.modify`,
+  settingsBasic: `${SCOPE_BASE}gmail.settings.basic`,
 } as const;
 
 /** Requested Gmail scopes per tier (full set — no incremental auth for installed apps). */
@@ -32,6 +33,8 @@ const OP_TIER: Record<Op, Tier> = {
   send: "send",
   modify: "send",
   trash: "send",
+  filters_read: "readonly",
+  filters_write: "send",
 };
 
 /** Scope(s) that cover an op — any one suffices. */
@@ -41,6 +44,8 @@ const OP_SCOPE: Record<Op, string> = {
   send: SCOPE.modify,
   modify: SCOPE.modify,
   trash: SCOPE.modify,
+  filters_read: SCOPE.settingsBasic,
+  filters_write: SCOPE.settingsBasic,
 };
 
 /** Implication table: a granted scope also covers these. `modify ⇒ readonly, compose`. */
@@ -52,8 +57,13 @@ export function isTier(v: unknown): v is Tier {
   return v === "readonly" || v === "draft" || v === "send";
 }
 
+/** True for the filter ops (gated by the per-account filters option). */
+export function isFilterOp(op: Op): boolean {
+  return op === "filters_read" || op === "filters_write";
+}
+
 export function isOp(v: unknown): v is Op {
-  return v === "read" || v === "draft" || v === "send" || v === "modify" || v === "trash";
+  return v === "read" || v === "draft" || v === "send" || v === "modify" || v === "trash" || v === "filters_read" || v === "filters_write";
 }
 
 /** True when `tier` is high enough for `op`. */
@@ -82,7 +92,13 @@ export function scopesCoverTier(granted: readonly string[], tier: Tier): boolean
   return TIER_SCOPES[tier].every((s) => eff.has(s));
 }
 
+/** True when the granted scopes cover the filter ops (`gmail.settings.basic`; `modify` does not imply it). */
+export function scopesCoverFilters(granted: readonly string[]): boolean {
+  return effectiveScopes(granted).has(SCOPE.settingsBasic);
+}
+
 /** Space-separated `scope` parameter for an authorization request. */
-export function authScopeParam(tier: Tier): string {
-  return ["openid", "email", ...TIER_SCOPES[tier]].join(" ");
+export function authScopeParam(tier: Tier, opts?: { filters?: boolean }): string {
+  const filters = opts?.filters ? [SCOPE.settingsBasic] : [];
+  return ["openid", "email", ...TIER_SCOPES[tier], ...filters].join(" ");
 }

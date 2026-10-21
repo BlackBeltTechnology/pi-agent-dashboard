@@ -210,6 +210,21 @@ jobs:
             echo "::error::@mdi/js dynamic-import warning re-appeared (harden-ios-safari-memory-and-ws-diagnostics)"; fail=1
           fi
           exit $fail
+      # Utilities that only plugin source applies must survive the build: the
+      # plugin `@source` lines come from the generated plugin-sources.css. Checks
+      # the BUILT stylesheet (`hover:text-indigo-400` from the spec is no longer
+      # used by goal-plugin source, so it is not asserted).
+      # See change: decouple-plugins-from-core (task 8.24).
+      - name: Plugin Tailwind utilities are emitted
+        run: |
+          css=$(ls packages/client/dist/assets/index-*.css)
+          fail=0
+          for cls in 'hover\:text-indigo-300' 'hover\:border-indigo-500\/70' 'hover\:text-blue-400'; do
+            if ! grep -qF -- "$cls" $css; then
+              echo "::error::built CSS lacks $cls (plugin @source regression)"; fail=1
+            fi
+          done
+          exit $fail
       # Second publish-imports run, on the BUILT tree. The first run (above) sees
       # an unbuilt tree, so the root's shipped `packages/dist/` bundle output was
       # never analysed. It carries no workspace manifest, so it gets no

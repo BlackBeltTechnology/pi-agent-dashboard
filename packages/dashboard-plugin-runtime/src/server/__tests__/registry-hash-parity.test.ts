@@ -26,7 +26,8 @@ import {
   findMonorepoRoot,
   pluginRegistryHash,
 } from "../loader.js";
-import { bundleRootsFor, selectClientRegistryPlugins } from "../client-registry-set.js";
+import { bundleRootsFor, selectClientRegistryPlugins, serverRegistryHash } from "../client-registry-set.js";
+import { computeBuildDeclaration } from "../build-declaration-sdk.js";
 
 const repoRoot = findMonorepoRoot();
 if (!repoRoot) throw new Error("monorepo root not found from dashboard-plugin-runtime");
@@ -95,5 +96,92 @@ describe("plugin-registry hash parity (E4)", () => {
     expect(discovered.filter((p) => !p.clientEntryPath).length).toBeGreaterThan(0);
     const legacyRuntimeBasis = discovered.filter((p) => p.manifest.fixture !== true);
     expect(pluginRegistryHash(legacyRuntimeBasis)).not.toBe(embeddedRegistryHash());
+  });
+});
+
+// task 6.2 / E73: the server hash follows the served declaration, by host layout.
+describe("E73 server hash set by host layout (declaration-driven)", () => {
+  type Cand = Parameters<typeof serverRegistryHash>[0][number];
+  const ROOT = "/repo";
+  const claim = (c: string) => [{ slot: "settings-section" as const, component: c }];
+  function cand(
+    id: string,
+    source: Cand["source"],
+    dir: string,
+    opts: { claims?: string; fixture?: boolean; client?: boolean } = {},
+  ): Cand {
+    return {
+      manifest: {
+        id,
+        displayName: id,
+        claims: claim(opts.claims ?? "X"),
+        ...(opts.fixture ? { fixture: true } : {}),
+      },
+      source,
+      packageDir: `${dir}/${id}`,
+      clientEntryPath: opts.client === false ? undefined : `${dir}/${id}/src/client.tsx`,
+    };
+  }
+  const ws = (id: string, o = {}) => cand(id, "workspace", `${ROOT}/packages`, o);
+  /** The declaration the build wrote from the workspace set `built`. */
+  const declare = (built: Cand[]) => computeBuildDeclaration(built, { isProd: true, bundleRoots: [`${ROOT}/packages`] });
+
+  it("(a) npm-global + a runtime plugin: hash equals the embedded (declaration) hash", () => {
+    const built = [ws("flows"), ws("goal")];
+    const decl = declare(built);
+    const runtimeOnly = cand("ext", "installed", "/home/u/.pi/dashboard/plugins");
+    expect(serverRegistryHash([runtimeOnly], { isProd: true, declaration: decl })).toBe(decl.pluginRegistryHash);
+  });
+
+  it("(b) npm-global with an installed copy of declared `goal` at another version: compares against the declaration", () => {
+    const built = [ws("flows"), ws("goal")];
+    const decl = declare(built);
+    const installedGoal = cand("goal", "installed", "/home/u/.pi/dashboard/plugins", { claims: "OtherVersion" });
+    expect(serverRegistryHash([installedGoal], { isProd: true, declaration: decl })).toBe(decl.pluginRegistryHash);
+  });
+
+  it("(c) same checkout, fixture client present: equal", () => {
+    const built = [ws("flows"), ws("goal")];
+    const decl = declare(built);
+    const discovered = [...built, ws("demo", { fixture: true })];
+    expect(serverRegistryHash(discovered, { isProd: true, declaration: decl, monorepoRoot: ROOT })).toBe(decl.pluginRegistryHash);
+  });
+
+  it("(d) workspace copy of a declared id gains a claim after the build: differs (stale)", () => {
+    const decl = declare([ws("flows"), ws("goal")]);
+    const edited = [ws("flows"), ws("goal", { claims: "Edited" })];
+    expect(serverRegistryHash(edited, { isProd: true, declaration: decl, monorepoRoot: ROOT })).not.toBe(decl.pluginRegistryHash);
+  });
+
+  it("(e) a runtime-only root plugin is excluded: equal, no banner", () => {
+    const built = [ws("flows"), ws("goal")];
+    const decl = declare(built);
+    const discovered = [...built, cand("ext", "installed", "/home/u/.pi/dashboard/plugins")];
+    expect(serverRegistryHash(discovered, { isProd: true, declaration: decl, monorepoRoot: ROOT })).toBe(decl.pluginRegistryHash);
+  });
+
+  it("a new, not-yet-built workspace plugin raises the banner on a monorepo host", () => {
+    const built = [ws("flows"), ws("goal")];
+    const decl = declare(built);
+    expect(serverRegistryHash([...built, ws("fresh")], { isProd: true, declaration: decl, monorepoRoot: ROOT })).not.toBe(decl.pluginRegistryHash);
+  });
+
+  it("Electron shape: declared ids split across workspace + bundled copies still hash the winners", () => {
+    const built = [ws("flows"), cand("goal", "workspace", `${ROOT}/packages`)];
+    const decl = declare(built);
+    const electron = [ws("flows"), cand("goal", "bundled", "/app/resources/plugins")];
+    expect(serverRegistryHash(electron, { isProd: true, declaration: decl, monorepoRoot: ROOT })).toBe(decl.pluginRegistryHash);
+  });
+
+  it("an undeclared build keeps today's selection (pre-change golden)", () => {
+    const discovered = [ws("flows"), ws("goal"), cand("ext", "installed", "/home/u/.pi/dashboard/plugins")];
+    const legacy = pluginRegistryHash(
+      selectClientRegistryPlugins(discovered, { isProd: true, bundleRoots: bundleRootsFor(ROOT) }),
+    );
+    expect(serverRegistryHash(discovered, { isProd: true, monorepoRoot: ROOT })).toBe(legacy);
+    // npm-global, undeclared: every discovered client plugin is counted, exactly as before.
+    expect(serverRegistryHash(discovered, { isProd: true })).toBe(
+      pluginRegistryHash(selectClientRegistryPlugins(discovered, { isProd: true })),
+    );
   });
 });

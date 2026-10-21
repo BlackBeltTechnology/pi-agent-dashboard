@@ -1,6 +1,6 @@
 /**
- * Thin REST client for the folder-scoped goal endpoints, plus the base64url
- * folder-path codec used in `/folder/:encodedCwd/goals` routes.
+ * Thin REST client for the folder-scoped goal endpoints. Route hrefs use the
+ * runtime `./sdk` folder codec (no local copy).
  *
  * Uses relative `/api/...` URLs (same-origin), matching the automation +
  * subagents plugin REST convention. The server wraps responses in
@@ -8,6 +8,7 @@
  *
  * See change: add-goals-folder-page (tasks 3.x / 4.x).
  */
+import { folderRouteHref } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import type {
   GoalBudget,
   GoalCriterion,
@@ -16,33 +17,12 @@ import type {
   GoalRecordStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-// ── Folder-path codec (base64url, UTF-8 safe) ─────────────────────
-// `btoa`/`atob` only handle Latin1, so a cwd with non-ASCII chars (accents,
-// CJK) would throw. Round-trip through UTF-8 bytes first.
-export function encodeFolderPath(cwd: string): string {
-  const bytes = new TextEncoder().encode(cwd);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-export function decodeFolderPath(encoded: string): string | null {
-  try {
-    const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = (4 - (padded.length % 4)) % 4;
-    const bin = atob(padded + "=".repeat(pad));
-    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
 // ── URL builders for the goals overlay routes ─────────────────────
 export function goalsBoardUrl(cwd: string): string {
-  return `/folder/${encodeFolderPath(cwd)}/goals`;
+  return folderRouteHref(cwd, "/goals");
 }
 export function goalDetailUrl(cwd: string, goalId: string): string {
-  return `/folder/${encodeFolderPath(cwd)}/goals/${encodeURIComponent(goalId)}`;
+  return folderRouteHref(cwd, `/goals/${encodeURIComponent(goalId)}`);
 }
 
 // ── REST ──────────────────────────────────────────────────────────

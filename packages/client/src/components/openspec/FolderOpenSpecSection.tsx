@@ -1,4 +1,5 @@
-import { SLOT_PILL_LEGEND, SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SlotPill } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SLOT_PILL_LEGEND } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { OpenSpecData, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiClipboardTextOutline, mdiClose, mdiInformationOutline } from "@mdi/js";
@@ -231,7 +232,7 @@ export function FolderOpenSpecSection({ data, cwd, onOpenBoard, offerInitializat
             <span data-slot-pill-legend className={`${SLOT_PILL_LEGEND} bg-[var(--bg-tertiary)]`}>
               {i18nT("openspec.openspec", undefined, "OpenSpec")}
             </span>
-            <span className="shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center bg-purple-500/10 text-purple-400">
+            <span className="shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center bg-[var(--tint-purple-bg)] text-[var(--accent-purple-text)]">
               <Icon path={mdiClipboardTextOutline} size={0.62} />
             </span>
             <span
@@ -344,7 +345,7 @@ function Pending({ cwd }: { cwd: string }) {
           data-testid="folder-openspec-pending-spinner"
           aria-label={i18nT("openspec.openspecLoading", undefined, "OpenSpec loading")}
         />
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase">{i18nT("openspec.openspec", undefined, "OpenSpec")}</span>
+        <span className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase">{i18nT("openspec.openspec", undefined, "OpenSpec")}</span>
       </div>
     </div>
   );
@@ -368,7 +369,7 @@ function ReadyPill({ cwd, data, onOpenBoard }: { cwd: string; data: OpenSpecData
         onActivate={() => onOpenBoard?.(cwd)}
       >
         <span data-testid="folder-openspec-count">{count}</span>
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{i18nT("openspec.changesUnit", undefined, "changes")}</span>
+        <span className="text-[11px] font-semibold text-[var(--text-tertiary)]">{i18nT("openspec.changesUnit", undefined, "changes")}</span>
       </SlotPill>
     </div>
   );

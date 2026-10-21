@@ -126,7 +126,9 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   "live-server": "system",
 };
 
-const IDENTITY_ROUTES: ReadonlySet<string> = new Set(["/api/health", "/api/ws-ticket"]);
+// `/api/pi-trust/query` is the bridge's own credentialed call, classified like the ticket mint
+// (change: mirror-dashboard-trust-live-remote).
+const IDENTITY_ROUTES: ReadonlySet<string> = new Set(["/api/health", "/api/ws-ticket", "/api/pi-trust/query"]);
 
 const verbOf = (method: string): "read" | "write" =>
   method.toUpperCase() === "GET" || method.toUpperCase() === "HEAD" ? "read" : "write";
@@ -187,6 +189,8 @@ export function classifyHttpRoad(
   if (seg === "plugins") {
     if (second === undefined) return core("plugins", method, route);
     if (second === ":id") return core("plugins", method, route);
+    // The runtime-client listing is core plugin management, not a plugin named "runtime-clients".
+    if (second === "runtime-clients") return core("plugins", method, route);
     return plugin(second, method, route);
   }
   if (seg === "config" && second === "plugins") return core("plugins", method, route);

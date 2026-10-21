@@ -9,21 +9,11 @@
  * See change: model-picker-everywhere-favorites (test-plan E8–E12, F4, F5, X1, X2).
  */
 
-import {
-  createSlotRegistry,
-  type RegisteredSource,
-  SettingsDraftProvider,
-  type SettingsDraftRegistry,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import {
-  applyPluginConfigUpdate,
-  CurrentPluginLayer,
-  PluginContextProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { applyPluginConfigUpdate, CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type React from "react";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AutomationSettings } from "../client/AutomationSettings.js";
 

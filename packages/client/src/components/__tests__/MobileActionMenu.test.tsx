@@ -1,3 +1,4 @@
+import { mdiHistory } from "@mdi/js";
 import { act, cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -196,5 +197,20 @@ describe("MobileActionMenu archived attachment (resolve-archived-attached-propos
     const text = document.body.textContent ?? "";
     for (const w of ["Continue", "Apply", "Archive", "Verify", "Explore"]) expect(text).not.toContain(w);
     expect(text).toContain("Detach: add-auth");
+  });
+});
+
+describe("MobileActionMenu Reload transcript (E17)", () => {
+  it("labels the refresh item 'Reload transcript' with the history icon and calls onRefresh", () => {
+    const onRefresh = vi.fn();
+    render(<MobileActionMenu session={makeSession({ status: "idle" })} onRefresh={onRefresh} />);
+    openMenu();
+    const menu = screen.getByTestId("mobile-action-menu");
+    expect(menu.textContent).toContain("Reload transcript");
+    expect(menu.textContent).not.toContain("Refresh Chat");
+    const row = screen.getByText("Reload transcript").closest("button")!;
+    expect(row.querySelector("svg path")?.getAttribute("d")).toBe(mdiHistory);
+    fireEvent.click(row);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });

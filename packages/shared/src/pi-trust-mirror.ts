@@ -14,6 +14,7 @@
  * See change: mirror-dashboard-trust-to-pi.
  */
 import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { PiTrustMirrorSourceId } from "./config.js";
@@ -230,7 +231,7 @@ export type DefaultProjectTrust = "always" | "never" | "ask";
 export type PiTrustSource =
   | { kind: "implicit" }
   | { kind: "recorded"; path: string }
-  | { kind: "dashboard"; sourceKind: MirrorSourceKind; entry: string }
+  | { kind: "dashboard"; sourceKind: MirrorSourceKind; entry: string; lifetime?: string }
   | { kind: "default"; value: DefaultProjectTrust };
 
 export interface PiTrustDecision {
@@ -244,7 +245,7 @@ export interface DecidePiTrustInput {
   /** pi's nearest recorded entry (true OR false), or null. */
   recordedEntry: { path: string; decision: boolean } | null;
   /** The counted dashboard entry covering the cwd, or null. */
-  mirrorEntry: { sourceKind: MirrorSourceKind; key: string } | null;
+  mirrorEntry: { sourceKind: MirrorSourceKind; key: string; lifetime?: string } | null;
   /** `piTrustMirror.enabled`. */
   mirrorEnabled: boolean;
   piDefault: DefaultProjectTrust;
@@ -263,7 +264,12 @@ export function decidePiTrust(input: DecidePiTrustInput): PiTrustDecision {
   if (input.mirrorEnabled && input.mirrorEntry) {
     return {
       trusted: true,
-      source: { kind: "dashboard", sourceKind: input.mirrorEntry.sourceKind, entry: input.mirrorEntry.key },
+      source: {
+        kind: "dashboard",
+        sourceKind: input.mirrorEntry.sourceKind,
+        entry: input.mirrorEntry.key,
+        ...(input.mirrorEntry.lifetime ? { lifetime: input.mirrorEntry.lifetime } : {}),
+      },
     };
   }
   return { trusted: input.piDefault === "always", source: { kind: "default", value: input.piDefault } };
@@ -276,6 +282,7 @@ export const MIRROR_SOURCE_LABELS: Record<MirrorSourceKind, string> = {
   pinned: "pinned folder",
   folderWorkspaces: "folder workspace",
   accessGrants: "access grant",
+  yolo: "YOLO session",
 };
 
 // ── Covering entry + identity ─────────────────────────────────────────────
@@ -307,6 +314,25 @@ export function statFolderIdentity(dir: string): FolderIdentity | null {
   if (!isCanonicalAbsolutePath(dir)) return null;
   try {
     const st = fs.statSync(dir, { bigint: true });
+    const identity: FolderIdentity = { dev: st.dev.toString(), ino: st.ino.toString() };
+    const birth = Number(st.birthtimeMs);
+    if (Number.isFinite(birth) && birth > 0 && st.birthtimeMs !== st.ctimeMs) identity.birthtimeMs = birth;
+    return identity;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `statFolderIdentity` on `fs/promises`, for the bridge's bounded live step (a hung
+ * mount must not block the event loop past the deadline). Honours `signal`:
+ * aborted → `null`. Same shape and rules as the sync form.
+ */
+export async function statFolderIdentityAsync(dir: string, signal?: AbortSignal): Promise<FolderIdentity | null> {
+  if (!isCanonicalAbsolutePath(dir) || signal?.aborted) return null;
+  try {
+    const st = await fsp.stat(dir, { bigint: true });
+    if (signal?.aborted) return null;
     const identity: FolderIdentity = { dev: st.dev.toString(), ino: st.ino.toString() };
     const birth = Number(st.birthtimeMs);
     if (Number.isFinite(birth) && birth > 0 && st.birthtimeMs !== st.ctimeMs) identity.birthtimeMs = birth;

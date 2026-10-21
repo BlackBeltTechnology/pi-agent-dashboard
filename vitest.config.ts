@@ -135,6 +135,8 @@ export default defineConfig({
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",
+      // mcp-core (change: decouple-plugins-from-core): host-free MCP config library extracted from mcp-client-plugin/core.
+      "packages/mcp-core",
       // keycloak-resolver-plugin: the bundled identity resolver. Its server
       // suites (jwks, resolver, config, fake-issuer) + the D16 browser
       // login-flow suite gate real auth boundaries; a package absent here

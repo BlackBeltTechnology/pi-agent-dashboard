@@ -18,5 +18,5 @@
     }
   },
   "include": ["packages/*/src"],
-  "exclude": ["node_modules", "dist", "packages/*/dist", "packages/team-app"]
+  "exclude": ["node_modules", "dist", "packages/*/dist", "packages/team-app", "packages/dashboard-plugin-runtime/src/__tests__/fixtures/client-preset"]
 }

@@ -206,6 +206,13 @@ export interface DirectoryService {
   ensureLoadWorkerPool(): SessionLoadWorkerPool | null;
   getOpenSpecData(cwd: string): OpenSpecData | undefined;
   /**
+   * Which poll path produced the cached data for `cwd`: `"all"` (`status --all`),
+   * `"fallback"` (CLI without it) or `undefined` (never polled). The dependencies
+   * REST gate answers 409 `status-all-unsupported` on `"fallback"`.
+   * See change: add-openspec-change-dependencies.
+   */
+  getOpenSpecPollMode(cwd: string): "all" | "fallback" | undefined;
+  /**
    * The ONE spawn semaphore bounding every `openspec` CLI spawn: the poll, and
    * (passed in by `server.ts`) the REST workflow-schema validate. Resized by
    * `reconfigurePolling`, so holders see the new cap.
@@ -349,6 +356,13 @@ type DirCache = {
   allCwdMtime: number | undefined;
   /** Tracked extras per change from the last successful result; `null` before one (legacy set only). */
   allExtras: Record<string, TrackedExtras> | null;
+  /**
+   * Capability ids touched by an active delta in the last build, stored with the
+   * cwd-level stamp: the probe stats their main-spec paths. `null` = unknown
+   * (cold start, worker restart) → the gate does not skip. See change:
+   * add-openspec-change-dependencies.
+   */
+  allCapIds: string[] | null;
   /** Worker build output BEFORE readiness/skills finalization, reused on gate hits. */
   allData: OpenSpecData | undefined;
   /**
@@ -371,6 +385,7 @@ function emptyDirCache(): DirCache {
     mode: undefined,
     allCwdMtime: undefined,
     allExtras: null,
+    allCapIds: null,
     allData: undefined,
   };
 }
@@ -503,8 +518,10 @@ export interface DirectoryServiceOptions {
  * successful poll — same cwd-level stamp, same change set, every change
  * stamped (an unstamped/racy entry always trips) at its probed mtime.
  */
-function statusAllGateHit(cache: DirCache, pre: ProbeResponse): boolean {
-  if (!cache.allData || cache.allCwdMtime === undefined || pre.cwdMtime !== cache.allCwdMtime) return false;
+export function statusAllGateHit(cache: DirCache, pre: ProbeResponse): boolean {
+  // `allCapIds === null`: the cwd-level stamp does not yet cover the main-spec
+  // paths (cold start, worker restart) — never skip. See change: add-openspec-change-dependencies.
+  if (!cache.allData || cache.allCapIds === null || cache.allCwdMtime === undefined || pre.cwdMtime !== cache.allCwdMtime) return false;
   if (cache.changes.size !== pre.names.length) return false;
   return pre.names.every((n) => {
     const e = cache.changes.get(n);
@@ -531,6 +548,7 @@ function applyStatusAllBuild(cache: DirCache, out: Extract<StatusAllBuildRespons
   for (const key of Array.from(cache.changes.keys())) if (!live.has(key)) cache.changes.delete(key);
   cache.allCwdMtime = out.cwdStamp;
   cache.allExtras = out.extras;
+  cache.allCapIds = out.capabilityIds;
   cache.allData = out.data;
 }
 
@@ -1149,11 +1167,12 @@ export function createDirectoryService(
       cache.listResult = undefined;
       cache.allCwdMtime = undefined;
       cache.allExtras = null;
+      cache.allCapIds = null;
       cache.allData = undefined;
     }
 
     const openspecDir = await canonicalOpenspecDir(cwd);
-    const probeReq = { openspecDir, extras: cache.allExtras };
+    const probeReq = { openspecDir, extras: cache.allExtras, capabilityIds: cache.allCapIds };
     const schemaInputs = await schemaStatusInputsFor(cliVersion);
     const pool = ensureWorkerPool();
     const probePromise = pool.probe(probeReq);
@@ -1197,6 +1216,7 @@ export function createDirectoryService(
       cache.data = empty;
       cache.allCwdMtime = undefined;
       cache.allExtras = null;
+      cache.allCapIds = null;
       cache.allData = undefined;
       cache.listMtimeMs = undefined;
       cache.listResult = undefined;
@@ -1319,6 +1339,7 @@ export function createDirectoryService(
       cache.changes.clear();
       cache.allCwdMtime = undefined;
       cache.allExtras = null;
+      cache.allCapIds = null;
       cache.allData = undefined;
       cache.listMtimeMs = undefined;
       cache.listResult = undefined;
@@ -1595,6 +1616,7 @@ export function createDirectoryService(
       cache.data = empty;
       cache.allCwdMtime = undefined;
       cache.allExtras = null;
+      cache.allCapIds = null;
       cache.allData = undefined;
       cache.listMtimeMs = undefined;
       cache.listResult = undefined;
@@ -2158,6 +2180,10 @@ export function createDirectoryService(
 
     getOpenSpecData(cwd: string): OpenSpecData | undefined {
       return caches.get(cwd)?.data;
+    },
+
+    getOpenSpecPollMode(cwd: string): "all" | "fallback" | undefined {
+      return caches.get(cwd)?.mode;
     },
 
     invalidateOpenSpecSignatureCache,

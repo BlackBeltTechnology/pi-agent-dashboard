@@ -1,81 +1,11 @@
 /**
- * mcp-client-plugin · CORE entry — pure, host-free logic over pi's built-in
- * MCP config.
+ * mcp-client-plugin · `./core` — DEPRECATED compatibility re-export.
  *
- * No host, pi or React imports: this entry is consumed by the dashboard server
- * AND by the hostless `apple-tools` installer CLI.
- * See change: migrate-mcp-to-pi-builtin; earlier: extract-mcp-client-plugin.
+ * The host-free MCP config logic moved to the non-plugin library
+ * `@blackbelt-technology/pi-dashboard-mcp-core`; import it from there. This
+ * entry is kept for one minor release, then removed.
+ * See change: decouple-plugins-from-core (task 2.2).
+ *
+ * @deprecated import from `@blackbelt-technology/pi-dashboard-mcp-core`.
  */
-
-export { createRealConfigIO, writeFileAtomic } from "./config-io.js";
-export {
-  type ConfigWriter,
-  type ConfigWriterDeps,
-  createConfigWriter,
-  FOLDER_COPY_OMITTED,
-  folderCopyOf,
-  isLegacyFolderCopy,
-  NotAllowedCwdError,
-} from "./config-writer.js";
-export {
-  createEffectiveViewReader,
-  type EffectiveViewReader,
-  isSecretKey,
-  redactEntry,
-} from "./effective-view.js";
-export { defaultLayerPaths, type LayerPaths, piAgentDir, readLayer } from "./layers.js";
-export {
-  createLiveStateReader,
-  LIVE_STATE_CACHE_TTL_MS,
-  LIVE_STATE_TIMEOUT_MS,
-  type LiveStateReader,
-  parseMcpListJson,
-} from "./live-state.js";
-export {
-  ADAPTER_ONLY_KEYS,
-  adapterLeftovers,
-  authModeOf,
-  classifyProjectEntry,
-  displayExposure,
-  ignoredKeys,
-  isFullEntry,
-  isProjectOverride,
-  isValidServerName,
-  type KeptGlobal,
-  keptGlobalOf,
-  MCP_EXPOSURE_ALIASES,
-  MCP_EXPOSURES,
-  type McpExposure,
-  mcpNamespace,
-  OVERRIDE_KEYS,
-  type ProjectEntryClass,
-  transportOf,
-  validatePiEntry,
-} from "./pi-rules.js";
-export { errorFields, mcpConfigSchema, type PatchValidation, validateServerEntry } from "./schema-validation.js";
-export { createMcpClientConfigService, type McpClientConfigServiceDeps, type McpClientRuntime } from "./service.js";
-export type {
-  AuthMode,
-  ConfigIO,
-  ConfigRefusal,
-  ConfigRefusalCode,
-  ConfigWriteResult,
-  ConvertLegacyResult,
-  EffectiveServerView,
-  EffectiveView,
-  InactiveReason,
-  LayerStatus,
-  LiveServerState,
-  LiveState,
-  McpClientConfigService,
-  OverrideIssue,
-  ParseStatus,
-  PiMcpListRunner,
-  ProjectOverridePatch,
-  ProjectOverrideResult,
-  Provenance,
-  RemoveResult,
-  Scope,
-  ServerEntry,
-  SetEnabledResult,
-} from "./types.js";
+export * from "@blackbelt-technology/pi-dashboard-mcp-core";

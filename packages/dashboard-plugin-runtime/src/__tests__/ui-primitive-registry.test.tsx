@@ -14,7 +14,8 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { render, renderHook } from "@testing-library/react";
 import type React from "react";
-import { describe, expect, it } from "vitest";
+import { createContext, useContext } from "react";
+import { describe, expect, it, vi } from "vitest";
 import {
   createUiPrimitiveRegistry,
   registerUiPrimitive,
@@ -23,6 +24,20 @@ import {
   useUiPrimitiveOrNull,
 } from "../index.js";
 import { withUiPrimitiveProvider } from "../test-support/withUiPrimitiveProvider.js";
+
+// Counts every `<UiPrimitiveProvider>` render (pass-through): test-plan #X3 (b) asserts a
+// self-providing primitive mounts none of its own.
+const providerRenders = vi.hoisted(() => ({ n: 0 }));
+vi.mock("../ui-primitive-context.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../ui-primitive-context.js")>();
+  return {
+    ...actual,
+    UiPrimitiveProvider: (props: Parameters<typeof actual.UiPrimitiveProvider>[0]) => {
+      providerRenders.n++;
+      return actual.UiPrimitiveProvider(props);
+    },
+  };
+});
 
 // Minimal stub primitives used as registration impls in tests.
 const StubMarkdown: UiPrimitiveMap["ui:markdown-content"] = ({ content }) => (
@@ -292,6 +307,47 @@ describe("UI primitive registry", () => {
       );
       expect(getByTestId("a").textContent).toBe("1t");
       expect(getByTestId("b").textContent).toBe("2t");
+    });
+  });
+
+  // test-plan #X3 (b); change: decouple-plugins-from-core (D8).
+  describe("self-providing primitive (ui:chat-view shape)", () => {
+    it("mounts its own nested providers but resolves primitives from the OUTER registry, with one UiPrimitiveProvider", () => {
+      const ChatSessionContext = createContext<string | null>(null);
+      const mdSpy = vi.fn();
+      const SpyMarkdown: UiPrimitiveMap["ui:markdown-content"] = ({ content }) => {
+        mdSpy(content);
+        return <div data-testid="outer-md">{content}</div>;
+      };
+      // The chat view's inner message list asks the registry for markdown.
+      const Inner = () => {
+        const Markdown = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
+        const session = useContext(ChatSessionContext);
+        return <Markdown content={`msg of ${session}`} />;
+      };
+      // Self-providing: mounts a chat/session provider, NOT a UiPrimitiveProvider.
+      const SelfProvidingChatView: UiPrimitiveMap["ui:chat-view"] = ({ sessionId }) => (
+        <ChatSessionContext.Provider value={sessionId}>
+          <Inner />
+        </ChatSessionContext.Provider>
+      );
+      const reg = createUiPrimitiveRegistry();
+      registerUiPrimitive(reg, UI_PRIMITIVE_KEYS.markdownContent, SpyMarkdown);
+      registerUiPrimitive(reg, UI_PRIMITIVE_KEYS.chatView, SelfProvidingChatView);
+      // A plugin claim: reads the chat view through the registry, like any primitive.
+      const PluginClaim = () => {
+        const ChatView = useUiPrimitive(UI_PRIMITIVE_KEYS.chatView);
+        return <ChatView sessionId="s1" />;
+      };
+      providerRenders.n = 0;
+      const { getByTestId } = render(
+        <UiPrimitiveProvider value={reg}>
+          <PluginClaim />
+        </UiPrimitiveProvider>,
+      );
+      expect(getByTestId("outer-md").textContent).toBe("msg of s1");
+      expect(mdSpy).toHaveBeenCalledWith("msg of s1");
+      expect(providerRenders.n).toBe(1);
     });
   });
 });

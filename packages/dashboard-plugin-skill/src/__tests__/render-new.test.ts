@@ -5,11 +5,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { PLUGIN_HOST_API_VERSION, satisfiesHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
 import { parseDeclaration } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/project-identity.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { writeProjectId } from "../project-identity.js";
 import type { AppScopeAnswers, NewModeAnswers, SlotId } from "../render.js";
-import { type InMemorySink, render } from "../render.js";
+import { type InMemorySink, render, scaffoldHostApiRange } from "../render.js";
 
 const ALL_SLOTS: SlotId[] = [
   "sidebar-folder-section",
@@ -67,6 +68,22 @@ describe("render new — minimal acme", () => {
     expect(manifest.id).toBe("acme");
     expect(manifest.requiredApi).toBe("^0.x");
     expect(Array.isArray(manifest.claims)).toBe(true);
+  });
+
+  // test-plan #E33 — template imports the public root; keyword + hostApi derived from the host API version.
+  it("client.tsx imports the public runtime root and never the deprecated /context subpath", () => {
+    const client = sink.files.get("src/client.tsx")!;
+    expect(client).toContain('from "@blackbelt-technology/dashboard-plugin-runtime"');
+    expect(client).not.toContain("dashboard-plugin-runtime/context");
+  });
+
+  it("package.json carries the pi-dashboard-plugin keyword and a hostApi derived from PLUGIN_HOST_API_VERSION", () => {
+    const pkg = JSON.parse(sink.files.get("package.json")!) as { keywords?: string[]; "pi-dashboard-plugin": { hostApi?: string } };
+    expect(pkg.keywords).toContain("pi-dashboard-plugin");
+    const [major, minor] = PLUGIN_HOST_API_VERSION.split(".");
+    expect(pkg["pi-dashboard-plugin"].hostApi).toBe(`^${major}.${minor}.0`);
+    expect(scaffoldHostApiRange("2.7.3")).toBe("^2.7.0");
+    expect(satisfiesHostApiRange(PLUGIN_HOST_API_VERSION, pkg["pi-dashboard-plugin"].hostApi!)).toBe(true);
   });
 
   it("package.json adds both SDK deps", () => {

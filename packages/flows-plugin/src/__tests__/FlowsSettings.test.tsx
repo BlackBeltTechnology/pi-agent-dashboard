@@ -3,12 +3,7 @@
  * a `t()` hint, no native checkbox; draft id `plugin:flows` commits `editFlow`.
  * See change: retro-ux-plugin-settings-wave-2.
  */
-import {
-  createSlotRegistry,
-  type RegisteredSource,
-  SettingsDraftProvider,
-} from "@blackbelt-technology/dashboard-plugin-runtime";
-import { CurrentPluginLayer, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlowsSettings } from "../client/FlowsSettings.js";

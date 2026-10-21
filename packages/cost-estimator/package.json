@@ -23,7 +23,8 @@
     "monte-carlo",
     "business-case",
     "agentic-cost",
-    "session-telemetry"
+    "session-telemetry",
+    "pi-dashboard-plugin"
   ],
   "exports": {
     ".": {

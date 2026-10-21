@@ -1,4 +1,4 @@
-import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import type { ChatMessage, InteractiveUiRequest } from "./event-reducer.js";
 
 /**
