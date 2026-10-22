@@ -12,7 +12,6 @@ import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent,
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
@@ -73,6 +72,7 @@ import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsu
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { QuestionStack } from "../questions/QuestionStack.js";

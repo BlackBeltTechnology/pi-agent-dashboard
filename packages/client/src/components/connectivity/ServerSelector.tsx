@@ -2,9 +2,9 @@ import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/Lay
 import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
-  mdiAlertOutline,
   mdiAccessPointNetwork,
   mdiAlertCircle,
+  mdiAlertOutline,
   mdiCheckCircleOutline,
   mdiChevronDown,
   mdiCloseCircleOutline,
@@ -21,10 +21,10 @@ import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { acceptKnownServerMove, listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
 import { getOpenServerWindow } from "../../lib/electron-server-windows.js";
-import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { logRejection } from "../../lib/report-error.js";
 import type { RemoteAccessTone } from "../../lib/gateway/gateway-connection.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
+import { logRejection } from "../../lib/report-error.js";
 import { identityPill, type Severity, severityPill } from "./connectivity-ui.js";
 
 /** Re-export for backward compat — consumers that imported this type */

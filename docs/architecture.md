@@ -4758,10 +4758,12 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 
 ### Sidebar header grouping
 - Header = Tailwind `@container`. Row 1 `flex-wrap` (wraps, never clips).
+- Icon buttons (Discord, Appearance, Focus, Settings, row-2 filter funnel) share one recipe: HEADER_ICON_BTN + HEADER_ICON_SIZE in packages/client/src/components/primitives/header-icon-button.ts. 28 px box (size-7 rounded-md), 18 px glyph, --text-secondary, --bg-hover fill on hover/aria-expanded, selected-chip look on aria-pressed. Core-only. Named exceptions in ui-contract.md row "icon button (header)".
 - Row 1 left: logo · Discord (`discord-btn`) · divider · Appearance (`ThemePicker`, `theme-picker-trigger`) · Focus (`focus-toggle-btn`).
-- Appearance dropdown: Mode toggle (`ThemeToggle`) + palette list.
+- Appearance dropdown: trigger glyph mdiBrightness6. 300 px @container panel (usePopoverFlip clamps to viewport). "Mode" heading + segmented ThemeToggle (icon + label Light/System/Dark). "Palette" heading + scrolling grid-cols-2 palette grid (theme-palette-grid; 1 column when panel < 254 px). Active palette = aria-pressed + selected-chip fill, no check glyph. Only the grid scrolls on short viewport.
 - Row 1 right: open-questions pill (`QuestionStack`) · update badge · connection chip (`connection-chip`, `ServerSelector`) · Settings (`settings-btn`).
-- Connection chip: status dot · server name (hidden when header container < 400 px) · offline word (>= 400 px) or cloud-off glyph (< 400 px) · remote-access tone glyph (internet/partial/failed) · waiting-device badge (`tunnel-btn-badge`).
+- Electron RuntimeUpdateBadge glyph-only in header; version in title/aria-label.
+- Connection chip: server-kind glyph (connection-chip-glyph; mdiLaptop local, mdiServerNetwork remote; offline = mdiLaptopOff / mdiServerNetworkOff form in --accent-red-text, carries connection-chip-offline-glyph) with aria-hidden top-right status dot badge · server name (max-w-24, max-w-40 from header container 480 px; hidden < 400 px) · offline word (>= 480 px) · remote-access tone glyph (internet/partial/failed) · waiting-device badge (tunnel-btn-badge) · chevron (hidden < 400 px). Collapsed chip 32 px. Kind from currentServerKind(entry, host) in ServerSelector.tsx. title = "{server}: switch server".
 - Chip menu: servers · "Manage servers…" · Access group.
 - Access group: Remote access (`tunnel-btn`, opens `RemoteAccessDialog`) · Install as app (`install-btn`, only when installable).
 - `useRemoteAccessIndicator` (hooks): tunnel-status poll, reachability, pending-pairing count, saved-run resume. Called once in `App.tsx`.
@@ -4769,7 +4771,7 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 - `TunnelButton` and `InstallButton` deleted.
 - Row 2: one scoped search box. Scope toggle Sessions|Folders. Inactive query = chip with switch + clear buttons.
 - Filter funnel (`filter-funnel-btn`) opens popover. Badge counts Include archive + Show hidden.
-- Layout floors: common state one line at >= 280 px sidebar. Worst state one line at >= 400 px.
+- Layout floors: common state (quiet remote access, update count < 10) one line at >= 280 px sidebar. With tunnel on or 2-digit count, right group wraps at ~280-300 px, never clips. Worst state, short server name, one line at >= 400 px.
 
 ### Reconnection Flow
 1. Browser reconnects with `subscribe` message including `lastSeq`

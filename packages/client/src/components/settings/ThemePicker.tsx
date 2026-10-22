@@ -1,10 +1,10 @@
 import { mdiBrightness6 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
-import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { THEMES } from "../../lib/theme/themes.js";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { useThemeContext } from "./ThemeProvider.js";
 import { ThemeToggle } from "./ThemeToggle.js";
 

@@ -1,7 +1,7 @@
+import { mdiCheck } from "@mdi/js";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mdiCheck } from "@mdi/js";
 import { THEMES } from "../../lib/theme/themes.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";

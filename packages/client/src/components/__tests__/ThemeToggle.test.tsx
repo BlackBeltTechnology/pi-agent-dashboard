@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
-import { ThemeToggle } from "../settings/ThemeToggle.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { ThemeToggle } from "../settings/ThemeToggle.js";
 
 afterEach(() => cleanup());
 

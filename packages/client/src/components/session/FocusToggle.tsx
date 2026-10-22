@@ -5,9 +5,9 @@
  */
 import { mdiTarget } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useFocusActions, useFocusState } from "../../lib/state/CardSectionsContext.js";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 
 export function FocusToggle() {
   const { enabled } = useFocusState();
