@@ -19,6 +19,7 @@ import { Icon } from "@mdi/react";
 import { useCallback, useState } from "react";
 import { addKnownServer, discoverServers } from "../../lib/api/known-servers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { logRejection } from "../../lib/report-error.js";
 import { parseHostInput } from "../../lib/util/parse-host-input.js";
 import {
@@ -138,7 +139,7 @@ function DiscoveredRow({
             data-testid="discovery-connect"
             className={BTN_SMALL}
             aria-label={i18nT("connection.connectAria", { name }, "Connect to {name} (opens in a new tab)")}
-            onClick={() => window.open(connectUrl, "_blank", "noopener")}
+            onClick={() => openExternalUrl(connectUrl)}
           >
             {i18nT("connection.connect", undefined, "Connect")}
             <Icon path={mdiOpenInNew} size={0.5} aria-hidden="true" />

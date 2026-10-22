@@ -128,6 +128,7 @@ function nameOf(byId: ReadonlyMap<string, AddonFeature>, id: string): string {
 
 function FeatureLink({ byId, id }: { byId: ReadonlyMap<string, AddonFeature>; id: string }) {
 	return (
+		// client-sinks: allow — in-page fragment anchor
 		<a href={`#${rowAnchorId(id)}`} className="text-[var(--accent-primary)] hover:underline">
 			{nameOf(byId, id)}
 		</a>

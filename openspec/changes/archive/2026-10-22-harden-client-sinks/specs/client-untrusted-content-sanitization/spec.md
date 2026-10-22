@@ -13,9 +13,10 @@ unsupported SHALL be treated as a failure; a failure SHALL NOT cache or inject
 the unsanitized SVG. Diagram-level directives (`%%{init}%%`) SHALL NOT be able
 to override the theme CSS or font family that mermaid emits into the SVG's
 `<style>` element. When the browser supports Trusted Types, the sanitized SVG
-SHALL be injected as a trusted value created by the sanitized-HTML policy, and
-the pre-sanitize colorize parse SHALL take its input from the dedicated
-Mermaid-parse policy, never from the default policy.
+SHALL be injected as a trusted value created by the sanitized-HTML policy. The
+default-node colorize step SHALL operate on an already-sanitized DOM (DOMPurify
+`RETURN_DOM`), never on a string parse of unsanitized renderer output, so it
+reaches no HTML sink and never the default policy.
 
 #### Scenario: SVG xlink:href javascript dropped
 - **WHEN** a rendered diagram contains an `<a xlink:href="javascript:alert(1)">`

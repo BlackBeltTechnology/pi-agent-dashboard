@@ -242,6 +242,7 @@ function RemedyBlock({ refusal, pendingId }: { refusal: RefusalRemedies | null; 
                 <li key={remedy} data-testid="pairing-remedy-row" data-remedy={remedy}>
                   {i18nT("pairingApproval.remedy.signIn", undefined, "Or sign in with an operator account.")}{" "}
                   <a
+                    // client-sinks: allow — same-origin login path built by loginPathFor
                     href={loginPathFor(`${window.location.pathname}${window.location.search}`)}
                     data-testid="pairing-remedy-signin"
                     className="font-semibold underline text-inherit max-sm:inline-flex max-sm:items-center max-sm:min-h-[44px]"

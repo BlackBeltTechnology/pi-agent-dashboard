@@ -25,7 +25,6 @@ The phases are ordered and each ships behind its own gate. They revert in revers
 - **Phase B — Trusted Types.**
   - New client module `trusted-types.ts` registers named policies:
     - `pi-sanitized-html`: DOMPurify, using each sink's existing config.
-    - `pi-mermaid-parse`: the colorize `DOMParser` pass.
     - `pi-static-svg`: team-app constant `ICON` and `GALLERY` maps, by key.
     - `pi-worker-url`: same-origin `/assets/*.m?js` and `/sw.js` only.
   - The client also registers a tuned **`default`** safety-net policy for library internals (mermaid d3 labels, mermaid `<style>`). Its rules: a string with no `<` passes through; `<svg` uses the mermaid sanitize config; anything else goes through DOMPurify HTML/SVG/MathML; `createScript` returns `null`.
@@ -70,7 +69,7 @@ The phases are ordered and each ships behind its own gate. They revert in revers
 
 ### Modified Capabilities
 - `baseline-content-security-policy`: adds the Trusted Types directive and its independent `PI_DASHBOARD_TRUSTED_TYPES` mode.
-- `client-untrusted-content-sanitization`: sanitized Mermaid and document HTML is produced as `TrustedHTML` through named policies. The Mermaid colorize parse runs through `pi-mermaid-parse` before the final sanitize.
+- `client-untrusted-content-sanitization`: sanitized Mermaid and document HTML is produced as `TrustedHTML` through named policies. The Mermaid colorize step works on an already-sanitized DOM (no parse of unsanitized output) before the final sanitize.
 - `browser-principal-client`: OIDC discovery endpoints are scheme-validated before any navigation or token request.
 - `electron-renderer-hardening`: Electron's bundled local renderer pages carry a CSP that requires Trusted Types.
 - `preview-egress-grants`: a route-backed overlay opened through a valid navigation intent counts as an operator open. Expand on an operator-provenance preview card is named explicitly as an operator action; today the route-backed Expand overlay falls back to agent provenance.

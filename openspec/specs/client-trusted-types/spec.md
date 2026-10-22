@@ -1,10 +1,9 @@
-# Spec Delta
+# client-trusted-types Specification
 
 ## Purpose
-
 The dashboard client produces every value bound for a script-capable DOM sink (HTML, script URLs, script text) through a small set of named Trusted Types policies, with a sanitizing default policy as a safety net. This lets the browser enforce sink discipline.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Policies registered before first render
 When the browser supports Trusted Types, the client SHALL register its named policies and its `default` policy before the application renders. When the browser does not support Trusted Types, the client SHALL fall back to plain strings with identical rendered output.
@@ -26,10 +25,10 @@ Every application-owned HTML, script-URL, or script sink SHALL receive a trusted
 - **WHEN** an AsciiDoc preview, a DOCX preview, a server-rendered diagram preview, an inline math rewrite, an e-mail body frame, or a Mermaid diagram injects HTML
 - **THEN** the value is produced by the sanitized-HTML policy using that sink's existing sanitizer configuration
 
-#### Scenario: Mermaid colorize parse
-- **WHEN** the Mermaid colorize step parses renderer output as SVG
-- **THEN** the input is produced by the dedicated Mermaid-parse policy, not by the default policy
-- **AND** the parsed result is still sanitized as the final step before injection
+#### Scenario: Mermaid colorize
+- **WHEN** the Mermaid colorize step tints default nodes of renderer output
+- **THEN** it works on a DOM produced by the sanitizer, with no string parse of the unsanitized output and no default-policy invocation
+- **AND** the colorized result is still sanitized as the final step before injection
 
 #### Scenario: Constant icon markup
 - **WHEN** a plugin app renders an icon from a compile-time constant SVG map

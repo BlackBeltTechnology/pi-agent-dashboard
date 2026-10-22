@@ -228,7 +228,7 @@ describe("panes branch on flowType (7.3)", () => {
     expect(openBtn).toBeTruthy();
     expect(openSpy).not.toHaveBeenCalled();
     fireEvent.click(openBtn);
-    expect(openSpy).toHaveBeenCalledWith("https://github.com/login/device", "_blank");
+    expect(openSpy).toHaveBeenCalledWith("https://github.com/login/device", "_blank", "noopener,noreferrer");
   });
 
   it("GitHub Copilot prompts for the Enterprise domain BEFORE starting the flow and sends it as enterpriseDomain", async () => {

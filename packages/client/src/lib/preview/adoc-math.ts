@@ -12,6 +12,7 @@
  * See change: sanitize-untrusted-rendered-content.
  */
 import type katexType from "katex";
+import { trustedSanitizedHtml } from "../security/trusted-types.js";
 
 type Katex = Pick<typeof katexType, "renderToString">;
 
@@ -27,11 +28,12 @@ function typesetText(text: Text, katex: Katex): DocumentFragment | null {
   for (let m = re.exec(text.data); m; m = re.exec(text.data)) {
     if (m.index > last) frag.append(text.data.slice(last, m.index));
     const out = document.createElement("template");
-    out.innerHTML = katex.renderToString(m[1] ?? m[2] ?? "", {
+    // client-sinks: allow — trusted via pi-sanitized-html (katex profile)
+    out.innerHTML = trustedSanitizedHtml(katex.renderToString(m[1] ?? m[2] ?? "", {
       displayMode: m[2] !== undefined,
       throwOnError: false,
       trust: false,
-    });
+    }), "katex") as string;
     frag.append(out.content);
     last = m.index + m[0].length;
   }
@@ -42,7 +44,8 @@ function typesetText(text: Text, katex: Katex): DocumentFragment | null {
 
 export function renderAdocMath(html: string, katex: Katex): string {
   const tpl = document.createElement("template");
-  tpl.innerHTML = html;
+  // client-sinks: allow — trusted via pi-sanitized-html (asciidoc profile)
+  tpl.innerHTML = trustedSanitizedHtml(html, "asciidoc") as string;
   const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);
   const texts: Text[] = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {

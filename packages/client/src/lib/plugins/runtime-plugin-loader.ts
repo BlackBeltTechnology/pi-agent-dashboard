@@ -144,6 +144,7 @@ function ensureStyles(pluginId: string, href: string): void {
   styleLinks.add(href);
   const link = document.createElement("link");
   link.rel = "stylesheet";
+  // client-sinks: allow — stylesheet <link>, not a navigation; URL from the server plugin manifest
   link.href = href;
   link.setAttribute("data-plugin-styles", pluginId);
   document.head.appendChild(link);

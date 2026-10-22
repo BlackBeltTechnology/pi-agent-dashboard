@@ -15,6 +15,7 @@ import {
 import { Icon } from "@mdi/react";
 import React, { useState } from "react";
 import { parse as parseYaml } from "yaml";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { isExternalHref } from "./is-external-href.js";
 
@@ -208,13 +209,13 @@ function ValueCell({ keyName, value }: { keyName: string; value: unknown }) {
       const external = isExternalHref(href);
       return (
         <span className={VAL}>
-          <a
+          <SafeLink
             href={href}
             className="text-[var(--link)] hover:underline"
             {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
           >
             {href}
-          </a>
+          </SafeLink>
         </span>
       );
     }

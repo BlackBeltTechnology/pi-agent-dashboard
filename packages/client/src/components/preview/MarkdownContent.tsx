@@ -588,6 +588,7 @@ function MarkdownAnchor({ node: _node, href, children, ...props }: React.Compone
   const external = isExternalHref(href);
   return (
     <a
+      // client-sinks: allow — href already passed safeUrlTransform (markdown protocol set, spec client-untrusted-content-sanitization)
       href={href}
       className="text-blue-400 hover:underline"
       {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}

@@ -188,6 +188,7 @@ function QuestionSection({
           <p className="whitespace-pre-wrap break-words text-sm font-medium text-[var(--text-primary)]">{detail.question}</p>
           <Callout tone="warning" icon={mdiShieldAlertOutline}>
             <p>{i18nT("questions.file.body", undefined, "This is a file-access request. It can't be answered here — approve or deny it on the Access page.")}</p>
+            {/* client-sinks: allow — compile-time constant ACCESS_PAGE route */}
             <a href={ACCESS_PAGE} onClick={onAccess} data-testid="question-access-link" className="mt-1 inline-block underline focus-ring">
               {i18nT("questions.file.link", undefined, "Open Access")}
             </a>

@@ -719,6 +719,7 @@ export function GatewayAcmeEditor({ mode, initial, initialDirectory, takenIds, o
           ) : (
             <>
               {t("gateway.acme.tos.prefix", undefined, "I accept the")}{" "}
+              {/* client-sinks: allow — compile-time constant Let's Encrypt agreement URL */}
               <a href={SUBSCRIBER_AGREEMENT} target="_blank" rel="noopener noreferrer" className="underline">
                 {t("gateway.acme.tos.link", undefined, "Let's Encrypt Subscriber Agreement")}
                 <span className="sr-only"> {t("gateway.tls.newTab", undefined, "(opens in a new tab)")}</span>

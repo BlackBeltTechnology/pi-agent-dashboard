@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeAll } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import React from "react";
+import { beforeAll, describe, expect, it } from "vitest";
+import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { CtxToolRenderer } from "../CtxToolRenderer.js";
 import type { ToolContext } from "../index.js";
 import { ctxFixtures as fx } from "../parse-ctx-result.fixtures.js";
-import { ThemeProvider } from "../../settings/ThemeProvider.js";
 
 const ctx: ToolContext = { cwd: "/r" };
 
@@ -363,5 +363,20 @@ describe("CtxToolRenderer — noise + raw fallback", () => {
     });
     expect(container.textContent).toContain("some stats output");
     expect(container.textContent).not.toContain('"foo": "bar"');
+  });
+});
+
+// harden-client-sinks (test-plan #E8): agent-supplied URL args never become an active link.
+describe("CtxToolRenderer — blocked agent URLs (#E8)", () => {
+  it.each(["running", "complete"] as const)("ctx_fetch_and_index javascript: url renders inert (%s)", (status) => {
+    const { container } = renderCtx({
+      toolName: "ctx_fetch_and_index",
+      args: { url: "javascript:alert(1)" },
+      status,
+      result: status === "complete" ? fx.fetch.replace(/https?:\/\/\S+/g, "javascript:alert(1)") : undefined,
+      context: ctx,
+    });
+    expect(container.textContent).toContain("javascript:alert(1)");
+    expect(container.querySelector("a[href]")).toBeNull();
   });
 });

@@ -4,7 +4,9 @@
  * without it the standalone app opens in a new tab (D17 fallback).
  * See change: add-team-plugin.
  */
+
 import * as runtime from "@blackbelt-technology/dashboard-plugin-runtime";
+import { openExternalUrl } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { folderRouteHref } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 
 export function hasEmbeddedHost(mod: object = runtime): boolean {
@@ -20,5 +22,5 @@ export function openTeam(projectId: string, navigate: (path: string) => void, cw
     navigate(folderRouteHref(cwd, "/team"));
     return;
   }
-  window.open(standaloneUrl(projectId), "_blank", "noopener");
+  openExternalUrl(standaloneUrl(projectId));
 }

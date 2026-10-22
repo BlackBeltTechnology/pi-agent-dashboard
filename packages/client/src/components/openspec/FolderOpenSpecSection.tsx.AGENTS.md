@@ -4,3 +4,5 @@ Slim single-line navigation entry `OpenSpec (N) →` to board route. STATE-ONLY:
 - `cli-failed` inert pill mirror legend = `SLOT_PILL_LEGEND` + `bg-[var(--bg-tertiary)]`, carries `data-slot-pill-legend` (was hand-copied 9 px). See change: fix-slot-pill-legend-and-stale-overflow.
 
 `WorkflowSchemaChip` (testid `folder-openspec-schema-chip`, `data-folder-openspec-schema-notice`): shown when `workflowSchemaNeedsAttention(data.workflowSchema)`; severity pill from `workflowSchemaPresentation` (`SEVERITY_PILL_CLASS` tokens, MDI alert/info icon, `tap-target`, 12 px) reading `Workflow schema: <chipLabel>` (counts only, never change names); `kept` renders as warning "update available". Still a navigation `<a>` to Settings → OpenSpec → Workflow Schema (`workflowSchemaSettingsHref(cwd)`), no request, no action — `openspec-frontend-actions` stays true. See change: add-pi-spec-driven-schema.
+
+Variable link targets render via `SafeLink` (`classifyUrl`; blocked → inert text). See change: harden-client-sinks.

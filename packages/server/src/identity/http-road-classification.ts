@@ -124,6 +124,10 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   doctor: "system",
   "spawn-failures": "system",
   "live-server": "system",
+  // Trusted Types / CSP violation counters + signed navigation intents
+  // (change: harden-client-sinks).
+  "csp-violations": "system",
+  "nav-intent": "system",
 };
 
 // `/api/pi-trust/query` is the bridge's own credentialed call, classified like the ticket mint

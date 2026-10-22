@@ -129,3 +129,13 @@ describe("resolveGateRedirect (per-phase dispatch, D19)", () => {
     expect(resolveGateRedirect("logout", {}, ORIGIN)).toBeNull();
   });
 });
+
+// harden-client-sinks (test-plan #E25): return-to values are NOT intent-gated —
+// a same-origin overlay return path passes unchanged without `ni`, and the
+// existing same-origin guard still rejects a scheme-relative one.
+describe("return-to is not intent-gated (#E25)", () => {
+  it("same-origin overlay path without ni is returned unchanged; //evil.example still refused", () => {
+    expect(safeReturnTo("/folder/abc/view?path=README.md", "https://dash.example")).toBe("/folder/abc/view?path=README.md");
+    expect(safeReturnTo("//evil.example", "https://dash.example")).toBe("/");
+  });
+});

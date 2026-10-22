@@ -17,6 +17,7 @@
  *
  * See change: add-tailscale-cert-tls (design D11).
  */
+
 import { hasTlsDetail, type TlsGate, type TlsStatusDetail } from "@blackbelt-technology/pi-dashboard-shared/tls-status.js";
 import { mdiAlert, mdiCheck, mdiContentCopy, mdiInformationOutline, mdiLockOutline, mdiOpenInNew, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -26,6 +27,7 @@ import { getStoredTlsConfig, issueTlsNow } from "../../lib/gateway/tls-api.js";
 import { deriveTlsPill, describeApplyError, isHeld, planApply } from "../../lib/gateway/tls-view.js";
 import { useTlsStatus } from "../../lib/gateway/use-tls-status.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { BTN_PRIMARY, BTN_SECONDARY, BTN_SMALL, callout, errorMessage, HELP, INPUT, INSET, LABEL, META, severityPill } from "../connectivity/connectivity-ui.js";
 import { GatewayAcmeAdd } from "./GatewayAcmeSource.js";
@@ -386,7 +388,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
                   <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.5} aria-hidden="true" />
                   {copied ? t("gateway.tls.copied", undefined, "Copied") : t("gateway.tls.copy", undefined, "Copy")}
                 </button>
-                <a
+                <SafeLink
                   className={BTN_SMALL}
                   href={certUrl(advertised.name, detail.port)}
                   target="_blank"
@@ -396,7 +398,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
                   <Icon path={mdiOpenInNew} size={0.5} aria-hidden="true" />
                   {t("gateway.tls.open", undefined, "Open")}
                   <span className="sr-only">{t("gateway.tls.newTab", undefined, "(opens in a new tab)")}</span>
-                </a>
+                </SafeLink>
               </div>
               <p className={`mt-1.5 ${HELP}`} data-testid="gateway-tls-name-note">
                 {t(

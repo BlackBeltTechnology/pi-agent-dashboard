@@ -376,6 +376,7 @@ function UninstalledProfiles({ rows }: { rows: readonly BrowserRouteProfile[] })
             </p>
             <a
               data-testid={`browser-store-link-${dir}`}
+              // client-sinks: allow — compile-time constant store URL
               href={PLAYWRIGHT_EXTENSION_STORE_URL}
               target="_blank"
               rel="noreferrer"

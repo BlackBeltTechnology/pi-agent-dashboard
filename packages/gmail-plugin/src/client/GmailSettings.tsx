@@ -23,6 +23,7 @@ import {
   copyText,
   FieldShell,
   oauthFlowClient,
+  SafeLink,
   SelectField,
   SettingsGroup,
   SettingsNotice,
@@ -146,9 +147,9 @@ function ProjectLink({ href, label, step }: { href: string | null; label: string
 
 function StepLink({ href, label }: { href: string; label: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="focus-ring text-xs text-[var(--accent-text)] underline">
+    <SafeLink href={href} target="_blank" rel="noopener noreferrer" className="focus-ring text-xs text-[var(--accent-text)] underline">
       {label}
-    </a>
+    </SafeLink>
   );
 }
 

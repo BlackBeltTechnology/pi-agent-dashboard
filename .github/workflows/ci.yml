@@ -131,6 +131,11 @@ jobs:
       # reason. See change: make-test-suite-deterministic.
       - name: Fixed-tick wait guard
         run: node scripts/check-fixed-tick-waits.mjs
+      # Client sink guard: raw navigation / HTML / script sinks in browser-side
+      # source must go through the safe-navigation chokepoints or a named
+      # Trusted Types policy. See change: harden-client-sinks (D4).
+      - name: Client sink guard
+        run: node scripts/check-client-sinks.mjs
       # Portability gate on committed `.pi/settings.json`. `pi install <path>`
       # and `pi config` both WRITE the resolved absolute path, so the
       # machine-specific form is the tooling's default output, not a typo. The
