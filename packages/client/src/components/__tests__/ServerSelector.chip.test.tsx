@@ -3,11 +3,11 @@
  * See change: declutter-sidebar-header (test-plan #E6 #E7 #E8 #F1 #F2 #F3 #F10 #X2).
  */
 
-import { mdiAccessPointNetwork, mdiDownload } from "@mdi/js";
+import { mdiAccessPointNetwork, mdiCloudOffOutline, mdiDownload, mdiLaptop, mdiLaptopOff, mdiServerNetwork, mdiServerNetworkOff } from "@mdi/js";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { type AccessItem, ServerSelector } from "../connectivity/ServerSelector.js";
+import { type AccessItem, currentServerKind, ServerSelector } from "../connectivity/ServerSelector.js";
 
 vi.mock("../../lib/api/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => []),
@@ -79,11 +79,74 @@ describe("connection chip", () => {
     expect(chip().getAttribute("aria-label")).toContain("12 devices waiting");
   });
 
-  it("X2: offline is not colour-only — accessible name, visible word and glyph are all rendered", () => {
+  it("X1: offline is not colour-only — accessible name, offline glyph and word are rendered; no cloud glyph, no 'Connected'", () => {
     render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={false} onSwitch={() => {}} remoteAccess={{ tone: "failed", state: "failed", pending: 1 }} />);
     expect(chip().getAttribute("aria-label")).toBe("Server: my-pc, offline; remote access failed, 1 device waiting");
+    expect(chip().getAttribute("aria-label")).toContain("offline");
     expect(within(chip()).getByText("Offline")).toBeTruthy();
     expect(screen.getByTestId("connection-chip-offline-glyph")).toBeTruthy();
+    const paths = [...chip().querySelectorAll("path")].map((p) => p.getAttribute("d"));
+    expect(paths).not.toContain(mdiCloudOffOutline);
+    expect(chip().textContent).not.toContain("Connected");
+  });
+
+  it("E8: a long server label is capped (max-w-24 → 160 px from 480) and named in title and aria-label", async () => {
+    const label = "pi-dashboard-31f4d8185a43-studio";
+    vi.mocked(listKnownServers).mockResolvedValue([known("my-pc", label)] as never);
+    render(<ServerSelector currentHost="my-pc" currentPort={8000} connected onSwitch={() => {}} />);
+    await act(async () => {});
+    const name = within(chip()).getByText(label);
+    expect(name.className).toContain("max-w-24");
+    expect(name.className).toContain("@min-[480px]:max-w-40");
+    expect(chip().getAttribute("title")).toBe(`${label}: switch server`);
+    expect(chip().getAttribute("aria-label")).toContain(label);
+  });
+
+  it("E9: currentServerKind decision table", () => {
+    expect(currentServerKind({ isLocal: true }, "anything")).toBe("local");
+    expect(currentServerKind({ isLocal: false }, "my-pc")).toBe("remote");
+    // `buildServerEntries` appends a bracketed `[::1]` current host as isLocal:false; the loopback host still wins.
+    expect(currentServerKind({ isLocal: false }, "[::1]")).toBe("local");
+    expect(currentServerKind(undefined, "127.0.0.1")).toBe("local");
+    expect(currentServerKind(undefined, "[::1]")).toBe("local");
+    expect(currentServerKind(undefined, "192.168.1.5")).toBe("remote");
+    expect(currentServerKind(undefined, "localhost")).toBe("local");
+  });
+
+  it("E10: glyph names the server kind and the offline state; the dot badge is aria-hidden", () => {
+    const cases = [
+      { host: "localhost", connected: true, kind: "local", d: mdiLaptop },
+      { host: "my-pc", connected: true, kind: "remote", d: mdiServerNetwork },
+      { host: "localhost", connected: false, kind: "local", d: mdiLaptopOff },
+      { host: "my-pc", connected: false, kind: "remote", d: mdiServerNetworkOff },
+    ] as const;
+    for (const c of cases) {
+      const { unmount } = render(<ServerSelector currentHost={c.host} currentPort={8000} connected={c.connected} onSwitch={() => {}} />);
+      const glyph = screen.getByTestId("connection-chip-glyph");
+      expect(glyph.getAttribute("data-kind")).toBe(c.kind);
+      expect(glyph.getAttribute("data-offline")).toBe(String(!c.connected));
+      expect(glyph.querySelector("svg path")?.getAttribute("d")).toBe(c.d);
+      expect(!!screen.queryByTestId("connection-chip-offline-glyph")).toBe(!c.connected);
+      expect(glyph.querySelector('span[aria-hidden="true"]')).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("E9b: a bracketed [::1] current host renders the local glyph through the real entry list", () => {
+    render(<ServerSelector currentHost="[::1]" currentPort={8000} connected onSwitch={() => {}} />);
+    expect(screen.getByTestId("connection-chip-glyph").getAttribute("data-kind")).toBe("local");
+  });
+
+  it("E11: a 127.0.0.1 current host keeps its address as the visible name and reads as local", () => {
+    render(<ServerSelector currentHost="127.0.0.1" currentPort={8000} connected onSwitch={() => {}} />);
+    expect(within(chip()).getByText("127.0.0.1")).toBeTruthy();
+    expect(screen.getByTestId("connection-chip-glyph").getAttribute("data-kind")).toBe("local");
+  });
+
+  it("X2: an unresolved non-loopback current host renders as remote with its address", () => {
+    render(<ServerSelector currentHost="10.0.0.9" currentPort={8000} connected onSwitch={() => {}} />);
+    expect(screen.getByTestId("connection-chip-glyph").getAttribute("data-kind")).toBe("remote");
+    expect(within(chip()).getByText("10.0.0.9")).toBeTruthy();
   });
 });
 

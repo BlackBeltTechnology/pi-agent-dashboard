@@ -2295,7 +2295,7 @@ export default function App() {
       resumeErrors={resumeErrors}
       onDismissResumeError={(id) => setResumeErrors((prev) => { const next = new Map(prev); next.delete(id); return next; })}
       headerExtra={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {launchSource !== null && launchSource !== "electron" && <PiUpdateBadge />}
           {launchSource === "electron" && (
             <Suspense fallback={null}>

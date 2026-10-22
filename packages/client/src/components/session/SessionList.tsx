@@ -72,6 +72,7 @@ import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsu
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { QuestionStack } from "../questions/QuestionStack.js";
@@ -2860,7 +2861,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           {/* Focus-revealed link to Access while YOLO is live; out of flow. See change: fix-yolo-indicator-overflow. */}
           <YoloBarLink />
           {/* Brand + tools: logo · Discord · divider · Appearance · Focus. See change: declutter-sidebar-header (D4). */}
-          <div className="flex gap-1.5 items-center">
+          <div className="flex gap-1 items-center">
             <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={t("common.home", undefined, "Home")}>
               <PiLogo size={24} />
             </button>
@@ -2871,12 +2872,12 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               href={DISCORD_INVITE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              className={HEADER_ICON_BTN}
               title={t("sessionList.discord", undefined, "Join our Discord")}
               aria-label={t("sessionList.discord", undefined, "Join our Discord")}
               data-testid="discord-btn"
             >
-              <Icon path={mdiDiscordPath} size={0.6} />
+              <Icon path={mdiDiscordPath} size={HEADER_ICON_SIZE} />
             </a>
             <span aria-hidden="true" className="h-4 w-px bg-[var(--border-secondary)]" />
             <ThemePicker />
@@ -2889,11 +2890,11 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             {headerExtra}
             <button
               onClick={() => navigate("/settings")}
-              className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              className={HEADER_ICON_BTN}
               title={t("sessionList.settings", undefined, "Settings")}
               data-testid="settings-btn"
             >
-              <Icon path={mdiCog} size={0.6} />
+              <Icon path={mdiCog} size={HEADER_ICON_SIZE} />
             </button>
           </div>
         </div>
@@ -2943,9 +2944,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             aria-expanded={funnelAnchor !== null}
             aria-label={t("sessionList.filtersLabel", { count: funnelCount }, "Filters, {count} on")}
             data-testid="filter-funnel-btn"
-            className="focus-ring relative flex-shrink-0 rounded p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            className={HEADER_ICON_BTN}
           >
-            <Icon path={mdiFilterVariant} size={0.6} />
+            <Icon path={mdiFilterVariant} size={HEADER_ICON_SIZE} />
             {funnelCount > 0 && (
               <span
                 data-testid="filter-funnel-badge"

@@ -73,4 +73,4 @@ Levels:
 
 ## New infra needed
 
-- E3 needs the harness reachable from Playwright on a non-loopback alias (`127.0.0.2`) so that the current server can carry a long label. First test task = spike; if the listener does not accept it, hand back via `SHIP_IT_BLOCKED.md` (design Risks).
+- E3 needs the harness reachable from Playwright on a non-loopback alias (`127.0.0.2`) so that the current server can carry a long label. First test task = spike; if the listener does not accept it, hand back via `SHIP_IT_BLOCKED.md` (design Risks). Spike result: the harness publishes on 127.0.0.1 only, so `127.0.0.2` is refused; the fixture uses `pi-dash-long.local` (admitted by the host gate) mapped to 127.0.0.1 via Chromium `--host-resolver-rules`.
