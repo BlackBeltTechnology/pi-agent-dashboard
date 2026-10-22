@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EDITOR_PANE_KEY_PREFIX,
   type EditorPaneState,
-  type OpenFile,
   EMPTY_PANE_STATE,
   editorPaneReducer,
   loadEditorPaneState,
+  type OpenFile,
   saveEditorPaneState,
   useEditorPaneState,
 } from "../layout/editor-pane-state.js";
@@ -446,5 +446,56 @@ describe("tab provenance: autoOpened follows the action that activated the tab (
     expect(loadEditorPaneState("prov").openFiles[0].autoOpened).toBe(false);
     err.mockRestore();
     localStorage.removeItem(key);
+  });
+});
+
+describe("closeTabs / expandTreeRoots (scope-anchor-editor-pane-controls)", () => {
+  const four = (activeIndex: number): EditorPaneState => ({
+    openFiles: ["a", "b", "c", "d"].map((p) => tab(p)),
+    activeIndex,
+    treeOpenRoots: [],
+  });
+
+  it("#E1 activation rule: survivor right, else left, else empty; unknown paths keep identity", () => {
+    const mid = editorPaneReducer(four(1), { type: "closeTabs", paths: ["b", "c"] });
+    expect(mid.openFiles.map((f) => f.path)).toEqual(["a", "d"]);
+    expect(mid.openFiles[mid.activeIndex].path).toBe("d");
+
+    const last = editorPaneReducer(four(3), { type: "closeTabs", paths: ["c", "d"] });
+    expect(last.openFiles.map((f) => f.path)).toEqual(["a", "b"]);
+    expect(last.openFiles[last.activeIndex].path).toBe("b");
+
+    const all = editorPaneReducer(four(1), { type: "closeTabs", paths: ["a", "b", "c", "d"] });
+    expect(all.openFiles).toEqual([]);
+    expect(all.activeIndex).toBe(-1);
+
+    const base = four(1);
+    expect(editorPaneReducer(base, { type: "closeTabs", paths: ["zzz"] })).toBe(base);
+  });
+
+  it("closeTabs keeps a surviving active tab active at its shifted index", () => {
+    const s = editorPaneReducer(four(2), { type: "closeTabs", paths: ["a", "b"] });
+    expect(s.openFiles.map((f) => f.path)).toEqual(["c", "d"]);
+    expect(s.openFiles[s.activeIndex].path).toBe("c");
+  });
+
+  it("#E2 activation clears unread, marks operator provenance, persisted key set unchanged", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a"), tab("b"), { ...tab("c"), unread: true, autoOpened: true }],
+      activeIndex: 1,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "closeTabs", paths: ["b"] });
+    expect(s.openFiles[s.activeIndex].path).toBe("c");
+    expect(s.openFiles[s.activeIndex].unread).toBe(false);
+    expect(s.openFiles[s.activeIndex].autoOpened).toBe(false);
+    expect(Object.keys(s).sort()).toEqual(Object.keys(base).sort());
+  });
+
+  it("expandTreeRoots merges, never collapses, and keeps identity when nothing is new", () => {
+    const base: EditorPaneState = { openFiles: [], activeIndex: -1, treeOpenRoots: ["Projektek", "Projektek/Other"] };
+    const s = editorPaneReducer(base, { type: "expandTreeRoots", relPaths: ["Projektek", "Projektek/BOSCH"] });
+    expect(s.treeOpenRoots).toEqual(["Projektek", "Projektek/Other", "Projektek/BOSCH"]);
+    expect(editorPaneReducer(base, { type: "expandTreeRoots", relPaths: ["Projektek"] })).toBe(base);
   });
 });

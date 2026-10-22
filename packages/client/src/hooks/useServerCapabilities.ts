@@ -10,6 +10,12 @@ import { getApiBase } from "../lib/api/api-context.js";
 
 export interface ServerCapabilities {
   systemOpen: boolean;
+  /**
+   * Server host `process.platform` (`darwin`, `win32`, …); `undefined` when the
+   * server did not advertise a string. Labels the Reveal action (design D10).
+   * See change: scope-anchor-editor-pane-controls.
+   */
+  platform?: string;
 }
 
 export function useServerCapabilities(): ServerCapabilities {
@@ -20,7 +26,10 @@ export function useServerCapabilities(): ServerCapabilities {
       .then((res) => res.json())
       .then((body) => {
         if (!active) return;
-        setCaps({ systemOpen: body?.capabilities?.systemOpen === true });
+        setCaps({
+          systemOpen: body?.capabilities?.systemOpen === true,
+          platform: typeof body?.platform === "string" ? body.platform : undefined,
+        });
       })
       .catch(() => {
         /* default systemOpen:false — actions stay hidden */

@@ -101,6 +101,12 @@ export type EditorPaneAction =
   | { type: "closeByPath"; path: string }
   | { type: "setActive"; index: number }
   | { type: "toggleTreeRoot"; relPath: string }
+  // Expand-only (never collapses) merge of dir rel-paths into the open roots.
+  // See change: scope-anchor-editor-pane-controls (D11).
+  | { type: "expandTreeRoots"; relPaths: string[] }
+  // Close several tabs in ONE dispatch, keyed by path (stable across the async
+  // bulk-close dialog). See change: scope-anchor-editor-pane-controls (D5).
+  | { type: "closeTabs"; paths: string[] }
   | { type: "reorderTabs"; from: number; to: number }
   // Select (or clear, `mode: undefined`) a plugin file-handler mode on the tab
   // at `path`. See change: add-editor-pane-file-handlers (D2).
@@ -257,6 +263,35 @@ function reduceCloseTab(state: EditorPaneState, index: number, byOperator: boole
   };
 }
 
+/**
+ * `closeTabs` reducer case (design D5). The active tab stays active when it
+ * survives; otherwise the nearest survivor right of the old active index, else
+ * left, else empty. Unknown paths are ignored (state returned by identity).
+ * An operator close that moves activation applies the same provenance and
+ * unread rules as `reduceCloseTab`.
+ */
+function reduceCloseTabs(state: EditorPaneState, paths: string[]): EditorPaneState {
+  const doomed = new Set(paths);
+  if (!state.openFiles.some((f) => doomed.has(f.path))) return state;
+  const openFiles = state.openFiles.filter((f) => !doomed.has(f.path));
+  if (openFiles.length === 0) return { ...state, openFiles, activeIndex: -1 };
+  const active = state.openFiles[state.activeIndex];
+  if (active && !doomed.has(active.path)) {
+    const activeIndex = openFiles.indexOf(active);
+    return { ...state, openFiles: clearUnreadAt(openFiles, activeIndex), activeIndex };
+  }
+  // Active tab closed: nearest survivor to the right in the ORIGINAL order, else left.
+  let survivor: OpenFile | undefined;
+  for (let i = state.activeIndex + 1; i < state.openFiles.length && !survivor; i++) {
+    if (!doomed.has(state.openFiles[i].path)) survivor = state.openFiles[i];
+  }
+  for (let i = Math.min(state.activeIndex, state.openFiles.length) - 1; i >= 0 && !survivor; i--) {
+    if (!doomed.has(state.openFiles[i].path)) survivor = state.openFiles[i];
+  }
+  const activeIndex = survivor ? openFiles.indexOf(survivor) : 0;
+  return { ...state, openFiles: activateAt(openFiles, activeIndex, false), activeIndex };
+}
+
 /** Pure reducer — the single mutation point for pane state. */
 export function editorPaneReducer(state: EditorPaneState, action: EditorPaneAction): EditorPaneState {
   switch (action.type) {
@@ -299,6 +334,14 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
         : [...state.treeOpenRoots, action.relPath];
       return { ...state, treeOpenRoots };
     }
+
+    case "expandTreeRoots": {
+      const treeOpenRoots = mergeRoots(state.treeOpenRoots, action.relPaths);
+      return treeOpenRoots.length === state.treeOpenRoots.length ? state : { ...state, treeOpenRoots };
+    }
+
+    case "closeTabs":
+      return reduceCloseTabs(state, action.paths);
 
     case "reorderTabs": {
       const { from, to } = action;

@@ -1,0 +1,3 @@
+blocked_by:
+  - change: close-container-loopback-impersonation
+    reason: "close-container-loopback-impersonation flips requireLocalProof to default true and MODIFIES the same requirements (trust-and-credential-boundaries 'Opt-in local proof for loopback trust', bearer-device-auth 'Genuine-local trust…', 'Long-lived opaque bearer tokens…', 'Direct token issuance for a local operator'). This change still says 'defaulting to false'; rebase its deltas onto that change's archived text so archiving here cannot revert the default. It also builds the one-shot secret rotation (local/rotation.lock + local/rotation-epoch, epoch 1); this change's 1.0.0 token rotation must reuse that lock and require rotation-epoch >= 2 instead of its own token-epoch 1."
