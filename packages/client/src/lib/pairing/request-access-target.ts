@@ -14,3 +14,12 @@ export function requestAccessTarget(apiBase: string, origin: string): { href: st
   if (apiBase && apiBase !== origin) return { href: `${apiBase}/pair?request`, newContext: true };
   return { href: "/pair?request", newContext: false };
 }
+
+/**
+ * The pair-action rule (D8) and the request-page URL guard (the round-trip rule the
+ * Settings "Connect" button always applied) live in shared, pure; re-exported here
+ * so the client has one place that names where "Request access" leads.
+ * See change: group-servers-by-identity (D8, test-plan #E7, #E8).
+ */
+export type { PairAction, PairActionInput } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
+export { buildRequestPageUrl, pairAction } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";

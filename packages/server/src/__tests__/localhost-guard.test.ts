@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { classifyRoute } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { 
@@ -1256,6 +1257,35 @@ describe("#E2 parseIpAddress", () => {
     expect(parseIpAddress("")).toBeNull();
     expect(parseIpAddress(undefined)).toBeNull();
     expect(parseIpAddress("1.2.3")).toBeNull();
+  });
+});
+
+describe("#E2 route kind `lan` matches the knock gate's private-range predicate (change: group-servers-by-identity)", () => {
+  // Each address is served by an interface of its own subnet, so only the private-range test decides.
+  const edges: Array<[string, string]> = [
+    ["172.15.255.255", "255.255.0.0"],
+    ["172.16.0.0", "255.255.0.0"],
+    ["172.31.255.255", "255.255.0.0"],
+    ["172.32.0.0", "255.255.0.0"],
+    ["100.63.255.255", "255.255.0.0"],
+    ["100.64.0.0", "255.255.0.0"],
+    ["100.127.255.255", "255.255.0.0"],
+    ["100.128.0.0", "255.255.0.0"],
+    ["169.253.255.255", "255.255.0.0"],
+    ["169.254.0.0", "255.255.0.0"],
+    ["fbff::1", "ffff:ffff:ffff:ffff::"],
+    ["fc00::1", "ffff:ffff:ffff:ffff::"],
+    ["fdff::1", "ffff:ffff:ffff:ffff::"],
+    ["fe00::1", "ffff:ffff:ffff:ffff::"],
+    ["fe7f::1", "ffff:ffff:ffff:ffff::"],
+    ["fe80::1", "ffff:ffff:ffff:ffff::"],
+    ["febf::1", "ffff:ffff:ffff:ffff::"],
+    ["fec0::1", "ffff:ffff:ffff:ffff::"],
+  ];
+  it.each(edges)("%s: classifyRoute lan === isOnLinkPrivate", (address, netmask) => {
+    const host = address.includes(":") ? `[${address}]` : address;
+    const knock = isOnLinkPrivate(address, [{ address, netmask }]);
+    expect(classifyRoute({ host, scheme: "http" }) === "lan").toBe(knock);
   });
 });
 

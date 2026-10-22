@@ -138,8 +138,8 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
     notify: (title, message) => {
       dialog.showMessageBox({ type: "info", title, message, buttons: ["OK"] }).catch(() => {});
     },
-    openConnectingWindow: () => {
-      connectingHandle = openConnectingWindow(() => serverWindows.stopWaiting());
+    openConnectingWindow: (initial) => {
+      connectingHandle = openConnectingWindow(() => serverWindows.stopWaiting(), initial);
       return connectingHandle;
     },
     bounds,

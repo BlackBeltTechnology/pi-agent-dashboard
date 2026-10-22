@@ -1,50 +1,43 @@
 /**
- * Settings section for mDNS network discovery.
- * Shows a scan button and discovered servers with "Add" action.
+ * Network discovery as a SOURCE of the Settings ▸ Servers section (not a section of its own).
  *
- * When mDNS finds nothing (which is common — many Wi-Fi routers block
- * client-to-client multicast), a diagnostic block explains why and offers
- * an inline manual-add form so users on the same LAN can still register
- * remote dashboards by IP.
+ * This module holds the discovery-specific pieces the merged section (`KnownServersSection`)
+ * composes: the scan button with its polite live region and error callout, the empty-result
+ * diagnostic (reasons collapsed in a disclosure) and the inline manual-add form that stays visible
+ * without expanding it. Scan results themselves are routes on the identity cards.
  *
- * See change: retro-ux-identity-connectivity (contract tokens, live status,
- * surfaced failures, collapsed diagnostic).
+ * Many Wi-Fi routers block client-to-client multicast, so a scan that finds nothing is common; the
+ * diagnostic explains why and the manual-add form lets users on the same LAN register remote
+ * dashboards by address (`http://` or `https://`, parsed by `parseRouteInput`).
+ *
+ * See change: retro-ux-identity-connectivity (contract tokens, live status, surfaced failures,
+ * collapsed diagnostic), group-servers-by-identity (merged into the Servers section; https add).
  */
 
-import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { DiscoveredServerInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { mdiAlertCircleOutline, mdiCheck, mdiInformationOutline, mdiOpenInNew, mdiPlus, mdiRefresh } from "@mdi/js";
+import { type RouteScheme, routeKey } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
+import { mdiAlertCircleOutline, mdiInformationOutline, mdiPlus, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useState } from "react";
 import { addKnownServer, discoverServers } from "../../lib/api/known-servers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { logRejection } from "../../lib/report-error.js";
-import { parseHostInput } from "../../lib/util/parse-host-input.js";
+import { parseRouteInput } from "../../lib/util/parse-host-input.js";
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
   BTN_SMALL,
   BTN_SMALL_GHOST,
-  BTN_SMALL_PRIMARY,
   callout,
   errorMessage,
   HELP,
   INPUT,
   INSET,
-  identityPill,
   LABEL,
-  META,
-  ROW,
 } from "./connectivity-ui.js";
 
-interface Props {
-  knownServers: KnownServer[];
-  onServerAdded: () => void;
-}
-
-function DiscoveryDiagnostic() {
+export function DiscoveryDiagnostic() {
   return (
     <div className={callout("info")}>
       <Icon path={mdiInformationOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
@@ -73,145 +66,6 @@ function DiscoveryDiagnostic() {
   );
 }
 
-/**
- * The peer's own request landing; IPv6 literals bracketed by `formatHostPort`.
- * The host comes from mDNS (any LAN device can advertise anything), so the parsed
- * URL must round-trip to exactly the advertised host + port or there is no
- * Connect (a host like `evil.example/x?` or `a@evil.example` would otherwise
- * redirect the jump off the LAN). See change: add-lan-knock-pairing.
- */
-function requestPageUrl(server: DiscoveredServerInfo): string | null {
-  try {
-    const url = new URL(`http://${formatHostPort(server.host, server.port)}/pair?request`);
-    const host = url.hostname.replace(/^\[|\]$/g, "");
-    const advertised = server.host.trim().toLowerCase().replace(/^\[|\]$/g, "");
-    const sameHost = host === advertised || (advertised.includes(":") && url.hostname === `[${host}]`);
-    return sameHost && Number(url.port || 80) === server.port && !url.username && !url.password ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-
-function DiscoveredRow({
-  server,
-  alreadyKnown,
-  updated,
-  isAdding,
-  addLabel,
-  error,
-  onLabelChange,
-  onStart,
-  onConfirm,
-  onCancel,
-}: {
-  server: DiscoveredServerInfo;
-  alreadyKnown: boolean;
-  updated: boolean;
-  isAdding: boolean;
-  addLabel: string;
-  error: string | undefined;
-  onLabelChange: (v: string) => void;
-  onStart: () => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const key = `${server.host}:${server.port}`;
-  const name = server.name ?? server.host;
-  const connectUrl = server.isLocal ? null : requestPageUrl(server);
-  return (
-    <div className={ROW}>
-      <div className="min-w-0 flex-[1_1_12rem]">
-        <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
-          <span className="truncate">{name}</span>
-          <span className={identityPill(server.isLocal)}>
-            {server.isLocal ? i18nT("common.localPill", undefined, "Local") : i18nT("common.remote", undefined, "Remote")}
-          </span>
-        </div>
-        <div className={META}>
-          {server.name ? `${server.host}:${server.port}` : `:${server.port}`} {i18nT("common.v", undefined, "· v")}{server.version}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {!server.isLocal && connectUrl && (
-          <button
-            type="button"
-            data-testid="discovery-connect"
-            className={BTN_SMALL}
-            aria-label={i18nT("connection.connectAria", { name }, "Connect to {name} (opens in a new tab)")}
-            onClick={() => openExternalUrl(connectUrl)}
-          >
-            {i18nT("connection.connect", undefined, "Connect")}
-            <Icon path={mdiOpenInNew} size={0.5} aria-hidden="true" />
-          </button>
-        )}
-        {updated ? (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
-            <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
-            {i18nT("connection.updatedExistingEntry", undefined, "Updated existing entry")}
-          </span>
-        ) : alreadyKnown ? (
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--severity-success-fg)]">
-            <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
-            {i18nT("common.alreadyAdded", undefined, "Already added")}
-          </span>
-        ) : isAdding ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <label htmlFor={`discovery-label-${key}`} className="sr-only">
-              {i18nT("connection.labelFor", { name }, "Label for {name}")}
-            </label>
-            <input
-              id={`discovery-label-${key}`}
-              type="text"
-              value={addLabel}
-              onChange={(e) => onLabelChange(e.target.value)}
-              placeholder={i18nT("common.label", undefined, "Label")}
-              className={`${INPUT} !min-h-[32px] !w-36 !py-0.5 !text-xs`}
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onConfirm();
-                if (e.key === "Escape") onCancel();
-              }}
-            />
-            <button
-              type="button"
-              className={BTN_SMALL_PRIMARY}
-              aria-label={i18nT("connection.confirmAdd", { name }, "Add {name}")}
-              onClick={onConfirm}
-            >
-              <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
-              {i18nT("common.add2", undefined, "Add")}
-            </button>
-            <button
-              type="button"
-              className={BTN_SMALL_GHOST}
-              aria-label={i18nT("connection.cancelAdd", { name }, "Cancel adding {name}")}
-              onClick={onCancel}
-            >
-              {i18nT("common.cancel", undefined, "Cancel")}
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={onStart}
-            className={BTN_SMALL}
-            aria-label={i18nT("connection.startAdd", { name, address: key }, "Add {name} ({address})")}
-          >
-            <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
-            {i18nT("common.add2", undefined, "Add")}
-          </button>
-        )}
-      </div>
-      {error && (
-        <div className="basis-full text-[11px] text-[var(--severity-error-fg)]" role="alert">
-          {error}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Text for the polite live region beside the scan button. */
 function scanStatusText(o: { scanning: boolean; scanned: boolean; hasError: boolean; found: number }): string {
   if (o.scanning) return i18nT("connection.scanning", undefined, "Scanning…");
@@ -222,212 +76,214 @@ function scanStatusText(o: { scanning: boolean; scanned: boolean; hasError: bool
   return i18nT("connection.foundMany", { n: o.found }, "Found {n} dashboards.");
 }
 
-export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) {
-  const [discovered, setDiscovered] = useState<DiscoveredServerInfo[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [scanned, setScanned] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [addingKey, setAddingKey] = useState<string | null>(null);
-  const [addLabel, setAddLabel] = useState("");
-  const [updatedKey, setUpdatedKey] = useState<string | null>(null);
-  /** Failed add-confirm, keyed by `host:port`, shown next to that server. */
-  const [addErrors, setAddErrors] = useState<Record<string, string>>({});
 
-  // Manual-add form state (shown when mDNS finds nothing)
-  const [manualInput, setManualInput] = useState("");
-  const [manualLabel, setManualLabel] = useState("");
-  const [manualError, setManualError] = useState<string | null>(null);
-  const [manualBusy, setManualBusy] = useState(false);
-
-  const handleScan = useCallback(async () => {
-    setScanning(true);
-    setScanError(null);
-    try {
-      const servers = await discoverServers();
-      setDiscovered(servers);
-      setScanned(true);
-    } catch (e) {
-      setDiscovered([]);
-      setScanned(true);
-      setScanError(errorMessage(e, "Scan failed"));
-    } finally {
-      setScanning(false);
-    }
-  }, []);
-
-  const isKnown = (host: string, port: number) =>
-    knownServers.some((s) => s.port === port && normalizeHostKey(s.host) === normalizeHostKey(host));
-
-  /** Known by address, or by identity: a renamed server keeps its fingerprint + port. */
-  const isKnownServer = (server: DiscoveredServerInfo) =>
-    isKnown(server.host, server.port) ||
-    (!!server.fingerprint && knownServers.some((s) => s.fingerprint === server.fingerprint && s.port === server.port));
-
-  const handleStartAdd = (server: DiscoveredServerInfo) => {
-    const key = `${server.host}:${server.port}`;
-    setAddingKey(key);
-    setAddLabel(server.name ?? server.host);
-  };
-
-  const handleConfirmAdd = async (server: DiscoveredServerInfo) => {
-    setAddErrors((prev) => {
-      const next = { ...prev };
-      delete next[`${server.host}:${server.port}`];
-      return next;
-    });
-    try {
-      // The advertised fingerprint is a hint: the server pins it only if its challenge proves it.
-      const { updated } = await addKnownServer(
-        server.host,
-        server.port,
-        addLabel.trim() || undefined,
-        server.fingerprint,
-      );
-      setUpdatedKey(updated ? `${server.host}:${server.port}` : null);
-      setAddingKey(null);
-      setAddLabel("");
-      onServerAdded();
-    } catch (e) {
-      setAddErrors((prev) => ({
-        ...prev,
-        [`${server.host}:${server.port}`]: i18nT("connection.addFailed", { error: errorMessage(e) }, "Could not add: {error}"),
-      }));
-    }
-  };
-
-  const handleCancelAdd = () => {
-    setAddingKey(null);
-    setAddLabel("");
-  };
-
-  const handleManualAdd = async () => {
-    setManualError(null);
-    const parsed = parseHostInput(manualInput, 8000);
-    if (!parsed) {
-      setManualError("Enter a host like 192.168.1.42:8000 or http://office-mac.local:8000");
-      return;
-    }
-    if (isKnown(parsed.host, parsed.port)) {
-      setManualError(`${parsed.host}:${parsed.port} is already in your known servers.`);
-      return;
-    }
-    setManualBusy(true);
-    try {
-      await addKnownServer(parsed.host, parsed.port, manualLabel.trim() || undefined);
-      setManualInput("");
-      setManualLabel("");
-      onServerAdded();
-    } catch (e) {
-      setManualError(errorMessage(e, "Failed to add server"));
-    } finally {
-      setManualBusy(false);
-    }
-  };
-
-  const showEmptyDiagnostic = scanned && discovered.length === 0;
-  const scanStatus = scanStatusText({ scanning, scanned, hasError: !!scanError, found: discovered.length });
-  const submitManual = () => void handleManualAdd().catch(logRejection("NetworkDiscoverySection.handleManualAdd"));
-
+/** Scan button, its polite live region and (after a failed scan) the error callout with Retry. */
+export function ScanBar({
+  scanning,
+  scanned,
+  scanError,
+  found,
+  onScan,
+}: {
+  scanning: boolean;
+  scanned: boolean;
+  scanError: string | null;
+  found: number;
+  onScan: () => void;
+}) {
+  const status = scanStatusText({ scanning, scanned, hasError: !!scanError, found });
   return (
     <div className="space-y-3">
-      {/* Scan button + live status */}
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={handleScan} disabled={scanning} aria-busy={scanning || undefined} className={BTN_SECONDARY}>
+        <button type="button" onClick={onScan} disabled={scanning} aria-busy={scanning || undefined} className={BTN_SECONDARY}>
           <Icon path={mdiRefresh} size={0.55} className={scanning ? "animate-spin" : ""} aria-hidden="true" />
           {scanning
             ? i18nT("connection.scanning", undefined, "Scanning…")
             : scanned
-            ? i18nT("connection.scanAgain", undefined, "Scan again")
-            : i18nT("connection.scanNetwork", undefined, "Scan network")}
+              ? i18nT("connection.scanAgain", undefined, "Scan again")
+              : i18nT("connection.scanNetwork", undefined, "Scan network")}
         </button>
         <span className={HELP} role="status" aria-live="polite">
-          {scanStatus}
+          {status}
         </span>
       </div>
-
-      {/* Scan error */}
       {scanError && (
         <div className={callout("error")} role="alert">
           <Icon path={mdiAlertCircleOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             {i18nT("status.scanFailed", undefined, "Scan failed:")} {scanError}
             <div className="mt-1">
-              <button type="button" className={BTN_SMALL} onClick={handleScan} disabled={scanning}>
+              <button type="button" className={BTN_SMALL} onClick={onScan} disabled={scanning}>
                 {i18nT("common.retry", undefined, "Retry")}
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Empty diagnostic (collapsed reasons) + manual-add fallback */}
-      {showEmptyDiagnostic && (
-        <>
-          <DiscoveryDiagnostic />
-
-          {/* Manual-add form — visible without expanding the disclosure */}
-          <form
-            className={`space-y-2 ${INSET}`}
-            onSubmit={(e) => {
-              e.preventDefault();
-              submitManual();
-            }}
-          >
-            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_9rem_auto]">
-              <div className="min-w-0">
-                <label htmlFor="discovery-manual-address" className={LABEL}>{i18nT("connection.address", undefined, "Address")}</label>
-                <input
-                  id="discovery-manual-address"
-                  type="text"
-                  placeholder={i18nT("common.192168162028000Or", undefined, "192.168.16.202:8000  or  http://host:8000")}
-                  value={manualInput}
-                  onChange={(e) => setManualInput(e.target.value)}
-                  aria-invalid={manualError ? true : undefined}
-                  aria-describedby={manualError ? "discovery-manual-error" : undefined}
-                  className={INPUT}
-                />
-              </div>
-              <div>
-                <label htmlFor="discovery-manual-label" className={LABEL}>{i18nT("common.labelOptional", undefined, "Label (optional)")}</label>
-                <input
-                  id="discovery-manual-label"
-                  type="text"
-                  value={manualLabel}
-                  onChange={(e) => setManualLabel(e.target.value)}
-                  className={INPUT}
-                />
-              </div>
-              <button type="submit" disabled={manualBusy || !manualInput.trim()} className={BTN_PRIMARY}>
-                <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
-                {i18nT("common.add2", undefined, "Add")}
-              </button>
-            </div>
-            {manualError && (
-              <div id="discovery-manual-error" className="text-[11px] text-[var(--severity-error-fg)]">{manualError}</div>
-            )}
-          </form>
-        </>
-      )}
-
-      {/* Discovered servers */}
-      {discovered.map((server) => {
-        const key = `${server.host}:${server.port}`;
-        return (
-          <DiscoveredRow
-            key={key}
-            server={server}
-            alreadyKnown={isKnownServer(server)}
-            updated={updatedKey === key}
-            isAdding={addingKey === key}
-            addLabel={addLabel}
-            error={addErrors[key]}
-            onLabelChange={setAddLabel}
-            onStart={() => handleStartAdd(server)}
-            onConfirm={() => void handleConfirmAdd(server).catch(logRejection("NetworkDiscoverySection.handleConfirmAdd"))}
-            onCancel={handleCancelAdd}
-          />
-        );
-      })}
     </div>
   );
+}
+
+type ManualRoute = { host: string; port: number; scheme: RouteScheme };
+
+/**
+ * Validate the manual-add inputs without a request: a parseable address (and port override), https
+ * only against a dashboard server that can store it, and not a route that is already stored.
+ * Returns the route to add, or the inline error text.
+ */
+function validateManualAdd(
+  address: string,
+  port: string,
+  storedKeys: ReadonlySet<string>,
+  offerHttpsAdd: boolean,
+): { route: ManualRoute } | { error: string } {
+  const parsed = parseRouteInput(address);
+  const override = port.trim() === "" ? null : Number(port);
+  if (!parsed || (override !== null && !(Number.isInteger(override) && override >= 1 && override <= 65535))) {
+    return { error: i18nT("connection.manualInvalid", undefined, "Enter a host like 192.168.1.42:8000 or http://office-mac.local:8000") };
+  }
+  const route: ManualRoute = { host: parsed.host, port: override ?? parsed.port, scheme: parsed.scheme };
+  if (route.scheme === "https" && !offerHttpsAdd) {
+    return { error: i18nT("connection.manualHttpsUnsupported", undefined, "This dashboard server is too old to store https addresses. Update it first.") };
+  }
+  if (storedKeys.has(routeKey(route))) {
+    return { error: i18nT("connection.manualAlreadyAdded", { address: formatHostPort(route.host, route.port) }, "{address} is already added.") };
+  }
+  return { route };
+}
+
+/**
+ * Inline manual-add form: an address (`host`, `host:port`, `http://…` or `https://…`), an optional
+ * port that overrides the address's, and an optional label. Invalid input and an already-stored
+ * route are reported inline (`aria-invalid` + `aria-describedby`) without a request.
+ */
+export function ManualAddForm({
+  storedKeys,
+  offerHttpsAdd,
+  onAdded,
+  onCancel,
+  autoFocus,
+}: {
+  /** `routeKey` of every stored route — an add of one of these is refused locally. */
+  storedKeys: ReadonlySet<string>;
+  /** False for a dashboard server older than routes: it would store an https add as http. */
+  offerHttpsAdd: boolean;
+  onAdded: () => void;
+  /** When given, the form can be dismissed (the "Add server manually" form); the scan diagnostic's form cannot. */
+  onCancel?: () => void;
+  autoFocus?: boolean;
+}) {
+  const [address, setAddress] = useState("");
+  const [port, setPort] = useState("");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const checked = validateManualAdd(address, port, storedKeys, offerHttpsAdd);
+    if ("error" in checked) return setError(checked.error);
+    const { route } = checked;
+    setError(null);
+    setBusy(true);
+    try {
+      const name = label.trim() || undefined;
+      if (route.scheme === "https") await addKnownServer(route.host, route.port, name, undefined, "https");
+      else await addKnownServer(route.host, route.port, name);
+      setAddress("");
+      setPort("");
+      setLabel("");
+      onAdded();
+    } catch (e) {
+      setError(errorMessage(e, i18nT("connection.manualFailed", undefined, "Failed to add server")));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className={`space-y-2 ${INSET}`}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit().catch(logRejection("ManualAddForm.submit"));
+      }}
+    >
+      <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_6rem_9rem_auto]">
+        <div className="min-w-0">
+          <label htmlFor="servers-add-address" className={LABEL}>{i18nT("connection.address", undefined, "Address")}</label>
+          <input
+            id="servers-add-address"
+            type="text"
+            placeholder={i18nT("common.192168162028000Or", undefined, "192.168.16.202:8000  or  http://host:8000")}
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "servers-add-error" : undefined}
+            className={INPUT}
+            autoFocus={autoFocus}
+          />
+        </div>
+        <div>
+          <label htmlFor="servers-add-port" className={LABEL}>{i18nT("connection.portOptional", undefined, "Port (optional)")}</label>
+          <input
+            id="servers-add-port"
+            type="number"
+            inputMode="numeric"
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
+            className={`${INPUT} text-right`}
+          />
+        </div>
+        <div>
+          <label htmlFor="servers-add-label" className={LABEL}>{i18nT("common.labelOptional", undefined, "Label (optional)")}</label>
+          <input id="servers-add-label" type="text" value={label} onChange={(e) => setLabel(e.target.value)} className={INPUT} />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onCancel && (
+            <button type="button" onClick={onCancel} className={BTN_SMALL_GHOST}>
+              {i18nT("common.cancel", undefined, "Cancel")}
+            </button>
+          )}
+        <button type="submit" disabled={busy || !address.trim()} className={BTN_PRIMARY}>
+          <Icon path={mdiPlus} size={0.5} aria-hidden="true" />
+          {i18nT("connection.addServer", undefined, "Add server")}
+        </button>
+        </div>
+      </div>
+      {error && (
+        <div id="servers-add-error" className="text-[11px] text-[var(--severity-error-fg)]" role="alert">
+          {error}
+        </div>
+      )}
+    </form>
+  );
+}
+
+/** The scan of Settings ▸ Servers: results, in-flight / completed flags and the error text. A failed scan counts as completed. */
+export function useDiscoveryScan(alive: { current: boolean }) {
+  const [discovered, setDiscovered] = useState<DiscoveredServerInfo[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const scan = useCallback(async () => {
+    setScanning(true);
+    setScanError(null);
+    try {
+      const found = await discoverServers();
+      if (alive.current) setDiscovered(found);
+    } catch (e) {
+      if (alive.current) {
+        setDiscovered([]);
+        setScanError(errorMessage(e, i18nT("connection.scanFailedFallback", undefined, "Scan failed")));
+      }
+    } finally {
+      if (alive.current) {
+        setScanned(true);
+        setScanning(false);
+      }
+    }
+  }, [alive]);
+
+  return { discovered, scanning, scanned, scanError, scan };
 }

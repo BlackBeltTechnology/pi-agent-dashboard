@@ -33,6 +33,7 @@ function load(initial: Record<string, unknown> | null = null): Harness {
     sendRequest: vi.fn(async () => {}),
     stopWaiting: vi.fn(async () => {}),
     pairAgain: vi.fn(async () => {}),
+    submitCode: vi.fn(async () => {}),
     close: vi.fn(),
   };
   const dom = new JSDOM(html, {
@@ -151,5 +152,52 @@ describe("terminal phases", () => {
     const h = load({ ...base, phase: "proving" });
     await new Promise((r) => setTimeout(r, 0));
     expect(h.visible("view-proving")).toBe(true);
+  });
+});
+
+// ── group-servers-by-identity: code mode (D8) ──
+
+describe("code mode (#F14 plumbing)", () => {
+  const codeBase = { ...base, mode: "code", host: "pairing code", unencrypted: false, shortFp: undefined };
+
+  it("asks for the pairing text; submitting sends it through the bridge once and clears the field", () => {
+    const h = load();
+    h.push({ ...codeBase, phase: "code" });
+    expect(h.visible("view-code")).toBe(true);
+    expect(h.visible("view-confirm")).toBe(false);
+    expect(h.text("title")).toContain("home-imac");
+    const field = h.dom.window.document.getElementById("code-text") as HTMLTextAreaElement;
+    field.value = "  pi:pair:v1.ZZ9  ";
+    h.dom.window.document.getElementById("btn-submit-code")!.click();
+    expect(h.api.submitCode).toHaveBeenCalledTimes(1);
+    expect(h.api.submitCode).toHaveBeenCalledWith("pi:pair:v1.ZZ9");
+    expect(field.value).toBe("");
+  });
+
+  it("an empty paste sends nothing", () => {
+    const h = load();
+    h.push({ ...codeBase, phase: "code" });
+    h.dom.window.document.getElementById("btn-submit-code")!.click();
+    expect(h.api.submitCode).not.toHaveBeenCalled();
+  });
+
+  it("the following phases reuse the existing views: proving, waiting with the compare code, no countdown", () => {
+    const h = load();
+    h.push({ ...codeBase, phase: "proving" });
+    expect(h.visible("view-proving")).toBe(true);
+    expect(h.visible("view-code")).toBe(false);
+    h.push({ ...codeBase, phase: "waiting", confirmCode: "48217730" });
+    expect(h.text("code")).toBe("4821 7730");
+    expect(h.text("countdown")).toBe("");
+    expect(h.visible("unencrypted")).toBe(false);
+    expect(h.visible("btn-stop")).toBe(true);
+  });
+
+  it("a refusal offers Pair again, which asks for a fresh paste", () => {
+    const h = load();
+    h.push({ ...codeBase, phase: "refused", message: "That text is not a pairing code." });
+    expect(h.visible("btn-retry")).toBe(true);
+    h.dom.window.document.getElementById("btn-retry")!.click();
+    expect(h.api.pairAgain).toHaveBeenCalled();
   });
 });

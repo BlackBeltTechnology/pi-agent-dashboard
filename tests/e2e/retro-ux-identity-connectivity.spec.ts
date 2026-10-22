@@ -94,6 +94,42 @@ test.describe("retro-ux identity + connectivity", () => {
     expect(failures(results)).toEqual([]);
   });
 
+  // group-servers-by-identity (test-plan #F12): the identity rows — chips, a refused chip, the pair actions —
+  // and the can't-prove / different-identity rows pass contrast, size and focus in the 3 themes at both widths.
+  test("F12: identity rows, route chips and pair actions are probed non-vacuously in all 3 themes", async ({ page }) => {
+    test.setTimeout(240_000);
+    await gotoDashboard(page);
+    const results = await captureStates(page, {
+      change: CHANGE,
+      surface: "server-selector",
+      states: serverSelectorStates,
+      only: ["open-identity", "open-mixed"],
+      widths: [375, 1440],
+    });
+    expect(results).toHaveLength(2 * RETRO_UX_THEMES.length * 2);
+    for (const r of results) expect(r.measured, `${cell(r)} measured text nodes`).toBeGreaterThan(0);
+    expect(failures(results)).toEqual([]);
+  });
+
+  // group-servers-by-identity (test-plan #F12, Settings part): cards with several routes, a refused route, a
+  // route that cannot prove identity, and the pair-with-code dialog (open and refusing) pass contrast, size and
+  // focus in the 3 themes at both widths. Not run in the authoring session (needs the docker harness).
+  test("F12: Settings ▸ Servers cards and the pair-with-code dialog are probed non-vacuously in all 3 themes", async ({ page }) => {
+    test.setTimeout(360_000);
+    await gotoDashboard(page);
+    const states = ["identity-cards", "cant-prove", "pair-with-code", "pair-with-code-refused"];
+    const results = await captureStates(page, {
+      change: CHANGE,
+      surface: "known-servers",
+      states: knownServersStates,
+      only: states,
+      widths: [375, 1440],
+    });
+    expect(results).toHaveLength(states.length * RETRO_UX_THEMES.length * 2);
+    for (const r of results) expect(r.measured, `${cell(r)} measured text nodes`).toBeGreaterThan(0);
+    expect(failures(results)).toEqual([]);
+  });
+
   test("F7: stubs survive the theme reload (users unstable)", async ({ page }) => {
     await gotoDashboard(page);
     const unstable = byId(usersStates, "unstable");

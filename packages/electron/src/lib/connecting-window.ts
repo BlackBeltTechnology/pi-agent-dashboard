@@ -9,9 +9,14 @@
  * Thin Electron wrapper — the pairing state machine lives in `pairing-client.ts`
  * and the lifecycle in `server-windows.ts`.
  *
- * See change: add-electron-server-windows (D11).
+ * It also hosts the in-app "Pair with code" (`mode: "code"` states): the pairing text is
+ * pasted into THIS bundled page and goes to main over `servers:submit-code`, never through
+ * the dashboard page.
+ *
+ * See change: add-electron-server-windows (D11), group-servers-by-identity (D8).
  */
 import { BrowserWindow } from "electron";
+import type { ConnectingState } from "./pairing-client.js";
 import { getRendererHtmlPath, getWizardPreloadPath } from "./renderer-paths.js";
 import type { ConnectingHandle } from "./server-windows.js";
 
@@ -25,13 +30,13 @@ export function getConnectingWindow(): BrowserWindow | null {
 }
 
 /** Open the connecting window; `onClosed` fires when the user closes it (stop any pairing). */
-export function openConnectingWindow(onClosed: () => void): ConnectingHandle {
+export function openConnectingWindow(onClosed: () => void, initial?: Pick<ConnectingState, "mode">): ConnectingHandle {
   const win = new BrowserWindow({
     width: 500,
     height: 560,
     resizable: false,
     minimizable: false,
-    title: "Connecting — PI Dashboard",
+    title: initial?.mode === "code" ? "Pair with code — PI Dashboard" : "Connecting — PI Dashboard",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

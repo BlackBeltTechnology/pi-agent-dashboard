@@ -7,7 +7,7 @@
  * Carries pairing progress (incl. the confirmation code) — it must never be
  * attached to a window that loads remote content.
  *
- * See change: add-electron-server-windows (D9, D11).
+ * See change: add-electron-server-windows (D9, D11), group-servers-by-identity (D8).
  */
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -18,6 +18,8 @@ export interface ConnectingApi {
   sendRequest: (deviceName: string) => Promise<void>;
   stopWaiting: () => Promise<void>;
   pairAgain: () => Promise<void>;
+  /** Code mode: the pasted pairing text (goes to main only). */
+  submitCode: (text: string) => Promise<void>;
   close: () => void;
 }
 
@@ -33,6 +35,7 @@ const connecting: ConnectingApi = {
   sendRequest: (deviceName) => ipcRenderer.invoke("servers:send-request", { deviceName }),
   stopWaiting: () => ipcRenderer.invoke("servers:stop-waiting"),
   pairAgain: () => ipcRenderer.invoke("servers:pair-again"),
+  submitCode: (text) => ipcRenderer.invoke("servers:submit-code", { text }),
   close: () => ipcRenderer.send("servers:connecting-close"),
 };
 

@@ -1,53 +1,113 @@
 /**
- * Settings section for managing persisted known servers.
- * Shows the list with a two-step remove and an inline add form. Failures are
- * surfaced (load → callout + Retry, remove / move → error next to the row); a
- * non-operator sees the list read-only with a note saying why.
+ * Settings ▸ Servers — ONE list of server identities (saved ∪ discovered ∪ Electron keyring).
  *
- * See change: retro-ux-identity-connectivity.
+ * Replaces the former "Known Servers" and "Network Discovery" sections: discovery is a source of
+ * this list (scan button, diagnostic empty-state and manual add live here), and a server found by a
+ * scan joins the card of the identity it advertises. Every route is proven with the identity
+ * challenge (`createRouteChecker`); a route that proves another identity is refused and never used.
+ * Mutations (add / remove / update) are operator-only: a read-only viewer sees the list with a note.
+ * Failures are surfaced (load → callout + Retry, remove / move → next to the card or route, scan →
+ * callout + Retry).
+ *
+ * The card itself is `ServerCard`; the scan bar, diagnostic and manual-add form are in
+ * `NetworkDiscoverySection`. Pure grouping / ranking / pair-action logic is `lib/server-list-model`.
+ *
+ * See change: retro-ux-identity-connectivity, group-servers-by-identity (D1–D4, D6, D8, D9; tasks 7.x).
  */
 
-import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import {
-  mdiAlertCircleOutline,
-  mdiAlertOutline,
-  mdiCheck,
-  mdiClose,
-  mdiInformationOutline,
-  mdiLoading,
-  mdiPlus,
-  mdiShieldCheck,
-} from "@mdi/js";
+import { type Route, type RouteSource, routeKey } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
+import { mdiAlertCircleOutline, mdiInformationOutline, mdiLoading, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useState } from "react";
-import { acceptKnownServerMove, addKnownServer, listKnownServersWithAccess, removeKnownServer } from "../../lib/api/known-servers-api.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listKnownServersWithAccess } from "../../lib/api/known-servers-api.js";
+import { getListServers, getOpenServerWindow } from "../../lib/electron-server-windows.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
-import {
-  BTN_ICON_GHOST,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  BTN_SMALL,
-  BTN_SMALL_DANGER,
-  BTN_SMALL_GHOST,
-  callout,
-  errorMessage,
-  HELP,
-  INPUT,
-  INSET,
-  identityPill,
-  LABEL,
-  META,
-  ROW,
-  severityPill,
-} from "./connectivity-ui.js";
+import { buildServerList, type ListRoute } from "../../lib/server-list-model.js";
+import { BTN_SECONDARY, BTN_SMALL, callout, errorMessage, HELP } from "./connectivity-ui.js";
+import { DiscoveryDiagnostic, ManualAddForm, ScanBar, useDiscoveryScan } from "./NetworkDiscoverySection.js";
+import { ServerCard } from "./ServerCard.js";
+import { createServerCardActions } from "./server-card-actions.js";
+import { useElectronServers } from "./use-electron-servers.js";
+import { useRouteProofs } from "./use-route-proofs.js";
 
 interface KnownServersSectionProps {
+  /** Called after the saved list changed (add / remove / update) so a parent can refresh its own copy. */
   onChange?: () => void;
 }
 
-const rowKey = (s: { host: string; port: number }) => `${s.host}:${s.port}`;
+/** The routes a saved entry stores; a pre-routes server lists none, so its host:port is one plain-http route. */
+function storedRoutes(e: KnownServerListEntry): Route[] {
+  return e.routes && e.routes.length > 0 ? e.routes : [{ host: e.host, port: e.port, scheme: "http", source: "saved" }];
+}
+
+/** How each stored route was learned, by `routeKey`. */
+function storedSourceOf(servers: readonly KnownServerListEntry[]): Map<string, RouteSource> {
+  const m = new Map<string, RouteSource>();
+  for (const e of servers) for (const r of storedRoutes(e)) m.set(routeKey(r), r.source);
+  return m;
+}
+
+/** Ports of the saved entries holding each fingerprint: "same identity, same port" is already saved. */
+function savedPortsByFingerprint(servers: readonly KnownServerListEntry[]): Map<string, Set<number>> {
+  const m = new Map<string, Set<number>>();
+  for (const e of servers) {
+    if (!e.fingerprint) continue;
+    const ports = m.get(e.fingerprint) ?? new Set<number>();
+    ports.add(e.port);
+    for (const r of storedRoutes(e)) if (r.scheme === "http") ports.add(r.port);
+    m.set(e.fingerprint, ports);
+  }
+  return m;
+}
+
+/** The manual-add form (after "Add server manually" or an empty scan) or the button that opens it; operator-only. */
+function AddServerArea(props: {
+  canManage: boolean;
+  showForm: boolean;
+  dismissable: boolean;
+  storedKeys: ReadonlySet<string>;
+  offerHttpsAdd: boolean;
+  onOpen: () => void;
+  onCancel: () => void;
+  onAdded: () => void;
+}) {
+  if (props.showForm) {
+    return (
+      <ManualAddForm
+        storedKeys={props.storedKeys}
+        offerHttpsAdd={props.offerHttpsAdd}
+        onAdded={props.onAdded}
+        onCancel={props.dismissable ? props.onCancel : undefined}
+        autoFocus={props.dismissable}
+      />
+    );
+  }
+  if (!props.canManage) return null;
+  return (
+    <button type="button" onClick={props.onOpen} className={BTN_SECONDARY}>
+      <Icon path={mdiPlus} size={0.55} aria-hidden="true" />
+      {i18nT("common.addServerManually", undefined, "Add server manually")}
+    </button>
+  );
+}
+
+function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className={callout("error")} role="alert">
+      <Icon path={mdiAlertCircleOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        {i18nT("connection.loadServersFailed", { error }, "Could not load known servers: {error}")}
+        <div className="mt-1">
+          <button type="button" className={BTN_SMALL} onClick={onRetry}>
+            {i18nT("common.retry", undefined, "Retry")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function KnownServersSection({ onChange }: KnownServersSectionProps = {}) {
   const [servers, setServers] = useState<KnownServerListEntry[]>([]);
@@ -56,22 +116,17 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [addHost, setAddHost] = useState("");
-  const [addPort, setAddPort] = useState("8000");
-  const [addLabel, setAddLabel] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  /** Entry awaiting "Confirm remove" (two-step, like the Users revoke). */
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  /** Per-row failure of a remove or a move acceptance. */
-  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
 
-  const setRowError = (key: string, message: string | null) =>
-    setRowErrors((prev) => {
-      const next = { ...prev };
-      if (message) next[key] = message;
-      else delete next[key];
-      return next;
-    });
+  const alive = useRef(true);
+  const { discovered, scanning, scanned, scanError, scan } = useDiscoveryScan(alive);
+  const electron = useElectronServers(alive);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -86,53 +141,26 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
     }
   }, []);
 
-  useEffect(() => { void reload().catch(logRejection("KnownServersSection.reload")); }, [reload]);
+  useEffect(() => {
+    void reload().catch(logRejection("KnownServersSection.reload"));
+  }, [reload]);
 
-  const handleAdd = async () => {
-    const host = addHost.trim();
-    const port = parseInt(addPort, 10);
-    if (!host || !port || isNaN(port)) {
-      setError("Host and valid port are required");
-      return;
-    }
-    try {
-      await addKnownServer(host, port, addLabel.trim() || undefined);
-      setAddHost("");
-      setAddPort("8000");
-      setAddLabel("");
-      setShowAdd(false);
-      setError(null);
-      await reload();
-      onChange?.();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
+  const client = getOpenServerWindow() || getListServers() ? "electron" : "browser";
+  const found = useMemo(() => discovered.map((d) => ({ host: d.host, port: d.port, fingerprint: d.fingerprint, name: d.name })), [discovered]);
+  // The routes to prove do not depend on the proofs: group once without them, then with them.
+  const routes = useMemo(() => buildServerList({ client, saved: servers, discovered: found, electron }), [client, servers, found, electron]);
+  const storedSource = useMemo(() => storedSourceOf(servers), [servers]);
+  const { checks, explain } = useRouteProofs(routes.entries, { canManage, storedSource, alive });
+  const model = useMemo(() => buildServerList({ client, saved: servers, discovered: found, electron, checks }), [client, servers, found, electron, checks]);
+  const discoveredByKey = useMemo(() => new Map(discovered.map((d) => [routeKey({ host: d.host, port: d.port, scheme: "http" }), d])), [discovered]);
+  const localKeys = useMemo(() => new Set(discovered.filter((d) => d.isLocal).map((d) => routeKey({ host: d.host, port: d.port, scheme: "http" }))), [discovered]);
+  const savedPortsByFp = useMemo(() => savedPortsByFingerprint(servers), [servers]);
 
-  const handleRemove = async (s: KnownServerListEntry) => {
-    const key = rowKey(s);
-    setRowError(key, null);
-    try {
-      await removeKnownServer(s.host, s.port);
-      setConfirmRemove(null);
-      await reload();
-      onChange?.();
-    } catch (e) {
-      setConfirmRemove(null);
-      setRowError(key, i18nT("connection.removeFailed", { error: errorMessage(e) }, "Could not remove: {error}"));
-    }
-  };
-
-  const handleUpdate = async (s: KnownServerListEntry) => {
-    const key = rowKey(s);
-    setRowError(key, null);
-    if (!(await acceptKnownServerMove(s.host, s.port))) {
-      setRowError(key, i18nT("connection.moveRefused", undefined, "Couldn't update this server — an operator credential is needed."));
-      return;
-    }
+  const refresh = async () => {
     await reload();
     onChange?.();
   };
+  const actions = createServerCardActions(storedSource, refresh);
 
   if (loading) {
     return (
@@ -145,198 +173,70 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
 
   if (loadError) {
     return (
-      <div className={callout("error")} role="alert">
-        <Icon path={mdiAlertCircleOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          {i18nT("connection.loadServersFailed", { error: loadError }, "Could not load known servers: {error}")}
-          <div className="mt-1">
-            <button
-              type="button"
-              className={BTN_SMALL}
-              onClick={() => {
-                setLoading(true);
-                void reload().catch(logRejection("KnownServersSection.retry"));
-              }}
-            >
-              {i18nT("common.retry", undefined, "Retry")}
-            </button>
-          </div>
-        </div>
-      </div>
+      <LoadError
+        error={loadError}
+        onRetry={() => {
+          setLoading(true);
+          void reload().catch(logRejection("KnownServersSection.retry"));
+        }}
+      />
     );
   }
+
+  // A failed scan counts as completed, so the diagnostic and the manual-add form appear with the error.
+  const emptyScan = scanned && discovered.length === 0;
+  const showForm = canManage && (showAdd || emptyScan);
+  const storedKeys = new Set(storedSource.keys());
+  const isAdded = (route: ListRoute, fingerprint: string | undefined) =>
+    storedKeys.has(route.key) || (!!fingerprint && (savedPortsByFp.get(fingerprint)?.has(route.port) ?? false));
 
   return (
     <div className="space-y-3">
       {!canManage && (
         <div className={`${HELP} flex items-start gap-1.5`}>
           <Icon path={mdiInformationOutline} size={0.55} className="mt-0.5 shrink-0" aria-hidden="true" />
-          {i18nT(
-            "connection.readOnlyNote",
-            undefined,
-            "Read-only — an operator credential is needed to change servers.",
-          )}
+          {i18nT("connection.readOnlyNote", undefined, "Read-only — an operator credential is needed to change servers.")}
         </div>
       )}
 
-      {/* Server list */}
-      {servers.length === 0 && !showAdd && (
+      {model.entries.length === 0 && !showForm && (
         <div className={HELP}>
-          {i18nT("common.noRemoteServersSavedAddServers", undefined, "No remote servers saved. Add servers manually or from network discovery below.")}
+          {i18nT("connection.noServersSaved", undefined, "No remote servers saved. Scan the network or add a server by address.")}
         </div>
       )}
 
-      {servers.map((s, idx) => {
-        const key = rowKey(s);
-        const name = s.label || s.host;
-        const confirming = confirmRemove === key;
-        const movedAddress = s.movedTo ? formatHostPort(s.movedTo.host, s.movedTo.port) : null;
-        const verifiedId = `known-verified-${idx}`;
-        return (
-          <div key={key} className={ROW}>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
-                <span className="truncate">{name}</span>
-                <span className={identityPill(false)}>{i18nT("common.remote", undefined, "Remote")}</span>
-                {s.fingerprint && (
-                  <>
-                    <span className={severityPill("success")} aria-describedby={verifiedId}>
-                      <Icon path={mdiShieldCheck} size={0.5} aria-hidden="true" />
-                      {i18nT("connection.verified", undefined, "Verified")}
-                    </span>
-                    <span id={verifiedId} className="sr-only">
-                      {i18nT("connection.verifiedHint", undefined, "Identity was verified when this server was added.")}
-                    </span>
-                  </>
-                )}
-              </div>
-              <div className={META}>{s.host}:{s.port}</div>
-            </div>
-            {canManage &&
-              (confirming ? (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    className={BTN_SMALL_DANGER}
-                    aria-label={i18nT("connection.confirmRemoveNamed", { name, address: key }, "Confirm remove {name} ({address})")}
-                    onClick={() => void handleRemove(s).catch(logRejection("KnownServersSection.handleRemove"))}
-                  >
-                    {i18nT("connection.confirmRemove", undefined, "Confirm remove")}
-                  </button>
-                  <button type="button" className={BTN_SMALL_GHOST} onClick={() => setConfirmRemove(null)}>
-                    {i18nT("common.cancel", undefined, "Cancel")}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className={BTN_ICON_GHOST}
-                  aria-label={i18nT("connection.removeNamed", { name, address: key }, "Remove {name} ({address})")}
-                  onClick={() => {
-                    setRowError(key, null);
-                    setConfirmRemove(key);
-                  }}
-                >
-                  <Icon path={mdiClose} size={0.6} aria-hidden="true" />
-                </button>
-              ))}
-            {movedAddress && (
-              <div className={`${callout("warning")} basis-full`}>
-                <Icon path={mdiAlertOutline} size={0.6} className="mt-0.5 shrink-0" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <span>{i18nT("connection.movedTo", { address: movedAddress }, "Moved to {address}")}</span>
-                  <span>{` — ${i18nT("connection.movedSameIdentity", undefined, "same server identity, new address.")}`}</span>
-                  {canManage && (
-                    <div className="mt-1">
-                      <button
-                        type="button"
-                        className={BTN_SMALL}
-                        aria-label={i18nT("connection.updateTo", { name, address: movedAddress }, "Update {name} to {address}")}
-                        onClick={() => void handleUpdate(s).catch(logRejection("KnownServersSection.handleUpdate"))}
-                      >
-                        {i18nT("connection.updateServer", undefined, "Update")}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            {rowErrors[key] && (
-              <div className="basis-full text-[11px] text-[var(--severity-error-fg)]" role="alert">
-                {rowErrors[key]}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {model.entries.map((entry) => (
+        <ServerCard
+          key={entry.key}
+          entry={entry}
+          client={client}
+          isLocal={entry.isCurrent || entry.routes.some((r) => r.kind === "loopback" || localKeys.has(r.key))}
+          canManage={canManage}
+          explain={explain}
+          storedSource={storedSource}
+          discovered={discoveredByKey}
+          isAdded={isAdded}
+          actions={actions}
+        />
+      ))}
 
-      {/* Add form */}
-      {!canManage ? null : showAdd ? (
-        <form
-          className={`space-y-2 ${INSET}`}
-          onSubmit={(e) => {
-            e.preventDefault();
-            void handleAdd().catch(logRejection("KnownServersSection.handleAdd"));
-          }}
-        >
-          <div className="grid grid-cols-[1fr_6rem] gap-2">
-            <div className="min-w-0">
-              <label htmlFor="known-add-host" className={LABEL}>{i18nT("common.host", undefined, "Host")}</label>
-              <input
-                id="known-add-host"
-                type="text"
-                placeholder={i18nT("common.hostEGOfficeMacLocal", undefined, "Host (e.g. office-mac.local)")}
-                value={addHost}
-                onChange={(e) => setAddHost(e.target.value)}
-                aria-invalid={error ? true : undefined}
-                aria-describedby={error ? "known-add-error" : undefined}
-                className={INPUT}
-                autoFocus
-              />
-            </div>
-            <div>
-              <label htmlFor="known-add-port" className={LABEL}>{i18nT("common.port", undefined, "Port")}</label>
-              <input
-                id="known-add-port"
-                type="number"
-                inputMode="numeric"
-                value={addPort}
-                onChange={(e) => setAddPort(e.target.value)}
-                className={`${INPUT} text-right`}
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="known-add-label" className={LABEL}>{i18nT("common.labelOptional", undefined, "Label (optional)")}</label>
-            <input
-              id="known-add-label"
-              type="text"
-              value={addLabel}
-              onChange={(e) => setAddLabel(e.target.value)}
-              className={INPUT}
-            />
-          </div>
-          {error && <div id="known-add-error" className="text-[11px] text-[var(--severity-error-fg)]" role="alert">{error}</div>}
-          <div className="flex flex-wrap justify-end gap-1.5">
-            <button
-              type="button"
-              onClick={() => { setShowAdd(false); setError(null); }}
-              className={BTN_SMALL_GHOST}
-            >
-              {i18nT("common.cancel", undefined, "Cancel")}
-            </button>
-            <button type="submit" className={BTN_PRIMARY}>
-              <Icon path={mdiCheck} size={0.5} aria-hidden="true" />
-              {i18nT("connection.addServer", undefined, "Add server")}
-            </button>
-          </div>
-        </form>
-      ) : (
-        <button type="button" onClick={() => setShowAdd(true)} className={BTN_SECONDARY}>
-          <Icon path={mdiPlus} size={0.55} aria-hidden="true" />
-          {i18nT("common.addServerManually", undefined, "Add server manually")}
-        </button>
-      )}
+      <ScanBar scanning={scanning} scanned={scanned} scanError={scanError} found={discovered.length} onScan={() => void scan()} />
+
+      {emptyScan && <DiscoveryDiagnostic />}
+
+      <AddServerArea
+        canManage={canManage}
+        showForm={showForm}
+        dismissable={showAdd && !emptyScan}
+        storedKeys={storedKeys}
+        offerHttpsAdd={model.offerHttpsAdd}
+        onOpen={() => setShowAdd(true)}
+        onCancel={() => setShowAdd(false)}
+        onAdded={() => {
+          setShowAdd(false);
+          void refresh().catch(logRejection("KnownServersSection.refresh"));
+        }}
+      />
     </div>
   );
 }

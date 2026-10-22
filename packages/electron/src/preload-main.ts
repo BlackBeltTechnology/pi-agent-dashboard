@@ -74,6 +74,19 @@ export interface PiDashboardApi {
    */
   openServerWindow?: (target: { host: string; port: number }) => Promise<{ ok: true; pairing?: true } | { ok: false; reason: string }>;
   /**
+   * The renderer-safe servers state main already holds (paired rows, discovered servers, recent
+   * remotes): never a bearer, cookie, partition or confirmation code. Same local-origin gate as
+   * `openServerWindow`; main accepts it only from the main window's top frame.
+   * See change: group-servers-by-identity (D9).
+   */
+  listServers?: () => Promise<unknown>;
+  /**
+   * Start the in-app "Pair with code" for a server identified by its fingerprint. Opens the
+   * app-owned Connecting window, where the pairing text is pasted — it never passes through this
+   * page. Same gate as `openServerWindow`. See change: group-servers-by-identity (D8).
+   */
+  pairWithCode?: (target: { fingerprint: string }) => Promise<{ ok: true; pairing?: true } | { ok: false; reason: string }>;
+  /**
    * Operator browser-host bridge (carrier ↔ Electron main). Present ONLY while
    * this document is on the local dashboard origin — same gate as
    * `openServerWindow`; a remote-origin document never sees it and the main-side
@@ -135,6 +148,9 @@ const browserHost: BrowserHostBridge = {
 const localOrigin = localOriginFromArgv();
 if (localOrigin && globalThis.location?.origin === localOrigin) {
   piDashboard.openServerWindow = (target) => ipcRenderer.invoke("servers:open-from-dashboard", { host: target?.host, port: target?.port });
+  piDashboard.listServers = () => ipcRenderer.invoke("servers:list");
+  // Explicit field copy: nothing but the fingerprint crosses to main.
+  piDashboard.pairWithCode = (target) => ipcRenderer.invoke("servers:pair-with-code", { fingerprint: target?.fingerprint });
   piDashboard.browserHost = browserHost;
 }
 

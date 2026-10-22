@@ -42,7 +42,7 @@ async function resolveVerifiedUrl(
 ): Promise<string> {
   let mismatch: string | undefined;
   // Race all urls; take the first that verifies against the pin.
-  const attempts = entry.urls.map(async (url) => {
+  const attempts = entry.urls.map(async (url, index) => {
     const proof = await challengeIdentity(url);
     const pinned =
       proof.verified &&
@@ -52,11 +52,13 @@ async function resolveVerifiedUrl(
       mismatch = `${url}: ${proof.verified ? "identity mismatch" : "signature invalid"}`;
       throw new Error(mismatch);
     }
-    return url;
+    // Resolve the winner's INDEX, not the url string: the verified url is then read straight from the
+    // stored keyring list, never from a value carried through a (possibly rejected) request promise.
+    return index;
   });
 
   try {
-    const url = await Promise.any(attempts);
+    const url = entry.urls[await Promise.any(attempts)];
     log.push(`identity verified: ${url}`);
     return url;
   } catch {
@@ -93,6 +95,11 @@ export async function connectServer(entry: KeyringEntry): Promise<ConnectLog> {
 
 function openWs(wsUrl: string, lines: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
+    // CSP `connect-src wss:` — refuse any other scheme before connecting.
+    if (!/^wss:\/\//.test(wsUrl)) {
+      reject(new Error("refusing a non-wss url"));
+      return;
+    }
     const ws = new WebSocket(wsUrl);
     const timer = setTimeout(() => {
       ws.close();

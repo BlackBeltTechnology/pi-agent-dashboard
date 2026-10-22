@@ -278,3 +278,163 @@ describe("proveServerIdentity", () => {
     expect(new Set(nonces).size).toBe(2);
   });
 });
+
+// ── Scheme-aware server-side proof (test-plan #X3) ─────────────────────────
+// The dashboard server proves a stored `https` route over https with the
+// platform's normal certificate verification, no redirect followed, 2 s, 4 KiB.
+// See change: group-servers-by-identity (task 11.30).
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
+import type { AddressInfo } from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, vi } from "vitest";
+
+describe("proveServerIdentity over https (#X3)", () => {
+  const challengeAnswer = (s: ReturnType<typeof makeServer>, init?: RequestInit) => {
+    const nonce = (JSON.parse(String(init?.body)) as { nonce: string }).nonce;
+    return JSON.stringify({ data: { fingerprint: s.fingerprint, publicKey: s.publicKeyB64, signature: s.sign(nonce) } });
+  };
+
+  describe("request options (injected fetch)", () => {
+    function recordingFetch(s: ReturnType<typeof makeServer>, status = 200) {
+      const calls: Array<{ url: string; init: RequestInit }> = [];
+      const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+        calls.push({ url: String(url), init: init as RequestInit });
+        return new Response(status === 200 ? challengeAnswer(s, init) : "", { status, headers: { location: "https://evil.example/" } });
+      }) as typeof fetch;
+      return { calls, fetchImpl };
+    }
+
+    it("posts to https://<host>:<port>/api/pair/challenge, redirect manual, no TLS override", async () => {
+      const s = makeServer();
+      const { calls, fetchImpl } = recordingFetch(s);
+      const r = await proveServerIdentity("https://lab.example.org:8443/", { fetchImpl });
+      expect(r).toEqual({ proven: s.fingerprint, publicKey: s.publicKeyB64 });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("https://lab.example.org:8443/api/pair/challenge");
+      expect(calls[0].init.redirect).toBe("manual");
+      expect(calls[0].init.method).toBe("POST");
+      // No certificate-verification override of any kind rides on the request.
+      expect(Object.keys(calls[0].init).sort()).toEqual(["body", "headers", "method", "redirect", "signal"]);
+      expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).not.toBe("0");
+    });
+
+    it("keeps the scheme it was given: http stays http, https stays https", async () => {
+      const s = makeServer();
+      const a = recordingFetch(s);
+      await proveServerIdentity("http://192.168.16.9:8000", { fetchImpl: a.fetchImpl });
+      await proveServerIdentity("https://lab.example.org", { fetchImpl: a.fetchImpl });
+      expect(a.calls.map((c) => c.url)).toEqual([
+        "http://192.168.16.9:8000/api/pair/challenge",
+        "https://lab.example.org/api/pair/challenge",
+      ]);
+    });
+
+    it("the default timeout is 2 s", async () => {
+      const spy = vi.spyOn(AbortSignal, "timeout");
+      try {
+        await proveServerIdentity("https://lab.example.org", { fetchImpl: recordingFetch(makeServer()).fetchImpl });
+        expect(spy).toHaveBeenCalledWith(2000);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("a redirect answer is not followed and is not a proof", async () => {
+      const { calls, fetchImpl } = recordingFetch(makeServer(), 302);
+      const r = await proveServerIdentity("https://lab.example.org", { fetchImpl });
+      expect(r).toEqual({ refused: "challenge answered 302" });
+      expect(calls).toHaveLength(1);
+    });
+
+    it("an oversized (> 4 KiB) answer is refused", async () => {
+      const fetchImpl = (async () => new Response("x".repeat(64 * 1024), { status: 200 })) as typeof fetch;
+      expect(await proveServerIdentity("https://lab.example.org", { fetchImpl })).toEqual({ refused: "challenge response too large" });
+    });
+  });
+
+  describe("self-signed https server (real TLS handshake, default fetch)", () => {
+    let dir = "";
+    let server: https.Server | undefined;
+    let cert = "";
+    let port = 0;
+    let requests = 0;
+    let identity: ReturnType<typeof makeServer>;
+    let ready = false;
+
+    beforeAll(async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-selfsigned-"));
+      try {
+        execFileSync(
+          "openssl",
+          [
+            "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",
+            "-keyout", path.join(dir, "key.pem"), "-out", path.join(dir, "cert.pem"), "-days", "2",
+            "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+          ],
+          { stdio: "ignore" },
+        );
+      } catch {
+        return; // no openssl on this machine: the real-handshake tests skip, the injected-fetch ones above still run
+      }
+      cert = fs.readFileSync(path.join(dir, "cert.pem"), "utf-8");
+      identity = makeServer();
+      server = https.createServer({ key: fs.readFileSync(path.join(dir, "key.pem")), cert }, (req, res) => {
+        requests++;
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", () => {
+          res.setHeader("content-type", "application/json");
+          res.end(challengeAnswer(identity, { body } as RequestInit));
+        });
+      });
+      await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+      port = (server.address() as AddressInfo).port;
+      ready = true;
+    });
+
+    afterAll(async () => {
+      await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("the fixture answers the challenge when its certificate is trusted explicitly (control)", async (ctx) => {
+      if (!ready) return ctx.skip();
+      const body = await new Promise<string>((resolve, reject) => {
+        const req = https.request({ host: "127.0.0.1", port, path: "/api/pair/challenge", method: "POST", ca: cert, servername: "localhost" }, (res) => {
+          let text = "";
+          res.on("data", (c) => (text += c));
+          res.on("end", () => resolve(text));
+        });
+        req.on("error", reject);
+        req.end(JSON.stringify({ nonce: "n" }));
+      });
+      expect(JSON.parse(body).data.fingerprint).toBe(identity.fingerprint);
+      requests = 0;
+    });
+
+    it("a self-signed certificate is 'can't prove identity' — never a pinned fingerprint — and no challenge reaches the server", async (ctx) => {
+      if (!ready) return ctx.skip();
+      requests = 0;
+      const r = await proveServerIdentity(`https://localhost:${port}`);
+      expect("proven" in r).toBe(false);
+      expect(r).toEqual({ refused: "challenge failed" });
+      expect(requests).toBe(0);
+    });
+
+    it("the same server over plain http is not reachable as https and is not proven", async (ctx) => {
+      if (!ready) return ctx.skip();
+      const plain = http.createServer((_req, res) => res.end("{}"));
+      await new Promise<void>((resolve) => plain.listen(0, "127.0.0.1", resolve));
+      try {
+        const r = await proveServerIdentity(`https://127.0.0.1:${(plain.address() as AddressInfo).port}`, { timeoutMs: 1000 });
+        expect("proven" in r).toBe(false);
+      } finally {
+        await new Promise<void>((resolve) => plain.close(() => resolve()));
+      }
+    });
+  });
+});

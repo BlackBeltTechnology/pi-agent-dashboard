@@ -20,6 +20,10 @@ const FILES = [
   "ServerSelector.tsx",
   "KnownServersSection.tsx",
   "NetworkDiscoverySection.tsx",
+  "ServerCard.tsx",
+  "PairWithCodeDialog.tsx",
+  "VerifyAndRequestDialog.tsx",
+  "server-route-chips.tsx",
   "connectivity-ui.ts",
 ];
 

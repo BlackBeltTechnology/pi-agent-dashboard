@@ -4,6 +4,7 @@
  */
 import { EventEmitter } from "node:events";
 import type { DashboardBrowser, DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { type RankableRoute, rankRoutes } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildCandidates,
@@ -228,5 +229,62 @@ describe("describeDiscovered rejects hostile adverts (CodeRabbit)", () => {
     );
     expect(entries.map((e) => e.key)).toEqual(["d"]);
     expect(entries[0]!.addresses).toEqual(["10.0.0.1"]);
+  });
+});
+
+// ── group-servers-by-identity: list "used" marker agrees with Electron host selection (#E5, task 8.5) ──
+
+describe("rankRoutes(credentialed) agrees with buildCandidates (#E5)", () => {
+  type R = RankableRoute & { id: string };
+  const route = (id: string, scheme: "http" | "https", over: Partial<R> = {}): R => ({
+    id,
+    host: id,
+    port: scheme === "https" ? 443 : 8000,
+    scheme,
+    source: "saved",
+    proven: true,
+    ...over,
+  });
+  const ref = (r: R) => ({ scheme: r.scheme, host: r.host, port: r.port });
+
+  /** The route Electron would actually open: the first candidate (stored https, stored http, discovered) that proves the pin. */
+  const electronPick = (stored: R[], discovered: R[]): string | null => {
+    const candidates = buildCandidates(stored.map(ref), discovered.map(ref));
+    const all = [...stored, ...discovered];
+    for (const c of candidates) {
+      const r = all.find((x) => x.host === c.ref.host && x.port === c.ref.port && x.scheme === c.ref.scheme);
+      if (r?.proven) return r.id;
+    }
+    return null;
+  };
+  const listMarker = (stored: R[], discovered: R[]): string | null =>
+    rankRoutes([...stored, ...discovered.map((d) => ({ ...d, discovered: true }))], { credentialed: true })?.id ?? null;
+
+  it.each([
+    ["stored https slow + stored http fast ⇒ https (latency never consulted)", [route("s-https", "https", { latencyMs: 130 }), route("s-http", "http", { latencyMs: 3 })], [], "s-https"],
+    ["newer stored http + older stored http (faster) ⇒ the newer", [route("new", "http", { latencyMs: 40 }), route("old", "http", { latencyMs: 2 })], [], "new"],
+    ["stored http + discovered http (faster) ⇒ stored", [route("stored", "http", { latencyMs: 30 })], [route("disc", "http", { latencyMs: 1 })], "stored"],
+    ["stored https refused (other identity) + stored http proven ⇒ the http", [route("bad", "https", { proven: false }), route("s-http", "http")], [], "s-http"],
+    ["https stored above http stored above discovered even when http is faster", [route("h2", "http", { latencyMs: 1 }), route("h1", "https", { latencyMs: 400 })], [route("d", "http", { latencyMs: 0 })], "h1"],
+  ])("#E5: %s", (_name, stored, discovered, expected) => {
+    expect(listMarker(stored, discovered)).toBe(expected);
+    expect(electronPick(stored, discovered)).toBe(expected);
+  });
+
+  it("#E5: nothing proven ⇒ both pick nothing", () => {
+    const stored = [route("a", "https", { proven: false }), route("b", "http", { proven: false })];
+    expect(listMarker(stored, [])).toBeNull();
+    expect(electronPick(stored, [])).toBeNull();
+  });
+
+  it("#E5: for every proven/refused combination of stored https, two stored http and two discovered, the marker equals the Electron pick", () => {
+    const names = ["s-https", "s-http1", "s-http2", "d1", "d2"];
+    for (let mask = 0; mask < 1 << names.length; mask++) {
+      const proven = (i: number) => (mask & (1 << i)) !== 0;
+      // stored order is the keyring's (https leads; http most-recent first); latency is arbitrary noise.
+      const stored = [route("s-https", "https", { proven: proven(0), latencyMs: 300 }), route("s-http1", "http", { proven: proven(1), latencyMs: 5 }), route("s-http2", "http", { proven: proven(2), latencyMs: 1 })];
+      const discovered = [route("d1", "http", { proven: proven(3), latencyMs: 0 }), route("d2", "http", { proven: proven(4), latencyMs: 0 })];
+      expect(listMarker(stored, discovered), `mask ${mask}`).toBe(electronPick(stored, discovered));
+    }
   });
 });

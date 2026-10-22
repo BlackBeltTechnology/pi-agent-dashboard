@@ -19,6 +19,17 @@ import {
 import type { HostGateMode } from "./host-admission.js";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsBashSourceSetting, WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import {
+  defaultSchemeForPort,
+  isValidPort,
+  primaryRoute,
+  ROUTE_SCHEMES,
+  ROUTE_SOURCES,
+  type Route,
+  type RouteScheme,
+  type RouteSource,
+  routeKey,
+} from "./server-routes.js";
 import { inferPlatform, pathKey } from "./session-group-path.js";
 import { isTier, type Tier } from "./tiers.js";
 import {
@@ -533,16 +544,24 @@ export const DEFAULT_EMBED_LIFECYCLE: EmbedLifecycleConfig = {
 };
 
 export interface KnownServer {
+  /** Mirror of the primary route's host (first `http` route, else the first route); routes-unaware readers load the entry through it. */
   host: string;
+  /** Mirror of the primary route's port. */
   port: number;
   label?: string;
   addedAt: string; // ISO timestamp
   /**
    * Server identity pinned for this entry (`sha256:<b64url>`), set only after
    * the server proved it through the identity challenge. At most one entry per
-   * (fingerprint, port). See change: stabilize-mdns-server-identity.
+   * (fingerprint, `http` route port). See change: stabilize-mdns-server-identity,
+   * group-servers-by-identity.
    */
   fingerprint?: string;
+  /**
+   * Addresses at which this server answers, never empty, in stored order.
+   * `host`/`port` mirror the primary route. See change: group-servers-by-identity (D1, D5).
+   */
+  routes: Route[];
 }
 
 // ── Model Proxy ─────────────────────────────────────────────────────
@@ -2398,32 +2417,148 @@ export function parseModelProxyConfig(raw: any): ModelProxyConfig {
   };
 }
 
-function parseKnownServers(raw: any): KnownServer[] {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set<string>();
-  const out: KnownServer[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object" || typeof entry.host !== "string" || typeof entry.port !== "number") continue;
-    const fingerprint =
-      typeof entry.fingerprint === "string" && /^sha256:.+/.test(entry.fingerprint) ? entry.fingerprint : undefined;
-    if (fingerprint) {
-      // Duplicate (fingerprint, port): first entry wins (stabilize-mdns-server-identity D6).
-      const key = `${fingerprint}|${entry.port}`;
-      if (seen.has(key)) {
-        console.warn(`[known-servers] dropped duplicate identity entry ${entry.host}:${entry.port} (fingerprint already held)`);
-        continue;
-      }
-      seen.add(key);
+/** One valid route, or null: an object with a host, a port 1..65535 and scheme http|https. */
+function parseRoute(input: unknown): Route | null {
+  const raw = input as Partial<Record<keyof Route, unknown>> | null;
+  if (!raw || typeof raw !== "object" || typeof raw.host !== "string" || raw.host.length === 0) return null;
+  if (!isValidPort(raw.port) || !ROUTE_SCHEMES.includes(raw.scheme as RouteScheme)) return null;
+  const source = ROUTE_SOURCES.includes(raw.source as RouteSource) ? (raw.source as RouteSource) : "saved";
+  return { host: raw.host, port: raw.port, scheme: raw.scheme as RouteScheme, source };
+}
+
+/** The valid routes of `input`, de-duplicated (same scheme, normalised host, port), in order. */
+function parseRoutes(input: unknown): Route[] {
+  return unionRoutes([], (Array.isArray(input) ? input : []).map(parseRoute).filter((r): r is Route => r !== null));
+}
+
+/** Append `extra` routes not already held (same scheme, normalised host, port). */
+function unionRoutes(into: Route[], extra: readonly Route[]): Route[] {
+  const keys = new Set(into.map(routeKey));
+  for (const r of extra) {
+    const key = routeKey(r);
+    if (keys.has(key)) continue;
+    keys.add(key);
+    into.push(r);
+  }
+  return into;
+}
+
+function withMirror(entry: KnownServer): KnownServer {
+  const primary = primaryRoute(entry.routes);
+  if (primary) {
+    entry.host = primary.host;
+    entry.port = primary.port;
+  }
+  return entry;
+}
+
+const httpPorts = (e: KnownServer): Set<number> => new Set(e.routes.filter((r) => r.scheme === "http").map((r) => r.port));
+
+/** Same fingerprint and an `http` route port in common: one instance, so one entry. */
+function sameInstance(keep: KnownServer, other: KnownServer): boolean {
+  if (!keep.fingerprint || other.fingerprint !== keep.fingerprint) return false;
+  const ports = httpPorts(keep);
+  return [...httpPorts(other)].some((p) => ports.has(p));
+}
+
+/** Fold `other` into `keep`: keep's routes first, then the ones it lacks; keep's label, else other's. */
+function foldInto(keep: KnownServer, other: KnownServer): void {
+  console.warn(`[known-servers] merged duplicate identity entry ${other.host}:${other.port} into ${keep.host}:${keep.port} (fingerprint already held)`);
+  unionRoutes(keep.routes, other.routes);
+  if (!keep.label && other.label) keep.label = other.label;
+  withMirror(keep);
+}
+
+/** At most one entry per (fingerprint, `http` route port): the later of two such entries folds into the first, until none is left. */
+function collapseKnownServers(list: KnownServer[]): KnownServer[] {
+  const out = [...list];
+  for (let again = true; again; ) {
+    again = false;
+    for (let i = 0; i < out.length && !again; i++) {
+      const j = out.findIndex((other, at) => at > i && sameInstance(out[i], other));
+      if (j === -1) continue;
+      foldInto(out[i], out[j]);
+      out.splice(j, 1);
+      again = true;
     }
-    out.push({
-      host: entry.host,
-      port: entry.port,
-      ...(typeof entry.label === "string" ? { label: entry.label } : {}),
-      addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date().toISOString(),
-      ...(fingerprint ? { fingerprint } : {}),
-    });
   }
   return out;
+}
+
+/** One entry in either shape, or null when it has neither a valid route nor a valid `host`/`port` mirror. */
+function parseKnownServer(entry: any): KnownServer | null {
+  if (!entry || typeof entry !== "object") return null;
+  const routes = parseRoutes(entry.routes);
+  if (routes.length === 0) {
+    if (typeof entry.host !== "string" || entry.host.length === 0 || !isValidPort(entry.port)) return null;
+    routes.push({ host: entry.host, port: entry.port, scheme: defaultSchemeForPort(entry.port), source: "saved" });
+  }
+  const fingerprint =
+    typeof entry.fingerprint === "string" && /^sha256:.+/.test(entry.fingerprint) ? entry.fingerprint : undefined;
+  return withMirror({
+    host: routes[0].host,
+    port: routes[0].port,
+    ...(typeof entry.label === "string" ? { label: entry.label } : {}),
+    addedAt: typeof entry.addedAt === "string" ? entry.addedAt : new Date().toISOString(),
+    ...(fingerprint ? { fingerprint } : {}),
+    routes,
+  });
+}
+
+/**
+ * Read `knownServers` in either shape. A legacy entry is one route (https on
+ * 443, else http, source `saved`). Invalid routes are dropped; none left → the
+ * `host`/`port` mirror as one legacy route; valid routes win over a disagreeing
+ * mirror; an entry with neither is skipped. Never rewrites anything.
+ * See change: group-servers-by-identity (D1, D5, D11).
+ */
+export function parseKnownServers(raw: unknown): KnownServer[] {
+  if (!Array.isArray(raw)) return [];
+  return collapseKnownServers(raw.map(parseKnownServer).filter((e): e is KnownServer => e !== null));
+}
+
+/**
+ * The write side: always `routes` plus the `host`/`port` mirror of the primary
+ * route (the previous build drops an entry without them). Stored route fields
+ * are host, port, scheme, source only — kind is derived, never persisted. An
+ * entry built the old way (no routes) is written from its `host`/`port`.
+ */
+export function toStoredKnownServer(entry: Omit<KnownServer, "routes"> & { routes?: readonly Route[] }): KnownServer {
+  const routes = parseRoutes(entry.routes);
+  if (routes.length === 0) routes.push({ host: entry.host, port: entry.port, scheme: defaultSchemeForPort(entry.port), source: "saved" });
+  const primary = primaryRoute(routes) ?? routes[0];
+  return {
+    host: primary.host,
+    port: primary.port,
+    ...(entry.label !== undefined ? { label: entry.label } : {}),
+    addedAt: entry.addedAt,
+    ...(entry.fingerprint ? { fingerprint: entry.fingerprint } : {}),
+    routes,
+  };
+}
+
+export function toStoredKnownServers(list: ReadonlyArray<Omit<KnownServer, "routes"> & { routes?: readonly Route[] }>): KnownServer[] {
+  return list.map(toStoredKnownServer);
+}
+
+/**
+ * Does this raw `knownServers` value still hold an entry in the previous shape
+ * (no `routes`)? The first write rewrites it in routes shape; the server logs
+ * one line for that migration. An empty or absent list is nothing to migrate.
+ */
+export function rawKnownServersNeedMigration(raw: unknown): boolean {
+  if (!Array.isArray(raw) || raw.length === 0) return false;
+  return raw.some((e) => !(e && typeof e === "object" && Array.isArray((e as { routes?: unknown }).routes) && (e as { routes: unknown[] }).routes.length > 0));
+}
+
+/** {@link rawKnownServersNeedMigration} for the file on disk; unreadable or absent → false. Call it BEFORE the write. */
+export function knownServersNeedMigration(): boolean {
+  try {
+    const file = path.join(os.homedir(), ".pi", "dashboard", "config.json");
+    return rawKnownServersNeedMigration(JSON.parse(fs.readFileSync(file, "utf-8"))?.knownServers);
+  } catch {
+    return false;
+  }
 }
 
 function parseTrustedNetworks(raw: any): string[] {

@@ -14,21 +14,32 @@
  * - A bearer that cannot be decrypted is dropped; the entry keeps pin/label/hosts
  *   and is marked `needsPairing`.
  * - `lastHosts` is an MRU capped at 5; a discovered http host never replaces or
- *   precedes an https host.
+ *   precedes an https host. Each host may record its `source` (`saved|mdns|pairing`);
+ *   a host written by an earlier version has none and is read as unknown.
+ *   At most {@link MAX_DELIVERED_STORED} delivered (`pairing`) hosts are stored per
+ *   pairing result (`addDeliveredHosts`), then the 5-host cap applies.
  * - No method here returns a bearer to anything but main-process callers
  *   (`bearerFor`); `list()` is renderer-safe (no bearer).
  *
  * Imports nothing from electron — unit-tested in `__tests__/server-keyring.test.ts`.
  *
- * See change: add-electron-server-windows (D4).
+ * See change: add-electron-server-windows (D4), group-servers-by-identity (D7).
  */
 import fs from "node:fs";
 import path from "node:path";
+import { ROUTE_SOURCES, type RouteSource } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import { type HostRef, shortFingerprint } from "./server-discovery.js";
 
 const KEYRING_FILE = "server-keyring.json";
 const KEYRING_VERSION = 1;
 const LAST_HOSTS_CAP = 5;
+/** Delivered routes kept per pairing result (before the host cap applies). */
+export const MAX_DELIVERED_STORED = 3;
+
+/** A last-known host, with how it was learned (absent ⇒ unknown, e.g. written by an earlier version). */
+export interface StoredHost extends HostRef {
+  source?: RouteSource;
+}
 
 /** Electron `safeStorage` shape, injected so the keyring stays testable. */
 export interface CryptoPort {
@@ -94,7 +105,7 @@ export interface KeyringEntry {
   label: string;
   /** base64url SPKI of the pinned key (informational; identity is checked by fingerprint). */
   pinnedPubkey?: string;
-  lastHosts: HostRef[];
+  lastHosts: StoredHost[];
   /** Decrypted bearer (main-process memory only). */
   bearer: string | null;
   /** True when the bearer was written (encrypted) to disk — i.e. the window partition may persist. */
@@ -109,7 +120,7 @@ export type KeyringEntryView = Omit<KeyringEntry, "bearer">;
 interface DiskEntry {
   label: string;
   pinnedPubkey?: string;
-  lastHosts: HostRef[];
+  lastHosts: StoredHost[];
   bearer: { enc: "safeStorage"; data: string } | null;
   remembered: boolean;
   needsPairing: boolean;
@@ -132,7 +143,7 @@ export interface KeyringOptions {
   platform?: NodeJS.Platform;
 }
 
-function isHostRef(v: unknown): v is HostRef {
+function isHostRef(v: unknown): v is StoredHost {
   const o = v as HostRef | null;
   return (
     !!o &&
@@ -243,7 +254,7 @@ export class ServerKeyring {
       fingerprint: fp,
       label: e.label,
       ...(typeof e.pinnedPubkey === "string" ? { pinnedPubkey: e.pinnedPubkey } : {}),
-      lastHosts: e.lastHosts.filter(isHostRef).slice(0, LAST_HOSTS_CAP),
+      lastHosts: e.lastHosts.filter(isHostRef).map(readHost).slice(0, LAST_HOSTS_CAP),
       bearer,
       remembered: e.remembered === true && bearer !== null,
       needsPairing,
@@ -305,7 +316,7 @@ export class ServerKeyring {
     fingerprint: string;
     label: string;
     pinnedPubkey?: string;
-    host: HostRef;
+    host: StoredHost;
     bearer: string;
   }): KeyringEntryView {
     const remembered = this.canPersistBearer();
@@ -326,7 +337,7 @@ export class ServerKeyring {
   }
 
   /** Record a host proven to belong to `fp` (heal). Returns whether the list changed. */
-  heal(fp: string, host: HostRef): boolean {
+  heal(fp: string, host: StoredHost): boolean {
     const e = this.entries.get(fp);
     if (!e) return false;
     const next = mergeHost(e.lastHosts, host);
@@ -335,6 +346,24 @@ export class ServerKeyring {
     this.log(`[server-windows] keyring heal fp=${shortFingerprint(fp)} host=${host.host}:${host.port}`);
     this.saveBestEffort();
     return true;
+  }
+
+  /**
+   * Record routes delivered with a pairing result, already validated and proven to belong to
+   * `fp` by the caller. Only `https` hosts, at most {@link MAX_DELIVERED_STORED}, kept in
+   * delivery order (first delivered leads), source `pairing`; the 5-host cap then applies
+   * (https first, most recent first). Returns how many were stored.
+   */
+  addDeliveredHosts(fp: string, hosts: HostRef[]): number {
+    const e = this.entries.get(fp);
+    if (!e) return 0;
+    const kept = hosts.filter((h) => h.scheme === "https").slice(0, MAX_DELIVERED_STORED);
+    // Reverse insertion: each lands at the front, so the first delivered ends up first.
+    let next = e.lastHosts;
+    for (const h of [...kept].reverse()) next = mergeHost(next, { scheme: h.scheme, host: h.host, port: h.port, source: "pairing" });
+    e.lastHosts = next;
+    if (kept.length > 0) this.saveBestEffort();
+    return kept.length;
   }
 
   /** Credential refused/undecryptable: drop the bearer, keep pin/label/hosts. */
@@ -403,16 +432,25 @@ function view(e: KeyringEntry): KeyringEntryView {
 
 const sameRef = (a: HostRef, b: HostRef): boolean => a.scheme === b.scheme && a.host === b.host && a.port === b.port;
 
+/** A host as read from disk: scheme/host/port, plus `source` only when it is a known value. */
+function readHost(h: StoredHost): StoredHost {
+  const source = ROUTE_SOURCES.includes(h.source as RouteSource) ? (h.source as RouteSource) : undefined;
+  return { scheme: h.scheme, host: h.host, port: h.port, ...(source ? { source } : {}) };
+}
+
 /**
  * MRU merge: `host` becomes most recent, but never precedes an https host
- * (https hosts keep the front); capped at {@link LAST_HOSTS_CAP}.
+ * (https hosts keep the front); capped at {@link LAST_HOSTS_CAP}. A host already
+ * stored keeps its recorded source (re-learning it does not rewrite how it was learned).
  */
-function mergeHost(existing: HostRef[], host: HostRef): HostRef[] {
+function mergeHost(existing: StoredHost[], host: StoredHost): StoredHost[] {
+  const prev = existing.find((h) => sameRef(h, host));
+  const entry = prev ?? host;
   const rest = existing.filter((h) => !sameRef(h, host));
-  if (host.scheme === "https") return [host, ...rest].slice(0, LAST_HOSTS_CAP);
+  if (entry.scheme === "https") return [entry, ...rest].slice(0, LAST_HOSTS_CAP);
   const httpsLead = rest.findIndex((h) => h.scheme !== "https");
   const at = httpsLead === -1 ? rest.length : httpsLead;
-  return [...rest.slice(0, at), host, ...rest.slice(at)].slice(0, LAST_HOSTS_CAP);
+  return [...rest.slice(0, at), entry, ...rest.slice(at)].slice(0, LAST_HOSTS_CAP);
 }
 
 /** Load a keyring (never throws). */

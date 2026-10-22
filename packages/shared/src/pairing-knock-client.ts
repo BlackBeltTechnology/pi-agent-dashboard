@@ -23,11 +23,23 @@
 
 import { truncateUtf8 } from "./display-name.js";
 import { isKnockRefusal, type KnockRefusal } from "./pairing-knock.js";
+import { validateDeliveredRoutes } from "./server-routes.js";
 
 export type KnockRefusalReason = KnockRefusal | "untrusted origin" | "unsupported_media_type" | "unknown";
 
 export type KnockOutcome =
-  | { status: "approved"; token: string; fingerprint: string }
+  | {
+      status: "approved";
+      token: string;
+      fingerprint: string;
+      /**
+       * `https` origins the server delivered with the approval, already validated
+       * (`validateDeliveredRoutes`); absent when none survived. NOT yet proven at
+       * the fingerprint — only a client with its own store may keep one, and only after it proves.
+       * See change: group-servers-by-identity (D7).
+       */
+      routes?: string[];
+    }
   | { status: "identity_mismatch"; expected: string; proven: string | null; stage: "challenge" | "response" }
   | { status: "refused"; reason: KnockRefusalReason; retryAfter?: number; httpStatus: number }
   | { status: "rejected" }
@@ -196,6 +208,30 @@ export async function sendKnock(
   return pollForOutcome(baseUrl, data.pendingId, expiresAt, provenFingerprint, hooks);
 }
 
+/**
+ * Redeem step for a one-time pairing code (`POST /api/pair/redeem`) at an address whose identity
+ * is already proven, then poll for the operator's approval like a knock. The redeem answer
+ * carries no fingerprint and no expiry: the proof is the one done at this same origin, and the
+ * poll loop is bounded by the server ending the request (any non-`pending` status is terminal)
+ * and by {@link MAX_KNOCK_LIFETIME_MS}. A refused redeem is `refused` (`reason` `unknown`; the
+ * caller maps `httpStatus`). The code is never echoed into an outcome.
+ * See change: group-servers-by-identity (D8).
+ */
+export async function redeemPairingCode(
+  baseUrl: string,
+  provenFingerprint: string,
+  code: string,
+  hooks: KnockHooks = {},
+): Promise<KnockOutcome> {
+  const redeemed = await post<{ pendingId: string; confirmCode: string }>(baseUrl, "/api/pair/redeem", { code }, hooks.redirect);
+  const data = redeemed.json.data;
+  if (!redeemed.json.success || !data) return refusal(redeemed.status, redeemed.json);
+  if (!/^\d{8}$/.test(String(data.confirmCode)) || typeof data.pendingId !== "string") return refusal(redeemed.status, {});
+  const expiresAt = (hooks.now ?? Date.now)() + MAX_KNOCK_LIFETIME_MS;
+  hooks.onWaiting?.({ pendingId: data.pendingId, confirmCode: data.confirmCode, expiresAt });
+  return pollForOutcome(baseUrl, data.pendingId, expiresAt, provenFingerprint, hooks);
+}
+
 /** Prove-then-knock for callers that do not pause between the two steps. */
 export async function knockServerWith(
   prove: ProveFn,
@@ -210,7 +246,8 @@ export async function knockServerWith(
   return sendKnock(baseUrl, proof.fingerprint, name, hooks);
 }
 
-type PollEnvelope = Awaited<ReturnType<typeof post<{ status: string; token?: string }>>>;
+type PollData = { status: string; token?: string; routes?: unknown };
+type PollEnvelope = Awaited<ReturnType<typeof post<PollData>>>;
 
 /** One poll request; a transport failure is returned, not thrown, so the loop can decide. */
 async function tryPoll(
@@ -219,7 +256,7 @@ async function tryPoll(
   redirect?: RequestRedirect,
 ): Promise<{ ok: true; poll: PollEnvelope } | { ok: false; error: unknown }> {
   try {
-    return { ok: true, poll: await post<{ status: string; token?: string }>(baseUrl, "/api/pair/poll", { pendingId }, redirect) };
+    return { ok: true, poll: await post<PollData>(baseUrl, "/api/pair/poll", { pendingId }, redirect) };
   } catch (error) {
     return { ok: false, error };
   }
@@ -228,7 +265,10 @@ async function tryPoll(
 /** A terminal outcome for one poll answer, or null while the request is still pending and unexpired. */
 function classifyPoll(poll: PollEnvelope, fingerprint: string, elapsed: boolean): KnockOutcome | null {
   const p = poll.json.data;
-  if (p?.status === "approved" && typeof p.token === "string" && p.token.length > 0 && p.token.length <= MAX_TOKEN_CHARS) return { status: "approved", token: p.token, fingerprint };
+  if (p?.status === "approved" && typeof p.token === "string" && p.token.length > 0 && p.token.length <= MAX_TOKEN_CHARS) {
+    const routes = validateDeliveredRoutes(p.routes);
+    return { status: "approved", token: p.token, fingerprint, ...(routes.length > 0 ? { routes } : {}) };
+  }
   if (p?.status === "rejected") return { status: "rejected" };
   return !poll.json.success || p?.status !== "pending" || elapsed ? { status: "expired" } : null;
 }

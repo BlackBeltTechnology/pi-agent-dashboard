@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { DiscoveredServerInfo } from "../components/connectivity/ServerSelector.js";
 import { isLoopbackOrigin, buildServerEntries } from "../components/connectivity/ServerSelector.js";
-import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
 describe("ServerSelector logic", () => {
   it("getInitialWsUrl returns saved server from localStorage", () => {
@@ -24,7 +24,7 @@ describe("ServerSelector logic", () => {
   });
 
   // Known-servers based entry building logic
-  function buildEntries(knownServers: KnownServer[], currentHost: string, currentPort: number) {
+  function buildEntries(knownServers: KnownServerListEntry[], currentHost: string, currentPort: number) {
     const entries = [
       { host: "localhost", port: currentPort, label: "Local", isLocal: true },
       ...knownServers
@@ -47,7 +47,7 @@ describe("ServerSelector logic", () => {
   });
 
   it("includes known servers with labels", () => {
-    const known: KnownServer[] = [
+    const known: KnownServerListEntry[] = [
       { host: "office-mac", port: 8000, label: "Office", addedAt: "2024-01-01T00:00:00Z" },
     ];
     const entries = buildEntries(known, "localhost", 8000);
@@ -56,7 +56,7 @@ describe("ServerSelector logic", () => {
   });
 
   it("shows known server without label using host as display", () => {
-    const known: KnownServer[] = [
+    const known: KnownServerListEntry[] = [
       { host: "build-server", port: 9000, addedAt: "2024-01-01T00:00:00Z" },
     ];
     const entries = buildEntries(known, "localhost", 8000);
@@ -72,7 +72,7 @@ describe("ServerSelector logic", () => {
   });
 
   it("does not duplicate current server if already in known list", () => {
-    const known: KnownServer[] = [
+    const known: KnownServerListEntry[] = [
       { host: "remote.local", port: 8000, label: "Remote", addedAt: "2024-01-01T00:00:00Z" },
     ];
     const entries = buildEntries(known, "remote.local", 8000);
@@ -82,7 +82,7 @@ describe("ServerSelector logic", () => {
   });
 
   it("filters out localhost from known servers to avoid duplicate", () => {
-    const known: KnownServer[] = [
+    const known: KnownServerListEntry[] = [
       { host: "localhost", port: 8000, addedAt: "2024-01-01T00:00:00Z" },
       { host: "office", port: 8000, label: "Office", addedAt: "2024-01-01T00:00:00Z" },
     ];
@@ -120,7 +120,7 @@ describe("buildServerEntries (origin-gated localhost seed)", () => {
   });
 
   it("remote origin: no phantom localhost even with known servers", () => {
-    const known: KnownServer[] = [
+    const known: KnownServerListEntry[] = [
       { host: "office", port: 8000, label: "Office", addedAt: "2024-01-01T00:00:00Z" },
     ];
     const entries = buildServerEntries(known, "pennyroyal.lan", 4040, "pennyroyal.lan");
@@ -145,7 +145,7 @@ describe("buildServerEntries (origin-gated localhost seed)", () => {
   });
 
   it("filters a ::1 known server (loopback alias) out to avoid a duplicate", () => {
-    const known: KnownServer[] = [
+    const known: KnownServerListEntry[] = [
       { host: "::1", port: 8000, addedAt: "2024-01-01T00:00:00Z" },
     ];
     const entries = buildServerEntries(known, "localhost", 8000, "localhost");

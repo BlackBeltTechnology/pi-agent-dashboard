@@ -17,7 +17,10 @@
  *
  * Electron-free (ports injected) — unit-tested in `__tests__/pairing-client.test.ts`.
  *
- * See change: add-electron-server-windows (D3, D11).
+ * Delivered routes: an approval's `routes` are stored only after validation and a
+ * proving challenge (`delivered-routes.ts`); `done` resolves after that bounded step.
+ *
+ * See change: add-electron-server-windows (D3, D11), group-servers-by-identity (D7).
  */
 
 import { knockRefusalCopy } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock.js";
@@ -28,6 +31,8 @@ import {
   proveExpected,
   sendKnock,
 } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
+import type { RouteSource } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
+import { recordDeliveredRoutes } from "./delivered-routes.js";
 import {
   type HostRef,
   resolveExpectedFingerprint,
@@ -36,7 +41,9 @@ import {
 } from "./server-discovery.js";
 import type { ServerKeyring } from "./server-keyring.js";
 
-type PairingPhaseName =
+/** `code` is only used by the in-app code redeem (`pairing-code-client.ts`). */
+export type PairingPhaseName =
+  | "code"
   | "proving"
   | "confirm"
   | "waiting"
@@ -51,6 +58,8 @@ type PairingPhaseName =
 
 /** State pushed to the connecting window (never contains a bearer). */
 export interface ConnectingState {
+  /** `code` ⇒ the in-app "Pair with code" window (asks for the pasted text first). */
+  mode?: "code";
   label: string;
   host: string;
   /** `http` ⇒ the request and resulting access travel unencrypted on this network. */
@@ -85,6 +94,8 @@ export interface PairingTarget {
   advertFp?: string;
   /** Prefilled device name (the computer's name). */
   deviceName: string;
+  /** How `ref` was learned (recorded on the keyring host when pairing is approved). */
+  source?: RouteSource;
 }
 
 export interface PairingClientDeps {
@@ -100,7 +111,7 @@ export interface PairingClientDeps {
 
 export type PairingResult =
   | { status: "approved"; fingerprint: string }
-  | { status: Exclude<PairingPhaseName, "approved" | "proving" | "confirm" | "waiting"> };
+  | { status: Exclude<PairingPhaseName, "approved" | "code" | "proving" | "confirm" | "waiting"> };
 
 export interface PairingSession {
   /** User chose "Send request" with this device name. Idempotent while a request is in flight. */
@@ -271,7 +282,7 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
       onWaiting: (w) => emit(base("waiting", { confirmCode: w.confirmCode, expiresAt: w.expiresAt })),
     };
     try {
-      return finish(await sendKnock(origin, p.fingerprint, name, hooks), p);
+      return await finish(await sendKnock(origin, p.fingerprint, name, hooks), p);
     } catch {
       logLine("unreachable", p.fingerprint);
       emit(base("unreachable", { message: `Could not reach ${target.label} to send the request. Check that it is running and try again.` }));
@@ -286,7 +297,7 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
         fingerprint: p.fingerprint,
         label: target.label,
         ...(p.publicKey ? { pinnedPubkey: p.publicKey } : {}),
-        host: target.ref,
+        host: { ...target.ref, ...(target.source ? { source: target.source } : {}) },
         bearer: token,
       });
     } catch {
@@ -320,10 +331,22 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
     return { status: phase };
   }
 
-  function finish(outcome: KnockOutcome, p: ProvenIdentity): PairingResult {
+  /** Approval: store the credential, then (bounded) the delivered routes that prove the pin. */
+  async function finishApproved(outcome: Extract<KnockOutcome, { status: "approved" }>, p: ProvenIdentity): Promise<PairingResult> {
+    const result = storeApproval(p, outcome.token);
+    if (result.status !== "approved" || !outcome.routes) return result;
+    try {
+      await recordDeliveredRoutes(p.fingerprint, outcome.routes, deps);
+    } catch (e) {
+      logLine("delivered-routes-failed", p.fingerprint, ` (${e instanceof Error ? e.message : "error"})`);
+    }
+    return result;
+  }
+
+  function finish(outcome: KnockOutcome, p: ProvenIdentity): PairingResult | Promise<PairingResult> {
     switch (outcome.status) {
       case "approved":
-        return storeApproval(p, outcome.token);
+        return finishApproved(outcome, p);
       case "rejected":
         return endWith("rejected", p.fingerprint, `${target.label} rejected the request.`);
       case "expired":

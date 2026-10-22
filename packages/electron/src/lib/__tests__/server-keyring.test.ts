@@ -186,3 +186,85 @@ describe("state transitions", () => {
     expect(k.findByHost("10.9.9.9", 22)).toBeUndefined();
   });
 });
+
+// ── group-servers-by-identity: host source + delivered routes (D7, D10; test-plan X12, X15) ──
+
+describe("host source (#X15, task 8.4)", () => {
+  it("#X15: savePaired records the host source; it round-trips through the file", () => {
+    const k = open();
+    k.savePaired({ fingerprint: F, label: "home-imac", host: { ...http("192.168.16.204"), source: "mdns" }, bearer: "B1" });
+    expect(k.get(F)!.lastHosts[0]).toEqual({ ...http("192.168.16.204"), source: "mdns" });
+    expect(open().get(F)!.lastHosts[0]).toEqual({ ...http("192.168.16.204"), source: "mdns" });
+  });
+
+  it("#X15: an entry written by the previous version (no source) loads as unknown and keeps working", () => {
+    const k = open();
+    pair(k, http("a"));
+    const disk = JSON.parse(fs.readFileSync(file(), "utf8"));
+    expect(disk.servers[F].lastHosts[0]).toEqual(http("a")); // nothing invents a source
+    const reloaded = open();
+    expect(reloaded.get(F)!.lastHosts).toEqual([http("a")]);
+    expect(reloaded.get(F)!.lastHosts[0]).not.toHaveProperty("source");
+    expect(reloaded.findByHost("a", 8000)?.fingerprint).toBe(F);
+  });
+
+  it("#X15: an unknown source value on disk is read as unknown, not trusted", () => {
+    const k = open();
+    pair(k, http("a"));
+    const disk = JSON.parse(fs.readFileSync(file(), "utf8"));
+    disk.servers[F].lastHosts[0].source = "config";
+    fs.writeFileSync(file(), JSON.stringify(disk));
+    expect(open().get(F)!.lastHosts[0]).toEqual(http("a"));
+  });
+
+  it("#X15: re-learning a known host keeps its recorded source", () => {
+    const k = open();
+    k.savePaired({ fingerprint: F, label: "home-imac", host: { ...http("a"), source: "saved" }, bearer: "B1" });
+    k.heal(F, { ...http("a"), source: "mdns" });
+    expect(k.get(F)!.lastHosts[0]).toMatchObject({ host: "a", source: "saved" });
+  });
+});
+
+describe("delivered routes (#X15, task 8.4)", () => {
+  const deliveredHosts = (n: number): HostRef[] => Array.from({ length: n }, (_, i) => https(`r${i + 1}.share.zrok.io`, 443));
+
+  it("#X15: 8 valid delivered routes ⇒ only the first 3 stored (source pairing), 5-host cap keeps 3 https first + 2 most-recent http", () => {
+    const k = open();
+    pair(k, http("h1"));
+    for (const h of ["h2", "h3", "h4", "h5"]) k.heal(F, http(h)); // five http hosts: h5 h4 h3 h2 h1
+    expect(k.get(F)!.lastHosts).toHaveLength(5);
+    expect(k.addDeliveredHosts(F, deliveredHosts(8))).toBe(3);
+    const hosts = k.get(F)!.lastHosts;
+    expect(hosts.map((h) => h.host)).toEqual(["r1.share.zrok.io", "r2.share.zrok.io", "r3.share.zrok.io", "h5", "h4"]);
+    expect(hosts.slice(0, 3).every((h) => h.scheme === "https" && h.source === "pairing")).toBe(true);
+    expect(hosts).toHaveLength(5);
+  });
+
+  it("#X15: only https delivered hosts are accepted, and an unknown entry stores nothing", () => {
+    const k = open();
+    pair(k, http("h1"));
+    expect(k.addDeliveredHosts(F, [http("evil.example")])).toBe(0);
+    expect(k.addDeliveredHosts(`sha256:${"Z".repeat(43)}`, deliveredHosts(1))).toBe(0);
+    expect(k.get(F)!.lastHosts).toEqual([http("h1")]);
+  });
+
+  it("#X15: delivered hosts persist and reload with source pairing; a delivered https host leads an existing http host", () => {
+    const k = open();
+    pair(k, http("h1"));
+    k.addDeliveredHosts(F, deliveredHosts(1));
+    expect(open().get(F)!.lastHosts).toEqual([{ ...https("r1.share.zrok.io", 443), source: "pairing" }, http("h1")]);
+  });
+});
+
+describe("encryption unavailable with a code-redeemed credential (#X12)", () => {
+  it("#X12: safeStorage unavailable / Linux basic_text ⇒ bearer absent from disk, memory-only, not remembered", () => {
+    for (const crypto of [fakeCrypto({ isEncryptionAvailable: () => false }), fakeCrypto({ getSelectedStorageBackend: () => "basic_text" })]) {
+      fs.rmSync(file(), { force: true });
+      const k = open({ crypto });
+      k.savePaired({ fingerprint: F, label: "build-box", host: { ...https("b.share.zrok.io", 443), source: "pairing" }, bearer: "BEARER-ZZ9" });
+      expect(fs.readFileSync(file(), "utf8")).not.toContain("BEARER-ZZ9");
+      expect(k.bearerFor(F)).toBe("BEARER-ZZ9");
+      expect(k.get(F)).toMatchObject({ remembered: false, needsPairing: false });
+    }
+  });
+});

@@ -75,7 +75,7 @@ Connecting to a server that has no usable keyring credential SHALL run the LAN k
 - **THEN** the request SHALL carry no requester name
 
 ### Requirement: Server keyring
-The app SHALL persist paired servers in a keyring file in the shell's managed directory (the directory holding the shell's dashboard settings file), keyed by server fingerprint. Each entry SHALL hold a display label, the pinned public key and fingerprint, the last known hosts (most recent first, capped) and the bearer. The bearer SHALL be stored only in encrypted form using the operating system's credential encryption; on POSIX systems the file SHALL be created with owner-only permissions and an existing file with broader permissions SHALL be tightened on load; on Windows it SHALL live in the user's profile directory, whose access list limits it to that user. When operating-system encryption is unavailable, the bearer SHALL be kept in memory for the current app run only, the entry SHALL be marked "not remembered", the server's window storage SHALL NOT persist to disk, and the user SHALL be told the server must be paired again after restart. A stored bearer that can no longer be decrypted SHALL be discarded and its entry marked "needs pairing" (pin, label and hosts kept). An unreadable or malformed keyring file SHALL NOT crash the app: it SHALL be set aside under a distinct name, the keyring SHALL start empty, and the event SHALL be logged. Each known host SHALL record its scheme. A host learned from discovery (always `http`) for a pinned fingerprint SHALL be added to that entry's last known hosts only after the identity challenge at that host proves the pinned fingerprint, and SHALL never replace or precede an `https` host of that entry. No renderer SHALL ever receive a bearer.
+The app SHALL persist paired servers in a keyring file in the shell's managed directory (the directory holding the shell's dashboard settings file), keyed by server fingerprint. Each entry SHALL hold a display label, the pinned public key and fingerprint, the last known hosts (most recent first, capped) and the bearer. The bearer SHALL be stored only in encrypted form using the operating system's credential encryption; on POSIX systems the file SHALL be created with owner-only permissions and an existing file with broader permissions SHALL be tightened on load; on Windows it SHALL live in the user's profile directory, whose access list limits it to that user. When operating-system encryption is unavailable, the bearer SHALL be kept in memory for the current app run only, the entry SHALL be marked "not remembered", the server's window storage SHALL NOT persist to disk, and the user SHALL be told the server must be paired again after restart. A stored bearer that can no longer be decrypted SHALL be discarded and its entry marked "needs pairing" (pin, label and hosts kept). An unreadable or malformed keyring file SHALL NOT crash the app: it SHALL be set aside under a distinct name, the keyring SHALL start empty, and the event SHALL be logged. Each known host SHALL record its scheme. A host learned from discovery (always `http`) for a pinned fingerprint SHALL be added to that entry's last known hosts only after the identity challenge at that host proves the pinned fingerprint, and SHALL never replace or precede an `https` host of that entry. No renderer SHALL ever receive a bearer. A route delivered with a pairing result SHALL be added the same way: only after validation and only after the challenge at it proves the pinned fingerprint. Each known host SHALL also record its source (`saved` for an address the user entered, `mdns` for one learned from discovery, `pairing` for one delivered with a pairing result; the same values a known-servers route uses); a host with no recorded source, written by an earlier version, SHALL be treated as having an unknown source and used exactly as before. At most 3 delivered routes SHALL be stored per pairing result (the first delivered `https` routes that pass validation and proof), after which the existing cap of 5 known hosts, most recent first with `https` hosts ahead of `http` hosts, applies unchanged.
 
 #### Scenario: Bearer is not stored in clear text
 - **GIVEN** operating-system encryption is available
@@ -100,6 +100,20 @@ The app SHALL persist paired servers in a keyring file in the shell's managed di
 - **GIVEN** an entry pinned to F with last host `192.168.16.204`
 - **WHEN** discovery advertises F at `192.168.16.77` and the challenge there proves F
 - **THEN** `192.168.16.77` SHALL become the entry's most recent host
+
+#### Scenario: Delivered route is kept after proof
+- **GIVEN** an entry pinned to F and an approval that delivered `https://h0me1mac.share.zrok.io`
+- **WHEN** the challenge there proves F
+- **THEN** the entry's last known hosts SHALL include it with scheme `https` and source `pairing`
+
+#### Scenario: Delivered route proving another identity is dropped
+- **WHEN** the challenge at a delivered route proves a fingerprint other than the pin
+- **THEN** the route SHALL NOT be stored and an identity mismatch line SHALL be logged
+
+#### Scenario: Only the first delivered routes are kept
+- **GIVEN** an approval that delivered five valid `https` routes that all prove the pinned fingerprint
+- **WHEN** the routes are recorded
+- **THEN** only the first three delivered SHALL be stored, and the entry SHALL still hold at most five known hosts
 
 ### Requirement: One window per paired server on its own origin
 Opening a paired server SHALL focus its existing window when one is open (restoring it if minimized); otherwise it SHALL create a window bound to a storage partition derived from the server's fingerprint (persistent unless the entry is "not remembered"), so each server's cookies and storage are isolated from the local dashboard and from every other server. Before loading, the main process SHALL pick a host from the entry's last known hosts and current discovery whose identity challenge proves the pinned fingerprint, SHALL exchange the bearer for the device cookie inside that partition, and SHALL then load the server's own origin (IPv6 literals bracketed). The window SHALL have no preload script, no Node integration, context isolation and the renderer sandbox enabled. Any top-level navigation, including a redirect of a top-level navigation, whose origin differs from the server's origin SHALL be cancelled; new-window requests SHALL be denied. A cancelled or denied URL SHALL be opened in the system browser only when its scheme is `http`, `https` or `mailto`, and SHALL otherwise be dropped. The window title SHALL be the server's label followed by the page title, the page title sanitised like an advertised name. Window size and position SHALL be remembered per server, outside the keyring. The device cookie authenticates only the server's `/api/` routes, so features served outside `/api/` (live previews, the editor) are available in a server window only where that server's own network rules admit this machine. While a server window is open, the main process SHALL re-verify the identity at its host every 60 seconds, when the window regains focus at least 60 seconds after the last verification, and when the system resumes from sleep. On a proven mismatch it SHALL navigate the window to a blank page, remove the partition's device cookie, and report the mismatch; when the challenge cannot be completed (transport failure) it SHALL leave the window loaded, show "not reachable" in the window title, and retry at the next trigger. Opening (or the open request for) a server that has no usable credential SHALL start the pairing flow instead of loading. Host selection SHALL challenge all candidates concurrently, SHALL prefer stored `https` hosts, then stored `http` hosts, then discovered hosts, and SHALL finish within 5 seconds. A device-cookie exchange that fails for any reason other than a refusal (see "Revoked or expired credentials offer re-pairing") SHALL load nothing, change nothing, and tell the user the server is unreachable.
@@ -226,3 +240,45 @@ The Electron log SHALL record one line per pairing outcome (approved, rejected, 
 #### Scenario: Identity mismatch is logged
 - **WHEN** an open is refused for an identity mismatch
 - **THEN** one log line SHALL name the expected and proven short fingerprints and the host, and SHALL contain no bearer
+
+### Requirement: Local dashboard window can read the servers list
+The main window, while its top-level document is on the local dashboard origin, SHALL be given a read-only bridge that returns the servers state the main process already holds for trusted windows: the paired entries (fingerprint, label, short fingerprint, state, open, remembered, last host) and the discovered servers. The bridge SHALL be absent in a remote-origin document, SHALL return no bearer, cookie, partition name or confirmation code, and the request SHALL be accepted only from the top-level frame of the trusted main window. The dashboard page SHALL use it to show which listed servers are paired on this device.
+
+#### Scenario: Local dashboard page reads the list
+- **GIVEN** the keyring holds `home-imac` and the main window shows the local dashboard origin
+- **WHEN** the page asks for the servers list
+- **THEN** the answer SHALL contain `home-imac` as paired and the discovered servers, and no credential
+
+#### Scenario: Remote-origin document has no list bridge
+- **GIVEN** the app runs in remote mode and the main window shows a remote dashboard origin
+- **WHEN** script there reads the servers-list bridge
+- **THEN** it SHALL be undefined
+
+#### Scenario: Subframe is refused
+- **WHEN** an iframe inside the main window asks for the servers list
+- **THEN** the request SHALL be refused and no server data SHALL be returned
+
+### Requirement: Pairing with a pasted pairing code happens inside the app
+The main window, on the same local-origin gate as the servers-list bridge, SHALL be given a bridge method that starts "Pair with code" for a server identified by its fingerprint. It SHALL open the app's own Connecting window in a code mode that asks for the pairing text (the deep link or the `pi:pair:v1.…` string). The text SHALL be entered only in that app-owned window and SHALL NOT pass through the dashboard page. The main process SHALL decode the text, refuse a payload whose fingerprint is not the server's pinned fingerprint before any request, prove the identity at the first of the payload's `https` URLs that proves it, redeem the code there, wait for the operator's approval with the same compare-code display as a knock, and store the credential in the keyring under the same rules as a knock-paired credential. Routes named by the payload and delivered with the approval SHALL be recorded only as stated for a delivered route: validated, and only after the challenge at the route proves the pinned fingerprint. The pairing text, the pairing code and the credential SHALL NOT be logged or returned to any renderer.
+
+#### Scenario: Code pairing stores the credential in the keyring
+- **GIVEN** the keyring has no credential for `build-box` and the operator shows a pairing code on `build-box`
+- **WHEN** the user opens "Pair with code…" for `build-box`, pastes the text into the Connecting window and the operator approves
+- **THEN** the keyring SHALL hold an encrypted bearer for `build-box` under the same rules as a knock, and the server window MAY be opened
+
+#### Scenario: Payload for another server is refused before any request
+- **WHEN** the pasted payload's fingerprint differs from the server's pinned fingerprint
+- **THEN** the main process SHALL refuse it and SHALL contact no address named in the payload
+
+#### Scenario: Payload URL that proves another identity is not redeemed
+- **WHEN** none of the payload's `https` URLs proves the pinned fingerprint
+- **THEN** the code SHALL NOT be redeemed and the window SHALL report an identity mismatch or unreachable server
+
+#### Scenario: Secrets stay out of renderers and logs
+- **WHEN** a code pairing runs
+- **THEN** no log line and no message to the dashboard page SHALL contain the pairing text, the pairing code or the credential
+
+#### Scenario: Remote-origin document has no code-pairing bridge
+- **GIVEN** the main window shows a remote dashboard origin
+- **WHEN** script there reads the code-pairing bridge
+- **THEN** it SHALL be undefined
