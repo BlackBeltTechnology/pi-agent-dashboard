@@ -90,7 +90,7 @@ describe("Changes lane identity segment (#E9, moved from the strip)", () => {
 describe("Changes lane header actions and body (4.1, 4.2)", () => {
   const files = [file("packages/client/src/App.tsx", { additions: 64, deletions: 20 }), file("README.md")];
 
-  it("Review opens the diff view and does not toggle the lane", async () => {
+  it("E14: Review opens the diff view and does not toggle the lane", async () => {
     const onReview = vi.fn();
     await renderChanges(makeSession(), { onReview }, files);
     expect(toggle("changes").getAttribute("aria-expanded")).toBe("false");
@@ -100,14 +100,64 @@ describe("Changes lane header actions and body (4.1, 4.2)", () => {
     expect(toggle("changes").contains(screen.getByTestId("composer-dock-review"))).toBe(false);
   });
 
-  it("activating a file row opens that file's diff", async () => {
-    const onOpenFile = vi.fn();
-    await renderChanges(makeSession(), { onOpenFile }, files);
+  // test-plan #E11–#E14 — See change: composer-dock-collapse-and-file-open (task 4.2).
+  const appRow = () => screen.getAllByTestId("composer-dock-row").find((r) => r.textContent?.includes("App.tsx")) as HTMLElement;
+  const openLane = async (extra: Record<string, unknown>) => {
+    await renderChanges(makeSession(), extra, files);
     fireEvent.click(toggle("changes"));
     await settle();
-    const row = screen.getAllByTestId("composer-dock-row").find((r) => r.textContent?.includes("App.tsx")) as HTMLElement;
-    fireEvent.click(within(row).getByTestId("composer-dock-file-diff"));
+  };
+
+  it("E11: Open opens the file itself, never its diff or the diff page", async () => {
+    const onOpenFile = vi.fn();
+    const onOpenDiff = vi.fn();
+    const onReview = vi.fn();
+    await openLane({ onOpenFile, onOpenDiff, onReview });
+    fireEvent.click(within(appRow()).getByTestId("composer-dock-file-open"));
+    expect(onOpenFile).toHaveBeenCalledTimes(1);
     expect(onOpenFile).toHaveBeenCalledWith("packages/client/src/App.tsx");
+    expect(onOpenDiff).not.toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
+  });
+
+  it("E12: the file name is activatable and opens the file like Open", async () => {
+    const onOpenFile = vi.fn();
+    const onOpenDiff = vi.fn();
+    await openLane({ onOpenFile, onOpenDiff });
+    const title = within(appRow()).getByTestId("composer-dock-row-title");
+    expect(title.tagName).toBe("BUTTON");
+    expect(title.getAttribute("aria-label")).toBe("Open packages/client/src/App.tsx in editor");
+    fireEvent.click(title);
+    expect(onOpenFile).toHaveBeenCalledTimes(1);
+    expect(onOpenFile).toHaveBeenCalledWith("packages/client/src/App.tsx");
+    expect(onOpenDiff).not.toHaveBeenCalled();
+  });
+
+  it("E13: Diff opens that file's diff tab, not the session diff page", async () => {
+    const onOpenFile = vi.fn();
+    const onOpenDiff = vi.fn();
+    const onReview = vi.fn();
+    await openLane({ onOpenFile, onOpenDiff, onReview });
+    fireEvent.click(within(appRow()).getByTestId("composer-dock-file-diff"));
+    expect(onOpenDiff).toHaveBeenCalledTimes(1);
+    expect(onOpenDiff).toHaveBeenCalledWith("packages/client/src/App.tsx");
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(onReview).not.toHaveBeenCalled();
+  });
+
+  it("both targets are visible without hover and carry path-bearing accessible names", async () => {
+    await openLane({ onOpenFile: vi.fn(), onOpenDiff: vi.fn() });
+    const row = appRow();
+    expect(within(row).getByTestId("composer-dock-file-open").getAttribute("aria-label")).toBe("Open packages/client/src/App.tsx in editor");
+    expect(within(row).getByTestId("composer-dock-file-diff").getAttribute("aria-label")).toBe("Open diff of packages/client/src/App.tsx");
+    expect(within(row).getByTestId("composer-dock-file-open").className).toContain("shrink-0");
+  });
+
+  it("without handlers (a non-live dock) rows carry no targets and the name is plain text", async () => {
+    await openLane({});
+    expect(within(appRow()).queryByTestId("composer-dock-file-open")).toBeNull();
+    expect(within(appRow()).queryByTestId("composer-dock-file-diff")).toBeNull();
+    expect(within(appRow()).queryByRole("button")).toBeNull();
   });
 
   it("deltas carry their sign characters, not only colour (+64 −20)", async () => {
@@ -138,14 +188,16 @@ describe("Changes lane header actions and body (4.1, 4.2)", () => {
     expect(within(line).getByRole("button", { name: "Show" })).toBeTruthy();
   });
 
-  it("out-of-cwd rows list without a diff link", async () => {
-    await renderChanges(makeSession(), { onOpenFile: vi.fn() }, [...files, file("/etc/hosts", { previewable: false, additions: undefined, deletions: undefined })]);
+  it("E15: out-of-cwd rows list with neither Open nor Diff nor an activatable name", async () => {
+    await renderChanges(makeSession(), { onOpenFile: vi.fn(), onOpenDiff: vi.fn() }, [...files, file("/etc/hosts", { previewable: false, additions: undefined, deletions: undefined })]);
     fireEvent.click(toggle("changes"));
     await settle();
     const rows = screen.getAllByTestId("composer-dock-row");
     expect(rows).toHaveLength(3);
     const out = rows.find((r) => r.textContent?.includes("hosts")) as HTMLElement;
     expect(within(out).queryByTestId("composer-dock-file-diff")).toBeNull();
+    expect(within(out).queryByTestId("composer-dock-file-open")).toBeNull();
+    expect(within(out).queryByRole("button")).toBeNull();
     expect(changesLane().textContent).toContain("2 files changed");
   });
 });
