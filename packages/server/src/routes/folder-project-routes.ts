@@ -80,20 +80,26 @@ export function registerFolderProjectRoutes(fastify: FastifyInstance, deps: Fold
           hint: "Pin this directory to allow it, or open a session rooted in it.",
         };
       }
-      // The token is not handed downstream; it must not outlive this request.
+      // The token is not handed downstream; it must not outlive this request. Release on the
+      // response/connection close (a client disconnect ends it at once) AND in `finally` (the
+      // handler's own exit, throw included); release is idempotent.
+      // See change: core-cwd-admission.
       reply.raw.once("close", () => releaseAdmission(admission.token));
-
-      let pending = inFlight.get(cwd);
-      if (!pending) {
-        pending = run(cwd).finally(() => inFlight.delete(cwd));
-        inFlight.set(cwd, pending);
+      try {
+        let pending = inFlight.get(cwd);
+        if (!pending) {
+          pending = run(cwd).finally(() => inFlight.delete(cwd));
+          inFlight.set(cwd, pending);
+        }
+        const result = await pending;
+        if (result === "missing") {
+          reply.code(404);
+          return { success: false, error: "folder not found" };
+        }
+        return result;
+      } finally {
+        releaseAdmission(admission.token);
       }
-      const result = await pending;
-      if (result === "missing") {
-        reply.code(404);
-        return { success: false, error: "folder not found" };
-      }
-      return result;
     },
   );
 }

@@ -31,12 +31,20 @@ import {
   worktreeDiffStat,
 } from "../git-worktree/git-operations.js";
 
+/** Dirs the route admission treats as known folders (session/pinned stand-ins). See change: core-cwd-admission. */
+const KNOWN: string[] = [];
+const known = <T extends string>(p: T): T => {
+  KNOWN.push(p);
+  return p;
+};
+
+
 function git(cmd: string, cwd: string): string {
   return execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" }).trim();
 }
 
 function makeRepo(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-life-")));
+  const dir = known(realpathSync(mkdtempSync(join(tmpdir(), "git-wt-life-"))));
   git("-c init.defaultBranch=main init", dir);
   git("config user.email test@test.com", dir);
   git("config user.name Test", dir);
@@ -77,7 +85,7 @@ describe("removeWorktree", () => {
   });
 
   it("returns not_a_worktree on a non-repo path", () => {
-    const tmp = realpathSync(mkdtempSync(join(tmpdir(), "not-a-repo-")));
+    const tmp = known(realpathSync(mkdtempSync(join(tmpdir(), "not-a-repo-"))));
     const result = removeWorktree({ cwd: tmp });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -173,7 +181,7 @@ describe("sweepResidualWorktreeDir (guarded residual-dir sweep)", () => {
   it("refuses a symlink whose real target is outside .worktrees/", () => {
     // A `.worktrees/<name>` that is actually a symlink to an outside dir must
     // not let the sweep delete the outside target.
-    const outsideTarget = realpathSync(mkdtempSync(join(tmpdir(), "sweep-escape-")));
+    const outsideTarget = known(realpathSync(mkdtempSync(join(tmpdir(), "sweep-escape-"))));
     writeFileSync(join(outsideTarget, "keep.txt"), "important");
     mkdirSync(join(repo, ".worktrees"), { recursive: true });
     const link = join(repo, ".worktrees", "evil");
@@ -189,7 +197,7 @@ describe("resolveRemoteBase", () => {
   let bare: string;
   beforeEach(() => {
     repo = makeRepo();
-    bare = realpathSync(mkdtempSync(join(tmpdir(), "bare-remote-")));
+    bare = known(realpathSync(mkdtempSync(join(tmpdir(), "bare-remote-"))));
     git("init --bare", bare);
     // Pushing the first branch into an empty bare repo repoints its HEAD at
     // that branch, and git >= 2.45 refuses to delete the current branch even
@@ -244,7 +252,7 @@ describe("resolveDefaultBase", () => {
 
   it("returns null when no fallback resolves", () => {
     // A bare repo with no commits has no main / develop / master.
-    const empty = realpathSync(mkdtempSync(join(tmpdir(), "empty-repo-")));
+    const empty = known(realpathSync(mkdtempSync(join(tmpdir(), "empty-repo-"))));
     git("-c init.defaultBranch=foo init", empty);
     expect(resolveDefaultBase(empty)).toBeNull();
     rmSync(empty, { recursive: true, force: true });
@@ -310,7 +318,7 @@ describe("mergeWorktree", () => {
   });
 
   it("returns base_not_found when no base resolves", () => {
-    const empty = realpathSync(mkdtempSync(join(tmpdir(), "empty-")));
+    const empty = known(realpathSync(mkdtempSync(join(tmpdir(), "empty-"))));
     git("-c init.defaultBranch=foo init", empty);
     writeFileSync(join(empty, "x.txt"), "x");
     git("add . && git -c user.email=t@t.com -c user.name=T commit -m c", empty);
@@ -355,7 +363,7 @@ describe("pushBranch", () => {
   let bareRemote: string;
   beforeEach(() => {
     repo = makeRepo();
-    bareRemote = realpathSync(mkdtempSync(join(tmpdir(), "bare-remote-")));
+    bareRemote = known(realpathSync(mkdtempSync(join(tmpdir(), "bare-remote-"))));
     git("init --bare", bareRemote);
   });
   afterEach(() => {
@@ -645,7 +653,7 @@ import { registerGitRoutes } from "../routes/git-routes.js";
 
 async function makeRouteApp(): Promise<FastifyInstance> {
   const app = Fastify2({ logger: false });
-  registerGitRoutes(app, { networkGuard: async () => {} });
+  registerGitRoutes(app, { networkGuard: async () => {}, knownCwds: () => KNOWN });
   await app.ready();
   return app;
 }
@@ -659,6 +667,7 @@ describe("POST /api/git/worktree/remove — tri-state guard (D3)", () => {
     process.env.GIT_CONFIG_GLOBAL = "/dev/null";
     process.env.GIT_CONFIG_SYSTEM = "/dev/null";
     fx = buildGitFixtures();
+    for (const v of Object.values(fx)) if (typeof v === "string") known(v);
   });
 
   afterAll(() => {
@@ -772,6 +781,7 @@ describe("lifecycle endpoints — unresolvable main checkout (D2)", () => {
     process.env.GIT_CONFIG_GLOBAL = "/dev/null";
     process.env.GIT_CONFIG_SYSTEM = "/dev/null";
     fx = buildGitFixtures();
+    for (const v of Object.values(fx)) if (typeof v === "string") known(v);
   });
 
   afterAll(() => {
@@ -843,7 +853,7 @@ describe("lifecycle endpoints — unresolvable main checkout (D2)", () => {
 
 async function makeRouteAppWithCap(removeBatchCap?: number): Promise<FastifyInstance> {
   const app = Fastify2({ logger: false });
-  registerGitRoutes(app, { networkGuard: async () => {}, removeBatchCap });
+  registerGitRoutes(app, { networkGuard: async () => {}, removeBatchCap, knownCwds: () => KNOWN });
   await app.ready();
   return app;
 }
@@ -856,6 +866,7 @@ describe("POST /api/git/worktree/remove-batch — configurable cap (E26–E29)",
     process.env.GIT_CONFIG_GLOBAL = "/dev/null";
     process.env.GIT_CONFIG_SYSTEM = "/dev/null";
     fx = buildGitFixtures();
+    for (const v of Object.values(fx)) if (typeof v === "string") known(v);
   });
 
   afterAll(() => {
@@ -960,6 +971,7 @@ describe("resolver invocation count (D7)", () => {
     process.env.GIT_CONFIG_GLOBAL = "/dev/null";
     process.env.GIT_CONFIG_SYSTEM = "/dev/null";
     fx = buildGitFixtures();
+    for (const v of Object.values(fx)) if (typeof v === "string") known(v);
   });
 
   afterAll(() => {
@@ -975,6 +987,18 @@ describe("resolver invocation count (D7)", () => {
   afterEach(async () => {
     await app.close();
     vi.restoreAllMocks();
+  });
+
+  it("E14 (regression guard, core-cwd-admission): a sessionless worktree of a known repo costs the operation at most one anchor resolution", async () => {
+    const w = addWorktree({ cwd: fx.normal, base: "main", newBranch: "feat/e14" });
+    expect(w.ok).toBe(true);
+    if (!w.ok) return;
+    const wPath = rp2(w.path);
+    const spy = vi.spyOn(sharedGit2, "checkoutRoots");
+    const res = await app.inject({ method: "POST", url: "/api/git/worktree/remove", payload: { cwd: wPath } });
+    expect(res.statusCode).toBe(200);
+    // Admission derives through the ASYNC classified resolver, never this one: only the operation's own calls count.
+    expect(spy.mock.calls.filter(([o]) => (o as { cwd: string }).cwd === wPath).length).toBeLessThanOrEqual(1);
   });
 
   it("P1: ONE resolution for /remove; one per distinct cwd for /remove-batch", async () => {
@@ -1079,7 +1103,7 @@ describe("argv migration — caller values stay single argv elements", () => {
   let bare: string;
   beforeEach(() => {
     repo = makeRepo();
-    bare = realpathSync(mkdtempSync(join(tmpdir(), "bare-argv-")));
+    bare = known(realpathSync(mkdtempSync(join(tmpdir(), "bare-argv-"))));
     git("init --bare", bare);
     git("config receive.denyDeleteCurrent ignore", bare);
     git(`remote add origin ${bare}`, repo);
@@ -1687,7 +1711,7 @@ describe("argv migration — caller values stay single argv elements", () => {
     ["listPullRequests", (c: string) => listPullRequests({ cwd: c, ghPath: process.execPath }), (r: any) => r.code],
     ["addWorktree", (c: string) => addWorktree({ cwd: c, base: "main", newBranch: "feat/file-cwd" }), (r: any) => r.error],
   ])("%s with a regular file as cwd is not git_not_found", (_n, run, pick) => {
-    const dir = mkdtempSync(join(tmpdir(), "file-cwd-"));
+    const dir = known(mkdtempSync(join(tmpdir(), "file-cwd-")));
     try {
       const file = join(dir, "not-a-dir");
       writeFileSync(file, "x");

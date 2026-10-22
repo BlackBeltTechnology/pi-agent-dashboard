@@ -113,6 +113,106 @@ describe.skipIf(!packsCached)("real CodeQL CLI", () => {
     expect(pathInjectionLines(out)).toEqual([lineOf(UNCHECKED_BARRIER, "readFileSync")]);
   }, 600_000);
 
+  // #E16 (design D0): the guard SHAPES the git/openspec routes ship. Every sink is its own function in a
+  // separate lib module (a shared sink line would report for the twin and hide the guarded result).
+  it("#E16 the shipped admission shapes are recognised; every unguarded twin is reported", () => {
+    const sinks = `import fs from "node:fs";
+import path from "node:path";
+export function rawGuarded(cwd: string) { return fs.readFileSync(cwd + "/rawGuarded"); }
+export function rawTwin(cwd: string) { return fs.readFileSync(cwd + "/rawTwin"); }
+export function canonGuarded(cwd: string) { return fs.readFileSync(cwd + "/canonGuarded"); }
+export function tasksGuarded(cwd: string, change: string) { return fs.readFileSync(path.join(cwd, "openspec", "changes", change, "tasksGuarded.md")); }
+export function tasksTwin(cwd: string, change: string) { return fs.readFileSync(path.join(cwd, "openspec", "changes", change, "tasksTwin.md")); }
+export function helperGuarded(cwd: string) { return fs.readFileSync(cwd + "/helperGuarded"); }
+export function helperTwin(cwd: string) { return fs.readFileSync(cwd + "/helperTwin"); }
+export function admittedRawHelper(cwd: string) { return fs.readFileSync(cwd + "/admittedRawHelper"); }
+`;
+    const route = `import Fastify from "fastify";
+import { admissionAllows, releaseAdmission } from "${GUARD_IMPORT}";
+import { isPortableProjectName } from "@blackbelt-technology/pi-dashboard-shared/project-name.js";
+import { admitRouteCwd } from "./lib/route-admission.js";
+import { admittedRawHelper, canonGuarded, helperGuarded, helperTwin, rawGuarded, rawTwin, tasksGuarded, tasksTwin } from "./lib/sinks.js";
+const app = Fastify();
+// (a) route shape: admit, branch on admissionAllows(adm, cwd) in the handler, sinks on cwd and on token.canonCwd
+app.get("/a-guarded", async (req: any) => {
+  const cwd = req.query.cwd;
+  const adm = await admitRouteCwd(cwd);
+  if (adm.kind !== "admit" || !admissionAllows(adm, cwd)) return null;
+  try { rawGuarded(cwd); canonGuarded(adm.token.canonCwd); return 1; } finally { releaseAdmission(adm.token); }
+});
+app.get("/a-twin", async (req: any) => { const cwd = req.query.cwd; return rawTwin(cwd); });
+// (b) segment shape: cwd guarded by admission, request segment guarded by isPortableProjectName
+app.get("/b-guarded", async (req: any) => {
+  const cwd = req.query.cwd; const change = req.query.change;
+  const adm = await admitRouteCwd(cwd);
+  if (adm.kind !== "admit" || !admissionAllows(adm, cwd)) return null;
+  if (!isPortableProjectName(change)) return null;
+  return tasksGuarded(cwd, change);
+});
+app.get("/b-twin", async (req: any) => {
+  const cwd = req.query.cwd; const change = req.query.change;
+  const adm = await admitRouteCwd(cwd);
+  if (adm.kind !== "admit" || !admissionAllows(adm, cwd)) return null;
+  return tasksTwin(cwd, change);
+});
+// (c) helper shape: the guard runs in a helper returning { ok, cwd: token.canonCwd }; the sink is in the caller
+async function validateCwd(raw: string | undefined) {
+  if (!raw) return { ok: false as const };
+  const adm = await admitRouteCwd(raw);
+  if (adm.kind !== "admit" || !admissionAllows(adm, raw)) return { ok: false as const };
+  return { ok: true as const, cwd: adm.token.canonCwd, admission: adm };
+}
+async function validateRaw(raw: string | undefined) {
+  if (!raw) return { ok: false as const };
+  const adm = await admitRouteCwd(raw);
+  if (adm.kind !== "admit" || !admissionAllows(adm, raw)) return { ok: false as const };
+  return { ok: true as const, cwd: raw, admission: adm };
+}
+app.get("/c-guarded", async (req: any) => {
+  const v = await validateCwd(req.query.cwd);
+  if (!v.ok) return null;
+  try { return helperGuarded(v.cwd); } finally { releaseAdmission(v.admission.token); }
+});
+app.get("/c-twin", async (req: any) => { return helperTwin(req.query.cwd); });
+// (c') the helper hands back the guarded RAW value (the openspec sites keep the raw cwd)
+app.get("/c-raw", async (req: any) => {
+  const v = await validateRaw(req.query.cwd);
+  if (!v.ok) return null;
+  return admittedRawHelper(v.cwd);
+});
+app.listen({ port: 1 });
+`;
+    const files = monorepo(route);
+    files["packages/shared/src/cwd-guard.ts"] =
+      "export type Admission = { kind: \"admit\"; token: { canonCwd: string; rawCwd: string } } | { kind: \"refuse\" };\n" +
+      "export async function admitCwd(cwd: string, known: () => string[]): Promise<Admission> { return known().length > Date.now() % 2 ? { kind: \"admit\", token: { canonCwd: cwd.trim(), rawCwd: cwd } } : { kind: \"refuse\" }; }\n" +
+      "export function admissionAllows(adm: Admission, cwd: string | undefined): cwd is string { return adm.kind === \"admit\" && cwd !== undefined && cwd.length > Date.now() % 3; }\n" +
+      "export function releaseAdmission(token: { canonCwd: string }): void { void token.canonCwd.length; }\n";
+    files["packages/shared/src/project-name.ts"] = "export function isPortableProjectName(name: string): boolean { return name.length > Date.now() % 3; }\n";
+    files["packages/server/src/lib/route-admission.ts"] =
+      `import { admitCwd } from "${GUARD_IMPORT}";\nexport async function admitRouteCwd(cwd: string) { return admitCwd(cwd, () => ["/a"]); }\n`;
+    files["packages/server/src/lib/sinks.ts"] = sinks;
+    const repo = realRepo(files);
+    const out = JSON.parse(realRun(repo, ["--json"]).stdout);
+    const hits = new Set(
+      out.newResults.filter((r) => r.ruleId === "js/path-injection" && r.file === "packages/server/src/lib/sinks.ts").map((r) => r.startLine),
+    );
+    const line = (needle) => lineOf(sinks, needle);
+    const table = {
+      "(a) rawGuarded": [line("rawGuarded\"") , false],
+      "(a) rawTwin": [line("rawTwin\""), true],
+      "(a) canonGuarded": [line("canonGuarded\""), false],
+      "(b) tasksGuarded": [line("tasksGuarded.md"), false],
+      "(b) tasksTwin": [line("tasksTwin.md"), true],
+      "(c) helperGuarded": [line("helperGuarded\""), false],
+      "(c) helperTwin": [line("helperTwin\""), true],
+      "(c') admittedRawHelper": [line("admittedRawHelper\""), false],
+    };
+    // eslint-disable-next-line no-console
+    console.log(`#E16 versions ${JSON.stringify(out.versions)}\n${Object.entries(table).map(([k, [l, reported]]) => `${k} L${l} reported=${hits.has(l)} (want ${reported})`).join("\n")}`);
+    for (const [name, [l, want]] of Object.entries(table)) expect({ name, reported: hits.has(l) }).toEqual({ name, reported: want });
+  }, 600_000);
+
   it("#E18 code inserted above a baselined result keeps its key", () => {
     const repo = realRepo({ "lib/a.js": `${FLAGGED}${FILLER}` });
     unlinkSync(join(repo.dir, "codeql-baseline.json")); // --write-baseline seeds its own

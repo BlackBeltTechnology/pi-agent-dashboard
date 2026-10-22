@@ -5,6 +5,20 @@
 import { realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  type AdmitCwdOptions,
+  admissionAllows,
+  releaseAdmission,
+} from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import {
+  type DeclaredDependencies,
+  type FileStat,
+  KEBAB_ID_REGEX,
+  MAX_DEPENDENCIES_BYTES,
+  MAX_REASON_CHARS,
+  serializeDependencies,
+} from "@blackbelt-technology/pi-dashboard-shared/openspec-dependencies.js";
 import {
   configListAsync,
   configListOrAsync,
@@ -17,21 +31,19 @@ import {
   workflowSetSignature,
   writeOpenSpecConfigFile,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { isPortableProjectName } from "@blackbelt-technology/pi-dashboard-shared/project-name.js";
 import type { Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
-import {
-  type DeclaredDependencies,
-  type FileStat,
-  KEBAB_ID_REGEX,
-  MAX_DEPENDENCIES_BYTES,
-  MAX_REASON_CHARS,
-  serializeDependencies,
-} from "@blackbelt-technology/pi-dashboard-shared/openspec-dependencies.js";
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
+import {
+  admitRouteCwd,
+  listKnownFolderCwds,
+  type RouteAdmissionDeps,
+  sendAdmissionUnavailable,
+} from "../lib/route-admission.js";
 import { readDeclared, writeDependenciesFile } from "../openspec/dependencies-file.js";
 import { currentGlobalWorkflowSignature } from "../openspec/global-signature.js";
 import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
@@ -56,6 +68,7 @@ import {
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import { type FolderCommandsResult, resolveFolderCommands } from "../pi/folder-commands.js";
 import { isWithinFolder, joinSkillProvenance, type SkillReporter, sessionCommandRegistry } from "../pi/session-skill-registry.js";
+import { safeRealpathSync } from "../resolve-path.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -126,6 +139,77 @@ function canonicalPath(cwd: string): string {
   }
 }
 
+/** Opt-out by exact `pathKey`, on the request spelling AND the canonical cwd (a symlink spelling cannot slip past). */
+function isOptedOut(cwd: string, canonCwd: string, optOutDirectories: readonly string[]): boolean {
+  if (optOutDirectories.length === 0) return false;
+  const platform = inferPlatform([cwd, canonCwd, ...optOutDirectories]);
+  const keys = new Set(optOutDirectories.flatMap((d) => [pathKey(d, platform), pathKey(safeRealpathSync(d), platform)]));
+  return keys.has(pathKey(cwd, platform)) || keys.has(pathKey(canonCwd, platform));
+}
+
+type OpenSpecAdmission =
+  | { kind: "ok"; cwd: string; canonCwd: string }
+  | { kind: "refused" }
+  | { kind: "unavailable"; body: unknown };
+
+/**
+ * Core cwd admission for the openspec routes (change: core-cwd-admission, D1/D4):
+ * `admitRouteCwd`, then the branch on `admissionAllows(admission, cwd)` right here, on the
+ * UNMODIFIED request value, so static analysis keeps its modelled barrier. The helpers hand back
+ * that guarded raw `cwd` (openspec signatures, broadcasts and opt-out keys stay raw) and the
+ * canonical cwd for the symlink-proof comparisons. The token is released when the response
+ * closes (success, error, throw or disconnect).
+ */
+function createOpenSpecAdmission(routeAdmission: RouteAdmissionDeps, globalOpenSpecDir: string) {
+  /** Whether `cwd` (raw or canonical) is the directory whose `openspec/` is the global OpenSpec config dir. */
+  function isGlobalOpenSpecParent(cwd: string, canonCwd: string): boolean {
+    const canonGlobal = path.join(safeRealpathSync(path.dirname(globalOpenSpecDir)), path.basename(globalOpenSpecDir));
+    return (
+      path.join(cwd, "openspec") === globalOpenSpecDir ||
+      path.join(canonCwd, "openspec") === globalOpenSpecDir ||
+      path.join(canonCwd, "openspec") === canonGlobal
+    );
+  }
+
+  /** Admit `raw`. `refused` leaves the reply untouched (the caller answers); `unavailable` has set the 503. */
+  async function admitOpenSpecCwd(raw: string, reply: FastifyReply): Promise<OpenSpecAdmission> {
+    const admission = await admitRouteCwd(raw, routeAdmission);
+    if (admission.kind === "indeterminate") return { kind: "unavailable", body: sendAdmissionUnavailable(reply) };
+    if (admission.kind !== "admit" || !admissionAllows(admission, raw)) return { kind: "refused" };
+    const token = admission.token;
+    reply.raw.once("close", () => releaseAdmission(token));
+    return { kind: "ok", cwd: raw, canonCwd: token.canonCwd };
+  }
+
+  /**
+   * Admission for a site that did NOT refuse unknown cwds before this change: not admitted, or the
+   * global OpenSpec config dir → 403 `cwd_unknown` (design D4).
+   */
+  async function admitUngatedCwd(
+    raw: string,
+    reply: FastifyReply,
+  ): Promise<{ ok: true; cwd: string } | { ok: false; body: unknown }> {
+    const adm = await admitOpenSpecCwd(raw, reply);
+    if (adm.kind === "unavailable") return { ok: false, body: adm.body };
+    if (adm.kind === "refused" || isGlobalOpenSpecParent(raw, adm.canonCwd)) {
+      reply.code(403);
+      return {
+        ok: false,
+        body: {
+          success: false,
+          code: "cwd_unknown",
+          error: "cwd not allowed",
+          reason: "cwd is not a known session or pinned directory.",
+          hint: "Pin this directory to allow it, or open a session rooted in it.",
+        },
+      };
+    }
+    return { ok: true, cwd: adm.cwd };
+  }
+
+  return { admitOpenSpecCwd, admitUngatedCwd, isGlobalOpenSpecParent };
+}
+
 export function registerOpenSpecRoutes(
   fastify: FastifyInstance,
   deps: {
@@ -147,6 +231,14 @@ export function registerOpenSpecRoutes(
     spawnSemaphore?: Semaphore;
     /** Test seam: overrides for the workflow-schema module's collaborators (CLI, fs, clock…). */
     workflowSchemaDeps?: Partial<WorkflowSchemaDeps>;
+    /**
+     * Live known-folder set (session cwds ∪ pinned directories, unfiltered) every caller-supplied
+     * `cwd` is admitted against. Absent → the same set from `sessionManager` + `preferencesStore`.
+     * See change: core-cwd-admission.
+     */
+    knownFolderCwds?: () => string[];
+    /** `admitCwd` options: the host's throttled `onIndeterminate` logger + test seams. */
+    admitOptions?: AdmitCwdOptions;
   },
 ) {
   const { sessionManager, preferencesStore, directoryService, networkGuard, onOpenSpecChanged, piGateway } = deps;
@@ -167,7 +259,9 @@ export function registerOpenSpecRoutes(
       // omitted, run `openspec config list` in any known project (or process
       // cwd) so the Settings section can read the global config without a cwd.
       // See change: add-openspec-profile-settings.
-      const cwd = request.query.cwd ?? knownCwds()[0] ?? process.cwd();
+      const resolved = await resolveConfigCwd(request.query.cwd, reply);
+      if (!resolved.ok) return resolved.body;
+      const cwd = resolved.cwd;
       const now = Date.now();
       const cached = configCache.get(cwd);
       if (cached && now - cached.ts < CONFIG_TTL_MS) {
@@ -217,6 +311,33 @@ export function registerOpenSpecRoutes(
   // `openspec/` IS that global config dir.
   // See change: add-openspec-profile-settings.
   const GLOBAL_OPENSPEC_DIR = path.dirname(openSpecConfigFilePath()); // ~/.config/openspec
+
+  // Core cwd admission (change: core-cwd-admission, D1/D4): see `createOpenSpecAdmission`.
+  const { admitOpenSpecCwd, admitUngatedCwd, isGlobalOpenSpecParent } = createOpenSpecAdmission(
+    {
+      knownCwds: deps.knownFolderCwds ?? (() => listKnownFolderCwds({ sessionManager, preferencesStore })),
+      admitOptions: deps.admitOptions,
+    },
+    GLOBAL_OPENSPEC_DIR,
+  );
+
+  /**
+   * The cwd of the global-config routes: a caller-supplied cwd is admitted; with none, the
+   * server-chosen fallback (`knownCwds()[0] ?? process.cwd()`) is kept and not re-admitted.
+   */
+  async function resolveConfigCwd(
+    requested: unknown,
+    reply: FastifyReply,
+  ): Promise<{ ok: true; cwd: string } | { ok: false; body: unknown }> {
+    if (typeof requested === "string" && requested.length > 0) return admitUngatedCwd(requested, reply);
+    return { ok: true, cwd: knownCwds()[0] ?? process.cwd() };
+  }
+
+  /** A request path segment (a change name) joined under the cwd by a lib: a single portable segment only. */
+  const invalidName = (reply: FastifyReply) => {
+    reply.code(400);
+    return { success: false, code: "invalid_name", error: "invalid change name" };
+  };
 
   // True when `workflows` is exactly the EXPANDED_WORKFLOWS set (order-agnostic).
   // Used to re-surface a custom-persisted expanded profile as the "expanded"
@@ -287,7 +408,9 @@ export function registerOpenSpecRoutes(
         return { success: false, error: "invalid profile" } satisfies ApiResponse;
       }
       // cwd is only needed for the `core` preset invocation (CLI runs in a dir).
-      const cwd = body.cwd ?? knownCwds()[0] ?? process.cwd();
+      const resolved = await resolveConfigCwd(body.cwd, reply);
+      if (!resolved.ok) return resolved.body;
+      const cwd = resolved.cwd;
 
       if (profile === "core") {
         const res = configProfile({ cwd, preset: "core" });
@@ -326,7 +449,16 @@ export function registerOpenSpecRoutes(
     { preHandler: networkGuard },
     async (request, reply) => {
       const body = request.body ?? {};
-      const targets = body.all ? knownCwds() : body.cwd ? [body.cwd] : [];
+      let targets: string[];
+      if (body.all) {
+        targets = knownCwds(); // server-chosen list: not re-admitted
+      } else if (typeof body.cwd === "string" && body.cwd.length > 0) {
+        const admitted = await admitUngatedCwd(body.cwd, reply);
+        if (!admitted.ok) return admitted.body;
+        targets = [admitted.cwd];
+      } else {
+        targets = [];
+      }
       if (targets.length === 0) {
         reply.code(400);
         return { success: false, error: "cwd or all required" } satisfies ApiResponse;
@@ -467,19 +599,18 @@ export function registerOpenSpecRoutes(
       if (b.changes !== undefined && !(Array.isArray(b.changes) && b.changes.every((c) => typeof c === "string"))) {
         return fail(400, "changes must be an array of strings");
       }
-      const cwd = b.cwd;
-
-      if (!knownInitTargets().includes(cwd)) {
+      // Admission first (the modelled guard; indeterminate → 503), then the EXISTING exact
+      // membership / opt-out / global-dir gates with their existing refusals — no widening.
+      const adm = await admitOpenSpecCwd(b.cwd, reply);
+      if (adm.kind === "unavailable") return adm.body;
+      if (adm.kind === "refused" || !knownInitTargets().includes(adm.cwd) || isGlobalOpenSpecParent(adm.cwd, adm.canonCwd)) {
         return fail(400, "cwd is not a known session or pinned directory", "untracked");
       }
+      const cwd = adm.cwd;
       const cfg = gateConfig();
       if (cfg.enabled === false) return fail(400, "OpenSpec is disabled", "openspec_disabled");
-      if (cfg.optOutDirectories.length > 0) {
-        const platform = inferPlatform([cwd, ...cfg.optOutDirectories]);
-        const key = pathKey(cwd, platform);
-        if (cfg.optOutDirectories.some((d) => pathKey(d, platform) === key)) {
-          return fail(400, "OpenSpec is opted out for this directory", "opted_out");
-        }
+      if (isOptedOut(cwd, adm.canonCwd, cfg.optOutDirectories)) {
+        return fail(400, "OpenSpec is opted out for this directory", "opted_out");
       }
 
       // Only now touch the filesystem.
@@ -525,7 +656,7 @@ export function registerOpenSpecRoutes(
   // fallback path → a cached `status --all` result → change in that result.
   // PUT then: write guard + containment → per-cwd lock → `expected` precondition
   // → atomic write.
-  type DepGate = { ok: true; real: string; change: string } | { ok: false };
+  type DepGate = { ok: true; cwd: string; real: string; change: string } | { ok: false };
 
   const depFail = (reply: import("fastify").FastifyReply, code: number, reason: string, error: string) => {
     reply.code(code);
@@ -533,17 +664,20 @@ export function registerOpenSpecRoutes(
   };
 
   /** Gates 2–8 of the dependencies endpoints (gate 1, request validity, runs before). */
-  async function depGates(cwd: string, change: string, reply: import("fastify").FastifyReply): Promise<DepGate | { ok: false; body: unknown }> {
+  async function depGates(requestCwd: string, change: string, reply: import("fastify").FastifyReply): Promise<DepGate | { ok: false; body: unknown }> {
     const respond = (code: number, reason: string, error: string) => ({ ok: false as const, body: depFail(reply, code, reason, error) });
-    if (!knownInitTargets().includes(cwd)) return respond(403, "cwd-not-tracked", "cwd is not a known session or pinned directory");
+    // Admission is the modelled guard (indeterminate → 503); the exact membership / opt-out
+    // gates and their refusals are unchanged. The gate hands back the guarded raw cwd.
+    const adm = await admitOpenSpecCwd(requestCwd, reply);
+    if (adm.kind === "unavailable") return { ok: false, body: adm.body };
+    if (adm.kind === "refused" || !knownInitTargets().includes(adm.cwd) || isGlobalOpenSpecParent(adm.cwd, adm.canonCwd)) {
+      return respond(403, "cwd-not-tracked", "cwd is not a known session or pinned directory");
+    }
+    const cwd = adm.cwd;
     const cfg = gateConfig();
     if (cfg.enabled === false) return respond(403, "openspec-disabled", "OpenSpec is disabled");
-    if (cfg.optOutDirectories.length > 0) {
-      const platform = inferPlatform([cwd, ...cfg.optOutDirectories]);
-      const key = pathKey(cwd, platform);
-      if (cfg.optOutDirectories.some((d) => pathKey(d, platform) === key)) {
-        return respond(403, "opted-out", "OpenSpec is opted out for this directory");
-      }
+    if (isOptedOut(cwd, adm.canonCwd, cfg.optOutDirectories)) {
+      return respond(403, "opted-out", "OpenSpec is opted out for this directory");
     }
     let real: string;
     try {
@@ -564,7 +698,7 @@ export function registerOpenSpecRoutes(
       return respond(503, "pending", "no OpenSpec status result is cached for this directory yet");
     }
     if (!data.changes.some((c) => c.name === change)) return respond(404, "unknown-change", `no active change named ${change}`);
-    return { ok: true, real, change };
+    return { ok: true, cwd, real, change };
   }
 
   fastify.get<{ Querystring: { cwd?: string; change?: string } }>(
@@ -572,12 +706,12 @@ export function registerOpenSpecRoutes(
     { preHandler: networkGuard },
     async (request, reply) => {
       const { cwd, change } = request.query ?? {};
-      if (typeof cwd !== "string" || !cwd || typeof change !== "string" || !KEBAB_ID_REGEX.test(change)) {
+      if (typeof cwd !== "string" || !cwd || typeof change !== "string" || !KEBAB_ID_REGEX.test(change) || !isPortableProjectName(change)) {
         return depFail(reply, 400, "invalid-request", "cwd and a valid change name are required");
       }
       const gate = await depGates(cwd, change, reply);
       if (!gate.ok) return "body" in gate ? gate.body : undefined;
-      const entry = directoryService.getOpenSpecData(cwd)?.changes.find((c) => c.name === change);
+      const entry = directoryService.getOpenSpecData(gate.cwd)?.changes.find((c) => c.name === change);
       const read = await readDeclared(gate.real, change);
       return {
         success: true,
@@ -599,7 +733,7 @@ export function registerOpenSpecRoutes(
     if (Buffer.byteLength(JSON.stringify(body), "utf8") > MAX_DEPENDENCIES_BYTES) return { ok: false, error: "body exceeds 64 KiB" };
     const b = body as Record<string, unknown>;
     if (typeof b.cwd !== "string" || !b.cwd) return { ok: false, error: "cwd required" };
-    if (typeof b.change !== "string" || !KEBAB_ID_REGEX.test(b.change)) return { ok: false, error: "change must be a valid change name" };
+    if (typeof b.change !== "string" || !KEBAB_ID_REGEX.test(b.change) || !isPortableProjectName(b.change)) return { ok: false, error: "change must be a valid change name" };
     const change = b.change;
     const names = (v: unknown, key: string): string[] | string => {
       if (!Array.isArray(v)) return `${key} must be a list`;
@@ -648,9 +782,10 @@ export function registerOpenSpecRoutes(
     async (request, reply) => {
       const parsed = parseDependenciesPut(request.body);
       if (!parsed.ok) return depFail(reply, 400, "invalid-request", parsed.error);
-      const { cwd, change, declared, expected } = parsed;
-      const gate = await depGates(cwd, change, reply);
+      const { change, declared, expected } = parsed;
+      const gate = await depGates(parsed.cwd, change, reply);
       if (!gate.ok) return "body" in gate ? gate.body : undefined;
+      const cwd = gate.cwd; // the admission-bound request value
 
       // Same root verification as every workflow-schema write.
       // The guard spawns `status --all`; bound it by the shared spawn semaphore like every other CLI spawn.
@@ -699,15 +834,19 @@ export function registerOpenSpecRoutes(
     "/api/openspec/init",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.body?.cwd;
-      if (!cwd) {
+      const requestCwd = request.body?.cwd;
+      if (!requestCwd) {
         reply.code(400);
         return { success: false, error: "cwd required" } satisfies ApiResponse;
       }
-      if (!knownInitTargets().includes(cwd)) {
+      // Admission (modelled guard; indeterminate → 503), then the existing exact membership.
+      const adm = await admitOpenSpecCwd(requestCwd, reply);
+      if (adm.kind === "unavailable") return adm.body;
+      if (adm.kind === "refused" || !knownInitTargets().includes(adm.cwd) || isGlobalOpenSpecParent(adm.cwd, adm.canonCwd)) {
         reply.code(400);
         return { success: false, error: "cwd is not a known session or pinned directory" } satisfies ApiResponse;
       }
+      const cwd = adm.cwd;
 
       // Overwrite confirmation. Two coarse triggers, both deliberate:
       //   1. <cwd>/openspec/ presence — the spec's minimum contract.
@@ -863,12 +1002,14 @@ export function registerOpenSpecRoutes(
     "/api/openspec-archive",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd;
-      if (!cwd) {
+      const requestCwd = request.query.cwd;
+      if (!requestCwd) {
         reply.code(400);
         return { success: false, error: "Missing cwd" } satisfies ApiResponse;
       }
-      const data = await scanOpenSpecArchive(cwd);
+      const admitted = await admitUngatedCwd(requestCwd, reply);
+      if (!admitted.ok) return admitted.body;
+      const data = await scanOpenSpecArchive(admitted.cwd);
       return { success: true, data } satisfies ApiResponse;
     },
   );
@@ -881,7 +1022,14 @@ export function registerOpenSpecRoutes(
       // cwd optional: the global Settings resource pages read only the
       // global scope (cwd-independent), so they omit it and the server scans
       // relative to its own cwd. See change: resources-card-tabs.
-      const cwd = request.query.cwd ?? process.cwd();
+      let cwd: string;
+      if (typeof request.query.cwd === "string" && request.query.cwd.length > 0) {
+        const admitted = await admitUngatedCwd(request.query.cwd, reply);
+        if (!admitted.ok) return admitted.body;
+        cwd = admitted.cwd;
+      } else {
+        cwd = process.cwd();
+      }
       // Bootstrap gate removed under change: eliminate-electron-runtime-install
       // (task 3.5). pi/openspec/tsx ship as regular npm deps; pi-resources
       // endpoint is unconditionally available.
@@ -921,11 +1069,15 @@ export function registerOpenSpecRoutes(
     "/api/pi-resources/commands",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd;
-      if (typeof cwd !== "string" || cwd.length === 0 || !path.isAbsolute(cwd)) {
+      const requestCwd = request.query.cwd;
+      // Shape check BEFORE admission: a relative cwd is never resolved against the server's cwd.
+      if (typeof requestCwd !== "string" || requestCwd.length === 0 || !path.isAbsolute(requestCwd)) {
         reply.code(400);
         return { success: false, error: "cwd must be an absolute path" } satisfies ApiResponse;
       }
+      const admitted = await admitUngatedCwd(requestCwd, reply);
+      if (!admitted.ok) return admitted.body;
+      const cwd = admitted.cwd;
       let scan: Awaited<ReturnType<typeof directoryService.refreshPiResources>> | undefined;
       try {
         const cached = directoryService.getPiResources(cwd);
@@ -992,11 +1144,15 @@ export function registerOpenSpecRoutes(
     "/api/openspec/tasks",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd, change } = request.query;
-      if (!cwd || !change) {
+      const { cwd: requestCwd, change } = request.query;
+      if (!requestCwd || typeof change !== "string") {
         reply.code(400);
         return { success: false, error: "cwd and change query params required" } satisfies ApiResponse;
       }
+      const admitted = await admitUngatedCwd(requestCwd, reply);
+      if (!admitted.ok) return admitted.body;
+      const cwd = admitted.cwd;
+      if (!isPortableProjectName(change)) return invalidName(reply);
       try {
         const tasks = await readTasks(cwd, change);
         const groups = Array.from(new Set(tasks.map((t) => t.group).filter((g) => g.length > 0)));
@@ -1019,9 +1175,9 @@ export function registerOpenSpecRoutes(
     { preHandler: networkGuard },
     async (request, reply) => {
       const body = request.body ?? {};
-      const { cwd, change, id, done, line } = body;
+      const { cwd: requestCwd, change, id, done, line } = body;
       if (
-        typeof cwd !== "string" ||
+        typeof requestCwd !== "string" ||
         typeof change !== "string" ||
         typeof id !== "string" ||
         typeof done !== "boolean" ||
@@ -1030,6 +1186,10 @@ export function registerOpenSpecRoutes(
         reply.code(400);
         return { success: false, error: "invalid body" } satisfies ApiResponse;
       }
+      const admitted = await admitUngatedCwd(requestCwd, reply);
+      if (!admitted.ok) return admitted.body;
+      const cwd = admitted.cwd;
+      if (!isPortableProjectName(change)) return invalidName(reply);
       try {
         const task = await toggleTask(cwd, change, id, done, line);
         // Fire-and-forget: refresh cache + broadcast openspec_update.

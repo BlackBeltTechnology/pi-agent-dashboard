@@ -18,6 +18,14 @@ import { safeRealpathSync } from "../resolve-path.js";
 import { registerGitRoutes } from "../routes/git-routes.js";
 import { activeSessionsUnderResolved } from "../session/active-sessions-in-cwd.js";
 
+/** Dirs the route admission treats as known folders (session/pinned stand-ins). See change: core-cwd-admission. */
+const KNOWN: string[] = [];
+const known = <T extends string>(p: T): T => {
+  KNOWN.push(p);
+  return p;
+};
+
+
 const git = (cmd: string, cwd: string) => execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"] });
 
 describe("activeSessionsUnderResolved — targeting (#E19)", () => {
@@ -49,9 +57,9 @@ describe("worktree routes → git_info_refresh (#E19)", () => {
   const sendToSession = vi.fn(() => true);
 
   beforeEach(async () => {
-    root = realpathSync(mkdtempSync(join(tmpdir(), "git-refresh-")));
+    root = known(realpathSync(mkdtempSync(join(tmpdir(), "git-refresh-"))));
     const origin = join(root, "origin.git");
-    main = join(root, "main");
+    main = known(join(root, "main"));
     wt = join(main, ".worktrees", "x");
     git(`-c init.defaultBranch=main init --bare ${origin}`, root);
     mkdirSync(main);
@@ -85,6 +93,7 @@ describe("worktree routes → git_info_refresh (#E19)", () => {
       networkGuard: async () => {},
       sessionManager: { listAll: () => sessions } as any,
       sendToSession,
+      knownCwds: () => KNOWN,
     });
     await app.ready();
   });

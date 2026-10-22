@@ -399,6 +399,30 @@ Accepted debt shrinks only. Growth needs typed reason. See change: add-local-cod
 - `admissionAllows` / `tokenAllows` guarded sinks + `admitCwd` argument already silent without model (native guard inference, unverified) → no model effect.
 - Unguarded twins + unchecked-`admitCwd` negative case stay reported.
 
+### Admission guard shapes CodeQL recognises
+
+Probe: `scripts/__tests__/codeql-local-real.test.mjs` `#E16`. Real analysis, packs cached, mini-monorepo.
+
+- Fixture guard bodies opaque (`admitCwd` returns token carrying its arg).
+- Every sink = own lib fn (`lib/sinks.ts`).
+- Gate: guarded sinks 0 `js/path-injection`; every twin ≥1.
+
+Recognised shapes:
+
+- (a) route branch: `adm.kind !== "admit" || !admissionAllows(adm, cwd)` → return. Sink on raw `cwd` silent. Sink on `adm.token.canonCwd` silent. Twin: raw `cwd` to lib, no branch → reported.
+- (b) `isPortableProjectName(change)` before lib `path.join(cwd, "openspec", "changes", change, …)`. Silent. Twin: cwd guarded, `change` not → reported.
+- (c) helper `validateCwd` returns `{ok, cwd: token.canonCwd}`; sink in caller. Silent. Twin: caller without helper → reported.
+- (c') helper returns guarded RAW cwd (openspec sites). Silent.
+
+Pitfalls:
+
+- `admitCwd` Argument[0] barrier stops taint at call-site argument only.
+- Sink inside shared guard module (`packages/shared/src/cwd-guard.ts`) NOT covered.
+- `stat` of canonical cwd added to `cwd-guard.ts` = NEW `js/path-injection`. Keep new fs primitives out of guard.
+- Guard body `known().includes(cwd)` = native sanitizer → hides twin. Opaque bodies only.
+
+Result: `js/path-injection` 109 → 78, 0 new. See change: core-cwd-admission `evidence/codeql-probe.md`, `evidence/codeql.md`. Residue (lib-owned containment, `git-operations.ts` 13) → `triage-codeql-alert-debt`.
+
 ### Commands
 
 | Command | Effect |

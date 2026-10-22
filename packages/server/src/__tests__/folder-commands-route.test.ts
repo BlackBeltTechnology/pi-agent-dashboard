@@ -41,7 +41,7 @@ describe("GET /api/pi-resources/commands", () => {
   let tmp: string;
   const registered: string[] = [];
 
-  async function setup(opts: { sessions?: Sess[]; connected?: string[]; scanResult?: PiResourcesResult | Error }) {
+  async function setup(opts: { sessions?: Sess[]; connected?: string[]; scanResult?: PiResourcesResult | Error; pinned?: string[] }) {
     fastify = Fastify();
     const scanResult = opts.scanResult ?? scan();
     const refresh = vi.fn(async () => {
@@ -50,7 +50,7 @@ describe("GET /api/pi-resources/commands", () => {
     });
     registerOpenSpecRoutes(fastify, {
       sessionManager: { listAll: () => opts.sessions ?? [] } as never,
-      preferencesStore: { getPinnedDirectories: () => [] } as never,
+      preferencesStore: { getPinnedDirectories: () => opts.pinned ?? [tmp] } as never,
       directoryService: { getPiResources: () => undefined, refreshPiResources: refresh } as never,
       networkGuard: PASS as never,
       piGateway: { isSessionConnected: (id: string) => (opts.connected ?? []).includes(id) },
@@ -129,12 +129,16 @@ describe("GET /api/pi-resources/commands", () => {
     fs.symlinkSync(tmp, link);
     try {
       report("A", [skillCmd("a")]);
-      await setup({ sessions: [{ id: "A", cwd: tmp, status: "active" }], connected: ["A"] });
+      const pinnedGone = path.join(tmp, "pinned-but-deleted");
+      await setup({ sessions: [{ id: "A", cwd: tmp, status: "active" }], connected: ["A"], pinned: [tmp, pinnedGone] });
       expect((await get(`${tmp}/`)).body.origin).toBe("live");
       expect((await get(link)).body.origin).toBe("live");
-      const gone = await get("/definitely/gone/");
+      // A known (pinned) folder that no longer exists still answers, never a 500.
+      const gone = await get(pinnedGone);
       expect(gone.status).toBe(200);
       expect(["none", "scan"]).toContain(gone.body.origin);
+      // core-cwd-admission: an UNKNOWN missing path is refused instead of answered.
+      expect((await get("/definitely/gone/")).status).toBe(403);
     } finally {
       fs.rmSync(link, { force: true });
     }

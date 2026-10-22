@@ -42,3 +42,4 @@ TS loader §: single native strip-only loader;tiers 1-3 (registerHooks/register+
 - `### Live Preview: Static Targets, Exposure, Egress`: capability-only static previews;exposure epoch;`preview-egress`. See change: improve-canvas-html-and-url-ux.
 
 - `#### Plugin Discovery, Trust and Runtime Delivery`: 4 sources, shadowing, `plugins_changed`, `auth.trustedPlugins`, runtime delivery. See change: decouple-plugins-from-core.
+- `### Core cwd admission (git / openspec routes)`: git + caller-cwd openspec routes admit via `admitRouteCwd` → `admitCwd`; known set `listKnownFolderCwds`; codes `cwd_unknown` / 503 `cwd-admission-unavailable` / `invalid_name`; `remove-batch` 10 s admission budget. See change: core-cwd-admission.
