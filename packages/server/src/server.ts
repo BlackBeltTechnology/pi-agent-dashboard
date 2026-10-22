@@ -1604,7 +1604,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     manager: createFileWatchManager(),
     onChange: (sessionId, path) => browserGateway.broadcast({ type: "file_changed", sessionId, path }),
   });
-  browserGateway.registerHandler("watch_files", (msg: WatchFilesMessage, ws) => watchFiles.handle(msg, ws));
+  browserGateway.registerHandler("watch_files", (msg: WatchFilesMessage, ws) => {
+    // The gateway does not await custom handlers: a rejection must not escape it.
+    watchFiles.handle(msg, ws).catch((err: unknown) => {
+      console.warn(`[watch_files] handler failed: ${(err as Error)?.message ?? err}`);
+    });
+  });
   browserGateway.registerDisconnectHandler((ws) => watchFiles.onDisconnect(ws));
   // pi's project-trust rule as a SESSION applies it (recorded decision, else
   // `defaultProjectTrust`), consumed by mcp-client to decide whether a

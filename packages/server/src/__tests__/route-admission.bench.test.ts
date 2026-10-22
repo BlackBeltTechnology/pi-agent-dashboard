@@ -155,6 +155,8 @@ describe.skipIf(process.env.PI_BENCH !== "1")("file-route cwd admission latency 
     const b = await sample(large, url);
     emit(row("P1 GET /api/file known=1", a.ms));
     emit(row(`P1 GET /api/file known=${FILE_KNOWN}`, b.ms));
+    expect(a.codes.get(200)).toBe(N);
+    expect(b.codes.get(200)).toBe(N);
     expect(pct(b.ms, 0.5) - pct(a.ms, 0.5)).toBeLessThanOrEqual(2);
     expect(pct(b.ms, 0.99) - pct(a.ms, 0.99)).toBeLessThanOrEqual(15);
   }, 120_000);
@@ -214,6 +216,7 @@ describe.skipIf(process.env.PI_BENCH !== "1")("file-route cwd admission latency 
     const routeAdmission = { knownCwds: () => known };
     const gitMs: number[] = [];
     let gitIndeterminate = 0;
+    let gitNot200 = 0;
     let previewIndeterminate = 0;
     const gitWave = Promise.all(
       worktrees.map(async (wt) => {
@@ -221,6 +224,7 @@ describe.skipIf(process.env.PI_BENCH !== "1")("file-route cwd admission latency 
         const res = await app.inject({ method: "GET", url: `/api/git/status?cwd=${q(wt)}` });
         gitMs.push(performance.now() - t0);
         if (res.statusCode === 503) gitIndeterminate++;
+        if (res.statusCode !== 200) gitNot200++;
       }),
     );
     const assetMs: number[] = [];
@@ -238,6 +242,7 @@ describe.skipIf(process.env.PI_BENCH !== "1")("file-route cwd admission latency 
     emit(row("P4 git status under preview load", gitMs, ` 503s=${gitIndeterminate}/${gitMs.length}`));
     emit(row("P4 per-asset re-check (derived)", assetMs, ` 503s=${previewIndeterminate}/${assetMs.length}`));
     expect(gitIndeterminate).toBe(0);
+    expect(gitNot200).toBe(0);
     expect(previewIndeterminate).toBe(0);
     expect(pct(gitMs, 0.99)).toBeLessThanOrEqual(3000);
   }, 300_000);
