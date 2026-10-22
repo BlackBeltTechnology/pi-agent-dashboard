@@ -27,6 +27,7 @@ import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js";
+import { heldEndedByGroup } from "../../lib/session/held-ended.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getIncludeArchive,
@@ -72,6 +73,7 @@ import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsu
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { QuestionStack } from "../questions/QuestionStack.js";
@@ -317,6 +319,8 @@ interface Props {
    * Non-window ended sessions already paged per group key — the next
    * `sessions_page` offset. See change: fix-connect-snapshot-frame-loss (D9).
    */
+  /** Ids merged by a deep-link lookup; excluded from the held-ended count until a page/snapshot delivers them. See change: add-session-ui-deep-links-for-agents. */
+  lookupOnlyIds?: ReadonlySet<string>;
   pagedCount?: Map<string, number>;
   /**
    * Per-group page-reply generation, bumped on every `sessions_page_result`.
@@ -398,7 +402,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, lookupOnlyIds, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -625,18 +629,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // ── Ended paging + stub groups (fix-connect-snapshot-frame-loss D9) ─────
   // Held ended count per GROUP key (the same key space `endedTotals` uses):
   // the “more” affordance compares it against the group's full ended count.
-  const heldEndedByCwd = useMemo(() => {
-    const m = new Map<string, number>();
-    const pinned = pinnedDirectories ?? [];
-    const platform = inferPlatform([...sessions.map((s) => s.cwd), ...pinned]);
-    const pinnedKeys = new Set(pinned.map((d) => pathKey(d, platform)));
-    for (const s of sessions) {
-      if (s.status !== "ended") continue;
-      const key = resolveSessionGroupPath(s, pinnedKeys, platform);
-      m.set(key, (m.get(key) ?? 0) + 1);
-    }
-    return m;
-  }, [sessions, pinnedDirectories]);
+  const heldEndedByCwd = useMemo(
+    () => heldEndedByGroup(sessions, pinnedDirectories, lookupOnlyIds),
+    [sessions, pinnedDirectories, lookupOnlyIds],
+  );
 
   // persist-folder-collapse-server-side: canonical collapse keys. The platform
   // is inferred from the SAME sample shape grouping uses (session cwds, worktree
@@ -2860,7 +2856,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           {/* Focus-revealed link to Access while YOLO is live; out of flow. See change: fix-yolo-indicator-overflow. */}
           <YoloBarLink />
           {/* Brand + tools: logo · Discord · divider · Appearance · Focus. See change: declutter-sidebar-header (D4). */}
-          <div className="flex gap-1.5 items-center">
+          <div className="flex gap-1 items-center">
             <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={t("common.home", undefined, "Home")}>
               <PiLogo size={24} />
             </button>
@@ -2871,12 +2867,12 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               href={DISCORD_INVITE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              className={HEADER_ICON_BTN}
               title={t("sessionList.discord", undefined, "Join our Discord")}
               aria-label={t("sessionList.discord", undefined, "Join our Discord")}
               data-testid="discord-btn"
             >
-              <Icon path={mdiDiscordPath} size={0.6} />
+              <Icon path={mdiDiscordPath} size={HEADER_ICON_SIZE} />
             </a>
             <span aria-hidden="true" className="h-4 w-px bg-[var(--border-secondary)]" />
             <ThemePicker />
@@ -2889,11 +2885,11 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             {headerExtra}
             <button
               onClick={() => navigate("/settings")}
-              className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              className={HEADER_ICON_BTN}
               title={t("sessionList.settings", undefined, "Settings")}
               data-testid="settings-btn"
             >
-              <Icon path={mdiCog} size={0.6} />
+              <Icon path={mdiCog} size={HEADER_ICON_SIZE} />
             </button>
           </div>
         </div>
@@ -2943,9 +2939,9 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             aria-expanded={funnelAnchor !== null}
             aria-label={t("sessionList.filtersLabel", { count: funnelCount }, "Filters, {count} on")}
             data-testid="filter-funnel-btn"
-            className="focus-ring relative flex-shrink-0 rounded p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            className={HEADER_ICON_BTN}
           >
-            <Icon path={mdiFilterVariant} size={0.6} />
+            <Icon path={mdiFilterVariant} size={HEADER_ICON_SIZE} />
             {funnelCount > 0 && (
               <span
                 data-testid="filter-funnel-badge"

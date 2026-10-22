@@ -53,7 +53,7 @@ describe("ServerSelector menu button", () => {
       [false, "Offline"],
     ])("connected=%s names the state %s, keeps the title", async (connected, word) => {
       render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={connected} onSwitch={() => {}} />);
-      const trigger = screen.getByTitle("Switch server");
+      const trigger = screen.getByTestId("connection-chip");
       if (connected) expect(within(trigger).queryByText(word)).toBeNull();
       else expect(within(trigger).getByText(word)).toBeTruthy();
       expect(trigger.getAttribute("aria-label")?.toLowerCase()).toContain(word.toLowerCase());
@@ -77,7 +77,7 @@ describe("ServerSelector menu button", () => {
     const renderSel = async (onSwitch = vi.fn()) => {
       render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} onManageServers={() => {}} />);
       await act(async () => {});
-      return { onSwitch, trigger: screen.getByTitle("Switch server") as HTMLButtonElement };
+      return { onSwitch, trigger: screen.getByTestId("connection-chip") as HTMLButtonElement };
     };
 
     it("F1: Enter opens with focus on the first item; arrows/Home/End move focus; Escape restores the trigger", async () => {
@@ -183,7 +183,7 @@ describe("ServerSelector menu button", () => {
       const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
       render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      const trigger = screen.getByTitle("Switch server") as HTMLButtonElement;
+      const trigger = screen.getByTestId("connection-chip") as HTMLButtonElement;
       trigger.focus();
       fireEvent.keyDown(trigger, { key: "Enter" });
       const menu = await screen.findByRole("menu", { hidden: true });
@@ -237,7 +237,7 @@ describe("ServerSelector menu button", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      const trigger = screen.getByTitle("Switch server") as HTMLButtonElement;
+      const trigger = screen.getByTestId("connection-chip") as HTMLButtonElement;
       trigger.focus();
       fireEvent.keyDown(trigger, { key: "Enter" });
       const menu = await screen.findByRole("menu", { hidden: true });
@@ -266,7 +266,7 @@ describe("ServerSelector menu button", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      fireEvent.click(screen.getByTitle("Switch server"));
+      fireEvent.click(screen.getByTestId("connection-chip"));
       await waitFor(() => expect(within(rowOf("studio-mbp")).getByText("Available")).toBeTruthy());
       fireEvent.click(rowOf("studio-mbp"));
       expect(onSwitch).toHaveBeenCalledWith("192.168.16.77", 8000);

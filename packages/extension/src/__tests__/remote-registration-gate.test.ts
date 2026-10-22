@@ -7,10 +7,10 @@
 
 import type { PinVerdict } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { describe, expect, it, vi } from "vitest";
-import { gateRemoteRegistration, httpBaseUrlFor, isRemoteEndpoint } from "../remote-registration-gate.js";
+import { gateRemoteRegistration, isRemoteEndpoint } from "../remote-registration-gate.js";
 import type { PinnedServer, ServerPinStore } from "../server-pin-store.js";
 
-const PIN: PinnedServer = { fingerprint: "sha256:AAA", publicKeyB64: "keyA", pairedAt: "now", lastEndpoint: "ws://dash.example:8000" };
+const PIN: PinnedServer = { fingerprint: "sha256:AAA", publicKeyB64: "keyA", pairedAt: "now", lastEndpoint: "ws://dash.example:9999" };
 
 const verdict = (v: Partial<PinVerdict>): PinVerdict => ({ accept: false, cause: "unreachable", reason: "", ...v });
 
@@ -20,21 +20,11 @@ describe("isRemoteEndpoint", () => {
     ["ws://localhost:8000", false],
     ["ws://127.0.0.1:8000", false],
     ["ws://[::1]:8000", false],
-    ["ws://dash.example:8000", true],
+    ["ws://dash.example:9999", true],
     ["wss://dash.example", true],
     ["ws://192.168.1.20:8000", true],
   ])("%s → remote=%s", (url, expected) => {
     expect(isRemoteEndpoint(url)).toBe(expected);
-  });
-});
-
-describe("httpBaseUrlFor", () => {
-  it("maps the ws endpoint onto the http origin that serves the challenge", () => {
-    expect(httpBaseUrlFor("ws://dash.example:8000")).toBe("http://dash.example:8000");
-    expect(httpBaseUrlFor("wss://dash.example")).toBe("https://dash.example");
-  });
-  it("returns null for a transport with no http origin", () => {
-    expect(httpBaseUrlFor("ws+unix:///tmp/x.sock")).toBeNull();
   });
 });
 
@@ -46,6 +36,7 @@ describe("gateRemoteRegistration", () => {
     const res = await gateRemoteRegistration({
       endpoint: "ws+unix:///tmp/gateway-8000.sock",
       store: store([PIN]),
+      env: {},
       challenge,
     });
     expect(res).toMatchObject({ allow: true, cause: "local" });
@@ -55,8 +46,9 @@ describe("gateRemoteRegistration", () => {
   it("allows a remote endpoint when the bridge has never paired, and says so", async () => {
     const challenge = vi.fn();
     const res = await gateRemoteRegistration({
-      endpoint: "ws://dash.example:8000",
+      endpoint: "ws://dash.example:9999",
       store: store([]),
+      env: {},
       challenge,
     });
     expect(res).toMatchObject({ allow: true, cause: "unpinned-legacy" });
@@ -67,8 +59,9 @@ describe("gateRemoteRegistration", () => {
   it("registers only after the pinned identity proves possession (7.2)", async () => {
     const challenge = vi.fn(async () => verdict({ accept: true, cause: "verified", reason: "ok" }));
     const res = await gateRemoteRegistration({
-      endpoint: "ws://dash.example:8000",
+      endpoint: "ws://dash.example:9999",
       store: store([PIN]),
+      env: {},
       challenge,
     });
     expect(challenge).toHaveBeenCalledWith("http://dash.example:8000", PIN);
@@ -80,8 +73,9 @@ describe("gateRemoteRegistration", () => {
       verdict({ cause: "fingerprint-mismatch", reason: "refused: pinned sha256:AAA, endpoint presented sha256:ZZZ" }),
     );
     const res = await gateRemoteRegistration({
-      endpoint: "ws://dash.example:8000",
+      endpoint: "ws://dash.example:9999",
       store: store([PIN]),
+      env: {},
       challenge,
     });
     expect(res.allow).toBe(false);
@@ -95,6 +89,7 @@ describe("gateRemoteRegistration", () => {
     const res = await gateRemoteRegistration({
       endpoint: "ws://unknown:9100",
       store: store([PIN, other]),
+      env: {},
       challenge,
     });
     expect(res).toMatchObject({ allow: false, cause: "not-pinned" });
@@ -104,10 +99,30 @@ describe("gateRemoteRegistration", () => {
   it("treats an unreachable challenge as a refusal, never a pass", async () => {
     const challenge = vi.fn(async () => verdict({ cause: "unreachable", reason: "no answer" }));
     const res = await gateRemoteRegistration({
-      endpoint: "ws://dash.example:8000",
+      endpoint: "ws://dash.example:9999",
       store: store([PIN]),
+      env: {},
       challenge,
     });
     expect(res).toMatchObject({ allow: false, cause: "unreachable" });
+  });
+
+  it("#E13 challenges the HTTP origin, not the gateway port", async () => {
+    const challenge = vi.fn(async (_baseUrl: string, _pin: unknown) => verdict({ accept: true, cause: "verified", reason: "ok" }));
+    await gateRemoteRegistration({ endpoint: "ws://dash.example:9999", store: store([PIN]), env: {}, challenge });
+    expect(challenge).toHaveBeenCalledTimes(1);
+    expect(challenge.mock.calls[0][0]).toBe("http://dash.example:8000");
+  });
+
+  it("#X5 refuses with the resolver cause when the override is invalid", async () => {
+    const challenge = vi.fn();
+    const res = await gateRemoteRegistration({
+      endpoint: "ws://dash.example:9999",
+      store: store([PIN]),
+      env: { PI_DASHBOARD_HTTP_URL: "ftp://dash.example" },
+      challenge,
+    });
+    expect(res).toMatchObject({ allow: false, cause: "bad-http-url" });
+    expect(challenge).not.toHaveBeenCalled();
   });
 });

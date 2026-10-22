@@ -77,7 +77,7 @@ describe("ServerSelector server-side probe", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      act(() => screen.getByTitle("Switch server").click());
+      act(() => screen.getByTestId("connection-chip").click());
       return { onSwitch, row: () => screen.getByText(`${LAN}:8000`).closest("button") as HTMLButtonElement };
     }
 
@@ -128,11 +128,11 @@ describe("ServerSelector server-side probe", () => {
       // The identity challenge is the route check's one request until a route proves itself.
       const challenges = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/pair/challenge")).length;
       expect(challenges()).toBe(2); // localhost seed + the LAN entry (current server is not probed)
-      act(() => screen.getByTitle("Switch server").click()); // close
+      act(() => screen.getByTestId("connection-chip").click()); // close
       await act(async () => {});
       expect(challenges()).toBe(2);
       expect(probeKnownServer).toHaveBeenCalledTimes(1);
-      act(() => screen.getByTitle("Switch server").click()); // reopen
+      act(() => screen.getByTestId("connection-chip").click()); // reopen
       await waitFor(() => expect(probeKnownServer).toHaveBeenCalledTimes(2));
       expect(challenges()).toBe(4);
     });
@@ -159,7 +159,7 @@ describe("ServerSelector server-side probe", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      act(() => screen.getByTitle("Switch server").click());
+      act(() => screen.getByTestId("connection-chip").click());
       return { onSwitch };
     };
     const item = (host: string) => screen.getByText(`${host}:8000`).closest("button") as HTMLButtonElement;
@@ -291,7 +291,7 @@ describe("ServerSelector server-side probe", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} {...props} />);
       await act(async () => {});
-      return { onSwitch, trigger: () => screen.getByTitle("Switch server") as HTMLButtonElement };
+      return { onSwitch, trigger: () => screen.getByTestId("connection-chip") as HTMLButtonElement };
     };
 
     /** A fetch that never answers until its signal aborts (the 2 s bound), counting what is in flight. */

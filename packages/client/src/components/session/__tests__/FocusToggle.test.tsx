@@ -25,7 +25,9 @@ describe("FocusToggle (sidebar toggle)", () => {
     cleanup();
     const on = mount({ focus: { enabled: true } });
     expect(on.btn.getAttribute("aria-pressed")).toBe("true");
-    expect(on.btn.className).toContain("text-blue-400");
+    expect(on.btn.className).toContain("aria-pressed:bg-[var(--accent-soft)]");
+    expect(on.btn.className).not.toContain("text-blue-400");
+    expect(on.btn.className).not.toContain("bg-blue-500/15");
     fireEvent.click(on.btn);
     expect(on.send).toHaveBeenLastCalledWith({ type: "set_focus_mode", enabled: false });
   });

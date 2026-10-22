@@ -8,7 +8,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `acme-dns01-certs.md` | ACME DNS-01 domain cert guide. See change: add-acme-dns01-certs. |
 | `acp-sessions.md` | ACP agent sessions. `acpAgents` + `acp.*` config (`protocolV2`, timeouts, caps); pi-vs-ACP feature matrix; hosts A (in-process, `durable:false`) / B (rpc-keeper, `durable:true`); restart + event-log replay; env allowlist; same-user caveat. See change: add-acp-session-driver. |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. → see `architecture.md.AGENTS.md`. History → `architecture.md.history.AGENTS.md`. Known servers: identity-keyed `routes[]`, best-route rule, route delegation, pair action. See change: group-servers-by-identity. |
+| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. `### Editor pane chrome`: pane bar, document bar, rail Search, bulk close, Search tabs. See change: scope-anchor-editor-pane-controls. Known servers: identity-keyed `routes[]`, best-route rule, route delegation, pair action. See change: group-servers-by-identity. → see `architecture.md.AGENTS.md`. History → `architecture.md.history.AGENTS.md`. |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys, dashboard-session `!sessions`/`!attach`/`!close` + auto-mirror. → see `chat-gateway.md` |
@@ -31,7 +31,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
 | `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. → see `faq.md.AGENTS.md` |
-| `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. |
+| `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. See change: scope-anchor-editor-pane-controls. |
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. → see `grammar-checker.md.AGENTS.md` |
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. → see `grammar-model-guidance.md.AGENTS.md` |

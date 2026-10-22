@@ -1,0 +1,5 @@
+blocked_by:
+  - change: close-container-loopback-impersonation
+    reason: "Both changes MODIFY bearer-device-auth, trust-and-credential-boundaries, oauth-authentication and trusted-networks. close-container-loopback-impersonation owns B14r (requireLocalProof default flip, demonstrated container exploit) and lands first; this change lands after it and rebases its MODIFIED blocks on that change's archived text."
+  - change: fix-remote-bridge-ticket-origin
+    reason: "R4 (never send the device bearer to a discovered unpinned host) builds on the bridge HTTP-origin resolution that fix-remote-bridge-ticket-origin rewrites in bridge.ts / bridge-ticket-client.ts. Implementing R4 first would collide in the same files."

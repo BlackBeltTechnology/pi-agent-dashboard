@@ -87,6 +87,14 @@ Two layers of control:
 - **Compose ports** — `PI_GATEWAY_BIND=127.0.0.1` publishes the gateway port
   only on the Docker host loopback; `0.0.0.0` (default) exposes it to other
   machines. Empty `PI_GATEWAY_PORT` + removed mapping = not published at all.
+- **Remote pi sessions** — on the other machine set
+  `PI_DASHBOARD_URL=ws://<docker-host>:9999` (the gateway port) and
+  `PI_DASHBOARD_TOKEN`. The bridge sends its HTTP calls (ticket mint, identity
+  check) to the web UI port: `DASHBOARD_PORT` on that machine
+  (`PI_DASHBOARD_PORT`, default `8000`). If your published web port differs, or
+  a proxy fronts it, set `PI_DASHBOARD_HTTP_URL=http(s)://<docker-host>[:port]`
+  there. `bridge ticket wrong-origin` in the pi log means the resolved origin is
+  not the dashboard's HTTP listener.
 
 ## Dev mode (Vite HMR)
 

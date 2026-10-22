@@ -1,12 +1,15 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
- * Sidebar-header helpers (change: declutter-sidebar-header, design D7).
+ * Sidebar-header helpers (change: declutter-sidebar-header, design D7; polish-sidebar-header-controls).
  *
  * Remote access / Install moved into the connection chip's menu, the mode toggle into the
  * Appearance dropdown, and the two search inputs into one scoped box. These helpers open the
  * surface so specs only assert on the controls inside it.
  */
+
+/** Header icon buttons that share the 28 px recipe (row 1 ×4 + the row-2 funnel). See change: polish-sidebar-header-controls. */
+export const HEADER_ICON_BUTTON_IDS = ["discord-btn", "theme-picker-trigger", "focus-toggle-btn", "settings-btn", "filter-funnel-btn"] as const;
 
 /** The visible connection chip (desktop sidebar; `.first()` tolerates the mobile overlay copy). */
 export const connectionChip = (page: Page): Locator => page.locator('[data-testid="connection-chip"]:visible').first();

@@ -12,7 +12,7 @@
  *
  * Pure transport — it maps nothing to trust. `project-trust.ts` maps the outcome.
  *
- * See change: mirror-dashboard-trust-live-remote (D1, D2).
+ * See change: mirror-dashboard-trust-live-remote (D1, D2), fix-remote-bridge-ticket-origin (D2, D4).
  */
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { httpProofHeaders, localDialHost } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
@@ -20,7 +20,7 @@ import { isLoopbackEndpoint } from "@blackbelt-technology/pi-dashboard-shared/lo
 import { PI_TRUST_QUERY_PATH } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-live-query.js";
 import { readDeviceToken } from "./bridge-ticket-client.js";
 import { readLocalToken } from "./local-token-header.js";
-import { httpBaseUrlFor } from "./remote-registration-gate.js";
+import { resolveDashboardHttpOrigin } from "./dashboard-http-origin.js";
 
 /** What the transport saw. Mapping to reason codes is the decision's job. */
 export type LiveQueryResult =
@@ -75,14 +75,23 @@ function failureKind(err: unknown): "unreachable" | "error" {
 type Prepared = { url: string; headers: Record<string, string> } | { early: LiveQueryResult };
 
 /** URL + credential for this bridge kind, or an answer that needs no round trip. */
-function prepareRequest(deps: HttpLiveQueryDeps, remote: boolean): Prepared {
+function prepareRequest(deps: HttpLiveQueryDeps, remote: boolean, loggedCauses: Set<string>): Prepared {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (remote) {
-    const base = httpBaseUrlFor(deps.endpoint());
+    const endpoint = deps.endpoint();
+    const origin = resolveDashboardHttpOrigin(endpoint, deps.env ?? process.env);
+    if (!origin.ok) {
+      // Fails silently otherwise: say why, once per distinct cause.
+      if (!loggedCauses.has(origin.cause)) {
+        loggedCauses.add(origin.cause);
+        console.error(`[dashboard] live trust query ${origin.cause}: ${origin.reason}`);
+      }
+      return { early: { kind: "error" } };
+    }
     const token = readDeviceToken(deps.env);
-    if (!base || !token) return { early: { kind: "error" } };
+    if (!token) return { early: { kind: "error" } };
     headers.authorization = `Bearer ${token}`;
-    return { url: `${base}${PI_TRUST_QUERY_PATH}`, headers };
+    return { url: `${origin.origin}${PI_TRUST_QUERY_PATH}`, headers };
   }
   const cfg = loadConfig();
   const url = `http://${localDialHost(cfg.bindHost)}:${deps.httpPort?.() ?? cfg.port}${PI_TRUST_QUERY_PATH}`;
@@ -96,9 +105,10 @@ function prepareRequest(deps: HttpLiveQueryDeps, remote: boolean): Prepared {
 /** The real transport. Never throws. */
 export function createHttpLiveQuery(deps: HttpLiveQueryDeps): LiveQueryFn {
   const doFetch = deps.fetchImpl ?? fetch;
+  const loggedCauses = new Set<string>();
   return async ({ cwdKey, remote, signal }) => {
     try {
-      const prepared = prepareRequest(deps, remote);
+      const prepared = prepareRequest(deps, remote, loggedCauses);
       if ("early" in prepared) return prepared.early;
       const res = await doFetch(prepared.url, {
         method: "POST",

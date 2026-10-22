@@ -8,6 +8,8 @@ Add-ons catalog types: `AddonFeature`, `AddonFeatureKind`, `AddonOrigin`, `Addon
 
 - `BrowseResult.confined?` (true for a confined remote listing). See change: harden-server-capability-bounds.
 
+`SessionListItem = DashboardSession & {uiUrl, diffUrl}`; `ListSessionsResponse` retyped (REST-only, never on the WebSocket). See change: add-session-ui-deep-links-for-agents.
+
 ## group-servers-by-identity
 
 Known-servers types carry `routes`, `scheme?`, `fingerprint?`; `RemoveKnownServerRequest` = route | `{fingerprint}`; `PairPollApproved.routes?` https origins. See change: group-servers-by-identity.

@@ -16,12 +16,15 @@ import {
   mdiCheckCircleOutline,
   mdiChevronDown,
   mdiCloseCircleOutline,
-  mdiCloudOffOutline,
   mdiCog,
   mdiFingerprint,
+  mdiLaptop,
+  mdiLaptopOff,
   mdiLoading,
   mdiQrcode,
   mdiRefresh,
+  mdiServerNetwork,
+  mdiServerNetworkOff,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -102,6 +105,23 @@ export function buildServerEntries(
     entries.push({ host: currentHost, port: currentPort, isLocal });
   }
   return entries;
+}
+
+/**
+ * Kind of the CURRENT server for the chip glyph: the resolved entry's `isLocal`,
+ * or a loopback host (covers the `127.0.0.1` / `[::1]` origin whose entry key
+ * does not match the seeded `localhost` row). `new URL().hostname` yields
+ * `[::1]`, so IPv6 brackets are stripped first.
+ * See change: polish-sidebar-header-controls (D5).
+ */
+export function currentServerKind(
+  currentEntry: { isLocal: boolean } | undefined,
+  currentHost: string,
+): "local" | "remote" {
+  const host = currentHost.replace(/^\[(.*)\]$/, "$1");
+  // `||`, not `??`: a bracketed `[::1]` current host is appended by `buildServerEntries` as `isLocal: false`
+  // (its own loopback check does not strip brackets), so the entry flag alone would call the local dashboard remote.
+  return currentEntry?.isLocal || isLoopbackOrigin(host) ? "local" : "remote";
 }
 
 /**
@@ -644,6 +664,10 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   // Find current entry's display label
   const currentEntry = entries.find((e) => `${e.host}:${e.port}` === currentKey);
   const displayLabel = currentEntry?.label ?? (currentEntry?.isLocal ? "Local" : currentHost);
+  const serverKind = currentServerKind(currentEntry, currentHost);
+  const kindGlyph = connected
+    ? serverKind === "local" ? mdiLaptop : mdiServerNetwork
+    : serverKind === "local" ? mdiLaptopOff : mdiServerNetworkOff;
   const connectionWord = connected
     ? i18nT("connection.connected", undefined, "Connected")
     : i18nT("connection.offlineWord", undefined, "Offline");
@@ -686,21 +710,31 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
         aria-expanded={open}
         aria-label={chipLabel}
         data-testid="connection-chip"
-        className="focus-ring relative flex min-h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-        title={i18nT("connection.switchServer", undefined, "Switch server")}
+        className="focus-ring relative flex min-h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer @max-[399.98px]:min-w-8 @max-[399.98px]:justify-center @max-[399.98px]:px-1.5"
+        title={i18nT("connection.switchServerNamed", { server: displayLabel }, "{server}: switch server")}
       >
+        {/* Server-kind glyph; the status dot is a decorative top-right badge (the …Off slash runs top-left → bottom-right). */}
         <span
-          aria-hidden="true"
-          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-[var(--status-idle)]" : "bg-[var(--status-error)]"}`}
-        />
-        <span className="min-w-0 max-w-[160px] truncate @max-[399.98px]:hidden">{displayLabel}</span>
-        {!connected && (
-          <>
-            <span className="text-[var(--status-error)] @max-[399.98px]:hidden">{connectionWord}</span>
-            <span className="inline-flex @min-[400px]:hidden" data-testid="connection-chip-offline-glyph" title={connectionWord}>
-              <Icon path={mdiCloudOffOutline} size={0.55} aria-hidden="true" />
+          className={`relative inline-flex shrink-0 ${connected ? "" : "text-[var(--accent-red-text)]"}`}
+          data-testid="connection-chip-glyph"
+          data-kind={serverKind}
+          data-offline={connected ? "false" : "true"}
+        >
+          {connected ? (
+            <Icon path={kindGlyph} size={0.75} aria-hidden="true" />
+          ) : (
+            <span className="inline-flex" data-testid="connection-chip-offline-glyph" title={connectionWord}>
+              <Icon path={kindGlyph} size={0.75} aria-hidden="true" />
             </span>
-          </>
+          )}
+          <span
+            aria-hidden="true"
+            className={`absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-[var(--bg-secondary)] ${connected ? "bg-[var(--status-idle)]" : "bg-[var(--status-error)]"}`}
+          />
+        </span>
+        <span className="min-w-0 max-w-24 truncate @min-[480px]:max-w-40 @max-[399.98px]:hidden">{displayLabel}</span>
+        {!connected && (
+          <span className="hidden text-[var(--accent-red-text)] @min-[480px]:inline">{connectionWord}</span>
         )}
         {toneGlyph && (
           <span data-testid="connection-chip-tone" data-tone={remoteAccess?.tone} className="inline-flex shrink-0">
@@ -715,7 +749,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
             {pending}
           </span>
         )}
-        <Icon path={mdiChevronDown} size={0.45} />
+        <Icon path={mdiChevronDown} size={0.45} className="@max-[399.98px]:hidden" />
       </button>
 
       {open && (

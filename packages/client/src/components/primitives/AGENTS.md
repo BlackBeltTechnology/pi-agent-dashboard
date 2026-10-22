@@ -16,3 +16,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `PiLogo.tsx` | Inline SVG brand mark (geometric Π). Exports `PiLogo`. Props: `size` (default 24), `className`, `title`. → see `PiLogo.tsx.AGENTS.md` |
 | `SearchableSelectDialog.tsx` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog`. Symbol migrated in change `complete-flows-plugin-migration` (Layer 0). |
 | `Toast.tsx` | Canonical `ToastVariant = error\|warning\|success\|info\|neutral` (re-exported by `useAsyncAction`,… → see `Toast.tsx.AGENTS.md` |
+| `header-icon-button.ts` | Exports `HEADER_ICON_BTN` (28 px `size-7` `rounded-md` icon-button recipe: `--text-secondary`, `--bg-hover` on hover/`aria-expanded`, selected-chip look on `aria-pressed`) + `HEADER_ICON_SIZE` (0.75 → 18 px). Used by `SessionList` Discord/Settings/funnel, `FocusToggle`, `ThemePicker` trigger. Core-only. See change: polish-sidebar-header-controls. |

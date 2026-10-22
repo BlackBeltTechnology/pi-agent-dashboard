@@ -113,6 +113,13 @@ export interface SplitWorkspaceContextValue {
   /** Fire a bridge filename walk for the editor search panel (Filenames mode). */
   onFilenameSearch: (query: string, regex: boolean) => void;
   /**
+   * True only when the provider was given `onFilenameSearch` (session panes).
+   * Folder panes leave it false: the pane then has no rail Search view, no
+   * "Open file…" item, and Cmd-P / Cmd-Shift-F are not intercepted.
+   * See change: scope-anchor-editor-pane-controls (D4).
+   */
+  hasFileSearch: boolean;
+  /**
    * Rel-paths whose bytes really differ from the tab baseline (drives the
    * changed-on-disk banner). With change detection on this is the VERIFIED set;
    * a bare `file_changed` signal is only a candidate until its digest differs.
@@ -484,6 +491,7 @@ export function SplitWorkspaceProvider({
       consumePendingScroll,
       fileResults,
       onFilenameSearch: filenameSearch,
+      hasFileSearch: onFilenameSearch !== undefined,
       changedFiles,
       clearChanged,
       changeDetection,
@@ -494,7 +502,7 @@ export function SplitWorkspaceProvider({
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, onFilenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
   );
 
   return (
