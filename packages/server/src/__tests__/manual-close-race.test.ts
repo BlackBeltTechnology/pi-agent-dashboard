@@ -17,6 +17,7 @@ import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/sessi
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -69,7 +70,7 @@ describe("manual close vs racing bridge unregister", () => {
   }
 
   async function browserSend(msg: Record<string, unknown>): Promise<WebSocket> {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.httpPort()}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${server.httpPort()}/ws`);
     await new Promise<void>((resolve, reject) => {
       ws.on("open", () => resolve());
       ws.on("error", reject);
