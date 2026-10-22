@@ -13,13 +13,6 @@ SessionList.tsx SHALL delegate directory group header rendering (collapse toggle
 - **WHEN** a directory group is displayed
 - **THEN** DirectoryGroupHeader renders collapse toggle, pin button, editor buttons, spawn session button, create terminal button, and OpenSpec section
 
-### Requirement: Session list toolbar extraction
-SessionList.tsx SHALL delegate the top toolbar (home button, theme controls, active-only toggle, show-hidden toggle, pin button, collapse sidebar, install, tunnel, settings) to a `SessionListToolbar` component.
-
-#### Scenario: Toolbar renders all controls
-- **WHEN** SessionList mounts
-- **THEN** SessionListToolbar renders all filter toggles, theme controls, and navigation buttons
-
 ### Requirement: Session grouping utility extraction
 SessionList.tsx SHALL delegate pure grouping functions (`groupSessionsByDirectory`, `filterSessions`, `sortSessionsByOrder`, `getUnifiedOrder`) to a `session-grouping` utility module.
 

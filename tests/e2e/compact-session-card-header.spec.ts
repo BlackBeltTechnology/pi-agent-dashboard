@@ -3,7 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { contrastRatio, elementColors, setThemeMode } from "./helpers/computed-contrast.js";
 import { harnessContainer } from "./helpers/folder-collapse.js";
-import { expandFolder, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { expandFolder, FIXTURE_GIT, gotoDashboard, pinDirectory, setSearch } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -105,7 +105,7 @@ async function reveal(page: Page, id: string, name: string): Promise<Locator> {
   if (!(await home.isVisible().catch(() => false))) await pinDirectory(page, FIXTURE_GIT);
   await home.waitFor({ state: "visible", timeout: 30_000 });
   if ((await page.getByTestId(`folder-body-${FIXTURE_GIT}`).count()) === 0) await expandFolder(page, FIXTURE_GIT);
-  await page.getByTestId("session-search-input").fill(name);
+  await setSearch(page, "sessions", name);
   const card = cardOf(page, id);
   await expect(card).toBeVisible({ timeout: 30_000 });
   return card;

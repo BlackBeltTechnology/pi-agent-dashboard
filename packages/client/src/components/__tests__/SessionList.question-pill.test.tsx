@@ -14,6 +14,7 @@ import { installFakeYoloServer, scopedSession, view } from "../access-grant/__te
 import { row, rows } from "../questions/__tests__/question-fixtures.js";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { setSidebarSearch } from "./sidebar-search-helper.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -59,7 +60,7 @@ describe("sidebar header row 1 — open-questions pill (E17)", () => {
     act(() => questionStore.set([]));
     const before = ids(renderList([mk("s1")]).row1);
     expect(before).not.toContain("question-pill");
-    expect(before).toEqual(expect.arrayContaining(["theme-toggle", "tunnel-btn", "discord-btn", "settings-btn"]));
+    expect(before).toEqual(expect.arrayContaining(["theme-picker-trigger", "discord-btn", "focus-toggle-btn", "settings-btn"]));
   });
 
   it("3 open: pill named '3 open questions', every existing control still present", () => {
@@ -74,21 +75,23 @@ describe("sidebar header row 1 — open-questions pill (E17)", () => {
     expect(ids(row1).filter((id) => id !== "question-pill")).toEqual(before);
   });
 
-  it("sits immediately after the Gateway control when YOLO is active (YOLO adds no row-1 control)", () => {
+  it("is the first control of the right group when YOLO is active (YOLO adds no row-1 control)", () => {
     const server = installFakeYoloServer({ now: NOW });
     server.session = scopedSession(NOW, "/repo");
     yoloStatus.publish(view(server).yolo);
     act(() => questionStore.set(rows(1)));
     const { row1 } = renderList([mk("s1")]);
     const order = ids(row1);
-    expect(order.indexOf("question-pill")).toBe(order.indexOf("tunnel-btn") + 1);
+    // First control of the right group, right after the left group (Focus is its last control).
+    expect(order.indexOf("question-pill")).toBe(order.indexOf("focus-toggle-btn") + 1);
   });
 
-  it("sits after the Gateway control when YOLO is off", () => {
+  it("is the first control of the right group when YOLO is off", () => {
     act(() => questionStore.set(rows(1)));
     const { row1 } = renderList([mk("s1")]);
     const order = ids(row1);
-    expect(order.indexOf("question-pill")).toBe(order.indexOf("tunnel-btn") + 1);
+    // First control of the right group, right after the left group (Focus is its last control).
+    expect(order.indexOf("question-pill")).toBe(order.indexOf("focus-toggle-btn") + 1);
   });
 });
 
@@ -106,13 +109,27 @@ describe("activation from the host (F1)", () => {
   it("session filtered out by the search filter: filter bypassed, session selected", () => {
     act(() => questionStore.set([row({ id: "q1", sessionId: "s1" })]));
     const { onSelect } = renderList([mk("s1", { name: "Alpha" })]);
-    const search = screen.getByTestId("session-search-input") as HTMLInputElement;
-    fireEvent.change(search, { target: { value: "zzz-no-match" } });
+    const search = setSidebarSearch("sessions", "zzz-no-match");
     expect(search.value).toBe("zzz-no-match");
     fireEvent.click(screen.getByTestId("question-pill"));
     fireEvent.click(screen.getByTestId("question-row-q1"));
     expect(search.value).toBe("");
     expect(onSelect).toHaveBeenCalledWith("s1");
+  });
+
+  it("E15: opening a question session resets both queries and the search scope to Sessions", () => {
+    act(() => questionStore.set([row({ id: "q1", sessionId: "s1" })]));
+    renderList([mk("s1", { name: "Alpha" })]);
+    setSidebarSearch("sessions", "auth");
+    setSidebarSearch("folders", "dash");
+    expect(screen.getByTestId("search-scope-folders").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByTestId("question-pill"));
+    fireEvent.click(screen.getByTestId("question-row-q1"));
+    expect(screen.getByTestId("search-scope-sessions").getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByTestId("session-search-input") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByTestId("search-chip")).toBeNull();
+    fireEvent.click(screen.getByTestId("search-scope-folders"));
+    expect((screen.getByTestId("workspace-filter-input") as HTMLInputElement).value).toBe("");
   });
 
   it("hidden automation session: dialog opens, no selection", async () => {

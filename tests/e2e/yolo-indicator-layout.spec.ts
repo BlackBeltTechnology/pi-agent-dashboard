@@ -33,7 +33,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, narrowTrust, test } from "./fixtures.js";
 import { connectComposerBridge, ensureFixturePinned, openComposerSession } from "./helpers/composer-bridge.js";
 import { contrastRatio, elementColors, resolveColor, setThemeMode } from "./helpers/computed-contrast.js";
-import { ensureGitSession, FIXTURE_GIT, robustClick } from "./helpers/index.js";
+import { ensureGitSession, FIXTURE_GIT, openAppearance, robustClick } from "./helpers/index.js";
 import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 type Scope = "scoped" | "unscoped";
@@ -264,6 +264,27 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     expect(box && box.width > 0 && box.height > 0).toBe(true);
     expect(await barHeight(page)).toBeCloseTo(before, 0);
   });
+
+  // declutter-sidebar-header #F9: the tint does not change the row-1 height at 375 (drawer) / 768 / 1500
+  // in en and hu — that is #E1 above — and the YOLO link stays the FIRST focusable element of row 1,
+  // ahead of the (moved) Discord link.
+  for (const lang of LANGS) {
+    test(`#F9 (declutter) YOLO link is the first focusable in row 1, before discord-btn (${lang})`, async ({ page }) => {
+      await ensureGitSession(page);
+      await setLanguage(page, lang);
+      await startYolo(page, "unscoped");
+      await page.reload();
+      await page.setViewportSize({ width: 1500, height: HEIGHT });
+      await expect(bar(page)).toHaveAttribute("data-yolo", "unscoped", { timeout: 20_000 });
+      const order = await bar(page).evaluate((el) =>
+        Array.from(el.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])")).map(
+          (n) => n.getAttribute("data-testid") ?? n.tagName.toLowerCase(),
+        ),
+      );
+      expect(order[0]).toBe("yolo-bar-link");
+      expect(order.indexOf("yolo-bar-link")).toBeLessThan(order.indexOf("discord-btn"));
+    });
+  }
 
   // ── E3 / E4 / E20: the strip ────────────────────────────────────────────
 
@@ -572,9 +593,7 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     await bar(page).click({ position: { x: 2, y: 2 } });
     expect(page.url()).toBe(url);
 
-    await page.getByTestId("theme-picker-trigger").click();
-    const dropdown = page.getByTestId("theme-picker-dropdown");
-    await expect(dropdown).toBeVisible();
+    const dropdown = await openAppearance(page);
     await dropdown.click({ position: { x: 2, y: 2 } });
     expect(page.url()).toBe(url);
     await page.keyboard.press("Escape");

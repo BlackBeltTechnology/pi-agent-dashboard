@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { connectionChip, gotoDashboard, openConnectionMenu } from "./helpers/index.js";
 import { openAddressStep } from "./helpers/remote-access.js";
 
 /**
@@ -44,11 +44,25 @@ test.describe("support-zrok-v2 tunnel UI", () => {
     await stubTunnelStatus(page, { status: "active", url: V2_URL, serverOs: "linux" });
     await gotoDashboard(page);
 
+    // The chip's glyph + accessible name carry the state; the Remote access item (in the
+    // connection menu) carries the tone and its text (never colour alone).
+    await expect(connectionChip(page)).toHaveAttribute("aria-label", /remote access internet on/i, { timeout: 15_000 });
+    await openConnectionMenu(page);
     const btn = page.getByTestId("tunnel-btn");
     await expect(btn).toBeVisible({ timeout: 15_000 });
-    // Connected: the state is the dot tone AND its text (never colour alone).
     await expect(btn).toHaveAttribute("data-tone", "internet", { timeout: 15_000 });
-    await expect(btn).toHaveAttribute("title", /Remote access: internet on/);
+    await expect(btn).toContainText(/internet on/);
+  });
+
+  // F11 (declutter-sidebar-header) — Remote access moved into the connection menu; it still opens the
+  // existing dialog on its landing view and the zrok flow assertions run unchanged after the open step.
+  test("F11: connection menu → Remote access opens the dialog on its landing view", async ({ page }) => {
+    await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
+    await gotoDashboard(page);
+    await openConnectionMenu(page);
+    await page.getByTestId("tunnel-btn").click();
+    await expect(page.getByTestId("remote-access-landing")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("menu", { name: "Switch server" })).toHaveCount(0);
   });
 
   // F3 — the "Forget reserved URL" control fires disconnect {forget:true}.

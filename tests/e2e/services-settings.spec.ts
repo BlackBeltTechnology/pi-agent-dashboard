@@ -23,7 +23,7 @@ import {
   setThemeMode,
 } from "./helpers/computed-contrast.js";
 import { resolveContainer } from "./helpers/container-proc.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { gotoDashboard, openAppearance } from "./helpers/index.js";
 import { OperatorSession } from "./helpers/operator-session.js";
 
 const op = new OperatorSession();
@@ -397,7 +397,7 @@ test.describe("Settings → Services", () => {
       }, path);
     await navigate("/");
     await expect(page.getByTestId("settings-nav-rail")).toHaveCount(0);
-    await page.getByTestId("theme-picker-trigger").click();
+    await openAppearance(page);
     await page.getByTestId("theme-option-nord").click();
     await navigate("/settings/services");
     await expect(page.getByTestId("services-list-page")).toBeVisible({ timeout: 20_000 });

@@ -2287,7 +2287,7 @@ Primitive: `useAsyncAction(fn, opts)` in `packages/client/src/hooks/useAsyncActi
 
 Two completion modes:
 
-- `confirm:"http"` (default, fast ops): pending ends when `fetch()` settles. TunnelButton connect/disconnect, ProviderAuthSection sign-out/remove-key.
+- `confirm:"http"` (default, fast ops): pending ends when `fetch()` settles. Remote access dialog (opened from the connection menu) connect/disconnect, ProviderAuthSection sign-out/remove-key.
 - `confirm:"ws"` (slow ops): pending holds after HTTP ack until correlated `ServerToBrowserMessage` matches `opts.confirmEvent(msg, requestId)`. `opts.confirmTimeoutMs` (default 15000ms) fallback clears pending + info toast. Never stuck-spins.
 
 Correlation contract: client generates requestId, sends in REST body, registers WS handler on `run()` BEFORE fn fires (race-free). Server echoes requestId into completion broadcast.
@@ -4702,6 +4702,21 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 3. Sends only changed fields via `PUT /api/config` (partial merge)
 4. Server preserves `***` secrets (doesn't overwrite real values), writes to disk, and applies runtime-safe changes
 5. Port/piPort changes flag `restartRequired` in the response
+
+### Sidebar header grouping
+- Header = Tailwind `@container`. Row 1 `flex-wrap` (wraps, never clips).
+- Row 1 left: logo · Discord (`discord-btn`) · divider · Appearance (`ThemePicker`, `theme-picker-trigger`) · Focus (`focus-toggle-btn`).
+- Appearance dropdown: Mode toggle (`ThemeToggle`) + palette list.
+- Row 1 right: open-questions pill (`QuestionStack`) · update badge · connection chip (`connection-chip`, `ServerSelector`) · Settings (`settings-btn`).
+- Connection chip: status dot · server name (hidden when header container < 400 px) · offline word (>= 400 px) or cloud-off glyph (< 400 px) · remote-access tone glyph (internet/partial/failed) · waiting-device badge (`tunnel-btn-badge`).
+- Chip menu: servers · "Manage servers…" · Access group.
+- Access group: Remote access (`tunnel-btn`, opens `RemoteAccessDialog`) · Install as app (`install-btn`, only when installable).
+- `useRemoteAccessIndicator` (hooks): tunnel-status poll, reachability, pending-pairing count, saved-run resume. Called once in `App.tsx`.
+- `App` hosts lazy `RemoteAccessDialog`.
+- `TunnelButton` and `InstallButton` deleted.
+- Row 2: one scoped search box. Scope toggle Sessions|Folders. Inactive query = chip with switch + clear buttons.
+- Filter funnel (`filter-funnel-btn`) opens popover. Badge counts Include archive + Show hidden.
+- Layout floors: common state one line at >= 280 px sidebar. Worst state one line at >= 400 px.
 
 ### Reconnection Flow
 1. Browser reconnects with `subscribe` message including `lastSeq`

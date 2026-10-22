@@ -3,22 +3,25 @@ import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashb
 import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   mdiAlertOutline,
+  mdiAccessPointNetwork,
+  mdiAlertCircle,
   mdiCheckCircleOutline,
   mdiChevronDown,
   mdiCloseCircleOutline,
+  mdiCloudOffOutline,
   mdiCog,
   mdiLoading,
   mdiRefresh,
-  mdiServerNetwork,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { acceptKnownServerMove, listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
 import { getOpenServerWindow } from "../../lib/electron-server-windows.js";
 import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
+import type { RemoteAccessTone } from "../../lib/gateway/gateway-connection.js";
 import { identityPill, type Severity, severityPill } from "./connectivity-ui.js";
 
 /** Re-export for backward compat — consumers that imported this type */
@@ -94,7 +97,45 @@ export function buildServerEntries(
  */
 type ProbeState = "available" | "unreachable" | "denied" | "cors-blocked" | "name-not-resolved";
 
+/**
+ * An extra row rendered in the menu's "Access" group, after "Manage servers…".
+ * `onSelect` receives THIS chip instance's trigger element (App can mount two
+ * chips: desktop sidebar + mobile overlay). See change: declutter-sidebar-header.
+ */
+export interface AccessItem {
+  id: string;
+  label: string;
+  sublabel?: string;
+  icon: string;
+  badge?: number;
+  testId: string;
+  /** Extra `data-tone` for the row (Remote access keeps it). */
+  tone?: string;
+  /** True → the item opens a dialog that takes focus; the menu closes without focusing the trigger. */
+  opensDialog?: boolean;
+  onSelect: (trigger: HTMLButtonElement) => void;
+}
+
+/** Remote-access summary shown on the chip (tone glyph + waiting badge + accessible name). */
+interface RemoteAccessChipState {
+  tone: RemoteAccessTone;
+  /** Bare state phrase, e.g. `failed`. */
+  state: string;
+  pending: number;
+}
+
+/** Tone glyphs — each a different shape; `local`/`network` are quiet (no glyph). */
+const TONE_GLYPH: Partial<Record<RemoteAccessTone, string>> = {
+  internet: mdiAccessPointNetwork,
+  partial: mdiAlertOutline,
+  failed: mdiAlertCircle,
+};
+
 interface Props {
+  /** Remote-access summary for the chip (glyph, badge, accessible name). */
+  remoteAccess?: RemoteAccessChipState;
+  /** Rows appended to the menu after "Manage servers…", in an "Access" group. */
+  accessItems?: AccessItem[];
   /** mDNS-discovered servers — kept for Settings panel, no longer primary data source */
   servers?: DiscoveredServerInfo[];
   currentHost: string;
@@ -170,8 +211,9 @@ function stateView(state: ItemState, movedAddress?: string): { label: string; se
 const ITEM_BASE =
   "focus-ring flex w-full min-h-[44px] items-start gap-2 px-3 py-1.5 text-left text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] aria-[disabled=true]:cursor-not-allowed aria-[disabled=true]:hover:bg-transparent cursor-pointer";
 
-export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey, onNotifyError }: Props) {
+export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey, onNotifyError, remoteAccess, accessItems }: Props) {
   const [open, setOpen] = useState(false);
+  const accessLabelId = useId();
   /** "host:port" of an in-flight "open server window" request (Electron branch). */
   const [openingKey, setOpeningKey] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -364,8 +406,33 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
     ? i18nT("connection.connected", undefined, "Connected")
     : i18nT("connection.offlineWord", undefined, "Offline");
 
+  const pending = remoteAccess?.pending ?? 0;
+  const toneGlyph = remoteAccess ? TONE_GLYPH[remoteAccess.tone] : undefined;
+  const baseLabel = i18nT(
+    "connection.selectorLabel",
+    { server: displayLabel, state: connectionWord.toLowerCase() },
+    "Server: {server}, {state}",
+  );
+  const raQuiet = !remoteAccess || remoteAccess.tone === "local" || remoteAccess.tone === "network";
+  const chipLabel =
+    raQuiet && pending === 0
+      ? baseLabel
+      : [
+          baseLabel,
+          raQuiet
+            ? ""
+            : `; ${i18nT("connection.remoteAccessState", { state: remoteAccess?.state ?? "" }, "remote access {state}")}`,
+          pending > 0
+            ? `${raQuiet ? "; " : ", "}${i18nT(
+                pending === 1 ? "connection.deviceWaiting" : "connection.devicesWaiting",
+                { count: pending },
+                pending === 1 ? "{count} device waiting" : "{count} devices waiting",
+              )}`
+            : "",
+        ].join("");
+
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative min-w-0">
       <button
         type="button"
         ref={triggerRef}
@@ -375,21 +442,37 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
         onKeyUp={(e) => { if (e.key === " ") e.preventDefault(); }}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={i18nT(
-          "connection.selectorLabel",
-          { server: displayLabel, state: connectionWord.toLowerCase() },
-          "Server: {server}, {state}",
-        )}
-        className="focus-ring flex min-h-8 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+        aria-label={chipLabel}
+        data-testid="connection-chip"
+        className="focus-ring relative flex min-h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
         title={i18nT("connection.switchServer", undefined, "Switch server")}
       >
-        <Icon path={mdiServerNetwork} size={0.55} />
-        <span className="truncate max-w-[180px]">{displayLabel}</span>
         <span
           aria-hidden="true"
           className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-[var(--status-idle)]" : "bg-[var(--status-error)]"}`}
         />
-        <span>{connectionWord}</span>
+        <span className="min-w-0 max-w-[160px] truncate @max-[399.98px]:hidden">{displayLabel}</span>
+        {!connected && (
+          <>
+            <span className="text-[var(--status-error)] @max-[399.98px]:hidden">{connectionWord}</span>
+            <span className="inline-flex @min-[400px]:hidden" data-testid="connection-chip-offline-glyph" title={connectionWord}>
+              <Icon path={mdiCloudOffOutline} size={0.55} aria-hidden="true" />
+            </span>
+          </>
+        )}
+        {toneGlyph && (
+          <span data-testid="connection-chip-tone" data-tone={remoteAccess?.tone} className="inline-flex shrink-0">
+            <Icon path={toneGlyph} size={0.55} aria-hidden="true" />
+          </span>
+        )}
+        {pending > 0 && (
+          <span
+            data-testid="tunnel-btn-badge"
+            className="min-w-[14px] rounded-full bg-[var(--accent-solid)] px-1 text-center text-[9px] font-bold leading-[14px] text-white"
+          >
+            {pending}
+          </span>
+        )}
         <Icon path={mdiChevronDown} size={0.45} />
       </button>
 
@@ -556,6 +639,42 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                 <Icon path={mdiCog} size={0.5} aria-hidden="true" />
                 <span>{i18nT("common.manageServers", undefined, "Manage servers…")}</span>
               </button>
+            </>
+          )}
+          {accessItems && accessItems.length > 0 && (
+            <>
+              <hr className="my-1 border-0 border-t border-[var(--border-secondary)]" />
+              <div role="group" aria-labelledby={accessLabelId}>
+                <div
+                  id={accessLabelId}
+                  className="px-3 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]"
+                >
+                  {i18nT("connection.access", undefined, "Access")}
+                </div>
+                {accessItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    data-testid={item.testId}
+                    data-tone={item.tone}
+                    onClick={() => {
+                      const trigger = triggerRef.current;
+                      if (item.opensDialog) setOpen(false);
+                      else closeToTrigger();
+                      if (trigger) item.onSelect(trigger);
+                    }}
+                    className={`${ITEM_BASE} !min-h-[36px] items-center`}
+                  >
+                    <Icon path={item.icon} size={0.55} aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold">{item.label}</span>
+                      {item.sublabel && <span className="block text-xs text-[var(--text-secondary)]">{item.sublabel}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </>
           )}
         </div>
