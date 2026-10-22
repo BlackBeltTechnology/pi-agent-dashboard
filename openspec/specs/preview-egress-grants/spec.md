@@ -7,7 +7,7 @@ Controls which external origins a served preview may use and whether its scripts
 
 ### Requirement: Egress policy is fixed by provenance
 
-A live-server preview opened by an operator action (a click in the file tree, the preview overlay, a linkified loopback URL, the canvas file chip, or the canvas tool card) SHALL load external subresources without restriction. Every other open, including canvas auto-open, the confirm-chip tap for an agent-declared server or URL, agent preview cards and any surface declaring no provenance, SHALL be restricted. The policy SHALL be bound to the capability so no URL edit can widen it.
+A live-server preview opened by an operator action SHALL load external subresources without restriction. Operator actions are: a click in the file tree, the in-page preview overlay opened by a click, Expand on a preview card that itself has operator provenance, a linkified loopback URL, the canvas file chip, the canvas tool card, or a route-backed overlay URL (`/pi-view`, `/folder/<cwd>/view`) carrying a navigation intent that verifies for its route and target. Every other open SHALL be restricted, including canvas auto-open, the confirm-chip tap for an agent-declared server or URL, agent preview cards, a route-backed overlay URL without a verifying navigation intent, and any surface declaring no provenance. The policy SHALL be bound to the capability so no URL edit can widen it.
 
 #### Scenario: Manual open loads a CDN
 
@@ -38,6 +38,18 @@ A live-server preview opened by an operator action (a click in the file tree, th
 - **GIVEN** an auto-opened restricted preview
 - **WHEN** the frame URL's path or query is changed
 - **THEN** the same restricted policy still applies
+
+#### Scenario: Crafted overlay link stays restricted
+
+- **GIVEN** a `/folder/<cwd>/view?path=page.html` link with no navigation intent, opened from outside the dashboard
+- **WHEN** the overlay renders the page, which loads `https://unpkg.com/x.js`
+- **THEN** the unpkg request is blocked
+
+#### Scenario: Reloaded operator overlay keeps the open policy
+
+- **GIVEN** the operator opened `page.html` in the route-backed overlay through the UI, so the URL carries a verifying intent
+- **WHEN** the page is reloaded within the intent lifetime
+- **THEN** the preview opens with the open policy
 
 ### Requirement: A preview capability without a valid policy is restricted
 
