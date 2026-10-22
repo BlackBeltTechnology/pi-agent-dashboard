@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sidebar header declutter: variations</title>
+<link rel="stylesheet" href="tokens.css" />
+<script src="icons.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--focus-ring, var(--accent-blue)); outline-offset: 1px; }
+  svg { display: block; fill: currentColor; }
+
+  /* ── board chrome ─────────────────────────────────────────── */
+  .board-top { position: sticky; top: 0; z-index: 50; display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center;
+    padding: 10px 20px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); }
+  .board-top h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  .ctl { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .seg button { padding: 3px 9px; font-size: 12px; color: var(--text-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); }
+  .chk { display: inline-flex; align-items: center; gap: 4px; }
+  main { padding: 20px; display: grid; gap: 28px; max-width: 1400px; }
+  section.v { display: grid; grid-template-columns: auto minmax(260px, 1fr); gap: 24px; align-items: start; }
+  @media (max-width: 900px) { section.v { grid-template-columns: 1fr; } }
+  .v h2 { margin: 0 0 4px; font-size: 15px; }
+  .v .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; margin-left: 6px; vertical-align: 1px;
+    border: 1px solid var(--border-secondary); color: var(--text-tertiary); }
+  .v .tag.rec { border-color: var(--accent-blue); color: var(--accent-blue-text, var(--accent-blue)); }
+  .notes { color: var(--text-secondary); font-size: 12.5px; }
+  .notes ul { margin: 6px 0 0; padding-left: 18px; }
+  .notes li { margin: 2px 0; }
+  .notes b { color: var(--text-primary); font-weight: 600; }
+  .row-h { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); margin: 0 0 6px; }
+
+  /* ── sidebar frame (replica) ──────────────────────────────── */
+  .sb { container-type: inline-size; width: var(--sbw, 480px); height: 330px; display: flex; flex-direction: column;
+    background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 8px; position: relative; }
+  .sb > .hdr { border-bottom: 1px solid var(--border-primary); }
+  .bar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; min-height: 40px; }
+  .bar.clip { overflow: hidden; }
+  .grp { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .grp.r { gap: 4px; }
+  .ib { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; border-radius: 6px;
+    color: var(--text-tertiary); position: relative; flex-shrink: 0; }
+  .ib:hover, .ib[aria-expanded="true"] { color: var(--text-secondary); background: var(--bg-hover); }
+  .ib .dot { position: absolute; right: 2px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-blue); box-shadow: 0 0 0 1.5px var(--bg-primary); }
+  .ib .cnt { position: absolute; top: -3px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 999px; font-size: 9.5px; line-height: 14px;
+    background: var(--accent-blue); color: var(--bg-primary); font-weight: 700; text-align: center; }
+  .logo { color: var(--accent-blue); font-weight: 800; font-size: 22px; line-height: 1; letter-spacing: -2px; padding: 0 2px; font-family: Georgia, serif; }
+  .tt { display: flex; border: 1px solid var(--border-primary); border-radius: 4px; flex-shrink: 0; }
+  .tt span { padding: 2px; color: var(--text-muted); }
+  .tt span.on { color: var(--accent-blue); background: var(--bg-tertiary); }
+  .pill { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; height: 20px; border-radius: 999px; font-size: 10.5px; font-weight: 600; flex-shrink: 0;
+    color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent); }
+  .pill.q { color: var(--status-needs-you); background: color-mix(in srgb, var(--status-needs-you) 16%, transparent);
+    border-color: color-mix(in srgb, var(--status-needs-you) 40%, transparent); }
+  .srv { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 6px; border-radius: 6px; font-size: 12px;
+    color: var(--text-secondary); min-width: 0; flex-shrink: 1; }
+  .srv:hover, .srv[aria-expanded="true"] { background: var(--bg-tertiary); color: var(--text-primary); }
+  .srv svg, .srv .led { flex-shrink: 0; }
+  .anchor > .srv { max-width: 100%; }
+  .srv .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .led { width: 8px; height: 8px; border-radius: 50%; background: var(--status-idle); flex-shrink: 0; }
+  .led.off { background: var(--status-error); }
+  .led.work { background: var(--status-working); }
+
+  .fbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; }
+  .in { flex: 1; min-width: 0; height: 26px; padding: 0 8px; font-size: 12px; border-radius: 4px; background: var(--bg-primary);
+    border: 1px solid var(--border-subtle); color: var(--text-primary); }
+  .in::placeholder { color: var(--text-muted); }
+  .chip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 3px; font-size: 12px; padding: 2px 6px; border-radius: 4px;
+    border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+  .search { flex: 1; min-width: 0; display: flex; align-items: center; height: 28px; border-radius: 6px; border: 1px solid var(--border-subtle);
+    background: var(--bg-primary); padding-left: 6px; gap: 4px; color: var(--text-muted); }
+  .search:focus-within { border-color: var(--accent-blue); }
+  .search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text-primary); font-size: 12px; height: 100%; outline: none; }
+  .search input::placeholder { color: var(--text-muted); }
+  .scope { display: inline-flex; border-left: 1px solid var(--border-subtle); height: 100%; flex-shrink: 0; }
+  .scope button { padding: 0 7px; font-size: 11px; color: var(--text-tertiary); }
+  .scope button[aria-pressed="true"] { color: var(--text-primary); background: var(--bg-tertiary); }
+  .scope button:last-child { border-radius: 0 5px 5px 0; }
+
+  .body { flex: 1; overflow: hidden; padding: 10px 12px; }
+  .card { border: 1px solid var(--border-secondary); background: var(--bg-secondary); border-radius: 12px; padding: 9px 12px; }
+  .card .t { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-secondary); }
+  .card .m { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 12px; color: var(--text-secondary); gap: 10px; }
+  .meter { flex: 0 0 90px; height: 6px; border-radius: 3px; background: var(--bg-surface); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 12%; background: var(--status-idle); }
+  .fold { margin: 8px 0 0; font-size: 11px; color: var(--text-muted); text-align: center; }
+  .gap { height: 8px; }
+
+  .foot { border-top: 1px solid var(--border-primary); display: flex; align-items: center; gap: 4px; padding: 3px 8px; min-height: 30px; position: relative; }
+  .foot .srv { font-size: 11.5px; min-height: 22px; }
+  .sp { flex: 1; }
+
+  /* ── popovers ─────────────────────────────────────────────── */
+  .anchor { position: relative; display: inline-flex; min-width: 0; }
+  .pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; width: 268px; padding: 6px; border-radius: 10px;
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary); box-shadow: 0 12px 32px rgba(0,0,0,.45); display: none; text-align: left; }
+  .pop.left { right: auto; left: 0; }
+  .pop.up { top: auto; bottom: calc(100% + 6px); }
+  .pop.open { display: block; }
+  .pop h4 { margin: 4px 6px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 600; }
+  .pop hr { border: 0; border-top: 1px solid var(--border-primary); margin: 6px -6px; }
+  .mi { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 6px; font-size: 12.5px; color: var(--text-secondary); min-height: 30px; text-align: left; }
+  .mi:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .mi .k { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+  .mi .sub { display: block; font-size: 11px; color: var(--text-tertiary); }
+  .mi .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mi.cur { color: var(--text-primary); }
+  .mseg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; margin: 2px 4px 6px; border-radius: 7px; background: var(--bg-primary); border: 1px solid var(--border-primary); }
+  .mseg button { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 0; border-radius: 5px; font-size: 11.5px; color: var(--text-tertiary); }
+  .mseg button.on { background: var(--bg-surface); color: var(--text-primary); }
+  .pal { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 0 2px; }
+  .pal button { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px; font-size: 12px; color: var(--text-secondary); text-align: left; }
+  .pal button:hover { background: var(--bg-hover); }
+  .pal button.on { color: var(--text-primary); background: var(--bg-tertiary); }
+  .sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border-secondary); flex-shrink: 0; }
+  .sw.mono { background: var(--bg-surface); }
+  .switch { margin-left: auto; width: 28px; height: 16px; border-radius: 999px; background: var(--bg-surface); position: relative; flex-shrink: 0; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-tertiary); transition: left .12s; }
+  .switch.on { background: var(--accent-blue); } .switch.on::after { left: 14px; background: var(--bg-primary); }
+  .url { margin: 0 8px 6px 34px; font: 11px ui-monospace, monospace; color: var(--accent-blue-text, var(--accent-blue)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stat { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; }
+  .stat .nm { font-size: 12.5px; color: var(--text-primary); font-weight: 600; word-break: break-all; }
+  .stat .sub { font-size: 11px; color: var(--text-tertiary); }
+  .tip { font-size: 11px; color: var(--text-muted); padding: 2px 8px 4px; }
+
+  /* B: server name collapses to led-only below 400px sidebar */
+  .b-srv .off-g { display: none; }
+  @container (max-width: 399.98px) { .b-srv .nm, .b-srv .off-t { display: none; } .b-srv .off-g { display: inline-flex; } }
+  /* A: hide server name below 340px */
+  @container (max-width: 340px) { .a-srv .nm { display: none; } }
+
+  /* D: priority+ overflow */
+  .pp [data-pri].gone { display: none; }
+  .pp-menu .mi[data-for] { display: none; }
+  .pp-menu .mi[data-for].show { display: flex; }
+
+  .legend { font-size: 11.5px; color: var(--text-tertiary); margin-top: 8px; }
+  .legend code { font-size: 11px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="board-top">
+  <h1>Sidebar header: declutter variations</h1>
+  <div class="ctl">Theme
+    <span class="seg" id="themeSeg">
+      <button aria-pressed="true" data-t="dark">Base dark</button><button aria-pressed="false" data-t="light">Base light</button><button aria-pressed="false" data-t="nord">Nord</button>
+    </span>
+  </div>
+  <label class="ctl">Sidebar width <input type="range" id="w" min="260" max="600" value="440" step="10" /> <b id="wv">440px</b></label>
+  <div class="ctl">Simulate
+    <label class="chk"><input type="checkbox" id="sUpd" checked /> update</label>
+    <label class="chk"><input type="checkbox" id="sQ" /> 2 questions</label>
+    <label class="chk"><input type="checkbox" id="sTun" /> tunnel on</label>
+    <label class="chk"><input type="checkbox" id="sOff" /> disconnected</label>
+    <label class="chk"><input type="checkbox" id="sInst" /> installable (PWA)</label>
+    <label class="chk"><input type="checkbox" id="sPend" /> 1 device waiting</label>
+  </div>
+</div>
+<main id="root"></main>
+
+<script>
+const S = { upd: true, q: false, tun: false, off: false, inst: false, pend: false, fq: "", sq: "", mode: "dark", palette: "base", scope: "sessions", arch: false, hid: false };
+const SERVER = "pi-dashboard-31f4d8185a43-studio";
+const PALS = [["base","Base"],["dracula","Dracula"],["nord","Nord"],["github","GitHub"],["catppuccin","Catppuccin"],["tokyo-night","Tokyo Night"],["rose-pine","Rosé Pine"],["solarized","Solarized"],["gruvbox","Gruvbox"]];
+const DISCORD = "M20.317 4.369A19.79 19.79 0 0 0 15.446 3c-.21.375-.455.88-.624 1.28a18.27 18.27 0 0 0-5.644 0A12.6 12.6 0 0 0 8.548 3a19.74 19.74 0 0 0-4.874 1.372C.605 8.98-.232 13.475.186 17.905a19.9 19.9 0 0 0 6.026 3.05c.485-.66.917-1.362 1.29-2.1a12.9 12.9 0 0 1-2.03-.978c.17-.125.337-.256.498-.39a14.2 14.2 0 0 0 12.06 0c.163.135.33.266.5.39-.647.383-1.33.71-2.033.98a15.8 15.8 0 0 0 1.29 2.099 19.86 19.86 0 0 0 6.03-3.05c.49-5.138-.838-9.593-3.5-13.537ZM8.02 15.21c-1.182 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Zm7.96 0c-1.183 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Z";
+ICON.Discord = DISCORD;
+const ic = (n, s = 14) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+let uid = 0; const id = (p) => `${p}-${++uid}`;
+
+/* ── shared atoms ─────────────────────────────────────────── */
+const logo = () => `<button class="logo" aria-label="Home" title="Home">ππ</button>`;
+const led = () => `<span class="led ${S.off ? "off" : ""}" aria-hidden="true"></span>`;
+const connText = () => S.off ? "Disconnected" : "Connected";
+const updPill = () => S.upd ? `<button class="pill" title="1 pi core update available" aria-label="1 pi core update available">${ic("ArrowUpBold", 11)}1</button>` : "";
+const qPill = () => S.q ? `<button class="pill q" title="2 open questions" aria-label="2 open questions">${ic("HelpCircleOutline", 11)}2</button>` : "";
+const ib = (icon, label, extra = "", attrs = "") => `<button class="ib" title="${label}" aria-label="${label}" ${attrs}>${ic(icon)}${extra}</button>`;
+const tunnelIb = () => ib("AccessPointNetwork", S.tun ? "Remote access: on" : "Remote access", S.tun ? `<span class="dot"></span>` : "");
+const themeTriplet = () => `<span class="tt" data-testid="theme-toggle">${["WeatherSunny","Monitor","WeatherNight"].map((n,i)=>`<span class="${["light","system","dark"][i]===S.mode?"on":""}">${ic(n,12)}</span>`).join("")}</span>`;
+
+function popWrap(trigger, body, cls = "") {
+  const pid = id("pop");
+  return `<span class="anchor">${trigger.replace("<button", `<button aria-haspopup="dialog" aria-expanded="false" aria-controls="${pid}" data-pop="${pid}"`)}<div class="pop ${cls}" id="${pid}" role="dialog">${body}</div></span>`;
+}
+const modeSeg = () => `<div class="mseg" role="radiogroup" aria-label="Color mode">${[["light","WeatherSunny","Light"],["system","Monitor","System"],["dark","WeatherNight","Dark"]].map(([v,i,l])=>`<button role="radio" aria-checked="${S.mode===v}" class="${S.mode===v?"on":""}" data-mode="${v}">${ic(i,12)}${l}</button>`).join("")}</div>`;
+const palGrid = () => `<div class="pal" role="radiogroup" aria-label="Palette">${PALS.map(([v,l])=>`<button role="radio" aria-checked="${S.palette===v}" class="${S.palette===v?"on":""}" data-pal="${v}"><span class="sw mono"></span>${l}${S.palette===v?`<span style="margin-left:auto">${ic("Check",12)}</span>`:""}</button>`).join("")}</div>`;
+const appearanceBody = () => `<h4>Mode</h4>${modeSeg()}<h4>Palette</h4>${palGrid()}`;
+const tunnelRow = () => `<button class="mi" data-tog="tun">${ic("AccessPointNetwork")}<span class="grow">Remote access tunnel<span class="sub">${S.tun ? "Sharing this dashboard" : "Off: local network only"}</span></span><span class="switch ${S.tun?"on":""}"></span></button>${S.tun?`<div class="url">https://k3x9p2.share.zrok.io</div>`:""}`;
+const installRow = () => S.inst ? `<button class="mi">${ic("Download")}<span class="grow">Install as app</span></button>` : "";
+const focusRow = () => `<button class="mi">${ic("Target")}<span class="grow">Focus mode<span class="sub">Hide everything but the active session</span></span><span class="switch"></span></button>`;
+const raState = () => S.tun ? "Internet · zrok" : "Local only";
+const remoteRowB = () => `<button class="mi" data-testid="tunnel-btn" title="Opens the Remote access dialog">${ic("AccessPointNetwork")}<span class="grow">Remote access<span class="sub">${raState()}${S.pend ? " · 1 device waiting" : ""}</span></span>${S.pend ? `<span class="pill q" style="height:18px">1</span>` : ""}${ic("ChevronRight",14)}</button>`;
+const serverBodyB = () => `
+  <div class="stat">${led()}<div style="min-width:0"><div class="nm">${SERVER}</div><div class="sub">${connText()} · localhost:8000 · 3 sessions</div></div></div>
+  <hr><h4>Switch server</h4>
+  <button class="mi cur" role="menuitemradio" aria-checked="true"><span class="led"></span><span class="grow">${SERVER}</span>${ic("Check",12)}</button>
+  <button class="mi" role="menuitemradio" aria-checked="false"><span class="led" style="background:var(--text-muted)"></span><span class="grow">mac-mini.local<span class="sub">discovered via mDNS</span></span></button>
+  <button class="mi">${ic("Server")}<span class="grow">Manage servers…</span></button>
+  <hr><h4>Access</h4>${remoteRowB()}${installRow()}
+`;
+const serverBody = (withExtras) => `
+  <div class="stat">${led()}<div style="min-width:0"><div class="nm">${SERVER}</div><div class="sub">${connText()} · localhost:8000 · 3 sessions</div></div></div>
+  <hr><h4>Switch server</h4>
+  <button class="mi cur"><span class="led"></span><span class="grow">${SERVER}</span>${ic("Check",12)}</button>
+  <button class="mi"><span class="led" style="background:var(--text-muted)"></span><span class="grow">mac-mini.local<span class="sub">discovered via mDNS</span></span></button>
+  <button class="mi">${ic("Server")}<span class="grow">Manage servers…</span></button>
+  ${withExtras ? `<hr>${tunnelRow()}${installRow()}` : ""}`;
+const card = () => `<div class="card"><div class="t"><span class="led work"></span><b style="color:var(--text-primary);font-weight:500">fix sidebar header overflow</b><span style="margin-left:auto;color:var(--text-muted)">2m</span></div>
+  <div class="m"><span>idle</span></div><div class="m"><span>claude-opus-5-5 (high)</span><span class="meter"><i></i></span><span>$26.53</span></div></div>
+  <div class="fold">› 42 ended</div>`;
+
+/* ── filter rows ──────────────────────────────────────────── */
+const filterCurrent = () => `<div class="fbar"><input class="in" placeholder="Folder..." aria-label="Filter folders"><input class="in" placeholder="Session..." aria-label="Search sessions">
+  <span class="chip">${ic("ArchiveOutline",12)}archive</span><span class="chip">Hidden</span></div>`;
+const filterBody = () => `<h4>Include in results</h4>
+  <button class="mi" data-tog="arch">${ic("ArchiveOutline")}<span class="grow">Archived sessions<span class="sub">Server search, query ≥ 3 chars</span></span><span class="switch ${S.arch?"on":""}"></span></button>
+  <button class="mi" data-tog="hid">${ic("EyeOffOutline")}<span class="grow">Hidden sessions<span class="sub">3 auto-hidden</span></span><span class="switch ${S.hid?"on":""}"></span></button>`;
+const activeFilters = () => (S.arch?1:0) + (S.hid?1:0);
+const funnel = (cls="") => popWrap(ib("FilterVariant", `Filters${activeFilters()?` (${activeFilters()} active)`:""}`, activeFilters()?`<span class="cnt">${activeFilters()}</span>`:""), filterBody(), cls);
+const otherChip = () => { const o = S.scope === "sessions" ? S.fq : S.sq; if (!o) return ""; const lbl = S.scope === "sessions" ? "folder" : "session";
+  return `<span class="chip" style="padding:0 4px;font-size:11px;max-width:45%;overflow:hidden" title="Also filtering ${lbl}: ${o}"><button data-scope="${S.scope==="sessions"?"folders":"sessions"}" aria-label="Edit ${lbl} filter: ${o}" style="display:inline-flex;align-items:center;gap:3px;min-width:0">${ic(S.scope==="sessions"?"FolderOutline":"Console",11)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${o}</span></button><button data-clear="${S.scope==="sessions"?"fq":"sq"}" aria-label="Clear ${lbl} filter">${ic("Close",11)}</button></span>`; };
+const filterUnified = () => `<div class="fbar"><label class="search">${ic("Magnify",14)}${otherChip()}<input data-q value="${S.scope==="folders"?S.fq:S.sq}" placeholder="${S.scope==="folders"?"Filter folders…":"Search sessions…"}" aria-label="${S.scope==="folders"?"Filter folders by path":"Search sessions across folders"}">
+  <span class="scope" role="group" aria-label="Search scope"><button aria-pressed="${S.scope==="sessions"}" data-scope="sessions">Sessions</button><button aria-pressed="${S.scope==="folders"}" data-scope="folders">Folders</button></span></label>${funnel()}</div>`;
+const filterTwoPlusFunnel = () => `<div class="fbar"><input class="in" placeholder="Folder..." aria-label="Filter folders"><input class="in" placeholder="Session..." aria-label="Search sessions">${funnel()}</div>`;
+
+/* ── header variants ──────────────────────────────────────── */
+const V = [];
+
+V.push({ key: "cur", title: "0 · Current (replica)", tag: "as-built",
+  notes: `<b>13 controls in one 40px row.</b> Server name and “Connected” fight for the leftovers; at the real sidebar width Discord + Settings are pushed off-screen (clipped here). Theme picker + 3-way mode toggle take ~90px for a set-once preference.
+  <ul><li>Grouping is by accident: left = appearance, right = everything else.</li><li>Filter row: two inputs + two text chips; “archive” is lowercase, “Hidden” isn't.</li></ul>`,
+  hdr: () => `<div class="bar clip"><div class="grp" style="flex-shrink:0">${logo()}${ib("Palette","Theme")}${themeTriplet()}</div>
+    <div class="grp r" style="flex-shrink:0">${S.inst?ib("Download","Install"):""}${tunnelIb()}${qPill()}${ib("Target","Focus mode")}${updPill()}
+    <span class="srv" style="flex-shrink:0">${ic("Server",14)}<span class="nm" style="max-width:180px">${SERVER}</span>${led()}<span>${connText()}</span></span>
+    ${ib("Discord","Join our Discord")}${ib("Cog","Settings")}</div></div>`,
+  filter: filterCurrent });
+
+V.push({ key: "A", title: "A · One ⋯ overflow menu", tag: "smallest change",
+  notes: `Keep only what changes <b>often</b> or <b>signals state</b> in the bar; move set-once controls into a single “More” menu.
+  <ul><li>Bar: logo · question/update pills · server chip (dot + name, name drops &lt;340px) · ⋯ · ⚙.</li>
+  <li>⋯ holds Appearance (mode + palette inline), Focus mode, Remote access, Install, Discord.</li>
+  <li>Tunnel-on state surfaces as a dot on ⋯ so it is never silently hidden.</li>
+  <li>“Connected” text removed; colour dot + tooltip + popover carry it (text appears only when <i>disconnected</i>).</li></ul>`,
+  hdr: () => `<div class="bar"><div class="grp">${logo()}</div>
+    <div class="grp r">${qPill()}${updPill()}
+      <span class="srv a-srv" title="${SERVER}: ${connText()}">${led()}<span class="nm" style="max-width:150px">${SERVER}</span>${S.off?`<span style="color:var(--status-error)">offline</span>`:""}</span>
+      ${popWrap(ib("DotsHorizontal","More", S.tun?`<span class="dot"></span>`:""), `${appearanceBody()}<hr>${focusRow()}${tunnelRow()}${installRow()}<hr><button class="mi">${ic("Discord")}<span class="grow">Join our Discord</span></button>`)}
+      ${ib("Cog","Settings")}</div></div>`,
+  filter: filterTwoPlusFunnel });
+
+V.push({ key: "B", title: "B · Purpose-grouped popovers", tag: "recommended", rec: true,
+  notes: `Three <b>labelled clusters</b>, each one button + one popover. Nothing is “misc”.
+  <ul><li><b>Appearance</b> (🎨): mode + palette in one panel, replaces palette icon + 3-way toggle.</li>
+  <li><b>Connection chip</b> (● name ▾): server switcher, status, Remote access (opens the existing dialog; state + waiting-device count surface on the chip), Install as app. Name collapses to dot-only below 400px.</li>
+  <li><b>Attention</b> stays inline: questions + update pills only render when non-zero.</li>
+  <li><b>Brand group</b>: Discord sits beside the π logo (community link next to the product mark), split from the tools by a divider. Focus keeps its icon (frequent toggle).</li>
+  <li>Filter row: one search box; the Sessions/Folders scope picks <i>which</i> query you edit. Both queries stay active (AND); the other scope's query shows as a removable chip inside the box. Archive + Hidden live in the funnel (badge = active count). Type, switch scope, type again to try it.</li></ul>`,
+  hdr: () => `<div class="bar"><div class="grp">${logo()}${ib("Discord","Join our Discord", "", 'data-testid="discord-btn"')}<span style="width:1px;height:16px;background:var(--border-secondary);margin:0 2px" aria-hidden="true"></span>${popWrap(ib("Palette","Appearance"), appearanceBody(), "left")}${ib("Target","Focus mode")}</div>
+    <div class="grp r">${qPill()}${updPill()}
+      ${popWrap(`<button class="srv b-srv" title="${SERVER}: ${connText()}" aria-label="Server: ${SERVER}, ${connText().toLowerCase()}">${led()}<span class="nm" style="max-width:160px">${SERVER}</span>${S.off?`<span class="off-t" style="color:var(--status-error)">Offline</span><span class="off-g" style="color:var(--status-error)" title="Offline">${ic("CloudOffOutline",12)}</span>`:""}${S.tun?`<span style="color:var(--accent-blue)" title="Remote access: internet">${ic("AccessPointNetwork",12)}</span>`:""}${S.pend?`<span class="pill q" style="height:16px;padding:0 5px" aria-label="1 device waiting">1</span>`:""}${ic("ChevronDown",12)}</button>`, serverBodyB())}
+      ${ib("Cog","Settings")}</div></div>`,
+  filter: filterUnified });
+
+V.push({ key: "C", title: "C · Status-bar footer", tag: "frees a row",
+  notes: `Move connection/environment info to a <b>bottom status bar</b> (VS Code / IDE convention). The top becomes one row: logo + search.
+  <ul><li>Top: logo · unified search · funnel · focus. Saves ~40px of vertical space for the session list.</li>
+  <li>Footer: ● server (full width, name rarely truncates) · tunnel · update ··· appearance · Discord · ⚙. Popovers open upward.</li>
+  <li>Questions pill stays top (needs attention, must be in the reading path).</li>
+  <li>Risk: footer is less discoverable; collapsed sidebar needs a separate home for it.</li></ul>`,
+  hdr: () => `<div class="bar" style="gap:6px">${logo()}<label class="search">${ic("Magnify",14)}<input placeholder="${S.scope==="folders"?"Filter folders…":"Search sessions…"}" aria-label="Search">
+      <span class="scope" role="group" aria-label="Search scope"><button aria-pressed="${S.scope==="sessions"}" data-scope="sessions">S</button><button aria-pressed="${S.scope==="folders"}" data-scope="folders">F</button></span></label>
+      ${funnel()}${qPill()}${ib("Target","Focus mode")}</div>`,
+  filter: () => "",
+  foot: () => `<div class="foot">${popWrap(`<button class="srv" title="${SERVER}" aria-label="Connection: ${SERVER}, ${connText()}">${led()}<span class="nm">${SERVER}</span></button>`, serverBody(false), "left up")}
+     ${popWrap(ib("AccessPointNetwork", "Remote access", S.tun?`<span class="dot"></span>`:""), `${tunnelRow()}${installRow()}`, "left up")}
+     ${updPill()}<span class="sp"></span>
+     ${popWrap(ib("Palette","Appearance"), appearanceBody(), "up")}${ib("Discord","Join our Discord")}${ib("Cog","Settings")}</div>` });
+
+V.push({ key: "D", title: "D · Priority+ auto-collapse", tag: "adaptive",
+  notes: `Keep today's layout, but each control has a <b>priority</b>; whatever doesn't fit flows into ⋯ automatically. Drag the width slider.
+  <ul><li>Never collapses: logo, connection dot, ⚙, attention pills.</li>
+  <li>Collapse order: Discord → Install → theme triplet → palette → server name → tunnel → focus.</li>
+  <li>Wide sidebars look like today; narrow ones look like A. No layout decision needed per width.</li>
+  <li>Cost: a ResizeObserver + measure pass; items move between bar and menu (test both paths).</li></ul>`,
+  hdr: () => `<div class="bar pp"><div class="grp" style="flex-shrink:0">${logo()}
+      <span data-pri="4" style="display:inline-flex">${ib("Palette","Theme")}</span><span data-pri="5" style="display:inline-flex">${themeTriplet()}</span></div>
+    <div class="grp r" style="flex-shrink:0">
+      ${S.inst?`<span data-pri="6" style="display:inline-flex">${ib("Download","Install")}</span>`:""}
+      <span data-pri="2" style="display:inline-flex">${tunnelIb()}</span><span data-pri="1" style="display:inline-flex">${ib("Target","Focus mode")}</span>
+      ${qPill()}${updPill()}
+      <span class="srv" title="${SERVER}">${led()}<span data-pri="3" class="nm" style="max-width:150px">${SERVER}</span></span>
+      <span data-pri="7" style="display:inline-flex">${ib("Discord","Join our Discord")}</span>
+      <span class="ppm" style="display:none">${popWrap(ib("DotsHorizontal","More"), `<div class="pp-menu">
+        <button class="mi" data-for="1">${ic("Target")}<span class="grow">Focus mode</span><span class="switch"></span></button>
+        <div class="mi" data-for="2" style="padding:0;display:none">${tunnelRow()}</div>
+        <button class="mi" data-for="3"><span class="led"></span><span class="grow">${SERVER}</span><span class="k">${connText()}</span></button>
+        <div data-for="4" class="mi" style="display:none;padding:0;flex-direction:column;align-items:stretch">${appearanceBody()}</div>
+        <button class="mi" data-for="6">${ic("Download")}<span class="grow">Install as app</span></button>
+        <button class="mi" data-for="7">${ic("Discord")}<span class="grow">Join our Discord</span></button></div>`)}</span>
+      ${ib("Cog","Settings")}</div></div>`,
+  filter: filterTwoPlusFunnel });
+
+/* ── render ───────────────────────────────────────────────── */
+function render() {
+  uid = 0;
+  document.getElementById("root").innerHTML = V.map(v => `
+    <section class="v" data-key="${v.key}">
+      <div class="sb" style="--sbw:var(--W)"><div class="hdr">${v.hdr()}${v.filter()}</div>
+        <div class="body">${card()}<div class="gap"></div>${card()}</div>${v.foot ? v.foot() : ""}</div>
+      <div><h2>${v.title}<span class="tag ${v.rec?"rec":""}">${v.tag}</span></h2>${v.rec?`<p class="legend">Layout reference only. Markup, roles and testids are governed by design.md (D1–D6) and the spec deltas.</p>`:""}<div class="notes">${v.notes}</div></div>
+    </section>`).join("") + `
+    <section class="v"><div></div><div class="notes"><p class="row-h">Common to every variant</p><ul>
+      <li>Zero-count pills (questions, updates) never render, so the quiet state is short.</li>
+      <li>State that hides in a menu (tunnel ON, active filters) leaves a dot or count on the trigger.</li>
+      <li>Popovers: Esc closes, outside click closes, focus returns to trigger; triggers keep <code>aria-label</code> + <code>aria-expanded</code>.</li>
+      <li>Existing <code>data-testid</code>s (<code>theme-toggle</code>, <code>settings-btn</code>, <code>discord-btn</code>, <code>pi-update-badge</code>, <code>search-include-archive</code>…) move with their control, not deleted.</li></ul></div></section>`;
+  layoutPP();
+}
+
+function layoutPP() {
+  document.querySelectorAll(".pp").forEach(bar => {
+    const items = [...bar.querySelectorAll("[data-pri]")].sort((a, b) => b.dataset.pri - a.dataset.pri);
+    const more = bar.querySelector(".ppm");
+    items.forEach(i => i.classList.remove("gone")); more.style.display = "none";
+    bar.querySelectorAll(".pp-menu [data-for]").forEach(m => { m.classList.remove("show"); m.style.display = "none"; });
+    const fits = () => bar.scrollWidth <= bar.clientWidth + 1;
+    for (const it of items) {
+      if (fits()) break;
+      it.classList.add("gone"); more.style.display = "inline-flex";
+      const m = bar.querySelector(`.pp-menu [data-for="${it.dataset.pri}"]`);
+      if (m) { m.classList.add("show"); m.style.display = "flex"; }
+    }
+  });
+}
+
+/* ── interactions ─────────────────────────────────────────── */
+function closeAll(except) {
+  document.querySelectorAll(".pop.open").forEach(p => { if (p !== except) { p.classList.remove("open"); document.querySelector(`[data-pop="${p.id}"]`)?.setAttribute("aria-expanded","false"); } });
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-pop]");
+  if (t) { const p = document.getElementById(t.dataset.pop); const open = !p.classList.contains("open"); closeAll(p); p.classList.toggle("open", open); t.setAttribute("aria-expanded", String(open)); return; }
+  const keepOpen = e.target.closest(".pop");
+  const pal = e.target.closest("[data-pal]"), mode = e.target.closest("[data-mode]"), tog = e.target.closest("[data-tog]"), sc = e.target.closest("[data-scope]");
+  if (pal || mode || tog || sc) {
+    const openId = keepOpen?.id;
+    if (pal) S.palette = pal.dataset.pal; if (mode) S.mode = mode.dataset.mode; if (sc) S.scope = sc.dataset.scope;
+    if (tog) { S[tog.dataset.tog] = !S[tog.dataset.tog]; syncChecks(); }
+    render();
+    if (openId) { const p = document.getElementById(openId); p?.classList.add("open"); document.querySelector(`[data-pop="${openId}"]`)?.setAttribute("aria-expanded","true"); }
+    return;
+  }
+  if (!keepOpen) closeAll();
+});
+document.addEventListener("input", e => { if (e.target.matches("[data-q]")) { if (S.scope === "folders") S.fq = e.target.value; else S.sq = e.target.value; } });
+document.addEventListener("click", e => { const c = e.target.closest("[data-clear]"); if (c) { e.preventDefault(); e.stopPropagation(); S[c.dataset.clear] = ""; render(); } }, true);
+document.addEventListener("keydown", e => { if (e.key === "Escape") { const o = document.querySelector(".pop.open"); if (o) { closeAll(); document.querySelector(`[data-pop="${o.id}"]`)?.focus(); } } });
+
+const W = document.getElementById("w");
+const setW = () => { document.documentElement.style.setProperty("--W", W.value + "px"); document.getElementById("wv").textContent = W.value + "px"; layoutPP(); };
+W.addEventListener("input", setW);
+const map = { sUpd: "upd", sQ: "q", sTun: "tun", sOff: "off", sInst: "inst", sPend: "pend" };
+function syncChecks() { for (const [el, k] of Object.entries(map)) document.getElementById(el).checked = S[k]; }
+for (const [el, k] of Object.entries(map)) document.getElementById(el).addEventListener("change", e => { S[k] = e.target.checked; render(); });
+document.getElementById("themeSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#themeSeg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  const h = document.documentElement; h.removeAttribute("data-theme"); h.removeAttribute("data-palette");
+  if (b.dataset.t === "light") h.dataset.theme = "light"; if (b.dataset.t === "nord") h.dataset.palette = "nord";
+});
+render(); setW();
+</script>
+</body>
+</html>
