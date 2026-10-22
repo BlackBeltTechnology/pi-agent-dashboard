@@ -225,8 +225,10 @@ describe("filter funnel", () => {
 
   it("F2: Escape closes the funnel and focuses its button", async () => {
     renderList([mk()]);
-    openFilterFunnel();
-    act(() => { fireEvent.keyDown(document, { key: "Escape" }); });
+    fireEvent.click(screen.getByTestId("filter-funnel-btn"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("search-include-archive")));
+    // Keyboard Escape from inside the panel: document handler closes, panel handler returns focus.
+    act(() => { fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" }); });
     expect(screen.queryByTestId("filter-funnel-panel")).toBeNull();
     expect(document.activeElement).toBe(screen.getByTestId("filter-funnel-btn"));
   });
