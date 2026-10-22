@@ -1,5 +1,5 @@
-import { byTestId, gotoDashboard, launchFromNewTabMenu, spawnFreshGitSession } from "./helpers/index.js";
 import { expect, test } from "./fixtures.js";
+import { byTestId, gotoDashboard, launchFromNewTabMenu, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**

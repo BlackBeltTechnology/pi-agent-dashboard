@@ -88,7 +88,8 @@ Derived from README.md + openspec/specs/ (562 capabilities).
 
 - Internal Monaco editor pane per session. Folder-scoped `[Editor]` route.
 - Split chat+editor workspace.
-- Editor file search (dual mode).
+- Editor file search (dual mode). Rail Files | Search view; Cmd/Ctrl-P filenames, Cmd/Ctrl-Shift-F contents.
+- Editor pane chrome: pane bar (Files, tabs, `+` new tab, `⌄` search tabs) + document bar (breadcrumb, Open, Reveal, `⋯` copy/show-in-tree). Bulk tab close with one confirm for terminals + unsaved edits. See change: scope-anchor-editor-pane-controls.
 - Filesystem browser + directory browse API.
 - File/URL preview (ViewTarget union).
 - Diff viewer. Split + unified. Two-level file tree.

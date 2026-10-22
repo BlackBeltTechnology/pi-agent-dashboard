@@ -34,24 +34,20 @@ export function installMemoryStorage(): void {
   });
 }
 
+const PREFIX_VIEWER: Record<string, OpenFile["viewer"]> = {
+  "term:": "terminal",
+  "url:": "url",
+  "diff:": "diff",
+  "live:": "live-server",
+  "browser:": "plugin",
+};
+const EXT_VIEWER: Record<string, OpenFile["viewer"]> = { pdf: "pdf", docx: "docx" };
+
 /** A seeded tab. Viewer defaults from the path. */
 export function tab(path: string, extra: Partial<OpenFile> = {}): OpenFile {
+  const prefix = Object.keys(PREFIX_VIEWER).find((p) => path.startsWith(p));
   const ext = path.includes(".") ? path.slice(path.lastIndexOf(".") + 1) : "";
-  const viewer: OpenFile["viewer"] = path.startsWith("term:")
-    ? "terminal"
-    : path.startsWith("url:")
-      ? "url"
-      : path.startsWith("diff:")
-        ? "diff"
-        : path.startsWith("live:")
-          ? "live-server"
-          : path.startsWith("browser:")
-            ? "plugin"
-            : ext === "pdf"
-              ? "pdf"
-              : ext === "docx"
-                ? "docx"
-                : "monaco";
+  const viewer = (prefix ? PREFIX_VIEWER[prefix] : EXT_VIEWER[ext]) ?? "monaco";
   return { path, viewer, addedAt: 1, ...extra };
 }
 

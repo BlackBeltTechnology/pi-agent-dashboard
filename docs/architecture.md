@@ -3344,6 +3344,47 @@ File-open surfaces: internal Monaco pane and preview overlay only.
 
 v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to separate proposals.
 
+### Editor pane chrome
+
+Client only. No API change. Code: `packages/client/src/components/editor-pane/`. See change: scope-anchor-editor-pane-controls.
+
+Pane bar (`EditorPane.tsx`): `tree-toggle` (Files, labelled) · `EditorTabs` tablist (`min-w-0 overflow-x-auto`) · `new-tab-menu-toggle` (`+`) · spacer · `tab-search-toggle` (`⌄`) · `editor-pane-close` (✕). Tablist is the only flexible item.
+
+Document bar (`DocumentBar.tsx`, `doc-bar`):
+- file tab: `doc-breadcrumb` · mode switcher (`file-mode-*`, `FileModeSwitcher`) · Reload · `tab-open-in-app` · `tab-reveal-in-file-manager` · `doc-more-menu` (`⋯`).
+- url tab: `tab-open-in-browser`.
+- diff / live / terminal / plugin tab: title line only.
+- no tab: bar hidden.
+- Open + Reveal gated on `systemOpen`. Reveal label from `/api/health` `platform`: Finder / Explorer / file manager.
+- Breadcrumb folder segment: expand-only reveal (`expandTreeRoots {relPaths}`), `railView="files"`, `setTreeVisible(true)`. Leaf opens `⋯`: Show in file tree, Copy full/relative/file name. Outside-cwd file: no relative copy, no show-in-tree.
+- Narrow (`ResizeObserver`, `width < 640`): Open + Reveal move into `⋯` (first items, each test id once). Ancestors → `…`.
+
+`+` menu (`NewTabMenu.tsx`, session panes): Terminal (`new-terminal-launch`), Live preview (`live-preview-launch`), Open file… (`open-file-launch`).
+
+Search = rail view. Session panes only (`hasFileSearch`, true when provider has `onFilenameSearch`).
+- State: `railView: "files" | "search"`, `searchMode: "filenames" | "contents"`. Reset on `sessionId` change.
+- Rail switch: `rail-view-files` / `editor-search-toggle`. Rail visible = `treeVisible || railView === "search"`.
+- Cmd/Ctrl-P filenames, Cmd/Ctrl-Shift-F contents. Same key closes. Other key switches mode. Esc closes view only when focus inside rail.
+- Only persisted value: `treeVisible`; search never writes it. Folder panes: no Search view, no `open-file-launch`, Cmd-P not intercepted.
+
+Bulk close:
+- Reducer `closeTabs {paths}` (path-keyed, unknown ignored). Single close: `reduceCloseTab`.
+- `handlerCloseRisk(tab, remaining, lookups, {unknownIsRisky})` → `"unsaved" | null` (`file-handler/close-risk.ts`). Shared by `guardTabClose` (`unknownIsRisky: true`) and `planBulkClose`.
+- `planBulkClose(openFiles, targetPaths, lookups)` → `{ targets, risky }`. `risky` = deduped `{ kind, id | key, reason, tabPaths[] }`.
+- Unknown dirty state: silent in bulk, prompts in single close. Single terminal close: silent.
+- Risky set non-empty → `BulkCloseConfirm` (`bulk-close-confirm`): Cancel (focused) · Close all but these N · Close all & discard. Empty → closes without asking.
+- Runner closes open menus first, recomputes plan on confirm. `paneOverlayOpen` makes Cmd/Ctrl-W no-op.
+- Tab context menu `tab-context-menu`: Close · Close other tabs · Close tabs to the right · Close all tabs · Show in file tree · Copy path. Opens on right-click, ContextMenu key, Shift+F10.
+
+Search tabs (`TabSearchPopover.tsx`, input `tab-search-input`):
+- `matchTabs` (`lib/layout/match-tabs.ts`). Haystack = display label + location (never raw path prefix).
+- Token AND. Fold per code point: NFD, strip U+0300–U+036F, lower-case. Index map keeps highlight ranges. `ß` `ø` `ł` match only themselves. Order = tab-strip order; first match preselected.
+- ↑ ↓ move · Enter activate · Esc close, refocus `⌄` · Delete/Backspace on empty field closes selected (single-close path).
+- Footer: empty query → `Close all but the active tab`; query → `Close N matching tabs` (same confirm).
+- No match: Enter opens rail Search prefilled (`{ query, nonce }`) when `hasFileSearch`; else `No open tab matches`.
+
+Menus (`+`, document `⋯`, tab context): `Popover` + `role=menu` + `ActionList`. Keys in `menu-keys.ts`: ↑ ↓ wrap, Home/End, Enter/Space, Esc closes + refocuses trigger, disabled items skipped, first item focused on open.
+
 ### Split editor workspace
 
 `SplitWorkspaceProvider` lifts split state + editor-pane state per session.

@@ -16,8 +16,8 @@ import { useI18n } from "../../lib/i18n/i18n.js";
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
-import type { FileHandlerClaim } from "./file-handler/file-handler-claims.js";
 import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
+import type { FileHandlerClaim } from "./file-handler/file-handler-claims.js";
 import { MenuItem, MenuPopover } from "./MenuPopover.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
 import { basename, tabLabelText } from "./tab-labels.js";
@@ -162,7 +162,7 @@ function MoreMenu({
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(onClose, 1500);
   };
-  const tick = (key: string) => (copied === key ? <Icon path={mdiCheck} size={0.55} className="text-green-500" /> : null);
+  const tick = (key: string) => (copied === key ? <Icon path={mdiCheck} size={0.55} className="text-[var(--accent-green-text)]" /> : null);
   const rel = tab.path;
   const full = outsideCwd ? rel : absOf(cwd, rel);
   return (

@@ -3,7 +3,7 @@
  * #F11, #X1–#X3, #X5). See change: scope-anchor-editor-pane-controls (D1–D3, D9–D11).
  */
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installMemoryStorage, mount, readPane, seedPane, stubFetch, stubResizeObserver, tab, treeVisibleKey } from "./chrome-harness.js";
 
@@ -280,7 +280,7 @@ describe("document bar (D2, D3, D10, D11)", () => {
       fireEvent.click(screen.getByTestId("doc-more-menu"));
       fireEvent.click(screen.getByTestId(id));
       expect(writeText).toHaveBeenLastCalledWith(text);
-      expect(within(screen.getByTestId(id)).getByTestId ? screen.getByTestId(id).querySelector("svg") : null).toBeTruthy();
+      expect(screen.getByTestId(id).querySelector("svg"), "✓ confirmation").toBeTruthy();
       fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     }
   });

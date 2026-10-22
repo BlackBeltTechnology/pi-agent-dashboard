@@ -20,7 +20,7 @@ export interface CloseRiskLookups {
   getInstance: (key: string) => { dirty: HandlerDirtyState } | undefined;
 }
 
-export interface CloseRiskOptions {
+interface CloseRiskOptions {
   /** Treat a handler that never reported its dirty state (`"unknown"`) as risky. */
   unknownIsRisky: boolean;
 }

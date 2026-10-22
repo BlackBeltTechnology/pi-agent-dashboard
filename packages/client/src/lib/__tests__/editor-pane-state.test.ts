@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EDITOR_PANE_KEY_PREFIX,
   type EditorPaneState,
-  type OpenFile,
   EMPTY_PANE_STATE,
   editorPaneReducer,
   loadEditorPaneState,
+  type OpenFile,
   saveEditorPaneState,
   useEditorPaneState,
 } from "../layout/editor-pane-state.js";

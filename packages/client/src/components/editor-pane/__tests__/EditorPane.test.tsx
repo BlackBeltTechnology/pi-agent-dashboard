@@ -54,8 +54,8 @@ vi.mock("../MonacoBuffer.js", async () => {
   };
 });
 
-import { nextFrame, pointerDown, pointerMove, pointerUp } from "../../../test-support/pointer.js";
 import { TREE_VISIBLE_KEY_PREFIX } from "../../../lib/util/tree-visible.js";
+import { nextFrame, pointerDown, pointerMove, pointerUp } from "../../../test-support/pointer.js";
 import { SplitWorkspaceProvider, useSplitWorkspace } from "../../split/SplitWorkspaceContext.js";
 import { EditorPane } from "../EditorPane.js";
 

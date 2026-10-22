@@ -10,11 +10,11 @@
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { fileIcon } from "../../lib/preview/file-icon.js";
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { type HighlightRange, matchTabs } from "../../lib/layout/match-tabs.js";
+import { fileIcon } from "../../lib/preview/file-icon.js";
 import { type TabTextDeps, tabHaystack } from "./tab-labels.js";
 
 export interface TabSearchPopoverProps {
@@ -81,29 +81,29 @@ export function TabSearchPopover(p: TabSearchPopoverProps) {
     p.onActivate(path);
   };
 
+  const move = (delta: 1 | -1) => {
+    if (rows.length === 0) return;
+    if (delta === 1) setSelected(sel < 0 ? 0 : (sel + 1) % rows.length);
+    else setSelected(sel <= 0 ? rows.length - 1 : sel - 1);
+  };
+  const onEnter = () => {
+    if (sel >= 0) activate(rows[sel].tab.file.path);
+    else if (!queryEmpty && p.hasFileSearch) {
+      p.onClose();
+      p.onFallThrough(query.trim());
+    }
+  };
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     e.stopPropagation();
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (rows.length) setSelected(sel < 0 ? 0 : (sel + 1) % rows.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (rows.length) setSelected(sel <= 0 ? rows.length - 1 : sel - 1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (sel >= 0) activate(rows[sel].tab.file.path);
-      else if (!queryEmpty && p.hasFileSearch) {
-        p.onClose();
-        p.onFallThrough(query.trim());
-      }
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-    } else if ((e.key === "Delete" || e.key === "Backspace") && query === "" && sel >= 0) {
-      // Same keys as the tab strip; only with an empty field, else it edits the text.
-      e.preventDefault();
-      p.onCloseTab(rows[sel].tab.file.path);
-    }
+    // Delete/Backspace closes the selected tab only with an empty field, else it edits the text.
+    const closesSelected = (e.key === "Delete" || e.key === "Backspace") && query === "" && sel >= 0;
+    if (!["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(e.key) && !closesSelected) return;
+    e.preventDefault();
+    if (e.key === "ArrowDown") move(1);
+    else if (e.key === "ArrowUp") move(-1);
+    else if (e.key === "Enter") onEnter();
+    else if (e.key === "Escape") close();
+    else p.onCloseTab(rows[sel].tab.file.path);
   };
 
   const activePath = p.openFiles[p.activeIndex]?.path;

@@ -22,7 +22,7 @@ export interface TabHaystack {
   location: string;
 }
 
-export interface TabMatch<T extends TabHaystack> {
+interface TabMatch<T extends TabHaystack> {
   tab: T;
   labelRanges: HighlightRange[];
   locationRanges: HighlightRange[];
@@ -76,7 +76,7 @@ function mergeRanges(ranges: HighlightRange[]): HighlightRange[] {
 }
 
 /** Fold + split a query into tokens; `[]` for an empty / whitespace-only query. */
-export function queryTokens(query: string): string[] {
+function queryTokens(query: string): string[] {
   const trimmed = query.trim();
   if (!trimmed) return [];
   return fold(trimmed).text.split(/\s+/).filter(Boolean);

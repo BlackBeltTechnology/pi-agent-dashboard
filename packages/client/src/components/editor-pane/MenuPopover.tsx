@@ -17,7 +17,7 @@ export interface MenuPopoverProps {
   children: ReactNode;
 }
 
-export const MENU_ITEM_CLASS =
+const MENU_ITEM_CLASS =
   "flex min-h-7 w-full items-center gap-2 whitespace-nowrap px-3 py-1 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus:bg-[var(--bg-hover)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 export function MenuPopover({ anchorEl, label, testId, onClose, children }: MenuPopoverProps) {

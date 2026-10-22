@@ -29,11 +29,11 @@ import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { SplitDivider } from "../split/SplitDivider.js";
 import { useSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { TerminalLimitNotice } from "../terminal/TerminalLimitNotice.js";
+import { BulkCloseConfirm } from "./BulkCloseConfirm.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
-import { EditorFileTree } from "./EditorFileTree.js";
-import { BulkCloseConfirm } from "./BulkCloseConfirm.js";
 import { DocumentBar } from "./DocumentBar.js";
+import { EditorFileTree } from "./EditorFileTree.js";
 import { EditorSearchPanel, type Mode as SearchMode } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
 import { type BulkClosePlan, type BulkRiskEntry, planBulkClose } from "./file-handler/close-risk.js";
@@ -55,9 +55,9 @@ import {
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
 import { CappedViewer } from "./CappedViewer.js";
+import { NewTabMenu } from "./NewTabMenu.js";
 import { PluginTabHost, pluginTabPrefix } from "./PluginTabHost.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
-import { NewTabMenu } from "./NewTabMenu.js";
 import { TabContextMenu } from "./TabContextMenu.js";
 import { TabSearchPopover } from "./TabSearchPopover.js";
 import { basename } from "./tab-labels.js";
@@ -82,6 +82,13 @@ function useNarrow(ref: React.RefObject<HTMLElement | null>): boolean {
     return () => ro.disconnect();
   }, [ref]);
   return narrow;
+}
+
+/** Search mode a keydown requests: Cmd/Ctrl-P → filenames, Cmd/Ctrl-Shift-F → contents. */
+function searchModeForKey(e: KeyboardEvent): SearchMode | null {
+  if (!(e.metaKey || e.ctrlKey)) return null;
+  if (e.shiftKey && (e.key === "f" || e.key === "F")) return "content";
+  return e.key === "p" || e.key === "P" ? "file" : null;
 }
 
 const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : `h:${e.key}`);
@@ -205,10 +212,7 @@ export function EditorPane() {
   useEffect(() => {
     if (!hasFileSearch) return;
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      const mode: SearchMode | null =
-        e.shiftKey && (e.key === "f" || e.key === "F") ? "content" : e.key === "p" || e.key === "P" ? "file" : null;
+      const mode = searchModeForKey(e);
       if (!mode) return;
       e.preventDefault();
       if (railView === "search" && searchMode === mode) closeSearch();
@@ -713,7 +717,7 @@ export function EditorPane() {
               When a file tab is active the terminals are display:none; when a
               term tab is active `body` is the null placeholder and the layer's
               active terminal fills. See change: terminals-in-tabbed-panes. */}
-          <div ref={bodyRef} tabIndex={-1} className="min-h-0 flex-1 flex flex-col focus:outline-none">
+          <div ref={bodyRef} tabIndex={-1} data-testid="editor-pane-body" className="min-h-0 flex-1 flex flex-col focus:outline-none">
             {body}
             {/* D3: mount the lazy layer only once a terminal tab has been the
                 active tab. The `Suspense` fallback fills the same pane-body

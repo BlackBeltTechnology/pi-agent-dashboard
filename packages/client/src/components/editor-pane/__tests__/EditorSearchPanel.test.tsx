@@ -1,6 +1,6 @@
+import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GrepMatch } from "../../../lib/api/grep-api.js";
 import { EditorSearchPanel, type Mode } from "../EditorSearchPanel.js";

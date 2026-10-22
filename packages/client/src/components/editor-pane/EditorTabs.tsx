@@ -14,10 +14,10 @@
 import { mdiClose, mdiConsoleLine, mdiPuzzleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
-import { fileIcon } from "../../lib/preview/file-icon.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { fileIcon } from "../../lib/preview/file-icon.js";
 import { basename, prefixOf } from "./tab-labels.js";
 
 interface EditorTabsProps {
@@ -92,6 +92,25 @@ function UnreadDot({ file }: { file: OpenFile }) {
   );
 }
 
+/** Tab index a navigation key moves to; `null` for any other key. */
+function tabNavTarget(key: string, i: number, last: number): number | null {
+  switch (key) {
+    case "ArrowRight":
+      return Math.min(i + 1, last);
+    case "ArrowLeft":
+      return Math.max(i - 1, 0);
+    case "Home":
+      return 0;
+    case "End":
+      return last;
+    case "Enter":
+    case " ":
+      return i;
+    default:
+      return null;
+  }
+}
+
 export function EditorTabs({
   openFiles,
   activeIndex,
@@ -110,22 +129,18 @@ export function EditorTabs({
 
   // Roving-tabindex keyboard navigation across the tab strip.
   const onTabKeyDown = (e: React.KeyboardEvent, i: number) => {
-    let next: number | null = null;
     if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
       e.preventDefault();
       onContextMenuTab?.(i, e.currentTarget as HTMLElement);
       return;
     }
-    if (e.key === "ArrowRight") next = Math.min(i + 1, openFiles.length - 1);
-    else if (e.key === "ArrowLeft") next = Math.max(i - 1, 0);
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = openFiles.length - 1;
-    else if (e.key === "Enter" || e.key === " ") next = i;
-    else if (e.key === "Delete" || e.key === "Backspace") {
+    if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
       onClose(i);
       return;
-    } else return;
+    }
+    const next = tabNavTarget(e.key, i, openFiles.length - 1);
+    if (next === null) return;
     e.preventDefault();
     onActivate(next);
     tabRefs.current[next]?.focus();
