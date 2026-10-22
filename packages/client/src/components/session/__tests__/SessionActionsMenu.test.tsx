@@ -466,6 +466,14 @@ describe("edge trigger pill", () => {
     expect(wrapperCls).not.toContain("relative");
   });
 
+  it("stays opaque on hover: tints over bg-primary instead of swapping to translucent --bg-hover", () => {
+    direct(false, "trigger");
+    const cls = trigger().className.split(/\s+/);
+    expect(cls).toContain("bg-[var(--bg-primary)]");
+    expect(cls).not.toContain("hover:bg-[var(--bg-hover)]");
+    expect(cls).toContain("hover:[background-image:linear-gradient(var(--bg-hover),var(--bg-hover))]");
+  });
+
   it("F1: a click on a hover-opened menu pins it (re-opens as a trigger open), never closes it", () => {
     const onOpenChange = direct(true, "hover");
     fireEvent.click(trigger());
