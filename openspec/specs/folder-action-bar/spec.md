@@ -3,11 +3,13 @@
 ## Purpose
 
 Define the folder-group action bar and elevated spawn buttons rendered in the sidebar.
+
 ## Requirements
+
 ### Requirement: +Worktree button opens worktree dialog
 The `+ New Worktree` action SHALL be presented as a full-width line button in the elevated spawn-button stack (see "Elevated folder spawn buttons"), not as a pill in the action bar. Clicking it SHALL open `WorktreeSpawnDialog` scoped to the folder's cwd. The button SHALL be hidden (not disabled) unless the folder is detected as a git repository AND the global preference `gitWorktreeEnabled` is `true` AND a spawn handler is wired.
 
-The flag is a UI preference only. The underlying `POST /api/git/worktree` endpoint is unaffected; access control remains the server-side network guard.
+The flag is a UI preference only. The underlying `POST /api/git/worktree` endpoint is unaffected by the flag; access control is the server-side network guard plus cwd admission (see `core-cwd-admission`).
 
 #### Scenario: Click +Worktree with flag enabled
 - **WHEN** `gitWorktreeEnabled` is `true` AND the folder is a git repo AND the user clicks `+ New Worktree`
@@ -57,4 +59,3 @@ When a folder is collapsed and the user clicks `+ New Session` or `+ New Worktre
 - **WHEN** a folder is already expanded AND the user clicks `+ New Session`
 - **THEN** the folder SHALL remain expanded
 - **THEN** a new pi session SHALL be spawned in the folder's cwd
-
