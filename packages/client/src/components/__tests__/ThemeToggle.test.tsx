@@ -39,7 +39,7 @@ describe("ThemeToggle", () => {
   it("defaults to system selected", () => {
     renderToggle();
     const systemBtn = screen.getByTestId("theme-system");
-    expect(systemBtn.className).toContain("accent-blue");
+    expect(systemBtn.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("switches to light on click", () => {

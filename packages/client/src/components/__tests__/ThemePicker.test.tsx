@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mdiCheck } from "@mdi/js";
 import { THEMES } from "../../lib/theme/themes.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
@@ -72,9 +73,9 @@ describe("ThemePicker", () => {
   it("shows active indicator on selected theme", () => {
     const { getByTestId } = renderPicker();
     fireEvent.click(getByTestId("theme-picker-trigger"));
-    // Base is default — check it has the active class
+    // Base is default — active row is marked by aria-pressed (selected-chip recipe)
     const baseOption = getByTestId("theme-option-base");
-    expect(baseOption.className).toContain("text-[var(--accent-blue)]");
+    expect(baseOption.getAttribute("aria-pressed")).toBe("true");
   });
 
   // ---- declutter-sidebar-header (test-plan #E16 #F2 #F3, D1) ----
@@ -90,7 +91,7 @@ describe("ThemePicker", () => {
     unmount();
     const again = renderPicker();
     fireEvent.click(again.getByTestId("theme-picker-trigger"));
-    expect(again.getByTestId("theme-option-nord").className).toContain("text-[var(--accent-blue)]");
+    expect(again.getByTestId("theme-option-nord").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("the mode control lives inside the dropdown only", () => {
@@ -145,4 +146,52 @@ describe("ThemePicker", () => {
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     expect(document.activeElement).toBe(getByTestId("theme-system"));
   });
+
+  // ---- polish-sidebar-header-controls (test-plan #E13 #E14) ----
+  it("E13: labelled Mode / Palette sections, two-column grid, one pressed palette, no check glyph", () => {
+    localStorage.setItem("dashboard:theme", "dark");
+    const { getByTestId, getByText, container } = renderPicker();
+    fireEvent.click(getByTestId("theme-picker-trigger"));
+    expect(getByText("Mode")).toBeTruthy();
+    expect(getByText("Palette")).toBeTruthy();
+    expect(getByTestId("theme-light").textContent).toContain("Light");
+    expect(getByTestId("theme-system").textContent).toContain("System");
+    expect(getByTestId("theme-dark").textContent).toContain("Dark");
+    const options = [...container.querySelectorAll<HTMLElement>('button[data-testid^="theme-option-"]')];
+    expect(options).toHaveLength(THEMES.length);
+    expect(THEMES).toHaveLength(9);
+    const pressed = options.filter((o) => o.getAttribute("aria-pressed") === "true");
+    expect(pressed.map((o) => o.getAttribute("data-testid"))).toEqual(["theme-option-base"]);
+    const grid = getByTestId("theme-palette-grid");
+    expect(grid.className).toContain("grid-cols-2");
+    expect(mdiCheckAbsent(grid)).toBe(true);
+  });
+
+  it("E14: swatch halves follow the resolved mode", () => {
+    const nord = THEMES.find((t) => t.id === "nord");
+    if (!nord) throw new Error("nord theme missing");
+    const { getByTestId } = renderPicker();
+    fireEvent.click(getByTestId("theme-picker-trigger"));
+    fireEvent.click(getByTestId("theme-light"));
+    const halves = () => {
+      const opt = getByTestId("theme-option-nord");
+      return [
+        (opt.querySelector('[data-testid="theme-swatch-bg"]') as HTMLElement).style.backgroundColor,
+        (opt.querySelector('[data-testid="theme-swatch-accent"]') as HTMLElement).style.backgroundColor,
+      ];
+    };
+    const norm = (c: string) => {
+      const el = document.createElement("span");
+      el.style.backgroundColor = c;
+      return el.style.backgroundColor;
+    };
+    expect(halves()).toEqual([norm(nord.light["--bg-primary"]), norm(nord.light["--accent-blue"])]);
+    fireEvent.click(getByTestId("theme-dark"));
+    expect(halves()).toEqual([norm(nord.dark["--bg-primary"]), norm(nord.dark["--accent-blue"])]);
+  });
 });
+
+/** True when no MDI check glyph path is rendered inside `root`. */
+function mdiCheckAbsent(root: HTMLElement): boolean {
+  return ![...root.querySelectorAll("path")].some((p) => p.getAttribute("d") === mdiCheck);
+}

@@ -1,6 +1,7 @@
-import { mdiCheck, mdiPalette } from "@mdi/js";
+import { mdiBrightness6 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { THEMES } from "../../lib/theme/themes.js";
@@ -17,7 +18,7 @@ export function ThemePicker() {
   const { flipUp, maxHeight, minHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
     open,
     preferredAnchor: "left",
-    estimatedWidth: 200,
+    estimatedWidth: 300,
   });
 
   const closeToTrigger = () => {
@@ -67,12 +68,12 @@ export function ThemePicker() {
         onKeyUp={(e) => { if (e.key === " ") e.preventDefault(); }}
         aria-haspopup="true"
         aria-expanded={open}
-        className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+        className={HEADER_ICON_BTN}
         title={i18nT("common.appearance", undefined, "Appearance")}
         aria-label={i18nT("common.appearance", undefined, "Appearance")}
         data-testid="theme-picker-trigger"
       >
-        <Icon path={mdiPalette} size={0.5} />
+        <Icon path={mdiBrightness6} size={HEADER_ICON_SIZE} />
       </button>
 
       {/* Structurally immune — re-audited for fix-popover-pane-bounded-height
@@ -90,51 +91,44 @@ export function ThemePicker() {
               closeToTrigger();
             }
           }}
-          className={`absolute ${anchorRight ? "right-0" : "left-0"} overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-20 min-w-[160px] py-1 ${
+          className={`@container absolute ${anchorRight ? "right-0" : "left-0"} z-20 flex w-[300px] flex-col rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-1.5 shadow-lg ${
             flipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
           data-testid="theme-picker-dropdown"
         >
-          <div className="px-3 pb-1 pt-1">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-              {i18nT("common.appearanceMode", undefined, "Mode")}
-            </div>
-            <ThemeToggle />
+          <div className="px-1 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+            {i18nT("common.appearanceMode", undefined, "Mode")}
           </div>
-          <div className="my-1 border-t border-[var(--border-secondary)]" role="presentation" />
-          {THEMES.map((theme) => {
-            const isActive = theme.id === themeName;
-            const colors = resolved === "light" ? theme.light : theme.dark;
-            return (
-              <button
-                key={theme.id}
-                onClick={() => {
-                  setThemeName(theme.id);
-                  closeToTrigger();
-                }}
-                className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-[var(--bg-hover)] ${
-                  isActive ? "text-[var(--accent-blue)]" : "text-[var(--text-secondary)]"
-                }`}
-                data-testid={`theme-option-${theme.id}`}
-              >
-                {/* Color swatches */}
-                <span className="flex gap-0.5">
-                  <span
-                    className="w-3 h-3 rounded-full border border-[var(--border-subtle)]"
-                    style={{ backgroundColor: colors["--bg-primary"] }}
-                  />
-                  <span
-                    className="w-3 h-3 rounded-full border border-[var(--border-subtle)]"
-                    style={{ backgroundColor: colors["--accent-blue"] }}
-                  />
-                </span>
-                <span className="flex-1">{theme.name}</span>
-                {isActive && (
-                  <Icon path={mdiCheck} size={0.5} />
-                )}
-              </button>
-            );
-          })}
+          <ThemeToggle />
+          <div className="px-1 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+            {i18nT("common.appearancePalette", undefined, "Palette")}
+          </div>
+          <div className="grid min-h-0 grid-cols-2 gap-0.5 overflow-y-auto @max-[239.98px]:grid-cols-1" data-testid="theme-palette-grid">
+            {THEMES.map((theme) => {
+              const isActive = theme.id === themeName;
+              const colors = resolved === "light" ? theme.light : theme.dark;
+              return (
+                <button
+                  key={theme.id}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setThemeName(theme.id);
+                    closeToTrigger();
+                  }}
+                  className="focus-ring flex min-h-9 min-w-0 items-center gap-2 rounded-md border border-transparent px-2 text-left text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] aria-pressed:border-[var(--accent)] aria-pressed:bg-[var(--accent-soft)] aria-pressed:font-semibold max-sm:min-h-11"
+                  data-testid={`theme-option-${theme.id}`}
+                >
+                  {/* Split swatch: palette background | accent, outlined so a panel-coloured half stays visible. */}
+                  <span className="flex h-3.5 w-[18px] shrink-0 overflow-hidden rounded-sm ring-1 ring-inset ring-[var(--border-secondary)]" aria-hidden="true">
+                    <span className="h-full w-1/2" data-testid="theme-swatch-bg" style={{ backgroundColor: colors["--bg-primary"] }} />
+                    <span className="h-full w-1/2" data-testid="theme-swatch-accent" style={{ backgroundColor: colors["--accent-blue"] }} />
+                  </span>
+                  <span className="min-w-0 truncate" data-testid="theme-name-label">{theme.name}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

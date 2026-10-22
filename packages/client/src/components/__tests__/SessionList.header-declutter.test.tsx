@@ -87,6 +87,20 @@ describe("row 1", () => {
   });
 });
 
+describe("header icon buttons (polish-sidebar-header-controls)", () => {
+  it("E1: five header icon buttons share the 28 px recipe, an 18 px glyph and no palette colour class", () => {
+    renderList([mk()]);
+    for (const id of ["discord-btn", "theme-picker-trigger", "focus-toggle-btn", "settings-btn", "filter-funnel-btn"]) {
+      const btn = screen.getByTestId(id);
+      expect(btn.className, id).toContain("size-7");
+      expect(btn.className, id).toContain("rounded-md");
+      expect(btn.className, id).not.toMatch(/\b(text|bg)-(blue|red|green|gray)-\d/);
+      const svg = btn.querySelector("svg") as SVGElement;
+      expect(svg.style.width, id).toBe("1.125rem");
+    }
+  });
+});
+
 describe("scoped search", () => {
   const setup = (extra: Record<string, unknown> = {}) => {
     const a1 = mk({ cwd: "/w/dashboard", name: "Refactor auth" });
