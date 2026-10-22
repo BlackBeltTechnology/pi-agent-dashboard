@@ -88,6 +88,8 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 /** fetch with an AbortController timeout. */
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  // The shell is an https PWA (CSP `connect-src https:`): refuse any other scheme before a request.
+  if (!/^https:\/\//.test(url)) throw new Error("refusing a non-https url");
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
   try {

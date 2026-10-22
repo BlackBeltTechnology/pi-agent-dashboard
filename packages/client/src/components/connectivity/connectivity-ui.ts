@@ -39,6 +39,22 @@ export function identityPill(isLocal: boolean, inItem = false): string {
   return `${PILL_BASE} ${pillSize(inItem)} ${isLocal ? IDENTITY_PILL.local : IDENTITY_PILL.remote}`;
 }
 
+export type RouteChipTone = "ok" | "bad" | "off";
+
+const ROUTE_CHIP_BASE =
+  "inline-flex items-center gap-1 rounded border px-1.5 py-px text-xs font-semibold whitespace-nowrap bg-[var(--bg-tertiary)]";
+
+const ROUTE_CHIP_TONE: Record<RouteChipTone, string> = {
+  ok: "border-[var(--border-secondary)] text-[var(--text-primary)]",
+  off: "border-dashed border-[var(--border-secondary)] text-[var(--text-secondary)]",
+  bad: "border-[var(--severity-error-border)] !bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)]",
+};
+
+/** Route chip (kind + proof outcome as text): `used` marks the best route with a success border, never colour alone. */
+export function routeChip(tone: RouteChipTone, used = false): string {
+  return `${ROUTE_CHIP_BASE} ${ROUTE_CHIP_TONE[tone]}${used && tone === "ok" ? " !border-[var(--severity-success-border)]" : ""}`;
+}
+
 const CALLOUT_BASE = "flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs";
 
 const SEVERITY_CALLOUT: Record<Exclude<Severity, "success" | "neutral">, string> = {

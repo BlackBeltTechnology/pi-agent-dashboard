@@ -143,3 +143,25 @@ describe("knockServer (E32)", () => {
     expect(await knockServer(BASE, F, "Laptop", { ...hooks, sleep, signal: ac.signal })).toEqual({ status: "cancelled" });
   });
 });
+
+// See change: group-servers-by-identity (test-plan #X5).
+describe("X5 an advert is a hint: knocking a route that proves another identity sends nothing", () => {
+  it("advert claims F, the challenge proves G → no request of any kind (no knock, no poll, no Authorization)", async () => {
+    challengeIdentity.mockResolvedValue({ fingerprint: G, publicKey: "pk", verified: true });
+    const f = routeFetch({ request: () => knockOk() });
+    const out = await knockServer(BASE, F, "Laptop", { onWaiting: vi.fn(), now: () => 0, sleep: vi.fn(async () => {}) });
+    expect(out).toMatchObject({ status: "identity_mismatch", expected: F, proven: G });
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+// See change: group-servers-by-identity (task 4.3): delivered routes ride the approved outcome only.
+describe("approved knock outcome carries validated delivered routes", () => {
+  it("keeps valid https origins, drops the rest; absent when none survive", async () => {
+    challengeIdentity.mockResolvedValue({ fingerprint: F, publicKey: "pk", verified: true });
+    const polls = [{ status: "approved", token: "B", routes: ["https://k3x9p2.share.zrok.io/", "http://evil.example", "https://10.0.0.5"] }];
+    routeFetch({ request: () => knockOk(F), polls: polls as never });
+    const out = await knockServer(BASE, F, "Laptop", hooks);
+    expect(out).toEqual({ status: "approved", token: "B", fingerprint: F, routes: ["https://k3x9p2.share.zrok.io"] });
+  });
+});

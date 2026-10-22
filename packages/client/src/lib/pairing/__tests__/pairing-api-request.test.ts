@@ -3,7 +3,9 @@
  * See change: add-lan-knock-pairing (test-plan #F6, #X3).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolvePairWithCode } from "../pair-with-code.js";
 import { requestAccess } from "../pairing-api.js";
+import { encodePayloadString } from "../pairing-qr.js";
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -50,5 +52,53 @@ describe("requestAccess", () => {
   it("a transport failure rejects (the caller shows a retryable error)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("network down"); }));
     await expect(requestAccess()).rejects.toThrow("network down");
+  });
+});
+
+/**
+ * Browser "Pair with code…" — the local half (`resolvePairWithCode`): refuse text for another server,
+ * choose the first valid https origin of the payload, send nothing.
+ * See change: group-servers-by-identity (test-plan #F8, G6).
+ */
+describe("resolvePairWithCode (#F8)", () => {
+  const F = `sha256:${"F".repeat(43)}`;
+  const G = `sha256:${"G".repeat(43)}`;
+  const textFor = (id: string, urls: string[]) => encodePayloadString({ v: 1, id, code: "one-time", urls });
+
+  it("refuses text whose fingerprint is not the card's, opens nothing, fetches nothing", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    expect(resolvePairWithCode(textFor(G, ["https://b0x7.share.zrok.io"]), F)).toEqual({ ok: false, reason: "wrong-server" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("opens `<origin>/pair#<payload>` at the payload's own https origin (copy-string and deep link both accepted)", () => {
+    const text = textFor(F, ["wss://b0x7.share.zrok.io", "https://b0x7.share.zrok.io"]);
+    const r = resolvePairWithCode(text, F);
+    expect(r).toEqual({ ok: true, origin: "https://b0x7.share.zrok.io", url: `https://b0x7.share.zrok.io/pair#${text}` });
+    expect(resolvePairWithCode(`https://elsewhere.example/pair#${text}`, F)).toEqual(r); // the link's host is never trusted
+  });
+
+  it.each([
+    ["only wss urls", ["wss://b0x7.share.zrok.io"]],
+    ["userinfo", ["https://user:pw@b0x7.share.zrok.io"]],
+    ["a path", ["https://b0x7.share.zrok.io/pair"]],
+    ["an IP literal", ["https://10.0.0.5"]],
+    ["localhost / .local", ["https://localhost", "https://studio.local"]],
+    ["no urls", []],
+  ])("refuses a payload with no valid https origin (%s)", (_n, urls) => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    expect(resolvePairWithCode(textFor(F, urls), F)).toEqual({ ok: false, reason: "no-https-origin" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips an invalid first https url and opens the second valid origin", () => {
+    const r = resolvePairWithCode(textFor(F, ["https://10.0.0.5", "https://b0x7.share.zrok.io"]), F);
+    expect(r.ok && r.origin).toBe("https://b0x7.share.zrok.io");
+  });
+
+  it.each(["", "not a payload", "pi:pair:v1.@@@", '{"id":1}'])("refuses text that is not a pairing payload (%j)", (text) => {
+    expect(resolvePairWithCode(text, F)).toEqual({ ok: false, reason: "malformed" });
   });
 });

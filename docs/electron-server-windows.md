@@ -6,7 +6,7 @@ Local dashboard keeps running. Remote mode (`remote-connect-window.ts` → `ensu
 
 Why: remote's own client runs against remote's own server. Same-origin device cookie covers `/api/*`. No cross-origin bearer, no version skew between local client and remote server.
 
-OpenSpec change `add-electron-server-windows` (moves to `openspec/changes/archive/` on ship).
+OpenSpec change `add-electron-server-windows` (moves to `openspec/changes/archive/` on ship). Routes, delegation, list/pair bridges, in-app code redeem: change `group-servers-by-identity`.
 
 ## Flow
 
@@ -39,15 +39,17 @@ Paired server, open path: no knock. Host select → cookie exchange → load.
 | `server-discovery.ts` | `createBrowser()` at `app.whenReady`, stop at quit. Drops `isLocal`. `localFp` exclusion. `describeDiscovered`. |
 | `server-keyring.ts` | `ServerKeyring` file store. `safeStorage` bearer. Atomic write. Corrupt set-aside. |
 | `pairing-client.ts` | `startPairing`: prove → confirm → knock → poll. Phases → connecting window. |
+| `pairing-code-client.ts` | In-app "Pair with code": decode → pin check → prove `https` URL → `POST /api/pair/redeem` → poll → keyring. Text/code never sent to dashboard page. |
+| `delivered-routes.ts` | Records delivered `routes` after validate + proof of pin. Keyring keeps ≤ `MAX_DELIVERED_STORED` (3). |
 | `server-windows.ts` | Registry fp → window. Open/focus/forget. Host select, cookie exchange, re-verify, recheck. Pure helpers: `classifyExchange`, `composeTitle`, `decideServerWindowNavigation`. |
 | `server-windows-main.ts` | Wiring: deps, `server-windows-state.json` bounds, local-fp prove, CDP warning. |
 | `servers-ipc.ts` | `servers:*` handlers. `isServerWindowsSender`. `validHostPort`. |
 | `servers-menu.ts` | Servers submenu builder (app menu + tray). Rebuild on keyring change. |
 | `connecting-window.ts` | `renderer/connecting.html` + `preload/connecting-preload.ts`. Only window that sees confirm code. |
 
-Shared: `packages/shared/src/pairing-knock-client.ts` (knock state machine), `server-pinning.ts` (`proveServerIdentity`, `challengePinnedServer`), `mdns-discovery.ts`.
+Shared: `packages/shared/src/pairing-knock-client.ts` (knock state machine), `server-pinning.ts` (`proveServerIdentity`, `challengePinnedServer`), `server-routes.ts` (`classifyRoute`, `rankRoutes`, `pairAction`, `validateDeliveredRoutes`), `mdns-discovery.ts`.
 
-Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.openServerWindow({host,port})`.
+Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.openServerWindow({host,port})`, `listServers()`, `pairWithCode({fingerprint})`. All three: local-origin gate (see IPC).
 
 ## Identity
 
@@ -56,7 +58,8 @@ Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.ope
 - Prove failure (non-200, timeout, no `/api/pair/challenge`) ⇒ `unverifiable`. Distinct message. No knock.
 - Mismatch: no credential sent, no load, pin unchanged. Log names expected + proven short fp + host.
 - Short fp: `sha256:` + first 16 chars of base64url part. Single helper `shortFingerprint`.
-- Identity challenge runs against every candidate host, concurrent, deadline 5 s (`HOST_SELECTION_DEADLINE_MS`).
+- Identity challenge runs against every candidate route at its own scheme, concurrent, deadline 5 s (`HOST_SELECTION_DEADLINE_MS`). Route proving another fp is dropped, logged.
+- Credentialed host select (`rankRoutes`, `credentialed: true`): stored https → stored http → discovered https → discovered. First proven wins; latency ignored.
 
 ## Keyring
 
@@ -70,7 +73,7 @@ Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.ope
 - Bearer: `safeStorage` only. Never plaintext on disk.
 - File mode `0600`. Broader mode tightened on POSIX load. Windows: user-profile ACL.
 - Write: temp `wx` mode `0600` → `fsync` → `rename`.
-- `lastHosts`: MRU, cap 5 (`LAST_HOSTS_CAP`). Each host records `scheme`.
+- `lastHosts`: MRU, cap 5 (`LAST_HOSTS_CAP`). Each host records `scheme`; optional `source` (`saved|mdns|pairing`, absent = unknown). Delivered (`pairing`) https hosts: ≤ 3 (`MAX_DELIVERED_STORED`), stored only after proof of pin.
 - Discovered (`http`) host added only after identity proof. Never precedes an `https` host.
 - Unknown `version` or unparseable ⇒ rename to `server-keyring.corrupt-<ts>.json`. Start empty. Log.
 - Undecryptable bearer ⇒ discard blob, `needsPairing: true`. Pin, label, hosts kept.
@@ -116,12 +119,13 @@ Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.ope
 ## IPC
 
 - Family `servers:*`. Separate from `dashboard:*` loading-page channels.
-- Channels: `servers:list`, `servers:changed` (push, trusted only), `servers:connect`, `servers:connect-manual`, `servers:send-request`, `servers:stop-waiting`, `servers:connecting-ready`, `servers:connecting-close`, `servers:open`, `servers:open-from-dashboard`, `servers:forget`, `servers:pair-again`.
+- Channels: `servers:list`, `servers:changed` (push, trusted only), `servers:pair-with-code` (main window only), `servers:submit-code` (connecting window; pasted text), `servers:connect`, `servers:connect-manual`, `servers:send-request`, `servers:stop-waiting`, `servers:connecting-ready`, `servers:connecting-close`, `servers:open`, `servers:open-from-dashboard`, `servers:forget`, `servers:pair-again`.
 - Sender check `isServerWindowsSender`: `senderFrame === mainFrame` AND sender is held trusted `BrowserWindow` AND frame URL is expected document.
   - remote-connect: bundled `file://` page.
   - connecting: bundled `file://` page.
   - main: top frame on local dashboard origin only.
-- Main-window bridge: `openServerWindow` exposed only when `location.origin === --pi-local-origin=<origin>` (passed via `additionalArguments`). Remote-mode doc never sees it.
+- `servers:list` payload renderer-safe only (no bearer, partition, path).
+- Main-window bridge: `openServerWindow`, `listServers`, `pairWithCode` exposed only when `location.origin === --pi-local-origin=<origin>` (passed via `additionalArguments`). Remote-mode doc never sees it.
 - Targets by fp, or host+port matching discovered or keyring host. Manual URL only from remote-connect. Loopback hosts refused for manual.
 - Validation: host ≤ 253 chars, port 1–65535, fp `^sha256:[A-Za-z0-9_-]{43}$`. Renderer never supplies credential, partition, or path.
 
@@ -152,6 +156,7 @@ Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.ope
   - `~/.pi-dashboard/server-windows-state.json`
   - `Partitions/server-*` under Electron `userData`
 - `pi-dashboard-last-server` never deleted (D13). Revert restores prior load behaviour.
+- `group-servers-by-identity` alone: no migration. Keyring `lastHosts[].source` optional; previous build reads `host`/`port`/`scheme` (`isHostRef` matches by shape).
 - Local window ignores saved remote last-server when `window.piDashboard.openServerWindow` present (`App.tsx` `getInitialWsUrl`).
 
 ## Testing
@@ -163,6 +168,7 @@ Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.ope
   - `pairing-client.test.ts`
   - `servers-ipc.test.ts`
   - `servers-menu.test.ts`
+  - `pairing-code-client.test.ts` (in-app code redeem)
 - Electron E2E: `tests/e2e-electron/server-windows.electron.spec.ts`
   - `PW_ELECTRON_DEV=1 PW_ELECTRON_PORT=<free> npx playwright test --config playwright.electron.config.ts server-windows`
 - L3 browser E2E: `tests/e2e/known-server-stale-name.spec.ts` (F4/F5).

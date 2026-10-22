@@ -42,12 +42,42 @@ describe("ensureKnown (E14, X9)", () => {
     expect((spy.mock.calls[0][1] as RequestInit).method).toBe("POST");
   });
 
-  it("E14: 409 already_known uses the existing entry's address, created=false", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonRes({ success: false, error: "already_known", host: "other.local", port: 8000 }, 409));
-    expect(await ensureKnown({ host: "10.0.0.9", port: 8000 }, known)).toEqual({
-      kind: "known-elsewhere",
-      address: { host: "other.local", port: 8000 },
+  it("E14: an add that attaches a route to an existing identity (data.updated) is success on the TYPED address, created=false", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonRes({ success: true, data: { updated: true } }, 200));
+    const out = await ensureKnown({ host: "office-mac", port: 8000 }, known);
+    expect(out).toEqual({ kind: "known", address: { host: "office-mac", port: 8000 } });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("E14: an address matching a SECONDARY route of a known entry is used and not re-posted", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    const withRoutes = [
+      {
+        host: "192.168.16.204",
+        port: 8000,
+        routes: [
+          { host: "192.168.16.204", port: 8000, scheme: "http", source: "saved" },
+          { host: "home-imac.local", port: 8000, scheme: "http", source: "mdns" },
+        ],
+      },
+    ] as KnownServerListEntry[];
+    expect(await ensureKnown({ host: "Home-iMac.local", port: 8000 }, withRoutes)).toEqual({
+      kind: "known",
+      address: { host: "Home-iMac.local", port: 8000 },
     });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("X18: 409 already_known no longer has a special meaning (no known-elsewhere outcome, the server never sends it)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonRes({ success: false, error: "already_known", host: "other.local", port: 8000 }, 409));
+    const out = await ensureKnown({ host: "10.0.0.9", port: 8000 }, known);
+    expect(out).toEqual({ kind: "failed", message: "already_known" });
+  });
+
+  it("X18: pre-routes server entries (no routes) still match on host:port", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    expect(await ensureKnown({ host: "macbook.local", port: 8000 }, known)).toMatchObject({ kind: "known" });
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("X9: 409 identity_changed stops the task", async () => {

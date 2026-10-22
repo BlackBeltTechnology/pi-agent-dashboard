@@ -62,6 +62,36 @@ export function parseHostInput(
   return { host, port };
 }
 
+/**
+ * Parse a user-supplied route (address + scheme) for the known-servers list.
+ *
+ * Like {@link parseHostInput} but scheme-aware: `https://host` → port 443,
+ * `http://host` and a bare host → port 8000, an explicit port is always kept
+ * (including `:443` / `:80`). Only `http` / `https` are accepted; any other
+ * scheme, userinfo, or a path on a scheme-less input yields `null`.
+ * `parseHostInput` is unchanged (client-only helper).
+ *
+ * See change: group-servers-by-identity (D6, test-plan #E9).
+ */
+export function parseRouteInput(
+  input: string,
+): { host: string; port: number; scheme: "http" | "https" } | null {
+  const raw = (input ?? "").trim();
+  if (!raw) return null;
+  let scheme: "http" | "https" = "http";
+  let authority = raw;
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/(.*)$/.exec(raw);
+  if (m) {
+    const s = m[1].toLowerCase();
+    if (s !== "http" && s !== "https") return null;
+    scheme = s;
+    authority = m[2].replace(/[/?#].*$/, "");
+  }
+  if (!authority || /[/?#@\s]/.test(authority)) return null;
+  const parsed = parseHostInput(authority, scheme === "https" ? 443 : 8000);
+  return parsed ? { ...parsed, scheme } : null;
+}
+
 function stripBrackets(hostname: string): string {
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return hostname.slice(1, -1);

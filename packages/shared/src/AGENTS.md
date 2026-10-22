@@ -94,7 +94,7 @@ Files in this directory. One row per source file.
 | `openspec-specs-evidence.ts` | Local-evidence override for OpenSpec `specs` artifact. `evaluateLocalSpecsSatisfaction(changeDir, probe)` =… → see `openspec-specs-evidence.ts.AGENTS.md` |
 | `openspec-status-all.ts` | Pure `status --all` helpers (no fs/spawn; worker-safe). `parseJsonOrNull`, `classifyStatusAll(raw)` →… → see `openspec-status-all.ts.AGENTS.md` |
 | `operate-required.ts` | Wire types for the `operate_required` 403: `OperateRemedy`, `OPERATE_REMEDY_ORDER`, `OperateRequiredReason`,… → see `operate-required.ts.AGENTS.md` |
-| `pairing-knock-client.ts` | Native LAN-knock client: `ProveFn`, `proveExpected`, `sendKnock`, `knockServerWith`, `knockRequestBody`. See change: add-electron-server-windows (D2). |
+| `pairing-knock-client.ts` | Native LAN-knock client: `ProveFn`, `proveExpected`, `sendKnock`, `knockServerWith`, `knockRequestBody`. See change: add-electron-server-windows (D2). Approved outcome carries validated `routes?`; `redeemPairingCode` posts `/api/pair/redeem` + polls. See change: group-servers-by-identity. |
 | `pairing-knock.ts` | Knock vocabulary shared by server + client: `KNOCK_REFUSALS`, `KnockRefusal`, `PairingProvenance`,… → see `pairing-knock.ts.AGENTS.md` |
 | `pairing-refusal.ts` | Pairing-approval 401 wire types (`PairingRefusalBody`, `PAIRING_REMEDY_ORDER`). → see `pairing-refusal.ts.AGENTS.md` |
 | `path-containment-guard-name.ts` | `PATH_CONTAINMENT_GUARD_EXT_NAME = "path-containment-guard"`: single spelling for the guard's… → see `path-containment-guard-name.ts.AGENTS.md` |
@@ -126,6 +126,7 @@ Files in this directory. One row per source file.
 | `server-identity.ts` | Identity-verified dashboard detection over GET /api/health. → see `server-identity.ts.AGENTS.md` |
 | `server-launcher.ts` | `launchDashboardServer` — single shared spawn primitive (selected TS loader — native default, jiti opt-in —… → see `server-launcher.ts.AGENTS.md` |
 | `server-pinning.ts` | Client-side D8 pinning of the server Ed25519 identity.… → see `server-pinning.ts.AGENTS.md` |
+| `server-routes.ts` | Pure route model: `Route`, `classifyRoute`, `normalizeHost`, `groupRoutes`, `findAttachTarget`, `rankRoutes`, `validateDeliveredRoutes`, `pairAction`, `buildRequestPageUrl`, `SIMILAR_LATENCY_MS=50`. No I/O. Used by server, client, Electron. See change: group-servers-by-identity. |
 | `session-group-by.ts` | Group-by vocabulary + guards (`GroupByMode`, `LaneId`, `laneCollapseKey`). → see `session-group-by.ts.AGENTS.md` |
 | `session-group-path.ts` | Hoisted `inferPlatform`/`pathKey`/`resolveSessionGroupPath` from client session-grouping.ts. → see `session-group-path.ts.AGENTS.md` |
 | `session-meta.ts` | Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`,… → see… → see `session-meta.ts.AGENTS.md` |

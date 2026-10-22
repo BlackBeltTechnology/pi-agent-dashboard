@@ -1,37 +1,38 @@
 import type { Page } from "@playwright/test";
 import type { UiState } from "../../helpers/ui-capture.js";
-import { fail, hold, ok, settingsSection, stubApi } from "./stubs.js";
+import { IDENTITY, MIXED, type Server, stubServers } from "./server-selector.js";
+import { fail, hold, settingsSection, stubApi } from "./stubs.js";
 
 /**
- * Settings ▸ Remote Servers ▸ Known Servers states, reached by stubbing
- * `/api/known-servers`. See change: retro-ux-identity-connectivity.
+ * Settings ▸ Remote Servers ▸ Servers states (the merged saved + discovered list), reached by stubbing
+ * `/api/known-servers`, the server-side probe and every address's identity challenge / health answer
+ * (the same real-Ed25519 host stubs as the selector fixtures).
+ *
+ * See change: retro-ux-identity-connectivity; group-servers-by-identity (cards by identity, route table,
+ * refused route, a route that cannot prove identity, the pair action and the pair-with-code dialog — test-plan #F12).
  */
 
-const entry = (host: string, label: string, extra: Record<string, unknown> = {}) => ({
-  host,
-  port: 8000,
-  label,
-  addedAt: "2026-01-01T00:00:00Z",
-  ...extra,
-});
-const LIST = [
-  entry("office-mac.local", "office-mac", { fingerprint: "sha256:aa" }),
-  entry("192.168.16.202", "build-box"),
-  entry("studio-pi.tail3c2f1.ts.net", "studio-pi", { fingerprint: "sha256:bb" }),
-  entry("nas.local", "nas", { fingerprint: "sha256:cc", movedTo: { host: "nas-2.local", port: 8000 } }),
-];
+const only = (...labels: string[]): Server[] => MIXED.filter((s) => labels.includes(s.label));
+/** verified, unverified and moved-to entries (each a card with one route). */
+const LIST = only("office-mac", "build-box", "studio-pi", "nas");
 
-const section = (page: Page) => settingsSection(page, "Known Servers");
+const section = (page: Page) => settingsSection(page, "Servers");
+// The pair-with-code dialog by test id: Settings itself is a role=dialog and both are open at once.
+const dialog = (page: Page) => page.getByTestId("pair-with-code-dialog");
 
 async function gotoRemote(page: Page): Promise<void> {
   await page.goto("/settings/remote");
   await section(page).waitFor({ state: "visible" });
 }
 
-const listWith = (servers: unknown[], canManage = true) => (page: Page) =>
-  stubApi(page, "/api/known-servers", (route) => ok(route, servers, { canManage }), "GET");
+/** Every route of every card has settled (no "Checking…" left), so the probes see the final text. */
+const settled = async (page: Page): Promise<void> => {
+  await section(page).getByText("Checking…").first().waitFor({ state: "detached" });
+};
 
-const base = { stubs: ["/api/known-servers"], root: section };
+const listWith = (servers: Server[], canManage = true) => (page: Page) => stubServers(page, "mixed", servers, canManage);
+
+const base = { stubs: ["/api/known-servers", "/api/known-servers/probe"], root: section };
 
 export const knownServersStates: UiState[] = [
   {
@@ -42,6 +43,59 @@ export const knownServersStates: UiState[] = [
     open: async (page) => {
       await gotoRemote(page);
       await section(page).getByText("office-mac", { exact: true }).waitFor();
+      await settled(page);
+    },
+  },
+  {
+    id: "identity-cards",
+    label: "a card with several routes (one refused) and a tunnel-only card",
+    ...base,
+    install: listWith(IDENTITY),
+    open: async (page) => {
+      await gotoRemote(page);
+      await section(page).getByRole("article", { name: "home-imac" }).waitFor();
+      await settled(page);
+      await section(page).getByText(/answered with a different identity/).waitFor();
+      await section(page).getByRole("button", { name: /^Pair with code… cloud-box/ }).waitFor();
+    },
+  },
+  {
+    id: "cant-prove",
+    label: "a route that cannot prove identity next to a refused one",
+    ...base,
+    install: listWith(only("old-nas", "imposter", "office-mac")),
+    open: async (page) => {
+      await gotoRemote(page);
+      await section(page).getByRole("article", { name: "old-nas" }).waitFor();
+      await settled(page);
+      await section(page).getByText("Can't prove identity").first().waitFor();
+      await section(page).getByText(/Different identity/).first().waitFor();
+    },
+  },
+  {
+    id: "pair-with-code",
+    label: "pair-with-code dialog open on a tunnel-only card",
+    stubs: base.stubs,
+    root: dialog,
+    install: listWith(IDENTITY),
+    open: async (page) => {
+      await gotoRemote(page);
+      await section(page).getByRole("button", { name: /^Pair with code… cloud-box/ }).click();
+      await dialog(page).waitFor({ state: "visible" });
+    },
+  },
+  {
+    id: "pair-with-code-refused",
+    label: "pair-with-code dialog refusing text that is not for this server",
+    stubs: base.stubs,
+    root: dialog,
+    install: listWith(IDENTITY),
+    open: async (page) => {
+      await gotoRemote(page);
+      await section(page).getByRole("button", { name: /^Pair with code… cloud-box/ }).click();
+      await dialog(page).getByLabel("Pairing text").fill("not a pairing text");
+      await dialog(page).getByRole("button", { name: "Pair", exact: true }).click();
+      await dialog(page).getByRole("alert").waitFor();
     },
   },
   {
@@ -53,6 +107,7 @@ export const knownServersStates: UiState[] = [
       await gotoRemote(page);
       await section(page).getByRole("button", { name: /^Remove office-mac/ }).click();
       await section(page).getByRole("button", { name: /^Confirm remove/ }).waitFor();
+      await settled(page);
     },
   },
   {
@@ -68,6 +123,7 @@ export const knownServersStates: UiState[] = [
       await section(page).getByRole("button", { name: /^Remove office-mac/ }).click();
       await section(page).getByRole("button", { name: /^Confirm remove/ }).click();
       await section(page).getByRole("alert").waitFor();
+      await settled(page);
     },
   },
   {
@@ -78,6 +134,7 @@ export const knownServersStates: UiState[] = [
     open: async (page) => {
       await gotoRemote(page);
       await section(page).getByText(/Read-only/).waitFor();
+      await settled(page);
     },
   },
   {
@@ -88,19 +145,22 @@ export const knownServersStates: UiState[] = [
     open: async (page) => {
       await gotoRemote(page);
       await section(page).getByRole("button", { name: "Add server manually" }).click();
-      await section(page).getByLabel("Host").waitFor();
+      await section(page).getByLabel("Address", { exact: true }).waitFor();
+      await settled(page);
     },
   },
   {
     id: "add-error",
-    label: "add form submitted empty",
+    label: "add form submitted with an unparseable address",
     ...base,
     install: listWith(LIST.slice(0, 1)),
     open: async (page) => {
       await gotoRemote(page);
       await section(page).getByRole("button", { name: "Add server manually" }).click();
-      await section(page).getByRole("button", { name: "Add server" }).click();
+      await section(page).getByLabel("Address", { exact: true }).fill("[::1");
+      await section(page).getByRole("button", { name: "Add server", exact: true }).click();
       await section(page).getByRole("alert").waitFor();
+      await settled(page);
     },
   },
   {
@@ -116,7 +176,8 @@ export const knownServersStates: UiState[] = [
   {
     id: "loading",
     label: "request in flight",
-    ...base,
+    stubs: ["/api/known-servers"],
+    root: section,
     install: (page) => stubApi(page, "/api/known-servers", () => hold(), "GET"),
     open: async (page) => {
       await gotoRemote(page);
@@ -126,7 +187,8 @@ export const knownServersStates: UiState[] = [
   {
     id: "load-error",
     label: "list request failed",
-    ...base,
+    stubs: ["/api/known-servers"],
+    root: section,
     install: (page) => stubApi(page, "/api/known-servers", (route) => fail(route, "HTTP 503"), "GET"),
     open: async (page) => {
       await gotoRemote(page);

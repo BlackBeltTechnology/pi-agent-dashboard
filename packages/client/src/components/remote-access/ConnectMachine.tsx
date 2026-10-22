@@ -128,7 +128,6 @@ export function MachineBody({ ctx, cm }: { ctx: StepCtx; cm: ConnectMachine }) {
     setBusy(false);
     switch (out.kind) {
       case "known":
-      case "known-elsewhere":
         cm.setTarget(out.address);
         cm.setCreated(false);
         break;

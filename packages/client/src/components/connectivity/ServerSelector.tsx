@@ -1,28 +1,41 @@
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
-import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
+import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { KnownServerListEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
-  mdiAlertOutline,
+  normalizeHost,
+  type PairAction,
+  type PairClient,
+  primaryRoute,
+  type Route,
+} from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
+import {
   mdiAccessPointNetwork,
+  mdiAccountKeyOutline,
   mdiAlertCircle,
+  mdiAlertOutline,
   mdiCheckCircleOutline,
   mdiChevronDown,
   mdiCloseCircleOutline,
   mdiCloudOffOutline,
   mdiCog,
+  mdiFingerprint,
   mdiLoading,
+  mdiQrcode,
   mdiRefresh,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { acceptKnownServerMove, listKnownServers, probeKnownServer } from "../../lib/api/known-servers-api.js";
-import { getOpenServerWindow } from "../../lib/electron-server-windows.js";
-import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { logRejection } from "../../lib/report-error.js";
+import { acceptKnownServerMove, listKnownServers, probeKnownServer, probeKnownServerResult } from "../../lib/api/known-servers-api.js";
+import { getListServers, getOpenServerWindow, getPairWithCode } from "../../lib/electron-server-windows.js";
 import type { RemoteAccessTone } from "../../lib/gateway/gateway-connection.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
+import { logRejection } from "../../lib/report-error.js";
+import { buildServerList, type ElectronServersState, type ListEntry } from "../../lib/server-list-model.js";
+import { createRouteChecker, type RouteCheck, type RouteChecker } from "../../lib/server-route-check.js";
 import { identityPill, type Severity, severityPill } from "./connectivity-ui.js";
+import { RouteChip, type RouteExplain, routeKindLabel, shortFingerprint } from "./server-route-chips.js";
 
 /** Re-export for backward compat — consumers that imported this type */
 export interface DiscoveredServerInfo {
@@ -33,6 +46,10 @@ export interface DiscoveredServerInfo {
   pid: number;
   isLocal: boolean;
   source: "mdns" | "fallback";
+  /** Advertised identity fingerprint — a hint that decides which row the address is shown under, never proof. */
+  fingerprint?: string;
+  /** Advertised display name. */
+  name?: string;
 }
 
 interface ServerEntry {
@@ -88,14 +105,25 @@ export function buildServerEntries(
 }
 
 /**
- * Probe outcome for a selector entry.
- *
- * `cors-blocked` = the dashboard SERVER reaches the target but this browser
- * cannot; `name-not-resolved` = the server cannot resolve the stored name
- * (rendered as "Moved to …" when a verified move suggestion exists).
- * See change: stabilize-mdns-server-identity.
+ * The state of one non-current row, summarised from its routes' checks (identity
+ * challenge + access) and, for a route this browser could not reach, the
+ * dashboard SERVER's own probe: `cors-blocked` = the server reaches it but this
+ * browser cannot; `name-not-resolved` = the server cannot resolve the stored
+ * name (rendered as "Moved to …" when a verified move suggestion exists).
+ * See change: stabilize-mdns-server-identity, group-servers-by-identity (D2).
  */
-type ProbeState = "available" | "unreachable" | "denied" | "cors-blocked" | "name-not-resolved";
+type RowState =
+  | "checking"
+  | "available"
+  | "unreachable"
+  | "denied"
+  | "cors-blocked"
+  | "name-not-resolved"
+  | "moved"
+  | "different-identity"
+  | "invalid-proof"
+  | "cant-prove"
+  | "cant-prove-browser";
 
 /**
  * An extra row rendered in the menu's "Access" group, after "Manage servers…".
@@ -136,7 +164,7 @@ interface Props {
   remoteAccess?: RemoteAccessChipState;
   /** Rows appended to the menu after "Manage servers…", in an "Access" group. */
   accessItems?: AccessItem[];
-  /** mDNS-discovered servers — kept for Settings panel, no longer primary data source */
+  /** mDNS-discovered peers: each becomes a route of the identity it advertises (or its own row). */
   servers?: DiscoveredServerInfo[];
   currentHost: string;
   currentPort: number;
@@ -151,15 +179,23 @@ interface Props {
    * that it could not open a server window. See change: add-electron-server-windows.
    */
   onNotifyError?: (message: string) => void;
+  /**
+   * Browser "Pair with code…" (the dialog lives in Settings ▸ Servers); when omitted the action opens
+   * Manage servers. Electron uses `piDashboard.pairWithCode` instead.
+   */
+  onPairWithCode?: (target: { fingerprint: string; name: string }) => void;
 }
 
-type ItemState = "checking" | "available" | ProbeState | "moved";
-
 /** Pill + icon + severity + reason for each non-current entry state (text, never colour alone). */
-function stateView(state: ItemState, movedAddress?: string): { label: string; severity: Severity; icon: string; reason?: string } {
+function stateView(state: RowState, movedAddress?: string): { label: string; severity: Severity; icon: string; reason?: string } {
   switch (state) {
     case "checking":
-      return { label: i18nT("connection.checking", undefined, "Checking…"), severity: "neutral", icon: mdiLoading };
+      return {
+        label: i18nT("connection.checking", undefined, "Checking…"),
+        severity: "neutral",
+        icon: mdiLoading,
+        reason: i18nT("connection.checkingReason", undefined, "Checking each address of this server."),
+      };
     case "available":
       return { label: i18nT("common.available", undefined, "Available"), severity: "success", icon: mdiCheckCircleOutline };
     case "unreachable":
@@ -198,6 +234,34 @@ function stateView(state: ItemState, movedAddress?: string): { label: string; se
         icon: mdiAlertOutline,
         reason: i18nT("connection.nameReason", undefined, "The name no longer resolves — the server may have been renamed."),
       };
+    case "different-identity":
+      return {
+        label: i18nT("connection.differentIdentity", undefined, "Different identity"),
+        severity: "error",
+        icon: mdiAlertCircle,
+        reason: i18nT("connection.differentIdentityReason", undefined, "Every address answered as a different server than the one saved. Nothing is sent to it."),
+      };
+    case "invalid-proof":
+      return {
+        label: i18nT("connection.invalidProof", undefined, "Invalid identity proof"),
+        severity: "error",
+        icon: mdiAlertCircle,
+        reason: i18nT("connection.invalidProofReason", undefined, "The answer's identity signature did not verify. Nothing is sent to it."),
+      };
+    case "cant-prove":
+      return {
+        label: i18nT("connection.cantProve", undefined, "Can't prove identity"),
+        severity: "warning",
+        icon: mdiAlertOutline,
+        reason: i18nT("connection.cantProveReason", undefined, "This server did not prove who it is (an older version?), so it is not offered as the address to open."),
+      };
+    case "cant-prove-browser":
+      return {
+        label: i18nT("connection.cantProveBrowser", undefined, "Can't prove in this browser"),
+        severity: "warning",
+        icon: mdiAlertOutline,
+        reason: i18nT("connection.cantProveBrowserReason", undefined, "This browser cannot verify server identities here (it needs a secure page). Open the dashboard over https to switch."),
+      };
     case "moved":
       return {
         label: i18nT("connection.moved", undefined, "Moved"),
@@ -211,10 +275,90 @@ function stateView(state: ItemState, movedAddress?: string): { label: string; se
 const ITEM_BASE =
   "focus-ring flex w-full min-h-[44px] items-start gap-2 px-3 py-1.5 text-left text-xs text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-hover)] aria-[disabled=true]:cursor-not-allowed aria-[disabled=true]:hover:bg-transparent cursor-pointer";
 
-export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey, onNotifyError, remoteAccess, accessItems }: Props) {
+/** Per-open results: route checks, the server's explanation of unreachable routes, fingerprints it proved (display only). */
+interface ProbeResults {
+  checks: ReadonlyMap<string, RouteCheck>;
+  explain: ReadonlyMap<string, RouteExplain>;
+  serverFingerprint: ReadonlyMap<string, string>;
+}
+const NO_RESULTS: ProbeResults = { checks: new Map(), explain: new Map(), serverFingerprint: new Map() };
+
+/** One open of the menu: its checker (cache + concurrency bound) and the checks it already asked for. */
+interface ProbeRound {
+  checker: RouteChecker;
+  requested: Set<string>;
+}
+
+/**
+ * The model's saved input: the `localhost` "Local" seed ONLY on a loopback page origin (a remote browser
+ * probing `localhost` is meaningless), then the saved servers except loopback ones (the seed holds those).
+ * See change: distinguish-offline-from-network-denied.
+ */
+function savedForModel(known: readonly KnownServerListEntry[], currentPort: number, originHostname: string): KnownServerListEntry[] {
+  const out: KnownServerListEntry[] = [];
+  if (isLoopbackOrigin(originHostname)) {
+    out.push({ host: "localhost", port: currentPort, label: "Local", addedAt: "", routes: [{ host: "localhost", port: currentPort, scheme: "http", source: "saved" }] });
+  }
+  for (const k of known) if (!isLoopbackOrigin(k.host)) out.push(k);
+  return out;
+}
+
+/** Summarise a row from its routes' checks; `null` for the dashboard the page is loaded from (its state is the connection). */
+function rowState(entry: ListEntry, explain: ReadonlyMap<string, RouteExplain>): RowState | null {
+  if (entry.isCurrent) return null;
+  switch (entry.status) {
+    case "unchecked":
+      return "checking";
+    case "available":
+      return "available";
+    case "network-not-allowed":
+      return "denied";
+    case "refused":
+      return entry.routes.some((r) => r.state === "different-identity") ? "different-identity" : "invalid-proof";
+    case "cant-prove":
+      return "cant-prove";
+    case "cant-prove-in-browser":
+      return "cant-prove-browser";
+    case "unreachable": {
+      // The browser could not tell a CORS block from a dead name: the dashboard server's probe says which.
+      if (entry.routes.some((r) => explain.get(r.key) === "reachable")) return "cors-blocked";
+      const primary = primaryRoute(entry.routes);
+      if (primary && explain.get(primary.key) === "name-not-resolved") return entry.movedTo ? "moved" : "name-not-resolved";
+      return "unreachable";
+    }
+  }
+}
+
+function pairedText(state: ListEntry["pairedState"]): string {
+  switch (state) {
+    case "this-dashboard":
+      return i18nT("connection.paired.thisDashboard", undefined, "This dashboard");
+    case "paired":
+      return i18nT("connection.paired.paired", undefined, "Paired");
+    case "needs-pairing":
+      return i18nT("connection.paired.needsPairing", undefined, "Needs pairing");
+    case "not-paired":
+      return i18nT("connection.paired.notPaired", undefined, "Not paired");
+    case "unknown-in-this-tab":
+      return i18nT("connection.paired.unknownInTab", undefined, "Unknown in this tab");
+  }
+}
+
+function pairActionView(action: PairAction): { label: string; icon: string } {
+  switch (action.kind) {
+    case "request-access":
+      return { label: i18nT("connection.pair.requestAccess", undefined, "Request access…"), icon: mdiAccountKeyOutline };
+    case "verify-and-request":
+      return { label: i18nT("connection.pair.verifyAndRequest", undefined, "Verify and request access…"), icon: mdiFingerprint };
+    case "pair-with-code":
+      return { label: i18nT("connection.pair.withCode", undefined, "Pair with code…"), icon: mdiQrcode };
+  }
+}
+
+export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey, onNotifyError, onPairWithCode, remoteAccess, accessItems, servers }: Props) {
   const [open, setOpen] = useState(false);
   const accessLabelId = useId();
-  /** "host:port" of an in-flight "open server window" request (Electron branch). */
+  /** Key of an in-flight "open server window" / pairing bridge request (Electron branch). */
   const [openingKey, setOpeningKey] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -228,16 +372,19 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   });
   /** Electron local window: open a server window instead of an in-page switch (capability probe per render). */
   const openServerWindow = getOpenServerWindow();
-  const [availability, setAvailability] = useState<Map<string, ProbeState>>(new Map());
+  const hasListServers = getListServers() !== undefined;
+  const client: PairClient = openServerWindow || hasListServers ? "electron" : "browser";
+  const [results, setResults] = useState<ProbeResults>(NO_RESULTS);
   const [knownServers, setKnownServers] = useState<KnownServerListEntry[]>([]);
-  /** A refused move acceptance, shown inside the menu (keyed by entry). */
+  const [electronState, setElectronState] = useState<ElectronServersState | null>(null);
+  /** A refused move acceptance, shown inside the menu. */
   const [moveRefusal, setMoveRefusal] = useState<string | null>(null);
 
   // Load known servers from API on mount and when dropdown opens
   const loadKnown = useCallback(async () => {
     try {
-      const servers = await listKnownServers();
-      setKnownServers(servers);
+      const list = await listKnownServers();
+      setKnownServers(list);
     } catch {
       // silently ignore — will show localhost only
     }
@@ -246,73 +393,125 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   useEffect(() => { void loadKnown().catch(logRejection("ServerSelector.loadKnown")); }, [loadKnown]);
   useEffect(() => { if (open) void loadKnown().catch(logRejection("ServerSelector.loadKnown")); }, [open, loadKnown]);
 
-  // Build the display list. The `localhost` "Local" seed is gated on a
-  // loopback page origin so remote clients never see a phantom localhost row.
-  const originHostname =
-    typeof window !== "undefined" ? window.location.hostname : "localhost";
-  const entries = buildServerEntries(knownServers, currentHost, currentPort, originHostname);
-  const currentKey = `${currentHost}:${currentPort}`;
-
-  // Probe availability only when the dropdown opens — once per open.
-  // No background probing, no periodic timer, no mount probe.
-  // See openspec/changes/safe-server-switch.
-  const probeEntry = useCallback((host: string, port: number, isCancelled: () => boolean) => {
-    const key = `${host}:${port}`;
-    const set = (state: ProbeState) => {
-      if (!isCancelled()) setAvailability((prev) => new Map(prev).set(key, state));
-    };
-    fetch(`http://${formatHostPort(host, port)}/api/health`, { signal: AbortSignal.timeout(2000) })
-      .then(async (r): Promise<ProbeState> => {
-        // A guarded response (403 network_not_allowed) means the server is
-        // reachable but the client's network/auth is not permitted — a
-        // distinct "denied" state, NOT "unreachable".
-        if (r.status === 403) {
-          const body = await r.json().catch(() => null);
-          if (body?.error === "network_not_allowed") return "denied";
-          return "unreachable";
-        }
-        if (!r.ok) return "unreachable";
-        const d = await r.json().catch(() => null);
-        return d?.ok === true ? "available" : "unreachable";
-      })
-      .then(set)
-      .catch(async () => {
-        // Transport failure (no readable response): the browser cannot tell a
-        // CORS block from a dead name. Ask the dashboard server what it sees
-        // and render THAT cause. See change: stabilize-mdns-server-identity.
-        // A rejected server probe is "unreachable" (retro-ux #X8).
-        const status = await probeKnownServer(host, port).catch(() => null);
-        set(
-          status === "reachable"
-            ? "cors-blocked"
-            : status === "name-not-resolved"
-            ? "name-not-resolved"
-            : "unreachable",
-        );
-      });
-  }, []);
-
+  // The Electron keyring + discovery state (renderer-safe: no bearer) — read per open.
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
-    setAvailability(new Map()); // a reopen re-probes: show "Checking…" again, never a stale state
-    setMoveRefusal(null);
-    for (const s of entries) {
-      // Current server's status is derived from `connected` — skip the probe.
-      if (`${s.host}:${s.port}` === currentKey) continue;
-      probeEntry(s.host, s.port, () => cancelled);
+    const list = getListServers();
+    if (!list) {
+      setElectronState(null);
+      return;
     }
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    list()
+      .then((state) => { if (!cancelled) setElectronState(state); })
+      .catch(() => { if (!cancelled) setElectronState(null); });
+    return () => { cancelled = true; };
   }, [open]);
 
-  /** Accept a verified move suggestion, then re-probe the entry at its new address. */
+  // Build the display list: one row per server identity (saved ∪ discovered ∪ Electron keyring).
+  const originHostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+  const pageScheme = typeof window !== "undefined" && window.location.protocol === "https:" ? "https" : "http";
+  const entries = useMemo(
+    () => buildServerEntries(knownServers, currentHost, currentPort, originHostname),
+    [knownServers, currentHost, currentPort, originHostname],
+  );
+  const probed = useMemo(() => {
+    // A route whose check failed at the transport stays "Checking…" until the server's explanation arrives.
+    const checks = new Map<string, RouteCheck>();
+    for (const [key, check] of results.checks) {
+      if (check.kind === "unreachable" && !results.explain.has(key)) continue;
+      checks.set(key, check);
+    }
+    return checks;
+  }, [results]);
+  const model = useMemo(
+    () =>
+      buildServerList({
+        client,
+        saved: savedForModel(knownServers, currentPort, originHostname),
+        discovered: (servers ?? []).filter((s) => !s.isLocal).map((s) => ({ host: s.host, port: s.port, fingerprint: s.fingerprint, name: s.name })),
+        electron: electronState,
+        current: { host: currentHost, port: currentPort, scheme: pageScheme },
+        checks: probed,
+      }),
+    [client, knownServers, currentPort, originHostname, servers, electronState, currentHost, pageScheme, probed],
+  );
+  const modelRef = useRef(model);
+  modelRef.current = model;
+  const currentKey = `${currentHost}:${currentPort}`;
+
+  /** The page's own origin: its status is the connection, so it is never checked. */
+  const isCurrentOrigin = (r: Pick<Route, "host" | "port">): boolean => {
+    if (r.port !== currentPort) return false;
+    const a = normalizeHost(r.host);
+    const b = normalizeHost(currentHost);
+    return a === b || (isLoopbackOrigin(a) && isLoopbackOrigin(b));
+  };
+
+  // Probe only when the dropdown opens — once per open (one checker per open, results cached for it).
+  // No background probing, no periodic timer, no mount probe. A late result of an earlier open is
+  // ignored (its round is no longer the current one). See openspec/changes/safe-server-switch.
+  const round = useRef<ProbeRound | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const mine: ProbeRound = { checker: createRouteChecker(), requested: new Set() };
+    round.current = mine;
+    setResults(NO_RESULTS); // a reopen re-probes: show "Checking…" again, never a stale state
+    setMoveRefusal(null);
+    return () => {
+      if (round.current === mine) round.current = null;
+    };
+  }, [open]);
+
+  // Check every route this open has not asked for yet (the list may arrive after the menu opened).
+  const probeSignature = model.entries
+    .flatMap((e) => e.routes.filter((r) => !isCurrentOrigin(r)).map((r) => `${r.key}|${e.fingerprint ?? ""}`))
+    .join("\n");
+  useEffect(() => {
+    const mine = round.current;
+    if (!open || !mine) return;
+    const record = (update: (prev: ProbeResults) => ProbeResults) => {
+      if (round.current === mine) setResults(update);
+    };
+    for (const entry of modelRef.current.entries) {
+      for (const route of entry.routes) {
+        if (isCurrentOrigin(route)) continue;
+        const asked = `${route.key}|${entry.fingerprint ?? ""}`;
+        if (mine.requested.has(asked)) continue;
+        mine.requested.add(asked);
+        void mine.checker
+          .check(route, entry.fingerprint)
+          .then(async (check) => {
+            if (round.current !== mine) return;
+            if (check.kind === "cant-prove-in-browser") {
+              // No WebCrypto here: the dashboard server's proof is for DISPLAY only; the route stays unusable.
+              record((prev) => ({ ...prev, checks: new Map(prev.checks).set(route.key, check) }));
+              const result = await probeKnownServerResult(route.host, route.port, route.scheme).catch(() => null);
+              if (result?.fingerprint) record((prev) => ({ ...prev, serverFingerprint: new Map(prev.serverFingerprint).set(route.key, result.fingerprint as string) }));
+              return;
+            }
+            if (check.kind !== "unreachable") {
+              record((prev) => ({ ...prev, checks: new Map(prev.checks).set(route.key, check) }));
+              return;
+            }
+            // Transport failure: the browser cannot tell a CORS block from a dead name. Ask the dashboard
+            // server what it sees and render THAT cause. A rejected server probe is "unreachable" (retro-ux #X8).
+            record((prev) => ({ ...prev, checks: new Map(prev.checks).set(route.key, check) }));
+            const status = await probeKnownServer(route.host, route.port, route.scheme).catch(() => null);
+            record((prev) => ({ ...prev, explain: new Map(prev.explain).set(route.key, status) }));
+          })
+          .catch(logRejection("ServerSelector.checkRoute"));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, probeSignature]);
+
+  /** Accept a verified move suggestion; the reloaded list carries the new address, which the next effect pass checks. */
   const handleUpdate = useCallback(
-    async (entry: ServerEntry, movedTo: { host: string; port: number }) => {
+    async (entry: ListEntry) => {
       setMoveRefusal(null);
-      if (!(await acceptKnownServerMove(entry.host, entry.port))) {
+      const primary = primaryRoute(entry.routes);
+      if (!primary || !(await acceptKnownServerMove(primary.host, primary.port))) {
         setMoveRefusal(
           i18nT(
             "connection.moveRefused",
@@ -323,9 +522,8 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
         return;
       }
       await loadKnown();
-      probeEntry(movedTo.host, movedTo.port, () => false);
     },
-    [loadKnown, probeEntry],
+    [loadKnown],
   );
 
   // Close on outside click
@@ -396,6 +594,50 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
         e.preventDefault();
         (document.activeElement as HTMLElement | null)?.click();
         return;
+    }
+  };
+
+  /** Run a main-window bridge request (open a server window, start pairing); the menu stays open with inline progress until it resolves. */
+  const runBridge = (key: string, name: string, call: () => Promise<{ ok: true } | { ok: false; reason: string }>) => {
+    if (openingKey) return; // ignore clicks while a request is in flight
+    setOpeningKey(key);
+    call()
+      .then((res) => {
+        if (!res.ok) onNotifyError?.(describeOpenFailure(res.reason, name));
+      })
+      .catch(() => onNotifyError?.(describeOpenFailure("failed", name)))
+      .finally(() => {
+        setOpeningKey(null);
+        closeToTrigger();
+      });
+  };
+
+  /** The row's pair action — its own menu item; never part of the row's own activation. */
+  const runPairAction = (entry: ListEntry, name: string, action: PairAction) => {
+    const key = `pair:${entry.key}`;
+    if (action.kind === "pair-with-code") {
+      const pairWithCode = getPairWithCode();
+      if (pairWithCode && entry.fingerprint) {
+        const fingerprint = entry.fingerprint;
+        runBridge(key, name, () => pairWithCode({ fingerprint }));
+      } else if (entry.fingerprint && onPairWithCode) {
+        setOpen(false);
+        onPairWithCode({ fingerprint: entry.fingerprint, name });
+      } else if (onManageServers) {
+        setOpen(false);
+        onManageServers();
+      }
+      return;
+    }
+    if (client === "electron" && openServerWindow) {
+      // Only host + port go over the bridge; the app proves identity before anything is sent.
+      runBridge(key, name, () => openServerWindow({ host: action.route.host, port: action.route.port }));
+      return;
+    }
+    // Browser: the peer's own request page in a new context — nothing is proven or sent from this page.
+    if (action.kind === "request-access" && action.url) {
+      window.open(action.url, "_blank", "noopener");
+      closeToTrigger();
     }
   };
 
@@ -502,86 +744,95 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
           }}
           className="fixed overflow-y-auto z-popover bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg shadow-xl py-1"
         >
-          {entries.map((entry, idx) => {
-            const key = `${entry.host}:${entry.port}`;
-            const isCurrent = key === currentKey;
-            const probe = availability.get(key);
-            const denied = !isCurrent && probe === "denied";
-            const unreachable = !isCurrent && probe === "unreachable";
-            const corsBlocked = !isCurrent && probe === "cors-blocked";
-            const nameNotResolved = !isCurrent && probe === "name-not-resolved";
-            const movedTo = nameNotResolved
-              ? knownServers.find(
-                  (k) => k.port === entry.port && normalizeHostKey(k.host) === normalizeHostKey(entry.host),
-                )?.movedTo
-              : undefined;
-            const movedAddress = movedTo ? formatHostPort(movedTo.host, movedTo.port) : undefined;
-            // Every non-available state disables switching, but each renders distinctly.
-            const blocked = denied || unreachable || corsBlocked || nameNotResolved;
-            const isSwitching = inFlightSwitchKey === key || openingKey === key;
-            const state: ItemState | null = isCurrent
-              ? null
-              : movedTo
-              ? "moved"
-              : (probe ?? "checking");
-            const view = state ? stateView(state, movedAddress) : null;
-            // In the Electron branch an entry still being probed is not activatable either.
-            const electronChecking = !!openServerWindow && !isCurrent && !entry.isLocal && state === "checking";
-            const name = entry.label ?? entry.host;
+          {model.entries.map((entry, idx) => {
+            const isCurrent = entry.isCurrent;
+            const state = rowState(entry, results.explain);
+            const blocked = state !== null && state !== "available";
+            const view = state ? stateView(state, entry.movedTo ? formatHostPort(entry.movedTo.host, entry.movedTo.port) : undefined) : null;
+            const primary = primaryRoute(entry.routes) ?? entry.routes[0];
+            const isLocalEntry = entry.routes.every((r) => r.kind === "loopback");
+            const name = entry.title === `${primary.host}:${primary.port}` ? primary.host : entry.title;
+            const movedAddress = state === "moved" && entry.movedTo ? formatHostPort(entry.movedTo.host, entry.movedTo.port) : undefined;
+            const isSwitching =
+              openingKey === entry.key || (!!inFlightSwitchKey && entry.routes.some((r) => `${r.host}:${r.port}` === inFlightSwitchKey));
+            const displayedFingerprint = entry.fingerprint ?? entry.routes.map((r) => results.serverFingerprint.get(r.key)).find((f) => f !== undefined);
+            const pair = entry.pairAction;
+            const pairView = pair ? pairActionView(pair) : null;
+            // A browser "Pair with code…" needs somewhere to go (the dialog lives in Settings ▸ Servers).
+            const pairable = pair && (pair.kind !== "pair-with-code" || client === "electron" || !!onPairWithCode || !!onManageServers);
             const whyId = `server-why-${idx}`;
             return (
-              <React.Fragment key={key}>
+              <React.Fragment key={entry.key}>
               <button
                 type="button"
                 role="menuitemradio"
                 aria-checked={isCurrent}
                 tabIndex={-1}
-                aria-disabled={blocked || electronChecking ? "true" : undefined}
+                aria-disabled={blocked ? "true" : undefined}
                 aria-describedby={blocked && view?.reason ? whyId : undefined}
                 onClick={() => {
-                  if (blocked || electronChecking) return;
+                  if (blocked) return;
                   if (isCurrent) {
                     closeToTrigger();
                     return;
                   }
-                  // Electron local window: open the remote's own window instead of an in-page
-                  // switch (no staging socket, no state swap, no last-server write).
+                  const best = entry.best;
+                  if (!best) return;
+                  // Electron local window: open the remote's own window (host + port of the best proven
+                  // route) instead of an in-page switch (no staging socket, no state swap, no last-server write).
                   // See change: add-electron-server-windows.
                   if (openServerWindow) {
-                    if (entry.isLocal) {
+                    if (isLocalEntry) {
                       closeToTrigger();
                       return;
                     }
-                    if (openingKey) return; // ignore clicks while a request is in flight
-                    setOpeningKey(key);
-                    openServerWindow({ host: entry.host, port: entry.port })
-                      .then((res) => {
-                        if (!res.ok) onNotifyError?.(describeOpenFailure(res.reason, name));
-                      })
-                      .catch(() => onNotifyError?.(describeOpenFailure("failed", name)))
-                      .finally(() => {
-                        setOpeningKey(null);
-                        closeToTrigger();
-                      });
+                    runBridge(entry.key, name, () => openServerWindow({ host: best.host, port: best.port }));
                     return; // the menu stays open so the entry shows its inline progress until resolved
                   }
-                  onSwitch(entry.host, entry.port);
+                  onSwitch(best.host, best.port);
                   closeToTrigger();
                 }}
-                data-unreachable={unreachable || undefined}
-                data-denied={denied || undefined}
-                data-cors-blocked={corsBlocked || undefined}
-                data-name-not-resolved={nameNotResolved || undefined}
+                data-unreachable={state === "unreachable" || undefined}
+                data-denied={state === "denied" || undefined}
+                data-cors-blocked={state === "cors-blocked" || undefined}
+                data-name-not-resolved={state === "name-not-resolved" || undefined}
+                data-refused={state === "different-identity" || state === "invalid-proof" || undefined}
+                data-cant-prove={state === "cant-prove" || state === "cant-prove-browser" || undefined}
                 className={`${ITEM_BASE} ${isCurrent ? "shadow-[inset_2px_0_0_var(--accent-primary)]" : ""}`}
               >
                 <span className="min-w-0 flex-1">
                   <span className={`flex items-center gap-1.5 font-semibold ${blocked ? "text-[var(--text-secondary)]" : ""}`}>
                     <span className="truncate">{name}</span>
-                    <span className={identityPill(entry.isLocal, true)}>
-                      {entry.isLocal ? "Local" : "Remote"}
+                    <span className={identityPill(isLocalEntry, true)}>
+                      {isLocalEntry ? "Local" : "Remote"}
                     </span>
                   </span>
-                  <span className="block text-xs text-[var(--text-secondary)]">{entry.host}:{entry.port}</span>
+                  <span className="block text-xs text-[var(--text-secondary)]">{primary.host}:{primary.port}</span>
+                  <span className="block text-xs text-[var(--text-secondary)]" data-testid="server-identity">
+                    <span className="font-mono">
+                      {displayedFingerprint
+                        ? shortFingerprint(displayedFingerprint)
+                        : i18nT("connection.identityNotAdvertised", undefined, "identity not advertised")}
+                    </span>
+                    {" · "}
+                    <span data-testid="paired-state">{pairedText(entry.pairedState)}</span>
+                    {entry.best && (
+                      <>
+                        {" · "}
+                        {i18nT("connection.viaRoute", { kind: routeKindLabel(entry.best.kind).toLowerCase() }, "via {kind}")}
+                      </>
+                    )}
+                  </span>
+                  <span className="mt-1 flex flex-wrap gap-1" data-testid="route-chips">
+                    {entry.routes.map((r) => (
+                      <RouteChip key={r.key} route={r} explain={results.explain.get(r.key)} />
+                    ))}
+                  </span>
+                  {entry.sameIdentityAs.length > 0 && (
+                    <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">
+                      {i18nT("connection.sameIdentityAs", { name: entry.sameIdentityAs.map((o) => o.title).join(", ") }, "Same server as {name}")}
+                    </span>
+                  )}
                   {blocked && view?.reason && (
                     <span id={whyId} className="mt-0.5 block text-xs text-[var(--text-secondary)]">{view.reason}</span>
                   )}
@@ -606,12 +857,26 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                   </span>
                 ) : null}
               </button>
-              {movedTo && movedAddress && (
+              {pair && pairView && pairable && (
                 <button
                   type="button"
                   role="menuitem"
                   tabIndex={-1}
-                  onClick={() => void handleUpdate(entry, movedTo).catch(logRejection("ServerSelector.handleUpdate"))}
+                  data-testid="pair-action"
+                  data-pair-kind={pair.kind}
+                  onClick={() => runPairAction(entry, name, pair)}
+                  className={`${ITEM_BASE} !min-h-[36px] items-center pl-6 font-semibold`}
+                >
+                  <Icon path={openingKey === `pair:${entry.key}` ? mdiLoading : pairView.icon} size={0.5} className={openingKey === `pair:${entry.key}` ? "animate-spin" : ""} aria-hidden="true" />
+                  <span className="min-w-0 flex-1">{pairView.label}</span>
+                </button>
+              )}
+              {entry.movedTo && state === "moved" && movedAddress && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  onClick={() => void handleUpdate(entry).catch(logRejection("ServerSelector.handleUpdate"))}
                   className={`${ITEM_BASE} !min-h-[36px] items-center pl-6 font-semibold`}
                 >
                   <Icon path={mdiRefresh} size={0.5} aria-hidden="true" />
@@ -647,7 +912,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
               <div role="group" aria-labelledby={accessLabelId}>
                 <div
                   id={accessLabelId}
-                  className="px-3 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]"
+                  className="px-3 pb-0.5 pt-1 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]"
                 >
                   {i18nT("connection.access", undefined, "Access")}
                 </div>

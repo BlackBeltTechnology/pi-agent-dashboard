@@ -208,7 +208,10 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel />);
     await waitFor(() => {
       expect(window.location.pathname).toBe("/settings/remote");
-      expect(screen.getByText("Known Servers")).toBeTruthy();
+      // one merged Servers section (group-servers-by-identity): no separate Known Servers / Network Discovery
+      expect(screen.getByRole("heading", { level: 2, name: "Servers" })).toBeTruthy();
+      expect(screen.queryByText("Known Servers")).toBeNull();
+      expect(screen.queryByText("Network Discovery")).toBeNull();
     });
   });
 

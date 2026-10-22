@@ -23,3 +23,7 @@ Approval guard 401 (device bearer AND no-credential) sends `describeApprovalRefu
 Knock route builds its admission input with `knockPeerInput(request)` and spreads `knockPeerState({hostAdmission, getLanInterfaces})` into the `admitKnock` state; `headerString` now imported from `pairing/knock-admission.ts`. Behaviour unchanged (`pair-request-route.test.ts` green unchanged).
 
 Passes `getKnockEligibleNetworks` (raw trusted list) into `knockPeerDeps`/`KnockPeerDeps`. See change: retire-trusted-networks-bypass.
+
+## group-servers-by-identity
+
+Approved `POST /api/pair/poll` carries `routes` = https origins of `reachableUrls()`, once, with token. See change: group-servers-by-identity.

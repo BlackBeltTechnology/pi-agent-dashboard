@@ -2305,6 +2305,7 @@ export default function App() {
           <ServerSelector
             remoteAccess={{ tone: remoteAccess.tone, state: remoteAccess.state, pending: remoteAccess.pending }}
             accessItems={accessItems}
+            servers={discoveredServers}
             currentHost={currentServerHost}
             currentPort={currentServerPort}
             connected={status === "connected"}

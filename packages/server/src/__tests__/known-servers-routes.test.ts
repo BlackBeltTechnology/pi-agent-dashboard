@@ -140,7 +140,7 @@ import { type ProveResult, proveServerIdentity } from "@blackbelt-technology/pi-
 import { Service } from "bonjour-service";
 import Fastify, { type FastifyInstance } from "fastify";
 import { vi } from "vitest";
-import { ensureServerIdentity } from "../auth/identity.js";
+import { ensureServerIdentity, signNonce } from "../auth/identity.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import type { createKnownServerMoves } from "../known-server-moves.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
@@ -176,7 +176,16 @@ describe("known-servers routes (identity pinning)", () => {
     writeConfigPartial({ knownServers: list as never });
   };
 
-  async function mkCtx(opts: { moves?: Partial<ReturnType<typeof createKnownServerMoves>> } = {}): Promise<Ctx> {
+  async function mkCtx(
+    opts: {
+      moves?: Partial<ReturnType<typeof createKnownServerMoves>>;
+      /** Use the real bounded `proveServerIdentity` over `fetchImpl` instead of the `prove` seam. */
+      realProve?: boolean;
+      fetchImpl?: typeof fetch;
+      timeouts?: { challengeMs?: number; dnsMs?: number; httpMs?: number } | null;
+      log?: (m: string) => void;
+    } = {},
+  ): Promise<Ctx> {
     const app = Fastify();
     apps.push(app);
     stampLegacyHook(app, TOKEN);
@@ -185,11 +194,14 @@ describe("known-servers routes (identity pinning)", () => {
     });
     const answers: Record<string, ProveResult | "hang"> = {};
     const prove = vi.fn(async (baseUrl: string): Promise<ProveResult> => {
+      // http routes key as `host:port`; https routes keep their scheme (`https://host:port`).
       const a = answers[baseUrl.replace(/^http:\/\//, "")];
       if (a === "hang") return new Promise(() => {});
       return a ?? { refused: "unreachable" };
     });
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, pid: 1 }), { status: 200 }));
+    const fetchImpl = vi.fn(
+      (opts.fetchImpl as never) ?? (async () => new Response(JSON.stringify({ ok: true, pid: 1 }), { status: 200 })),
+    );
     const lookup = vi.fn(async () => ({ address: "192.168.16.9", family: 4 }));
     const suggest: Ctx["suggest"] = {};
     const moves = {
@@ -210,12 +222,12 @@ describe("known-servers routes (identity pinning)", () => {
         getLiveTunnelOrigins: () => [],
         bindHost: "localhost",
       }),
-      prove,
+      ...(opts.realProve ? {} : { prove }),
       lookup,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       moves,
-      log: () => {},
-      timeouts: { challengeMs: 100, dnsMs: 100, httpMs: 80 },
+      log: opts.log ?? (() => {}),
+      ...(opts.timeouts === null ? {} : { timeouts: opts.timeouts ?? { challengeMs: 100, dnsMs: 100, httpMs: 80 } }),
     });
     await app.ready();
     ctx = { app, prove, fetchImpl, lookup, answers, moves, suggest };
@@ -283,26 +295,29 @@ describe("known-servers routes (identity pinning)", () => {
       expect(entries()[0].fingerprint).toBe(G);
     });
 
-    it("refuses a known identity whose stored address still proves it (409 already_known)", async () => {
+    it("attaches the proven route to the entry holding the identity (no 409 already_known), even while the stored route still proves it", async () => {
       seed([{ host: "old.local", port: 8000, addedAt: T0, fingerprint: F }]);
       await mkCtx();
       ctx.answers["new.local:8000"] = { proven: F };
       ctx.answers["old.local:8000"] = { proven: F };
-      const before = JSON.stringify(entries());
       const r = await operator("POST", "/api/known-servers", { host: "new.local", port: 8000 });
-      expect(r.statusCode).toBe(409);
-      expect(r.json()).toMatchObject({ error: "already_known", host: "old.local", port: 8000 });
-      expect(JSON.stringify(entries())).toBe(before);
+      expect(r.statusCode).toBe(200);
+      expect(r.json()).toEqual({ success: true, data: { updated: true } });
+      expect(entries()).toHaveLength(1);
+      expect(entries()[0].routes.map((x) => `${x.scheme}://${x.host}:${x.port}`)).toEqual(["http://old.local:8000", "http://new.local:8000"]);
+      // the holder is no longer re-probed (D6)
+      expect(ctx.prove.mock.calls.map(([u]) => u)).toEqual(["http://new.local:8000"]);
     });
 
-    it("updates the holder when its stored address no longer proves the identity", async () => {
+    it("attaches even when the stored route no longer proves the identity; stale route kept, label and addedAt rules", async () => {
       seed([{ host: "old.local", port: 8000, label: "Keep", addedAt: T0, fingerprint: F }]);
       await mkCtx();
       ctx.answers["new.local:8000"] = { proven: F };
       let r = await operator("POST", "/api/known-servers", { host: "new.local", port: 8000, label: "" });
       expect(r.json()).toEqual({ success: true, data: { updated: true } });
       expect(entries()).toHaveLength(1);
-      expect(entries()[0]).toMatchObject({ host: "new.local", label: "Keep", addedAt: T0, fingerprint: F });
+      expect(entries()[0]).toMatchObject({ host: "old.local", label: "Keep", addedAt: T0, fingerprint: F });
+      expect(entries()[0].routes).toHaveLength(2);
       // non-empty label replaces
       seed([{ host: "old.local", port: 8000, label: "Keep", addedAt: T0, fingerprint: F }]);
       r = await operator("POST", "/api/known-servers", { host: "new.local", port: 8000, label: "Fresh" });
@@ -342,6 +357,7 @@ describe("known-servers routes (identity pinning)", () => {
       const attempts = [
         trustedPeer("POST", "/api/known-servers", { host: "x.local", port: 8000 }, headers),
         trustedPeer("DELETE", "/api/known-servers", { host: "a.local", port: 8000 }, headers),
+        trustedPeer("DELETE", "/api/known-servers", { fingerprint: F }, headers),
         trustedPeer("POST", "/api/known-servers/accept-move", { host: "a.local", port: 8000 }, headers),
         trustedPeer("POST", "/api/known-servers/probe", { host: "a.local", port: 8000 }, headers),
       ];
@@ -461,6 +477,8 @@ describe("known-servers routes (identity pinning)", () => {
       await operator("POST", "/api/known-servers/probe", { host: "192.168.16.220", port: 8000 });
       expect(entries()).toHaveLength(1);
       expect(entries()[0]).toMatchObject({ host: "192.168.16.220", fingerprint: F, label: "iMac" });
+      // the backfilled entry survives and gains the other entry's routes (3.5)
+      expect(entries()[0].routes.map((r) => r.host)).toEqual(["192.168.16.220", "home-imac-75112.local"]);
     });
   });
 
@@ -478,7 +496,8 @@ describe("known-servers routes (identity pinning)", () => {
       const log = vi.spyOn(console, "log").mockImplementation((m: string) => void logs.push(String(m)));
       const r = await accept();
       expect(r.json().success).toBe(true);
-      expect(entries()[0]).toEqual({ ...entry, host: "192.168.16.220" });
+      expect(entries()[0]).toMatchObject({ ...entry, host: "192.168.16.220" });
+      expect(entries()[0].routes).toEqual([{ host: "192.168.16.220", port: 8000, scheme: "http", source: "saved" }]);
       expect(ctx.moves.withdraw).toHaveBeenCalled();
       log.mockRestore();
     });
@@ -562,6 +581,501 @@ describe("known-servers routes (identity pinning)", () => {
       expect(Date.now() - t0).toBeLessThan(100 + 400); // challengeMs=100 + slack
       expect(delDone).toBeLessThan(80);
       expect(entries().map((e) => [e.host, e.fingerprint])).toEqual([["slow.local", undefined]]);
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════
+  // group-servers-by-identity: routes, attach, bounded challenge, logs.
+  // (test-plan #X1 #X2 #X3 #X6 #X7 #X8 #X9 #X13, #E11 log half)
+  // ════════════════════════════════════════════════════════════════════
+  const FULL_F = `sha256:${"A".repeat(43)}`;
+  const FULL_G = `sha256:${"B".repeat(43)}`;
+  const route = (host: string, port: number, scheme: "http" | "https" = "http", source = "saved") => ({ host, port, scheme, source });
+  const routeUrls = (i = 0) => entries()[i].routes.map((r) => `${r.scheme}://${r.host}:${r.port}`);
+  const rawConfig = () => JSON.parse(fs.readFileSync(path.join(home, ".pi", "dashboard", "config.json"), "utf-8"));
+
+  /** A real server identity answering the challenge, for the real bounded `proveServerIdentity`. */
+  const challengeResponse = (identity: ReturnType<typeof ensureServerIdentity>, init: RequestInit) => {
+    const nonce = JSON.parse(String(init.body)).nonce as string;
+    return new Response(
+      JSON.stringify({ success: true, data: { fingerprint: identity.fingerprint, publicKey: identity.publicKeyB64, signature: signNonce(identity, nonce), v: 1 } }),
+      { status: 200 },
+    );
+  };
+  const mkIdentity = () => ensureServerIdentity(path.join(home, `identity-${Math.random().toString(36).slice(2)}.key`));
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  describe("#X6 add / attach / delete decisions", () => {
+    it("a new entry answers plain success and pins the proven identity with one saved route", async () => {
+      await mkCtx();
+      ctx.answers["new.local:8000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "new.local", port: 8000 });
+      expect(r.json()).toEqual({ success: true });
+      expect(entries()).toHaveLength(1);
+      expect(entries()[0].routes).toEqual([route("new.local", 8000)]);
+    });
+
+    it("an https route joins the entry holding the identity and the mirror stays the http route", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0, fingerprint: F }]);
+      await mkCtx();
+      ctx.answers["https://lab.example.org:443"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "https" });
+      expect(r.json()).toEqual({ success: true, data: { updated: true } });
+      expect(entries()).toHaveLength(1);
+      expect(routeUrls()).toEqual(["http://a.local:8000", "https://lab.example.org:443"]);
+      expect(entries()[0]).toMatchObject({ host: "a.local", port: 8000 });
+    });
+
+    it("an https-only new entry is written with its host/port mirror and routes (previous parsers keep it)", async () => {
+      await mkCtx();
+      ctx.answers["https://lab.example.org:443"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "https", label: "Lab" });
+      expect(r.json()).toEqual({ success: true });
+      expect(rawConfig().knownServers).toEqual([
+        { host: "lab.example.org", port: 443, label: "Lab", addedAt: expect.any(String), fingerprint: F, routes: [route("lab.example.org", 443, "https")] },
+      ]);
+    });
+
+    it("the same identity on another http port starts a second entry (no updated flag)", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0, fingerprint: F }]);
+      await mkCtx();
+      ctx.answers["b.local:9000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "b.local", port: 9000 });
+      expect(r.json()).toEqual({ success: true });
+      expect(entries().map((e) => `${e.host}:${e.port}`)).toEqual(["a.local:8000", "b.local:9000"]);
+    });
+
+    it("re-adding a stored route answers plain success, adds no duplicate and refreshes the label", async () => {
+      seed([{ host: "a.local", port: 8000, label: "Old", addedAt: T0, fingerprint: F }]);
+      await mkCtx();
+      ctx.answers["a.local:8000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "A.LOCAL", port: 8000, label: "New" });
+      expect(r.json()).toEqual({ success: true });
+      expect(entries()).toHaveLength(1);
+      expect(routeUrls()).toEqual(["http://a.local:8000"]);
+      expect(entries()[0].label).toBe("New");
+    });
+
+    it("a hint that does not prove is never persisted", async () => {
+      await mkCtx();
+      const r = await operator("POST", "/api/known-servers", { host: "new.local", port: 8000, fingerprint: F });
+      expect(r.json()).toEqual({ success: true });
+      expect(entries()[0].fingerprint).toBeUndefined();
+    });
+
+    it("a stored route pinned F that proves G is refused with 409 identity_changed naming both; entry unmodified", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0, fingerprint: F, routes: [route("a.local", 8000), route("lab.example.org", 443, "https")] }]);
+      await mkCtx();
+      ctx.answers["a.local:8000"] = { proven: G };
+      const before = JSON.stringify(entries());
+      const r = await operator("POST", "/api/known-servers", { host: "a.local", port: 8000 });
+      expect(r.statusCode).toBe(409);
+      expect(r.json()).toMatchObject({ error: "identity_changed", expected: F, proven: G });
+      expect(JSON.stringify(entries())).toBe(before);
+    });
+
+    it("an unpinned stored route that newly proves an identity held by another entry folds that entry in (backfilled entry survives)", async () => {
+      seed([
+        { host: "a.local", port: 8000, addedAt: T0 },
+        { host: "b.local", port: 8000, label: "B", addedAt: T0, fingerprint: F },
+      ]);
+      await mkCtx();
+      ctx.answers["a.local:8000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "a.local", port: 8000 });
+      expect(r.json()).toEqual({ success: true });
+      expect(entries()).toHaveLength(1);
+      expect(entries()[0]).toMatchObject({ host: "a.local", label: "B", fingerprint: F });
+      expect(routeUrls()).toEqual(["http://a.local:8000", "http://b.local:8000"]);
+    });
+
+    describe("delete", () => {
+      const twoRoutes = {
+        host: "a.local",
+        port: 8000,
+        addedAt: T0,
+        fingerprint: F,
+        routes: [route("a.local", 8000), route("lab.example.org", 443, "https")],
+      };
+
+      it("removes one route and keeps the entry; the last route removes the entry", async () => {
+        seed([twoRoutes]);
+        await mkCtx();
+        let r = await operator("DELETE", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "https" });
+        expect(r.json()).toEqual({ success: true });
+        expect(routeUrls()).toEqual(["http://a.local:8000"]);
+        r = await operator("DELETE", "/api/known-servers", { host: "a.local", port: 8000 });
+        expect(r.json().success).toBe(true);
+        expect(entries()).toEqual([]);
+      });
+
+      it("a scheme names the route: an http delete does not remove the https route of the same port", async () => {
+        seed([{ ...twoRoutes, routes: [route("lab.example.org", 443, "https"), route("lab.example.org", 443, "http")] }]);
+        await mkCtx();
+        await operator("DELETE", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "http" });
+        expect(routeUrls()).toEqual(["https://lab.example.org:443"]);
+      });
+
+      it("{fingerprint} removes the whole entry with all its routes", async () => {
+        seed([twoRoutes, { host: "other.local", port: 8000, addedAt: T0 }]);
+        await mkCtx();
+        const r = await operator("DELETE", "/api/known-servers", { fingerprint: F });
+        expect(r.json()).toEqual({ success: true });
+        expect(entries().map((e) => e.host)).toEqual(["other.local"]);
+      });
+
+      it("an unknown route or fingerprint is idempotent success", async () => {
+        seed([twoRoutes]);
+        await mkCtx();
+        expect((await operator("DELETE", "/api/known-servers", { host: "nope.local", port: 1 })).json().success).toBe(true);
+        expect((await operator("DELETE", "/api/known-servers", { fingerprint: G })).json().success).toBe(true);
+        expect(entries()).toHaveLength(1);
+      });
+
+      it("refuses an invalid scheme", async () => {
+        seed([twoRoutes]);
+        await mkCtx();
+        const r = await operator("DELETE", "/api/known-servers", { host: "a.local", port: 8000, scheme: "ftp" });
+        expect(r.statusCode).toBe(400);
+        expect(r.json().error).toBe("invalid_scheme");
+        expect(entries()).toHaveLength(1);
+      });
+    });
+
+    it("list entries carry routes", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0, fingerprint: F }]);
+      await mkCtx();
+      const op = (await operator("GET", "/api/known-servers")).json();
+      expect(op.data[0].routes).toEqual([route("a.local", 8000)]);
+    });
+  });
+
+  describe("#X7 concurrent adds of one identity", () => {
+    it("two simultaneous adds proving F make one entry with two routes in deterministic order, valid JSON, one attached line", async () => {
+      const logs: string[] = [];
+      await mkCtx({ log: (m) => logs.push(m) });
+      ctx.prove.mockImplementation(async (u: string) => {
+        if (u.includes("b.example")) await sleep(15);
+        return { proven: F };
+      });
+      const rs = await Promise.all([
+        operator("POST", "/api/known-servers", { host: "a.example", port: 8000 }),
+        operator("POST", "/api/known-servers", { host: "b.example", port: 8000 }),
+      ]);
+      expect(rs.map((r) => r.statusCode)).toEqual([200, 200]);
+      const disk = rawConfig().knownServers;
+      expect(disk).toHaveLength(1);
+      expect(disk[0].routes.map((r: { host: string }) => r.host)).toEqual(["a.example", "b.example"]);
+      expect(logs.filter((l) => /route attached/.test(l))).toHaveLength(1);
+    });
+  });
+
+  describe("#X2 scheme and host allowlist before any request", () => {
+    it.each(["ftp", "file", "javascript", "ws", "HTTP", "", null, 5])("scheme %j is refused with 400 invalid_scheme before any request", async (scheme) => {
+      seed([{ host: "keep.local", port: 8000, addedAt: T0 }]);
+      await mkCtx();
+      const before = JSON.stringify(entries());
+      const r = await operator("POST", "/api/known-servers", { host: "lab.example.org", port: 443, scheme });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_scheme");
+      expect(ctx.prove).not.toHaveBeenCalled();
+      expect(ctx.fetchImpl).not.toHaveBeenCalled();
+      expect(JSON.stringify(entries())).toBe(before);
+    });
+
+    it.each(["lab.example.org/x", "a@b", "h:80", "lab.example.org:443"])("host %j is refused before any request", async (host) => {
+      await mkCtx();
+      const r = await operator("POST", "/api/known-servers", { host, port: 443, scheme: "https" });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_host");
+      expect(ctx.prove).not.toHaveBeenCalled();
+      expect(ctx.fetchImpl).not.toHaveBeenCalled();
+      expect(entries()).toEqual([]);
+    });
+
+    it("probe refuses an invalid scheme without contacting the target", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0 }]);
+      await mkCtx();
+      const r = await operator("POST", "/api/known-servers/probe", { host: "a.local", port: 8000, scheme: "ftp" });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_scheme");
+      expect(ctx.lookup).not.toHaveBeenCalled();
+      expect(ctx.fetchImpl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("#X1 bounded add-path challenge toward an operator-supplied host", () => {
+    const addHttps = () => operator("POST", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "https" });
+    const expectStoredUnpinned = () => {
+      expect(entries()).toHaveLength(1);
+      expect(entries()[0].fingerprint).toBeUndefined();
+      expect(routeUrls()).toEqual(["https://lab.example.org:443"]);
+    };
+
+    it("a redirect answer is never followed and stores no fingerprint", async () => {
+      const fetchImpl = vi.fn(async () => new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } }));
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never });
+      const r = await addHttps();
+      expect(r.json()).toEqual({ success: true });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("https://lab.example.org:443/api/pair/challenge");
+      expect(init.redirect).toBe("manual");
+      expectStoredUnpinned();
+    });
+
+    it("a 64 KiB body is refused and stores no fingerprint", async () => {
+      const fetchImpl = vi.fn(async () => new Response("x".repeat(64 * 1024), { status: 200 }));
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never });
+      expect((await addHttps()).json()).toEqual({ success: true });
+      expectStoredUnpinned();
+    });
+
+    it("an endless chunked body is read only up to the 4 KiB cap, then cancelled", async () => {
+      let pulled = 0;
+      let cancelled = false;
+      const fetchImpl = vi.fn(async () => {
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulled += 1024;
+            controller.enqueue(new Uint8Array(1024).fill(120));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        });
+        return new Response(body, { status: 200 });
+      });
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never });
+      expect((await addHttps()).json()).toEqual({ success: true });
+      expect(cancelled).toBe(true);
+      expect(pulled).toBeLessThanOrEqual(4096 + 2048);
+      expectStoredUnpinned();
+    });
+
+    it("an answer inside the timeout pins the identity; one past it stores no fingerprint", async () => {
+      const identity = mkIdentity();
+      const slow = (ms: number) =>
+        vi.fn(async (_u: unknown, init?: RequestInit) => {
+          await sleep(ms);
+          return challengeResponse(identity, init as RequestInit);
+        });
+      // challenge budget 300 ms: 150 ms answers in time, 450 ms does not
+      await mkCtx({ realProve: true, fetchImpl: slow(150) as never, timeouts: { challengeMs: 300, dnsMs: 100, httpMs: 80 } });
+      expect((await addHttps()).json()).toEqual({ success: true });
+      expect(entries()[0].fingerprint).toBe(identity.fingerprint);
+      await operator("DELETE", "/api/known-servers", { fingerprint: identity.fingerprint });
+
+      const t0 = Date.now();
+      await ctx.app.close();
+      apps.splice(apps.indexOf(ctx.app), 1);
+      await mkCtx({ realProve: true, fetchImpl: slow(450) as never, timeouts: { challengeMs: 300, dnsMs: 100, httpMs: 80 } });
+      expect((await addHttps()).json()).toEqual({ success: true });
+      expect(Date.now() - t0).toBeLessThan(450 + 300);
+      expectStoredUnpinned();
+    });
+  });
+
+  describe("#X3 server-side proofs are scheme-aware and bounded", () => {
+    /** Answers the challenge as `identity` over any scheme; everything else as a healthy dashboard. */
+    const serving = (identity: ReturnType<typeof ensureServerIdentity>, only?: (url: string) => boolean) =>
+      vi.fn(async (u: unknown, init?: RequestInit) => {
+        const url = String(u);
+        if (only && !only(url)) throw Object.assign(new Error("unreachable"), { cause: { code: "ECONNREFUSED" } });
+        if (url.endsWith("/api/pair/challenge")) return challengeResponse(identity, init as RequestInit);
+        return new Response(JSON.stringify({ ok: true, pid: 1 }), { status: 200 });
+      });
+    const noTlsOverride = (init: RequestInit) => {
+      expect(init.redirect).toBe("manual");
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      for (const key of ["dispatcher", "agent", "rejectUnauthorized", "tls"]) expect(key in init).toBe(false);
+    };
+
+    it("add: https challenge, redirect manual, 2 s timeout, no TLS override", async () => {
+      const identity = mkIdentity();
+      const fetchImpl = serving(identity);
+      const timeout = vi.spyOn(AbortSignal, "timeout");
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never, timeouts: null });
+      await operator("POST", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "https" });
+      const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("https://lab.example.org:443/api/pair/challenge");
+      noTlsOverride(init);
+      expect(timeout).toHaveBeenCalledWith(2000);
+      expect(entries()[0].fingerprint).toBe(identity.fingerprint);
+    });
+
+    it("probe: https health leg and challenge, then the proven fingerprint is returned and the entry backfilled", async () => {
+      const identity = mkIdentity();
+      seed([{ host: "lab.example.org", port: 443, addedAt: T0, routes: [route("lab.example.org", 443, "https")] }]);
+      const fetchImpl = serving(identity);
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never, timeouts: null });
+      const r = await operator("POST", "/api/known-servers/probe", { host: "lab.example.org", port: 443, scheme: "https" });
+      expect(r.json().data).toEqual({ status: "reachable", scheme: "https", fingerprint: identity.fingerprint });
+      const urls = fetchImpl.mock.calls.map(([u]) => String(u));
+      expect(urls).toContain("https://lab.example.org:443/api/health");
+      expect(urls).toContain("https://lab.example.org:443/api/pair/challenge");
+      expect(urls.every((u) => u.startsWith("https://"))).toBe(true);
+      for (const [, init] of fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>) noTlsOverride(init);
+      expect(entries()[0].fingerprint).toBe(identity.fingerprint);
+    });
+
+    it("probe: a certificate failure is 'error' with no fingerprint and no pin", async () => {
+      seed([{ host: "lab.example.org", port: 443, addedAt: T0, routes: [route("lab.example.org", 443, "https")] }]);
+      const fetchImpl = vi.fn(async () => {
+        throw Object.assign(new TypeError("fetch failed"), { cause: { code: "DEPTH_ZERO_SELF_SIGNED_CERT" } });
+      });
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never, timeouts: null });
+      const r = await operator("POST", "/api/known-servers/probe", { host: "lab.example.org", port: 443, scheme: "https" });
+      expect(r.json().data).toEqual({ status: "error", scheme: "https" });
+      expect(entries()[0].fingerprint).toBeUndefined();
+    });
+
+    it("accept-move: the stored primary route is re-proved in its own scheme, the suggested peer over http", async () => {
+      const identity = mkIdentity();
+      seed([{ host: "lab.example.org", port: 443, addedAt: T0, fingerprint: identity.fingerprint, routes: [route("lab.example.org", 443, "https")] }]);
+      const fetchImpl = serving(identity, (u) => u.startsWith("http://192.168.16.220:8000"));
+      await mkCtx({ realProve: true, fetchImpl: fetchImpl as never, timeouts: null });
+      ctx.suggest.current = { host: "192.168.16.220", port: 8000 };
+      const r = await operator("POST", "/api/known-servers/accept-move", { host: "lab.example.org", port: 443 });
+      expect(r.json().success).toBe(true);
+      const urls = fetchImpl.mock.calls.map(([u]) => String(u));
+      expect(urls).toEqual(["https://lab.example.org:443/api/pair/challenge", "http://192.168.16.220:8000/api/pair/challenge"]);
+      for (const [, init] of fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>) noTlsOverride(init);
+      expect(routeUrls()).toEqual(["http://192.168.16.220:8000"]);
+    });
+  });
+
+  describe("#X9 probe bounds (routes)", () => {
+    it("a stored https route is probed over https; a route that is not stored is refused without contact; the scheme defaults to http", async () => {
+      seed([{ host: "lab.example.org", port: 443, addedAt: T0, routes: [route("lab.example.org", 443, "https")] }]);
+      await mkCtx();
+      ctx.answers["https://lab.example.org:443"] = { proven: F };
+      const ok = await operator("POST", "/api/known-servers/probe", { host: "lab.example.org", port: 443, scheme: "https" });
+      expect(ok.json().data).toEqual({ status: "reachable", scheme: "https", fingerprint: F });
+      expect(String(ctx.fetchImpl.mock.calls[0][0])).toBe("https://lab.example.org:443/api/health");
+      ctx.fetchImpl.mockClear();
+      ctx.lookup.mockClear();
+      const refused = await operator("POST", "/api/known-servers/probe", { host: "lab.example.org", port: 443 });
+      expect(refused.statusCode).toBe(403);
+      expect(ctx.fetchImpl).not.toHaveBeenCalled();
+      expect(ctx.lookup).not.toHaveBeenCalled();
+    });
+
+    it("a probed route's own challenge fingerprint is returned for an already pinned entry and logged once", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0, fingerprint: F }]);
+      const logs: string[] = [];
+      await mkCtx({ log: (m) => logs.push(m) });
+      ctx.answers["a.local:8000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers/probe", { host: "a.local", port: 8000 });
+      expect(r.json().data).toEqual({ status: "reachable", scheme: "http", fingerprint: F });
+      expect(logs.filter((l) => /probe proved/.test(l))).toHaveLength(1);
+    });
+
+    it("an unreachable route returns no fingerprint and makes no challenge", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0 }]);
+      await mkCtx();
+      ctx.fetchImpl.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "http://x/" } }));
+      const r = await operator("POST", "/api/known-servers/probe", { host: "a.local", port: 8000 });
+      expect(r.json().data).toEqual({ status: "error", scheme: "http" });
+      expect(ctx.prove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("#X8 accept-move rewrites only the primary route", () => {
+    it("other routes, label, fingerprint and addedAt survive; one log line names old and new address", async () => {
+      const entry = {
+        host: "old.local",
+        port: 8000,
+        label: "iMac",
+        addedAt: T0,
+        fingerprint: F,
+        routes: [route("old.local", 8000), route("tunnel.example.org", 443, "https", "pairing")],
+      };
+      seed([entry]);
+      const logs: string[] = [];
+      await mkCtx({ log: (m) => logs.push(m) });
+      ctx.suggest.current = { host: "192.168.16.220", port: 8000 };
+      ctx.answers["192.168.16.220:8000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers/accept-move", { host: "old.local", port: 8000 });
+      expect(r.json().success).toBe(true);
+      expect(entries()[0]).toMatchObject({ host: "192.168.16.220", port: 8000, label: "iMac", addedAt: T0, fingerprint: F });
+      expect(entries()[0].routes).toEqual([route("192.168.16.220", 8000), route("tunnel.example.org", 443, "https", "pairing")]);
+      const moved = logs.filter((l) => /moved/.test(l));
+      expect(moved).toHaveLength(1);
+      expect(moved[0]).toContain("old.local:8000");
+      expect(moved[0]).toContain("192.168.16.220:8000");
+    });
+
+    it("a suggested address already held as another route is not duplicated", async () => {
+      seed([{ host: "old.local", port: 8000, addedAt: T0, fingerprint: F, routes: [route("old.local", 8000), route("192.168.16.220", 8000)] }]);
+      await mkCtx();
+      ctx.suggest.current = { host: "192.168.16.220", port: 8000 };
+      ctx.answers["192.168.16.220:8000"] = { proven: F };
+      await operator("POST", "/api/known-servers/accept-move", { host: "old.local", port: 8000 });
+      expect(routeUrls()).toEqual(["http://192.168.16.220:8000"]);
+    });
+  });
+
+  describe("#X13 route log lines carry no secrets", () => {
+    const SENTINELS = ["BEARER-ZZ9", "48217730", "PAIR-ZZ9", "pi:pair:v1.ZZ9"];
+
+    it("attached, refused, first-write and probe lines: one each, short fingerprint, host:port, no sentinel or full fingerprint", async () => {
+      // a file still in the previous shape, so the first write is the migration
+      fs.writeFileSync(
+        path.join(home, ".pi", "dashboard", "config.json"),
+        JSON.stringify({ knownServers: [{ host: "a.local", port: 8000, addedAt: T0, fingerprint: FULL_F }] }),
+      );
+      const logs: string[] = [];
+      const consoleLines: string[] = [];
+      for (const level of ["log", "info", "warn", "error"] as const) {
+        vi.spyOn(console, level).mockImplementation((...a: unknown[]) => void consoleLines.push(a.join(" ")));
+      }
+      await mkCtx({ log: (m) => logs.push(m) });
+      const secretBody = { bearer: SENTINELS[0], confirmCode: SENTINELS[1], code: SENTINELS[2], payload: SENTINELS[3] };
+
+      ctx.answers["b.local:8000"] = { proven: FULL_F };
+      await operator("POST", "/api/known-servers", { host: "b.local", port: 8000, label: SENTINELS[0], ...secretBody });
+      ctx.answers["a.local:8000"] = { proven: FULL_G };
+      const refused = await operator("POST", "/api/known-servers", { host: "a.local", port: 8000, ...secretBody });
+      expect(refused.statusCode).toBe(409);
+      ctx.answers["b.local:8000"] = { proven: FULL_F };
+      await operator("POST", "/api/known-servers/probe", { host: "b.local", port: 8000 });
+
+      const all = [...logs, ...consoleLines];
+      const only = (re: RegExp) => all.filter((l) => re.test(l));
+      expect(only(/route attached/)).toHaveLength(1);
+      expect(only(/route refused/)).toHaveLength(1);
+      expect(only(/first written in routes shape/)).toHaveLength(1);
+      expect(only(/probe proved/)).toHaveLength(1);
+      const short = (fp: string) => fp.slice(0, "sha256:".length + 16);
+      expect(only(/route attached/)[0]).toContain(short(FULL_F));
+      expect(only(/route attached/)[0]).toContain("b.local:8000");
+      expect(only(/route refused/)[0]).toContain(short(FULL_F));
+      expect(only(/route refused/)[0]).toContain(short(FULL_G));
+      expect(only(/route refused/)[0]).toContain("a.local:8000");
+      expect(only(/probe proved/)[0]).toContain(short(FULL_F));
+      for (const line of all) {
+        for (const secret of SENTINELS) expect(line).not.toContain(secret);
+        expect(line).not.toContain("A".repeat(17));
+        expect(line).not.toContain("B".repeat(17));
+      }
+    });
+  });
+
+  describe("#E11 first write in routes shape", () => {
+    it("logs exactly one 'first written in routes shape' line over two writes, and the file ends in routes shape", async () => {
+      fs.writeFileSync(
+        path.join(home, ".pi", "dashboard", "config.json"),
+        JSON.stringify({ knownServers: [{ host: "a.local", port: 8000, addedAt: T0 }] }),
+      );
+      const before = fs.readFileSync(path.join(home, ".pi", "dashboard", "config.json"), "utf-8");
+      const logs: string[] = [];
+      await mkCtx({ log: (m) => logs.push(m) });
+      expect(await operator("GET", "/api/known-servers")).toBeTruthy(); // a read never rewrites
+      expect(fs.readFileSync(path.join(home, ".pi", "dashboard", "config.json"), "utf-8")).toBe(before);
+      await operator("POST", "/api/known-servers", { host: "b.local", port: 8000 });
+      await operator("POST", "/api/known-servers", { host: "c.local", port: 8000 });
+      expect(logs.filter((l) => /first written in routes shape/.test(l))).toHaveLength(1);
+      expect(rawConfig().knownServers.every((e: { routes?: unknown[] }) => Array.isArray(e.routes) && e.routes.length > 0)).toBe(true);
     });
   });
 

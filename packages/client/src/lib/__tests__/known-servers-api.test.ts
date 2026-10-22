@@ -4,7 +4,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../api/api-context.js";
-import { acceptKnownServerMove, addKnownServer, listKnownServersWithAccess, probeKnownServer } from "../api/known-servers-api.js";
+import {
+  acceptKnownServerMove,
+  addKnownServer,
+  listKnownServersWithAccess,
+  probeKnownServer,
+  probeKnownServerResult,
+  removeKnownServer,
+  removeKnownServerByFingerprint,
+} from "../api/known-servers-api.js";
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch as unknown as typeof fetch;
@@ -69,5 +77,51 @@ describe("list / add", () => {
     mockFetch.mockResolvedValueOnce(json({ success: true, data: { updated: true } }));
     expect(await addKnownServer("a", 1, "L", "sha256:x")).toEqual({ updated: true });
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ host: "a", port: 1, label: "L", fingerprint: "sha256:x" });
+  });
+});
+
+// See change: group-servers-by-identity (task 5.3, design D6).
+describe("routes: scheme, remove by route / fingerprint, probe with fingerprint", () => {
+  it("add sends the scheme only when given (default http stays implicit)", async () => {
+    mockFetch.mockResolvedValue(json({ success: true, data: {} }));
+    await addKnownServer("lab.example.org", 443, undefined, undefined, "https");
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ host: "lab.example.org", port: 443, scheme: "https" });
+    await addKnownServer("a", 1);
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ host: "a", port: 1 });
+  });
+
+  it("add without a refusal 409 already_known: success with updated:true is reported, not thrown", async () => {
+    mockFetch.mockResolvedValueOnce(json({ success: true, data: { updated: true } }));
+    expect(await addKnownServer("b", 2)).toEqual({ updated: true });
+  });
+
+  it("remove deletes one route (host, port, scheme) or a whole entry by fingerprint", async () => {
+    mockFetch.mockResolvedValue(json({ success: true }));
+    await removeKnownServer("a", 1, "https");
+    expect(mockFetch.mock.calls[0][1].method).toBe("DELETE");
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ host: "a", port: 1, scheme: "https" });
+    await removeKnownServer("a", 1);
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ host: "a", port: 1 });
+    await removeKnownServerByFingerprint("sha256:x");
+    expect(JSON.parse(mockFetch.mock.calls[2][1].body)).toEqual({ fingerprint: "sha256:x" });
+  });
+
+  it("a failed remove throws", async () => {
+    mockFetch.mockResolvedValueOnce(json({ success: false, error: "operator credential required" }, 401));
+    await expect(removeKnownServer("a", 1)).rejects.toThrow("HTTP 401");
+  });
+
+  it("probe forwards the scheme and the full result carries the proven fingerprint", async () => {
+    mockFetch.mockResolvedValueOnce(json({ success: true, data: { status: "reachable", scheme: "https", fingerprint: "sha256:x" } }));
+    expect(await probeKnownServerResult("a.example", 443, "https")).toEqual({ status: "reachable", scheme: "https", fingerprint: "sha256:x" });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ host: "a.example", port: 443, scheme: "https" });
+    expect(await probeKnownServerResult("a.example", 443).catch(() => "threw")).toBeNull();
+  });
+
+  it("probeKnownServerResult is null on refusal and transport failure", async () => {
+    mockFetch.mockResolvedValueOnce(json({ success: false, error: "no" }, 403));
+    expect(await probeKnownServerResult("a", 1)).toBeNull();
+    mockFetch.mockRejectedValueOnce(new Error("down"));
+    expect(await probeKnownServerResult("a", 1)).toBeNull();
   });
 });

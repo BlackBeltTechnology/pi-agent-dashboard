@@ -126,6 +126,8 @@ interface Rig {
   logs: string[];
   resume: Array<() => void>;
   startPairing: ReturnType<typeof vi.fn>;
+  startCodePairing: ReturnType<typeof vi.fn>;
+  codeSessions: Array<{ submitCode: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; resolve: (r: unknown) => void }>;
 }
 
 let dir: string;
@@ -152,6 +154,14 @@ function makeRig(opts: { encrypt?: boolean } = {}): Rig {
   const adverts: Rig["adverts"] = [];
   const discovered: DiscoveredEntry[] = [];
   const startPairing = vi.fn((_target: unknown, _deps: unknown) => ({ send: vi.fn(), stop: vi.fn(), done: new Promise<never>(() => {}) }));
+  const codeSessions: Rig["codeSessions"] = [];
+  const startCodePairing = vi.fn((_target: unknown, _deps: unknown) => {
+    let resolve!: (r: unknown) => void;
+    const done = new Promise<unknown>((r) => (resolve = r));
+    const cs = { submitCode: vi.fn(), stop: vi.fn(), resolve };
+    codeSessions.push(cs);
+    return { submitCode: cs.submitCode, stop: cs.stop, done };
+  });
   const ports: ServerWindowPorts = {
     createWindow: (options) => {
       const ses = sessions.get(options.webPreferences.partition) ?? new FakeSession();
@@ -191,8 +201,9 @@ function makeRig(opts: { encrypt?: boolean } = {}): Rig {
     prove,
     log: (l) => logs.push(l),
     startPairing: startPairing as never,
+    startCodePairing: startCodePairing as never,
   });
-  return { keyring, sw, windows, sessions, prove, provenBy, external, notices, askNeedsPairing, connectingOpened, adverts, discovered, bounds, logs, resume, startPairing };
+  return { keyring, sw, windows, sessions, prove, provenBy, external, notices, askNeedsPairing, connectingOpened, adverts, discovered, bounds, logs, resume, startPairing, startCodePairing, codeSessions };
 }
 
 const pairHome = (r: Rig) =>
@@ -382,7 +393,7 @@ describe("host selection and identity at open", () => {
     const p = rig.sw.open(F);
     await vi.advanceTimersByTimeAsync(5000);
     expect(await p).toEqual({ ok: true });
-    expect(rig.keyring.get(F)!.lastHosts[0]).toEqual({ scheme: "http", host: "192.168.16.77", port: 8000 });
+    expect(rig.keyring.get(F)!.lastHosts[0]).toEqual({ scheme: "http", host: "192.168.16.77", port: 8000, source: "mdns" }); // source recorded (group-servers-by-identity)
     expect(win(rig).loaded).toEqual(["http://192.168.16.77:8000/"]);
   });
 
@@ -802,5 +813,83 @@ describe("observability without secrets (X12)", () => {
     expect(outcome.some((l) => l.includes("identity mismatch at open"))).toBe(true);
     for (const l of outcome) expect(l, l).toMatch(/sha256:[A-Za-z0-9_-]{16}\b/);
     expect(lines.filter((l) => l.includes("set aside"))).toHaveLength(1);
+  });
+});
+
+// ── group-servers-by-identity: in-app code pairing hand-off + host source (D8; task 8.3, 8.4) ──
+
+describe("pairWithCode / submitCode (#X11, #F14 logic half)", () => {
+  it("#X11: opens the Connecting window in code mode for the pinned fingerprint; the label comes from the keyring", async () => {
+    expect(await rig.sw.pairWithCode(F)).toEqual({ ok: true, pairing: true });
+    expect(rig.connectingOpened[0]).toMatchObject({ mode: "code", phase: "code", label: "home-imac" });
+    expect(rig.startCodePairing.mock.calls[0]![0]).toMatchObject({ fingerprint: F, label: "home-imac", deviceName: "my-mac" });
+    expect(rig.windows).toHaveLength(0);
+  });
+
+  it("#X11: an unpaired fingerprint is labelled from discovery, else by its short fingerprint; nothing else is accepted from the page", async () => {
+    rig.discovered.push({ key: "k", name: "build-box", host: "10.0.0.9", port: 8000, addresses: [], fingerprint: G, state: "not-paired" });
+    await rig.sw.pairWithCode(G);
+    expect(rig.startCodePairing.mock.calls.at(-1)![0]).toMatchObject({ fingerprint: G, label: "build-box" });
+    const H = `sha256:${"C".repeat(43)}`;
+    await rig.sw.pairWithCode(H);
+    expect(rig.startCodePairing.mock.calls.at(-1)![0]).toMatchObject({ fingerprint: H, label: expect.stringContaining("sha256:CCCCCCCCCCCCCCCC") });
+  });
+
+  it("#X11: submitCode reaches the active code session only", async () => {
+    rig.sw.submitCode("pi:pair:v1.ZZ9"); // no session: ignored
+    await rig.sw.pairWithCode(F);
+    rig.sw.submitCode("pi:pair:v1.ZZ9");
+    expect(rig.codeSessions[0]!.submitCode).toHaveBeenCalledWith("pi:pair:v1.ZZ9");
+  });
+
+  it("#X11: approval closes the Connecting window and opens the server window; no browser window is opened", async () => {
+    await rig.sw.pairWithCode(F);
+    rig.codeSessions[0]!.resolve({ status: "approved", fingerprint: F });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(rig.external).toEqual([]);
+    expect(rig.windows).toHaveLength(1);
+  });
+
+  it("Pair again in code mode asks for a fresh paste; a new pairing supersedes the old session", async () => {
+    await rig.sw.pairWithCode(F);
+    rig.sw.retryPairing();
+    expect(rig.startCodePairing).toHaveBeenCalledTimes(2);
+    expect(rig.codeSessions[0]!.stop).toHaveBeenCalled();
+    await rig.sw.connectDiscovered("nope"); // unknown: no effect
+    rig.sw.stopWaiting();
+    expect(rig.codeSessions[1]!.stop).toHaveBeenCalled();
+  });
+
+  it("a knock started while a code session is active stops it, and sendRequest does not reach the code session", async () => {
+    await rig.sw.pairWithCode(F);
+    rig.discovered.push({ key: "lab-box", name: "lab-box", host: "10.0.0.9", port: 8000, addresses: [], fingerprint: G, state: "not-paired" });
+    await rig.sw.connectDiscovered("lab-box");
+    expect(rig.codeSessions[0]!.stop).toHaveBeenCalled();
+    rig.sw.sendRequest("x");
+    expect(rig.codeSessions[0]!.submitCode).not.toHaveBeenCalled();
+  });
+});
+
+describe("pairing targets record how the host was learned (#X15)", () => {
+  it("a discovered server is source mdns; a manual address is source saved; a re-pair at a fresh advert is mdns", async () => {
+    rig.discovered.push({ key: "lab-box", name: "lab-box", host: "10.0.0.9", port: 8000, addresses: [], fingerprint: G, state: "not-paired" });
+    await rig.sw.connectDiscovered("lab-box");
+    expect(rig.startPairing.mock.calls.at(-1)![0]).toMatchObject({ source: "mdns" });
+    await rig.sw.connectManual("https://dash.example.lan:8443/x");
+    expect(rig.startPairing.mock.calls.at(-1)![0]).toMatchObject({ source: "saved" });
+    rig.keyring.markNeedsPairing(F);
+    rig.adverts.push({ host: "192.168.16.77", port: 8000, fingerprint: F });
+    await rig.sw.open(F);
+    expect(rig.startPairing.mock.calls.at(-1)![0]).toMatchObject({ source: "mdns" });
+  });
+
+  it("a healed discovered host is recorded as mdns", async () => {
+    rig.provenBy.clear();
+    rig.adverts.push({ host: "192.168.16.77", port: 8000, fingerprint: F });
+    rig.provenBy.set("http://192.168.16.77:8000", F);
+    const p = rig.sw.open(F);
+    await vi.advanceTimersByTimeAsync(5000);
+    await p;
+    expect(rig.keyring.get(F)!.lastHosts[0]).toMatchObject({ host: "192.168.16.77", source: "mdns" });
   });
 });

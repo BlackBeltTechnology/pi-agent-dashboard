@@ -1,15 +1,26 @@
 import type { Page } from "@playwright/test";
 import type { UiState } from "../../helpers/ui-capture.js";
+import { identity, stubHosts } from "./server-selector.js";
 import { fail, hold, ok, settingsSection, stubApi } from "./stubs.js";
 
 /**
- * Settings ▸ Remote Servers ▸ Network Discovery states, reached by stubbing
- * `POST /api/discover-servers` (and the known-servers list the section compares
- * against). See change: retro-ux-identity-connectivity.
+ * Settings ▸ Remote Servers ▸ Servers, the network-discovery source of the merged list: the scan button,
+ * its live region and error, the empty-result diagnostic with the manual-add form, and scan results joining
+ * identity cards (new, already added, updated, adding). Reached by stubbing `POST /api/discover-servers`,
+ * the known-servers list the section compares against and every address's identity challenge.
+ * See change: retro-ux-identity-connectivity; group-servers-by-identity (merged into the Servers section).
  */
 
+const fp = (name: string) => identity(name).fingerprint;
 const KNOWN = [
-  { host: "office-mac.local", port: 8000, label: "office-mac", addedAt: "2026-01-01T00:00:00Z", fingerprint: "sha256:aa" },
+  {
+    host: "office-mac.local",
+    port: 8000,
+    label: "office-mac",
+    addedAt: "2026-01-01T00:00:00Z",
+    fingerprint: fp("office-mac"),
+    routes: [{ host: "office-mac.local", port: 8000, scheme: "http", source: "saved" }],
+  },
 ];
 const found = (host: string, extra: Record<string, unknown> = {}) => ({
   host,
@@ -22,17 +33,18 @@ const found = (host: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 const DISCOVERED = [
-  found("office-mac.local", { name: "office-mac", fingerprint: "sha256:aa" }),
-  found("lab-mini.local", { name: "lab-mini", fingerprint: "sha256:dd" }),
-  found("mac-studio.local", { name: "mac-studio", isLocal: true, fingerprint: "sha256:ee" }),
+  found("office-mac.local", { name: "office-mac", fingerprint: fp("office-mac") }),
+  found("lab-mini.local", { name: "lab-mini", fingerprint: fp("lab-mini") }),
+  found("mac-studio.local", { name: "mac-studio", isLocal: true, fingerprint: fp("mac-studio") }),
 ];
 
-const section = (page: Page) => settingsSection(page, "Network Discovery");
+const section = (page: Page) => settingsSection(page, "Servers");
 
 const install = (discover: Parameters<typeof stubApi>[2], addUpdated = false) => async (page: Page) => {
   await stubApi(page, "/api/known-servers", (route) => ok(route, KNOWN, { canManage: true }), "GET");
   await stubApi(page, "/api/known-servers", (route) => ok(route, { updated: addUpdated }), "POST");
   await stubApi(page, "/api/discover-servers", discover, "POST");
+  await stubHosts(page, "mixed");
 };
 
 async function gotoRemote(page: Page): Promise<void> {
@@ -92,9 +104,9 @@ export const discoveryStates: UiState[] = [
     install: install((route) => ok(route, [])),
     open: async (page) => {
       await scan(page);
-      await section(page).getByLabel("Address").fill("[::1");
-      await section(page).getByRole("button", { name: "Add", exact: true }).click();
-      await section(page).getByLabel("Address").and(page.locator('[aria-invalid="true"]')).waitFor();
+      await section(page).getByLabel("Address", { exact: true }).fill("[::1");
+      await section(page).getByRole("button", { name: "Add server", exact: true }).click();
+      await section(page).getByLabel("Address", { exact: true }).and(page.locator('[aria-invalid="true"]')).waitFor();
     },
   },
   {
@@ -105,6 +117,7 @@ export const discoveryStates: UiState[] = [
     open: async (page) => {
       await scan(page);
       await section(page).getByText("Already added").waitFor();
+      await section(page).getByText("Checking…").first().waitFor({ state: "detached" });
     },
   },
   {

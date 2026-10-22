@@ -15,7 +15,11 @@
  * Electron is injected (`ipcMain` shape + trusted-window source), so this module
  * is unit-tested without Electron (`__tests__/servers-ipc.test.ts`).
  *
- * See change: add-electron-server-windows (D9).
+ * `servers:list` (main window included) and `servers:pair-with-code` (main window only) back the
+ * dashboard page's `piDashboard.listServers` / `piDashboard.pairWithCode` bridges; the pasted
+ * pairing text travels only on `servers:submit-code` from the connecting window.
+ *
+ * See change: add-electron-server-windows (D9), group-servers-by-identity (D8, D9).
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -154,6 +158,9 @@ export interface ServersIpcDeps {
   log: (line: string) => void;
 }
 
+/** A pasted pairing text is a few hundred bytes; the cap bounds a hostile renderer. */
+const MAX_CODE_TEXT_CHARS = 16_384;
+
 const REFUSED = { ok: false as const, reason: "untrusted" as const };
 
 export interface ServersIpc {
@@ -238,6 +245,28 @@ export function registerServersIpc(deps: ServersIpcDeps): ServersIpc {
       const hp = validHostPort(p?.host, p?.port);
       if (!hp) return { ok: false, reason: "invalid" };
       return serverWindows.openByHostPort(hp.host, hp.port);
+    }),
+  );
+
+  // From the (local) main window: start the in-app "Pair with code" for a pinned fingerprint.
+  // The pasted text is NEVER accepted here — it is typed into the connecting window.
+  ipcMain.handle(
+    "servers:pair-with-code",
+    guarded("servers:pair-with-code", ["main"], async (_k, payload: unknown): Promise<OpenResult> => {
+      const fp = obj(payload)?.fingerprint;
+      if (!isFingerprint(fp)) return { ok: false, reason: "invalid" };
+      return serverWindows.pairWithCode(fp);
+    }),
+  );
+
+  // Connecting window only: the pasted pairing text (bounded; never logged).
+  ipcMain.handle(
+    "servers:submit-code",
+    guarded("servers:submit-code", ["connecting"], (_k, payload: unknown) => {
+      const text = obj(payload)?.text;
+      if (typeof text !== "string" || text.length === 0 || text.length > MAX_CODE_TEXT_CHARS) return { ok: false };
+      serverWindows.submitCode(text);
+      return { ok: true };
     }),
   );
 

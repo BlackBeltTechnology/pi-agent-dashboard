@@ -36,16 +36,19 @@ export function parseAddress(input: string): Address | null {
 export const sameAddress = (a: Address, b: Address): boolean =>
   a.host.trim().toLowerCase() === b.host.trim().toLowerCase() && a.port === b.port;
 
+/** An entry matches when the address is its primary address OR any of its routes (any scheme). */
 export const findKnown = (list: readonly KnownServerListEntry[], addr: Address): KnownServerListEntry | undefined =>
-  list.find((e) => sameAddress(e, addr));
+  list.find((e) => sameAddress(e, addr) || (e.routes ?? []).some((r) => sameAddress(r, addr)));
 
 export type AddOutcome =
-  /** Already a known server — used as-is, nothing posted. */
+  /**
+   * Already a known server — used as-is. Nothing posted, or the add attached the typed
+   * address as a NEW route of an identity that was already listed (`data.updated`):
+   * either way the typed address is the target and the wizard created no entry.
+   */
   | { kind: "known"; address: Address }
   /** Added by this run — offer Remove if the probe fails. */
   | { kind: "created"; address: Address }
-  /** The same server is already known under another address — use that entry. */
-  | { kind: "known-elsewhere"; address: Address }
   /** The server at the address is not the one pinned — the task stops. */
   | { kind: "identity-changed" }
   | { kind: "refused" }
@@ -55,16 +58,16 @@ export type AddOutcome =
 export async function ensureKnown(addr: Address, known: readonly KnownServerListEntry[]): Promise<AddOutcome> {
   if (findKnown(known, addr)) return { kind: "known", address: addr };
   try {
-    const { res, json } = await fetchJsonResponse<{ success?: boolean; error?: string; host?: string; port?: number }>(
+    const { res, json } = await fetchJsonResponse<{ success?: boolean; error?: string; data?: { updated?: boolean } }>(
       `${getApiBase()}/api/known-servers`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(addr) },
     );
-    if (res.ok && json.success !== false) return { kind: "created", address: addr };
+    if (res.ok && json.success !== false) {
+      // `updated`: the add attached this address to an identity already listed (no `already_known` any more).
+      return json.data?.updated === true ? { kind: "known", address: addr } : { kind: "created", address: addr };
+    }
     if (res.status === 401 || res.status === 403) return { kind: "refused" };
     if (json.error === "identity_changed") return { kind: "identity-changed" };
-    if (json.error === "already_known" && typeof json.host === "string" && typeof json.port === "number") {
-      return { kind: "known-elsewhere", address: { host: json.host, port: json.port } };
-    }
     return { kind: "failed", message: json.error ?? `HTTP ${res.status}` };
   } catch (e) {
     return { kind: "failed", message: e instanceof Error ? e.message : "request failed" };

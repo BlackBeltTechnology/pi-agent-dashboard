@@ -81,7 +81,6 @@ import { useShowPluginInternals } from "../../lib/state/plugin-internals-pref.js
 import { randomUuid } from "../../lib/util/random-uuid.js";
 import { callout } from "../connectivity/connectivity-ui.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
-import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
 import { PasskeyImpactNote } from "../connectivity/PasskeyImpactNote.js";
 import { UsersSection } from "../connectivity/UsersSection.js";
@@ -3741,32 +3740,13 @@ function TrustedNetworksSection({
   );
 }
 
+/** One merged "Servers" section: saved + discovered servers by identity (see change: group-servers-by-identity). */
 function ServersTab() {
   const { t } = useI18n();
-  const [knownServers, setKnownServers] = useState<import("@blackbelt-technology/pi-dashboard-shared/config.js").KnownServer[]>([]);
-  const [loadCount, setLoadCount] = useState(0);
-
-  const reload = useCallback(async () => {
-    try {
-      const data = await listKnownServers();
-      setKnownServers(data);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => { void reload().catch(logRejection("SettingsPanel.knownServers.reload")); }, [reload, loadCount]);
-
   return (
-    <>
-      <Section title={t("settings.knownServers", undefined, "Known Servers")}>
-        <KnownServersSection onChange={() => setLoadCount((c) => c + 1)} />
-      </Section>
-      <Section title={t("settings.networkDiscovery", undefined, "Network Discovery")}>
-        <NetworkDiscoverySection
-          knownServers={knownServers}
-          onServerAdded={() => setLoadCount((c) => c + 1)}
-        />
-      </Section>
-    </>
+    <Section title={t("settings.servers", undefined, "Servers")}>
+      <KnownServersSection />
+    </Section>
   );
 }
 
