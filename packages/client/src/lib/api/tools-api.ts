@@ -97,6 +97,7 @@ export async function downloadDiagnostics(
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+  // client-sinks: allow — same-origin blob: object URL for a download
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; require-trusted-types-for 'script'">
   <title>PI Dashboard Doctor</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -63,6 +64,13 @@
   <div id="content"><div class="empty">Loading…</div></div>
 
 <script>
+  // Trusted Types (enforced by this page's meta CSP): one page-local policy for
+  // the markup this page builds itself from escapeHtml()-escaped data. Registered
+  // before any sink runs. See change: harden-client-sinks (9.2).
+  const pagePolicy = window.trustedTypes
+    ? window.trustedTypes.createPolicy("pi-doctor-page", { createHTML: (s) => s })
+    : { createHTML: (s) => s };
+
   // Type-only contract is shared via DoctorBridge in src/lib/doctor-bridge-contract.ts.
   // The renderer cannot import TS at runtime, so the channel set is duplicated here.
   // The lint test (packages/electron/src/__tests__/doctor-window.test.ts) asserts
@@ -92,7 +100,9 @@
     // Render the small Markdown subset: **bold**, single-backtick code, [text](url)
     let out = escapeHtml(s);
     // links
-    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) => `<a href="${u}" target="_blank" rel="noopener">${t}</a>`);
+    // Only http(s) links become anchors; anything else stays text.
+    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) =>
+      /^https?:\/\//i.test(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : t);
     // bold
     out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     // code (single backtick)
@@ -108,8 +118,8 @@
 
   function buildHtml(report) {
     const { ok, warnings, errors } = report.summary;
-    document.getElementById("summary").innerHTML =
-      `<span class="ok">${ok} ok</span> · <span class="warn">${warnings} warning(s)</span> · <span class="err">${errors} error(s)</span>`;
+    document.getElementById("summary").innerHTML = pagePolicy.createHTML(
+      `<span class="ok">${Number(ok)} ok</span> · <span class="warn">${Number(warnings)} warning(s)</span> · <span class="err">${Number(errors)} error(s)</span>`);
     if (report.generatedAt) {
       document.getElementById("gen-at").textContent = new Date(report.generatedAt).toLocaleString();
     }
@@ -143,13 +153,13 @@
           </table>
         </div>`;
     });
-    content.innerHTML = sections.filter(Boolean).join("") || `<div class="empty">No checks reported.</div>`;
+    content.innerHTML = pagePolicy.createHTML(sections.filter(Boolean).join("") || `<div class="empty">No checks reported.</div>`);
   }
 
   function showFallback(err) {
     document.getElementById("summary").textContent = "0 ok · 0 warning(s) · 1 error(s)";
     const msg = (err && err.message) || String(err) || "Unknown error";
-    document.getElementById("content").innerHTML = `
+    document.getElementById("content").innerHTML = pagePolicy.createHTML(`
       <div class="section">
         <h2>Diagnostics</h2>
         <table>
@@ -164,7 +174,7 @@
             </tr>
           </tbody>
         </table>
-      </div>`;
+      </div>`);
   }
 
   function showToast(text, kind) {

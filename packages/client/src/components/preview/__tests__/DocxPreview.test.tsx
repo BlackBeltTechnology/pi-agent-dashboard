@@ -171,3 +171,17 @@ describe("AsciiDoc diagram hydration (test-plan #E14, #F5)", () => {
   });
 });
 
+
+// harden-client-sinks (test-plan #E22): server DOCX HTML is re-sanitized client-side.
+describe("DocxPreview client re-sanitize (#E22)", () => {
+  it("drops an onerror handler from server DOCX HTML, keeps the legitimate content", async () => {
+    mockFetch({
+      success: true,
+      data: { mode: "html", html: "<p>Hello docx body</p><img src=x onerror=f()>", truncated: false, imageCount: 1 },
+    });
+    const { container } = render(<DocxPreview target={target} />);
+    await screen.findByText("Hello docx body");
+    expect(container.querySelector("[onerror]")).toBeNull();
+    expect(container.innerHTML).not.toMatch(/onerror/i);
+  });
+});

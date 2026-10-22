@@ -67,7 +67,7 @@ describe("TabActions — url tab (F11)", () => {
     renderActions(<TabActions target={urlTarget} systemOpen={false} />);
     const btn = screen.getByTestId("tab-open-in-browser");
     fireEvent.click(btn);
-    expect(openSpy).toHaveBeenCalledWith("https://example.com/a", "_blank");
+    expect(openSpy).toHaveBeenCalledWith("https://example.com/a", "_blank", "noopener,noreferrer");
     // No file actions for a url tab.
     expect(screen.queryByTestId("tab-open-in-app")).toBeNull();
   });

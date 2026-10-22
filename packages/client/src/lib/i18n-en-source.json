@@ -1390,5 +1390,6 @@
   "sessionList.filtersLabel": "Filters, {count} on",
   "sessionList.clearFolderFilter": "Clear folder filter",
   "sessionList.clearSessionSearch": "Clear session search",
-  "connection.offlineWord": "Offline"
+  "connection.offlineWord": "Offline",
+  "nav.linkBlocked": "Link blocked: this address is not allowed to open."
 }

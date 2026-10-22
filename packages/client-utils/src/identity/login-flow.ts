@@ -25,6 +25,7 @@
  * (B4/LG-19): a plain bearer is stored, no key is persisted across the redirect.
  */
 
+import { classifyUrl } from "@blackbelt-technology/pi-dashboard-shared/url-policy.js";
 import { buildAuthorizeRequest, exchangeCode, type OidcClientConfig } from "./oidc-flow.js";
 import { clearAccessToken, getIdToken, setAccessToken, setIdToken } from "./token-store.js";
 
@@ -74,6 +75,29 @@ export class LoginFlowError extends Error {
   }
 }
 
+/**
+ * Discovery endpoints come from a fetched document, so they are untrusted
+ * navigation / fetch targets (harden-client-sinks D11): `https:` anywhere, or
+ * `http:` on a loopback host only. Classified with `origin = null` because the
+ * endpoints are absolute.
+ */
+function isAllowedOidcEndpoint(raw: unknown): boolean {
+  const cls = classifyUrl(raw, null);
+  if (cls === "loopback") return true;
+  if (cls !== "external") return false;
+  try {
+    return new URL((raw as string).trim()).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function assertDiscoveryEndpoints(disc: Discovery, keys: readonly (keyof Discovery)[]): void {
+  for (const k of keys) {
+    if (!isAllowedOidcEndpoint(disc[k])) throw new Error(`disallowed ${k}`);
+  }
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
@@ -93,6 +117,12 @@ export async function beginLogin(returnTo: string): Promise<void> {
     if (!cfg.active || !cfg.issuer || !cfg.clientId) throw new Error("login not configured");
     disc = await fetchJson<Discovery>(
       `${cfg.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`,
+    );
+    assertDiscoveryEndpoints(
+      disc,
+      disc.end_session_endpoint === undefined
+        ? ["authorization_endpoint", "token_endpoint"]
+        : ["authorization_endpoint", "token_endpoint", "end_session_endpoint"],
     );
   } catch (err) {
     throw new LoginFlowError("discovery-failed", err);
@@ -122,6 +152,7 @@ export async function beginLogin(returnTo: string): Promise<void> {
     redirectUri,
   };
   sessionStorage.setItem(STASH_KEY, JSON.stringify(stash));
+  // client-sinks: allow — authorization_endpoint passed isAllowedOidcEndpoint (classifyUrl) above
   window.location.assign(req.url);
 }
 
@@ -145,6 +176,7 @@ export async function beginLogout(): Promise<void> {
       `${cfg.issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`,
     );
     if (!disc.end_session_endpoint) throw new Error("no end_session_endpoint");
+    assertDiscoveryEndpoints(disc, ["end_session_endpoint"]);
   } catch (err) {
     throw new LoginFlowError("discovery-failed", err);
   }
@@ -152,6 +184,7 @@ export async function beginLogout(): Promise<void> {
   url.searchParams.set("client_id", cfg.clientId);
   url.searchParams.set("post_logout_redirect_uri", `${window.location.origin}/`);
   if (idToken) url.searchParams.set("id_token_hint", idToken);
+  // client-sinks: allow — end_session_endpoint passed isAllowedOidcEndpoint (classifyUrl) above
   window.location.assign(url.toString());
 }
 

@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
@@ -72,11 +72,37 @@ const HOST_SHIMS = [
   "wouter",
 ] as const;
 
+/**
+ * Dev-server half of the Trusted Types mode (change: harden-client-sinks, D6).
+ * In dev the dashboard proxies `index.html` from Vite unmodified, so this
+ * injects the same `<meta name="pi-trusted-types">` the server adds in
+ * production (mode from `PI_DASHBOARD_TRUSTED_TYPES`, unset → `off` iff
+ * `PI_DASHBOARD_CSP=off`, else `report`), and exposes the workspace root the
+ * `pi-worker-url` policy accepts under `/@fs/` (empty in builds).
+ */
+function trustedTypesDevPlugin(workspaceRoot: string): Plugin {
+  const raw = process.env.PI_DASHBOARD_TRUSTED_TYPES;
+  const mode =
+    raw === "off" || raw === "report" || raw === "enforce" ? raw : process.env.PI_DASHBOARD_CSP === "off" ? "off" : "report";
+  return {
+    name: "pi-trusted-types-dev",
+    config: (_cfg, env) => ({
+      define: { __PI_DEV_FS_ROOT__: JSON.stringify(env.command === "serve" ? workspaceRoot : "") },
+    }),
+    transformIndexHtml: {
+      order: "pre",
+      handler: (html, ctx) =>
+        ctx.server ? html.replace(/<head\b[^>]*>/i, (m) => `${m}\n    <meta name="pi-trusted-types" content="${mode}">`) : html,
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
     viteDashboardPluginsPlugin(path.resolve(__dirname, "../..")),
+    trustedTypesDevPlugin(path.resolve(__dirname, "../..")),
   ],
   root: "src",
   // publicDir is resolved relative to `root` (= packages/client/src/), so three

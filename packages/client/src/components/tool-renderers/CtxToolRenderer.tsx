@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { truncateOutputForDisplay } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { LinkifiedText } from "./LinkifiedText.js";
@@ -327,14 +328,14 @@ function RunningPreview({ toolName, args }: { toolName: string; args?: Record<st
       const url = (a.url as string) ?? first;
       if (!url) return <RunningLabel />;
       return (
-        <a
+        <SafeLink
           href={url}
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-[var(--link)] hover:underline break-all"
         >
           {url}
-        </a>
+        </SafeLink>
       );
     }
     default:
@@ -422,14 +423,14 @@ function CtxBody({
             {parsed.sections} {i18nT("common.sections", undefined, "sections ·")} {parsed.size} — {parsed.source}
           </div>
           {parsed.url && (
-            <a
+            <SafeLink
               href={parsed.url}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[var(--link)] hover:underline break-all"
             >
               {parsed.url}
-            </a>
+            </SafeLink>
           )}
         </div>
       );
@@ -438,7 +439,7 @@ function CtxBody({
       return (
         <div className="space-y-2">
           {parsed.url && (
-            <a
+            <SafeLink
               href={parsed.url}
               target="_blank"
               rel="noopener noreferrer"
@@ -446,7 +447,7 @@ function CtxBody({
             >
               <Icon path={mdiOpenInNew} size={0.5} />
               {parsed.url}
-            </a>
+            </SafeLink>
           )}
           <div className={`${bodyCap} bg-[var(--bg-code)] p-2`}>
             <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)]">{parsed.log}</pre>

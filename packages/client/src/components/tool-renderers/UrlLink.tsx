@@ -1,3 +1,4 @@
+import { classifyUrl } from "@blackbelt-technology/pi-dashboard-shared/url-policy.js";
 import type React from "react";
 import { useLoopbackLinkOpen } from "../../lib/use-loopback-link-open.js";
 
@@ -13,15 +14,22 @@ interface Props {
  * but UrlLink rechecks so a forged `javascript:` / `data:` href cannot
  * escape this gate even if the upstream tokenizer were bypassed.
  *
- * See change: linkify-tool-output (spec: tool-output-linkification).
+ * The verdict delegates to the shared `classifyUrl` (control characters,
+ * backslashes, non-http schemes → blocked); the absolute-http(s) regex stays
+ * as this component's stricter floor (no relative / mailto links).
+ *
+ * See change: linkify-tool-output (spec: tool-output-linkification),
+ * harden-client-sinks (D3).
  */
 export function UrlLink({ href, children }: Props) {
   const onLoopbackClick = useLoopbackLinkOpen();
-  if (!/^https?:\/\//i.test(href)) {
+  const cls = classifyUrl(href, typeof window === "undefined" ? null : window.location.origin);
+  if (cls === "blocked" || cls === "mailto" || !/^https?:\/\//i.test(href)) {
     return <span>{children}</span>;
   }
   return (
     <a
+      // client-sinks: allow — href classified above via classifyUrl (http/https only)
       href={href}
       target="_blank"
       rel="noopener noreferrer"

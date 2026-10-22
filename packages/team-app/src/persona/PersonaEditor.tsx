@@ -293,6 +293,7 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
               {Object.entries(errors).map(([f, k]) => (
                 <li key={f}>
                   <a
+                    // client-sinks: allow — in-page fragment anchor
                     href={`#f-${f}`}
                     onClick={(e) => {
                       e.preventDefault();

@@ -5,3 +5,5 @@ Versioned PUBLIC host API (import-mapped in Phase 5; snapshot `host-api-surface.
 Phase 3A adds the TYPES `SessionEventReducerSlice` and `ToolRowFinalizer` (from `session-event-reducers.ts`) plus the `tool-renderer` claim fields `expandWhileRunning`/`resultPending` and `ToolRendererContext.send` to the snapshot; refreshed at 1.0.0 WITHOUT a version bump (1.0.0 unreleased, same as Phase 2B). See change: decouple-plugins-from-core (tasks 4.1, 4.2, 4.5).
 
 Host API 1.1.0 adds `ComposerDockRow` + `ComposerDockRowProps` (public) and the `composer-dock-process-group` slot props / `ProcessGroupSummary` (sdk types); snapshot regenerated. See change: add-composer-dock (tasks 1.1, 1.2).
+
+Exports the navigation chokepoints (`SafeLink`, `openExternalUrl`, `assignLocation`, `useSafeNavigation`, `classifyNavigationTarget`, `showLinkBlockedNotice`, `setLinkBlockedNoticeText` + types) — host API 1.2.0. See change: harden-client-sinks.

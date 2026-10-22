@@ -5,6 +5,7 @@
  *
  * See change: add-session-actions-flyout.
  */
+import { classifyUrl } from "@blackbelt-technology/pi-dashboard-shared/url-policy.js";
 import { createWorktreePR, pushWorktreeBranch } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
@@ -39,15 +40,11 @@ export async function runWorktreePush(cwd: string): Promise<WorktreeToast> {
 
 /** Open an http(s) URL in a new tab through an anchor click (`noopener,noreferrer`); `false` for any other scheme. */
 function openHttpUrlInNewTab(url: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+  const cls = classifyUrl(url, window.location.origin);
+  if (cls !== "external" && cls !== "loopback") return false;
   const a = document.createElement("a");
-  a.href = parsed.href;
+  // client-sinks: allow — classified external/loopback above; anchor click keeps the user-gesture popup allowance
+  a.href = new URL(url.trim()).href;
   a.target = "_blank";
   a.rel = "noopener noreferrer";
   a.click();

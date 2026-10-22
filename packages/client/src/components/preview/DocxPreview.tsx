@@ -12,6 +12,7 @@ import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file
 import React, { lazy, Suspense, useEffect, useState } from "react";
 import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import { logRejection } from "../../lib/report-error.js";
 import { TooLargePreview } from "../editor-pane/TooLargePreview.js";
 import { FallbackPreview } from "./FallbackPreview.js";
@@ -26,7 +27,7 @@ interface Props {
 
 type DocxData =
   | { mode: "pdf" }
-  | { mode: "html"; html: string; truncated: boolean; imageCount: number; note?: string };
+  | { mode: "html"; html: TrustedHTML | string; truncated: boolean; imageCount: number; note?: string };
 
 export function DocxPreview({ target }: Props) {
   // Opted out of the access-grant dialog unless a provider declares operator
@@ -55,7 +56,10 @@ export function DocxPreview({ target }: Props) {
         const body = await res.json();
         if (cancelled) return;
         if (body.success && body.data?.mode) {
-          setData(body.data as DocxData);
+          const d = body.data as DocxData;
+          // Re-sanitized client-side with the server's own profile; a sanitizer
+          // failure throws into the catch below (fail closed). See change: harden-client-sinks.
+          setData(d.mode === "html" ? { ...d, html: trustedSanitizedHtml(d.html as string, "docx") } : d);
         } else {
           // Unrenderable tail → FallbackPreview (design D5).
           setFailed(true);
@@ -106,6 +110,7 @@ export function DocxPreview({ target }: Props) {
       ) : null}
       <div
         className="asciidoc-body p-2"
+        // client-sinks: allow — trusted via pi-sanitized-html (docx profile)
         dangerouslySetInnerHTML={{ __html: data.html }}
       />
     </div>

@@ -406,6 +406,7 @@ export function PairRequestLanding({ onPaired }: { onPaired?: (token: string) =>
   const openDashboard = useCallback(() => {
     const token = issuedToken.current;
     if (onPaired && token) onPaired(token);
+    // client-sinks: allow — constant same-origin root, full reload intended
     else window.location.href = "/";
   }, [onPaired]);
 

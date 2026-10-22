@@ -165,3 +165,21 @@ describe("DiagramPreview", () => {
     });
   });
 });
+
+// harden-client-sinks (test-plan #E22): server SVG is re-sanitized client-side.
+describe("DiagramPreview client re-sanitize (#E22)", () => {
+  it("drops an onerror handler from server-rendered SVG, keeps the legitimate content", async () => {
+    global.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { svg: '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="5" r="5"/><img src=x onerror=f()></svg>' },
+      }),
+    })) as any;
+    render(<DiagramPreview target={target} sourceText="@startuml\nA->B\n@enduml" />);
+    const box = await screen.findByTestId("diagram-svg-container");
+    expect(box.querySelector("circle")).not.toBeNull();
+    expect(box.querySelector("[onerror]")).toBeNull();
+    expect(box.innerHTML).not.toMatch(/onerror/i);
+  });
+});

@@ -13,6 +13,7 @@
  * See changes: add-worktree-lifecycle-actions, redesign-composer-session-strip (D6).
  */
 
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArrowUpBoldOutline,
@@ -22,12 +23,12 @@ import {
   mdiSourcePull,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { fetchTool } from "../../lib/api/tools-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { logRejection } from "../../lib/report-error.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { LazyCloseWorktreeDialog, LazyMergeConfirmDialog } from "./lazy-worktree-dialogs.js";
@@ -168,9 +169,9 @@ export function PrSegment({ session, className = "" }: { session: DashboardSessi
     className: `inline-flex items-center gap-1 ${session.gitPrUrl ? "text-xs " : ""}${parts.tone} ${className}`,
   };
   return session.gitPrUrl ? (
-    <a {...common} href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+    <SafeLink {...common} href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
       {body}
-    </a>
+    </SafeLink>
   ) : (
     <span {...common}>{body}</span>
   );

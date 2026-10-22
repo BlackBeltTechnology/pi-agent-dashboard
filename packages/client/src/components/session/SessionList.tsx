@@ -2868,6 +2868,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             {/* Community entry point. MDI 7 dropped brand icons, so the Discord
                 glyph is an inline path constant. See change: add-discord-link. */}
             <a
+              // client-sinks: allow — compile-time constant Discord invite URL
               href={DISCORD_INVITE_URL}
               target="_blank"
               rel="noopener noreferrer"

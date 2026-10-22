@@ -9,6 +9,7 @@
  * deliberately WITHOUT `allow-downloads`: every save/export is a host-origin download.
  * See change: edit-office-in-pane-with-craft-web.
  */
+import { openExternalUrl } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type {
   FileHandlerProps,
   FileHandlerSnapshot,
@@ -278,7 +279,7 @@ function NavOffer({ t, app, url, onClose }: { t: Translate; app: CraftWebApp; ur
           className={BTN_PRIMARY}
           data-testid="craft-nav-open"
           onClick={() => {
-            window.open(url, "_blank", "noopener,noreferrer");
+            openExternalUrl(url);
             onClose();
           }}
         >
