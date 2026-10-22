@@ -1,0 +1,40 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: Folder `[Editor]` route SHALL mount the internal Monaco pane rooted at the folder cwd
+
+The `/folder/:encodedCwd/editor` route and the sidebar folder-action-bar `[Editor]` button SHALL open the **internal Monaco editor pane** (`editor-pane/`) rooted at the folder's `cwd`, replacing the former external `code-server` iframe (`EditorView`). The pane SHALL reuse the existing `EditorPane` component with all its viewers, tabs, file-tree rail and pane chrome (pane bar, document bar, tab context menu, bulk close, Search tabs — see `editor-pane-chrome`); only its state scope changes from session to folder. Because the folder provider omits the file-search wires, the folder pane SHALL NOT offer the rail Search view, the New tab menu's Open file… item or the Cmd/Ctrl-P and Cmd/Ctrl-Shift-F search shortcuts, and a Search tabs query with no match SHALL show "No open tab matches" instead of falling through to file search.
+
+The folder-scoped mount SHALL be driven by a `SplitWorkspaceProvider` given a synthetic, namespaced pane id derived from the folder cwd (`folderPaneId(cwd)`, e.g. `folder:<cwd>`) and the folder `cwd`. The provider SHALL omit the session-only wires (`onWatchFiles`, `fileResults`, `changedFiles`).
+
+#### Scenario: Folder Editor button opens the internal pane
+
+- **WHEN** the user clicks the `[Editor]` button for a folder group with cwd `/home/u/proj`
+- **THEN** the content area SHALL navigate to `/folder/:encodedCwd/editor`
+- **AND** the internal Monaco pane SHALL mount with its file-tree rail rooted at `/home/u/proj`
+- **AND** no `code-server` process SHALL be started and no `/editor/<id>/` proxy SHALL be used
+
+#### Scenario: Opening a file in the folder pane
+
+- **GIVEN** the folder-scoped pane is open for `/home/u/proj`
+- **WHEN** the user clicks `src/foo.ts` in the file-tree rail
+- **THEN** `src/foo.ts` SHALL open as the active Monaco tab, rendered read-only via the viewer registry
+
+#### Scenario: Folder pane offers no file search
+
+- **GIVEN** the folder-scoped pane is open for `/home/u/proj`
+- **WHEN** the user presses Cmd/Ctrl-P or opens the New tab menu
+- **THEN** no rail Search view opens
+- **AND** the New tab menu offers Terminal and Live preview but no Open file… item
+
+### Requirement: Folder pane omits the changed-on-disk banner in v1
+
+The folder-scoped pane SHALL NOT display the changed-on-disk banner, because there is no session WebSocket to drive the server file-watch. The document bar's Reload control SHALL reload a tab's content. This is an explicit v1 limitation; the session-scoped pane's changed-on-disk banner is unaffected.
+
+#### Scenario: No changed-on-disk banner in folder scope
+
+- **GIVEN** the folder pane for `/home/u/proj` has `src/foo.ts` open
+- **WHEN** `src/foo.ts` is modified on disk by another process
+- **THEN** no changed-on-disk banner SHALL appear in the folder pane
+- **AND** clicking Reload SHALL reload the tab with the current on-disk content
