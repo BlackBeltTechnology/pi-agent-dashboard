@@ -589,7 +589,11 @@ describe("the real transport against a live HTTP server (#P2 #P4 #X1–#X3)", ()
 
   const bridgeDeps = (over: Partial<ProjectTrustDeps> = {}): LiveDeps => ({
     isRemoteBridge: () => true,
-    liveQuery: createHttpLiveQuery({ endpoint: () => `ws://127.0.0.1:${port}`, env: { PI_DASHBOARD_TOKEN: "dev-token" } }),
+    liveQuery: createHttpLiveQuery({
+      endpoint: () => `ws://127.0.0.1:${port}`,
+      // The HTTP listener is addressed on purpose: the endpoint is the gateway, `PI_DASHBOARD_PORT` the HTTP port.
+      env: { PI_DASHBOARD_TOKEN: "dev-token", PI_DASHBOARD_PORT: String(port) },
+    }),
     ...over,
   });
   const budget = (ms: number) => ({ cfg: { liveQueryTimeoutMs: ms }, remote: true, liveCount: 0 });
@@ -763,5 +767,40 @@ describe("the registered handler (#E10)", () => {
     });
     expect(await handler()({ cwd: r }, {})).toEqual({ trusted: "undecided" });
     expect(called).toBe(false);
+  });
+});
+
+describe("remote live query targets the dashboard HTTP origin (fix-remote-bridge-ticket-origin)", () => {
+  const signal = () => new AbortController().signal;
+
+  it("#E12 queries the HTTP origin, not the gateway port", async () => {
+    const fetchImpl = vi.fn(async () => ({ status: 404 }) as unknown as Response);
+    const query = createHttpLiveQuery({
+      endpoint: () => "ws://dash.example:9999",
+      env: { PI_DASHBOARD_TOKEN: "t" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await query({ cwdKey: "/x", remote: true, signal: signal() });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect((fetchImpl.mock.calls[0] as unknown[])[0]).toBe("http://dash.example:8000/api/pi-trust/query");
+  });
+
+  it("#X6 fails closed on a bad override and logs the cause once", async () => {
+    const fetchImpl = vi.fn();
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const query = createHttpLiveQuery({
+        endpoint: () => "ws://dash.example:9999",
+        env: { PI_DASHBOARD_TOKEN: "t", PI_DASHBOARD_HTTP_URL: "not a url" },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      expect(await query({ cwdKey: "/x", remote: true, signal: signal() })).toEqual({ kind: "error" });
+      expect(await query({ cwdKey: "/x", remote: true, signal: signal() })).toEqual({ kind: "error" });
+      expect(fetchImpl).not.toHaveBeenCalled();
+      const lines = err.mock.calls.map((c) => c.join(" ")).filter((l) => l.includes("bad-http-url"));
+      expect(lines).toHaveLength(1);
+    } finally {
+      err.mockRestore();
+    }
   });
 });

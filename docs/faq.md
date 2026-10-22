@@ -365,7 +365,7 @@ Sequence:
 - Different HOME: lock is per-HOME, does NOT stop second server. macOS can bind `127.0.0.1:<port>` beside existing `*:<port>` with no `EADDRINUSE`. `pi-dashboard start` probes `127.0.0.1` + `::1` and refuses dashboard its HOME does not own.
 - Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
-- Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.
+- Bridge honours `PI_DASHBOARD_URL=ws://host:port` (port = gateway port) to point at remote server instead of localhost.
 
 Cross-refs:
 - README.md:265
@@ -600,7 +600,7 @@ Common keys:
 - `agentPathGate.timeoutSeconds` (default `120`) — one budget shared by the file-access select and its Always-allow confirm; expiry cancels open prompts and blocks.
 
 CLI flags: `--port`, `--pi-port`, `--dev`, `--no-tunnel`.
-Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once), `PI_DASHBOARD_AGENT_PATH_GATE` (`off`|`on`; overrides `agentPathGate.enabled`; Settings ▸ Security ▸ Agent file access toggle inert under env override).
+Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HTTP_URL` (bridge → remote dashboard HTTP origin override), `PI_DASHBOARD_TOKEN` (bridge → paired device bearer), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once), `PI_DASHBOARD_AGENT_PATH_GATE` (`off`|`on`; overrides `agentPathGate.enabled`; Settings ▸ Security ▸ Agent file access toggle inert under env override).
 
 Live-reconfigurable via `PUT /api/config` — partial merge, secrets preserved as `***`. Port/piPort changes set `restartRequired: true`.
 
@@ -4475,6 +4475,34 @@ Cross-refs:
 - openspec/changes/triage-browser-e2e-offbox-poison/
 
 See change: triage-browser-e2e-offbox-poison.
+
+## Remote bridge logs `bridge ticket wrong-origin` / `refused` / `bad-http-url`
+
+Remote bridge = pi on other machine, `PI_DASHBOARD_URL=ws://<host>:9999` (gateway port) + `PI_DASHBOARD_TOKEN`.
+Gateway serves bridge WS only. `/api/*` lives on dashboard HTTP port (default 8000).
+Bridge calls HTTP origin for: ticket mint (`POST /api/ws-ticket`), identity challenge, trust query.
+Origin from `resolveDashboardHttpOrigin` (`packages/extension/src/dashboard-http-origin.ts`).
+Bridge machine's `~/.pi/dashboard/config.json` NOT read.
+Bridge log line `http origin <origin> (<source>)` shows resolved origin + source.
+
+Resolution order (first match wins):
+
+1. `PI_DASHBOARD_HTTP_URL`: origin only, host must match `PI_DASHBOARD_URL` host. Invalid = `bad-http-url`, for every endpoint. Not ignored.
+2. Plaintext `ws://host:<port>` → `http://host:<HTTP port>`. HTTP port: `PI_DASHBOARD_PORT` → `DASHBOARD_PORT` → 8000.
+3. `wss://` or port-less `ws://` → endpoint origin, scheme swapped to `https://` / `http://`.
+4. Else `no-http-origin`.
+
+| Log cause | Meaning | Fix |
+|---|---|---|
+| `wrong-origin` | URL answered non-2xx other than 401/403 (e.g. `426` from gateway), or redirected | Set `PI_DASHBOARD_HTTP_URL=http(s)://host[:port]`. URL already right: check server log |
+| `refused` | HTTP 401/403. Bearer unpaired, revoked or missing | Re-pair device. Set `PI_DASHBOARD_TOKEN` |
+| `bad-http-url` | `PI_DASHBOARD_HTTP_URL` not http(s) or has credentials | Fix or unset |
+| `no-http-origin` | Endpoint not `ws://` / `wss://` | Use ws/wss endpoint |
+
+Caveat: bridge host also runs own dashboard on custom port. `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` describe that local dashboard. Borrowed for remote one → `wrong-origin`. Fix: set `PI_DASHBOARD_HTTP_URL`.
+Breaking (narrow): plaintext reverse proxy serving `/api` + bridge path on one non-default `ws://host:<port>` now needs `PI_DASHBOARD_HTTP_URL` (or `PI_DASHBOARD_PORT=<port>`).
+
+See change: fix-remote-bridge-ticket-origin.
 
 ## Why does a remote pi get no dashboard trust?
 

@@ -10,10 +10,11 @@
  *
  * The challenge is injected so the decision table is testable without I/O.
  *
- * See change: add-pi-gateway-transport-identity (D8).
+ * See change: add-pi-gateway-transport-identity (D8), fix-remote-bridge-ticket-origin (D2).
  */
 import type { PinVerdict, ServerPin } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { challengePinnedServer } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
+import { resolveDashboardHttpOrigin } from "./dashboard-http-origin.js";
 import type { PinnedServer, ServerPinStore } from "./server-pin-store.js";
 import { resolvePinForEndpoint } from "./server-pin-store.js";
 
@@ -30,19 +31,7 @@ export function isRemoteEndpoint(endpoint: string): boolean {
   }
 }
 
-/** The http origin serving `/api/pair/challenge` for a ws endpoint. */
-export function httpBaseUrlFor(endpoint: string): string | null {
-  try {
-    const u = new URL(endpoint);
-    if (u.protocol === "ws:") return `http://${u.host}`;
-    if (u.protocol === "wss:") return `https://${u.host}`;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-type GateCause = PinVerdict["cause"] | "local" | "unpinned-legacy";
+type GateCause = PinVerdict["cause"] | "local" | "unpinned-legacy" | "bad-http-url" | "no-http-origin";
 
 export interface GateResult {
   allow: boolean;
@@ -55,6 +44,8 @@ export interface GateResult {
 export interface GateInput {
   endpoint: string;
   store: ServerPinStore;
+  /** Required, not optional: an omitted env would silently drop `PI_DASHBOARD_HTTP_URL`. */
+  env: Record<string, string | undefined>;
   challenge?: (baseUrl: string, pin: ServerPin) => Promise<PinVerdict>;
 }
 
@@ -88,11 +79,13 @@ export async function gateRemoteRegistration(input: GateInput): Promise<GateResu
       reason: `refused: ${input.endpoint} matches no pinned server identity`,
     };
   }
-  const baseUrl = httpBaseUrlFor(input.endpoint);
-  if (!baseUrl) {
-    return { allow: false, cause: "unreachable", reason: `refused: ${input.endpoint} has no http origin to challenge` };
+  // The challenge goes to the dashboard HTTP listener (it holds the server key),
+  // not to the gateway port the bridge dials.
+  const origin = resolveDashboardHttpOrigin(input.endpoint, input.env);
+  if (!origin.ok) {
+    return { allow: false, cause: origin.cause, reason: `refused: ${origin.reason}` };
   }
-  const verdict = await (input.challenge ?? defaultChallenge)(baseUrl, pin);
+  const verdict = await (input.challenge ?? defaultChallenge)(origin.origin, pin);
   return {
     allow: verdict.accept,
     cause: verdict.cause,

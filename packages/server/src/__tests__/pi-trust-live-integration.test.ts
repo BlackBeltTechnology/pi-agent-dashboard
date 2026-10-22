@@ -114,7 +114,7 @@ describe("#X9 remote path over loopback-as-remote", () => {
         isRemoteBridge: () => true,
         liveQuery: createHttpLiveQuery({
           endpoint: () => `ws://127.0.0.1:${handle!.httpPort}`,
-          env: { PI_DASHBOARD_TOKEN: token },
+          env: { PI_DASHBOARD_TOKEN: token, PI_DASHBOARD_PORT: String(handle!.httpPort) },
         }),
         // the bridge hashes ITS copy; the digest still binds the cwd key it was asked about
         manifest: (_cwd, o) => trustResourceManifest(copy, o),
@@ -139,7 +139,7 @@ describe("#X9 remote path over loopback-as-remote", () => {
       spawnedHeadless(r),
       bridgeDeps({
         isRemoteBridge: () => true,
-        liveQuery: createHttpLiveQuery({ endpoint: () => `ws://127.0.0.1:${handle!.httpPort}`, env: { PI_DASHBOARD_TOKEN: "not-a-paired-token" } }),
+        liveQuery: createHttpLiveQuery({ endpoint: () => `ws://127.0.0.1:${handle!.httpPort}`, env: { PI_DASHBOARD_TOKEN: "not-a-paired-token", PI_DASHBOARD_PORT: String(handle!.httpPort) } }),
         readSnapshot: () => ({ version: 1, generation: 1, entries: [], liveCount: 0 }),
       }),
     );
