@@ -2,7 +2,7 @@
 
 Research dossier. Explore-mode, no change / no impl.
 Date: 2026-10-21.
-Status: OPEN — spikes done, direction not chosen.
+Status: OPEN — spikes + B prototype done, direction not chosen.
 
 ## Problem
 
@@ -199,6 +199,75 @@ Consequence: project `node_modules` needs Linux install. A needs Linux build of 
   - ≈ 30x slower. Deps / large trees must live VM-local, not via FUSE.
 - Guest image `alpine-base` aarch64: has node, bash. NO git.
 
+## Prototype B (2026-10-22)
+
+Throwaway pi extension. Deleted after.
+
+### Setup
+
+- Overrides `bash` tool only:
+  - `pi.registerTool({...createBashTool(cwd), execute → createBashTool(cwd,{operations})})`.
+  - `pi.on("user_bash", → {operations})` for `!` commands.
+- `read` / `write` / `edit` stay on host. Paths host-identical + live mount ⇒ no remap. path-gate keeps governing them.
+- Backend switch: `SPIKE_BACKEND=podman|gondolin`.
+- Host env NOT forwarded to backend (credentials).
+- Podman backend:
+  - long-lived `podman run -d … -v <cwd>:<cwd> -v <name>-nm:<cwd>/node_modules node:24-alpine sleep infinity`.
+  - per-command `podman exec -w <cwd> <name> sh -lc <cmd>`.
+  - removed on `session_shutdown`.
+- Gondolin backend:
+  - `VM.create({vfs:{mounts:{[HOME]: ShadowProvider(RealFSProvider(HOME), shouldShadow: !grants)}}})`.
+  - `vm.exec(["/bin/sh","-lc",cmd],{cwd})`.
+- Target: `pi-flows` repo copy (`git archive HEAD`). Standalone. `vitest run`. 45 test files / 328 tests. npm lockfile. 156 top-level node_modules entries.
+
+### Verification (all passed)
+
+- Model-driven bash tool (pi-ai faux provider, `pi -p --model faux/faux-1`, clean `PI_CODING_AGENT_DIR`) → podman:
+  - model saw `Linux aarch64`, host-identical pwd, `328 passed`.
+  - `npm ci` + vitest in one tool call: 11944 ms.
+  - backend_ready 331 ms (container create).
+- `!` path via RPC `{"type":"bash"}` → podman: `Linux aarch64`, `cwd=<host path>` ⇒ `user_bash` hook routes RPC bash.
+- Gondolin, same extension:
+  - backend_ready 110 ms (warm). one exec 460 ms.
+  - guest `ls /Users/robson` shows only granted ancestor `Project` ⇒ gate works.
+  - guest HOME=`/root`. Caveat: `~` ≠ host home.
+- Host `node_modules` never polluted: podman volume mount leaves only EMPTY mount-point dir on host (0 entries).
+
+### Benchmarks
+
+Hosts: pi-flows, 4 vCPU VMs. Host Mac 18 cores.
+
+| Env | CPU loop `node -e` 3e8 | vitest run | npm ci |
+|---|---|---|---|
+| host | 0.88 s | 1.95 s | 3.93 s (warm cache) |
+| podman applehv, source virtiofs, deps named volume | 1.17 s | 6.63 s / 6.39 s | 6.67 s |
+| podman, source copied container-local | — | 6.02 s | — |
+| Gondolin QEMU, source FUSE (RealFS), deps guest tmpfs `/deps` via symlink `node_modules -> /deps/nm` | — | 47262 ms / 47210 ms | 72747 ms |
+| Gondolin, source+deps fully guest-local (`/tmp/local`) | 2.45 s | 6.14 s | 8.13 s (copy + ci) |
+
+Exec overhead per command:
+- podman `exec true`: 0.12 s.
+- Gondolin `exec true`: 104 ms.
+- Gondolin first `VM.create` in fresh cache: 8495 ms (asset download). warm: 68–110 ms.
+
+### Findings
+
+- virtiofs source costs ~7% (6.02 vs 6.39–6.63 s).
+- podman 3.3x host = VM CPU count (4 vs 18), not filesystem.
+- Gondolin FUSE source = bottleneck (~8x vs guest-local). Guest-local Gondolin ≈ podman.
+- Gondolin `tmpfs` VM option mounts at guest init BEFORE VFS bind mounts ⇒ tmpfs at project path hidden.
+  - workaround: tmpfs at `/deps` + symlink in ShadowProvider tmpfs upper.
+- Gondolin egress needs `createHttpHooks({allowedHosts:["registry.npmjs.org"]})` for npm.
+- Implication:
+  - Gondolin model = copy project into guest at session start (= snapshot) + FUSE grants only for auxiliary dirs.
+  - podman model = live virtiofs source + VM-local deps volume.
+
+### Env / process notes
+
+- pi path-gate denied Write to `~/.pi-spike-b` (120 s prompt timeout = deny, then "recently-denied").
+  - spike moved to repo-local `.tmp/spike-b`, excluded via `.git/info/exclude` `/.tmp/`. removed afterwards.
+- Root vitest config: explicit per-package projects. shared `no-direct-*` walkers scan `packages/*/src` ⇒ repo-root scratch dir safe.
+
 ## Runtime mount / port options
 
 | # | Mechanism | Status | Notes |
@@ -245,6 +314,8 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 - Env quirk: podman on this Mac hits gcloud docker credential helper ("error getting credentials") even with `--pull=never`.
   - workaround: `REGISTRY_AUTH_FILE=<{} file>`.
   - move images via `docker save | podman load`.
+- B prototype viable: bash-only override + host-identical paths = smallest surface. read/write/edit untouched.
+- Podman backend = best perf/complexity today (6.4 s vs host 1.95 s, 0.12 s/exec). Gondolin = best policy (runtime grants, egress allowlist, secret placeholders) but needs copy-in workspace.
 
 ## Open questions
 
@@ -254,13 +325,16 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 4. readdir staleness fix (custom provider invalidation / remount listing)?
 5. Linux deps layer strategy (tmpfs per session vs persistent VM-local cache keyed by lockfile)?
 6. gateway TCP default-on for container spawns + auto-minted ticket per spawn?
+7. Copy-in workspace (Gondolin) ⇒ need delta-back step (ties to podman `:O` / OCI layer converter) — accept?
+8. Guest HOME=/root vs host HOME — set HOME to host path inside backend?
 
 ## Next spikes
 
 - A full round trip: isolated test dashboard (NOT live one) with `PI_GATEWAY_TCP=1`; container pi bridge via `host.docker.internal` + ticket.
-- B prototype: pi extension overriding tools → podman `exec` backend vs Gondolin backend. Measure `pnpm test` with VM-local deps.
+- ~~B prototype: pi extension overriding tools → podman `exec` backend vs Gondolin backend. Measure `pnpm test` with VM-local deps.~~ DONE 2026-10-22 → see Prototype B.
 - Gondolin readdir invalidation after grant.
 - podman `:O` delta → `.wh.*` converter + apply on host.
+- B on this repo: `pnpm install` Linux deps volume for monorepo (hoisted, nested `packages/*/node_modules`) + `npm test` timing.
 
 ## Continue this research
 
