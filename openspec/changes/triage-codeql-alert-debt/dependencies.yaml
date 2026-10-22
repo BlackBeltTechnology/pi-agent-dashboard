@@ -3,3 +3,5 @@ blocked_by:
     reason: "dismisses the alert residue left after the core-cwd-admission post-merge scan (proposal: runs after)"
   - change: core-file-cwd-admission
     reason: "closes the file-routes.ts / lib sink js/path-injection alerts by code (incl. grep-routes.ts cwd gate); their residue must not be dismissed before it lands (design D5 precondition)"
+  - change: codeql-file-containment-barrier
+    reason: "closes the path-fed file-route js/path-injection alerts by code (modelled containment predicate); their residue must not be dismissed before it lands (design D5 precondition; operator decision 2026-10-22)"

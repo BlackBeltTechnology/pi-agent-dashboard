@@ -107,7 +107,7 @@ The mirror binds to the commit GitHub analysed, so it runs **first** in the work
 
 Preconditions (refuse and stop otherwise):
 - the open alerts share one SHA. If they don't, an analysis is still running; wait and re-read.
-- `git merge-base --is-ancestor` holds for the merge commits of `core-cwd-admission` **and** `core-file-cwd-admission` against `H`. Those changes close `js/path-injection` alerts by code, so their residue must not be dismissed before they land (`dependencies.yaml`).
+- `git merge-base --is-ancestor` holds for the merge commits of `core-cwd-admission`, `core-file-cwd-admission` **and** `codeql-file-containment-barrier` against `H`. Those changes close `js/path-injection` alerts by code, so their residue must not be dismissed before they land (`dependencies.yaml`).
 - the worktree is clean, **including untracked files**. `writeRunRecord` only excludes `codeql-baseline.json`. Evidence files (`evidence/*.md`) are therefore drafted outside the tree (`$TMPDIR`) during D5 and copied in after the mirror commit.
 
 Steps:
@@ -137,7 +137,7 @@ The entry stays unmirrored and goes to `evidence/residue.md`. A flag-on refusal 
 4. Re-run, then `--prune`, then `--check-baseline-diff origin/develop`. Removals may only be:
    - D2 local-only keys;
    - D3 fixed keys;
-   - keys already stale at `H` (no result in the D5 run). Those are closed by `core-cwd-admission` / `core-file-cwd-admission` if those changes did not prune them; this is listed in `evidence/residue.md`.
+   - keys already stale at `H` (no result in the D5 run). Those are closed by `core-cwd-admission` / `core-file-cwd-admission` / `codeql-file-containment-barrier` if those changes did not prune them; this is listed in `evidence/residue.md`.
 
    Any other removal stops the change.
 5. G2 and G3 verification, then docs.

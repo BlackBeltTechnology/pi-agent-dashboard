@@ -4,7 +4,7 @@ Order follows design D6: mirror first (at an analysed `develop` SHA, before any 
 
 ## 1. Preconditions and re-measure
 
-- [ ] 1.1 Check the D5 preconditions and stop if any fails. The merge commits of `core-cwd-admission` and `core-file-cwd-admission` are ancestors of `origin/develop` (`git merge-base --is-ancestor`). The open `develop` alerts (`gh api 'repos/{owner}/{repo}/code-scanning/alerts?ref=refs/heads/develop&state=open' --paginate`) share one `most_recent_instance.commit_sha`, which is `H`. Verify: `H` and both merge SHAs are written to `$TMPDIR/tcad/preconditions.md`.
+- [ ] 1.1 Check the D5 preconditions and stop if any fails. The merge commits of `core-cwd-admission`, `core-file-cwd-admission` and `codeql-file-containment-barrier` are ancestors of `origin/develop` (`git merge-base --is-ancestor`). The open `develop` alerts (`gh api 'repos/{owner}/{repo}/code-scanning/alerts?ref=refs/heads/develop&state=open' --paginate`) share one `most_recent_instance.commit_sha`, which is `H`. Verify: `H` and both merge SHAs are written to `$TMPDIR/tcad/preconditions.md`.
 - [ ] 1.2 Check out `H` detached on a tree clean including untracked files, then run `npm run codeql -- --json`. Re-measure every count in design Context. Build the per-result D2 review set (results with no open alert at the same rule, file and start line) and the D5 residue list (triaged entries with open alerts at `H`: rule, file, lineHash, count, alert numbers, reason, grouped per file). Verify: both lists exist in `$TMPDIR/tcad/`, and their counts are reported against design Context.
 
 ## 2. Dismiss and mirror at `H` (design D5)

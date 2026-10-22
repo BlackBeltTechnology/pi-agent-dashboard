@@ -1,0 +1,3 @@
+blocked_by:
+  - change: core-file-cwd-admission
+    reason: "file-route cwds must be admitted with the modelled admissionAllows guard first; this change models the remaining path-fed containment sinks"
