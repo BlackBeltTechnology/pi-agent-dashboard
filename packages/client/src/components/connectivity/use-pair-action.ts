@@ -12,6 +12,7 @@
 import type { PairAction, PairClient } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import { useState } from "react";
 import { getOpenServerWindow, getPairWithCode } from "../../lib/electron-server-windows.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
 
 export type PairDialog = "code" | "verify" | null;
@@ -61,7 +62,7 @@ export function usePairAction({ client, name, fingerprint }: { client: PairClien
       return viaBridge(() => open({ host: action.route.host, port: action.route.port }));
     }
     // Browser: the peer's own request page in a new context; nothing is proven or sent from this page.
-    if (action.url) window.open(action.url, "_blank", "noopener");
+    if (action.url) openExternalUrl(action.url);
   };
 
   return { dialog, note, busy, run, startCode, closeDialog: () => setDialog(null) };

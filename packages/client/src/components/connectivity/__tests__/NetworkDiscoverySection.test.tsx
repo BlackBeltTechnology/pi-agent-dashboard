@@ -261,13 +261,13 @@ describe("#E27 Request access (browser)", () => {
   it("a remote IPv4 card opens its /pair?request in a new context with noopener", async () => {
     await scanThree();
     fireEvent.click(screen.getByRole("button", { name: "Request access… home-imac (opens in a new tab)" }));
-    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener,noreferrer");
   });
 
   it("a remote IPv6 literal is bracketed in the opened URL", async () => {
     await scanThree();
     fireEvent.click(screen.getByRole("button", { name: "Request access… fd12::4:8000 (opens in a new tab)" }));
-    expect(open).toHaveBeenCalledWith("http://[fd12::4]:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://[fd12::4]:8000/pair?request", "_blank", "noopener,noreferrer");
   });
 
   it("a hostile advertised host offers no action (the URL must round-trip to the advertised host)", async () => {
@@ -292,7 +292,7 @@ describe("#E27 Request access (browser)", () => {
     discoverServers.mockResolvedValue([]);
     mountWith([saved("192.168.16.77", { label: "studio-mbp" })]);
     fireEvent.click(await screen.findByRole("button", { name: /^Request access… studio-mbp/ }));
-    expect(open).toHaveBeenCalledWith("http://192.168.16.77:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://192.168.16.77:8000/pair?request", "_blank", "noopener,noreferrer");
   });
 
   it("sits before the remove control in its card and keeps the 32 px small-button recipe", async () => {

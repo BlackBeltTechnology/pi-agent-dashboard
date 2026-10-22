@@ -253,7 +253,7 @@ describe("ServerSelector menu button", () => {
       const callsBefore = fetchMock.mock.calls.length;
       fireEvent.keyDown(next, { key: "Enter" });
       expect(openSpy).toHaveBeenCalledTimes(1);
-      expect(openSpy).toHaveBeenCalledWith("http://192.168.16.77:8000/pair?request", "_blank", "noopener");
+      expect(openSpy).toHaveBeenCalledWith("http://192.168.16.77:8000/pair?request", "_blank", "noopener,noreferrer");
       expect(fetchMock.mock.calls.length).toBe(callsBefore); // no challenge, no request precedes the navigation
       expect(onSwitch).not.toHaveBeenCalled();
       expect(screen.queryByRole("menu", { hidden: true })).toBeNull();

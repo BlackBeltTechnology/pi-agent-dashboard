@@ -101,7 +101,7 @@ describe("#F8 browser Pair with code…", () => {
     expect(open).not.toHaveBeenCalled(); // no navigation before the local check
     paste(dialog, text);
     expect(open).toHaveBeenCalledTimes(1);
-    expect(open).toHaveBeenCalledWith(`https://b0x7.share.zrok.io/pair#${text}`, "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith(`https://b0x7.share.zrok.io/pair#${text}`, "_blank", "noopener,noreferrer");
     expect(fetchSpy).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -138,7 +138,7 @@ describe("#F8 browser Pair with code…", () => {
     render(<KnownServersSection />);
     fireEvent.click(await screen.findByText("Scan network"));
     fireEvent.click(await screen.findByRole("button", { name: "Request access… old-nas (opens in a new tab)" }));
-    expect(open).toHaveBeenCalledWith("http://192.168.16.80:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://192.168.16.80:8000/pair?request", "_blank", "noopener,noreferrer");
     expect(screen.queryByTestId("verify-fingerprint")).toBeNull();
     expect(screen.queryByRole("button", { name: /Verify and request/ })).toBeNull();
     expect(challengeIdentity).not.toHaveBeenCalled();

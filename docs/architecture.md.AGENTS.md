@@ -28,8 +28,6 @@ KB retrieval pipeline, Pi Gateway Transport & Identity: see dedicated sections. 
 
 `### Single model runtime (collapse-model-proxy-onto-modelruntime)`: one memoized server `ModelRuntime` (`server-model-runtime.ts`) over `DashboardCredentialStore`;`InternalRegistry`/`InternalAuthStorage` facades;custom providers via `registerProvider`;`getStreamSimpleFn` drops `apiKey`;diagnostics `missingOAuth`;`piai-compat` deleted.
 
-`### Routes and identity grouping`: entry `{fingerprint,routes[],host/port mirror}`; `classifyRoute`/`groupRoutes`/`rankRoutes`/`pairAction`; poll `routes` (https only) delivery; `listServers`/`pairWithCode`. See change: group-servers-by-identity.
-
 
 `#### LAN knock pairing`: opt-in plain-http pairing. `POST /api/pair/request`, 6 ordered gates, `pairing.acceptLanRequests`, threat model D8. See change: add-lan-knock-pairing.
 

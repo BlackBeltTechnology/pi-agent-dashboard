@@ -33,6 +33,7 @@ import { acceptKnownServerMove, listKnownServers, probeKnownServer, probeKnownSe
 import { getListServers, getOpenServerWindow, getPairWithCode } from "../../lib/electron-server-windows.js";
 import type { RemoteAccessTone } from "../../lib/gateway/gateway-connection.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { describeOpenFailure } from "../../lib/open-server-window-failure.js";
 import { logRejection } from "../../lib/report-error.js";
 import { buildServerList, type ElectronServersState, type ListEntry } from "../../lib/server-list-model.js";
@@ -656,7 +657,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
     }
     // Browser: the peer's own request page in a new context — nothing is proven or sent from this page.
     if (action.kind === "request-access" && action.url) {
-      window.open(action.url, "_blank", "noopener");
+      openExternalUrl(action.url);
       closeToTrigger();
     }
   };

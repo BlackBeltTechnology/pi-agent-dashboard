@@ -15,6 +15,7 @@ import { mdiAlertCircleOutline, mdiQrcode } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type FormEvent, useId, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { type PairWithCodeRefusal, resolvePairWithCode } from "../../lib/pairing/pair-with-code.js";
 import { callout, HELP, INPUT, LABEL } from "./connectivity-ui.js";
 
@@ -52,7 +53,7 @@ export function PairWithCodeDialog({ name, fingerprint, onClose }: PairWithCodeD
       return;
     }
     setRefusal(null);
-    window.open(target.url, "_blank", "noopener");
+    openExternalUrl(target.url);
     onClose();
   };
 
