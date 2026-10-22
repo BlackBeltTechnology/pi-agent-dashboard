@@ -15,6 +15,7 @@ import fs from "node:fs";
 import type { ElectronApplication } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import {
+  bundledRuntimeVersion,
   captureMenuTemplates,
   clickCapturedMenuItem,
   FAKE_PORT,
@@ -35,7 +36,9 @@ const ZOMBIE_PID = 424242;
 // gate is ignored; bootParentAlive:false alone triggers — this shape covers both.
 const zombieHealth: FakeHealth = {
   pid: ZOMBIE_PID,
-  version: "0.5.4",
+  // Follows the bundle so a zombie-only scenario never also looks version-skewed
+  // (which would show the merged modal). See change: electron-attach-version-skew (D8).
+  version: bundledRuntimeVersion() ?? "0.5.4",
   launchSource: "electron",
   launchSourceEffective: "electron",
   // No `starter`: the real /api/health stopped publishing it (change:

@@ -1,0 +1,3 @@
+# attach-evaluation.ts — index
+
+`createAttachEvaluator(deps).evaluate()` — attach-arm evaluation, all I/O injected: one health fetch → `decideIsZombie` → expected runtime → `decideAttachAction` → at most one modal (zombie / restart / merged / info). Restart = identity re-check (pid, bootParentPid, launchSourceEffective) → `requestServerLaunch({force:true})` → verify health pid == stored spawned pid and effective `electron`, report actual vs promised version. `Leave running`/`OK` suppress for the evaluator lifetime. One `[attach-check]` log line per evaluation; `--no-zombie-prompt` logs only. Zombie `stop` that does not die → notice, no respawn. See change: electron-attach-version-skew.

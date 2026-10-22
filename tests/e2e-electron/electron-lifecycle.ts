@@ -61,7 +61,7 @@ export interface FakeHealth {
 export interface FakeHealthServer {
   port: number;
   /** Requests received, for assertions (e.g. POST /api/shutdown). */
-  readonly requests: Array<{ method: string; url: string; body?: string }>;
+  readonly requests: Array<{ method: string; url: string; body?: string; headers?: Record<string, string | string[] | undefined> }>;
   setHealth(next: FakeHealth): void;
   close(): Promise<void>;
 }
@@ -78,10 +78,10 @@ export async function startFakeHealthServer(
   const port = opts.port ?? FAKE_PORT;
   const healthDelayMs = opts.healthDelayMs ?? 400;
   let health: FakeHealth = { ok: true, ...initial };
-  const requests: Array<{ method: string; url: string; body?: string }> = [];
+  const requests: Array<{ method: string; url: string; body?: string; headers?: Record<string, string | string[] | undefined> }> = [];
 
   const server: Server = createServer((req, res) => {
-    const entry: { method: string; url: string; body?: string } = { method: req.method ?? "", url: req.url ?? "" };
+    const entry: { method: string; url: string; body?: string; headers?: Record<string, string | string[] | undefined> } = { method: req.method ?? "", url: req.url ?? "", headers: req.headers };
     requests.push(entry);
     if (req.method === "POST") {
       // Record the body (e.g. `{userQuit:true}` on the quit-time shutdown).
@@ -210,6 +210,31 @@ export function resolvePackagedBinary(): string {
   });
   if (!bin) throw new Error(`[electron-e2e] No app executable under ${appDir}.`);
   return path.join(appDir, bin);
+}
+
+/**
+ * Version of the runtime bundled into the packaged app (`resources/server/runtime-manifest.json`),
+ * i.e. what a cold launch would start. `null` when there is no packaged bundle (e.g. PW_ELECTRON_DEV)
+ * — callers skip skew scenarios then. See change: electron-attach-version-skew (D8).
+ */
+export function bundledRuntimeVersion(): string | null {
+  try {
+    const bin = resolvePackagedBinary();
+    const resources =
+      process.platform === "darwin"
+        ? path.join(path.dirname(bin), "..", "Resources")
+        : path.join(path.dirname(bin), "resources");
+    const manifest = JSON.parse(fs.readFileSync(path.join(resources, "server", "runtime-manifest.json"), "utf8")) as { version?: unknown };
+    return typeof manifest.version === "string" ? manifest.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A version differing from `v` (patch + 1), for building a skewed fake server. */
+export function skewedVersion(v: string): string {
+  const m = /^(\d+)\.(\d+)\.(\d+)(.*)$/.exec(v);
+  return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}${m[4]}` : `${v}-skew`;
 }
 
 /**

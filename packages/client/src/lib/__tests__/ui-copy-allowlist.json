@@ -27,7 +27,7 @@
       "reason": "internal: child-process error from the document engine (OS process spawn)"
     },
     {
-      "file": "packages/electron/src/main.ts",
+      "file": "packages/electron/src/lib/attach-evaluation.ts",
       "text": " and respawning",
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
@@ -37,7 +37,7 @@
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
     {
-      "file": "packages/electron/src/main.ts",
+      "file": "packages/electron/src/lib/attach-evaluation.ts",
       "text": "[zombie] respawn failed: ",
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },

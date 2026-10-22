@@ -2,8 +2,8 @@
  * Unit tests for the pure ownership + zombie classifiers.
  * See change: electron-attach-ownership-fixes.
  */
-import { describe, it, expect } from "vitest";
-import { decideOwnership, decideIsZombie } from "../server-lifecycle.js";
+import { describe, expect, it } from "vitest";
+import { type AttachHealth, decideAttachAction, decideIsZombie, decideOwnership } from "../server-lifecycle.js";
 
 describe("decideOwnership", () => {
   it("electron + pid match → electron", () => {
@@ -105,5 +105,52 @@ describe("decideIsZombie — Windows", () => {
 
   it("non-electron launchSource → false", () => {
     expect(decideIsZombie({ ...base, healthLaunchSourceEffective: "bridge-orphaned" })).toBe(false);
+  });
+});
+
+// ── decideAttachAction (E1–E11) — See change: electron-attach-version-skew ──
+
+describe("decideAttachAction", () => {
+  const base = { expectedVersion: "0.10.0", isZombie: false, isPackaged: true, isDismissed: () => false };
+  const electron: AttachHealth = { version: "0.10.0", launchSourceEffective: "electron", launchSource: "electron", bootParentAlive: false };
+  const act = (health: AttachHealth, over: Partial<Parameters<typeof decideAttachAction>[0]> = {}) =>
+    decideAttachAction({ ...base, health, ...over });
+
+  it("E1: matching versions → none", () => expect(act(electron).action).toBe("none"));
+  it("E2: cosmetic difference → none", () => expect(act({ ...electron, version: " v0.10.0 " }).action).toBe("none"));
+  it("E3: unknown server version → none", () => {
+    for (const version of ["unknown", "", undefined]) expect(act({ ...electron, version: version as string }, {}).action).toBe("none");
+  });
+  it("E4: unknown expected version → none", () =>
+    expect(act({ ...electron, version: "0.9.0" }, { expectedVersion: null }).action).toBe("none"));
+  it("E5: unpackaged → none", () => expect(act({ ...electron, version: "0.9.0" }, { isPackaged: false }).action).toBe("none"));
+  it("E6: skew with dead owner → restart, default restart", () =>
+    expect(act({ ...electron, version: "0.9.0" })).toEqual({ action: "skew-restart", restartIsDefault: true }));
+  it("E7: live or unknown owner → Leave running default", () => {
+    const live = { ...electron, version: "0.9.0", bootParentAlive: true };
+    expect(act(live)).toEqual({ action: "skew-restart", restartIsDefault: false });
+    const { bootParentAlive: _omit, ...unknown } = live;
+    expect(act(unknown)).toEqual({ action: "skew-restart", restartIsDefault: false });
+  });
+  it("E8: skewed zombie → merged", () =>
+    expect(act({ ...electron, version: "0.9.0" }, { isZombie: true }).action).toBe("skew-zombie-merged"));
+  it("E9: zombie with match or unknown → zombie", () => {
+    expect(act(electron, { isZombie: true }).action).toBe("zombie");
+    expect(act({ ...electron, version: "0.9.0" }, { isZombie: true, expectedVersion: null }).action).toBe("zombie");
+  });
+  it("E10: non-electron skew → info only", () => {
+    for (const src of ["standalone", "bridge", "bridge-orphaned", undefined, "weird"]) {
+      const r = act({ version: "0.9.0", launchSourceEffective: src, launchSource: src });
+      expect(r.action).toBe("skew-info");
+    }
+  });
+  it("E11: dismissal key includes the launch source and both versions", () => {
+    const dismissed = [{ server: "0.9.0", expected: "0.10.0", launchSource: "standalone" }];
+    const isDismissed = (p: { server: string; expected: string; launchSource: string }) =>
+      dismissed.some((d) => d.server === p.server && d.expected === p.expected && d.launchSource === p.launchSource);
+    const standalone = { launchSourceEffective: "standalone", launchSource: "standalone" };
+    expect(act({ ...standalone, version: "0.9.0" }, { isDismissed }).action).toBe("none");
+    expect(act({ version: "0.9.0", launchSourceEffective: "bridge", launchSource: "bridge" }, { isDismissed }).action).toBe("skew-info");
+    expect(act({ ...standalone, version: "0.9.0" }, { isDismissed, expectedVersion: "0.10.1" }).action).toBe("skew-info");
   });
 });

@@ -555,10 +555,18 @@ describe("goal-plugin composition root (fake ctx)", () => {
 
     expect(h.mocks.sendToSession).not.toHaveBeenCalled();
     expect(h.mocks.assignSessionRef).not.toHaveBeenCalled();
-    const res = await app.inject({ method: "GET", url: `/api/folders/goals?cwd=${encodeURIComponent(cwd)}` });
-    const record = (JSON.parse(res.payload).data as Array<{ id: string; driverSessionId?: string }>).find(
-      (r) => r.id === goalId,
-    )!;
-    expect(record.driverSessionId).toBe("s1");
+    // Poll the persisted record (real fs I/O; it lagged settle() on a loaded CI
+    // runner, as E22 did). vi.waitFor runs on real timers.
+    await vi.waitFor(
+      async () => {
+        await flush();
+        const res = await app.inject({ method: "GET", url: `/api/folders/goals?cwd=${encodeURIComponent(cwd)}` });
+        const record = (JSON.parse(res.payload).data as Array<{ id: string; driverSessionId?: string }>).find(
+          (r) => r.id === goalId,
+        )!;
+        expect(record.driverSessionId).toBe("s1");
+      },
+      { timeout: 5_000, interval: 50 },
+    );
   });
 });

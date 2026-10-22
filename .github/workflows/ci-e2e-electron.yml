@@ -33,6 +33,8 @@ name: CI Electron E2E
 # macOS leg does NOT cover zombie-adoption (all three of its tests hang on
 # darwin); it covers the remaining native-surface specs (Doctor version-skew,
 # tray foreign row). Exit criteria are recorded on #531.
+# Same quarantine (#531) on tests/e2e-electron/version-skew.electron.spec.ts: the macOS leg
+# does NOT cover the attach-time version-skew modals (it also needs a packaged bundle).
 # Locked by packages/shared/src/__tests__/e2e-electron-workflow-contract.test.ts.
 # See change: electron-attach-ownership-fixes (harness), run-electron-e2e-native-surface (cadence).
 

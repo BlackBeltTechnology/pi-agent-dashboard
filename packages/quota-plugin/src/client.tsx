@@ -217,7 +217,7 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
         borderRadius: height,
         // Mixed from the muted text colour so the empty track stays visible on
         // every theme (`--bg-tertiary` blends into the strip background).
-        background: "color-mix(in srgb, var(--text-muted, #71717a) 35%, transparent)",
+        background: "color-mix(in srgb, var(--text-muted) 35%, transparent)",
       }}
     >
       <div

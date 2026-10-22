@@ -15,6 +15,7 @@ import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-sh
 import { starterFromHealth } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import type { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { isDashboardRunning } from "./health-check.js";
 import {
   BundledServerMissingError,
@@ -233,6 +234,73 @@ export function decideIsZombie(params: {
     params.healthPpid !== params.healthBootParentPid &&
     params.healthBootParentAlive === false
   );
+}
+
+// ── Attach-time version-skew decision ───────────────────────────────────────
+
+/** Subset of `/api/health` the attach decision reads. */
+export interface AttachHealth {
+  version?: string;
+  /** Static launch source (what the fix text is chosen from). */
+  launchSource?: string;
+  /** Ownership classification (what restart eligibility is chosen from). */
+  launchSourceEffective?: string;
+  /** Legacy starter label of older servers. */
+  starter?: string;
+  bootParentAlive?: boolean;
+}
+
+/** One dismissed skew notice: the pair plus the launch source its fix text came from. */
+export interface VersionSkewPair {
+  server: string;
+  expected: string;
+  launchSource: string;
+}
+
+export type AttachAction =
+  | { action: "none" }
+  | { action: "zombie" }
+  | { action: "skew-restart"; restartIsDefault: boolean }
+  | { action: "skew-zombie-merged" }
+  | { action: "skew-info" };
+
+/** Trim + strip a leading `v`; empty / `unknown` / absent → null (unknown). */
+export function normalizeVersion(v: string | null | undefined): string | null {
+  if (typeof v !== "string") return null;
+  const n = v.trim().replace(/^v+/i, "");
+  return n === "" || n.toLowerCase() === "unknown" ? null : n;
+}
+
+/** Launch source the dismissal key and fix text use: static source, else legacy starter, else "unknown". */
+export function dismissalLaunchSource(health: AttachHealth): string {
+  return health.launchSource || health.starter?.toLowerCase() || "unknown";
+}
+
+/**
+ * Pure attach-time decision (zombie + version skew in one place); `main.ts`
+ * only executes the result. Skew needs a packaged app and two known versions
+ * that differ (any inequality; no semver ordering). `launchSourceEffective ===
+ * "electron"` → restart offered; anything else (incl. unknown) → info only.
+ * See change: electron-attach-version-skew (D2, D2b).
+ */
+export function decideAttachAction(params: {
+  health: AttachHealth;
+  expectedVersion: string | null;
+  isZombie: boolean;
+  isPackaged: boolean;
+  isDismissed: (pair: VersionSkewPair) => boolean;
+}): AttachAction {
+  const { health } = params;
+  const server = normalizeVersion(health.version);
+  const expected = normalizeVersion(params.expectedVersion);
+  const skewed = params.isPackaged && server !== null && expected !== null && server !== expected;
+  if (params.isZombie) return skewed ? { action: "skew-zombie-merged" } : { action: "zombie" };
+  if (!skewed) return { action: "none" };
+  if (health.launchSourceEffective === "electron") {
+    return { action: "skew-restart", restartIsDefault: health.bootParentAlive === false };
+  }
+  const pair = { server, expected, launchSource: dismissalLaunchSource(health) };
+  return params.isDismissed(pair) ? { action: "none" } : { action: "skew-info" };
 }
 
 /** Did Electron start the server this session? */
@@ -493,11 +561,104 @@ export async function readServerLogTail(lines: number = 20): Promise<string> {
   }
 }
 
+/** Poll cadence / graceful-exit budget of the force-restart PID wait. */
+const FORCE_POLL_MS = 200;
+const FORCE_GRACEFUL_MS = 5000;
+
+/** I/O the force-restart branch needs; injected by tests, real by default. */
+export interface ForceRestartDeps {
+  /** PID of the server answering `/api/health`, or null when unknown. */
+  readServerPid: (port: number) => Promise<number | null>;
+  /** Graceful `/api/shutdown` (local proof). Failure is swallowed by the caller. */
+  postShutdown: (port: number) => Promise<void>;
+  isAlive: (pid: number) => boolean;
+  /** Signal ladder SIGTERM → SIGKILL; true only when the PID is confirmed gone. */
+  stopProcess: (pid: number) => Promise<boolean>;
+  sleep: (ms: number) => Promise<void>;
+}
+
+async function defaultReadServerPid(port: number): Promise<number | null> {
+  try {
+    const res = await fetch(`http://localhost:${port}/api/health`, { signal: AbortSignal.timeout(1500) });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { pid?: unknown };
+    return typeof body.pid === "number" ? body.pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultForceRestartDeps(): ForceRestartDeps {
+  const isAlive = (pid: number) => isProcessAlive(pid, { epermAlive: true });
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  return {
+    readServerPid: defaultReadServerPid,
+    postShutdown: async (port) => {
+      const shutdownUrl = `${localApiBase({ port, host: loadMinimalConfig().host })}/api/shutdown`;
+      await fetch(shutdownUrl, { method: "POST", headers: localProofHeaders("POST", shutdownUrl), signal: AbortSignal.timeout(3000) });
+    },
+    isAlive,
+    stopProcess: async (pid) => {
+      // Lazy: zombie-adoption-dialog imports `electron`; keep this module electron-free at load.
+      const { stopZombieServer } = await import("./zombie-adoption-dialog.js");
+      return stopZombieServer(pid, {
+        kill: (p, signal) => process.kill(p, signal), // ban:process-kill-ok
+        isAlive,
+        sleep,
+      });
+    },
+    sleep,
+  };
+}
+
+/**
+ * Stop the running server for a forced restart and CONFIRM it is gone. Waits
+ * on the old PID (not the port): graceful `/api/shutdown`, ≤5 s of PID polling,
+ * then the signal ladder. Returns a failure reason, or null when it is safe to
+ * spawn. A server still answering the port after the PID is gone (a foreign
+ * server) is a failure, never "started".
+ * See change: electron-attach-version-skew (D4).
+ */
+async function stopServerForRestart(port: number, deps: ForceRestartDeps): Promise<string | null> {
+  const oldPid = await deps.readServerPid(port);
+  try {
+    await deps.postShutdown(port);
+  } catch { /* fall through: the wait below decides */ }
+
+  if (oldPid !== null) {
+    let gone = false;
+    for (let waited = 0; waited < FORCE_GRACEFUL_MS; waited += FORCE_POLL_MS) {
+      if (!deps.isAlive(oldPid)) { gone = true; break; }
+      await deps.sleep(FORCE_POLL_MS);
+    }
+    if (!gone && !deps.isAlive(oldPid)) gone = true;
+    if (!gone && !(await deps.stopProcess(oldPid))) {
+      return `Could not stop the running dashboard server (PID ${oldPid}); it is still alive.`;
+    }
+  } else {
+    // PID unknown: fall back to waiting for the port to close.
+    for (let waited = 0; waited < FORCE_GRACEFUL_MS; waited += FORCE_POLL_MS) {
+      if (!(await isDashboardRunning(port)).running) break;
+      await deps.sleep(FORCE_POLL_MS);
+    }
+  }
+
+  const survivor = await isDashboardRunning(port);
+  if (survivor.running) {
+    const pid = await deps.readServerPid(port);
+    return `Another dashboard server${pid !== null ? ` (PID ${pid})` : ""} is still answering on port ${port}; not starting a new one.`;
+  }
+  return null;
+}
+
 /**
  * User-initiated server launch. Idempotent under concurrent calls.
  * Never throws — failures are returned as `{ kind: "failed", reason, logTail }`.
+ * `force` stops the running server first and only spawns once its PID is gone.
  */
-export async function requestServerLaunch(opts: { force?: boolean } = {}): Promise<LaunchOutcome> {
+export async function requestServerLaunch(
+  opts: { force?: boolean; deps?: Partial<ForceRestartDeps> } = {},
+): Promise<LaunchOutcome> {
   // Explicit nullish check: a `Promise` is always truthy, so the bare guard was
   // correct only by accident. Narrowing preserves the inflight memoization
   // exactly — do not `await` here, the caller awaits the shared promise.
@@ -517,16 +678,10 @@ export async function requestServerLaunch(opts: { force?: boolean } = {}): Promi
 
       if (status.running && opts.force) {
         emitLaunchStatus({ phase: "shutting-down-existing" });
-        try {
-          const shutdownUrl = `${localApiBase(config)}/api/shutdown`;
-          await fetch(shutdownUrl, { method: "POST", headers: localProofHeaders("POST", shutdownUrl), signal: AbortSignal.timeout(3000) });
-        } catch { /* fall through; spawn will report port conflict if anything */ }
-        // Wait up to 5s for the port to close.
-        const deadline = Date.now() + 5000;
-        while (Date.now() < deadline) {
-          const probe = await isDashboardRunning(config.port);
-          if (!probe.running) break;
-          await new Promise((r) => setTimeout(r, 200));
+        const failure = await stopServerForRestart(config.port, { ...defaultForceRestartDeps(), ...opts.deps });
+        if (failure) {
+          emitLaunchStatus({ phase: "failed", message: failure });
+          return { kind: "failed", reason: failure, logTail: await readServerLogTail(20) };
         }
       }
 

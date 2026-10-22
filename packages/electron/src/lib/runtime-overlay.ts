@@ -71,16 +71,45 @@ export interface ColdLaunchPlan {
   activating: string | null;
 }
 
+/** Writes a cold launch persists; `peekColdLaunch` computes them without applying. */
+interface ColdLaunchEffects {
+  /** Explicit update consumed: clear bad/attempts of `pending`, record `nonce` as handled. */
+  explicitUpdate?: { pending: string; nonce: string };
+  /** Pending that used all attempts without committing → marked bad. */
+  exhaustedPending?: string;
+}
+
+export interface ColdLaunchPeek extends ColdLaunchPlan {
+  effects: ColdLaunchEffects;
+}
+
 /**
- * Resolver inputs for a cold launch. Side effect: a pending runtime that
- * already used all its attempts without committing (the app died mid-
- * activation) is marked bad here — "retry at most once" (E12).
+ * Read-only twin of `planColdLaunch`: same candidate derivation, but the two
+ * decisions that would write (explicit-update consumption, exhausted-pending →
+ * bad) are applied to an in-memory state copy. `planColdLaunch` = peek + persist,
+ * so the two cannot drift. See change: electron-attach-version-skew (D1).
  */
-export function planColdLaunch(dir: string, exclude: ReadonlySet<string> = new Set()): ColdLaunchPlan {
-  consumeExplicitUpdate(dir);
+export function peekColdLaunch(dir: string, exclude: ReadonlySet<string> = new Set()): ColdLaunchPeek {
   const request = readRuntimeRequest(dir);
   const pending = typeof request?.pending === "string" ? request.pending : undefined;
-  const state = markExhaustedPending(dir, readRuntimeState(dir), pending);
+  let state = readRuntimeState(dir);
+  const effects: ColdLaunchEffects = {};
+
+  const nonce = request?.pendingNonce;
+  if (typeof nonce === "string" && pending !== undefined && state.handledPendingNonce !== nonce) {
+    effects.explicitUpdate = { pending, nonce };
+    const bad = { ...state.bad };
+    const attempts = { ...state.attempts };
+    delete bad[pending];
+    delete attempts[pending];
+    state = { ...state, bad, attempts, handledPendingNonce: nonce };
+  }
+
+  if (pending && pending !== state.current && !state.bad?.[pending] && (state.attempts?.[pending] ?? 0) >= MAX_ATTEMPTS) {
+    effects.exhaustedPending = pending;
+    state = { ...state, bad: { ...state.bad, [pending]: { reason: "crashed_before_commit" } } };
+  }
+
   const effectiveSource = deriveEffectiveSource(request, state);
   const skip = (id: string) => exclude.has(id) || !!state.bad?.[id];
 
@@ -97,17 +126,19 @@ export function planColdLaunch(dir: string, exclude: ReadonlySet<string> = new S
   const pendingFirst = pending !== undefined && pending !== state.current && overlays[0] === pending;
   if (pendingFirst && (effectiveSource === "npm" || effectiveSource === "github")) activating = pending;
   inputs.overlays = overlays.map((id) => ({ runtimeId: id, root: overlayVersionRoot(dir, id) }));
-  return { inputs, activating };
+  return { inputs, activating, effects };
 }
 
-/** Pending that used all attempts without committing (app died mid-activation) → bad (E12). */
-function markExhaustedPending(dir: string, state: RuntimeState, pending: string | undefined): RuntimeState {
-  if (!pending || pending === state.current || state.bad?.[pending]) return state;
-  if ((state.attempts?.[pending] ?? 0) < MAX_ATTEMPTS) return state;
-  return patchRuntimeState(dir, (s) => ({
-    bad: { ...s.bad, [pending]: { reason: "crashed_before_commit" } },
-    lastFailure: { id: pending, reason: "crashed_before_commit", at: new Date().toISOString() },
-  }));
+/**
+ * Resolver inputs for a cold launch. Side effect: a pending runtime that
+ * already used all its attempts without committing (the app died mid-
+ * activation) is marked bad here — "retry at most once" (E12).
+ */
+export function planColdLaunch(dir: string, exclude: ReadonlySet<string> = new Set()): ColdLaunchPlan {
+  const { effects, ...plan } = peekColdLaunch(dir, exclude);
+  if (effects.explicitUpdate) consumeExplicitUpdate(dir);
+  if (effects.exhaustedPending) markBad(dir, effects.exhaustedPending, "crashed_before_commit");
+  return plan;
 }
 
 /** Overlay ids in preference order: pending, current, previous — minus skipped/duplicates. */

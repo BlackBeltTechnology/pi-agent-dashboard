@@ -47,6 +47,7 @@ import {
   commitRuntime,
   createSwitchQueue,
   extensionPathFor,
+  peekColdLaunch,
   planColdLaunch,
   pruneVersions,
   recordColdFailure,
@@ -126,6 +127,46 @@ function coldLaunchRuntimeInputs(opts: {
       patchRuntimeState(dir, { lastFailure: { id: f.runtimeId, reason: f.reason, at: new Date().toISOString() } });
     },
   };
+}
+
+/** Runtime the next cold launch would start, as far as its version is knowable. */
+export interface ExpectedRuntime {
+  source: "bundled" | "overlay" | "unknown";
+  /** Manifest version of the resolved release runtime; null for dev/local/unreadable/error. */
+  version: string | null;
+}
+
+/**
+ * Which server version a cold launch would start — resolved with the same
+ * chain and gates as `resolveAndSpawnRuntime` but with ZERO writes
+ * (`peekColdLaunch`, `skipAttach`, no-op `onFallThrough`). Never throws:
+ * devMonorepo, localLink, a missing manifest or any resolution error → null.
+ * See change: electron-attach-version-skew (D1).
+ */
+export async function resolveExpectedRuntime(opts: {
+  resolver: Omit<LaunchSourceOpts, "runtime" | "skipAttach">;
+  shellVersion: string;
+  /** Override for tests; defaults to the real runtime overlay dir. */
+  dir?: string;
+}): Promise<ExpectedRuntime> {
+  try {
+    const peek = peekColdLaunch(opts.dir ?? getRuntimeOverlayDir());
+    const source = await selectLaunchSource({
+      ...opts.resolver,
+      skipAttach: true,
+      runtime: {
+        ...peek.inputs,
+        gate: (c) => gateRuntimeRoot(c.kind, c.root, opts.shellVersion),
+        onFallThrough: () => {},
+      },
+    });
+    if (source.kind !== "bundled" && source.kind !== "overlay") return { source: "unknown", version: null };
+    const root = source.kind === "overlay" ? source.cwd : path.join(opts.resolver.resourcesPath, "server");
+    const version = readRuntimeManifest(root)?.version ?? null;
+    return { source: version ? source.kind : "unknown", version };
+  } catch {
+    return { source: "unknown", version: null };
+  }
 }
 
 /** Spawnable source for a runtime id (after the gate). */
