@@ -30,6 +30,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 
 export interface WhatsNewDialogProps {
@@ -128,7 +129,7 @@ export function WhatsNewDialog({
 
             {response.changelogUrl && (
               <div className="pt-2 border-t border-[var(--border-secondary)]">
-                <a
+                <SafeLink
                   href={response.changelogUrl}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -137,7 +138,7 @@ export function WhatsNewDialog({
                 >
                   {i18nT("git.openFullChangelogOnGithub", undefined, "Open full changelog on GitHub")}
                   <Icon path={mdiOpenInNew} size={0.45} />
-                </a>
+                </SafeLink>
               </div>
             )}
           </div>

@@ -14,11 +14,11 @@
  * See change: add-eml-preview.
  */
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 import { ImagePreview } from "./ImagePreview.js";
 import { emlAttachmentUrl, emlUrl } from "./raw-url.js";
-import { logRejection } from "../../lib/report-error.js";
-import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -298,6 +298,7 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
         ) : (
           <a
             className="px-2 py-0.5 rounded hover:bg-[var(--bg-surface)]"
+            // client-sinks: allow — same-origin attachment API URL built by emlAttachmentUrl
             href={emlAttachmentUrl(target, att.index)}
             data-testid="eml-attachment-download"
           >

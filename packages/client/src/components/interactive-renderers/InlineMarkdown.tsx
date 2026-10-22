@@ -1,5 +1,6 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 
 interface Props {
   content: string;
@@ -28,7 +29,7 @@ export function InlineMarkdown({ content }: Props) {
         },
         a({ children, href, ...props }) {
           return (
-            <a
+            <SafeLink
               href={href}
               className="text-blue-400 hover:underline"
               target="_blank"
@@ -36,7 +37,7 @@ export function InlineMarkdown({ content }: Props) {
               {...props}
             >
               {children}
-            </a>
+            </SafeLink>
           );
         },
       }}

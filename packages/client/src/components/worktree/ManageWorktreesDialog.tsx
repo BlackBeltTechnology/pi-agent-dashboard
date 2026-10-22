@@ -178,6 +178,7 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
             <ul className="list-disc list-inside">
               {failureList.map(([path, f]) => (
                 <li key={path}>
+                  {/* client-sinks: allow — in-page fragment anchor, path URI-encoded */}
                   <a href={`#worktree-row-${encodeURIComponent(path)}`}>{path}</a> — {f.message ?? f.code}
                 </li>
               ))}

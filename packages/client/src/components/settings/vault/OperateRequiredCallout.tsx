@@ -9,9 +9,11 @@
  * notice foreground and are underlined (ui-contract a11y #7).
  * See change: surface-operate-required-remedy (mockups/ui-plan.md), align-ui-contract-recipes.
  */
+
 import { SettingsNotice } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiAccountArrowRight, mdiCellphoneKey, mdiLockOutline, mdiLogin, mdiMonitor } from "@mdi/js";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
+import { SafeLink } from "../../../lib/nav/safe-navigation.js";
 import { requestAccessTarget } from "../../../lib/pairing/request-access-target.js";
 
 type KnownRemedy = "use-host" | "re-pair" | "request-access" | "sign-in";
@@ -69,14 +71,14 @@ export function OperateRequiredCallout({ remedies, apiBase, busy, onRetry }: Pro
             {remedy === "request-access" && (
               <>
                 {" "}
-                <a
+                <SafeLink
                   href={access.href}
                   {...(access.newContext ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   data-testid="vault-operate-request-access"
                   className={link}
                 >
                   {i18nT("vault.operateRequired.requestAccessLink", undefined, "Request access")}
-                </a>
+                </SafeLink>
               </>
             )}
             {remedy === "sign-in" && (

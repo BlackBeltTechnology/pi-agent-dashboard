@@ -6,6 +6,7 @@
  * the Gate / user chip don't care which road is in use.
  * See change: add-team-plugin.
  */
+import { assignLocation } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   apiUrl,
   type Operator,
@@ -138,7 +139,7 @@ export function SeamIdentityProvider({ children, deps }: { children: ReactNode; 
       origin: window.location.origin,
       hash: window.location.hash,
       pathWithSearch: `${window.location.pathname}${window.location.search}`,
-      assign: (u) => window.location.assign(u),
+      assign: (u) => { assignLocation(u); },
       replaceHash: (h) => window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${h}`),
       ...depsRef.current,
     }),

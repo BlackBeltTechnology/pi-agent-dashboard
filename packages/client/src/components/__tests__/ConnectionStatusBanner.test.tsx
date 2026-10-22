@@ -223,7 +223,7 @@ describe("ConnectionStatusBanner — network denied: Request access (F9)", () =>
       </ApiContext.Provider>,
     );
     fireEvent.click(screen.getByTestId("network-denied-request-access"));
-    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener,noreferrer");
     expect(assign).not.toHaveBeenCalled();
   });
 
@@ -231,7 +231,7 @@ describe("ConnectionStatusBanner — network denied: Request access (F9)", () =>
     setGlobalApiBase("http://192.168.16.204:8000");
     renderDenied();
     fireEvent.click(screen.getByTestId("network-denied-request-access"));
-    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener,noreferrer");
   });
 
   it("is styled with severity-warning tokens, an icon and a wrapping hint — no amber palette, no truncate", () => {

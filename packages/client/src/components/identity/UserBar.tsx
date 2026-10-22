@@ -13,6 +13,7 @@ import { signOutTarget } from "../../lib/identity/dashboard-login.js";
 import { providerById } from "../../lib/identity/login-config.js";
 import { useLoginSession } from "../../lib/identity/login-session.js";
 import { type SignedInUser, useSignedInUser } from "../../lib/identity/signed-in-user.js";
+import { assignLocation } from "../../lib/nav/safe-navigation.js";
 
 /** "Anna Kovacs" → "AK"; "anna@x" → "A"; "" → "?". */
 export function initialsOf(display: string): string {
@@ -77,7 +78,7 @@ export function SignedInUserBar({ connected }: { connected: boolean }): React.JS
         // does not stop on its own "Do you want to log out?" page.
         const target = signOutTarget(provider, window.location.origin, getIdToken());
         clearAccessToken();
-        window.location.assign(target);
+        assignLocation(target);
       }}
     />
   );
