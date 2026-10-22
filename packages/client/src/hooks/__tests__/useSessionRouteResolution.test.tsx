@@ -150,16 +150,59 @@ describe("useSessionRouteResolution", () => {
     expect(h.navigate).not.toHaveBeenCalled();
   });
 
-  it("F7: a prefix that turns ambiguous before the replace effect flushes ends ambiguous", () => {
+  it("F7: a prefix that turns ambiguous before the replace effect flushes ends ambiguous", async () => {
     const A = "01a16086-aaaa-4aaa-8aaa-000000000001";
     const B = "01a16086-bbbb-4bbb-8bbb-000000000002";
-    const lookup = vi.fn().mockResolvedValue([]);
+    const lookup = vi.fn().mockResolvedValue([item(A)]);
     const h = setup({ routeId: "01a16086", sessions: mapOf(A), gen: 1 }, lookup);
-    expect(h.result.current.r.canonicalId).toBe(A);
+    await waitFor(() => expect(h.result.current.r.canonicalId).toBe(A));
     h.rerender({ routeId: "01a16086", sessions: mapOf(A, B), gen: 1 });
     expect(h.result.current.r.status).toBe("ambiguous");
     expect(h.result.current.r.candidates?.length).toBe(2);
     expect(h.result.current.r.canonicalId).toBeUndefined();
+  });
+
+  it("F7b: a prefix unique among HELD ids but ambiguous in the full registry is not committed (review finding)", async () => {
+    const A = "01a16086-aaaa-4aaa-8aaa-000000000001";
+    const B = "01a16086-bbbb-4bbb-8bbb-000000000002"; // older ended, outside the snapshot window
+    const lookup = vi.fn().mockResolvedValue([item(A), item(B)]);
+    const h = setup({ routeId: "01a16086", sessions: mapOf(A), gen: 1 }, lookup);
+    // Not committed while the registry check is in flight.
+    expect(h.result.current.r.status).toBe("pending");
+    expect(h.result.current.r.canonicalId).toBeUndefined();
+    await waitFor(() => expect(h.result.current.r.status).toBe("ambiguous"));
+    expect(h.result.current.r.candidates?.length).toBe(2);
+    expect(h.seen.every((r) => r.canonicalId === undefined)).toBe(true);
+  });
+
+  it("F7c: a prefix whose lookup fails falls back to the held match", async () => {
+    const A = "01a16086-aaaa-4aaa-8aaa-000000000001";
+    const lookup = vi.fn().mockRejectedValue(new Error("HTTP 503"));
+    const h = setup({ routeId: "01a16086", sessions: mapOf(A), gen: 1 }, lookup);
+    await waitFor(() => expect(h.result.current.r.canonicalId).toBe(A));
+    expect(h.result.current.r.status).toBe("ok");
+  });
+
+  it("a full id, or a case-only difference, is committed without a lookup", () => {
+    const A = "01a16086-aaaa-4aaa-8aaa-000000000001";
+    const lookup = vi.fn().mockResolvedValue([]);
+    const h = setup({ routeId: A.toUpperCase(), sessions: mapOf(A), gen: 1 }, lookup);
+    expect(h.result.current.r).toMatchObject({ status: "ok", canonicalId: A });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("a lookup that resolves after a server switch is discarded, never merged into the new server's sessions (review finding)", async () => {
+    let resolveA!: (rows: SessionListItem[]) => void;
+    const lookup = vi.fn().mockImplementationOnce(() => new Promise<SessionListItem[]>((r) => { resolveA = r; }));
+    const h = setup({ routeId: "old1", sessions: mapOf("live"), gen: 1 }, lookup);
+    await waitFor(() => expect(lookup).toHaveBeenCalledTimes(1));
+    // Server switch: the connection's snapshot gate resets while server A's lookup is in flight.
+    h.rerender({ routeId: "old1", sessions: new Map(), gen: 0 });
+    await act(async () => {
+      resolveA([item("old1")]);
+    });
+    expect(h.result.current.sessions.has("old1")).toBe(false);
+    expect(h.result.current.lookupOnly.size).toBe(0);
   });
 
   it("X1: network error then 503 → notFound(lookupFailed), no redirect, one fetch per retry", async () => {

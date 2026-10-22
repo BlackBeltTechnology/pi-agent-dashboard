@@ -781,12 +781,14 @@ Agents open `/session/:id[/diff|/editor]` with any id form. Client resolves to c
 
 - **Raw param.** Route `:id` stays RAW. `useSessionRouteResolution` (`packages/client/src/hooks/useSessionRouteResolution.ts`) resolves synchronously during render. `selectedId` in `App.tsx` = canonical id (`undefined` while pending / not found). Status: `none|pending|ok|ambiguous|notFound|vanished`.
 - **Matching.** `resolveSessionRouteId` (`lib/session/resolve-session-route-id.ts`): raw exact wins; else case-insensitive exact; else unique prefix ≥ 8 chars (`MIN_SESSION_PREFIX`). Several prefix hits → `ambiguous` (candidate links). < 8 chars → `none`. Returned id = held live-cased id.
+- **Prefix verification.** Prefix-only match commits only after this connection's `GET /api/sessions?id=` lookup merged. Prefix unique among held ids can be ambiguous across owner-visible registry (older ended sessions outside snapshot window). Merge → `ambiguous` (candidate links). Status `pending` meanwhile. Lookup network / 5xx failure → fall back to held match. Full id or case-only difference commits without lookup.
 - **Canonical URL.** `useCanonicalRouteUrl` navigates with `replace` to canonical id. Keeps suffix + query.
 - **Snapshot window gap.** Snapshot holds non-ended + newest ended only (see Sessions snapshot window). Older ended arrive via `sessions_page`. Miss after snapshot → one `GET /api/sessions?id=<routeId>` per route id per connection (`lib/api/sessions-lookup-api.ts`).
 - **Server filter.** Single-valued `id`. Case-insensitive exact or prefix ≥ 8 chars. Applied after `filterOwned`. Array `id` → 400.
 - **Merge.** Lookup rows merge into `sessions` Map ONLY. Stripped of `notifyLog`, `uiUrl`, `diffUrl`. Order map, `endedTotals`, paging untouched.
 - **`lookupOnlyIds`.** Tracks merged ids. Excluded from held-ended count (`heldEndedByGroup`) until `sessions_page_result` delivers them or snapshot clears the set.
 - **Reconnect / server switch.** `snapshotGeneration` resets to 0. Resolved id sticky per route visit → open session never blanks.
+- **Stale lookup replies.** Connection epoch bumps every time snapshot gate flips (snapshot lands; reconnect / server switch resets `snapshotGeneration` to 0). Lookup started in one epoch discarded if epoch changed before reply. Reply from server A never merges into server B `sessions` / `lookupOnlyIds`.
 - **Vanished.** Was held, lookup returns empty (archived while viewing, or switch to server lacking it) → `useVanishedRedirect` does `navigate("/", { replace: true })` once.
 - **Never existed.** Inline `SessionNotFound` (`data-testid="session-not-found"`). No redirect — agent must see evidence.
 - **Pending.** `session-resolving` placeholder.

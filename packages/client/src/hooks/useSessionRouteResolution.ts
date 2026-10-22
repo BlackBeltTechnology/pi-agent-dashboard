@@ -62,6 +62,8 @@ function deriveRoute(a: {
   routeId: string | undefined;
   archivedReadOnlyId: string | undefined;
   match: ReturnType<typeof resolveSessionRouteId>;
+  /** The held match is only a PREFIX of the route id: it must be verified against the full registry. */
+  isPrefixMatch: boolean;
   snapshotGeneration: number;
   lookup: LookupState | undefined;
   visit: { resolved?: string; wasHeld: boolean };
@@ -72,6 +74,14 @@ function deriveRoute(a: {
   if (!routeId) return { status: "none" };
   if (archivedReadOnlyId) return { status: "ok", canonicalId: routeId };
   if (match.kind === "match") {
+    // A prefix that is unique among the HELD ids may still be ambiguous across the
+    // owner-visible registry (older ended sessions outside the snapshot window), so
+    // it is committed only after this connection's lookup has been merged: the merge
+    // turns an ambiguous prefix into `ambiguous` on its own. A failed lookup falls
+    // back to the held match.
+    if (a.isPrefixMatch && a.snapshotGeneration > 0 && a.lookup !== "settled" && a.lookup !== "failed") {
+      return sticky();
+    }
     v.resolved = match.id;
     v.wasHeld = true;
     return { status: "ok", canonicalId: match.id };
@@ -100,10 +110,13 @@ export function useSessionRouteResolution({
   if (visit.current.routeId !== routeId) visit.current = { routeId, wasHeld: false };
   const v = visit.current;
 
-  // Connection epoch: bumps when this connection's snapshot first lands.
+  // Connection epoch: bumps every time the snapshot gate flips (a snapshot lands, or
+  // a reconnect / server switch resets it to 0). A lookup started in one epoch is
+  // discarded if the epoch changed before it resolved, so a reply from server A can
+  // never be merged into server B's sessions.
   const epochRef = useRef(0);
   const prevGenRef = useRef(snapshotGeneration);
-  if (snapshotGeneration > 0 && prevGenRef.current === 0) epochRef.current += 1;
+  if ((snapshotGeneration === 0) !== (prevGenRef.current === 0)) epochRef.current += 1;
   prevGenRef.current = snapshotGeneration;
 
   const [lookups, setLookups] = useState<Record<string, LookupState>>({});
@@ -118,20 +131,28 @@ export function useSessionRouteResolution({
       ? resolveSessionRouteId(routeId, sessions.keys())
       : ({ kind: "none" } as const);
 
+  const isPrefixMatch =
+    match.kind === "match" && routeId !== undefined && match.id.toLowerCase() !== routeId.toLowerCase();
+  const needsLookup = match.kind === "none" || isPrefixMatch;
+
   useEffect(() => {
-    if (!routeId || archivedReadOnlyId || snapshotGeneration === 0 || match.kind !== "none") return;
+    if (!routeId || archivedReadOnlyId || snapshotGeneration === 0 || !needsLookup) return;
     const token = `${key}#${retryNonce}`;
     if (startedRef.current.has(token)) return;
     startedRef.current.add(token);
+    const startEpoch = epochRef.current;
+    const stale = () => epochRef.current !== startEpoch;
     setLookups((p) => ({ ...p, [key]: "inflight" }));
     latest.current
       .lookup(routeId)
       .then((rows) => {
+        if (stale()) return;
         const stripped = rows.map(stripLookupRow);
         if (stripped.length > 0) latest.current.mergeLookupRows(stripped);
         setLookups((p) => ({ ...p, [key]: "settled" }));
       })
       .catch((err: unknown) => {
+        if (stale()) return;
         if (err instanceof SessionLookupAuthError) {
           setLookups((p) => ({ ...p, [key]: "auth" }));
           latest.current.onAuthRequired();
@@ -139,7 +160,7 @@ export function useSessionRouteResolution({
           setLookups((p) => ({ ...p, [key]: "failed" }));
         }
       });
-  }, [routeId, archivedReadOnlyId, snapshotGeneration, match.kind, key, retryNonce]);
+  }, [routeId, archivedReadOnlyId, snapshotGeneration, needsLookup, key, retryNonce]);
 
   const retry = useCallback(() => {
     setLookups((p) => {
@@ -149,7 +170,7 @@ export function useSessionRouteResolution({
     setRetryNonce((n) => n + 1);
   }, [key]);
 
-  const derived = deriveRoute({ routeId, archivedReadOnlyId, match, snapshotGeneration, lookup: lookups[key], visit: v });
+  const derived = deriveRoute({ routeId, archivedReadOnlyId, match, isPrefixMatch, snapshotGeneration, lookup: lookups[key], visit: v });
   return { ...derived, retry };
 }
 

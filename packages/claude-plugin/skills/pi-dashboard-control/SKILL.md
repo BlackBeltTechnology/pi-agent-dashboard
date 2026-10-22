@@ -29,7 +29,7 @@ curl -s BASE/api/sessions
 1. Use the full `id`, or the row's `uiUrl` / `diffUrl`, exactly as listed. Never shorten the id: build `BASE/session/<full id>` only when you have no `uiUrl`. When auth is on, this listing follows the token rules in "When a call is refused" below. The sign-in in the pane is separate and gives you no token.
 2. Add `?embed=1` for a narrow pane: the page then shows the session without the session list.
 3. If the page asks to sign in, ask the user to sign in inside the pane. Never put a token or any credential in a URL.
-4. "Session not found" means a wrong, shortened or archived id: list again and use a full id. A session that is no longer listed is in `GET /api/sessions/archived`: open `BASE/session/<full id>?archived=1`.
+4. "Session not found" means a wrong, shortened or archived id: list again and use a full id. A session that is no longer listed is in `GET /api/sessions/archived` (50 per page: while the response has a `nextCursor`, request the next page with `?cursor=<nextCursor>` until you find it): open `BASE/session/<full id>?archived=1`.
 
 Other pages (folders, OpenSpec board and archive) are listed in the "UI routes (browser)" section of [references/api-reference.md](references/api-reference.md).
 

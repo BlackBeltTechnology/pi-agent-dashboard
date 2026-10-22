@@ -1,7 +1,7 @@
 /** Test-plan #E11 — `useEmbedMode` (design D5). See change: add-session-ui-deep-links-for-agents. */
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { EMBED_STORAGE_KEY, useEmbedMode } from "../useEmbedMode.js";
@@ -41,5 +41,34 @@ describe("useEmbedMode", () => {
       ),
     });
     expect(result.current).toBe(false);
+  });
+
+  describe("storage unavailable (review finding)", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("honours ?embed=1 and keeps it across query-less navigation when sessionStorage throws", () => {
+      vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("denied");
+      });
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("denied");
+      });
+      vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+        throw new Error("denied");
+      });
+      const { hook, searchHook, navigate } = memoryLocation({ path: "/session/x", searchPath: "embed=1" });
+      const { result } = renderHook(() => useEmbedMode(), {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <Router hook={hook} searchHook={searchHook}>
+            {children}
+          </Router>
+        ),
+      });
+      expect(result.current).toBe(true);
+      act(() => navigate("/session/x/diff"));
+      expect(result.current).toBe(true);
+      act(() => navigate("/?embed=0"));
+      expect(result.current).toBe(false);
+    });
   });
 });
