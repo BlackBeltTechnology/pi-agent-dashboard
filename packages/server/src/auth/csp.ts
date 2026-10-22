@@ -19,6 +19,13 @@
  * `-Report-Only`; off mode registers no hook and the mount sets its own).
  * See change: add-plugin-capability-routes (D7).
  *
+ * Trusted Types (`require-trusted-types-for 'script'`) has its own mode,
+ * `PI_DASHBOARD_TRUSTED_TYPES=off|report|enforce`; unset follows the baseline
+ * (`off` iff `PI_DASHBOARD_CSP=off`, else `report`), so an existing `enforce`
+ * deployment never gets TT enforcement by accident. Matching modes append the
+ * directive to the baseline header; differing modes set the OTHER header kind
+ * with the directive alone (never comma-joined). See change: harden-client-sinks (D7).
+ *
  * See change: improve-content-editor (baseline CSP §7).
  */
 import type { FastifyInstance } from "fastify";
@@ -57,15 +64,27 @@ export function resolveCspMode(raw: string | undefined): CspMode {
   return "report"; // default — safe, non-breaking
 }
 
-/** Register the CSP hook. No-op when mode is `off`. */
-export function registerCsp(fastify: FastifyInstance, mode: CspMode): void {
-  if (mode === "off") return;
-  const header = mode === "enforce" ? "content-security-policy" : "content-security-policy-report-only";
-  const value = buildCsp();
+export const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for 'script'";
+
+/** `PI_DASHBOARD_TRUSTED_TYPES`: explicit value wins; unset / unknown → `off` iff the baseline is `off`, else `report`. */
+export function resolveTrustedTypesMode(raw: string | undefined, cspMode: CspMode): CspMode {
+  if (raw === "off" || raw === "report" || raw === "enforce") return raw;
+  return cspMode === "off" ? "off" : "report";
+}
+
+const headerFor = (mode: CspMode) => (mode === "enforce" ? "content-security-policy" : "content-security-policy-report-only");
+
+/** Register the CSP hook. No-op when both the baseline and Trusted Types are `off`. */
+export function registerCsp(fastify: FastifyInstance, mode: CspMode, ttMode: CspMode = resolveTrustedTypesMode(undefined, mode)): void {
+  // header kind → value; each kind is added only when absent (a route-level policy stands).
+  const headers = new Map<string, string>();
+  if (mode !== "off") headers.set(headerFor(mode), ttMode === mode ? `${buildCsp()}; ${TRUSTED_TYPES_DIRECTIVE}` : buildCsp());
+  if (ttMode !== "off" && ttMode !== mode) headers.set(headerFor(ttMode), TRUSTED_TYPES_DIRECTIVE);
+  if (headers.size === 0) return;
   fastify.addHook("onSend", async (request, reply, payload) => {
     const url = request.url;
     if (SKIP_PREFIXES.some((p) => url.startsWith(p))) return payload;
-    if (!reply.getHeader(header)) reply.header(header, value);
+    for (const [header, value] of headers) if (!reply.getHeader(header)) reply.header(header, value);
     return payload;
   });
 }

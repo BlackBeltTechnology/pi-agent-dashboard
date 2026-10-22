@@ -541,6 +541,7 @@ export const zhCNCatalog: Record<string, string> = {
   "common.enterThisCodeAt": "在此处输入此代码:",
   "common.error": "错误：",
   "common.expand": "展开",
+  "nav.linkBlocked": "链接已阻止：不允许打开此地址。",
   "common.expandPreview": "展开预览",
   "common.expandSidebar": "展开侧边栏",
   "common.expanded": "扩展",

@@ -16,6 +16,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedEmlSrcDoc } from "../../lib/security/trusted-types.js";
 import { logRejection } from "../../lib/report-error.js";
 import { ImagePreview } from "./ImagePreview.js";
 import { emlAttachmentUrl, emlUrl } from "./raw-url.js";
@@ -49,20 +50,6 @@ interface Props {
   target: FileTarget;
 }
 
-/** Replace `cid:<id>` tokens (src + CSS `url()`) with resolved `blob:` URLs. */
-function resolveCidRefs(html: string, cidToBlob: Map<string, string>): string {
-  if (cidToBlob.size === 0) return html;
-  return html.replace(/cid:([^"')\s>]+)/gi, (match, id: string) => {
-    const blob = cidToBlob.get(id.toLowerCase());
-    return blob ?? match;
-  });
-}
-
-/** Wrap sanitized body HTML in a minimal document for the sandboxed iframe. */
-function buildSrcDoc(bodyHtml: string): string {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head><body>${bodyHtml}</body></html>`;
-}
-
 export function EmlPreview({ target }: Props) {
   // Opted out of the access-grant dialog unless a provider declares operator
   // provenance (surface-denial-remedy-in-previews, D4).
@@ -71,7 +58,7 @@ export function EmlPreview({ target }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [allowRemote, setAllowRemote] = useState(false);
   const [headerOpen, setHeaderOpen] = useState(false);
-  const [srcDoc, setSrcDoc] = useState<string>("");
+  const [srcDoc, setSrcDoc] = useState<TrustedHTML | string>("");
   const blobUrls = useRef<string[]>([]);
 
   // Fetch + parse. Re-runs when the target or the allow-remote flag changes.
@@ -129,7 +116,14 @@ export function EmlPreview({ target }: Props) {
       );
       if (cancelled) return;
       blobUrls.current.push(...createdUrls);
-      setSrcDoc(buildSrcDoc(resolveCidRefs(data.html, cidToBlob)));
+      // Sanitized again with the server's `eml` profile, cid refs resolved to
+      // our blob: URLs, wrapped in the constant document — one pi-sanitized-html
+      // value; a sanitizer failure leaves the frame blank (fail closed).
+      try {
+        setSrcDoc(trustedEmlSrcDoc(data.html, cidToBlob));
+      } catch {
+        setSrcDoc("");
+      }
     })().catch(logRejection("EmlPreview.inlineAttachments"));
     return () => {
       cancelled = true;
@@ -177,7 +171,8 @@ export function EmlPreview({ target }: Props) {
       )}
       <iframe
         sandbox=""
-        srcDoc={srcDoc}
+        // client-sinks: allow — trusted via pi-sanitized-html (eml profile)
+        srcDoc={srcDoc as string}
         className="w-full flex-1 min-h-[30vh] border-0 bg-white"
         title={target.path}
         data-testid="eml-body-frame"

@@ -1,3 +1,4 @@
+import { MERMAID_SVG_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import {
   mdiAlertCircleOutline,
   mdiAutoFix,
@@ -10,6 +11,7 @@ import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedMermaidParse, trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import type { RuleId } from "../../lib/preview/mermaid-repair.js";
 import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
@@ -100,12 +102,8 @@ function sanitizeMermaidCode(raw: string): string {
 export async function sanitizeMermaidSvg(svg: string): Promise<string> {
   const DOMPurify = (await import("dompurify")).default;
   if (DOMPurify.isSupported !== true) throw new Error("sanitizer unavailable: DOMPurify has no DOM support");
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true, html: true },
-    ADD_TAGS: ["foreignObject"],
-    HTML_INTEGRATION_POINTS: { foreignobject: true, "annotation-xml": true },
-    FORBID_TAGS: ["form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
-  });
+  // Config shared with the `pi-sanitized-html` policy (`mermaid` profile). See change: harden-client-sinks.
+  return DOMPurify.sanitize(svg, MERMAID_SVG_PROFILE);
 }
 
 // ── Default-node colorization ───────────────────────────────────────────────
@@ -180,7 +178,11 @@ function setLabelColor(g: Element, color: string): void {
  */
 export function colorizeDefaultNodes(svg: string, accents: string[], textColor: string): string {
   if (typeof DOMParser === "undefined" || accents.length === 0) return svg;
-  const parse = (src: string) => new DOMParser().parseFromString(src, "image/svg+xml").documentElement;
+  // The parse input is mermaid's own output, wrapped by the wrap-only
+  // `pi-mermaid-parse` policy (inert DOMParser document; the final sanitize
+  // still runs before injection). See change: harden-client-sinks (D5).
+  const parse = (src: string) =>
+    new DOMParser().parseFromString(trustedMermaidParse(src) as string, "image/svg+xml").documentElement;
   const malformed = (el: Element | null) => !el || el.nodeName === "parsererror" || el.querySelector("parsererror") !== null;
   let root = parse(svg);
   // mermaid emits HTML void tags inside <foreignObject> labels unclosed
@@ -836,6 +838,16 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     resolved,
     complete,
   );
+  // Final injection value from `pi-sanitized-html` (`mermaid` profile). A
+  // sanitizer failure → error view; raw SVG is never injected.
+  const trustedSvg = React.useMemo(() => {
+    if (!svg) return null;
+    try {
+      return { ok: true as const, html: trustedSanitizedHtml(svg, "mermaid") };
+    } catch (err) {
+      return { ok: false as const, message: errorMessage(err) };
+    }
+  }, [svg]);
   const [focused, setFocused] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const refocusViewportRef = useRef(false);
@@ -905,18 +917,18 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     };
   }, [focused]);
 
-  if (outcome?.kind === "error") {
+  if (outcome?.kind === "error" || trustedSvg?.ok === false) {
     return (
       <ErrorView
         code={code}
-        message={outcome.message}
+        message={outcome?.kind === "error" ? outcome.message : (trustedSvg as { message: string }).message}
         headline={i18nT("preview.mermaid.errorHeadline", undefined, "This diagram could not be rendered.")}
         {...errorSlots}
       />
     );
   }
 
-  if (!svg) {
+  if (!svg || !trustedSvg?.ok) {
     return (
       <div role="status" className="flex items-center justify-center gap-2 py-8 text-[var(--text-secondary)] text-sm">
         <Icon path={mdiLoading} size={0.7} className="animate-spin" aria-hidden="true" />
@@ -1017,7 +1029,8 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
               transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
               transformOrigin: "0 0",
             }}
-            dangerouslySetInnerHTML={{ __html: svg }}
+            // client-sinks: allow — trusted via pi-sanitized-html (mermaid profile)
+            dangerouslySetInnerHTML={{ __html: trustedSvg.html }}
           />
         </div>
       </div>

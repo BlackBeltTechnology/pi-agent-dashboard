@@ -7,6 +7,10 @@
  * `nonce` is optional: set it once the baseline CSP adopts per-response script nonces, so the
  * inline map keeps working under a tightened `script-src` (BCSP). Today's baseline allows inline.
  *
+ * It also inserts `<meta name="pi-trusted-types" content="<mode>">` (the resolved
+ * `PI_DASHBOARD_TRUSTED_TYPES` mode) so the client's `default` policy knows whether to
+ * pass through (`report`) or sanitize (`enforce`). See change: harden-client-sinks (D6).
+ *
  * See change: decouple-plugins-from-core (task 6.4, design D21).
  */
 import fs from "node:fs";
@@ -29,13 +33,28 @@ export function injectImportMap(html: string, opts: { nonce?: string } = {}): st
   return `${tag}\n${html}`;
 }
 
+/** Pure: `html` with the Trusted Types mode meta inserted right after `<head>` (else first). */
+export function injectTrustedTypesMeta(html: string, mode: "off" | "report" | "enforce"): string {
+  const tag = `<meta name="pi-trusted-types" content="${mode}">`;
+  const head = html.match(/<head\b[^>]*>/i);
+  if (head?.index !== undefined) {
+    const at = head.index + head[0].length;
+    return `${html.slice(0, at)}\n    ${tag}${html.slice(at)}`;
+  }
+  return `${tag}\n${html}`;
+}
+
 export interface IndexHtmlSender {
   /** Send `index.html` + import map; resolves the reply. */
   sendIndexWithImportMap(reply: FastifyReply, opts?: { nonce?: string }): Promise<FastifyReply>;
 }
 
 /** Sender over `<clientDir>/index.html`. The mtime-cached read holds the raw file; the map is inserted per call (nonce varies). */
-export function createIndexHtmlSender(clientDir: string): IndexHtmlSender {
+export function createIndexHtmlSender(
+  clientDir: string,
+  opts: { trustedTypesMode?: "off" | "report" | "enforce" } = {},
+): IndexHtmlSender {
+  const ttMode = opts.trustedTypesMode ?? "report";
   const file = path.join(clientDir, "index.html");
   let cached: { mtimeMs: number; size: number; html: string } | undefined;
 
@@ -51,7 +70,7 @@ export function createIndexHtmlSender(clientDir: string): IndexHtmlSender {
     async sendIndexWithImportMap(reply, opts) {
       let html: string;
       try {
-        html = injectImportMap(read(), opts);
+        html = injectTrustedTypesMeta(injectImportMap(read(), opts), ttMode);
       } catch {
         return reply.code(404).send({ error: "index.html not found" });
       }

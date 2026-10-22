@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { DOCX_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import { loadPurify } from "./purify.js";
 
 /** Bounded-preview + size caps (design D3). Overridable per-call for tests. */
@@ -218,9 +219,7 @@ export async function renderDocx(
       { transformDocument: hyperlinkGuard, convertImage },
     );
     const DOMPurify = await loadPurify();
-    const clean = DOMPurify.sanitize(result.value ?? "", {
-      FORBID_TAGS: ["script", "style"],
-    });
+    const clean = DOMPurify.sanitize(result.value ?? "", DOCX_PROFILE);
     const { html, truncated } = applyImageCap(clean, imageCount, caps);
     return {
       success: true,

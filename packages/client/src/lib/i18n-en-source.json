@@ -1368,5 +1368,6 @@
   "openspec.dependencies.sourceText": "inferred from text",
   "openspec.dependencies.wave": "wave {wave}",
   "openspec.dependencies.waveTitle": "Execution wave",
-  "openspec.schemaDependenciesImpact": "This update adds a required dependencies declaration: {undeclared} of {affected} affected changes have none and return to planning until they declare their dependencies."
+  "openspec.schemaDependenciesImpact": "This update adds a required dependencies declaration: {undeclared} of {affected} affected changes have none and return to planning until they declare their dependencies.",
+  "nav.linkBlocked": "Link blocked: this address is not allowed to open."
 }
