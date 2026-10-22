@@ -38,6 +38,7 @@ import { EditorSearchPanel, type Mode as SearchMode } from "./EditorSearchPanel.
 import { EditorTabs } from "./EditorTabs.js";
 import { type BulkClosePlan, type BulkRiskEntry, planBulkClose } from "./file-handler/close-risk.js";
 import { FileHandlerAnchor } from "./file-handler/FileHandlerAnchor.js";
+import { isUnderSessionCwd } from "./file-handler/file-handler-claims.js";
 import { type FileModeOffers, FileModeOffersContext } from "./file-handler/file-mode-offers.js";
 import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
 
@@ -88,7 +89,7 @@ function useNarrow(ref: React.RefObject<HTMLElement | null>): boolean {
 function searchModeForKey(e: KeyboardEvent): SearchMode | null {
   if (!(e.metaKey || e.ctrlKey)) return null;
   if (e.shiftKey && (e.key === "f" || e.key === "F")) return "content";
-  return e.key === "p" || e.key === "P" ? "file" : null;
+  return !e.shiftKey && (e.key === "p" || e.key === "P") ? "file" : null;
 }
 
 const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : `h:${e.key}`);
@@ -423,7 +424,7 @@ export function EditorPane() {
 
   // ── Rail / tree reveals ────────────────────────────────────────────────────
   const revealFolder = (relPath: string) => {
-    dispatch({ type: "expandTreeRoots", relPaths: [...ancestorDirs(`${relPath}/x`), relPath] });
+    dispatch({ type: "expandTreeRoots", relPaths: ancestorDirs(`${relPath}/x`) });
     setRailView("files");
     setTreeVisible(true);
   };
@@ -568,7 +569,7 @@ export function EditorPane() {
         <TabContextMenu
           anchorEl={contextMenu.anchor}
           isLast={contextMenu.index === state.openFiles.length - 1}
-          fileTab={!isPseudoTabViewer(contextTab.viewer)}
+          fileTab={!isPseudoTabViewer(contextTab.viewer) && isUnderSessionCwd(contextTab.path, cwd)}
           onClose={() => setContextMenu(null)}
           onCloseTab={() => closeTabAt(contextMenu.index)}
           onCloseOthers={() => runBulkClose(state.openFiles.filter((_, i) => i !== contextMenu.index).map((f) => f.path))}

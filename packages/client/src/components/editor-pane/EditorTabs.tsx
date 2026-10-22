@@ -240,7 +240,7 @@ export function EditorTabs({
               e.stopPropagation();
               onClose(i);
             }}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover:opacity-100"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
           >
             <Icon path={mdiClose} size={0.5} />
           </button>

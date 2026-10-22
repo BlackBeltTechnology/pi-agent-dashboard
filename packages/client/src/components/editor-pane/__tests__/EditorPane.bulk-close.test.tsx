@@ -98,6 +98,22 @@ describe("tab context menu (#E14, #F7)", () => {
     expect(readPane("s1").activeIndex).toBe(0);
   });
 
+  it("B4: outside-cwd file tabs get neither Show in file tree nor Copy path; in-cwd file tabs get both", () => {
+    seedPane("s1", [tab("src/a.ts"), tab("/etc/hosts"), tab("term:t1")], 0);
+    mount({ terminals: [{ id: "t1", title: "zsh" }] });
+    openMenuOn("src/a.ts");
+    expect(screen.queryByTestId("tab-menu-show-in-tree")).toBeTruthy();
+    expect(screen.queryByTestId("tab-menu-copy-path")).toBeTruthy();
+    fireEvent.keyDown(screen.getByTestId("tab-context-menu"), { key: "Escape" });
+    openMenuOn("/etc/hosts");
+    expect(screen.queryByTestId("tab-menu-show-in-tree")).toBeNull();
+    expect(screen.queryByTestId("tab-menu-copy-path")).toBeNull();
+    expect(screen.getByTestId("tab-menu-close")).toBeTruthy();
+    fireEvent.keyDown(screen.getByTestId("tab-context-menu"), { key: "Escape" });
+    openMenuOn("term:t1");
+    expect(screen.queryByTestId("tab-menu-show-in-tree")).toBeNull();
+  });
+
   it("Close tabs to the right closes only those after the clicked tab", () => {
     seedPane("s1", [tab("a.ts"), tab("b.ts"), tab("c.ts")], 0);
     mount();

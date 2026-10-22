@@ -47,6 +47,8 @@ describe("EditorTabs pane-bar behaviour", () => {
     expect(x.className).toContain("h-6");
     expect(x.className).toContain("w-6");
     expect(x.className).toContain("focus-visible:opacity-100");
+    // B2: also visible when the TAB (roving tabindex) has keyboard focus, not only the button itself.
+    expect(x.className).toContain("group-focus-within:opacity-100");
   });
 
   it("the tablist is the flexible item (min-w-0, scrolls)", () => {

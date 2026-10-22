@@ -149,6 +149,19 @@ describe("document bar (D2, D3, D10, D11)", () => {
     expect(screen.queryByTestId("tab-reveal-in-file-manager")).toBeNull();
   });
 
+  it("B3: every breadcrumb segment carries a 24 px minimum box (one-character folders included)", async () => {
+    seedPane("s1", [tab("a/b/c.ts")], 0);
+    mount();
+    await settle();
+    const crumb = screen.getByTestId("doc-breadcrumb");
+    const buttons = within(crumb).getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["a", "b", "c.ts"]);
+    for (const b of buttons) {
+      expect(b.className, b.textContent ?? "").toContain("min-h-6");
+      expect(b.className, b.textContent ?? "").toContain("min-w-6");
+    }
+  });
+
   it("#E9 outside cwd: absolute inert breadcrumb, ⋯ without Show in tree / Copy relative", async () => {
     seedPane("s1", [tab("/etc/hosts")], 0);
     mount();

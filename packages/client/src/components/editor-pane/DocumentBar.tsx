@@ -46,7 +46,7 @@ export interface DocumentBarProps {
 
 const BTN =
   "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]";
-const SEG = "inline-flex min-h-6 items-center rounded px-1 text-xs";
+const SEG = "inline-flex min-h-6 min-w-6 items-center justify-center rounded px-1 text-xs";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 

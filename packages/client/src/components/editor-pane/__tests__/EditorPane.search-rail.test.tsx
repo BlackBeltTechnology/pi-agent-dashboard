@@ -67,6 +67,17 @@ describe("shortcuts (#E11)", () => {
     expect(panel()).toBeNull();
   });
 
+  it("B1: Cmd/Ctrl-Shift-P is not a search shortcut and is not intercepted", () => {
+    seedPane("s1", [tab("a.ts")], 0);
+    mount();
+    for (const key of ["p", "P"]) {
+      const ev = new KeyboardEvent("keydown", { key, metaKey: true, shiftKey: true, cancelable: true, bubbles: true });
+      window.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+    expect(panel()).toBeNull();
+  });
+
   it("without file search (folder pane) nothing opens and the key is not intercepted", () => {
     seedPane("s1", [tab("a.ts")], 0);
     mount({ kind: "folder" });
