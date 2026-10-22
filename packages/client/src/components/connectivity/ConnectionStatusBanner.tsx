@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "../../hooks/useWebSocket.js";
 import { getApiBase, useApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { assignLocation, openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { confirmCodeAriaLabel, formatCountdown, groupConfirmCode } from "../../lib/pairing/knock-format.js";
 import { type KnockView, knockViewAt } from "../../lib/pairing/knock-state.js";
 import { requestAccessTarget } from "../../lib/pairing/request-access-target.js";
@@ -110,8 +111,8 @@ export function ConnectionStatusBanner({
     // See change: add-lan-knock-pairing (design D10).
     const requestAccess = () => {
       const { href, newContext } = requestAccessTarget(apiBase, window.location.origin);
-      if (newContext) window.open(href, "_blank", "noopener");
-      else window.location.assign(href);
+      if (newContext) openExternalUrl(href);
+      else assignLocation(href);
     };
     const tone = knock.kind;
     return (

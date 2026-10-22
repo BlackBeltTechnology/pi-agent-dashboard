@@ -6,6 +6,7 @@
  *
  * See change: add-tunnel-providers.
  */
+
 import { mdiCheck, mdiContentCopy, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";
@@ -13,6 +14,7 @@ import { runEnrollStep } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { GATEWAY_SETUP_STEPS, type SetupStep } from "../../lib/gateway/gateway-setup.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { GatewayUrlManager } from "./GatewayUrlManager.js";
 
@@ -130,7 +132,7 @@ function LinkStep({ step }: { step: SetupStep }) {
     <div className="flex-1">
       <div className="mb-0.5 text-[12.5px] text-[var(--text-secondary)]">{step.title}</div>
       {step.href && (
-        <a
+        <SafeLink
           href={step.href}
           target={step.href.startsWith("http") ? "_blank" : undefined}
           rel="noreferrer"
@@ -140,7 +142,7 @@ function LinkStep({ step }: { step: SetupStep }) {
             ? t("gateway.setup.openAdminConsole", undefined, "Open admin console")
             : t("gateway.setup.signInBrowser", undefined, "Sign in via browser")}
           <Icon path={mdiOpenInNew} size={0.5} />
-        </a>
+        </SafeLink>
       )}
     </div>
   );

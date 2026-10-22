@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { classifyUrl } from "@blackbelt-technology/pi-dashboard-shared/url-policy.js";
+import { describe, expect, it, vi } from "vitest";
 import { decideServerWindowNavigation, decideWillNavigate, isAllowedExternalUrl, isSameOriginUrl, openExternalIfAllowed } from "../lib/link-handling.js";
 
 describe("isSameOriginUrl", () => {
@@ -167,14 +168,37 @@ describe("openExternal scheme allowlist (VD4)", () => {
 		expect(openExternalIfAllowed("https://example.com", open)).toBe(true);
 		expect(open).toHaveBeenCalledWith("https://example.com/");
 		open.mockClear();
-		// parser-stripped control chars never reach the OS: opener sees the clean href
-		expect(openExternalIfAllowed("\u0001https://x.example/a\tb", open)).toBe(true);
-		expect(open).toHaveBeenLastCalledWith("https://x.example/ab");
+		// leading control chars are trimmed: opener sees the clean href
+		expect(openExternalIfAllowed("\u0001https://x.example/a", open)).toBe(true);
+		expect(open).toHaveBeenLastCalledWith("https://x.example/a");
 		open.mockClear();
+		// an EMBEDDED control char is refused outright (shared classifyUrl raw pre-scan,
+		// harden-client-sinks D2/D3) instead of being silently stripped by the parser
+		expect(openExternalIfAllowed("https://x.example/a\tb", open)).toBe(false);
+		expect(open).not.toHaveBeenCalled();
 		for (const u of ["file:///etc/passwd", "ms-msdt:/id", "search-ms:q", "smb://x/y"]) {
 			expect(openExternalIfAllowed(u, open), u).toBe(false);
 		}
 		expect(open).not.toHaveBeenCalled();
+	});
+});
+
+// ── Shared classification parity (harden-client-sinks, test-plan #E7) ─────────
+describe("isAllowedExternalUrl ⇔ classifyUrl(v, null) parity (#E7)", () => {
+	const ABSOLUTE = [
+		"javascript:x", " JaVaScRiPt:x", "vbscript:x", "data:text/html,x", "blob:https://a/b", "file:///etc/passwd",
+		"ms-msdt:x", "mailto:a@b", "https://github.com/x",
+		"https://exa\tmple.com/", "java\x01script:alert(1)", "\\\\evil.example", "  https://ok.example/  ",
+		"http://localhost:8000/settings", "http://0x7f.0.0.1/", "http://2130706433/", "http://localhost./",
+		"http://app.localhost:5173/", "http://[::1]:8080/", "http://192.168.16.204:8000/",
+	];
+	it.each(ABSOLUTE)("absolute %j: Electron allows ⇔ class ∈ {external, loopback, mailto}", (v) => {
+		const cls = classifyUrl(v, null);
+		expect(isAllowedExternalUrl(v)).toBe(cls === "external" || cls === "loopback" || cls === "mailto");
+	});
+	it.each(["/settings", "//evil.example/x", "/\\evil.example"])("relative / scheme-relative %j → blocked and false", (v) => {
+		expect(classifyUrl(v, null)).toBe("blocked");
+		expect(isAllowedExternalUrl(v)).toBe(false);
 	});
 });
 

@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { isComposerWorking } from "../../lib/chat/composer-liveness.js";
 import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
+import { openExternalUrl, SafeLink } from "../../lib/nav/safe-navigation.js";
 import { useTrackedNavigate } from "../../lib/nav/useTrackedNavigate.js";
 import {
   deriveDotColorWithFlags,
@@ -511,10 +512,10 @@ export function GitInfo({ session }: { session: DashboardSession }) {
     >
       <WorktreePill session={session} />
       {session.gitBranchUrl ? (
-        <a href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" title={session.gitBranch} className="focus-ring text-[var(--link)] hover:underline grow basis-[6ch] min-w-0 truncate">
+        <SafeLink href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" title={session.gitBranch} className="focus-ring text-[var(--link)] hover:underline grow basis-[6ch] min-w-0 truncate">
           <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
           {session.gitBranch}
-        </a>
+        </SafeLink>
       ) : (
         <span title={session.gitBranch} className="grow basis-[6ch] min-w-0 truncate">
           <Icon path={mdiSourceBranch} size={0.5} className="inline-block align-text-bottom mr-0.5" />
@@ -695,9 +696,9 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
         <Icon path={mdiSourceBranch} size={0.5} />
       </button>
       {branchUrl ? (
-        <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline truncate">
+        <SafeLink href={branchUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline truncate">
           {branchName}
-        </a>
+        </SafeLink>
       ) : (
         <span className="truncate">{branchName}</span>
       )}
@@ -705,9 +706,9 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
         <>
           <span aria-hidden="true" className="text-[var(--text-muted)]">·</span>
           {prUrl ? (
-            <a href={prUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline">
+            <SafeLink href={prUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline">
               #{prNumber}
-            </a>
+            </SafeLink>
           ) : (
             <span>#{prNumber}</span>
           )}
@@ -1139,7 +1140,7 @@ export function SessionCard({
       navigate,
       push: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreePush(session.cwd)).then(toastOutcome); },
       openPr: () => { void import("../worktree/worktree-runners.js").then((m) => m.runWorktreeOpenPr(session.cwd)).then(toastOutcome); },
-      openUrl: (url) => { window.open(url, "_blank", "noopener,noreferrer"); },
+      openUrl: (url) => { openExternalUrl(url); },
       openCardSections: () => navigate(buildFolderSettingsUrl(sectionFolderPath, "cards")),
       openCardDefaults: () => navigate("/settings/general"),
     };

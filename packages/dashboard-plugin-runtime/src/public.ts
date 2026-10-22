@@ -84,6 +84,19 @@ export {
   type SlotSurface,
 } from "./SlotPill.js";
 export {
+  assignLocation,
+  classifyNavigationTarget,
+  type OpenUrlOptions,
+  openExternalUrl,
+  SafeLink,
+  type SafeLinkProps,
+  type SafeNavigation,
+  type SafeNavigationHostHooks,
+  setLinkBlockedNoticeText,
+  showLinkBlockedNotice,
+  useSafeNavigation,
+} from "./safe-navigation.js";
+export {
   copyText,
 } from "./secure-context.js";
 export {

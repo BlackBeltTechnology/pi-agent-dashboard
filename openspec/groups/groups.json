@@ -509,7 +509,13 @@
     "reorganize-session-header": "ui",
     "fix-folder-card-pill-contrast": "ui",
     "fix-windows-bundled-bash-exe": "ui",
-    "fix-worktree-init-chip-overflow": "ui"
+    "fix-worktree-init-chip-overflow": "ui",
+    "add-editor-pane-file-handlers": "artcraft-craft-apps",
+    "edit-office-in-pane-with-craft-web": "artcraft-craft-apps",
+    "harden-raw-svg-responses": "ui",
+    "add-craft-web-media-projects": "ui",
+    "prove-vault-bridge-tls": "ui",
+    "electron-attach-version-skew": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -523,16 +529,17 @@
       "retest-plain-language-hard-battery",
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
-      "close-residual-audit-findings",
-      "prove-vault-bridge-tls",
-      "add-craft-web-media-projects"
+      "close-residual-audit-findings"
     ],
     "ui": [
       "fix-worktree-init-chip-overflow",
       "fix-windows-bundled-bash-exe",
       "fix-folder-card-pill-contrast",
       "add-composer-dock",
-      "add-meeting-bot-attendee"
+      "prove-vault-bridge-tls",
+      "add-craft-web-media-projects",
+      "add-meeting-bot-attendee",
+      "electron-attach-version-skew"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -651,7 +658,9 @@
       "add-craft-apps-core",
       "add-craft-media-workflows",
       "add-craft-office-workflows",
-      "add-artcraft-studio"
+      "add-artcraft-studio",
+      "add-editor-pane-file-handlers",
+      "edit-office-in-pane-with-craft-web"
     ],
     "customer-web-chat": [
       "add-plugin-spawn-worktree",

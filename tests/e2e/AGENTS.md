@@ -25,6 +25,7 @@ One row per file.
 | `context-mode-settings.spec.ts` | → `context-mode-settings.spec.ts.AGENTS.md` |
 | `craft-web-editor.spec.ts` | → `craft-web-editor.spec.ts.AGENTS.md` |
 | `editor-pane-file-handler.spec.ts` | → `editor-pane-file-handler.spec.ts.AGENTS.md` |
+| `electron-pages-trusted-types.spec.ts` | F6: Electron bundled pages (`file://`, stubbed preload bridges) render hostile data as text under the enforced TT meta CSP, 0 violations; loading page hands off to the loopback server. See change: harden-client-sinks. |
 | `first-run-create-project.spec.ts` | → `first-run-create-project.spec.ts.AGENTS.md` |
 | `first-run-skip-providers.spec.ts` | → `first-run-skip-providers.spec.ts.AGENTS.md` |
 | `folder-banner-contrast.spec.ts` | L3 retrust banner on untrusted `sample-hook-ok`: #F1 contrast (text 4.5, glyph 3), #F2 action colour = region over base/nord dark/light, #F7 44/32 px + focus ring. Observe-only (never trusts; sorts before `worktree-init-feedback`). See change: fix-folder-card-pill-contrast. |
@@ -38,6 +39,7 @@ One row per file.
 | `markup-repair.spec.ts` | → `markup-repair.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | → `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | → `gmail-plugin.spec.ts.AGENTS.md` |
+| `nav-intent-egress.spec.ts` | F4/F5: overlay without `ni` → restricted egress (CDN listed); verified intent → operator egress, survives reload; stripped `ni` → restricted again. See change: harden-client-sinks. |
 | `notify-collapse.spec.ts` | → `notify-collapse.spec.ts.AGENTS.md` |
 | `owned-event-group-row.spec.ts` | → see `owned-event-group-row.spec.ts.AGENTS.md` |
 | `pi-settings-editor.spec.ts` | L3 pi settings #F13/#F14 |
@@ -48,6 +50,7 @@ One row per file.
 | `push-webhook-settings.spec.ts` | → `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | → `README.md.AGENTS.md` |
 | `fixtures/severity-baseline.json` | → `fixtures/severity-baseline.json.AGENTS.md` |
+| `fixtures/trusted-types-budget.json` | → `fixtures/trusted-types-budget.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | → `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-provisioning.spec.ts` | → `access-provisioning.spec.ts.AGENTS.md` |
 | `add-folder-file-manager.spec.ts` | → `add-folder-file-manager.spec.ts.AGENTS.md` |
@@ -262,6 +265,10 @@ One row per file.
 | `tool-output-links.spec.ts` | → `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | → `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | → `trust-mode-pair.spec.ts.AGENTS.md` |
+| `trusted-types-budget.spec.ts` | F3: report-mode budget over core routes, file previews, every plugin settings page and `/apps/team/` — 0 TT violations, default hits ≤ `fixtures/trusted-types-budget.json` (`PI_TT_BUDGET_RECORD=1` re-records); control step proves the directive is active. See change: harden-client-sinks. |
+| `trusted-types-enforce.spec.ts` | X6: Monaco / PDF / chat / plugin settings under forced `enforce` — no page error beyond the TT-off baseline; logs violations + default hits per step. See change: harden-client-sinks. |
+| `trusted-types-perf.spec.ts` | P1: median default-policy callback time per load ≤ 20 ms under `enforce` (mermaid gallery + chat). See change: harden-client-sinks. |
+| `trusted-types-visual.spec.ts` | F1/F2: per-diagram pixel parity enforce vs off within off-vs-off variance (+ accent tint); AsciiDoc/KaTeX/mermaid + EML parity, 0 violations, EML frame `sandbox=""`. See change: harden-client-sinks. |
 | `ui-token-alignment.spec.ts` | → `ui-token-alignment.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | → `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `untrusted-content-guard.spec.ts` | → `untrusted-content-guard.spec.ts.AGENTS.md` |

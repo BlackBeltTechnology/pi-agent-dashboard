@@ -21,6 +21,7 @@ import { Icon } from "@mdi/react";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { isAcpSession, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { LazyExploreDialog, LazyNewChangeDialog } from "../openspec/lazy-openspec-dialogs.js";
@@ -161,9 +162,9 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
                 <>
                   <span>·</span>
                   {session.gitPrUrl ? (
-                    <a href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-0.5">
+                    <SafeLink href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline flex items-center gap-0.5">
                       #{session.gitPrNumber} <Icon path={mdiLinkVariant} size={0.4} />
-                    </a>
+                    </SafeLink>
                   ) : (
                     <span>#{session.gitPrNumber}</span>
                   )}

@@ -15,12 +15,6 @@ import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { type HostPlatform, useHostPlatform } from "../../hooks/useHostPlatform.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { copyText } from "../../lib/util/clipboard.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
-import {
-  consumePendingToolInstall,
-  OPEN_TOOL_INSTALL_EVENT,
-} from "../../lib/package/tool-install-deeplink.js";
 import type { PlatformInstallHint, Resolution, ToolListEntry } from "../../lib/api/tools-api.js";
 import {
   clearOverride,
@@ -30,6 +24,13 @@ import {
   rescanOne,
   setOverride,
 } from "../../lib/api/tools-api.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
+import {
+  consumePendingToolInstall,
+  OPEN_TOOL_INSTALL_EVENT,
+} from "../../lib/package/tool-install-deeplink.js";
+import { copyText } from "../../lib/util/clipboard.js";
 
 export function ToolsSection() {
   const [tools, setTools] = useState<ToolListEntry[]>([]);
@@ -409,17 +410,18 @@ function InstallDropdown({
       )}
       <div className="flex items-center gap-3 text-[11px]">
         {hint.url && (
-          <a
+          <SafeLink
             href={hint.url}
             target="_blank"
             rel="noreferrer"
             className="text-sky-500 hover:underline inline-flex items-center gap-1"
           >
             Download <Icon path={mdiOpenInNew} size={0.45} />
-          </a>
+          </SafeLink>
         )}
         {docsAnchor && (
           <a
+            // client-sinks: allow — same-origin /docs/ route with a fragment
             href={`/docs/faq.md#${docsAnchor}`}
             target="_blank"
             rel="noreferrer"

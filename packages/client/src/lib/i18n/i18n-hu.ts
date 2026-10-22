@@ -1047,6 +1047,7 @@ export const huCatalog: Record<string, string> = {
   "common.enterThisCodeAt": "Adja meg ezt a kódot itt:",
   "common.error": "Hiba:",
   "common.expand": "Kibontás",
+  "nav.linkBlocked": "Hivatkozás letiltva: ez a cím nem nyitható meg.",
   "common.expandPreview": "Előnézet kibontása",
   "common.expandSidebar": "Oldalsáv kibontása",
   "common.expanded": "Kibontva",

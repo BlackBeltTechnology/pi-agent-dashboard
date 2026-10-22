@@ -7,10 +7,12 @@
  * See change: open-view-command-in-editor-pane (D7),
  *             gate-changed-on-disk-by-content (D6).
  */
+
 import { mdiFileAlertOutline, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { useEditorLimits } from "../../lib/preview/editor-limits-config.js";
 
 interface Props {
@@ -51,7 +53,7 @@ export function TooLargePreview({ cwd, path, size, cap }: Props) {
             )
           : t("editor.tooLargeToPreview", { cap: capMb }, `File too large to preview (limit ${capMb} MB).`)}
       </div>
-      <a
+      <SafeLink
         href={rawHref}
         target="_blank"
         rel="noopener noreferrer"
@@ -60,7 +62,7 @@ export function TooLargePreview({ cwd, path, size, cap }: Props) {
       >
         <Icon path={mdiOpenInNew} size={0.6} />
         <span>{t("editor.openRaw", undefined, "Open raw")}</span>
-      </a>
+      </SafeLink>
     </div>
   );
 }

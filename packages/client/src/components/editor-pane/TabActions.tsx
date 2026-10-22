@@ -21,6 +21,7 @@ import { mdiFolderOpenOutline, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { MenuItem } from "./MenuPopover.js";
 
 export type TabActionTarget =
@@ -60,7 +61,7 @@ export function TabActions({ target, systemOpen, platform, variant = "bar", onAc
       <button
         type="button"
         data-testid="tab-open-in-browser"
-        onClick={() => window.open(target.url, "_blank")}
+        onClick={() => openExternalUrl(target.url)}
         className={ICON_BTN}
         aria-label={label}
         title={label}
