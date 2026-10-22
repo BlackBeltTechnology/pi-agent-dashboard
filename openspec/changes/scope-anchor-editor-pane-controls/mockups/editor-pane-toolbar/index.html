@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Editor pane — scope-anchored controls (explore mockup)</title>
+<link rel="stylesheet" href="tokens.css" />
+<script src="icons.js"></script>
+<style>
+  /* Tokens only (tokens.css = generated copy of packages/client/src/index.css). */
+  * { box-sizing: border-box; }
+  html { background: var(--bg-primary); color: var(--text-primary); }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+  svg.i { width: 16px; height: 16px; fill: currentColor; flex: none; }
+  svg.i.sm { width: 13px; height: 13px; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-radius: 4px; }
+
+  /* ── board chrome ── */
+  .toolbar { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 8px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); }
+  .toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .seg button { padding: 4px 10px; font-size: 12px; color: var(--text-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+  .seg button + button { border-left: 1px solid var(--border-secondary); }
+  .lbl { font-size: 12px; color: var(--text-secondary); }
+  main { padding: 20px 24px 80px; max-width: 1240px; }
+  h2 { font-size: 16px; margin: 36px 0 4px; }
+  h2 .tag { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: 2px; }
+  .tag.rec { background: var(--tint-green-bg); color: var(--tint-green-fg); border: 1px solid var(--tint-green-border); }
+  .tag.cur { background: var(--tint-red-bg); color: var(--tint-red-fg); border: 1px solid var(--tint-red-border); }
+  .tag.alt { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary); }
+  p.lead { color: var(--text-secondary); margin: 0 0 12px; max-width: 900px; font-size: 13px; }
+  h3 { font-size: 13px; margin: 20px 0 6px; color: var(--text-secondary); font-weight: 600; }
+  .note { font-size: 12px; color: var(--text-tertiary); margin: 6px 0 0; max-width: 900px; }
+  table.diag { border-collapse: collapse; font-size: 12px; margin-top: 12px; width: 100%; max-width: 1000px; }
+  table.diag th, table.diag td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border-primary); vertical-align: top; }
+  table.diag th { color: var(--text-tertiary); font-weight: 600; }
+  table.diag td.bad { color: var(--accent-red-text); }
+  table.diag td.ok { color: var(--accent-green-text); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; margin: 8px 0; color: var(--text-secondary); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .legend .s-pane::before { background: var(--tint-blue-border); }
+  .legend .s-tree::before { background: var(--tint-green-border); }
+  .legend .s-tabs::before { background: var(--tint-red-border); }
+  .legend .s-doc::before { background: var(--tint-orange-border); }
+  .legend .s-new::before { background: var(--tint-purple-border); }
+
+  /* ── pane replica ── */
+  .pane { position: relative; display: flex; flex-direction: column; height: 380px; width: 100%; max-width: 1040px;
+    border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; background: var(--bg-primary); }
+  body.narrow .pane { max-width: 540px; }
+  .pane.short { height: 300px; }
+  .pane.tall { height: 470px; }
+  .menu .tlfoot .mi:first-child { background: none; }
+  .row { display: flex; align-items: center; flex-shrink: 0; border-bottom: 1px solid var(--border-primary); }
+  .hdr { gap: 8px; padding: 8px 12px; }
+  .spacer { flex: 1; }
+  .path { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .files-btn { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .files-btn[aria-pressed="true"] { background: var(--bg-selected); color: var(--text-primary); }
+  .files-btn[aria-pressed="false"] { color: var(--text-tertiary); }
+  /* as-built bare icon: no padding, 17px glyph */
+  .bare { color: var(--text-tertiary); display: inline-flex; }
+  .bare svg.i { width: 17px; height: 17px; }
+  /* proposed icon button: 28px target (WCAG 2.5.8 ≥24) */
+  .ib { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; color: var(--text-tertiary); flex: none; }
+  .ib:hover, .ib.hover { background: var(--bg-hover); color: var(--text-primary); }
+  .ib[aria-pressed="true"], .ib.open { background: var(--bg-selected); color: var(--text-primary); }
+  .vsep { width: 1px; height: 18px; background: var(--border-secondary); margin: 0 4px; flex: none; }
+  .tbtn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  .tbtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .tabs { background: var(--bg-secondary); overflow: hidden; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 12px; min-width: 0; flex: 0 1 200px;
+    border-right: 1px solid var(--border-primary); color: var(--text-secondary); white-space: nowrap; }
+  .tab > span:not(.x) { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .tab.active { background: var(--bg-primary); color: var(--text-primary); box-shadow: inset 0 2px 0 var(--accent-blue); }
+  .tab .x { margin-left: auto; opacity: 0; display: inline-flex; flex: none; }
+  .tab.active .x { opacity: .7; }
+  .pdf { color: var(--accent-red-text); }
+  .cyan { color: var(--accent-blue-text); }
+
+  /* merged pane bar (option B) */
+  .pbar { background: var(--bg-secondary); padding: 0 6px 0 6px; gap: 2px; height: 38px; }
+  .pbar .tab { padding: 0 10px; height: 38px; flex: 0 1 190px; }
+  .pbar .tabsbox { display: flex; min-width: 0; flex: 0 1 auto; overflow: hidden; height: 100%; border-left: 1px solid var(--border-primary); }
+
+  .docbar { gap: 6px; padding: 3px 8px 3px 12px; min-height: 36px; }
+  .crumbs { display: flex; align-items: center; gap: 2px; font-size: 12px; color: var(--text-tertiary); min-width: 0; overflow: hidden; white-space: nowrap; }
+  .crumbs a { color: var(--text-tertiary); text-decoration: none; padding: 2px 3px; border-radius: 4px; }
+  .crumbs a:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .crumbs .lt { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .crumbs .leaf { min-width: 60px; color: var(--text-primary); font-weight: 500; display: inline-flex; gap: 4px; align-items: center; overflow: hidden; text-overflow: ellipsis; }
+  .modes { display: inline-flex; gap: 2px; padding: 2px; border-radius: 6px; background: var(--bg-tertiary); flex: none; }
+  .modes button { font-size: 12px; padding: 3px 9px; border-radius: 4px; color: var(--text-tertiary); white-space: nowrap; }
+  .modes button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); font-weight: 500; }
+  .moderow { gap: 4px; padding: 4px 12px; }
+  .moderow button { font-size: 12px; padding: 3px 10px; border-radius: 4px; color: var(--text-tertiary); }
+  .moderow button[aria-pressed="true"] { background: var(--bg-tertiary); color: var(--text-primary); font-weight: 500; }
+
+  .body { display: flex; flex: 1; min-height: 0; }
+  .rail { width: 260px; flex: none; border-right: 1px solid var(--border-primary); display: flex; flex-direction: column; font-size: 13px; overflow: hidden; }
+  body.narrow .rail { width: 190px; }
+  .railhdr { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border-primary); }
+  .railseg { display: inline-flex; gap: 2px; padding: 2px; background: var(--bg-tertiary); border-radius: 6px; }
+  .railseg button { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 8px; border-radius: 4px; color: var(--text-tertiary); }
+  .railseg button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); font-weight: 500; }
+  .changes { display: flex; gap: 6px; padding: 4px 8px; font-size: 12px; color: var(--text-tertiary); border-bottom: 1px solid var(--border-primary); }
+  .changes b { color: var(--text-secondary); font-weight: 500; }
+  .tree { padding: 4px 0; }
+  .tn { display: flex; align-items: center; gap: 5px; padding: 3px 8px; white-space: nowrap; color: var(--text-secondary); }
+  .tn.sel { background: var(--bg-selected); color: var(--text-primary); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-yellow); }
+  .search { padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  .sinput { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-secondary); background: var(--bg-primary); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+  .sinput .ph { color: var(--text-primary); flex: 1; }
+  .sres { font-size: 12px; }
+  .sres .f { display: flex; gap: 5px; align-items: center; padding: 3px 4px; color: var(--text-secondary); }
+  .sres .m { padding: 2px 4px 2px 22px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sres .m mark { background: var(--tint-orange-bg); color: var(--tint-orange-fg); border-radius: 2px; }
+  .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .doc { flex: 1; background: var(--bg-canvas); padding: 14px 18px 0; overflow: hidden; }
+  .page { background: var(--bg-tertiary); border-radius: 2px; height: 100%; padding: 22px 28px; font-size: 12px; color: var(--text-secondary); }
+  .page .l { height: 7px; background: var(--border-secondary); border-radius: 3px; margin: 9px 0; }
+  .term { flex: 1; background: var(--bg-code); padding: 10px 14px; font-size: 12px; color: var(--text-secondary); }
+  .spanel { border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 8px; }
+
+  /* popover menus */
+  .menu { position: absolute; z-index: 5; min-width: 220px; background: var(--bg-surface); border: 1px solid var(--border-secondary);
+    border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px var(--bg-overlay); font-size: 13px; }
+  .menu .mi { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; color: var(--text-primary); }
+  .menu .mi:first-child { background: var(--bg-hover); }
+  .menu .kbd { margin-left: auto; font-size: 11px; color: var(--text-tertiary); }
+  .menu hr { border: 0; border-top: 1px solid var(--border-secondary); margin: 4px 0; }
+  .menu .mh { font-size: 11px; color: var(--text-tertiary); padding: 4px 8px 2px; text-transform: uppercase; letter-spacing: .04em; }
+  .tabsearch { width: 380px; max-width: calc(100% - 50px); padding: 6px; }
+  .tsq { margin: 2px 2px 4px; }
+  .tsq input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text-primary); font: inherit; font-size: 13px; }
+  .tsq:focus-within { border-color: var(--focus-ring); }
+  .tlist { list-style: none; margin: 0; padding: 0; max-height: 230px; overflow: auto; }
+  .tlt { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+  .tld { font-size: 11px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu mark { background: var(--tint-orange-bg); color: var(--tint-orange-fg); border-radius: 2px; }
+  .menu .mi.tl.kb { background: var(--bg-hover); }
+  .menu .x2 { width: 22px; height: 22px; opacity: 0; }
+  .menu .mi.tl:hover .x2, .menu .mi.tl.kb .x2 { opacity: 1; }
+  .dirty { color: var(--accent-yellow); font-size: 10px; }
+  .menu .mi.tl { color: var(--text-secondary); }
+  .menu .mi.tl .lt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu .mi.tl.cur { color: var(--text-primary); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent-blue); }
+  .menu .mi.tl:first-of-type { background: none; }
+  .tab.ctxon { background: var(--bg-hover); outline: 1px solid var(--border-strong); outline-offset: -1px; }
+  .scrim { position: absolute; inset: 0; z-index: 7; background: var(--bg-overlay); }
+  .dlg { position: absolute; z-index: 8; top: 70px; left: 50%; transform: translateX(-50%); width: min(460px, 92%);
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 10px; padding: 16px; font-size: 13px; }
+  .dlg h4 { margin: 0 0 8px; font-size: 14px; }
+  .dlg ul { margin: 0 0 8px; padding: 0; list-style: none; }
+  .dlg li { display: flex; gap: 6px; align-items: center; padding: 3px 0; color: var(--text-secondary); }
+  .dlg li b { color: var(--text-primary); font-weight: 500; }
+  .acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); font-size: 12px; }
+  .btn.danger { background: var(--tint-red-bg); color: var(--tint-red-fg); border-color: var(--tint-red-border); }
+  .tip { position: absolute; z-index: 6; font-size: 11px; padding: 3px 7px; border-radius: 4px; background: var(--bg-surface); border: 1px solid var(--border-secondary); color: var(--text-primary); white-space: nowrap; }
+
+  /* scope overlay */
+  body.overlay [data-scope] { position: relative; }
+  body.overlay [data-scope]::after { content: ""; position: absolute; inset: -2px; border-radius: 6px; pointer-events: none; border: 2px solid; }
+  body.overlay [data-scope="pane"]::after { border-color: var(--tint-blue-border); background: var(--tint-blue-bg); opacity: .9; mix-blend-mode: normal; }
+  body.overlay [data-scope="tree"]::after { border-color: var(--tint-green-border); }
+  body.overlay [data-scope="doc"]::after { border-color: var(--tint-orange-border); }
+  body.overlay [data-scope="tabs"]::after { border-color: var(--tint-red-border); }
+  body.overlay [data-scope="new"]::after { border-color: var(--tint-purple-border); }
+  body.overlay [data-scope="pane"]::after { background: none; }
+  .num { position: absolute; top: -9px; right: -7px; z-index: 3; font-size: 9px; line-height: 14px; min-width: 14px; text-align: center; border-radius: 7px;
+    background: var(--accent-red); color: var(--text-primary); font-weight: 700; display: none; }
+  body.overlay .num { display: block; }
+  .grid2 { display: grid; grid-template-columns: 1fr; gap: 18px; }
+</style>
+</head>
+<body class="overlay">
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Editor pane — control placement</h1>
+  <span class="lbl">Theme</span>
+  <div class="seg" id="theme">
+    <button aria-pressed="true" data-v="dark">Base dark</button><button aria-pressed="false" data-v="light">Base light</button><button aria-pressed="false" data-v="nord">Nord dark</button>
+  </div>
+  <span class="lbl">Width</span>
+  <div class="seg" id="width"><button aria-pressed="true" data-v="wide">Wide</button><button aria-pressed="false" data-v="narrow">Narrow 540px</button></div>
+  <span class="lbl">Scope overlay</span>
+  <div class="seg" id="ov"><button aria-pressed="true" data-v="on">On</button><button aria-pressed="false" data-v="off">Off</button></div>
+</div>
+
+<main>
+  <div class="legend">
+    <span class="s-pane">Pane — show/hide rail, close pane</span>
+    <span class="s-tree">Project / tree — search, browse</span>
+    <span class="s-new">Creates a tab — terminal, live preview</span>
+    <span class="s-tabs">Tab set — list, close others / all</span>
+    <span class="s-doc">Active document — path, mode, reload, open/reveal</span>
+  </div>
+
+  <h2>0 · As built <span class="tag cur">current</span></h2>
+  <p class="lead">One right-aligned icon cluster mixes four scopes. Document controls are split across the header (row 1) and the
+    Preview/Edit row (row 3) with the tab strip between them. Search lives on the far right but searches the project, and its panel
+    opens over the <em>document</em> column, not the tree.</p>
+  <div id="cur"></div>
+  <h3>Same pane, search open — results land on top of the PDF</h3>
+  <div id="curSearch"></div>
+  <table class="diag">
+    <thead><tr><th>#</th><th>Control</th><th>Acts on</th><th>Today</th><th>Problem</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Files</td><td>rail (pane)</td><td class="ok">left</td><td>fine; but is the only rail control: search is not next to it</td></tr>
+      <tr><td>2</td><td>Path text</td><td>active doc</td><td>header</td><td class="bad">2 rows away from the doc; duplicates the tab label</td></tr>
+      <tr><td>3</td><td>🌐 Live preview</td><td>creates tab</td><td>right cluster</td><td class="bad">globe reads as "language/web"; tab creation not near the tabs</td></tr>
+      <tr><td>4</td><td>&gt;_ New terminal</td><td>creates tab</td><td>right cluster</td><td class="bad">same as 3; no "+" affordance</td></tr>
+      <tr><td>5</td><td>🔍 Search</td><td>project</td><td>right cluster</td><td class="bad">far from the tree; panel covers the document column</td></tr>
+      <tr><td>6</td><td>▭ Open in system app</td><td>active doc</td><td>right cluster</td><td class="bad">mdiApplicationOutline reads as "maximize window"</td></tr>
+      <tr><td>7</td><td>📂 Reveal in file manager</td><td>active doc</td><td>right cluster</td><td class="bad">reads as "open folder"/"browse"</td></tr>
+      <tr><td>8</td><td>↻ Reload file</td><td>active doc</td><td>right cluster</td><td class="bad">next to ✕, easy mis-click; reads as "reload dashboard"</td></tr>
+      <tr><td>9</td><td>✕ Close editor</td><td>pane</td><td class="ok">far right</td><td>fine, but sits in the doc cluster: users read it as "close file"</td></tr>
+      <tr><td>—</td><td>Preview / Edit in PdfCraft</td><td>active doc</td><td>own row under tabs</td><td class="bad">doc controls split across rows 1 and 3</td></tr>
+      <tr><td>—</td><td>all icons</td><td>—</td><td>17px glyph, 0 padding</td><td class="bad">hit target ≈17px &lt; 24px (WCAG 2.5.8); no aria-label on 7 of 9</td></tr>
+    </tbody>
+  </table>
+
+  <h2>A · Regroup in place <span class="tag alt">minimal diff</span></h2>
+  <p class="lead">Same three rows. Header becomes three labelled zones: <b>browse</b> (Files + Search) left, <b>document</b> (path + its actions) centre,
+    <b>pane</b> (+ New ▾, ✕) right, separated by dividers. Cheap, but the doc actions still sit above the tab strip, and the mode row stays a separate row.</p>
+  <div id="optA"></div>
+
+  <h2>B · Scope-anchored <span class="tag rec">recommended</span></h2>
+  <p class="lead">Every control sits on the surface it acts on. <b>Pane bar</b> = rail toggle · tabs · <b>+</b> (new tab) · ✕ close pane.
+    <b>Document bar</b> (replaces header path <em>and</em> the Preview/Edit row) = breadcrumb · view mode · reload · open externally · reveal · ⋯.
+    <b>Rail header</b> = Files | Search views, so search results live in the rail, beside the tree, and the document stays visible.
+    Net: 2 chrome rows instead of 3.</p>
+  <div class="grid2">
+    <div><h3>B1 · PDF with a file handler (the screenshot case)</h3><div id="B1"></div></div>
+    <div><h3>B2 · Search view in the rail (⌘⇧F) — document untouched</h3><div id="B2"></div></div>
+    <div><h3>B3 · "+" menu — everything that creates a tab, next to the tabs</h3><div id="B3"></div></div>
+    <div><h3>B4 · ⋯ overflow on the document bar (also where actions fold at narrow width)</h3><div id="B4"></div></div>
+    <div><h3>B5 · Terminal tab active — document bar shows only what applies</h3><div id="B5"></div></div>
+    <div><h3>B6 · Rail hidden — Files toggle off; ⌘⇧F reopens the rail in Search view</h3><div id="B6"></div></div>
+    <div><h3>B7 · Right-click a tab — Close · Close others · Close to the right · Close all</h3><div id="B7"></div></div>
+    <div><h3>B8 · Search tabs (⌄ on the pane bar, Chrome-style) — focus lands in the field; ↑↓ move, ⏎ activates, Esc closes. Type in it — it filters live.</h3><div id="B8"></div></div>
+    <div><h3>B8b · Query “beszamolo” — accent-insensitive (matches “Beszámoló”), matches name AND folder; bulk action becomes “Close N matching tabs”</h3><div id="B8b"></div></div>
+    <div><h3>B8c · No match — Enter falls through to project file search with the same text</h3><div id="B8c"></div></div>
+    <div><h3>B9 · Bulk close hits a terminal + unsaved handler edits → one summary confirm (silent when nothing to lose)</h3><div id="B9"></div></div>
+  </div>
+  <h3>Decisions so far</h3>
+  <ul class="note" style="margin:0 0 6px;padding-left:18px">
+    <li>D1 — tab strip merges into the pane bar (B over A).</li>
+    <li>D2 — breadcrumb folders reveal in tree; leaf opens the ⋯ menu.</li>
+    <li>D3 — terminal / plugin tabs keep a title line in the document bar, no file actions.</li>
+    <li>D4 — bulk close: tab right-click (Close · Close others · Close to the right · Close all) + ⌄ tab-list menu (all tabs + Close others / Close all).
+      New reducer action <span class="mono">closeTabs(paths)</span>; one summary confirm only when a terminal would be ended or a handler tab has unsaved edits; otherwise silent. Confirm buttons: Cancel · Close all but these N (risky tabs stay open) · Close all &amp; discard (ends terminals, drops unsaved edits).</li>
+    <li>D5 — Chrome-style <b>Search tabs</b>: the ⌄ pane-bar button opens a popover with focus in a filter field. Matches the displayed label + location (folder, url/live target, "terminal", plugin path; internal prefixes excluded), case- and accent-insensitive; ↑↓ / ⏎ / Esc; per-row ✕; unsaved dot. Empty field = full list + Close others / Close all; with a query the bulk
+      action becomes <i>Close N matching tabs</i> (same D4 confirm). No match → ⏎ hands the text to project file search. Keyboard shortcut: TBD (must not clash with Cmd-P / Cmd-Shift-F).</li>
+  </ul>
+  <p class="note">Behaviour notes (B): breadcrumb segments reveal that folder in the tree; the leaf opens the ⋯ menu. "Open externally" uses
+    mdiOpenInNew (same glyph as the URL-tab "Open in system browser") and "Reveal" is labelled per platform (Finder / Explorer / file manager);
+    both remain gated on <span class="mono">capabilities.systemOpen</span>. Below ~640px pane width, Open/Reveal fold into ⋯; "Files" keeps its text label at every width (spec: labelled rail toggle).
+    Protected: <span class="mono">tree-toggle, editor-search-toggle, new-terminal-launch, live-preview-launch, tab-open-in-app, tab-reveal-in-file-manager,
+    file-mode-*</span> test ids and Cmd-P / Cmd-Shift-F keep working; only their location changes.</p>
+</main>
+
+<script>
+const ic = (n, c = "") => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n]}"/></svg>`;
+const num = (n) => `<span class="num">${n}</span>`;
+const TABS = [
+  ["Emlekezteto - Projektegyeztetes - 2026.03.10.pdf", true],
+  ["Emlekezteto - BlackBelt Status Beszamolo.pdf"],
+  ["Emlekezteto - BlackBelt Central IT.pdf"],
+  ["Emlekezteto - BlackBelt Status Beszamolo 2.pdf"],
+];
+const tab = ([name, act], icon = ic("FilePdfBox", "sm pdf")) =>
+  `<div class="tab ${act ? "active" : ""}" role="tab" aria-selected="${!!act}" title="${name}">${icon}<span>${name}</span><span class="x">${ic("Close", "sm")}</span></div>`;
+const tabsRow = () => `<div class="row tabs" role="tablist">${TABS.map((t) => tab(t)).join("")}</div>`;
+const tree = (sel = true) => `
+  <div class="changes"><b>Changes</b>(2)</div>
+  <div class="tree">
+    <div class="tn">${ic("ChevronRight", "sm")}${ic("FolderOutline", "sm")}Privat</div>
+    <div class="tn">${ic("ChevronDown", "sm")}${ic("FolderOutline", "sm")}Projektek <span class="dot"></span></div>
+    <div class="tn" style="padding-left:22px">${ic("ChevronRight", "sm")}${ic("FolderOutline", "sm")}ACTUAL-connector</div>
+    <div class="tn" style="padding-left:22px">${ic("ChevronDown", "sm")}${ic("FolderOutline", "sm")}BOSCH DataStaging</div>
+    <div class="tn ${sel ? "sel" : ""}" style="padding-left:40px">${ic("FilePdfBox", "sm pdf")}Emlekezteto - Projektegy…pdf</div>
+    <div class="tn" style="padding-left:40px">${ic("FilePdfBox", "sm pdf")}Emlekezteto - BlackBelt…pdf</div>
+  </div>`;
+const page = () => `<div class="doc"><div class="page"><div style="display:flex;justify-content:space-between"><span>BlackBelt Technology Zrt.</span><span>2026. október 22.</span></div>
+  <div class="l" style="width:70%"></div><div class="l"></div><div class="l" style="width:85%"></div><div class="l" style="width:60%"></div><div class="l"></div></div></div>`;
+const PATH = "Projektek/BOSCH DataStaging/Emlekezteto - Projektegyeztetes - 2026.03.10.pdf";
+
+/* ── 0 as built ── */
+function current(search = false) {
+  return `<div class="pane">
+    <div class="row hdr">
+      <button class="files-btn" aria-pressed="true" data-scope="pane">${ic("FileTreeOutline")}Files${num(1)}</button>
+      <span class="path" data-scope="doc">${PATH}${num(2)}</span>
+      <span class="spacer"></span>
+      <span class="bare" data-scope="new" title="Preview a local dev server">${ic("Web")}${num(3)}</span>
+      <span class="bare" data-scope="new" title="New Terminal">${ic("ConsoleLine")}${num(4)}</span>
+      <span class="bare" data-scope="tree" title="Search" style="${search ? "color:var(--accent-blue-text)" : ""}">${ic("Magnify")}${num(5)}</span>
+      <span class="bare" data-scope="doc" title="Open in system app">${ic("ApplicationOutline")}${num(6)}</span>
+      <span class="bare" data-scope="doc" title="Reveal in file manager">${ic("FolderOpenOutline")}${num(7)}</span>
+      <span class="bare" data-scope="doc" title="Reload file">${ic("Refresh")}${num(8)}</span>
+      <span class="bare" data-scope="pane" title="Close editor">${ic("Close")}${num(9)}</span>
+    </div>
+    ${tabsRow()}
+    <div class="body">
+      <div class="rail">${tree()}</div>
+      <div class="col">
+        ${search ? `<div class="spanel" data-scope="tree"><div class="sinput">${ic("Magnify", "sm")}<span class="ph">bosch</span><span class="lbl">Files · Content</span></div>
+          <div class="sres" style="margin-top:6px"><div class="f">${ic("FilePdfBox", "sm pdf")}Projektek/BOSCH DataStaging/Emlekezteto…pdf</div><div class="f">${ic("FileDocumentOutline", "sm")}Projektek/BOSCH DataStaging/notes.md</div><div class="f">${ic("FileDocumentOutline", "sm")}Projektek/BOSCH DataStaging/arch.md</div></div></div>` : ""}
+        <div class="row moderow" data-scope="doc"><button aria-pressed="true">Preview</button><button aria-pressed="false">Edit in PdfCraft</button></div>
+        ${page()}
+      </div>
+    </div></div>`;
+}
+
+/* ── A regroup ── */
+function optA() {
+  return `<div class="pane">
+    <div class="row hdr" style="gap:4px">
+      <button class="files-btn" aria-pressed="true" data-scope="pane">${ic("FileTreeOutline")}Files</button>
+      <button class="ib" data-scope="tree" aria-label="Search files (⌘P / ⌘⇧F)" title="Search files (⌘P / ⌘⇧F)">${ic("Magnify")}</button>
+      <span class="vsep"></span>
+      <span class="path" data-scope="doc" style="font-size:13px">${PATH}</span>
+      <button class="ib" data-scope="doc" aria-label="Reload file" title="Reload file">${ic("Refresh")}</button>
+      <button class="ib" data-scope="doc" aria-label="Open in default app" title="Open in default app">${ic("OpenInNew")}</button>
+      <button class="ib" data-scope="doc" aria-label="Reveal in Finder" title="Reveal in Finder">${ic("FolderOpenOutline")}</button>
+      <span class="spacer"></span>
+      <span class="vsep"></span>
+      <button class="tbtn" data-scope="new" aria-haspopup="menu">${ic("Plus")}New${ic("ChevronDown", "sm")}</button>
+      <button class="ib" data-scope="pane" aria-label="Close editor pane" title="Close editor pane">${ic("Close")}</button>
+    </div>
+    ${tabsRow()}
+    <div class="body"><div class="rail">${tree()}</div>
+      <div class="col"><div class="row moderow" data-scope="doc"><button aria-pressed="true">Preview</button><button aria-pressed="false">Edit in PdfCraft</button></div>${page()}</div></div></div>`;
+}
+
+/* ── B scope-anchored ── */
+function pbar({ railOn = true, plusOpen = false, tabsOpen = false, tabs = TABS, extraTab = "" } = {}) {
+  return `<div class="row pbar">
+      <button class="files-btn" aria-pressed="${railOn}" data-scope="pane" data-testid="tree-toggle" title="${railOn ? "Hide" : "Show"} file rail">${ic("FileTreeOutline")}<span class="flbl">Files</span></button>
+      <div class="tabsbox" role="tablist">${tabs.map((t) => tab(t)).join("")}${extraTab}</div>
+      <button class="ib ${plusOpen ? "open" : ""}" data-scope="new" aria-haspopup="menu" aria-label="New tab" title="New tab — terminal, live preview, open file">${ic("Plus")}</button>
+      <span class="spacer"></span>
+      <button class="ib ${tabsOpen ? "open" : ""}" data-scope="tabs" aria-haspopup="menu" aria-label="Search tabs" title="Search tabs">${ic("ChevronDown")}</button>
+      <button class="ib" data-scope="pane" aria-label="Close editor pane" title="Close editor pane">${ic("Close")}</button>
+    </div>`;
+}
+function docbar({ narrow = false, moreOpen = false } = {}) {
+  const ext = narrow ? "" : `
+      <button class="ib" data-testid="tab-open-in-app" aria-label="Open in default app" title="Open in default app">${ic("OpenInNew")}</button>
+      <button class="ib" data-testid="tab-reveal-in-file-manager" aria-label="Reveal in Finder" title="Reveal in Finder">${ic("FolderOpenOutline")}</button>`;
+  return `<div class="row docbar" data-scope="doc">
+      <nav class="crumbs" aria-label="File path">${narrow ? `<a href="#" title="Projektek/BOSCH DataStaging">…</a>` : `<a href="#">Projektek</a>${ic("ChevronRight", "sm")}<a href="#">BOSCH DataStaging</a>`}${ic("ChevronRight", "sm")}<span class="leaf" title="${PATH}">${ic("FilePdfBox", "sm pdf")}<span class="lt">Emlekezteto - Projektegyeztetes - 2026.03.10.pdf</span></span></nav>
+      <span class="spacer"></span>
+      <div class="modes" role="group" aria-label="View mode"><button aria-pressed="true">Preview</button><button aria-pressed="false">Edit in PdfCraft</button></div>
+      <span class="vsep"></span>
+      <button class="ib" aria-label="Reload file" title="Reload file">${ic("Refresh")}</button>${ext}
+      <button class="ib ${moreOpen ? "open" : ""}" aria-haspopup="menu" aria-label="More file actions" title="More file actions">${ic("DotsHorizontal")}</button>
+    </div>`;
+}
+function railhdr(view = "files") {
+  return `<div class="railhdr" data-scope="tree">
+      <div class="railseg" role="tablist" aria-label="Rail view">
+        <button aria-pressed="${view === "files"}">${ic("FileTreeOutline", "sm")}Files</button>
+        <button aria-pressed="${view === "search"}" title="Search (⌘P / ⌘⇧F)">${ic("Magnify", "sm")}Search</button>
+      </div><span class="spacer"></span>
+      ${view === "files" ? `<button class="ib" aria-label="Collapse all folders" title="Collapse all">${ic("CollapseAllOutline")}</button>` : ""}
+    </div>`;
+}
+const railSearch = () => `<div class="search">
+    <div class="sinput">${ic("Magnify", "sm")}<span class="ph">bosch</span><button class="ib" style="width:20px;height:20px" aria-label="Regex" title="Regex">${ic("Regex", "sm")}</button></div>
+    <div class="modes" style="align-self:flex-start"><button aria-pressed="false">Names</button><button aria-pressed="true">Content</button></div>
+    <div class="sres">
+      <div class="f">${ic("FilePdfBox", "sm pdf")}Emlekezteto - Projektegy…pdf</div>
+      <div class="m">:3 <mark>BOSCH</mark> DataStaging egyeztetés</div>
+      <div class="f">${ic("FileDocumentOutline", "sm")}arch.md</div>
+      <div class="m">:12 <mark>Bosch</mark> SAP connector…</div>
+      <div class="m">:40 owner: <mark>Bosch</mark> IT</div>
+    </div></div>`;
+
+function optB(o = {}) {
+  const narrow = document.body.classList.contains("narrow");
+  const railOn = o.railOn !== false;
+  return `<div class="pane ${o.short ? "short" : ""} ${o.tabList ? "tall" : ""}">
+    ${pbar({ railOn, plusOpen: o.plus, tabsOpen: o.tabList, tabs: o.tabs || TABS, extraTab: o.extraTab || "" })}
+    ${o.terminal ? `<div class="row docbar" data-scope="doc"><span class="crumbs"><span class="leaf">${ic("ConsoleLine", "sm cyan")}zsh — ~/Documents/Projektek</span></span><span class="spacer"></span>
+        <span class="lbl" style="font-size:11px;color:var(--text-tertiary)">title line only — no file actions</span></div>` : docbar({ narrow, moreOpen: o.more })}
+    <div class="body">
+      ${railOn ? `<div class="rail">${railhdr(o.search ? "search" : "files")}${o.search ? railSearch() : tree()}</div>` : ""}
+      <div class="col">${o.terminal ? `<div class="term mono">~/Documents/Projektek $ ls<br>BOSCH DataStaging  ACTUAL-connector<br>~/Documents/Projektek $ ▍</div>` : page()}</div>
+    </div>
+    ${o.plus ? `<div class="menu plusmenu" role="menu" style="top:38px">
+        <div class="mh">New tab</div>
+        <div class="mi" role="menuitem">${ic("ConsoleLine", "cyan")}Terminal</div>
+        <div class="mi" role="menuitem">${ic("Web")}Live preview (dev server)</div>
+        <hr><div class="mi" role="menuitem">${ic("Magnify")}Open file…<span class="kbd">⌘P</span></div></div>` : ""}
+    ${o.ctx ? `<div class="menu ctxmenu" role="menu" style="top:34px">
+        <div class="mi" role="menuitem">${ic("Close")}Close<span class="kbd">⌘W</span></div>
+        <div class="mi" role="menuitem">${ic("CloseBoxMultipleOutline")}Close other tabs</div>
+        <div class="mi" role="menuitem">${ic("ArrowCollapseRight")}Close tabs to the right</div>
+        <div class="mi" role="menuitem">${ic("CloseBoxMultiple")}Close all tabs</div>
+        <hr><div class="mi" role="menuitem">${ic("FileTreeOutline")}Reveal in file tree</div>
+        <div class="mi" role="menuitem">${ic("ContentCopy")}Copy path</div></div>` : ""}
+    ${o.tabList ? `<div class="menu tabsearch" role="dialog" aria-label="Search open tabs" style="top:38px;right:40px">
+        <div class="sinput tsq">${ic("Magnify", "sm")}<input type="text" aria-label="Search tabs" placeholder="Search tabs" value="${o.q || ""}" aria-controls="tl-${o.id}" />
+          <span class="kbd">Esc</span></div>
+        <div class="mh tlh"></div>
+        <ul class="tlist" id="tl-${o.id}" role="listbox"></ul>
+        <div class="tlempty"></div>
+        <hr><div class="tlfoot"></div></div>` : ""}
+    ${o.confirm ? `<div class="scrim"></div><div class="dlg" role="alertdialog" aria-labelledby="dlgT" aria-describedby="dlgD">
+        <h4 id="dlgT">Close all 5 tabs?</h4>
+        <ul id="dlgD">
+          <li>${ic("ConsoleLine", "sm cyan")}<b>zsh</b> — terminal will be ended</li>
+          <li>${ic("FilePdfBox", "sm pdf")}<b>Emlekezteto - Projektegyeztetes…pdf</b> — unsaved edits in PdfCraft</li>
+        </ul>
+        <p class="note" style="margin:0 0 10px">3 other tabs have nothing to lose and close silently.</p>
+        <div class="acts"><button class="btn">Cancel</button><button class="btn">Close all but these 2</button><button class="btn danger">Close all &amp; discard</button></div></div>` : ""}
+    ${o.more ? `<div class="menu" role="menu" style="top:76px;right:8px">
+        ${narrow ? `<div class="mi" role="menuitem">${ic("OpenInNew")}Open in default app</div><div class="mi" role="menuitem">${ic("FolderOpenOutline")}Reveal in Finder</div><hr>` : ""}
+        <div class="mi" role="menuitem">${ic("FileTreeOutline")}Reveal in file tree</div>
+        <div class="mi" role="menuitem">${ic("ContentCopy")}Copy path</div>
+        <div class="mi" role="menuitem">${ic("ContentCopy")}Copy relative path</div></div>` : ""}
+  </div>`;
+}
+
+const OPEN = [
+  { icon: "FilePdfBox", c: "pdf", name: "Emlekezteto - Projektegyeztetes - 2026.03.10.pdf", dir: "Projektek/BOSCH DataStaging", cur: true },
+  { icon: "FilePdfBox", c: "pdf", name: "Emlekezteto - BlackBelt Status Beszámoló.pdf", dir: "Projektek/BlackBelt" },
+  { icon: "FilePdfBox", c: "pdf", name: "Emlekezteto - BlackBelt Central IT.pdf", dir: "Projektek/BlackBelt" },
+  { icon: "FilePdfBox", c: "pdf", name: "Emlekezteto - BlackBelt Status Beszamolo 2.pdf", dir: "Projektek/BlackBelt" },
+  { icon: "FileDocumentOutline", c: "", name: "arch.md", dir: "Projektek/BOSCH DataStaging", dirty: true },
+  { icon: "FileDocumentOutline", c: "", name: "connector-notes.md", dir: "Projektek/ACTUAL-connector" },
+  { icon: "ConsoleLine", c: "cyan", name: "zsh", dir: "terminal" },
+  { icon: "Web", c: "", name: "localhost:5173", dir: "live preview" },
+];
+const fold = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const esc = (t) => t.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+/* highlight on the folded string; indices map 1:1 because NFD-stripping is length-preserving for these chars only after recompose — so match per char */
+function hi(text, q) {
+  if (!q) return esc(text);
+  const ft = [...text].map((ch) => fold(ch)).join(""), fq = fold(q);
+  const i = ft.indexOf(fq);
+  if (i < 0) return esc(text);
+  const chars = [...text];
+  return esc(chars.slice(0, i).join("")) + "<mark>" + esc(chars.slice(i, i + fq.length).join("")) + "</mark>" + esc(chars.slice(i + fq.length).join(""));
+}
+function fillTabSearch(box) {
+  const input = box.querySelector("input"), q = input.value.trim();
+  const hits = OPEN.filter((t) => !q || fold(t.name + " " + t.dir).includes(fold(q)));
+  box.querySelector(".tlh").textContent = q ? `${hits.length} of ${OPEN.length} open tabs` : `Open tabs (${OPEN.length})`;
+  box.querySelector(".tlist").innerHTML = hits.map((t, k) => `<li class="mi tl ${t.cur ? "cur" : ""} ${k === 0 ? "kb" : ""}" role="option" aria-selected="${k === 0}">
+      ${ic(t.icon, t.c)}<span class="tlt"><span class="lt">${hi(t.name, q)}${t.dirty ? ' <span class="dirty" title="Unsaved edits">●</span>' : ""}</span><span class="tld">${hi(t.dir, q)}</span></span>
+      <button class="ib x2" aria-label="Close ${esc(t.name)}" title="Close tab">${ic("Close", "sm")}</button></li>`).join("");
+  box.querySelector(".tlempty").innerHTML = hits.length ? "" :
+    `<div class="mi">${ic("Magnify")}<span>Search project files for “${esc(q)}”</span><span class="kbd">⏎</span></div>`;
+  box.querySelector(".tlfoot").innerHTML = q && hits.length
+    ? `<div class="mi" role="menuitem">${ic("CloseBoxMultipleOutline")}Close ${hits.length} matching tab${hits.length > 1 ? "s" : ""}</div>`
+    : `<div class="mi" role="menuitem">${ic("CloseBoxMultipleOutline")}Close other tabs</div><div class="mi" role="menuitem">${ic("CloseBoxMultiple")}Close all tabs</div>`;
+}
+function render() {
+  cur.innerHTML = current(false);
+  curSearch.innerHTML = current(true);
+  optA_el.innerHTML = optA();
+  B1.innerHTML = optB();
+  B2.innerHTML = optB({ search: true });
+  B3.innerHTML = optB({ plus: true, short: true });
+  B4.innerHTML = optB({ more: true, short: true });
+  B5.innerHTML = optB({ terminal: true, short: true,
+    tabs: TABS.slice(0, 2).map(([n]) => [n, false]),
+    extraTab: `<div class="tab active" role="tab" aria-selected="true">${ic("ConsoleLine", "sm cyan")}<span>zsh</span><span class="x">${ic("Close", "sm")}</span></div>` });
+  B6.innerHTML = optB({ railOn: false, short: true });
+  B7.innerHTML = optB({ ctx: true, short: true });
+  B8.innerHTML = optB({ tabList: true, id: "a" });
+  B8b.innerHTML = optB({ tabList: true, id: "b", q: "beszamolo" });
+  B8c.innerHTML = optB({ tabList: true, id: "c", q: "bosch kick" });
+  document.querySelectorAll(".tabsearch").forEach((box) => {
+    fillTabSearch(box);
+    box.querySelector("input").addEventListener("input", () => fillTabSearch(box));
+  });
+  B9.innerHTML = optB({ confirm: true, tabs: TABS.slice(0, 4),
+    extraTab: `<div class="tab" role="tab">${ic("ConsoleLine", "sm cyan")}<span>zsh</span><span class="x">${ic("Close", "sm")}</span></div>` });
+  document.querySelectorAll(".ctxmenu").forEach((m) => {
+    const pane = m.closest(".pane"), t = pane.querySelectorAll(".pbar .tab")[1];
+    m.style.left = `${t.getBoundingClientRect().left - pane.getBoundingClientRect().left + 30}px`;
+    t.classList.add("ctxon");
+  });
+  document.querySelectorAll(".plusmenu").forEach((m) => {
+    const pane = m.closest(".pane"), plus = pane.querySelector('[aria-label="New tab"]');
+    m.style.left = `${Math.min(plus.getBoundingClientRect().left - pane.getBoundingClientRect().left, pane.clientWidth - 230)}px`;
+  });
+}
+const optA_el = document.getElementById("optA");
+function seg(id, fn) {
+  const g = document.getElementById(id);
+  g.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    g.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    fn(b.dataset.v); render();
+  });
+}
+seg("theme", (v) => {
+  const h = document.documentElement;
+  h.removeAttribute("data-theme"); h.removeAttribute("data-palette");
+  if (v === "light") h.setAttribute("data-theme", "light");
+  if (v === "nord") h.setAttribute("data-palette", "nord");
+});
+seg("width", (v) => document.body.classList.toggle("narrow", v === "narrow"));
+seg("ov", (v) => document.body.classList.toggle("overlay", v === "on"));
+render();
+</script>
+</body>
+</html>
