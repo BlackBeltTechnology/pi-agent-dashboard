@@ -117,6 +117,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/canvas-types", tier: "observe" },
   { method: "GET", path: "/api/config", tier: "operate" },
   { method: "GET", path: "/api/cost-estimator/telemetry", tier: "observe" },
+  // harden-client-sinks (D8): violation counters are for operators.
+  { method: "GET", path: "/api/csp-violations", tier: "operate" },
   { method: "GET", path: "/api/custom-event-groups", tier: "observe" },
   { method: "GET", path: "/api/doctor", tier: "observe" },
   { method: "GET", path: "/api/events/:sessionId/:seq", tier: "observe" },
@@ -310,6 +312,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/browse/create-project", tier: "control" },
   { method: "POST", path: "/api/browse/mkdir", tier: "control" },
   { method: "POST", path: "/api/config/plugins/:id", tier: "operate" },
+  // harden-client-sinks (D8): any admitted viewer may report the violations its own page saw.
+  { method: "POST", path: "/api/csp-violations", tier: "observe" },
   { method: "POST", path: "/api/device-session", tier: "observe" },
   { method: "POST", path: "/api/diagram/render", tier: "control" },
   // add-mermaid-ai-repair: on-demand model call (spend), same tier as answering/summarizing.
@@ -362,6 +366,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/model-proxy/api-keys", tier: "operate" },
   { method: "POST", path: "/api/model-proxy/api-keys/:id/revoke", tier: "operate" },
   { method: "POST", path: "/api/model-proxy/refresh", tier: "operate" },
+  // harden-client-sinks (D10): mint / verify a navigation intent for the caller's own principal.
+  { method: "POST", path: "/api/nav-intent", tier: "observe" },
+  { method: "POST", path: "/api/nav-intent/verify", tier: "observe" },
   { method: "POST", path: "/api/node/installs/select", tier: "operate" },
   { method: "POST", path: "/api/open-in-system", tier: "operate" },
   { method: "POST", path: "/api/openspec/config", tier: "control" },

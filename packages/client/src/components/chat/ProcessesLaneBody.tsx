@@ -92,6 +92,7 @@ function BackgroundProcessRow({
         <>
           {sessionRef !== undefined && onNavigateToSession && (
             <a
+              // client-sinks: allow — same-origin /session/ route, ref URI-encoded
               href={`/session/${encodeURIComponent(sessionRef)}`}
               onClick={(e) => {
                 if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

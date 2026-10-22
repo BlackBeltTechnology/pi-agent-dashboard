@@ -12,6 +12,7 @@ import type { MarkupRepair } from "@blackbelt-technology/pi-dashboard-shared/mar
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import { type AdocSegment, splitAdocDiagramSegments } from "../../lib/preview/adoc-diagram-splitter.js";
 import { hasAdocMath, renderAdocMath } from "../../lib/preview/adoc-math.js";
 import { loadMathEngine } from "../../lib/preview/math-engine.js";
@@ -110,6 +111,20 @@ export function AsciiDocPreview({ target }: Props) {
     if (!shownHtml) return [];
     return splitAdocDiagramSegments(shownHtml);
   }, [shownHtml]);
+  // Raw segments as `pi-sanitized-html` values: the server's `asciidoc` profile,
+  // or `katex` once the math rewrite added KaTeX markup. A sanitizer failure
+  // shows the error view; raw HTML is never injected. See change: harden-client-sinks.
+  const trustedRaw = useMemo<{ html: (TrustedHTML | string | null)[] } | { error: string }>(() => {
+    try {
+      return {
+        html: segments.map((s) =>
+          s.kind === "raw" ? trustedSanitizedHtml(s.html, s.html.includes('class="katex') ? "katex" : "asciidoc") : null,
+        ),
+      };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : "failed to render" };
+    }
+  }, [segments]);
 
   // Mermaid segments in render order; the count backs the locator's parity guard.
   const mermaidCount = useMemo(() => segments.filter((s) => s.kind === "diagram" && s.type === "mermaid").length, [segments]);
@@ -121,7 +136,8 @@ export function AsciiDocPreview({ target }: Props) {
     [baseMermaidSource, repairActive],
   );
 
-  if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
+  const shownError = error ?? ("error" in trustedRaw ? trustedRaw.error : null);
+  if (shownError) return <div className="text-red-400 text-sm p-2">{shownError}</div>;
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
 
   let mermaidOrdinal = 0;
@@ -136,7 +152,8 @@ export function AsciiDocPreview({ target }: Props) {
           return (
             <div
               key={idx}
-              dangerouslySetInnerHTML={{ __html: seg.html }}
+              // client-sinks: allow — trusted via pi-sanitized-html (asciidoc / katex profile)
+              dangerouslySetInnerHTML={{ __html: ("html" in trustedRaw ? trustedRaw.html[idx] : null) ?? "" }}
             />
           );
         }

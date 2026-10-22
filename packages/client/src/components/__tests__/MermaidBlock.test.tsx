@@ -916,3 +916,28 @@ describe("MermaidBlock SVG sanitization", () => {
     });
   }
 });
+
+// harden-client-sinks (test-plan #X5): the injection-time pi-sanitized-html
+// value fails closed — a sanitizer that throws or reports itself unsupported
+// shows the error view and never injects the (cached) SVG.
+describe("MermaidBlock injection sanitize fails closed (#X5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _outcomeCache.clear();
+  });
+  afterEach(() => {
+    purifyFault.mode = null;
+  });
+
+  it.each(["throw", "unsupported"] as const)("sanitizer %s → error view, no SVG injected", async (mode) => {
+    const code = `graph TD; X5-->${mode}`;
+    const svg = '<svg><text>cached</text><image href="x" onerror="f()"/></svg>';
+    for (const t of ["base:light", "base:dark", "studio:light", "studio:dark"]) _outcomeCache.set(`${code}\0${t}`, { kind: "ok", svg });
+    purifyFault.mode = mode;
+    const { container } = renderWithTheme(<MermaidBlock code={code} />);
+    await waitFor(() => expect(container.querySelector('[data-testid="mermaid-error"]')).not.toBeNull());
+    expect(container.querySelector(".mermaid-diagram-inner")).toBeNull();
+    expect(container.innerHTML).not.toContain("cached</text>");
+    expect(container.innerHTML).not.toMatch(/onerror/);
+  });
+});

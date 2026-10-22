@@ -19,7 +19,7 @@
  *
  * See changes: render-unclaimed-custom-entries, retro-ux-chat-rendering.
  */
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SafeLink, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CustomEntryRendererProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import {
   mdiAlertCircleOutline,
@@ -71,7 +71,7 @@ function payloadAsText(payload: unknown): string {
 function UrlText({ raw, t }: { raw: string; t: T }) {
   const href = safeHttpUrl(raw);
   return href ? (
-    <a
+    <SafeLink
       href={href}
       target="_blank"
       rel="noopener noreferrer"
@@ -80,7 +80,7 @@ function UrlText({ raw, t }: { raw: string; t: T }) {
       <span>{raw}</span>
       <Icon path={mdiOpenInNew} size={0.5} aria-hidden="true" className="ml-0.5 inline-block align-baseline" />
       <span className="sr-only">{t("opensInNewTab", undefined, " (opens in a new tab)")}</span>
-    </a>
+    </SafeLink>
   ) : (
     <span className="break-all text-[12px]">{raw}</span>
   );

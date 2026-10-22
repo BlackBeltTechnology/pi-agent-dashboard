@@ -6,7 +6,7 @@ import App from "./App.js";
 import { LoginPage, SigningInPage } from "./components/identity/LoginPage.js";
 import { ThemeProvider } from "./components/settings/ThemeProvider.js";
 import { MobileProvider } from "./hooks/useMobile.js";
-import { detectInitialLanguage, I18nProvider, loadCatalog } from "./lib/i18n/i18n.js";
+import { I18nProvider } from "./lib/i18n/i18n.js";
 import { fetchLoginConfig } from "./lib/identity/login-config.js";
 import { bootLoginSession, useLoginSession } from "./lib/identity/login-session.js";
 import "./index.css";
@@ -17,9 +17,11 @@ import { UiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runt
 import { hasLiveToken, setAccessToken, setIdToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { LoginGate } from "./components/identity/LoginGate.js";
 import { installFetchWrappers } from "./lib/api/install-fetch-wrappers.js";
+import { bootClient } from "./lib/boot/client-boot.js";
 import { migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
 import { createHostPrimitiveRegistry } from "./lib/plugins/host-primitives.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
+import { installTrustedTypes } from "./lib/security/trusted-types.js";
 
 // `/pair` is a device-only landing; load it on demand so it stays off the
 // dashboard's cold-landing entry chunk (mdi-chunk-size gzip cap).
@@ -33,6 +35,11 @@ const PairLanding = React.lazy(() =>
 // escaping any startup path is observed rather than silently dropped.
 // See change: cleanup-client-plugin-promises (design D2).
 installUnhandledRejectionReporter();
+
+// Trusted Types policies (named + exactly one `default`) before any other code
+// can reach an HTML / script sink. Idempotent; `bootClient` re-asserts it
+// before the first render. See change: harden-client-sinks (D5).
+installTrustedTypes();
 
 // UI primitive registry — see change: add-plugin-ui-primitive-registry. The full
 // registration list (every UI_PRIMITIVE_KEYS entry, incl. the self-providing
@@ -102,17 +109,11 @@ function AfterBoot({ login }: { login: boolean }): React.JSX.Element | null {
   return login ? <LoginPage /> : <App />;
 }
 
-// Register service worker for PWA installability
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
-}
-
-// Non-English users fetch their catalog BEFORE the first frame (no English flash);
-// English users resolve immediately. `loadCatalog` never rejects — a failed
-// load logs and falls back to the English call-site text.
-// See change: shrink-client-entry-lazy-islands.
-void loadCatalog(detectInitialLanguage())
-  .then(() => {
+// Policies, violation reporter and the service worker (PWA installability,
+// script URL via pi-worker-url) before the first render; then non-English
+// users fetch their catalog BEFORE the first frame (no English flash).
+// See changes: harden-client-sinks, shrink-client-entry-lazy-islands.
+void bootClient(() => {
     ReactDOM.createRoot(document.getElementById("root")!).render(
       <React.StrictMode>
         <UiPrimitiveProvider value={primitiveRegistry}>

@@ -131,6 +131,7 @@ export function AutomationRunMonitor({
 
       {archivedSid && (
         <a
+          // client-sinks: allow — same-origin /session/ route, id URI-encoded
           href={`/session/${encodeURIComponent(archivedSid)}?archived=1`}
           data-testid="run-archived-transcript"
           className="text-xs text-[var(--accent-primary)] hover:underline"

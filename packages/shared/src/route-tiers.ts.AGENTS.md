@@ -63,3 +63,5 @@ improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` 
 `GET /api/openspec/dependencies` → `observe`; `PUT /api/openspec/dependencies` → `control`. See change: add-openspec-change-dependencies.
 
 `POST /api/pi-trust/query` at `operate` (same tier as `POST /api/ws-ticket`). See change: mirror-dashboard-trust-live-remote.
+
+`POST /api/csp-violations` observe, `GET /api/csp-violations` operate, `POST /api/nav-intent` + `/verify` observe. See change: harden-client-sinks.

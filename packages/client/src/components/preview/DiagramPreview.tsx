@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import { logRejection } from "../../lib/report-error.js";
 import { readTextUrl } from "./raw-url.js";
 import { ZoomControls } from "./ZoomControls.js";
@@ -29,7 +30,7 @@ export function DiagramPreview({ target, sourceText, inline = false }: Props) {
   // provenance (surface-denial-remedy-in-previews, D4).
   const { fetch: previewFetch } = usePreviewFetch();
   const [source, setSource] = useState<string | null>(sourceText ?? null);
-  const [svg, setSvg] = useState<string | null>(null);
+  const [svg, setSvg] = useState<TrustedHTML | string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const { state: zoom, handlers, zoomIn, zoomOut, reset } = useZoomPan();
@@ -93,7 +94,9 @@ export function DiagramPreview({ target, sourceText, inline = false }: Props) {
         if (cancelled) return;
 
         if (res.ok && body.success && typeof body.data?.svg === "string") {
-          setSvg(body.data.svg);
+          // Re-sanitized client-side with the server's own profile; a sanitizer
+          // failure throws into the catch below (fail closed). See change: harden-client-sinks.
+          setSvg(trustedSanitizedHtml(body.data.svg, "diagram-svg"));
           setLoading(false);
         } else if (body.code === "unavailable") {
           setStatusNotice("Diagram rendering is not configured");
@@ -144,6 +147,7 @@ export function DiagramPreview({ target, sourceText, inline = false }: Props) {
               transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
               transformOrigin: "center center",
             }}
+            // client-sinks: allow — trusted via pi-sanitized-html (diagram-svg profile)
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         </div>

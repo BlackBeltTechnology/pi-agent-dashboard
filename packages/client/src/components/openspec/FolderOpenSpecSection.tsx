@@ -7,6 +7,7 @@ import { Icon } from "@mdi/react";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import {
   addOpenSpecOptOut,
   OpenSpecInitError,
@@ -297,7 +298,7 @@ function WorkflowSchemaChip({ cwd, data }: { cwd: string; data: OpenSpecData }) 
   const tone = p.severity;
   return (
     <div data-folder-openspec-schema-notice={cwd} onClick={(e) => e.stopPropagation()}>
-      <a
+      <SafeLink
         href={href}
         data-testid="folder-openspec-schema-chip"
         title={i18nT("openspec.schemaChipTitle", undefined, "Open the OpenSpec Workflow Schema settings")}
@@ -311,7 +312,7 @@ function WorkflowSchemaChip({ cwd, data }: { cwd: string; data: OpenSpecData }) 
       >
         <Icon path={tone === "info" || tone === "neutral" ? mdiInformationOutline : mdiAlert} size={0.6} aria-hidden="true" />
         {i18nT("openspec.schemaChipLabel", { label: p.chipLabel }, "Workflow schema: {label}")}
-      </a>
+      </SafeLink>
     </div>
   );
 }

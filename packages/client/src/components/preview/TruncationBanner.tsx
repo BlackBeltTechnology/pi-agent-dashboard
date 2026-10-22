@@ -4,8 +4,10 @@
  * pill (csv), and a download affordance to the full file.
  * See change: render-office-previews.
  */
+
 import React from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 
 interface Props {
   message: string;
@@ -30,9 +32,9 @@ export function TruncationBanner({ message, downloadHref, charset }: Props) {
           {charset}
         </span>
       ) : null}
-      <a href={downloadHref} download className="text-[var(--accent-text)] underline">
+      <SafeLink href={downloadHref} download className="text-[var(--accent-text)] underline">
         {i18nT("common.download", undefined, "Download")}
-      </a>
+      </SafeLink>
     </div>
   );
 }

@@ -15,6 +15,7 @@ export function downloadToDevice(name: string, bytes: ArrayBuffer, mime?: string
   const blob = new Blob([bytes], { type: mime || "application/octet-stream" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+  // client-sinks: allow — same-origin blob: object URL for a download
   a.href = url;
   a.download = safeDownloadName(name);
   a.rel = "noopener";

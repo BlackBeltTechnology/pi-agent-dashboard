@@ -1,3 +1,5 @@
+import { MERMAID_SVG_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
+import DOMPurify from "dompurify";
 import {
   mdiAlertCircleOutline,
   mdiAutoFix,
@@ -10,6 +12,7 @@ import { Icon } from "@mdi/react";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import type { RuleId } from "../../lib/preview/mermaid-repair.js";
 import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
@@ -98,14 +101,9 @@ function sanitizeMermaidCode(raw: string): string {
 // See change: sanitize-untrusted-rendered-content.
 
 export async function sanitizeMermaidSvg(svg: string): Promise<string> {
-  const DOMPurify = (await import("dompurify")).default;
   if (DOMPurify.isSupported !== true) throw new Error("sanitizer unavailable: DOMPurify has no DOM support");
-  return DOMPurify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true, html: true },
-    ADD_TAGS: ["foreignObject"],
-    HTML_INTEGRATION_POINTS: { foreignobject: true, "annotation-xml": true },
-    FORBID_TAGS: ["form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
-  });
+  // Config shared with the `pi-sanitized-html` policy (`mermaid` profile). See change: harden-client-sinks.
+  return DOMPurify.sanitize(svg, MERMAID_SVG_PROFILE);
 }
 
 // ── Default-node colorization ───────────────────────────────────────────────
@@ -174,22 +172,22 @@ function setLabelColor(g: Element, color: string): void {
 }
 
 /**
- * Post-process a rendered mermaid SVG: tint default (un-authored) flowchart and
- * class-diagram nodes with the accent palette. A node is "authored" when its
- * shape's inline `style` contains `fill:` — those are skipped.
+ * Sanitize a rendered mermaid SVG into a DOM FIRST, then tint default
+ * (un-authored) flowchart and class-diagram nodes with the accent palette and
+ * serialize the result. A node is "authored" when its shape's inline `style`
+ * contains `fill:` — those are skipped. Unsanitized renderer output is never
+ * string-parsed (no XML parse, no Trusted Types parse sink); the final
+ * `sanitizeMermaidSvg` still runs on the returned markup. Fails closed: an
+ * unsupported DOMPurify throws. See change: harden-client-sinks (D5).
  */
 export function colorizeDefaultNodes(svg: string, accents: string[], textColor: string): string {
-  if (typeof DOMParser === "undefined" || accents.length === 0) return svg;
-  const parse = (src: string) => new DOMParser().parseFromString(src, "image/svg+xml").documentElement;
-  const malformed = (el: Element | null) => !el || el.nodeName === "parsererror" || el.querySelector("parsererror") !== null;
-  let root = parse(svg);
-  // mermaid emits HTML void tags inside <foreignObject> labels unclosed
-  // (`one<br>two`), which is not well-formed XML: close them and retry once.
-  // See change: sanitize-untrusted-rendered-content.
-  if (malformed(root)) root = parse(svg.replace(/<(br|hr|wbr)\b([^>]*?)(?<!\/)>/gi, "<$1$2/>"));
-  if (malformed(root)) return svg;
+  if (DOMPurify.isSupported !== true) throw new Error("sanitizer unavailable: DOMPurify has no DOM support");
+  const body = DOMPurify.sanitize(svg, { ...MERMAID_SVG_PROFILE, RETURN_DOM: true }) as unknown as HTMLElement;
+  const root = body.querySelector("svg");
+  if (!root) return "";
 
   root.querySelectorAll("g.node, g.classGroup").forEach((g) => {
+    if (accents.length === 0) return;
     const shape = g.querySelector("rect.label-container, polygon, circle, path, rect");
     if (!shape) return;
     const style = shape.getAttribute("style") || "";
@@ -206,6 +204,11 @@ export function colorizeDefaultNodes(svg: string, accents: string[], textColor: 
     setLabelColor(g, textColor);
   });
 
+  // Namespaces are intrinsic to the parsed elements; an explicit `xmlns`
+  // attribute (mermaid puts one on label <div>s) would serialize twice.
+  root.querySelectorAll("[xmlns]").forEach((el) => {
+    el.removeAttribute("xmlns");
+  });
   return new XMLSerializer().serializeToString(root);
 }
 
@@ -222,15 +225,14 @@ function errorMessage(err: unknown): string {
 
 type MermaidApi = typeof import("mermaid").default;
 
-/** One render attempt: render → colorize → sanitize (last), then drop any error node mermaid left in the DOM. */
+/** One render attempt: render → sanitize-to-DOM + colorize → final sanitize (last), then drop any error node mermaid left in the DOM. */
 async function renderOnce(mermaid: MermaidApi, id: string, code: string, resolved: string): Promise<string> {
   try {
     const result = await mermaid.render(id, code);
-    // Colorize → sanitize once, before caching, so the cached SVG is the
-    // final injected markup (no per-React-render DOMParser cost). Colorize
-    // runs first on mermaid's well-formed XML (its `image/svg+xml` re-parse
-    // would fail on DOMPurify's HTML serialization); sanitize is last. Accents
-    // resolve live for the current theme.
+    // Sanitize-to-DOM + colorize, then the final sanitize, once before
+    // caching, so the cached SVG is the final injected markup. Colorize works
+    // on the sanitized DOM (never a string parse of renderer output); the
+    // final sanitize stays last. Accents resolve live for the current theme.
     const colored = colorizeDefaultNodes(
       result.svg,
       resolveAccents(),
@@ -836,6 +838,16 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     resolved,
     complete,
   );
+  // Final injection value from `pi-sanitized-html` (`mermaid` profile). A
+  // sanitizer failure → error view; raw SVG is never injected.
+  const trustedSvg = React.useMemo(() => {
+    if (!svg) return null;
+    try {
+      return { ok: true as const, html: trustedSanitizedHtml(svg, "mermaid") };
+    } catch (err) {
+      return { ok: false as const, message: errorMessage(err) };
+    }
+  }, [svg]);
   const [focused, setFocused] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
   const refocusViewportRef = useRef(false);
@@ -905,18 +917,18 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     };
   }, [focused]);
 
-  if (outcome?.kind === "error") {
+  if (outcome?.kind === "error" || trustedSvg?.ok === false) {
     return (
       <ErrorView
         code={code}
-        message={outcome.message}
+        message={outcome?.kind === "error" ? outcome.message : (trustedSvg as { message: string }).message}
         headline={i18nT("preview.mermaid.errorHeadline", undefined, "This diagram could not be rendered.")}
         {...errorSlots}
       />
     );
   }
 
-  if (!svg) {
+  if (!svg || !trustedSvg?.ok) {
     return (
       <div role="status" className="flex items-center justify-center gap-2 py-8 text-[var(--text-secondary)] text-sm">
         <Icon path={mdiLoading} size={0.7} className="animate-spin" aria-hidden="true" />
@@ -1017,7 +1029,8 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
               transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
               transformOrigin: "0 0",
             }}
-            dangerouslySetInnerHTML={{ __html: svg }}
+            // client-sinks: allow — trusted via pi-sanitized-html (mermaid profile)
+            dangerouslySetInnerHTML={{ __html: trustedSvg.html }}
           />
         </div>
       </div>

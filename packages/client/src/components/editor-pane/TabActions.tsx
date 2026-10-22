@@ -12,10 +12,12 @@
  *
  * See change: open-view-command-in-editor-pane (D9/D10).
  */
+
 import { mdiApplicationOutline, mdiFolderOpenOutline, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 
 export type TabActionTarget =
   | { kind: "file"; cwd: string; path: string }
@@ -44,7 +46,7 @@ export function TabActions({ target, systemOpen }: Props) {
       <button
         type="button"
         data-testid="tab-open-in-browser"
-        onClick={() => window.open(target.url, "_blank")}
+        onClick={() => openExternalUrl(target.url)}
         className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
         title={t("editor.openInSystemBrowser", undefined, "Open in system browser")}
       >
