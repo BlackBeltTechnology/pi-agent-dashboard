@@ -13,3 +13,5 @@ Session scope (`changeDetection`): candidates (`changedFiles` prop is now Map<pa
 See change: add-editor-pane-file-handlers — context adds `setBaseline(path, digest)`; `trackedFileWrite` type = `TrackedFileWrite` (optional `send`). Consumed by `FileHandlerLayer`'s pane bridge.
 
 See change: improve-canvas-html-and-url-ux — adds `openStaticTarget(cwd,path,{background,opener,bump})` (tab `static:<abs file>`, viewer `live-server`, one tab per file); `openLiveTarget` opts gain `opener` (`agent` sets `autoOpened`) and `bump`. `bump` on an existing tab: inactive → `reloadNonce+1`, active → `updatedByAgent`.
+
+`hasFileSearch` (true only when the provider received `onFilenameSearch`; folder providers leave it false): gates the rail Search view, the `+` menu's Open file…, the Search-tabs fall-through and the Cmd-P / Cmd-Shift-F interception. See change: scope-anchor-editor-pane-controls (D4).

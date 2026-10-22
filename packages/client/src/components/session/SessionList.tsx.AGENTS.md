@@ -48,3 +48,5 @@ Header (declutter-sidebar-header): header element is a Tailwind `@container`. Ro
 See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions onOpenSession={openQuestionSession}/>` right after `TunnelButton` (YOLO adds no row-1 control; absent at 0). `openQuestionSession(id)` clears session search, folder filter and tag axes, calls `onSelect(id)`, then `onSeekToCard?.(id)` (reveals collapsed workspace/folder/lane). Test: `__tests__/SessionList.question-pill.test.tsx`.
 
 Constant / same-origin navigation sink carries a `client-sinks: allow — <reason>` annotation. See change: harden-client-sinks.
+
+Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do not count as held). See change: add-session-ui-deep-links-for-agents.

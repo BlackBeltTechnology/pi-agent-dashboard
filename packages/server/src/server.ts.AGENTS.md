@@ -108,3 +108,5 @@ Access provisioning: `installProvisioning({gateway: browserGateway, deps})` (`ac
 `knownFolderCwds` = `listKnownFolderCwds({sessionManager,preferencesStore})` (lib/route-admission.ts): the ONE known set behind `host.knownFolderCwds`, folder-project, git and openspec route admission; git + openspec routes also get `admitOptions: {onIndeterminate: cwdAdmissionLogger}`. See change: core-cwd-admission.
 
 Resolves `PI_DASHBOARD_TRUSTED_TYPES` with the CSP mode, passes it to `registerCsp` and the index sender; registers `/api/csp-violations` and `/api/nav-intent` routes. See change: harden-client-sinks.
+
+`registerSessionRoutes` gets `uiLinks` (live public bases + tunnel origins + `auth.redirectBaseUrl`, `isHostAdmitted` on the host-gate ctx, `config.port`). See change: add-session-ui-deep-links-for-agents.

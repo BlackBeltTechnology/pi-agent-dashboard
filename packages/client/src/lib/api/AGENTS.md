@@ -29,5 +29,6 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `resources-api.ts` | Fetch helpers for pi-resource activation (distinct from `packages-api`). → see `resources-api.ts.AGENTS.md` |
 | `server-error.ts` | Zone-3 coded-message resolver: server/extension failures `{code,vars?,message?}` → i18n key via `errKeyForCode(code)`; `CodedMessage`. Built-in English fallbacks for `err.cwd_unknown` / `err.cwd_admission_unavailable` / `err.invalid_name` (English UI has no catalog). See change: make-all-ui-text-i18n, core-cwd-admission. |
 | `server-switch.ts` | `performServerSwitch(target, deps)` — extracted two-phase transaction (stage → commit) from `App.tsx`'s… → see `server-switch.ts.AGENTS.md` |
+| `sessions-lookup-api.ts` | `lookupSessionsById(id)` → `GET /api/sessions?id=`; 401/403 throw `SessionLookupAuthError`. See change: add-session-ui-deep-links-for-agents. |
 | `staging-socket.ts` | `openStagingSocket(url, {timeoutMs}): Promise<WebSocket>` — single-settle helper that resolves on first… → see `staging-socket.ts.AGENTS.md` |
 | `tools-api.ts` | Client-side fetch helpers for `/api/tools*` (`fetchTools`, `rescanAll`, `rescanOne`, `setOverride`,… → see `tools-api.ts.AGENTS.md` |

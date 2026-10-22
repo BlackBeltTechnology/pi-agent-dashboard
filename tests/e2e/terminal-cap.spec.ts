@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { robustClick, spawnFreshGitSession } from "./helpers/index.js";
+import { launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E - terminal cap refusal (change: harden-server-capability-bounds, test-plan #F8).
 //
@@ -32,14 +32,14 @@ test.describe("terminal cap", () => {
     const tabs = editorPane.getByRole("tab");
 
     // Two terminals fit under the cap of 2.
-    await robustClick(page, "new-terminal-launch");
+    await launchFromNewTabMenu(page, "new-terminal-launch");
     await expect(tabs).toHaveCount(1, { timeout: 30_000 });
-    await robustClick(page, "new-terminal-launch");
+    await launchFromNewTabMenu(page, "new-terminal-launch");
     await expect(tabs).toHaveCount(2, { timeout: 30_000 });
     await expect(notice).toHaveCount(0);
 
     // The third is refused: a polite status notice naming the limit; still 2 tabs.
-    await robustClick(page, "new-terminal-launch");
+    await launchFromNewTabMenu(page, "new-terminal-launch");
     await expect(notice.getByRole("status")).toBeVisible({ timeout: 20_000 });
     await expect(notice).toContainText("2 terminals are open");
     await expect(tabs).toHaveCount(2);
@@ -49,7 +49,7 @@ test.describe("terminal cap", () => {
     await first.hover();
     await first.getByRole("button").first().click();
     await expect(tabs).toHaveCount(1, { timeout: 20_000 });
-    await robustClick(page, "new-terminal-launch");
+    await launchFromNewTabMenu(page, "new-terminal-launch");
     await expect(tabs).toHaveCount(2, { timeout: 30_000 });
     await expect(notice).toHaveCount(0);
   });

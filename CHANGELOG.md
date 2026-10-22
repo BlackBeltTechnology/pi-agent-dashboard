@@ -49,6 +49,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Session UI deep links for agents.** `GET /api/sessions` rows carry absolute `uiUrl` / `diffUrl`
+  built from the origin the caller used (a matching public base or tunnel, an admitted `Host`, else
+  `http://localhost:<port>`), and accept `?id=<id>` (exact id or a prefix of 8+ characters). A
+  `/session/:id` URL with a unique prefix now converges to the full id; an unknown or ambiguous id
+  shows a "Session not found" page instead of redirecting home, and an ended session outside the
+  snapshot window opens through the id lookup. `?embed=1` shows a session without the session list
+  (sticky per tab until `?embed=0`). The Claude plugin's control skill and the API reference document
+  the UI routes, `uiUrl`, the `encodedCwd` encoding and embed mode.
 - **OBS: unfreeze screen captures after sleep.** On macOS, OBS 31 screen captures stop when the Mac sleeps
   and never restart, so the virtual camera keeps sending a frozen desktop. `pi-obs capture refresh
   [--input <name>]` switches each screen capture to another display and back, restoring its exact

@@ -15,3 +15,5 @@ TESTIDS gain `onboardingStep2Create|Name|Error|Done`; `onboardingStep2Cta` is no
 `expandQueueLane(page)` opens the dock's Queue lane (`[data-dock-toggle="queue"]`, rows or compact; idempotent) — follow-up chips (`queue-chip-followup`) live in its body only while open. See change: add-composer-dock.
 
 `chooseLayoutMode(page, mode)` picks an editor layout at any width: clicks `layout-mode-<mode>` directly when visible (segmented header), else opens the mobile menu via the `layout-mode-switch` trigger, clicks the `menuitemradio`, and waits for the menu to close (`aria-expanded="false"`). Specs that set a <760 px viewport MUST use it instead of a bare click. See change: add-composer-dock.
+
+`launchFromNewTabMenu(page, item)` opens the pane bar `+` menu (`new-tab-menu-toggle`) and clicks `new-terminal-launch` / `live-preview-launch` / `open-file-launch` (retrying past toasts). The launchers live only in that menu now; the ids are unchanged. See change: scope-anchor-editor-pane-controls.

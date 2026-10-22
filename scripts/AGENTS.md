@@ -13,12 +13,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
 | `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
+| `__tests__/encoded-cwd-oneliner.test.mjs` | #E10 shell one-liner = `encodeFolderPath`. See change: add-session-ui-deep-links-for-agents. |
 | `__tests__/host-api-surface.test.mjs` | Bump-rule table for `host-api-surface.mjs` (#E29), committed snapshot is current, accent-token expansion, unexpanded … |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-ensure-dashboard.test.mjs` | Behaviour tests for `ensure-dashboard.sh` (test-plan E3–E34, P1, X1–X10): |
 | `__tests__/claude-plugin-publish-contract.test.mjs` | Static contract over `publish.yml`. `publish` preflight re… → see `__tests__/claude-plugin-publish-contract.test.mjs.AGENTS.md` |
-| `__tests__/claude-plugin-parity.test.mjs` | Derived `api-reference.md` byte parity (E35), missing-heading failure (E36), skill routes registered by the server (E38). |
-| `__tests__/claude-plugin-structure.test.mjs` | Plugin layout + marketplace manifest (E1, E2), forbidden references (E37), skill content contract (E39). |
+| `__tests__/claude-plugin-parity.test.mjs` | → see `__tests__/claude-plugin-parity.test.mjs.AGENTS.md` |
+| `__tests__/claude-plugin-structure.test.mjs` | → see `__tests__/claude-plugin-structure.test.mjs.AGENTS.md` |
 | `__tests__/claude-plugin-version.test.mjs` | `plugin.json` = root version (E40), `sync-versions.js` stamping idempotent (E41), `release-cut` stages + verifies it (E42). |
 | `__tests__/claude-plugin-zip.test.mjs` | Release zip layout (E44) and version gate (E45) for `build-claude-plugin-zip.mjs`. |
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN`… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |

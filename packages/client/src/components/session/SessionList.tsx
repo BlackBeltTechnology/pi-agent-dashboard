@@ -27,6 +27,7 @@ import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js";
+import { heldEndedByGroup } from "../../lib/session/held-ended.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getIncludeArchive,
@@ -318,6 +319,8 @@ interface Props {
    * Non-window ended sessions already paged per group key — the next
    * `sessions_page` offset. See change: fix-connect-snapshot-frame-loss (D9).
    */
+  /** Ids merged by a deep-link lookup; excluded from the held-ended count until a page/snapshot delivers them. See change: add-session-ui-deep-links-for-agents. */
+  lookupOnlyIds?: ReadonlySet<string>;
   pagedCount?: Map<string, number>;
   /**
    * Per-group page-reply generation, bumped on every `sessions_page_result`.
@@ -399,7 +402,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, lookupOnlyIds, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -626,18 +629,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // ── Ended paging + stub groups (fix-connect-snapshot-frame-loss D9) ─────
   // Held ended count per GROUP key (the same key space `endedTotals` uses):
   // the “more” affordance compares it against the group's full ended count.
-  const heldEndedByCwd = useMemo(() => {
-    const m = new Map<string, number>();
-    const pinned = pinnedDirectories ?? [];
-    const platform = inferPlatform([...sessions.map((s) => s.cwd), ...pinned]);
-    const pinnedKeys = new Set(pinned.map((d) => pathKey(d, platform)));
-    for (const s of sessions) {
-      if (s.status !== "ended") continue;
-      const key = resolveSessionGroupPath(s, pinnedKeys, platform);
-      m.set(key, (m.get(key) ?? 0) + 1);
-    }
-    return m;
-  }, [sessions, pinnedDirectories]);
+  const heldEndedByCwd = useMemo(
+    () => heldEndedByGroup(sessions, pinnedDirectories, lookupOnlyIds),
+    [sessions, pinnedDirectories, lookupOnlyIds],
+  );
 
   // persist-folder-collapse-server-side: canonical collapse keys. The platform
   // is inferred from the SAME sample shape grouping uses (session cwds, worktree

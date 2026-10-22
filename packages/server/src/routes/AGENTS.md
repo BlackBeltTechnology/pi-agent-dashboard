@@ -60,5 +60,6 @@ Files in this directory. One row per source file.
 | `system-routes.ts` | REST routes: config, health, shutdown, tunnel. External-editor endpoints `/api/editors`,… → see… → see `system-routes.ts.AGENTS.md` |
 | `tls-routes.ts` | `POST /api/tls/issue {sourceId, name?}` — operator "issue now" (Renew now / Try again now / Check now). → see `tls-routes.ts.AGENTS.md` |
 | `tool-routes.ts` | REST routes: `GET /api/tools`, `GET /api/tools/:name`, `POST /api/tools/rescan`, `PUT/DELETE… → see `tool-routes.ts.AGENTS.md` |
+| `ui-link-base.ts` | `resolveRequestUiBase` — origin for `uiUrl`/`diffUrl`. → see `ui-link-base.ts.AGENTS.md` |
 | `user-routes.ts` | Operator `/api/users*`: `registerUserRoutes(fastify,{service,localToken,localTrust,hostAdmission})`. → see `user-routes.ts.AGENTS.md` |
 | `acp-routes.ts` | `GET /api/acp/agents` → `[{id,name}]` (tier `control`); never command/args/env. See change: add-acp-session-driver. |

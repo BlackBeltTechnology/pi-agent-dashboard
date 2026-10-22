@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { robustClick, spawnFreshGitSession } from "./helpers/index.js";
+import { launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — terminals as tabs inside the editor pane
 // (change: terminals-in-tabbed-panes).
@@ -31,7 +31,7 @@ test.describe("terminal tabs in the editor pane", () => {
     await expect(editorPane.getByRole("tab")).toHaveCount(0);
 
     // + Terminal → creates a terminal at the session cwd and opens its tab.
-    await robustClick(page, "new-terminal-launch");
+    await launchFromNewTabMenu(page, "new-terminal-launch");
 
     // A tab appears in the pane tab strip (labelled by the shell/title, e.g.
     // "bash") and the live xterm mounts — the hidden textarea labelled

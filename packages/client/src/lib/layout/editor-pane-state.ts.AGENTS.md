@@ -9,3 +9,5 @@ See change: add-browser-editor-pane-tab — `VALID_VIEWERS` derived from `OPEN_P
 See change: add-editor-pane-file-handlers — `OpenFile.handlerMode?: "<pluginId>/<claimId>"` (undefined = built-in); action `setHandlerMode {path, mode}` (no-op on unknown path/unchanged); `dropInvalidHandlerModes` strips a non-string value for that tab before `isValidState` (which also has the explicit `typeof` check); unknown claims are NOT validated at load (resolved at render).
 
 `OpenFile.reloadNonce?`/`updatedByAgent?`; `openFile.bump`; `ackUpdate` action. See change: improve-canvas-html-and-url-ux.
+
+Actions `closeTabs {paths}` (path-keyed; active survives, else nearest right then left; operator reactivation; unknown paths → same state object) and `expandTreeRoots {relPaths}` (expand-only merge). Persisted shape unchanged. See change: scope-anchor-editor-pane-controls (D5, D11).

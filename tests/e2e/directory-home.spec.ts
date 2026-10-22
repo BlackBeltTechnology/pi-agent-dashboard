@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Page, test } from "./fixtures.js";
-import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { ensureGitSession, FIXTURE_GIT, gotoDashboard, launchFromNewTabMenu, pinDirectory } from "./helpers/index.js";
 import { harnessProject } from "./lifecycle.js";
 
 // Mirror of packages/client/src/lib/folder-encoding.ts::encodeFolderPath — the
@@ -233,7 +233,7 @@ test.describe("terminal-focused editor entry", () => {
     await expect(page).toHaveURL(FOCUS_EDITOR_URL, { timeout: 15_000 });
     expect(page.url()).not.toContain("focus");
     // The folder EditorPane mounted (its header controls are present).
-    await expect(page.getByTestId("new-terminal-launch")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("new-tab-menu-toggle")).toBeVisible({ timeout: 20_000 });
     await expect(termTabs(page)).toHaveCount(n);
   });
 
@@ -449,7 +449,7 @@ test.describe("folder home split (redesign-directory-home-split)", () => {
     await openHome(page);
     await mode(page, "split").click();
     const before = await termTabs(page).count();
-    await page.getByTestId("new-terminal-launch").click();
+    await launchFromNewTabMenu(page, "new-terminal-launch");
     await expect(termTabs(page)).toHaveCount(before + 1, { timeout: 30_000 });
     await expect(activeTab(page)).toHaveAttribute("data-tab-path", /^term:/);
   });

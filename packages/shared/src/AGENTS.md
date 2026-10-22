@@ -17,6 +17,7 @@ Files in this directory. One row per source file.
 | `__tests__/pi-trust-resource-digest.test.ts` | #E15 #E16 #P1 digest equality, fail-closed set, caps, abort, p95 budget. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/pi-trust-resource-golden.test.ts` | #E17 our resource list vs installed pi `trust-manager.js`; verdict vs `hasTrustRequiringProjectResources`. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/project-root.test.ts` | `hasProjectRootMarker`: `.git` dir/file + `.pi` true; plain/missing false. See change: add-access-provisioning. |
+| `__tests__/session-ui-path.test.ts` | #E1: plain id with none/diff/editor view; `a/b c` percent-encoded. See change: add-session-ui-deep-links-for-agents. |
 | `__tests__/tool-path-resolve.test.ts` | #E24: containment (sibling prefix, equality, probe-free exact hit, fold only when probe says, win32), D6… → see `__tests__/tool-path-resolve.test.ts.AGENTS.md` |
 | `__tests__/ship-it-codeql-wiring.test.ts` | Static wiring guard (#E30): `ship-it` step 4.4 lists the CodeQL baseline-diff check; step 4.4b sits between… → see `__tests__/ship-it-codeql-wiring.test.ts.AGENTS.md` |
 | `__tests__/test-collection-completeness.test.ts` | Every test-bearing `packages/*` collected by root projects or excluded with a reason (E28). → see `__tests__/test-collection-completeness.test.ts.AGENTS.md` |
@@ -132,6 +133,7 @@ Files in this directory. One row per source file.
 | `session-group-path.ts` | Hoisted `inferPlatform`/`pathKey`/`resolveSessionGroupPath` from client session-grouping.ts. → see `session-group-path.ts.AGENTS.md` |
 | `session-meta.ts` | Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`,… → see… → see `session-meta.ts.AGENTS.md` |
 | `session-name.ts` | `sanitizeSessionName`. See change: investigate-auto-name-provenance-relabel. |
+| `session-ui-path.ts` | `sessionUiPath(id, view?)` → `/session/<encodeURIComponent id>[/diff\|/editor]`; pure, base-free (server `uiUrl`/`diffUrl`). See change: add-session-ui-deep-links-for-agents. |
 | `skill-block-parser.ts` | Single source of truth for pi's `<skill name location>…</skill>` envelope. → see `skill-block-parser.ts.AGENTS.md` |
 | `source-matching.ts` | `sourcesMatch` cross-kind matcher. Adds `npm ↔ raw` branch: npm-declared package installed from local path… → see `source-matching.ts.AGENTS.md` |
 | `session-meta.ts` | `SessionMeta` sidecar shape + read/write/merge. Adds `originDeviceId?` — origin gates FILESYSTEM READS, so it… → see `session-meta.ts.AGENTS.md` |

@@ -187,8 +187,6 @@
     "packages/client/src/components/DirectorySettings/InstructionsPage.tsx::blue": 2,
     "packages/client/src/components/editor-pane/EditorFileTree.tsx::green": 2,
     "packages/client/src/components/editor-pane/EditorFileTree.tsx::yellow": 2,
-    "packages/client/src/components/editor-pane/EditorPane.tsx::blue": 1,
-    "packages/client/src/components/editor-pane/EditorPane.tsx::cyan": 1,
     "packages/client/src/components/editor-pane/EditorSearchPanel.tsx::blue": 3,
     "packages/client/src/components/editor-pane/EditorTabs.tsx::cyan": 1,
     "packages/client/src/components/extension-ui/GenericExtensionDialog.tsx::blue": 2,

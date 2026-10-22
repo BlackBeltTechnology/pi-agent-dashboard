@@ -775,6 +775,37 @@ On browser connect, gateway emits ONE `sessions_snapshot { sessions, orders, end
 
 See change: `fix-connect-snapshot-frame-loss`.
 
+### Session route resolution + deep links (change: add-session-ui-deep-links-for-agents)
+
+Agents open `/session/:id[/diff|/editor]` with any id form. Client resolves to canonical held id.
+
+- **Raw param.** Route `:id` stays RAW. `useSessionRouteResolution` (`packages/client/src/hooks/useSessionRouteResolution.ts`) resolves synchronously during render. `selectedId` in `App.tsx` = canonical id (`undefined` while pending / not found). Status: `none|pending|ok|ambiguous|notFound|vanished`.
+- **Matching.** `resolveSessionRouteId` (`lib/session/resolve-session-route-id.ts`): raw exact wins; else case-insensitive exact; else unique prefix ≥ 8 chars (`MIN_SESSION_PREFIX`). Several prefix hits → `ambiguous` (candidate links). < 8 chars → `none`. Returned id = held live-cased id.
+- **Prefix verification.** Prefix-only match commits only after this connection's `GET /api/sessions?id=` lookup merged. Prefix unique among held ids can be ambiguous across owner-visible registry (older ended sessions outside snapshot window). Merge → `ambiguous` (candidate links). Status `pending` meanwhile. Lookup network / 5xx failure → fall back to held match. Full id or case-only difference commits without lookup.
+- **Canonical URL.** `useCanonicalRouteUrl` navigates with `replace` to canonical id. Keeps suffix + query.
+- **Snapshot window gap.** Snapshot holds non-ended + newest ended only (see Sessions snapshot window). Older ended arrive via `sessions_page`. Miss after snapshot → one `GET /api/sessions?id=<routeId>` per route id per connection (`lib/api/sessions-lookup-api.ts`).
+- **Server filter.** Single-valued `id`. Case-insensitive exact or prefix ≥ 8 chars. Applied after `filterOwned`. Array `id` → 400.
+- **Merge.** Lookup rows merge into `sessions` Map ONLY. Stripped of `notifyLog`, `uiUrl`, `diffUrl`. Order map, `endedTotals`, paging untouched.
+- **`lookupOnlyIds`.** Tracks merged ids. Excluded from held-ended count (`heldEndedByGroup`) until `sessions_page_result` delivers them or snapshot clears the set.
+- **Reconnect / server switch.** `snapshotGeneration` resets to 0. Resolved id sticky per route visit → open session never blanks.
+- **Stale lookup replies.** Connection epoch bumps every time snapshot gate flips (snapshot lands; reconnect / server switch resets `snapshotGeneration` to 0). Lookup started in one epoch discarded if epoch changed before reply. Reply from server A never merges into server B `sessions` / `lookupOnlyIds`.
+- **Vanished.** Was held, lookup returns empty (archived while viewing, or switch to server lacking it) → `useVanishedRedirect` does `navigate("/", { replace: true })` once.
+- **Never existed.** Inline `SessionNotFound` (`data-testid="session-not-found"`). No redirect — agent must see evidence.
+- **Pending.** `session-resolving` placeholder.
+- **Lookup errors.** 401/403 → auth-loss path (`loginRedirectFor`). Network / 5xx → `notFound` + retry.
+- **`ShellContent`.** Takes `sessionRoute` prop. Ignored when `frozen`.
+
+**Deep-link URLs.** `GET /api/sessions` rows carry `uiUrl` / `diffUrl` (`SessionListItem`, `packages/shared/src/rest-api.ts`; helper `sessionUiPath`, `packages/shared/src/session-ui-path.ts`).
+
+- Base from `resolveRequestUiBase` (`packages/server/src/routes/ui-link-base.ts`).
+- Order: configured origin (public bases, live tunnels, `auth.redirectBaseUrl`) whose hostname matches first `X-Forwarded-Host`, then `Host`; else admitted `Host`; else `http://localhost:<port>`.
+- `X-Forwarded-Host` only selects among configured origins. Never mints one.
+- `trustProxy` stays off.
+- zrok public share forwards `Host: <share>.shares.zrok.io`. No `X-Forwarded-Host`. `X-Forwarded-Proto: https`.
+- Agent panes append `?embed=1` (see `docs/embedding-chat-view.md`).
+
+See change: `add-session-ui-deep-links-for-agents`.
+
 ### Notify Flow (`ctx.ui.notify` → browser, split from prompt_request)
 
 Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `prompt_request`. Every consumer treated it as an unanswered ask → `trackPromptRequest` → `currentTool="ask_user"` re-armed on every quiescent moment → permanent "Needs you", false unread, `questionFirst` reorder, and a session the embed-lifecycle reaper could never reclaim. Now a dedicated `notify` message type end to end.
@@ -3343,6 +3374,47 @@ Monaco lazy chunk loads on first text-file open. ts.worker omitted (no LSP). The
 File-open surfaces: internal Monaco pane and preview overlay only.
 
 v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to separate proposals.
+
+### Editor pane chrome
+
+Client only. No API change. Code: `packages/client/src/components/editor-pane/`. See change: scope-anchor-editor-pane-controls.
+
+Pane bar (`EditorPane.tsx`): `tree-toggle` (Files, labelled) · `EditorTabs` tablist (`min-w-0 overflow-x-auto`) · `new-tab-menu-toggle` (`+`) · spacer · `tab-search-toggle` (`⌄`) · `editor-pane-close` (✕). Tablist is the only flexible item.
+
+Document bar (`DocumentBar.tsx`, `doc-bar`):
+- file tab: `doc-breadcrumb` · mode switcher (`file-mode-*`, `FileModeSwitcher`) · Reload · `tab-open-in-app` · `tab-reveal-in-file-manager` · `doc-more-menu` (`⋯`).
+- url tab: `tab-open-in-browser`.
+- diff / live / terminal / plugin tab: title line only.
+- no tab: bar hidden.
+- Open + Reveal gated on `systemOpen`. Reveal label from `/api/health` `platform`: Finder / Explorer / file manager.
+- Breadcrumb folder segment: expand-only reveal (`expandTreeRoots {relPaths}`), `railView="files"`, `setTreeVisible(true)`. Leaf opens `⋯`: Show in file tree, Copy full/relative/file name. Outside-cwd file: no relative copy, no show-in-tree.
+- Narrow (`ResizeObserver`, `width < 640`): Open + Reveal move into `⋯` (first items, each test id once). Ancestors → `…`.
+
+`+` menu (`NewTabMenu.tsx`, session panes): Terminal (`new-terminal-launch`), Live preview (`live-preview-launch`), Open file… (`open-file-launch`).
+
+Search = rail view. Session panes only (`hasFileSearch`, true when provider has `onFilenameSearch`).
+- State: `railView: "files" | "search"`, `searchMode: "filenames" | "contents"`. Reset on `sessionId` change.
+- Rail switch: `rail-view-files` / `editor-search-toggle`. Rail visible = `treeVisible || railView === "search"`.
+- Cmd/Ctrl-P filenames, Cmd/Ctrl-Shift-F contents. Same key closes. Other key switches mode. Esc closes view only when focus inside rail.
+- Only persisted value: `treeVisible`; search never writes it. Folder panes: no Search view, no `open-file-launch`, Cmd-P not intercepted.
+
+Bulk close:
+- Reducer `closeTabs {paths}` (path-keyed, unknown ignored). Single close: `reduceCloseTab`.
+- `handlerCloseRisk(tab, remaining, lookups, {unknownIsRisky})` → `"unsaved" | null` (`file-handler/close-risk.ts`). Shared by `guardTabClose` (`unknownIsRisky: true`) and `planBulkClose`.
+- `planBulkClose(openFiles, targetPaths, lookups)` → `{ targets, risky }`. `risky` = deduped `{ kind, id | key, reason, tabPaths[] }`.
+- Unknown dirty state: silent in bulk, prompts in single close. Single terminal close: silent.
+- Risky set non-empty → `BulkCloseConfirm` (`bulk-close-confirm`): Cancel (focused) · Close all but these N · Close all & discard. Empty → closes without asking.
+- Runner closes open menus first, recomputes plan on confirm. `paneOverlayOpen` makes Cmd/Ctrl-W no-op.
+- Tab context menu `tab-context-menu`: Close · Close other tabs · Close tabs to the right · Close all tabs · Show in file tree · Copy path. Opens on right-click, ContextMenu key, Shift+F10.
+
+Search tabs (`TabSearchPopover.tsx`, input `tab-search-input`):
+- `matchTabs` (`lib/layout/match-tabs.ts`). Haystack = display label + location (never raw path prefix).
+- Token AND. Fold per code point: NFD, strip U+0300–U+036F, lower-case. Index map keeps highlight ranges. `ß` `ø` `ł` match only themselves. Order = tab-strip order; first match preselected.
+- ↑ ↓ move · Enter activate · Esc close, refocus `⌄` · Delete/Backspace on empty field closes selected (single-close path).
+- Footer: empty query → `Close all but the active tab`; query → `Close N matching tabs` (same confirm).
+- No match: Enter opens rail Search prefilled (`{ query, nonce }`) when `hasFileSearch`; else `No open tab matches`.
+
+Menus (`+`, document `⋯`, tab context): `Popover` + `role=menu` + `ActionList`. Keys in `menu-keys.ts`: ↑ ↓ wrap, Home/End, Enter/Space, Esc closes + refocuses trigger, disabled items skipped, first item focused on open.
 
 ### Split editor workspace
 

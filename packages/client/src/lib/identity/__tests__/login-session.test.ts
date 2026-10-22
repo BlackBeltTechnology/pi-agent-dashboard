@@ -200,3 +200,23 @@ describe("loginRedirectFor (session lost mid-page ⇒ the login page)", () => {
     expect(loginRedirectFor("auth_required", "/login", "")).toBeNull();
   });
 });
+
+/**
+ * Test-plan #X3 — embed mode survives sign-in without a credential in the URL.
+ * See change: add-session-ui-deep-links-for-agents (D5).
+ */
+describe("embed flag survives sign-in (X3)", () => {
+  it("mid-page auth loss: the login returnTo carries /session/x?embed=1", () => {
+    const to = loginRedirectFor("auth_required", "/session/x", "?embed=1") ?? "";
+    const u = new URL(to, "http://localhost");
+    expect(u.searchParams.get("returnTo")).toBe("/session/x?embed=1");
+    expect(to).not.toMatch(/token=|access_token=|Authorization/i);
+  });
+
+  it("OAuth return-to: the validated returnTo keeps /session/x?embed=1", async () => {
+    const { buildSignInUrl } = await import("../dashboard-login.js");
+    const url = buildSignInUrl("/idl/start", "/session/x?embed=1", "CH", "http://localhost:8000") ?? "";
+    expect(new URL(url, "http://localhost:8000").searchParams.get("returnTo")).toBe("/session/x?embed=1");
+    expect(url).not.toMatch(/token=|access_token=|Authorization/i);
+  });
+});
