@@ -52,6 +52,37 @@ interface Args {
 
 type LookupState = "inflight" | "settled" | "failed" | "auth";
 
+type RouteState = Omit<SessionRouteResolution, "retry">;
+
+/**
+ * The status decision, in design D3 order. Updates the per-visit sticky memory
+ * (`resolved`, `wasHeld`) as a side effect on `visit` — only ever forward.
+ */
+function deriveRoute(a: {
+  routeId: string | undefined;
+  archivedReadOnlyId: string | undefined;
+  match: ReturnType<typeof resolveSessionRouteId>;
+  snapshotGeneration: number;
+  lookup: LookupState | undefined;
+  visit: { resolved?: string; wasHeld: boolean };
+}): RouteState {
+  const { routeId, archivedReadOnlyId, match, visit: v } = a;
+  const sticky = (): RouteState =>
+    v.resolved ? { status: "ok", canonicalId: v.resolved } : { status: "pending" };
+  if (!routeId) return { status: "none" };
+  if (archivedReadOnlyId) return { status: "ok", canonicalId: routeId };
+  if (match.kind === "match") {
+    v.resolved = match.id;
+    v.wasHeld = true;
+    return { status: "ok", canonicalId: match.id };
+  }
+  if (match.kind === "ambiguous") return { status: "ambiguous", candidates: match.candidates };
+  if (a.snapshotGeneration === 0) return sticky();
+  if (a.lookup === undefined || a.lookup === "inflight" || a.lookup === "auth") return sticky();
+  if (a.lookup === "failed") return v.resolved ? sticky() : { status: "notFound", lookupFailed: true };
+  return v.wasHeld ? { status: "vanished" } : { status: "notFound" };
+}
+
 export function useSessionRouteResolution({
   routeId,
   sessions,
@@ -118,24 +149,8 @@ export function useSessionRouteResolution({
     setRetryNonce((n) => n + 1);
   }, [key]);
 
-  const sticky = (): SessionRouteResolution =>
-    v.resolved ? { status: "ok", canonicalId: v.resolved, retry } : { status: "pending", retry };
-
-  if (!routeId) return { status: "none", retry };
-  if (archivedReadOnlyId) return { status: "ok", canonicalId: routeId, retry };
-  if (match.kind === "match") {
-    v.resolved = match.id;
-    v.wasHeld = true;
-    return { status: "ok", canonicalId: match.id, retry };
-  }
-  if (match.kind === "ambiguous") return { status: "ambiguous", candidates: match.candidates, retry };
-  if (snapshotGeneration === 0) return sticky();
-  const st = lookups[key];
-  if (st === undefined || st === "inflight" || st === "auth") return sticky();
-  if (st === "failed") {
-    return v.resolved ? sticky() : { status: "notFound", lookupFailed: true, retry };
-  }
-  return v.wasHeld ? { status: "vanished", retry } : { status: "notFound", retry };
+  const derived = deriveRoute({ routeId, archivedReadOnlyId, match, snapshotGeneration, lookup: lookups[key], visit: v });
+  return { ...derived, retry };
 }
 
 /**

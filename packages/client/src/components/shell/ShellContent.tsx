@@ -105,6 +105,31 @@ interface Props extends ShellContentRenderers {
 }
 
 /**
+ * Not-found / resolving replacement for a session surface whose route id is not
+ * (yet) resolved. `null` when the route is resolved (`ok` / `none`).
+ */
+function renderGatedSession(
+  gate: SessionRouteView,
+  id: string,
+  render: Pick<ShellContentRenderers, "renderSessionNotFound">,
+): ReactNode {
+  if (gate.status === "ok" || gate.status === "none") return null;
+  if (gate.status === "notFound" || gate.status === "ambiguous") {
+    return (
+      <>
+        {render.renderSessionNotFound?.({
+          id,
+          candidates: gate.candidates,
+          lookupFailed: gate.lookupFailed,
+          onRetry: gate.onRetry,
+        }) ?? null}
+      </>
+    );
+  }
+  return <SessionResolving />;
+}
+
+/**
  * Resolves the shell's content branch from the AMBIENT wouter location — live
  * in the normal tree, frozen when rendered as a `RouteBackedOverlay` underlay.
  */
@@ -170,21 +195,8 @@ export function ShellContent({ variant, frozen = false, sessionRoute, ...render 
   if (specsMatch && specsCwd) return <>{render.renderSpecs(specsCwd)}</>;
   // Desktop reaches diff through `selectedId` -> session chat, so it has no
   // diff branch of its own here.
-  if (gate && gate.status !== "ok" && gate.status !== "none") {
-    if (gate.status === "notFound" || gate.status === "ambiguous") {
-      return (
-        <>
-          {render.renderSessionNotFound?.({
-            id: selectedId as string,
-            candidates: gate.candidates,
-            lookupFailed: gate.lookupFailed,
-            onRetry: gate.onRetry,
-          }) ?? null}
-        </>
-      );
-    }
-    return <SessionResolving />;
-  }
+  const gated = gate && renderGatedSession(gate, selectedId as string, render);
+  if (gated) return gated;
   if (variant === "mobile" && diffMatch && diffParams?.id) return <>{render.renderDiff(sessionId ?? diffParams.id)}</>;
   if (piResourceFileMatch && piResourceFilePath)
     return <>{render.renderPiResourceFile(piResourceFilePath, piResourceFileTitle)}</>;

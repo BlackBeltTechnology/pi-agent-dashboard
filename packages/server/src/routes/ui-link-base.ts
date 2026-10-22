@@ -41,35 +41,39 @@ function validPort(hostHeader: string): string | null {
   return n >= 1 && n <= 65535 ? String(n) : null;
 }
 
+/** Configured origin whose hostname equals the first matching candidate (candidate order, then origin order). */
+function matchConfiguredOrigin(candidates: string[], origins: string[]): string | null {
+  for (const candidate of candidates) {
+    for (const origin of origins) {
+      if (hostnameFromUrl(origin) !== candidate) continue;
+      try {
+        return stripSlashes(new URL(origin).origin);
+      } catch {
+        // unparseable entry: skip, never throw
+      }
+    }
+  }
+  return null;
+}
+
+/** `<protocol>://<normalized host>[:port]` for an admitted `Host`, else null. */
+function admittedDirectBase(input: UiBaseInput): string | null {
+  if (input.host === undefined || !input.isAdmitted(input.host)) return null;
+  const hostname = parseHostname(input.host);
+  if (!hostname) return null;
+  const bracketed = hostname.includes(":") ? `[${hostname}]` : hostname;
+  const port = validPort(input.host);
+  return `${input.protocol}://${bracketed}${port ? `:${port}` : ""}`;
+}
+
 export function resolveRequestUiBase(input: UiBaseInput): string {
   const firstForwarded = input.forwardedHost?.split(",")[0];
   const candidates = [parseHostname(firstForwarded), parseHostname(input.host)].filter(
     (h): h is string => h !== null,
   );
-
-  // 1. Configured match (first candidate wins, then first configured origin).
-  for (const candidate of candidates) {
-    for (const origin of input.configuredOrigins) {
-      if (hostnameFromUrl(origin) === candidate) {
-        try {
-          return stripSlashes(new URL(origin).origin);
-        } catch {
-          // unparseable entry: skip, never throw
-        }
-      }
-    }
-  }
-
-  // 2. Admitted direct host.
-  if (input.host !== undefined && input.isAdmitted(input.host)) {
-    const hostname = parseHostname(input.host);
-    if (hostname) {
-      const bracketed = hostname.includes(":") ? `[${hostname}]` : hostname;
-      const port = validPort(input.host);
-      return `${input.protocol}://${bracketed}${port ? `:${port}` : ""}`;
-    }
-  }
-
-  // 3. Fallback.
-  return `${input.protocol}://localhost:${input.port}`;
+  return (
+    matchConfiguredOrigin(candidates, input.configuredOrigins) ??
+    admittedDirectBase(input) ??
+    `${input.protocol}://localhost:${input.port}`
+  );
 }
