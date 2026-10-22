@@ -4,6 +4,8 @@
  * plugin priority → plugin id → claim id). Rendered only when ≥1 enabled claim
  * matches the file. For a file outside the session folder the modes are shown
  * unavailable. See change: add-editor-pane-file-handlers (D2, task 3.2).
+ * Rendered inline in the document bar (no row of its own); buttons are 24 px
+ * targets. See change: scope-anchor-editor-pane-controls (D2).
  */
 import { useI18n } from "../../../lib/i18n/i18n.js";
 import type { FileHandlerClaim } from "./file-handler-claims.js";
@@ -18,7 +20,7 @@ export interface FileModeSwitcherProps {
   outsideCwd?: boolean;
 }
 
-const BTN = "rounded px-2 py-0.5 text-xs font-medium";
+const BTN = "inline-flex min-h-6 items-center rounded px-2 text-xs font-medium";
 const ON = "bg-[var(--bg-selected)] text-[var(--text-primary)]";
 const OFF = "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]";
 
@@ -30,7 +32,7 @@ export function FileModeSwitcher({ claims, selected, onSelect, outsideCwd }: Fil
       role="group"
       aria-label={t("fileHandler.modeSwitcher", undefined, "View mode")}
       data-testid="file-mode-switcher"
-      className="flex shrink-0 items-center gap-1 border-b border-[var(--border-primary)] px-3 py-1"
+      className="flex shrink-0 items-center gap-1"
     >
       <button
         type="button"

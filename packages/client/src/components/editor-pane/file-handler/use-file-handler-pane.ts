@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { EditorPaneAction, EditorPaneState, OpenFile } from "../../../lib/layout/editor-pane-state.js";
 import { isPseudoTabViewer } from "../viewer-kinds.js";
+import { type CloseRiskLookups, handlerCloseRisk } from "./close-risk.js";
 import { claimsForPath, type FileHandlerClaim, fileHandlerInstanceKey, isUnderSessionCwd } from "./file-handler-claims.js";
 import { useFileHandlerClaims, useFileHandlerState, useFileHandlerStore } from "./use-file-handler-store.js";
 
@@ -29,6 +30,10 @@ export interface FileHandlerPane {
   guardTabClose: (index: number) => Promise<boolean>;
   /** Header / banner refresh on a handler tab: guard → `remount`. Resolves `true` when it proceeded. */
   refreshHandler: () => Promise<boolean>;
+  /** Close-risk lookups for the bulk-close planner (inert, `keyOf → null`, in folder panes). */
+  closeLookups: CloseRiskLookups;
+  /** Drop a handler instance after the bulk summary confirmation (never mid-edit without it). */
+  discardInstance: (key: string) => void;
 }
 
 interface Args {
@@ -123,9 +128,15 @@ export function useFileHandlerPane({ sessionId, cwd, sessionPane: sessionScoped,
       if (!sessionPane || !tab) return true;
       const key = keyOf(sessionId, cwd, tab);
       if (!key) return true;
-      // Other tabs of the same file+claim still share the instance.
-      const shared = state.openFiles.some((t, i) => i !== index && keyOf(sessionId, cwd, t) === key);
-      return shared ? true : store.guardDiscard(key, "close-tab");
+      // Shared / missing / clean instances need no prompt; otherwise `guardDiscard` asks.
+      const remaining = state.openFiles.filter((_, i) => i !== index);
+      const risk = handlerCloseRisk(
+        tab,
+        remaining,
+        { keyOf: (t) => keyOf(sessionId, cwd, t), getInstance: (k) => store.getInstance(k) },
+        { unknownIsRisky: true },
+      );
+      return risk === null ? true : store.guardDiscard(key, "close-tab");
     },
     [store, sessionPane, sessionId, cwd, state.openFiles],
   );
@@ -137,5 +148,14 @@ export function useFileHandlerPane({ sessionId, cwd, sessionPane: sessionScoped,
     return true;
   }, [store, activeKey]);
 
-  return { matching, handlerView, activeKey, outsideCwd, selectMode, guardTabClose, refreshHandler };
+  const closeLookups = useMemo<CloseRiskLookups>(
+    () => ({
+      keyOf: (tab) => (sessionPane ? keyOf(sessionId, cwd, tab) : null),
+      getInstance: (k) => store.getInstance(k),
+    }),
+    [store, sessionPane, sessionId, cwd],
+  );
+  const discardInstance = useCallback((key: string) => store.discard(key), [store]);
+
+  return { matching, handlerView, activeKey, outsideCwd, selectMode, guardTabClose, refreshHandler, closeLookups, discardInstance };
 }

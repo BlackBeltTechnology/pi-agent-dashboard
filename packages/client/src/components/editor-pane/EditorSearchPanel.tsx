@@ -10,6 +10,13 @@
  * panel is testable without a WebSocket or the network.
  *
  * See change: split-editor-workspace.
+ *
+ * Lives in the rail (Search view). The mode is controlled by the pane
+ * (`mode`/`onModeChange`, so the shortcuts can switch it); `prefill` carries
+ * `{ query?, nonce }` — every new nonce focuses the field and, when `query` is
+ * given, replaces it. Escape is handled by the rail container (scoped to focus
+ * inside the rail), not here.
+ * See change: scope-anchor-editor-pane-controls (D4).
  */
 
 import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -31,9 +38,14 @@ interface EditorSearchPanelProps {
   onOpen: (relPath: string, line?: number) => void;
   onClose: () => void;
   minLen?: number;
+  /** Search mode, owned by the pane. */
+  mode: Mode;
+  onModeChange: (mode: Mode) => void;
+  /** Entry signal: a new `nonce` focuses the field; `query` (when set) replaces it. */
+  prefill?: { query?: string; nonce: number };
 }
 
-type Mode = "file" | "content";
+export type Mode = "file" | "content";
 const DEBOUNCE_MS = 200;
 
 export function EditorSearchPanel({
@@ -44,9 +56,11 @@ export function EditorSearchPanel({
   onOpen,
   onClose,
   minLen = 3,
+  mode,
+  onModeChange,
+  prefill,
 }: EditorSearchPanelProps) {
   const { t } = useI18n();
-  const [mode, setMode] = useState<Mode>("file");
   const [regex, setRegex] = useState(false);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -54,9 +68,13 @@ export function EditorSearchPanel({
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const prefillQuery = prefill?.query;
+  const prefillNonce = prefill?.nonce;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: every new nonce is an entry (focus + optional prefill)
   useEffect(() => {
+    if (prefillQuery !== undefined) setQuery(prefillQuery);
     inputRef.current?.focus();
-  }, []);
+  }, [prefillNonce]);
 
   // Debounce the query.
   useEffect(() => {
@@ -112,18 +130,17 @@ export function EditorSearchPanel({
     } else if (e.key === "Enter") {
       e.preventDefault();
       openItem(items[activeIndex]);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
     }
+    // Escape bubbles to the rail container (closes Search while focus is in the rail).
   };
 
   const modeBtn = (m: Mode, label: string, testId: string) => (
     <button
       type="button"
       data-testid={testId}
-      onClick={() => setMode(m)}
-      className={`px-2 py-0.5 text-xs rounded ${
+      aria-pressed={mode === m}
+      onClick={() => onModeChange(m)}
+      className={`min-h-6 px-2 text-xs rounded ${
         mode === m
           ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
           : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
@@ -134,24 +151,13 @@ export function EditorSearchPanel({
   );
 
   return (
-    <div className="border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] p-2" data-testid="editor-search-panel">
-      <div className="flex items-center gap-2">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-secondary)] p-2" data-testid="editor-search-panel">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1 rounded bg-[var(--bg-tertiary)] p-0.5">
           {modeBtn("file", t("editor.filenames", undefined, "Filenames"), "mode-file")}
           {modeBtn("content", t("editor.contents", undefined, "Contents"), "mode-content")}
         </div>
-        <div className="relative flex flex-1 items-center">
-          <Icon path={mdiMagnify} size={0.6} className="absolute left-2 text-[var(--text-tertiary)]" />
-          <input
-            ref={inputRef}
-            data-testid="editor-search-input"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder={t("editor.searchPlaceholder", { min: minLen }, "Regexp or type-ahead… (min {min} chars)")}
-            className="w-full rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] py-1 pl-7 pr-2 text-sm outline-none focus:border-blue-500/50"
-          />
-        </div>
+        <span className="flex-1" />
         <button
           type="button"
           data-testid="regex-toggle"
@@ -171,9 +177,21 @@ export function EditorSearchPanel({
         >
           <Icon path={mdiClose} size={0.7} />
         </button>
+        <div className="relative flex w-full items-center">
+          <Icon path={mdiMagnify} size={0.6} className="absolute left-2 text-[var(--text-tertiary)]" />
+          <input
+            ref={inputRef}
+            data-testid="editor-search-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={t("editor.searchPlaceholder", { min: minLen }, "Regexp or type-ahead… (min {min} chars)")}
+            className="w-full rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] py-1 pl-7 pr-2 text-sm outline-none focus:border-blue-500/50"
+          />
+        </div>
       </div>
 
-      <div className="mt-1 flex items-center justify-between px-0.5 text-[11px] text-[var(--text-tertiary)]">
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 px-0.5 text-[11px] text-[var(--text-tertiary)]">
         <span>
           {belowMin
             ? t("editor.typeMinChars", { min: minLen }, "Type ≥ {min} chars")
@@ -189,7 +207,7 @@ export function EditorSearchPanel({
       </div>
 
       {items.length > 0 && (
-        <ul className="mt-1 max-h-64 overflow-auto text-sm" data-testid="editor-search-results">
+        <ul className="mt-1 min-h-0 flex-1 overflow-auto text-sm" data-testid="editor-search-results">
           {items.map((item, i) => (
             <li key={`${item.path}:${item.kind === "content" ? item.line : "f"}:${i}`}>
               <button

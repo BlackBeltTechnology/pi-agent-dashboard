@@ -2,18 +2,27 @@
 
 ## Purpose
 TBD - created by archiving change split-editor-workspace. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Editor pane SHALL host a dual-mode search panel
 
-The editor pane SHALL provide a toggleable search panel with two modes: **Filenames**
-(search file paths under the session `cwd`) and **Contents** (grep across file bodies).
-The active mode SHALL be switchable in the panel. Each mode SHALL support a type-ahead
-query with a **substring** matcher and an optional **regexp** matcher toggled in the
-panel.
+The editor pane SHALL provide a search panel with two modes:
+- **Filenames:** searches file paths under the session `cwd`.
+- **Contents:** greps across file bodies.
 
-Both modes SHALL require a minimum query length (default 3 characters) before issuing a
-search, and SHALL debounce input. Below the minimum, the panel SHALL show a "type ≥ N
-chars" hint and issue no request.
+The active mode SHALL be switchable in the panel. Each mode SHALL support a type-ahead query with a **substring** matcher and an optional **regexp** matcher toggled in the panel.
+
+The panel SHALL be hosted as the **Search view of the file rail**, selected through a Files | Search switch in the rail header. It SHALL NOT render over the viewer column, and opening it SHALL leave the active document visible. Cmd/Ctrl-P SHALL open the Search view in Filenames mode and Cmd/Ctrl-Shift-F in Contents mode. When the view is already open, the shortcut for the current mode SHALL close it and the shortcut for the other mode SHALL switch to that mode. The rail switch's Search tab SHALL carry `data-testid="editor-search-toggle"`. Panes without file search (see `folder-scoped-editor-pane`) SHALL NOT offer the Search view or the shortcuts.
+
+When the rail is collapsed, opening the Search view SHALL show the rail for as long as the view is open, without changing the persisted rail-visibility preference. While the view is open:
+- choosing the rail switch's Files tab SHALL show the Files view and keep the rail visible, recording "visible" as the user's rail preference;
+- turning the pane bar's Files toggle off SHALL close the Search view and hide the rail;
+- another reveal of the rail (such as the Changed files chip) SHALL record "visible" as the preference as it does today.
+
+Leaving the Search view by Escape or a shortcut SHALL then show the rail exactly when the persisted preference is "visible".
+
+Both modes SHALL require a minimum query length (default 3 characters) before issuing a search, and SHALL debounce input. Below the minimum, the panel SHALL show a "type ≥ N chars" hint and issue no request.
 
 #### Scenario: Filename mode ranks path matches
 - **GIVEN** the search panel is in Filenames mode
@@ -37,12 +46,54 @@ chars" hint and issue no request.
 - **THEN** no search request is issued
 - **AND** the panel shows a "type ≥ 3 chars" hint
 
+#### Scenario: Search opens in the rail beside the document
+- **GIVEN** a PDF tab is active and the rail shows the Files view
+- **WHEN** the user presses Cmd/Ctrl-Shift-F
+- **THEN** the rail shows the Search view in Contents mode with focus in the query field
+- **AND** the PDF remains fully visible in the viewer column
+
+#### Scenario: Other-mode shortcut switches mode
+- **GIVEN** the Search view is open in Filenames mode
+- **WHEN** the user presses Cmd/Ctrl-Shift-F
+- **THEN** the Search view stays open and switches to Contents mode
+- **AND** pressing Cmd/Ctrl-Shift-F again closes it
+
+#### Scenario: Files toggle while search revealed the rail
+- **GIVEN** the rail was collapsed and search revealed it, so the Files toggle reads as pressed
+- **WHEN** the user activates the Files toggle
+- **THEN** the Search view closes, the rail hides, and the rail stays collapsed after a reload
+
+#### Scenario: Files tab keeps a search-revealed rail open
+- **GIVEN** the rail was collapsed and search revealed it
+- **WHEN** the user chooses the Files tab of the rail switch
+- **THEN** the rail shows the file tree and stays visible after a reload
+
+#### Scenario: Changes reveal during search survives closing search
+- **GIVEN** the rail was collapsed and search revealed it
+- **WHEN** the Changed files chip reveals the rail and the user then presses Escape in the Search view
+- **THEN** the rail stays visible in its Files view
+
+#### Scenario: Search on a collapsed rail does not change the rail preference
+- **GIVEN** the rail is collapsed and its collapsed state is persisted
+- **WHEN** the user presses Cmd/Ctrl-P and then Escape
+- **THEN** the rail is shown in Search view while searching and collapsed again after Escape
+- **AND** after a reload the rail is still collapsed
+
 ### Requirement: Search results SHALL be keyboard navigable and open on select
 
-The result list SHALL be navigable with `↑`/`↓`, open the selected result with `Enter`,
-and close the panel with `Escape`. Selecting a result SHALL open the file in the editor
-pane (auto-opening the split if closed), activate its tab, and — for content matches —
-scroll to the matched line.
+The result list SHALL be navigable with `↑`/`↓`, open the selected result with `Enter`, and close the Search view with `Escape` while focus is inside the rail; `Escape` pressed elsewhere (for example in the viewer after a result was opened) SHALL NOT close the Search view.
+
+Selecting a result SHALL:
+- open the file in the editor pane, auto-opening the split if it is closed;
+- activate the file's tab;
+- for content matches, scroll to the matched line.
+
+Selecting a result SHALL keep the Search view open so further results can be opened. Each entry into the Search view (shortcut, Open file…, Search tabs fall-through) SHALL focus its query field, replacing the query when the entry supplies one. Switching to another session SHALL return the rail to its Files view and clear the query.
+
+Closing the Search view SHALL:
+- switch the rail back to its Files view;
+- show the rail exactly when the persisted rail preference is "visible";
+- return focus to the active viewer.
 
 #### Scenario: Enter opens the highlighted result
 - **GIVEN** the result list has three entries with the first highlighted
@@ -53,9 +104,14 @@ scroll to the matched line.
 - **WHEN** the user opens a Contents-mode result at line 80
 - **THEN** the file opens and the viewer scrolls so line 80 is visible
 
+#### Scenario: Escape in the viewer leaves search open
+- **GIVEN** the user opened a result and focus is in the viewer
+- **WHEN** the user presses `Escape`
+- **THEN** the Search view stays open
+
 #### Scenario: Escape closes the panel
-- **WHEN** the search panel is open and the user presses `Escape`
-- **THEN** the panel closes and focus returns to the active viewer
+- **WHEN** the Search view is open, focus is inside the rail, and the user presses `Escape`
+- **THEN** the rail returns to its Files view, or collapses when the persisted preference is collapsed, and focus returns to the active viewer
 
 ### Requirement: Server SHALL provide a content-search endpoint
 
@@ -89,4 +145,3 @@ SHALL be rejected.
 #### Scenario: cwd not a known session is rejected
 - **WHEN** the client issues `GET /api/grep` with a `cwd` that matches no session
 - **THEN** the server responds with an error and performs no scan
-

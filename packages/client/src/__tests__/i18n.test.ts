@@ -387,3 +387,30 @@ describe("add-md-adoc-markup-repair — i18n sweep (F11)", () => {
     for (const key of used) expect(KEYS, key).toContain(key);
   });
 });
+
+// See change: scope-anchor-editor-pane-controls (test-plan E20)
+describe("scope-anchor-editor-pane-controls — i18n sweep (E20)", () => {
+  const root = (() => {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = process.cwd();
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      dir = dirname(dir);
+    }
+    return process.cwd();
+  })();
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n-zh-CN.ts"), "utf8");
+  const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
+
+  it("pane bar, menus, Search tabs, bulk-confirm and Reveal keys are in both catalogues", () => {
+    for (const key of ["editor.breadcrumb", "editor.bulkClose.body", "editor.bulkClose.cancel", "editor.bulkClose.discard", "editor.bulkClose.keep", "editor.bulkClose.reasonTerminal", "editor.bulkClose.reasonUnsaved", "editor.bulkClose.title", "editor.closeAllButActive", "editor.closeAllTabs", "editor.closeMatchingTab", "editor.closeMatchingTabs", "editor.closeOtherTabs", "editor.closeTab", "editor.closeTabsToRight", "editor.livePreview", "editor.moreActions", "editor.newTab", "editor.noTabMatches", "editor.noTabMatchesSearchFiles", "editor.openFileEllipsis", "editor.openInDefaultApp", "editor.openInSystemBrowser", "editor.railView", "editor.revealInFileManager", "editor.revealInFinder", "editor.search", "editor.searchTabs", "editor.showInExplorer", "editor.showInFileTree", "editor.tabMenu", "editor.unsavedChanges"]) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
+  it("the new keys the panes render exist with an English call-site fallback", () => {
+    expect(t("editor.closeMatchingTabs", { count: 3 }, "Close {count} matching tabs")).toBe("Close 3 matching tabs");
+  });
+});

@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { robustClick, spawnFreshGitSession } from "./helpers/index.js";
+import { launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // live-viewer-allow-downloads — L3 (test-plan #F1, #X1).
@@ -66,7 +66,7 @@ async function openRoutedLivePane(page: import("@playwright/test").Page, html: s
   await card.click();
   await page.getByTestId("layout-mode-switch").waitFor({ state: "visible", timeout: 30_000 });
   await robustClick(page, "layout-mode-split");
-  await robustClick(page, "live-preview-launch");
+  await launchFromNewTabMenu(page, "live-preview-launch");
   await page.getByTestId("live-url").fill("http://localhost:5173");
   await robustClick(page, "live-confirm");
   await expect(page.getByTestId("live-iframe")).toBeAttached({ timeout: 15_000 });

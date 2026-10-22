@@ -37,11 +37,11 @@ A pane SHALL only host terminals whose `cwd` equals the pane's cwd (session cwd 
 
 ### Requirement: Terminal tab lifecycle — create, activate, rename, close
 
-The pane SHALL expose a new-terminal affordance that creates a terminal at the pane cwd and opens its tab active. Renaming a terminal tab SHALL call the existing rename handler; closing a terminal tab (`×` / middle-click) SHALL kill the terminal and activate an adjacent tab. Switching away from a terminal tab SHALL keep the terminal alive (keep-alive), and there SHALL be at most one mounted `TerminalView` per terminal id within a pane.
+The pane SHALL expose a new-terminal affordance (the Terminal item of the New tab menu) that creates a terminal at the pane cwd and opens its tab active. Renaming a terminal tab SHALL call the existing rename handler; closing a terminal tab (`×`, middle-click, Cmd/Ctrl-W or the tab context menu's Close) SHALL kill the terminal and activate an adjacent tab without a confirmation; a bulk close that includes terminal tabs SHALL follow the bulk-close confirmation of `editor-pane-chrome`. Switching away from a terminal tab SHALL keep the terminal alive (keep-alive), and there SHALL be at most one mounted `TerminalView` per terminal id within a pane.
 
 #### Scenario: Create from the pane
 
-- **WHEN** the user activates the pane's new-terminal control
+- **WHEN** the user chooses Terminal from the New tab menu
 - **THEN** a terminal SHALL be created at the pane cwd and its `term:<id>` tab SHALL open active
 
 #### Scenario: Close kills the terminal
