@@ -3075,7 +3075,10 @@ export default function App() {
     renderSessionNotFound: ({ id, candidates, lookupFailed, onRetry }) => (
       <SessionNotFound id={id} candidates={candidates} lookupFailed={lookupFailed} onRetry={onRetry} />
     ),
-    renderLanding: () => embed ? <EmbedHome navigate={navigate} /> : (
+    // Embed: desktop shows the embed home in the content area; the mobile list
+    // panel already shows it, so the (off-screen) detail panel renders nothing
+    // rather than a second copy.
+    renderLanding: () => embed ? (isMobile ? null : <EmbedHome navigate={navigate} />) : (
       <LandingPage
         providersReady={providersReady.ready}
         anthropicAuthenticated={providersReady.anthropicAuthenticated}

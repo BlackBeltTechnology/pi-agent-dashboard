@@ -10,12 +10,80 @@
  * snapshot window: `STUB_SESSION_ID`, scripts/seed-sessions-window.mjs) and
  * `paging-exhausted-reconnect-rearm.spec.ts` (hard WebSocket cut).
  */
+import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import { expect, type Page, test } from "./fixtures.js";
-import { ensureGitSession, gotoDashboard } from "./helpers/index.js";
+import { ensureGitSession, spawnFreshGitSession } from "./helpers/index.js";
+import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 const DESKTOP = { width: 1280, height: 800 } as const;
-/** Seeded ended session older than the snapshot window (`Stub Session`). */
-const STUB_SESSION_ID = "019f0000-0000-7000-8000-000000000001";
+/** Every seeded session carries this name prefix (cleanup selector) and lives in one group. */
+const SEED_PREFIX = "e2e-deeplink";
+const SEED_CWD = "/fixtures/e2e-deeplink";
+const SEED_DIR = "--fixtures-e2e-deeplink--";
+/** More than SNAPSHOT_ENDED_GLOBAL (120) so the oldest falls outside the snapshot window. */
+const SEED_COUNT = 130;
+
+function harnessContainer(): string {
+  const id = execFileSync(
+    "docker",
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`],
+    { encoding: "utf8", timeout: 30_000 },
+  )
+    .trim()
+    .split("\n")[0];
+  if (!id) throw new Error("no running harness container");
+  return id;
+}
+
+/** Run a node snippet inside the container (base64-staged: no quoting hazards). */
+function runNode(script: string): string {
+  const b64 = Buffer.from(script, "utf8").toString("base64");
+  return execFileSync(
+    "docker",
+    ["exec", harnessContainer(), "sh", "-c", `node -e 'eval(Buffer.from("${b64}","base64").toString("utf8"))'`],
+    { encoding: "utf8", timeout: 120_000 },
+  ).trim();
+}
+
+function cleanupSeeded(): void {
+  runNode(
+    `const fs=require("fs"),p=require("path");` +
+      `fs.rmSync(p.join(process.env.HOME,".pi/agent/sessions",${JSON.stringify(SEED_DIR)}),{recursive:true,force:true});`,
+  );
+}
+
+async function restartDashboard(): Promise<void> {
+  await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 2_000));
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const ok = await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`).then((r) => r.ok).catch(() => false);
+    if (ok) return;
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error("dashboard did not come back after POST /api/restart");
+}
+
+/** Seed SEED_COUNT ended sessions (oldest first by index) and return the OLDEST id. */
+function seedEndedSessions(): string {
+  const ids = Array.from({ length: SEED_COUNT }, () => crypto.randomUUID());
+  const now = Date.now();
+  const rows = ids.map((id, i) => {
+    // i = 0 is the OLDEST; all within the last day so nothing is age-archived at boot.
+    const startedAt = now - (SEED_COUNT - i + 60) * 60_000;
+    return { id, name: `${SEED_PREFIX}-${i}`, startedAt, endedAt: startedAt + 30_000 };
+  });
+  runNode(
+    `const fs=require("fs"),p=require("path");` +
+      `const root=p.join(process.env.HOME,".pi/agent/sessions",${JSON.stringify(SEED_DIR)});fs.mkdirSync(root,{recursive:true});` +
+      `for(const r of ${JSON.stringify(rows)}){` +
+      `const stamp=new Date(r.startedAt).toISOString().replace(/:/g,"-").replace(/\\./g,"-");` +
+      `fs.writeFileSync(p.join(root,stamp+"_"+r.id+".jsonl"),JSON.stringify({type:"session",id:r.id,cwd:${JSON.stringify(SEED_CWD)}})+"\\n");` +
+      `fs.writeFileSync(p.join(root,stamp+"_"+r.id+".meta.json"),JSON.stringify({cwd:${JSON.stringify(SEED_CWD)},status:"ended",startedAt:r.startedAt,endedAt:r.endedAt,name:r.name})+"\\n");}`,
+  );
+  return ids[0] as string;
+}
 
 async function liveSessionId(page: Page): Promise<string> {
   const card = await ensureGitSession(page);
@@ -44,15 +112,24 @@ test.describe("session deep link: not found and lookup (L3)", () => {
   });
 
   test("F15: an ended session outside the snapshot window opens through the id lookup", async ({ page }) => {
-    const lookups: string[] = [];
-    page.on("request", (req) => {
-      const u = req.url();
-      if (u.includes("/api/sessions?") && u.includes("id=")) lookups.push(u);
-    });
-    await page.goto(`/session/${STUB_SESSION_ID}`);
-    await expect(page.getByTestId("session-header")).toContainText("Stub Session", { timeout: 30_000 });
-    await expect(page.getByTestId("session-not-found")).toHaveCount(0);
-    expect(lookups.filter((u) => u.includes(STUB_SESSION_ID))).toHaveLength(1);
+    test.setTimeout(240_000);
+    cleanupSeeded();
+    const oldestId = seedEndedSessions();
+    try {
+      await restartDashboard();
+      const lookups: string[] = [];
+      page.on("request", (req) => {
+        const u = req.url();
+        if (u.includes("/api/sessions?") && u.includes("id=")) lookups.push(u);
+      });
+      await page.goto(`/session/${oldestId}`);
+      await expect(page.getByTestId("session-header")).toContainText(`${SEED_PREFIX}-0`, { timeout: 60_000 });
+      await expect(page.getByTestId("session-not-found")).toHaveCount(0);
+      expect(lookups.filter((u) => u.includes(oldestId))).toHaveLength(1);
+    } finally {
+      cleanupSeeded();
+      await restartDashboard();
+    }
   });
 
   test("F16: an unknown id on the desktop diff route shows not-found and never fetches a diff", async ({ page }) => {
@@ -128,26 +205,33 @@ test.describe("session deep link: not found and lookup (L3)", () => {
   });
 
   test("F19: archiving the viewed session converges to / without a not-found flash", async ({ page }) => {
-    const id = await liveSessionId(page);
-    await gotoDashboard(page);
+    const card = await spawnFreshGitSession(page);
+    const id = (await card.getAttribute("data-session-id")) as string;
     await page.goto(`/session/${id}`);
     await expect(page.getByPlaceholder(/message/i).first()).toBeVisible({ timeout: 30_000 });
 
-    const flashes: number[] = [];
+    let flashes = 0;
     const timer = setInterval(() => {
       void page
         .getByTestId("session-not-found")
         .count()
-        .then((n) => flashes.push(n))
+        .then((n) => {
+          flashes = Math.max(flashes, n);
+        })
         .catch(() => undefined);
     }, 100);
     try {
-      await page.locator(`[data-session-id="${id}"]`).getByTestId("session-archive-btn").click();
+      await page.locator(`[data-session-id="${id}"]`).getByTestId("session-archive-btn").first().click();
+      // An idle-alive session confirms first (archiving ends its pi process).
+      const confirm = page.getByTestId("session-archive-confirm");
+      if (await confirm.isVisible().catch(() => false)) {
+        await confirm.getByRole("button", { name: /archive session/i }).click();
+      }
       await expect.poll(() => new URL(page.url()).pathname, { timeout: 30_000 }).toBe("/");
     } finally {
       clearInterval(timer);
     }
-    expect(Math.max(0, ...flashes)).toBe(0);
+    expect(flashes).toBe(0);
     await expect(page.getByTestId("session-not-found")).toHaveCount(0);
   });
 });

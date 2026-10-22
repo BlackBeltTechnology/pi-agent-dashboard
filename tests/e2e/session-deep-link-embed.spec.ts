@@ -41,7 +41,7 @@ test.describe("session deep link: embed mode (L3)", () => {
     await expectNoSidebar(page);
 
     await page.goto("/settings");
-    await expect(page.getByTestId("settings-panel").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("settings-header").first()).toBeVisible({ timeout: 30_000 });
     await expectNoSidebar(page);
   });
 
@@ -62,7 +62,7 @@ test.describe("session deep link: embed mode (L3)", () => {
     const id = await liveSessionId(page);
     await page.setViewportSize(NARROW);
     await page.goto(`/session/${id}?embed=1`);
-    await expect(page.getByTestId("session-header")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("mobile-header-row")).toBeVisible({ timeout: 30_000 });
 
     await page.getByTestId("back-button").click();
     await expect(page).toHaveURL(/\/(\?.*)?$/);
@@ -71,16 +71,26 @@ test.describe("session deep link: embed mode (L3)", () => {
     await expect(page.getByTestId("session-card-mobile")).toHaveCount(0);
   });
 
-  test("F13: a unique 8-char prefix converges to the canonical URL without a history entry", async ({ page }) => {
+  test("F13: a unique prefix converges to the canonical URL without a history entry", async ({ page }) => {
     const id = await liveSessionId(page);
     await page.setViewportSize(DESKTOP);
     await gotoDashboard(page);
-    await page.goto(`/session/${id.slice(0, 8)}/diff?embed=1`);
+    // UUIDv7 ids created within ~65 s share their first 8 characters, and the
+    // harness shares one container across specs — so use the SHORTEST prefix
+    // (>= 8) that is unique among all listed sessions, exactly what the rule resolves.
+    const listed = (await (await page.request.get("/api/sessions")).json()) as { data: Array<{ id: string }> };
+    const others = listed.data.map((r) => r.id.toLowerCase()).filter((x) => x !== id.toLowerCase());
+    let len = 8;
+    while (len < id.length && others.some((o) => o.startsWith(id.slice(0, len).toLowerCase()))) len++;
+    const prefix = id.slice(0, len);
+    expect(prefix.length).toBeGreaterThanOrEqual(8);
+
+    await page.goto(`/session/${prefix}/diff?embed=1`);
     await expect.poll(() => page.url(), { timeout: 30_000 }).toMatch(new RegExp(`/session/${id}/diff\\?embed=1$`));
 
     await page.goBack();
-    // Back leaves the short URL's predecessor, never the 8-char form.
-    expect(page.url()).not.toContain(`/session/${id.slice(0, 8)}/`);
+    // Back leaves the short URL's predecessor, never the prefix form.
+    expect(page.url()).not.toContain(`/session/${prefix}/`);
   });
 
   test("F17: embed-exit replaces to ?embed=0, shows the sidebar, adds no history entry", async ({ page }) => {
