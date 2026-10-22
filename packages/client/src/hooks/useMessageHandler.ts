@@ -32,12 +32,12 @@ import { notifyExposureChanged } from "../lib/live-preview/exposure-store.js";
 import { setQuestions } from "../lib/questions/question-store.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
+import { removeLookupOnly } from "../lib/session/lookup-merge.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
 import { clearTerminalLimitNotices, showTerminalLimitNotice } from "../lib/state/terminal-limit-notice-store.js";
 import { isVisibleCwd } from "../lib/util/cwd-visibility.js";
-import { removeLookupOnly } from "../lib/session/lookup-merge.js";
 import type { OpenSpecGetInflight } from "./useOpenSpecReconcile.js";
 import type { PendingSpawnEntry } from "./useSessionActions.js";
 

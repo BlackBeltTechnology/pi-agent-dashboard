@@ -27,6 +27,7 @@ import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
 import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js";
+import { heldEndedByGroup } from "../../lib/session/held-ended.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getIncludeArchive,
@@ -46,7 +47,6 @@ import {
   resolveSessionGroupPath,
   sortSessionsByOrder,
 } from "../../lib/session/session-grouping.js";
-import { heldEndedByGroup } from "../../lib/session/held-ended.js";
 import {
   classifyLocationLane,
   classifyStatusLane,

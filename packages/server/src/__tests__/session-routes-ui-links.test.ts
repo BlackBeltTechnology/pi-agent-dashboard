@@ -3,9 +3,10 @@
  * (`?id=` filter) for `GET /api/sessions`.
  * See change: add-session-ui-deep-links-for-agents (D1, D3).
  */
+
+import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
 import { isHostAdmitted } from "../auth/host-admission.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { registerSessionRoutes } from "../routes/session-routes.js";

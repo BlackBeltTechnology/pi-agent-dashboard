@@ -95,6 +95,7 @@ import {
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
+import { isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
   evaluateHostGate,
@@ -104,7 +105,6 @@ import {
   hostGateEnvWarning,
   resolveHostGateMode,
 } from "./auth/host-gate.js";
-import { isHostAdmitted } from "./auth/host-admission.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";

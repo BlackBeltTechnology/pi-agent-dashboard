@@ -4,9 +4,10 @@
  * observes the page through snapshots needs the evidence to stay on screen.
  * See change: add-session-ui-deep-links-for-agents.
  */
+
+import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
 import { Link, useLocation } from "wouter";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
 
 interface Props {
   id: string;

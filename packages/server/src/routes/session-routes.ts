@@ -8,8 +8,8 @@ import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { evaluateContainment } from "../access/containment-gate.js";
-import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { canAccessSession, gateHttpSession, sessionPrincipalOf } from "../identity/session-access.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
