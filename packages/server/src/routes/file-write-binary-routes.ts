@@ -37,8 +37,10 @@ import {
 import type { PluginClaim } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import { DIGEST_CEILING_BYTES, extOf } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { FastifyInstance } from "fastify";
+import { admitFileCwd } from "../lib/file-cwd-admission.js";
 import { serializeWrite } from "../lib/file-write-lock.js";
 import { within } from "../lib/path-containment.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import {
   type HandlerTarget,
   isWritableHandlerTarget,
@@ -92,6 +94,11 @@ export interface FileWriteBinaryRouteDeps {
   sessionManager: { listAll(): ReadonlyArray<{ cwd: string }> };
   networkGuard: NetworkGuard;
   fileHandlers?: FileHandlerDeps;
+  /**
+   * Shared cwd admission (change: core-file-cwd-admission). Absent → the known set is the
+   * `sessionManager`'s session cwds only.
+   */
+  routeAdmission?: RouteAdmissionDeps;
 }
 
 interface Query {
@@ -121,7 +128,7 @@ const NO_HANDLERS: FileHandlerDeps = {
   },
 };
 
-type Outcome = { code: number; body: Record<string, unknown> };
+type Outcome = { code: number; body: Record<string, unknown>; headers?: Record<string, string> };
 const fail = (
   code: number,
   error: string,
@@ -262,6 +269,9 @@ export function registerFileWriteBinaryRoute(
   deps: FileWriteBinaryRouteDeps,
 ): void {
   const { sessionManager, networkGuard } = deps;
+  const routeAdmission: RouteAdmissionDeps = deps.routeAdmission ?? {
+    knownCwds: () => sessionManager.listAll().map((s) => s.cwd),
+  };
   const handlers = deps.fileHandlers ?? NO_HANDLERS;
   const log = handlers.log ?? ((line: string) => console.info(line));
 
@@ -288,6 +298,7 @@ export function registerFileWriteBinaryRoute(
           logCtx: { relPath?: string; note?: string },
         ): Record<string, unknown> => {
           reply.code(o.code);
+          for (const [name, value] of Object.entries(o.headers ?? {})) reply.header(name, value);
           log(
             `[file-write-binary] outcome=${o.code === 200 ? "ok" : o.code === 409 ? "conflict" : `refused-${o.code}`} claim=${q.claim ?? "-"} mode=${q.mode ?? "-"} bytes=${bytesIn.length}` +
               (logCtx.relPath ? ` path=${logCtx.relPath}` : "") +
@@ -353,13 +364,20 @@ export function registerFileWriteBinaryRoute(
   }
 
   interface Resolved {
+    /** The GUARDED request cwd (admitted by the shared guard). */
+    cwd: string;
     info: HandlerClaimInfo;
     claim: PluginClaim;
     validator: HandlerValidatorRef | undefined;
   }
 
-  /** Phase 2 — enabled edit claim, validator `enabled()` switch, known session cwd (403s). */
-  function resolveHandler(p: Parsed, claimParam: string): Resolved | Outcome {
+  /**
+   * Phase 2 — enabled edit claim, validator `enabled()` switch, admitted cwd (403s / 503). The cwd is
+   * admitted through the shared guard (change: core-file-cwd-admission): a refusal keeps the
+   * `"unknown session path"` error plus `code: "cwd_unknown"`; an undecidable admission answers the
+   * shared 503 body with `Retry-After: 1` and writes nothing.
+   */
+  async function resolveHandler(p: Parsed, claimParam: string): Promise<Resolved | Outcome> {
     const info = handlers.resolveClaim(claimParam);
     const claim = info?.claim;
     if (
@@ -377,9 +395,21 @@ export function registerFileWriteBinaryRoute(
     const validator = handlers.getValidator(info.pluginId, p.claimKey.claimId);
     if (validator?.enabled && !safeEnabled(validator.enabled))
       return fail(403, "saves for this handler are switched off");
-    if (!sessionManager.listAll().some((s) => s.cwd === p.cwd))
-      return fail(403, "unknown session path");
-    return { info, claim, validator };
+    const admitted = await admitFileCwd(p.cwd, routeAdmission);
+    if (!admitted.ok) {
+      const { failure } = admitted;
+      return {
+        code: failure.code,
+        body: {
+          success: false,
+          ...(failure.code === 503 ? { code: failure.wire.code, error: failure.error, message: failure.wire.message, retryAfterMs: failure.wire.retryAfterMs } : { error: failure.error, code: failure.wire.code }),
+        },
+        ...(failure.code === 503 ? { headers: { "Retry-After": "1" } } : {}),
+      };
+    }
+    // The cwd is decided; the token is released now (a live token does not re-check membership).
+    admitted.release();
+    return { cwd: admitted.cwd, info, claim, validator };
   }
 
   /** Phase 4 — run the plugin validator off-thread; the body comes back re-attached. */
@@ -416,12 +446,12 @@ export function registerFileWriteBinaryRoute(
   ): Promise<Record<string, unknown>> {
     const parsed = parseRequest(q, bytesIn);
     if (isOutcome(parsed)) return send(parsed, {});
-    const resolved = resolveHandler(parsed, q.claim as string);
+    const resolved = await resolveHandler(parsed, q.claim as string);
     if (isOutcome(resolved)) return send(resolved, {});
-    const { info, claim, validator } = resolved;
+    const { cwd, info, claim, validator } = resolved;
     const authz = (): Promise<HandlerTarget | null> =>
       isWritableHandlerTarget(parsed.path, {
-        cwd: parsed.cwd,
+        cwd,
         claim: {
           extensions: claim.extensions ?? [],
           mode: claim.mode ?? "preview",
@@ -435,7 +465,7 @@ export function registerFileWriteBinaryRoute(
         {},
       );
     const rel = (p: string): string =>
-      path.relative(path.resolve(parsed.cwd), p).split(path.sep).join("/");
+      path.relative(path.resolve(cwd), p).split(path.sep).join("/");
     const relPath = rel(target.requested);
     // A sibling is created next to the tab's OWN file: the source must resolve inside the cwd under a
     // claimed extension (a symlink escaping the cwd is refused, like an overwrite target).

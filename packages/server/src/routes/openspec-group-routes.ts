@@ -2,18 +2,23 @@
  * OpenSpec change-grouping REST routes.
  *
  * Five endpoints under `/api/openspec/groups`. All accept a `cwd` query
- * parameter and validate it against the dashboard's known-cwd set
- * (sessions ∪ pinned directories) — same pattern as `pi-resource-file`
- * in `openspec-routes.ts`.
+ * parameter and admit it through the shared cwd guard (sessions ∪ pinned
+ * directories ∪ workspace folders, plus worktrees / subdirectories of known
+ * repositories) — the same helper the openspec routes use. The global OpenSpec
+ * config dir is refused.
  *
- * See change: add-openspec-change-grouping (tasks 3.1–3.13).
+ * See change: add-openspec-change-grouping (tasks 3.1–3.13), core-file-cwd-admission.
  */
 
+import path from "node:path";
+import { openSpecConfigFilePath } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import type {
   ApiResponse,
   OpenSpecGroupsFile,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { CWD_NOT_ALLOWED_BODY } from "../lib/file-cwd-admission.js";
+import { listKnownFolderCwds, type RouteAdmissionDeps } from "../lib/route-admission.js";
 import {
   ConcurrentEditError,
   GroupNotFoundError,
@@ -23,6 +28,7 @@ import {
 } from "../openspec/openspec-group-store.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { createOpenSpecAdmission } from "./openspec-routes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface OpenSpecGroupRoutesDeps {
@@ -30,6 +36,8 @@ export interface OpenSpecGroupRoutesDeps {
   preferencesStore: PreferencesStore;
   networkGuard: NetworkGuard;
   store: OpenSpecGroupStore;
+  /** Shared cwd admission. Absent → the known set of this registrar's own `sessionManager` + `preferencesStore`. */
+  routeAdmission?: RouteAdmissionDeps;
 }
 
 export function registerOpenSpecGroupRoutes(
@@ -38,35 +46,36 @@ export function registerOpenSpecGroupRoutes(
 ): void {
   const { sessionManager, preferencesStore, networkGuard, store } = deps;
 
+  const { admitUngatedCwd } = createOpenSpecAdmission(
+    {
+      ...deps.routeAdmission,
+      knownCwds: deps.routeAdmission?.knownCwds ?? (() => listKnownFolderCwds({ sessionManager, preferencesStore })),
+    },
+    path.dirname(openSpecConfigFilePath()),
+  );
+
   /**
-   * Validate `cwd` is non-empty AND in the dashboard's known-cwd set
-   * (active or hidden sessions ∪ pinned directories). Returns true when the
-   * reply has been short-circuited; false when the route should proceed.
+   * Admit the request `cwd` (change: core-file-cwd-admission). Returns the GUARDED cwd, or `undefined`
+   * when the reply has been sent: 400 for a missing cwd, 403 `cwd_unknown` for a refused / non-absolute
+   * cwd or the global OpenSpec config dir, 503 for an undecidable admission.
    */
-  function rejectInvalidCwd(reply: FastifyReply, cwd: string | undefined): cwd is undefined {
-    if (!cwd) {
+  async function admitGroupsCwd(reply: FastifyReply, rawCwd: unknown): Promise<string | undefined> {
+    if (!rawCwd) {
       reply.code(400);
       reply.send({ success: false, error: "Missing cwd" } satisfies ApiResponse);
-      return true;
+      return undefined;
     }
-    const known = new Set<string>();
-    for (const s of sessionManager.listAll()) known.add(s.cwd);
-    for (const d of preferencesStore.getPinnedDirectories()) known.add(d);
-    if (!known.has(cwd)) {
+    if (typeof rawCwd !== "string" || !path.isAbsolute(rawCwd)) {
       reply.code(403);
-      // Additive remedy fields beside the unchanged `error` (design D7/D18):
-      // the known-cwd set already includes pinned directories, so pinning the
-      // refused directory is the offered remedy. See change:
-      // add-access-grants-and-review.
-      reply.send({
-        success: false,
-        error: "cwd not allowed",
-        reason: "cwd is not a known session or pinned directory.",
-        hint: "Pin this directory to allow it, or open a session rooted in it.",
-      } as unknown as ApiResponse);
-      return true;
+      reply.send(CWD_NOT_ALLOWED_BODY);
+      return undefined;
     }
-    return false;
+    const admitted = await admitUngatedCwd(rawCwd, reply);
+    if (!admitted.ok) {
+      reply.send(admitted.body);
+      return undefined;
+    }
+    return admitted.cwd;
   }
 
   /** Map known store errors to HTTP status codes. */
@@ -102,10 +111,10 @@ export function registerOpenSpecGroupRoutes(
     "/api/openspec/groups",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd } = request.query;
-      if (rejectInvalidCwd(reply, cwd)) return;
+      const cwd = await admitGroupsCwd(reply, request.query.cwd);
+      if (cwd === undefined) return;
       try {
-        const data = await store.read(cwd!);
+        const data = await store.read(cwd);
         return { success: true, data } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
@@ -122,8 +131,8 @@ export function registerOpenSpecGroupRoutes(
     "/api/openspec/groups",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd } = request.query;
-      if (rejectInvalidCwd(reply, cwd)) return;
+      const cwd = await admitGroupsCwd(reply, request.query.cwd);
+      if (cwd === undefined) return;
       const body = request.body ?? {};
       const name = typeof body.name === "string" ? body.name.trim() : "";
       if (!name) {
@@ -132,7 +141,7 @@ export function registerOpenSpecGroupRoutes(
       }
       const color = typeof body.color === "string" ? body.color : undefined;
       try {
-        const created = await store.createGroup(cwd!, { name, ...(color !== undefined ? { color } : {}) });
+        const created = await store.createGroup(cwd, { name, ...(color !== undefined ? { color } : {}) });
         reply.code(201);
         return { success: true, data: created } satisfies ApiResponse;
       } catch (err) {
@@ -151,8 +160,8 @@ export function registerOpenSpecGroupRoutes(
     "/api/openspec/groups/:id",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd } = request.query;
-      if (rejectInvalidCwd(reply, cwd)) return;
+      const cwd = await admitGroupsCwd(reply, request.query.cwd);
+      if (cwd === undefined) return;
       const { id } = request.params;
       const body = request.body ?? {};
       const update: { name?: string; color?: string; order?: number } = {};
@@ -178,7 +187,7 @@ export function registerOpenSpecGroupRoutes(
         update.order = body.order;
       }
       try {
-        const updated = await store.updateGroup(cwd!, id, update);
+        const updated = await store.updateGroup(cwd, id, update);
         return { success: true, data: updated } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
@@ -195,11 +204,11 @@ export function registerOpenSpecGroupRoutes(
     "/api/openspec/groups/:id",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd } = request.query;
-      if (rejectInvalidCwd(reply, cwd)) return;
+      const cwd = await admitGroupsCwd(reply, request.query.cwd);
+      if (cwd === undefined) return;
       const { id } = request.params;
       try {
-        await store.deleteGroup(cwd!, id);
+        await store.deleteGroup(cwd, id);
         return { success: true } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
@@ -216,8 +225,8 @@ export function registerOpenSpecGroupRoutes(
     "/api/openspec/groups/assignments",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd } = request.query;
-      if (rejectInvalidCwd(reply, cwd)) return;
+      const cwd = await admitGroupsCwd(reply, request.query.cwd);
+      if (cwd === undefined) return;
       const body = request.body ?? {};
       if (typeof body.changeName !== "string" || body.changeName.length === 0) {
         reply.code(400);
@@ -228,7 +237,7 @@ export function registerOpenSpecGroupRoutes(
         return { success: false, error: "groupId must be a string or null" } satisfies ApiResponse;
       }
       try {
-        await store.setAssignment(cwd!, body.changeName, body.groupId as string | null);
+        await store.setAssignment(cwd, body.changeName, body.groupId as string | null);
         return { success: true } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);
@@ -245,8 +254,8 @@ export function registerOpenSpecGroupRoutes(
     "/api/openspec/groups/change-order",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const { cwd } = request.query;
-      if (rejectInvalidCwd(reply, cwd)) return;
+      const cwd = await admitGroupsCwd(reply, request.query.cwd);
+      if (cwd === undefined) return;
       const body = request.body ?? {};
       if (typeof body.groupId !== "string" || body.groupId.length === 0) {
         reply.code(400);
@@ -257,7 +266,7 @@ export function registerOpenSpecGroupRoutes(
         return { success: false, error: "order must be an array of strings" } satisfies ApiResponse;
       }
       try {
-        await store.setChangeOrder(cwd!, body.groupId, body.order as string[]);
+        await store.setChangeOrder(cwd, body.groupId, body.order as string[]);
         return { success: true } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);

@@ -160,7 +160,7 @@ type OpenSpecAdmission =
  * canonical cwd for the symlink-proof comparisons. The token is released when the response
  * closes (success, error, throw or disconnect).
  */
-function createOpenSpecAdmission(routeAdmission: RouteAdmissionDeps, globalOpenSpecDir: string) {
+export function createOpenSpecAdmission(routeAdmission: RouteAdmissionDeps, globalOpenSpecDir: string) {
   /** Whether `cwd` (raw or canonical) is the directory whose `openspec/` is the global OpenSpec config dir. */
   function isGlobalOpenSpecParent(cwd: string, canonCwd: string): boolean {
     const canonGlobal = path.join(safeRealpathSync(path.dirname(globalOpenSpecDir)), path.basename(globalOpenSpecDir));

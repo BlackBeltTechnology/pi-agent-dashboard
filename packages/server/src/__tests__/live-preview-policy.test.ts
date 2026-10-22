@@ -19,6 +19,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNetworkGuardHook, isGuardJurisdiction } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import { isBrowserOriginated } from "../live-server/live-browser-gate.js";
 import {
   createLiveCapabilityHook,
@@ -205,7 +206,9 @@ interface Harness {
   broadcasts: number[];
 }
 
-async function makeHarness(opts: { endpoints?: string[]; prompting?: boolean } = {}): Promise<Harness> {
+async function makeHarness(
+  opts: { endpoints?: string[]; prompting?: boolean; admission?: RouteAdmissionDeps } = {},
+): Promise<Harness> {
   const clock = { now: T0 };
   const cwd = mkTmp("live-policy-cwd-");
   fs.mkdirSync(path.join(cwd, "mockups", "a"), { recursive: true });
@@ -228,7 +231,7 @@ async function makeHarness(opts: { endpoints?: string[]; prompting?: boolean } =
   const broadcasts: number[] = [];
   wirePreviewExposure({ exposure, capabilities: store, broadcast: (e) => broadcasts.push(e), log: (l) => logs.push(l) });
 
-  const sessionManager = { listAll: () => [{ cwd }] } as any;
+  const routeAdmission: RouteAdmissionDeps = opts.admission ?? { knownCwds: () => [cwd] };
   const app = Fastify({ logger: false });
   app.decorateRequest("isAuthenticated", false);
   app.addHook("onRequest", async (req) => exposure.noteRequest(req.headers as Record<string, unknown>));
@@ -251,8 +254,15 @@ async function makeHarness(opts: { endpoints?: string[]; prompting?: boolean } =
     promptingEnabled: () => opts.prompting === true,
     log: (l) => logs.push(l),
     staticGate: async (c, rel, o) => {
-      const gate = await gateFilePath(c, rel, sessionManager, { allowGrant: true, disclosure: o.disclosure });
-      if ("code" in gate) return { ok: false, status: gate.code, body: denialBody(gate) };
+      const gate = await gateFilePath(c, rel, routeAdmission, { allowGrant: true, disclosure: o.disclosure });
+      if ("code" in gate) {
+        return {
+          ok: false,
+          status: gate.code,
+          body: denialBody(gate),
+          ...(gate.code === 503 ? { headers: { "Retry-After": "1" } } : {}),
+        };
+      }
       return { ok: true, resolved: gate.resolved };
     },
   });
@@ -323,6 +333,20 @@ describe("live-server routes", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().root).toBe(path.join(h.cwd, "loose"));
       expect(res.json().entry).toBe("page.html");
+    });
+
+    it("an undecidable cwd admission answers the shared 503 with Retry-After; nothing registers (core-file-cwd-admission D3)", async () => {
+      await h.app.close();
+      fs.rmSync(h.cwd, { recursive: true, force: true });
+      h = await makeHarness({
+        admission: { knownCwds: () => [], admitOptions: { realpath: async () => ({ kind: "error", code: "EACCES" }) } },
+      });
+      const before = h.manager.list();
+      const res = await post({ cwd: h.cwd, path: "mockups/a/index.html" });
+      expect(res.statusCode).toBe(503);
+      expect(res.headers["retry-after"]).toBe("1");
+      expect(res.json()).toMatchObject({ success: false, code: "cwd-admission-unavailable", error: "cwd-admission-unavailable" });
+      expect(h.manager.list()).toEqual(before);
     });
 
     it("an outside file is refused with the raw-read gate's status and body; nothing registers", async () => {

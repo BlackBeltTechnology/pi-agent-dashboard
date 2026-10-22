@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change linkify-tool-output. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: URL detection in tool output
 
 The linkifier SHALL detect HTTP and HTTPS URLs inside plain-text tool result strings and render each match as an anchor element. Detected URLs MUST start with `http://` or `https://`. Other URI schemes (including `javascript:`, `data:`, `vbscript:`, `file:`) MUST NOT be linkified.
@@ -386,22 +388,22 @@ filesystem, given a `cwd` and a mention string, returning the resolved absolute
 path and resolution kind when it names a real in-scope file, or null otherwise.
 
 The `cwd` parameter is untrusted request input and MUST be rejected (403) unless
-it matches a known session cwd or a pinned directory, and the endpoint MUST run
+it is admitted by the shared cwd admission guard (`core-cwd-admission`: a known folder — session cwd, pinned directory or workspace folder — or a subdirectory / linked worktree whose main checkout is a known folder), and the endpoint MUST run
 behind the network guard — this gate MUST run BEFORE any path resolution. Only
 after the `cwd` gate: the server SHALL expand a leading `~/` to the user home
 directory (`os.homedir()`), attempt the mention as an absolute path, then as a
 path relative to `cwd`, and each candidate path MUST pass the anti-traversal
 containment gate BEFORE any filesystem stat. Containment SHALL authorize a
-resolved path when it is contained by `cwd`, the git common root, OR a fixed
+resolved path when it is contained by `cwd` (in its request spelling or, when it differs, its canonical real path), the git common root, OR a fixed
 server-derived home allowlist rooted at `<os.homedir()>/.pi`; the `~/.pi` anchor
 is a server constant and MUST NOT be derived from request input. A leading
-`~user/` MUST NOT be expanded. The SAME anchor set (cwd + git-root + `~/.pi`)
+`~user/` MUST NOT be expanded. The SAME anchor set (cwd in both spellings + git-root + `~/.pi`)
 MUST govern the eventual open/preview route, so a resolve never succeeds on a
 path the open route would reject. A mention that does not resolve to
 an existing in-scope file MUST return null (never an error).
 
 #### Scenario: untrusted cwd rejected before resolution
-- **WHEN** the endpoint receives `{ cwd: "/etc", mention: "passwd" }` and `/etc` is not a known session cwd or pinned directory
+- **WHEN** the endpoint receives `{ cwd: "/etc", mention: "passwd" }` and `/etc` is not admitted (not a known folder, nor a subdirectory or linked worktree whose main checkout is a known folder)
 - **THEN** the server SHALL respond 403 and MUST NOT stat any path
 
 #### Scenario: tilde home path resolves under home
@@ -472,4 +474,3 @@ _Phase 2 (scheduled separately)._ The server SHALL, when exact resolution (absol
 #### Scenario: fuzzy disabled outside a repo
 - **WHEN** the cwd is not inside a git repository
 - **THEN** fuzzy fallback SHALL be skipped and resolution SHALL rely on exact matching only
-

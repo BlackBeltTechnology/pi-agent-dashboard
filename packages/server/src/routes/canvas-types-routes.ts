@@ -17,6 +17,8 @@ import {
   readCanvasTypesScopes,
   writeCanvasTypesScope,
 } from "../canvas/canvas-settings.js";
+import { admitOptionalCwd, sendCwdFailure } from "../lib/file-cwd-admission.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 interface PatchBody {
@@ -39,16 +41,26 @@ function validatePatch(body: PatchBody | undefined): string | null {
 
 export function registerCanvasTypesRoutes(
   fastify: FastifyInstance,
-  deps: { networkGuard: NetworkGuard },
+  deps: {
+    networkGuard: NetworkGuard;
+    /**
+     * Shared cwd admission (change: core-file-cwd-admission): a supplied `cwd` must be admitted;
+     * no `cwd` keeps the global scope. Absent → fail-closed (nothing is known).
+     */
+    routeAdmission?: RouteAdmissionDeps;
+  },
 ): void {
   const { networkGuard } = deps;
+  const routeAdmission: RouteAdmissionDeps = deps.routeAdmission ?? {};
 
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/canvas-types",
     { preHandler: networkGuard },
-    async (request) => {
-      const cwd = typeof request.query.cwd === "string" ? request.query.cwd : "";
-      return readCanvasTypesScopes(cwd);
+    async (request, reply) => {
+      // The no-cwd branch hands the sink a constant `""`, never the request value.
+      const admitted = await admitOptionalCwd(request.query.cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+      return readCanvasTypesScopes(admitted.cwd ?? "");
     },
   );
 
@@ -60,9 +72,11 @@ export function registerCanvasTypesRoutes(
       const err = validatePatch(body);
       if (err) return reply.code(400).send({ error: err });
       // Non-null after validatePatch passed.
-      const { scope, cwd = "", canvasTypes } = body as Required<Pick<PatchBody, "scope" | "canvasTypes">> & PatchBody;
+      const { scope, canvasTypes } = body as Required<Pick<PatchBody, "scope" | "canvasTypes">> & PatchBody;
+      const admitted = await admitOptionalCwd((body as PatchBody).cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
       try {
-        return writeCanvasTypesScope(scope, cwd, canvasTypes);
+        return writeCanvasTypesScope(scope, admitted.cwd ?? "", canvasTypes);
       } catch (e) {
         return reply
           .code(400)

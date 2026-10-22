@@ -67,6 +67,19 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **File, package, canvas and resource routes admit the folder the same way (widening and tightening).** The file
+  routes (`/api/file*`, `/api/grep`, open-in-system, reveal, editor-pane saves, live preview) used to accept only
+  a `cwd` that matched a live session, so a pinned folder or a worktree without a session got "unknown session
+  path". They now use the shared folder check: a session cwd, a pinned directory, a workspace folder, or a
+  worktree / subdirectory of a known repository is admitted; a cwd known only through a sibling worktree is
+  refused (as on the git routes). `/api/packages/*`, `/api/canvas-types`, `/api/resources/toggle`,
+  `/api/openspec/groups*` and the `watch_files` message check a supplied `cwd` too (the package, canvas and
+  resource routes did not check one before); a request without a `cwd` keeps today's fallback. Workspace folders
+  now count as known folders everywhere (plugins, git, openspec, files, add-ons). Refusals keep each route's
+  status and `error` and add `code: "cwd_unknown"`; when the check cannot decide, the route answers `503
+  { code: "cwd-admission-unavailable" }` with `Retry-After: 1`. A relative or non-string `cwd` is refused, never
+  treated as "no cwd". Closes 12 CodeQL baseline entries on the file, canvas and md routes.
+
 - **Git and OpenSpec routes now admit the folder first (tightening).** A `cwd` sent to a `/api/git/*` or
   caller-`cwd` `/api/openspec*` / `/api/pi-resources*` route must be a known folder (a session cwd or a pinned
   directory) or lie in a git repository whose main checkout is one. Anything else is refused before any

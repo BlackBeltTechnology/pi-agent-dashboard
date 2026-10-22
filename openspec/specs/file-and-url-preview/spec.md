@@ -94,13 +94,13 @@ The `.pptx` file extension (compared case-insensitively) SHALL map to `"pptx"`.
 
 ### Requirement: Binary-safe file serving endpoint
 
-The server SHALL expose `GET /api/file/raw?cwd=&path=` that streams the file contents with `Content-Type` derived from the file extension via a shared `extToContentType` mapping. The endpoint SHALL enforce the same anti-traversal gate as `/api/file`: `cwd` must match a known session cwd, and `path.resolve(cwd, relPath)` must remain inside `cwd`. The endpoint SHALL support HTTP `Range` requests so `<video>` seek bars work.
+The server SHALL expose `GET /api/file/raw?cwd=&path=` that streams the file contents with `Content-Type` derived from the file extension via a shared `extToContentType` mapping. The endpoint SHALL enforce the same anti-traversal gate as `/api/file`: `cwd` must be admitted by the shared cwd admission guard (`core-cwd-admission`: a known folder — session cwd, pinned directory or workspace folder — or a subdirectory / linked worktree whose main checkout is a known folder), and `path.resolve(cwd, relPath)` must remain inside `cwd`. The endpoint SHALL support HTTP `Range` requests so `<video>` seek bars work.
 
 #### Scenario: Unknown cwd rejected
 
-- **GIVEN** `cwd` is not present in any active session
+- **GIVEN** `cwd` is not admitted (not a known folder, nor a subdirectory or linked worktree whose main checkout is a known folder)
 - **WHEN** the client requests `/api/file/raw?cwd=/unknown&path=foo.pdf`
-- **THEN** the server responds with HTTP 403 and `{ success: false, error: "unknown session path" }`
+- **THEN** the server responds with HTTP 403 and `{ success: false, error: "unknown session path", code: "cwd_unknown" }`
 
 #### Scenario: Path traversal rejected
 
@@ -125,6 +125,11 @@ The server SHALL expose `GET /api/file/raw?cwd=&path=` that streams the file con
 - **GIVEN** the resolved path does not exist on disk
 - **WHEN** the client requests `/api/file/raw`
 - **THEN** the response status is 404
+
+#### Scenario: Pinned folder without a session is served
+- **GIVEN** `cwd` is a pinned directory with no live session
+- **WHEN** the client requests `/api/file/raw?cwd=<pinned>&path=report.pdf`
+- **THEN** the server SHALL stream the file with HTTP 200
 
 ### Requirement: AsciiDoc rendering endpoint
 
@@ -443,7 +448,7 @@ cache keyed by path + mtime + size so the attachment endpoint does not re-parse 
 - **THEN** the response status is 413 and the server does NOT read the full file into memory
 
 #### Scenario: Unknown cwd rejected
-- **GIVEN** `cwd` is not present in any active session
+- **GIVEN** `cwd` is not admitted (not a known folder, nor a subdirectory or linked worktree whose main checkout is a known folder)
 - **WHEN** the client requests `/api/file/eml?cwd=/unknown&path=mail.eml`
 - **THEN** the server responds with HTTP 403
 

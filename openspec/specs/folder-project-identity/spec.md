@@ -100,7 +100,7 @@ The server SHALL expose `GET /api/folder/project?cwd=<abs>`, behind the same net
 | Admission indeterminate | `503` with `Retry-After` and the body `{ "error": "cwd-admission-unavailable", "message": <string>, "retryAfterMs": <number> }` |
 | `cwd` admitted but not an existing directory | `404` |
 
-- A `cwd` is admitted when the dashboard already knows it (a session cwd or a pinned directory) or the shared cwd guard admits it.
+- A `cwd` is admitted when the dashboard already knows it (a session cwd, a pinned directory or a workspace folder) or the shared cwd guard admits it.
 - Admission SHALL run before any existence check. A missing path that is not known is refused (`403`), so `404` occurs only for an admitted path that no longer exists.
 - The route SHALL be classified in the route tier map at the `observe` tier, like `GET /api/file/exists`.
 - On a refused or indeterminate admission, the server SHALL read nothing under the `cwd`.

@@ -8,6 +8,8 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { admitOptionalCwd, sendCwdFailure } from "../lib/file-cwd-admission.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import {
   attachPublishedVariants,
   enrichInstalledRows,
@@ -48,9 +50,15 @@ export function registerPackageRoutes(
   fastify: FastifyInstance,
   deps: {
     packageManagerWrapper: PackageManagerWrapper;
+    /**
+     * Shared cwd admission (change: core-file-cwd-admission): a supplied `cwd` must be admitted;
+     * no `cwd` keeps today's fallback. Absent → fail-closed (nothing is known).
+     */
+    routeAdmission?: RouteAdmissionDeps;
   },
 ) {
   const { packageManagerWrapper } = deps;
+  const routeAdmission: RouteAdmissionDeps = deps.routeAdmission ?? {};
 
   // ── Search npm packages ─────────────────────────────────────────
 
@@ -94,9 +102,11 @@ export function registerPackageRoutes(
 
   fastify.get<{ Querystring: { scope?: string; cwd?: string } }>(
     "/api/packages/installed",
-    async (request) => {
+    async (request, reply) => {
       const scope = request.query.scope === "local" ? "local" : "global";
-      const cwd = request.query.cwd;
+      const admitted = await admitOptionalCwd(request.query.cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+      const cwd = admitted.cwd;
       try {
         const packages = await packageManagerWrapper.listInstalled(scope, cwd);
         const managedPaths = scope === "global" ? readManagedPaths(fastify) : undefined;
@@ -122,12 +132,15 @@ export function registerPackageRoutes(
   fastify.post<{ Body: { source: string; scope: string; cwd?: string } }>(
     "/api/packages/install",
     async (request, reply) => {
-      const { source, scope, cwd } = request.body ?? {};
+      const { source, scope } = request.body ?? {};
       if (!source) {
         reply.code(400);
         return { success: false, error: "source is required" } satisfies ApiResponse;
       }
       const effectiveScope = scope === "local" ? "local" as const : "global" as const;
+      const admitted = await admitOptionalCwd(request.body?.cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+      const cwd = admitted.cwd;
       try {
         const operationId = await packageManagerWrapper.run({
           action: "install",
@@ -152,12 +165,15 @@ export function registerPackageRoutes(
   fastify.post<{ Body: { source: string; scope: string; cwd?: string } }>(
     "/api/packages/remove",
     async (request, reply) => {
-      const { source, scope, cwd } = request.body ?? {};
+      const { source, scope } = request.body ?? {};
       if (!source) {
         reply.code(400);
         return { success: false, error: "source is required" } satisfies ApiResponse;
       }
       const effectiveScope = scope === "local" ? "local" as const : "global" as const;
+      const admitted = await admitOptionalCwd(request.body?.cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+      const cwd = admitted.cwd;
       try {
         const operationId = await packageManagerWrapper.run({
           action: "remove",
@@ -182,8 +198,11 @@ export function registerPackageRoutes(
   fastify.post<{ Body: { source?: string; scope: string; cwd?: string } }>(
     "/api/packages/update",
     async (request, reply) => {
-      const { source, scope, cwd } = request.body ?? {};
+      const { source, scope } = request.body ?? {};
       const effectiveScope = scope === "local" ? "local" as const : "global" as const;
+      const admitted = await admitOptionalCwd(request.body?.cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+      const cwd = admitted.cwd;
       try {
         const operationId = await packageManagerWrapper.run({
           action: "update",
@@ -216,7 +235,7 @@ export function registerPackageRoutes(
     };
   }>("/api/packages/move", async (request, reply) => {
     const body = request.body ?? {};
-    const { entry, fromCwd, toCwd } = body;
+    const { entry } = body;
     const fromScope = body.fromScope === "local" ? "local" : body.fromScope === "global" ? "global" : null;
     const toScope = body.toScope === "local" ? "local" : body.toScope === "global" ? "global" : null;
 
@@ -228,6 +247,25 @@ export function registerPackageRoutes(
       reply.code(400);
       return { success: false, error: "fromScope and toScope are required ('global' or 'local')" } satisfies ApiResponse;
     }
+
+    // A local scope needs a string cwd: the wrapper's own check, run up front so a non-string value
+    // answers `invalid_request` instead of reaching admission (core-file-cwd-admission D1).
+    for (const [scopeValue, cwdValue, label] of [
+      [fromScope, body.fromCwd, "fromCwd"],
+      [toScope, body.toCwd, "toCwd"],
+    ] as const) {
+      if (scopeValue === "local" && (typeof cwdValue !== "string" || !cwdValue)) {
+        reply.code(400);
+        return { success: false, error: `${label} required when ${label.slice(0, -3)}Scope is local`, code: "invalid_request" } as any;
+      }
+    }
+    // Both sides are admitted; a refusal beats an undecidable side.
+    const from = await admitOptionalCwd(body.fromCwd, routeAdmission, reply);
+    const to = await admitOptionalCwd(body.toCwd, routeAdmission, reply);
+    const failed = [from, to].flatMap((a) => (a.ok ? [] : [a.failure]));
+    if (failed.length > 0) return sendCwdFailure(reply, failed.find((f) => f.code !== 503) ?? failed[0]);
+    const fromCwd = from.ok ? from.cwd : undefined;
+    const toCwd = to.ok ? to.cwd : undefined;
 
     try {
       const moveId = await packageManagerWrapper.move({
@@ -271,12 +309,21 @@ export function registerPackageRoutes(
   fastify.post<{ Body: { source?: string; scope?: string; cwd?: string } }>(
     "/api/packages/reset-to-npm",
     async (request, reply) => {
-      const { source, cwd } = request.body ?? {};
+      const { source } = request.body ?? {};
       const scope = request.body?.scope === "local" ? "local" as const : "global" as const;
       if (!source) {
         reply.code(400);
         return { success: false, error: "source is required" } satisfies ApiResponse;
       }
+      // Local scope needs a string cwd (the wrapper's own check, run up front; see `move`).
+      const rawCwd: unknown = request.body?.cwd;
+      if (scope === "local" && (typeof rawCwd !== "string" || !rawCwd)) {
+        reply.code(400);
+        return { success: false, error: "cwd required when scope is local", code: "invalid_request" } as any;
+      }
+      const admitted = await admitOptionalCwd(rawCwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+      const cwd = admitted.cwd;
       // Authoritative server-side resolution: find the installed row and
       // resolve its published variant. Never trust a client-supplied target.
       try {
@@ -320,10 +367,11 @@ export function registerPackageRoutes(
 
   fastify.post<{ Body: { cwd?: string } }>(
     "/api/packages/check-updates",
-    async (request) => {
-      const { cwd } = request.body ?? {};
+    async (request, reply) => {
+      const admitted = await admitOptionalCwd(request.body?.cwd, routeAdmission, reply);
+      if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
       try {
-        const updates = await packageManagerWrapper.checkUpdates(cwd);
+        const updates = await packageManagerWrapper.checkUpdates(admitted.cwd);
         return { success: true, data: updates } satisfies ApiResponse;
       } catch (err: any) {
         return { success: false, error: err.message } satisfies ApiResponse;

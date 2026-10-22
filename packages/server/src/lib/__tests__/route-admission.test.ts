@@ -31,9 +31,20 @@ describe("listKnownFolderCwds", () => {
   it("is session cwds ∪ pinned directories, deduplicated and unfiltered", () => {
     const set = listKnownFolderCwds({
       sessionManager: { listAll: () => [{ cwd: "/a" }, { cwd: "/b" }, { cwd: "" }, {}] },
-      preferencesStore: { getPinnedDirectories: () => ["/b", "/c"] },
+      preferencesStore: { getPinnedDirectories: () => ["/b", "/c"], getWorkspaces: () => [] },
     });
     expect(set.sort()).toEqual(["/a", "/b", "/c"]);
+  });
+
+  it("also includes every workspace folder, each once (core-file-cwd-admission D8)", () => {
+    const set = listKnownFolderCwds({
+      sessionManager: { listAll: () => [{ cwd: "/a" }] },
+      preferencesStore: {
+        getPinnedDirectories: () => ["/b"],
+        getWorkspaces: () => [{ folders: ["/b", "/c"] }, { folders: ["/c", "/d"] }],
+      },
+    });
+    expect(set.sort()).toEqual(["/a", "/b", "/c", "/d"]);
   });
 });
 

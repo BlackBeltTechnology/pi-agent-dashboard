@@ -204,7 +204,7 @@ When the server emits `OpenSpecData` for a cwd, each `OpenSpecChange` SHALL be a
 - **THEN** no `OpenSpecChange` with that name SHALL be emitted (assignment is dormant, not synthesized)
 
 ### Requirement: Authentication and cwd validation
-All `/api/openspec/groups*` routes SHALL be auth-gated identical to other dashboard mutation routes. The `cwd` query parameter SHALL be validated against the dashboard's known-cwd set (same validator used by other openspec routes); requests for unknown cwds SHALL return HTTP 403.
+All `/api/openspec/groups*` routes SHALL be auth-gated identical to other dashboard mutation routes. The `cwd` query parameter SHALL be admitted by the shared cwd admission guard (`core-cwd-admission`): a known folder (session cwd, pinned directory or workspace folder), or a subdirectory / linked worktree whose main checkout is a known folder. A cwd whose canonical `openspec/` directory is the global openspec directory SHALL be refused. A refused cwd SHALL return HTTP 403; an undecidable admission SHALL return the shared 503.
 
 #### Scenario: Unauthenticated request rejected
 - **WHEN** a GET / POST / PATCH / DELETE / PUT is issued without authentication
@@ -212,7 +212,11 @@ All `/api/openspec/groups*` routes SHALL be auth-gated identical to other dashbo
 
 #### Scenario: cwd not in known-cwd set rejected
 - **WHEN** an authenticated request targets a cwd unknown to the dashboard
-- **THEN** the response SHALL be HTTP 403 with `{ success: false, error: "cwd not allowed" }`
+- **THEN** the response SHALL be HTTP 403 with `{ success: false, error: "cwd not allowed", code: "cwd_unknown" }`
+
+#### Scenario: Worktree of a pinned repository is accepted
+- **WHEN** an authenticated `GET /api/openspec/groups` names a sessionless linked worktree of a pinned repository
+- **THEN** the groups file of that worktree SHALL be returned
 
 ### Requirement: Groups render as board columns with inline management
 On the OpenSpec board, each group SHALL render as a column whose header exposes inline management: rename, recolor, delete, a new-proposal `＋`, and a drag grip for reordering. The standalone "Manage groups" modal entry point is no longer required for these actions.

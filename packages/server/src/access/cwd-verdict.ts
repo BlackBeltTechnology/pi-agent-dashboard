@@ -6,7 +6,7 @@
  * RE-EVALUATION, never a skip. The cwd's real path is re-resolved NOW and must
  * still equal the verdict subject (any verdict kind: a swapped symlink never rides a
  * stale answer onto another folder); existence and the `.git` / ungrantable rules are
- * re-applied; then membership of the live known-folder set (sessions ∪ pins) is compared
+ * re-applied; then membership of the live known-folder set (sessions ∪ pins ∪ workspace folders) is compared
  * canonically. An `allow-always` additionally re-runs the full guard when the caller
  * supplies one; an `allow-once` admits the single held request.
  *
@@ -38,7 +38,7 @@ import { isUngrantableSubject } from "./forbidden-subjects.js";
 import type { Resolution } from "./grant-coordinator.js";
 
 export interface VerdictDeps {
-  /** LIVE known-folder set: session cwds ∪ pinned directories. */
+  /** LIVE known-folder set: session cwds ∪ pinned directories ∪ workspace folders. */
   known(): string[];
   /**
    * Full guard re-run for an `allow-always` that membership did not already
@@ -89,7 +89,7 @@ export async function resolveCwdVerdict(
   const canon = await confirmedSubject(cwd, resolution.subject, realpath);
   if (canon === null) return { kind: "refuse" };
 
-  // Canonical membership against sessions ∪ pins, both sides: a session that
+  // Canonical membership against sessions ∪ pins ∪ workspace folders, both sides: a session that
   // registered for this cwd while the dialog was open admits too.
   const knownCanon = await canonKnownClassified(deps.known, deps.realpath);
   if (knownCanon.canon.includes(canon)) return admitIfUnchanged(cwd, canon, realpath);

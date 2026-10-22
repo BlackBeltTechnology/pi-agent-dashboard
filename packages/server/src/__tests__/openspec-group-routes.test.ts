@@ -7,9 +7,11 @@
  * See change: add-openspec-change-grouping.
  */
 
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { openSpecConfigFilePath } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
@@ -370,5 +372,80 @@ describe("openspec group REST routes", () => {
     } finally {
       racingStore.dispose();
     }
+  });
+});
+
+describe("openspec group routes — shared cwd admission (core-file-cwd-admission, test-plan E15)", () => {
+  let fastify: FastifyInstance;
+  let store: OpenSpecGroupStore;
+  const dirs: string[] = [];
+
+  async function boot(known: string[]) {
+    store = createOpenSpecGroupStore({ debounceMs: 5 });
+    fastify = Fastify();
+    registerOpenSpecGroupRoutes(fastify, {
+      sessionManager: { listAll: () => [] } as any,
+      preferencesStore: makePreferencesStore(),
+      networkGuard: PASSTHRU_GUARD,
+      store,
+      routeAdmission: { knownCwds: () => known },
+    });
+    await fastify.ready();
+  }
+  const mk = (prefix: string) => {
+    const d = fsSync.realpathSync(fsSync.mkdtempSync(path.join(os.tmpdir(), prefix)));
+    dirs.push(d);
+    return d;
+  };
+  afterEach(async () => {
+    await fastify?.close();
+    store?.dispose();
+    for (const d of dirs.splice(0)) fsSync.rmSync(d, { recursive: true, force: true });
+  });
+  const list = (cwd: string) =>
+    fastify.inject({ method: "GET", url: `/api/openspec/groups?cwd=${encodeURIComponent(cwd)}` });
+  const REFUSAL = {
+    success: false,
+    code: "cwd_unknown",
+    error: "cwd not allowed",
+    reason: "cwd is not a known session or pinned directory.",
+    hint: "Pin this directory to allow it, or open a session rooted in it.",
+  };
+
+  it("a pinned / workspace folder is admitted; an unknown cwd is refused 403 cwd_unknown; a missing cwd is 400", async () => {
+    const P = mk("og-p-");
+    const U = mk("og-u-");
+    await boot([P]);
+    expect((await list(P)).statusCode).toBe(200);
+    const refused = await list(U);
+    expect([refused.statusCode, JSON.parse(refused.payload)]).toEqual([403, REFUSAL]);
+    const missing = await fastify.inject({ method: "GET", url: "/api/openspec/groups" });
+    expect([missing.statusCode, JSON.parse(missing.payload).error]).toEqual([400, "Missing cwd"]);
+  });
+
+  it("a non-absolute cwd is refused", async () => {
+    await boot([]);
+    const res = await list("relative/dir");
+    expect([res.statusCode, JSON.parse(res.payload).code]).toEqual([403, "cwd_unknown"]);
+  });
+
+  it("the folder whose openspec/ is the global config dir is refused — directly and through a symlink; nothing is written there", async () => {
+    const globalDir = path.dirname(openSpecConfigFilePath());
+    const parent = path.dirname(globalDir);
+    fsSync.mkdirSync(globalDir, { recursive: true });
+    const link = path.join(mk("og-link-"), "cfg");
+    fsSync.symlinkSync(parent, link);
+    await boot([parent, link]);
+    for (const cwd of [parent, link]) {
+      const res = await list(cwd);
+      expect({ cwd, status: res.statusCode, body: JSON.parse(res.payload) }).toEqual({ cwd, status: 403, body: REFUSAL });
+    }
+    const post = await fastify.inject({
+      method: "POST",
+      url: `/api/openspec/groups?cwd=${encodeURIComponent(parent)}`,
+      payload: { name: "x" },
+    });
+    expect(post.statusCode).toBe(403);
+    expect(fsSync.existsSync(path.join(globalDir, "groups"))).toBe(false);
   });
 });

@@ -8,7 +8,13 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import type { CwdHoldDecision } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  admissionAllows,
+  issueHeldAdmission,
+  releaseAdmission,
+} from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { DIGEST_CEILING_BYTES, fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { repairAsciiDoc } from "@blackbelt-technology/pi-dashboard-shared/markup-repair/asciidoc.js";
 import { realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
@@ -49,6 +55,7 @@ import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
 import { createDigestGate, type DigestGate, type DigestLane } from "../lib/digest-gate.js";
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
+import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire, releaseOnClose } from "../lib/file-cwd-admission.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
@@ -65,14 +72,16 @@ import {
 } from "../lib/office-preview.js";
 import { isAllowed, safeRealpath } from "../lib/path-containment.js";
 import { loadPurify } from "../lib/purify.js";
+import { admitRouteCwd, listKnownFolderCwds, type RouteAdmissionDeps } from "../lib/route-admission.js";
 
 /**
  * A gate failure. `error` is byte-identical to what the site returned before
  * this change; `reason`/`hint`/`subject`/`denialId` are ADDITIVE (design D7) so
  * the denial can name its remedy and bind a later grant to this refusal (D15).
  * `{ code, error }` stays INTERNAL — callers convert via `denialBody`.
+ * `code` is the HTTP status; the wire `code` string lives in `wire`.
  */
-export type GateFailure = { code: number; error: string } & Partial<DenialRemedy>;
+export type GateFailure = { code: number; error: string; wire?: GateWire } & Partial<DenialRemedy>;
 
 /**
  * The single conversion from a gate failure to the wire body. Every containment
@@ -81,6 +90,11 @@ export type GateFailure = { code: number; error: string } & Partial<DenialRemedy
  */
 export function denialBody(gate: GateFailure): ApiResponse {
   const body: Record<string, unknown> = { success: false, error: gate.error };
+  if (gate.wire !== undefined) {
+    body.code = gate.wire.code;
+    if (gate.wire.message !== undefined) body.message = gate.wire.message;
+    if (gate.wire.retryAfterMs !== undefined) body.retryAfterMs = gate.wire.retryAfterMs;
+  }
   if (gate.reason !== undefined) body.reason = gate.reason;
   if (gate.hint !== undefined) body.hint = gate.hint;
   if (gate.subject !== undefined) body.subject = gate.subject;
@@ -89,6 +103,17 @@ export function denialBody(gate: GateFailure): ApiResponse {
   // Present only when the gate was told it may disclose (design D5).
   if (gate.promptOutcome !== undefined) body.promptOutcome = gate.promptOutcome;
   return body as unknown as ApiResponse;
+}
+
+/**
+ * Reply with a gate failure: the status, `Retry-After: 1` on a 503 (an undecidable
+ * cwd admission), and the `denialBody`. Every caller of the file gate helpers uses
+ * this so the 503 contract cannot drift between sites. See change: core-file-cwd-admission (D3).
+ */
+export function sendGateFailure(reply: import("fastify").FastifyReply, gate: GateFailure): ApiResponse {
+  reply.code(gate.code);
+  if (gate.code === 503) reply.header("Retry-After", "1");
+  return denialBody(gate);
 }
 
 import { serializeWrite } from "../lib/file-write-lock.js";
@@ -164,23 +189,32 @@ async function hashHandle(fh: import("node:fs/promises").FileHandle, signal: Abo
 }
 
 // Resolve + scope-validate a markdown target shared by the write + md-read
-// endpoints. Directory scope (cwd present) requires a known session; global
-// scope requires an absolute path. Returns the resolved abs path, or {code,error}
-// to map to a reply. Authorization (`isWritableMdTarget`) is applied by callers.
-// See change: directory-settings-page-and-scoped-md-editing.
-function resolveScopedMdPath(
-  cwd: string | undefined,
+// endpoints. Directory scope (cwd present) requires an admitted cwd (shared
+// guard: session, pinned, workspace folder or a worktree / main checkout of a
+// known repository); global scope (cwd absent: undefined, null or "") requires
+// an absolute path. Any other cwd value that is not an absolute string is
+// REFUSED — it never selects the global scope. Returns the resolved abs path
+// plus the guarded `cwd` (undefined in global scope: the no-cwd branch hands the
+// sinks a constant, never the request value), or a GateFailure. Authorization
+// (`isWritableMdTarget`) is applied by callers.
+// See change: directory-settings-page-and-scoped-md-editing, core-file-cwd-admission.
+async function resolveScopedMdPath(
+  rawCwd: unknown,
   rawPath: string,
-  sessionManager: SessionManager,
-): { resolved: string } | { code: number; error: string } {
-  if (cwd && !sessionManager.listAll().some((s) => s.cwd === cwd)) {
-    return { code: 403, error: "unknown session path" };
-  }
+  routeAdmission: RouteAdmissionDeps,
+): Promise<{ resolved: string; cwd: string | undefined } | GateFailure> {
   const decoded = decodeFileUri(rawPath);
-  if (!cwd && !path.isAbsolute(decoded)) {
-    return { code: 400, error: "global scope requires an absolute path" };
+  if (rawCwd === undefined || rawCwd === null || rawCwd === "") {
+    if (!path.isAbsolute(decoded)) return { code: 400, error: "global scope requires an absolute path" };
+    return { resolved: path.resolve(decoded), cwd: undefined };
   }
-  return { resolved: cwd ? path.resolve(cwd, decoded) : path.resolve(decoded) };
+  const admitted = await admitFileCwd(rawCwd, routeAdmission);
+  if (!admitted.ok) return admitted.failure;
+  try {
+    return { resolved: path.resolve(admitted.cwd, decoded), cwd: admitted.cwd };
+  } finally {
+    admitted.release();
+  }
 }
 
 /** Discriminated outcome of an atomic markdown write. */
@@ -189,25 +223,24 @@ type MdWriteOutcome =
   | { code: 404 | 409 | 413 | 500; error: string };
 
 /** Parsed + authorized write request, or a {code,error} reply mapping. */
-type MdWritePrep = { resolved: string; content: string; mtime: number } | { code: number; error: string };
+type MdWritePrep = { resolved: string; content: string; mtime: number } | GateFailure;
 
 // Parse, scope-validate, and authorize a `POST /api/file/write` body. Keeps the
 // route handler trivial. Authorization is the `isWritableMdTarget` security
 // boundary. See change: directory-settings-page-and-scoped-md-editing.
 async function prepareMdWrite(
   body: { cwd?: unknown; path?: unknown; content?: unknown; mtime?: unknown },
-  sessionManager: SessionManager,
+  routeAdmission: RouteAdmissionDeps,
 ): Promise<MdWritePrep> {
-  const cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : undefined;
   const rawPath = typeof body.path === "string" ? body.path : "";
   const content = typeof body.content === "string" ? body.content : undefined;
   const mtime = typeof body.mtime === "number" ? body.mtime : undefined;
   if (!rawPath || content === undefined || mtime === undefined) {
     return { code: 400, error: "path, content and mtime are required" };
   }
-  const target = resolveScopedMdPath(cwd, rawPath, sessionManager);
+  const target = await resolveScopedMdPath(body.cwd, rawPath, routeAdmission);
   if ("code" in target) return target;
-  if (!(await isWritableMdTarget(target.resolved, { cwd }))) {
+  if (!(await isWritableMdTarget(target.resolved, { cwd: target.cwd }))) {
     return { code: 403, error: "target is not a writable markdown file in scope" };
   }
   return { resolved: target.resolved, content, mtime };
@@ -342,7 +375,7 @@ async function sanitizeAdocHtml(html: string): Promise<string> {
 export async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
-  sessionManager: SessionManager,
+  routeAdmission: RouteAdmissionDeps,
   /**
    * `disclosure`: the caller may see `promptOutcome` (`canDiscloseAccessPosture`).
    * `quiet`: record no denial and raise no prompt (a per-request re-check on a static preview).
@@ -350,16 +383,21 @@ export async function gateFilePath(
   opts: { allowGrant?: boolean; disclosure?: boolean; quiet?: boolean } = {},
 ): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
-  if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
-    return { code: 403, error: "unknown session path" };
+  const admitted = await admitFileCwd(cwd, routeAdmission);
+  if (!admitted.ok) return admitted.failure;
+  let resolved: string;
+  let decision: Awaited<ReturnType<typeof evaluateContainment>>;
+  try {
+    resolved = path.resolve(admitted.cwd, relPath);
+    decision = await evaluateContainment(resolved, cwdAnchors(admitted), {
+      site: "file-routes:gateFilePath",
+      allowGrant: opts.allowGrant,
+      disclosure: opts.disclosure,
+      ...(opts.quiet ? { quiet: true } : {}),
+    });
+  } finally {
+    admitted.release();
   }
-  const resolved = path.resolve(cwd, relPath);
-  const decision = await evaluateContainment(resolved, [cwd], {
-    site: "file-routes:gateFilePath",
-    allowGrant: opts.allowGrant,
-    disclosure: opts.disclosure,
-    ...(opts.quiet ? { quiet: true } : {}),
-  });
   if (!decision.allowed) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };
   }
@@ -384,7 +422,7 @@ async function gateReadPath(
   cwd: string | undefined,
   rawPath: string | undefined,
   req: {
-    sessionManager: SessionManager;
+    routeAdmission: RouteAdmissionDeps;
     request: import("fastify").FastifyRequest;
     reply: import("fastify").FastifyReply;
     quiet?: boolean;
@@ -392,21 +430,26 @@ async function gateReadPath(
 ): Promise<{ resolved: string; viaGrant: boolean; relPath: string } | GateFailure> {
   const relPath = rawPath ? decodeFileUri(rawPath) : rawPath;
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
-  if (!req.sessionManager.listAll().some((s) => s.cwd === cwd)) {
-    return { code: 403, error: "unknown session path" };
+  const admitted = await admitFileCwd(cwd, req.routeAdmission);
+  if (!admitted.ok) return admitted.failure;
+  let resolved: string;
+  let readDecision: Awaited<ReturnType<typeof evaluateContainment>>;
+  try {
+    resolved = path.resolve(admitted.cwd, relPath);
+    // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
+    // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
+    readDecision = await evaluateContainment(resolved, [...cwdAnchors(admitted), homePiAnchor()], {
+      site: "file-routes:read",
+      ...(req.quiet ? { quiet: true } : { hold: { request: req.request, reply: req.reply } }),
+      disclosure: canDiscloseAccessPosture(req.request),
+      session: admitted.cwd,
+      // Polymorphic: this route serves files AND directories, so the remedy
+      // must name whichever the target is (task 4.5 round 2, B1).
+      subjectKind: "auto",
+    });
+  } finally {
+    admitted.release();
   }
-  const resolved = path.resolve(cwd, relPath);
-  // Anchors include the fixed `~/.pi` allowlist so a resolved `~/.pi/…`
-  // mention (from `/api/file/resolve-mention`) previews without a 403 (D7).
-  const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
-    site: "file-routes:read",
-    ...(req.quiet ? { quiet: true } : { hold: { request: req.request, reply: req.reply } }),
-    disclosure: canDiscloseAccessPosture(req.request),
-    session: cwd,
-    // Polymorphic: this route serves files AND directories, so the remedy
-    // must name whichever the target is (task 4.5 round 2, B1).
-    subjectKind: "auto",
-  });
   if (!readDecision.allowed) {
     return { code: 403, error: "path outside working directory", ...readDecision.remedy };
   }
@@ -457,10 +500,20 @@ export function registerFileRoutes(
     browseRootSources?: Pick<BrowseRootSources, "worktreeRoots" | "projectGrants">;
     /** `browse.confineRemote` (default true). `false` = a remote caller browses like a local one. */
     browseConfineRemote?: boolean;
+    /**
+     * Shared cwd admission (change: core-file-cwd-admission, D1): `knownCwds` is the live known-folder
+     * set (sessions ∪ pins ∪ workspace folders), `admitOptions` the host logger + test seams. Absent →
+     * the known set of this registrar's own `sessionManager` + `preferencesStore`.
+     */
+    routeAdmission?: RouteAdmissionDeps;
   },
 ) {
   const { sessionManager, preferencesStore, networkGuard } = deps;
-  registerFileWriteBinaryRoute(fastify, { sessionManager, networkGuard, fileHandlers: deps.fileHandlers });
+  const routeAdmission: RouteAdmissionDeps = {
+    ...deps.routeAdmission,
+    knownCwds: deps.routeAdmission?.knownCwds ?? (() => listKnownFolderCwds({ sessionManager, preferencesStore })),
+  };
+  registerFileWriteBinaryRoute(fastify, { sessionManager, networkGuard, fileHandlers: deps.fileHandlers, routeAdmission });
   const systemOpenCapable = deps.systemOpen?.capable ?? systemOpenCapability;
   const systemOpenRun = deps.systemOpen?.run ?? runOpener;
   const systemOpenPlatform = deps.systemOpen?.platform ?? process.platform;
@@ -487,11 +540,19 @@ export function registerFileRoutes(
     if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
     const ext = path.extname(relPath).toLowerCase();
     if (!allowedExts.includes(ext)) return { code: 400, error: "renderer not supported for extension" };
-    if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
-      return { code: 403, error: "unknown session path" };
+    const admitted = await admitFileCwd(cwd, routeAdmission);
+    if (!admitted.ok) return admitted.failure;
+    let resolved: string;
+    let decision: Awaited<ReturnType<typeof evaluateContainment>>;
+    try {
+      resolved = path.resolve(admitted.cwd, relPath);
+      decision = await evaluateContainment(resolved, cwdAnchors(admitted), {
+        site: "file-routes:gateOfficeFile",
+        disclosure,
+      });
+    } finally {
+      admitted.release();
     }
-    const resolved = path.resolve(cwd, relPath);
-    const decision = await evaluateContainment(resolved, [cwd], { site: "file-routes:gateOfficeFile", disclosure });
     if (!decision.allowed) {
       return { code: 403, error: "path outside working directory", ...decision.remedy };
     }
@@ -663,10 +724,9 @@ export function registerFileRoutes(
     "/api/file",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const gate = await gateReadPath(request.query.cwd, request.query.path, { sessionManager, request, reply });
+      const gate = await gateReadPath(request.query.cwd, request.query.path, { routeAdmission, request, reply });
       if ("code" in gate) {
-        reply.code(gate.code);
-        return denialBody(gate);
+        return sendGateFailure(reply, gate);
       }
       const { resolved } = gate;
 
@@ -753,15 +813,14 @@ export function registerFileRoutes(
     { preHandler: networkGuard },
     async (request, reply) => {
       const gate = await gateReadPath(request.query.cwd, request.query.path, {
-        sessionManager,
+        routeAdmission,
         request,
         reply,
         quiet: true,
       });
       reply.header("Cache-Control", "no-store");
       if ("code" in gate) {
-        reply.code(gate.code);
-        return denialBody(gate);
+        return sendGateFailure(reply, gate);
       }
       const lane: DigestLane = request.query.purpose === "baseline" ? "baseline" : "verify";
       const ac = new AbortController();
@@ -848,13 +907,12 @@ export function registerFileRoutes(
     // application or revealing in the file manager. Those are a different
     // capability from reading, so the two spawn routes keep the pre-change
     // `isAllowed`-only decision (task 4.5 review gate, blocking #2).
-    const gate = await gateFilePath(cwd, rawPath, sessionManager, {
+    const gate = await gateFilePath(cwd, rawPath, routeAdmission, {
       allowGrant: false,
       disclosure: canDiscloseAccessPosture(request),
     });
     if ("code" in gate) {
-      reply.code(gate.code);
-      return denialBody(gate);
+      return sendGateFailure(reply, gate);
     }
     const { cmd, args } = build(systemOpenPlatform, gate.resolved);
     systemOpenRun(cmd, args);
@@ -891,17 +949,15 @@ export function registerFileRoutes(
         return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
       }
 
-      if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
+      const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
 
-      const resolved = path.resolve(cwd, relPath);
-      const treeDecision = await evaluateContainment(resolved, [cwd], {
+      const resolved = path.resolve(admitted.cwd, relPath);
+      const treeDecision = await evaluateContainment(resolved, cwdAnchors(admitted), {
         site: "file-routes:tree",
         hold: { request, reply },
         disclosure: canDiscloseAccessPosture(request),
-        session: cwd,
+        session: admitted.cwd,
         // Directory-only site: the remedy must name THIS directory, not its
         // parent (task 4.5 review).
         subjectKind: "directory",
@@ -961,10 +1017,9 @@ export function registerFileRoutes(
     // the handler still refuses content above the 256 MiB ceiling.
     { preHandler: networkGuard, bodyLimit: 600 * 1024 * 1024 },
     async (request, reply) => {
-      const prep = await prepareMdWrite(request.body ?? {}, sessionManager);
+      const prep = await prepareMdWrite(request.body ?? {}, routeAdmission);
       if ("code" in prep) {
-        reply.code(prep.code);
-        return { success: false, error: prep.error } satisfies ApiResponse;
+        return sendGateFailure(reply, prep);
       }
       // Critical section: stat → mtime check → write → rename runs serialized per
       // target so the optimistic check is atomic w.r.t. a concurrent write.
@@ -995,15 +1050,16 @@ export function registerFileRoutes(
     "/api/file/md-candidates",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd || undefined;
-      if (cwd) {
-        const allSessions = sessionManager.listAll();
-        if (!allSessions.some((s) => s.cwd === cwd)) {
-          reply.code(403);
-          return { success: false, error: "unknown session path" } satisfies ApiResponse;
-        }
+      // Absent (undefined / "") → global scope with a constant `{}`; any other value must be an
+      // admitted absolute cwd. See change: core-file-cwd-admission (D1).
+      const rawCwd: unknown = request.query.cwd;
+      if (rawCwd === undefined || rawCwd === "") {
+        const globalCandidates = await enumerateMdCandidates({});
+        return { success: true, data: { candidates: globalCandidates } } satisfies ApiResponse;
       }
-      const candidates = await enumerateMdCandidates({ cwd });
+      const admitted = await admitFileCwd(rawCwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
+      const candidates = await enumerateMdCandidates({ cwd: admitted.cwd });
       return { success: true, data: { candidates } } satisfies ApiResponse;
     },
   );
@@ -1019,19 +1075,17 @@ export function registerFileRoutes(
     "/api/file/md-read",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd || undefined;
       const rawPath = request.query.path;
       if (!rawPath) {
         reply.code(400);
         return { success: false, error: "path parameter required" } satisfies ApiResponse;
       }
-      const target = resolveScopedMdPath(cwd, rawPath, sessionManager);
+      const target = await resolveScopedMdPath(request.query.cwd, rawPath, routeAdmission);
       if ("code" in target) {
-        reply.code(target.code);
-        return { success: false, error: target.error } satisfies ApiResponse;
+        return sendGateFailure(reply, target);
       }
       const resolved = target.resolved;
-      if (!(await isWritableMdTarget(resolved, { cwd }))) {
+      if (!(await isWritableMdTarget(resolved, { cwd: target.cwd }))) {
         reply.code(403);
         return { success: false, error: "target is not a readable markdown file in scope" } satisfies ApiResponse;
       }
@@ -1067,21 +1121,12 @@ export function registerFileRoutes(
         reply.code(400);
         return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
       }
-      const allSessions = sessionManager.listAll();
-      const knownCwds = new Set(allSessions.map((s) => s.cwd));
-      for (const dir of preferencesStore.getPinnedDirectories()) knownCwds.add(dir);
-      // The unknown-cwd denial may ask the operator (add-access-grant-dialog,
-      // task 6.2). An allow verdict authorises a RE-RUN of this same guard, never
-      // a skip: `allow-always` pinned the directory, so the live pinned set must
-      // now contain it; `allow-once` admits exactly the named directory, for this
-      // request only. Every other outcome returns the unchanged denial below.
-      const cwdAdmitted =
-        knownCwds.has(cwd) ||
-        (await unknownCwdVerdictAdmits(cwd, { request, reply }, () => [
-          ...sessionManager.listAll().map((s) => s.cwd),
-          ...preferencesStore.getPinnedDirectories(),
-        ]));
-      if (!cwdAdmitted) {
+      // Admission (change: core-file-cwd-admission, D5). An absolute cwd is admitted through the
+      // shared guard; a refusal may ask the operator (add-access-grant-dialog, task 6.2). An allow
+      // verdict authorises a RE-RUN of the guard, never a skip: `allow-always` pinned the
+      // directory so the live known set now contains it; `allow-once` admits exactly the named
+      // directory, for this request only. An undecidable admission answers 503 and never prompts.
+      const existsRefusal = (): ApiResponse => {
         reply.code(403);
         // Additive remedy fields beside the unchanged `"unknown cwd"` string
         // (design D7/D18); the known-cwd set already includes pinned
@@ -1091,10 +1136,24 @@ export function registerFileRoutes(
         // add-access-grants-and-review.
         return {
           success: false,
+          code: "cwd_unknown",
           error: "unknown cwd",
           reason: "cwd is not a known session or pinned directory.",
           hint: "Pin this directory to allow it, or open a session rooted in it.",
         } as unknown as ApiResponse;
+      };
+      if (typeof cwd !== "string" || !path.isAbsolute(cwd)) return existsRefusal();
+      let admitted = await admitFileCwd(cwd, routeAdmission, { error: "unknown cwd", reply });
+      if (!admitted.ok && admitted.failure.code === 503) return sendGateFailure(reply, admitted.failure);
+      if (!admitted.ok) {
+        const decision = await unknownCwdVerdict(cwd, { request, reply }, routeAdmission);
+        if (decision.kind === "indeterminate") return sendGateFailure(reply, CWD_UNAVAILABLE_FAILURE);
+        const held = issueHeldAdmission(decision, cwd);
+        if (held.kind !== "admit" || !admissionAllows(held, cwd)) return existsRefusal();
+        const token = held.token;
+        const release = (): void => releaseAdmission(token);
+        releaseOnClose(reply, release);
+        admitted = { ok: true, cwd, canonCwd: token.canonCwd, release };
       }
       // Anti-traversal: probePath MUST be inside cwd (or a pinned dir / repo
       // git root). Pinned-dir anchor is exists-only; not folded onto read/raw/render.
@@ -1107,12 +1166,12 @@ export function registerFileRoutes(
         return { success: false, error: "path outside cwd" } satisfies ApiResponse;
       }
       const resolved = path.resolve(probePath);
-      const anchors = [cwd, ...preferencesStore.getPinnedDirectories()];
+      const anchors = [...cwdAnchors(admitted), ...preferencesStore.getPinnedDirectories()];
       const existsDecision = await evaluateContainment(resolved, anchors, {
         site: "file-routes:exists",
         hold: { request, reply },
         disclosure: canDiscloseAccessPosture(request),
-        session: cwd,
+        session: admitted.cwd,
         // `fs.access` accepts files AND directories — polymorphic, see above.
         subjectKind: "auto",
       });
@@ -1150,11 +1209,9 @@ export function registerFileRoutes(
         reply.code(400);
         return { success: false, error: "cwd and mention are required" } satisfies ApiResponse;
       }
-      if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
-      const result = await resolveFileMention(mention, { cwd });
+      const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
+      const result = await resolveFileMention(mention, { cwd: admitted.cwd, canonCwd: admitted.canonCwd });
       return {
         success: true,
         data: result ? { resolved: result.resolved, kind: result.kind } : { resolved: null },
@@ -1189,13 +1246,11 @@ export function registerFileRoutes(
         return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
       }
 
-      const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
+      const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
+      const rawAnchors = [...cwdAnchors(admitted), homePiAnchor()];
 
-      const resolved = path.resolve(cwd, relPath);
+      const resolved = path.resolve(admitted.cwd, relPath);
       // Layers ①/② (cwd + git common root) serve any type. Layer ③ — artifact
       // roots — is image-only and real-path contained; it covers agent
       // screenshots that live outside every cwd and git root.
@@ -1206,13 +1261,13 @@ export function registerFileRoutes(
       // True only when the GRANT layer admitted this read — layers ①/② and the
       // artifact root do NOT get handle verification (task 2.8 scope).
       let viaGrant = false;
-      if (!(await isAllowed(resolved, { anchors: [cwd, homePiAnchor()] }))) {
+      if (!(await isAllowed(resolved, { anchors: rawAnchors }))) {
         if (!(await isImageUnderArtifactRoot(resolved))) {
-          const rawDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+          const rawDecision = await evaluateContainment(resolved, rawAnchors, {
             site: "file-routes:raw",
             hold: { request, reply },
             disclosure: canDiscloseAccessPosture(request),
-            session: cwd,
+            session: admitted.cwd,
           });
           if (!rawDecision.allowed) {
             reply.code(403);
@@ -1375,8 +1430,7 @@ export function registerFileRoutes(
           canDiscloseAccessPosture(request),
         );
         if ("code" in gate) {
-          reply.code(gate.code);
-          return denialBody(gate);
+          return sendGateFailure(reply, gate);
         }
         const result = await renderPptx(
           gate.resolved,
@@ -1400,8 +1454,7 @@ export function registerFileRoutes(
           canDiscloseAccessPosture(request),
         );
         if ("code" in gate) {
-          reply.code(gate.code);
-          return denialBody(gate);
+          return sendGateFailure(reply, gate);
         }
         const result = await renderDocx(
           gate.resolved,
@@ -1417,18 +1470,15 @@ export function registerFileRoutes(
         return { success: true, data } satisfies ApiResponse;
       }
 
-      const allSessions = sessionManager.listAll();
-      if (!allSessions.some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
+      const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
 
-      const resolved = path.resolve(cwd, relPath);
-      const renderDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
+      const resolved = path.resolve(admitted.cwd, relPath);
+      const renderDecision = await evaluateContainment(resolved, [...cwdAnchors(admitted), homePiAnchor()], {
         site: "file-routes:render",
         hold: { request, reply },
         disclosure: canDiscloseAccessPosture(request),
-        session: cwd,
+        session: admitted.cwd,
       });
       if (!renderDecision.allowed) {
         reply.code(403);
@@ -1506,8 +1556,7 @@ export function registerFileRoutes(
         canDiscloseAccessPosture(request),
       );
       if ("code" in gate) {
-        reply.code(gate.code);
-        return denialBody(gate);
+        return sendGateFailure(reply, gate);
       }
       const out = pdfCachePath(gate.resolved, gate.stat.mtimeMs, gate.stat.size);
       try {
@@ -1548,8 +1597,7 @@ export function registerFileRoutes(
         canDiscloseAccessPosture(request),
       );
       if ("code" in gate) {
-        reply.code(gate.code);
-        return denialBody(gate);
+        return sendGateFailure(reply, gate);
       }
       let buffer: Buffer;
       if (gate.viaGrant) {
@@ -1595,12 +1643,11 @@ export function registerFileRoutes(
     "/api/file/eml",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager, {
+      const gate = await gateFilePath(request.query.cwd, request.query.path, routeAdmission, {
         disclosure: canDiscloseAccessPosture(request),
       });
       if ("code" in gate) {
-        reply.code(gate.code);
-        return denialBody(gate);
+        return sendGateFailure(reply, gate);
       }
       const ext = path.extname(request.query.path ?? "").toLowerCase();
       if (ext !== ".eml") {
@@ -1654,12 +1701,11 @@ export function registerFileRoutes(
     "/api/file/eml-attachment",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager, {
+      const gate = await gateFilePath(request.query.cwd, request.query.path, routeAdmission, {
         disclosure: canDiscloseAccessPosture(request),
       });
       if ("code" in gate) {
-        reply.code(gate.code);
-        return denialBody(gate);
+        return sendGateFailure(reply, gate);
       }
       if (path.extname(request.query.path ?? "").toLowerCase() !== ".eml") {
         reply.code(400);
@@ -1752,24 +1798,31 @@ export function registerFileRoutes(
 }
 
 /**
- * Ask about an unknown-cwd denial and re-run the known-cwd guard on an allow
- * verdict (add-access-grant-dialog, task 6.2). Resolves `false` for anything but
- * an explicit allow that the re-run confirms. The re-run is the shared
- * `resolveCwdVerdict` (canonical compare against sessions ∪ pins, allow-once
- * real-path re-resolution) — the same rules plugin holds use.
- * See change: harden-plugin-cwd-admission.
+ * Ask about an unknown-cwd denial and re-run the shared guard on an allow verdict
+ * (add-access-grant-dialog, task 6.2). Returns the post-verdict decision: `admit` only for an
+ * explicit allow that the re-run confirms, `indeterminate` when the re-run cannot decide, else
+ * `refuse`. The re-run is the shared `resolveCwdVerdict` (canonical compare against the known
+ * set, allow-once real-path re-resolution, `rerunAlways` through `admitRouteCwd`) — the same
+ * rules plugin holds use. See change: harden-plugin-cwd-admission, core-file-cwd-admission (D5).
  */
-async function unknownCwdVerdictAdmits(
+async function unknownCwdVerdict(
   cwd: string,
   target: HoldTarget,
-  known: () => string[],
-): Promise<boolean> {
+  routeAdmission: RouteAdmissionDeps,
+): Promise<CwdHoldDecision> {
   // The subject is the REAL path, so an allow-once can later be compared strictly against
   // what the path means at release time. A cwd that does not resolve is never asked about:
   // the post-verdict re-run refuses it whatever the operator answers (and a pin for a
   // directory that is not there is meaningless) — the same rule the plugin seam applies.
   const real = await realpathAsync(path.resolve(cwd));
-  if (real.kind !== "ok") return false;
+  if (real.kind !== "ok") return { kind: "refuse" };
   const resolution = await holdDenial({ plane: "cwd", rawSubject: real.path, origin: "file-routes:exists" }, target);
-  return (await resolveCwdVerdict(cwd, resolution, { known })).kind === "admit";
+  return resolveCwdVerdict(cwd, resolution, {
+    known: routeAdmission.knownCwds ?? (() => []),
+    rerunAlways: async (canon) => {
+      const admission = await admitRouteCwd(canon, routeAdmission);
+      if (admission.kind === "admit") releaseAdmission(admission.token);
+      return admission.kind;
+    },
+  });
 }

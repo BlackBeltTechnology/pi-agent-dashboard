@@ -4,3 +4,5 @@ pi-resource ACTIVATION routes (enable/disable), distinct from install/uninstall.
 Toggle trustRequired payload forwards `preselected`/`dashboardSource`. See change: mirror-dashboard-trust-to-pi.
 
 Write mutex moved to `pi/settings-write-lock.ts` (`withSettingsWriteLock`), shared with the Add-ons hub toggle. See change: addons-hub-feature-catalog.
+
+`routeAdmission` dep (default fail-closed). `POST /api/resources/toggle` admits a supplied `cwd` for both scopes before computing the settings path (403 `cwd_unknown` / 503); every trust challenge it registers is for an admitted cwd. No cwd = global scope. See change: core-file-cwd-admission.

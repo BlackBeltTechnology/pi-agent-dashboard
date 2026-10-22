@@ -20,6 +20,7 @@ import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
 import { serializeWrite } from "../lib/file-write-lock.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import {
   type FileHandlerDeps,
@@ -49,6 +50,8 @@ interface Setup {
   validator?: HandlerValidatorRef;
   pool?: FileValidatorPool;
   logs?: string[];
+  /** Shared cwd admission (change: core-file-cwd-admission). Absent → sessions only. */
+  routeAdmission?: RouteAdmissionDeps;
 }
 
 function makeApp(s: Setup): FastifyInstance {
@@ -65,6 +68,7 @@ function makeApp(s: Setup): FastifyInstance {
     sessionManager: { listAll: () => s.cwds.map((cwd) => ({ cwd })) },
     networkGuard: async () => undefined,
     fileHandlers,
+    ...(s.routeAdmission ? { routeAdmission: s.routeAdmission } : {}),
   });
   app.get("/api/health", async () => ({ ok: true }));
   app.post("/other", async () => ({ ok: true }));
@@ -628,4 +632,46 @@ describe("#P1 write-binary tail latency (measure-only, never fails)", () => {
     console.info(`[P1] write-binary 40 MiB p95=${times[Math.floor(times.length * 0.95) - 1].toFixed(0)}ms max=${times[19].toFixed(0)}ms`);
     await fsp.rm(dir, { recursive: true, force: true });
   }, 300_000);
+});
+
+describe("core cwd admission on the editor-pane save (core-file-cwd-admission, test-plan E19 / X1)", () => {
+  it("a pinned folder with no session is admitted; an unknown cwd is refused with code cwd_unknown and nothing is written", async () => {
+    app = makeApp({ cwds: [], claim: {}, routeAdmission: { knownCwds: () => [cwd] } });
+    const ok = await post(app, { cwd, path: "report.docx", expectSha1: sha1(SEED) });
+    expect(ok.statusCode).toBe(200);
+    expect(await read("report.docx")).toBe("NEW");
+
+    const unknown = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "wb-unknown-")));
+    await fsp.writeFile(path.join(unknown, "report.docx"), SEED);
+    const refused = await post(app, { cwd: unknown, path: "report.docx", expectSha1: sha1(SEED) });
+    expect([refused.statusCode, refused.json()]).toEqual([
+      403,
+      { success: false, error: "unknown session path", code: "cwd_unknown" },
+    ]);
+    expect(await fsp.readFile(path.join(unknown, "report.docx"), "utf-8")).toBe("OLD-CONTENT");
+    await fsp.rm(unknown, { recursive: true, force: true });
+  });
+
+  it("an undecidable admission answers the shared 503 with Retry-After and writes nothing", async () => {
+    const failingRunner = async () => ({ ok: false as const, error: { kind: "spawn-failure" as const, message: "EAGAIN" } });
+    // `cwd` is not a direct match of the known entry, so admission needs a git derivation that fails.
+    const repo = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "wb-repo-")));
+    app = makeApp({
+      cwds: [],
+      claim: {},
+      routeAdmission: { knownCwds: () => [repo], admitOptions: { runner: failingRunner } },
+    });
+    const res = await post(app, { cwd, path: "report.docx", expectSha1: sha1(SEED) });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers["retry-after"]).toBe("1");
+    expect(res.json()).toEqual({
+      success: false,
+      code: "cwd-admission-unavailable",
+      error: "cwd-admission-unavailable",
+      message: "cwd admission could not be decided right now",
+      retryAfterMs: 1000,
+    });
+    expect(await read("report.docx")).toBe("OLD-CONTENT");
+    await fsp.rm(repo, { recursive: true, force: true });
+  });
 });

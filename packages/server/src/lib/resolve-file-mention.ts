@@ -40,7 +40,8 @@ function homePiAnchor(): string {
 }
 
 /**
- * Resolve `mention` to an existing in-scope absolute path, or null.
+ * Resolve `mention` to an existing in-scope absolute path, or null. `canonCwd` (the admitted
+ * canonical cwd, when it differs from `cwd`) is an additional containment anchor.
  *
  * Candidate + kind:
  *   - leading `~/`         → `<homedir>/…`      kind `tilde`
@@ -51,7 +52,7 @@ function homePiAnchor(): string {
  */
 export async function resolveFileMention(
   mention: string,
-  { cwd }: { cwd: string },
+  { cwd, canonCwd }: { cwd: string; canonCwd?: string },
 ): Promise<ResolvedMention | null> {
   if (!mention) return null;
 
@@ -76,7 +77,10 @@ export async function resolveFileMention(
   // widening comes from isAllowed's layer ②.
   // Consumes grants; returns null rather than a body, so it can never
   // originate a grant (design D12).
-  if (!(await isAllowed(candidate, { anchors: [cwd, homePiAnchor()] }))) {
+  // The canonical cwd joins the request spelling when it differs (core-file-cwd-admission D2), so a
+  // mention resolved here opens through the same anchor set as `/api/file`.
+  const anchors = canonCwd !== undefined && canonCwd !== cwd ? [cwd, canonCwd, homePiAnchor()] : [cwd, homePiAnchor()];
+  if (!(await isAllowed(candidate, { anchors }))) {
     if (!(await isGrantAdmitted(candidate, grantedSubjects()))) return null;
   }
   try {

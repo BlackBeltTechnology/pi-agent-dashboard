@@ -9,6 +9,9 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import type { GitProbeRunner } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { runAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetAccessGrants } from "../access/access-grants.js";
@@ -20,6 +23,7 @@ import { __resetPromptChannels, GRANT_CHANNEL_HEADER, issuePromptChannel } from 
 import { createNetworkGuardHook, setNetworkDenialObserver } from "../auth/localhost-guard.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
+import { addLinkedWorktree, failingRunner, makeGitRepo } from "./helpers/admission-test-kit.js";
 
 let tmp: string;
 let cwd: string;
@@ -29,13 +33,16 @@ let sent: ServerToBrowserMessage[];
 let coordinator: GrantCoordinator;
 let capability: string;
 let promptEnabled: boolean;
+/** When false the cwd plane's pin is a no-op, so an allow-always verdict is NOT confirmed by membership. */
+let pinEnabled = true;
 
-function makeApp(): FastifyInstance {
+function makeApp(admitOptions?: AdmitCwdOptions): FastifyInstance {
   const app = Fastify({ logger: false });
   registerFileRoutes(app, {
     sessionManager: { listAll: () => [{ cwd }] } as never,
     preferencesStore: { getPinnedDirectories: () => pinned } as never,
     networkGuard: async () => undefined,
+    ...(admitOptions ? { routeAdmission: { admitOptions } } : {}),
   });
   return app;
 }
@@ -52,12 +59,13 @@ beforeEach(() => {
   process.env.PI_ACCESS_GRANTS_STORE = path.join(tmp, "access-grants.json");
   __resetAccessGrants();
   pinned = [];
+  pinEnabled = true;
   sent = [];
   promptEnabled = true;
 
   const planes = new AccessPlaneRegistry();
   planes.register(createFilesystemPlane());
-  planes.register(createCwdPlane({ pinDirectory: (d) => pinned.push(d) }));
+  planes.register(createCwdPlane({ pinDirectory: (d) => (pinEnabled ? pinned.push(d) : undefined) }));
   planes.register(createNetworkPlane({ readTrustedNetworks: () => [], writeConfigPartial: () => ({ success: true }) }));
   coordinator = new GrantCoordinator({
     planes,
@@ -305,6 +313,7 @@ describe("6.2 the unknown-cwd site", () => {
     expect(res.statusCode).toBe(403);
     expect(res.json()).toEqual({
       success: false,
+      code: "cwd_unknown",
       error: "unknown cwd",
       reason: "cwd is not a known session or pinned directory.",
       hint: "Pin this directory to allow it, or open a session rooted in it.",
@@ -353,6 +362,58 @@ describe("harden-plugin-cwd-admission: the file-exists re-run is the shared verd
     const res = await pending;
     expect(res.statusCode).not.toBe(403);
     expect(pinned).toEqual([]); // allow-once persisted nothing
+  });
+});
+
+describe("core-file-cwd-admission D5: the file-exists prompt follows the shared admission", () => {
+  const exists = (app: FastifyInstance, dir: string) =>
+    app.inject({
+      method: "GET",
+      url: `/api/file/exists?cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent(dir)}`,
+      headers: { [GRANT_CHANNEL_HEADER]: capability },
+    });
+
+  it("E11(d): a sibling worktree the guard refuses is admitted after allow-always pins it", async () => {
+    const repo = makeGitRepo();
+    const W1 = addLinkedWorktree(repo, "e11-a");
+    const W2 = addLinkedWorktree(repo, "e11-b");
+    const app = Fastify({ logger: false });
+    registerFileRoutes(app, {
+      sessionManager: { listAll: () => [{ cwd: W1 }] } as never,
+      preferencesStore: { getPinnedDirectories: () => pinned } as never,
+      networkGuard: async () => undefined,
+    });
+    const pending = exists(app, W2);
+    const p = await nextPrompt();
+    expect(p).toMatchObject({ plane: "cwd", subject: W2 });
+    await coordinator.onResponse({ promptId: p.promptId, plane: p.plane, subject: p.subject, verdict: "allow-always" });
+    const res = await pending;
+    expect(res.statusCode).toBe(200);
+    expect(pinned).toEqual([W2]);
+  });
+
+  it("X6(b): an allow-always whose guard re-run cannot decide answers the shared 503, not the refusal", async () => {
+    const unknown = path.join(tmp, "x6b-ws");
+    fs.mkdirSync(unknown);
+    pinEnabled = false; // membership never confirms the answer, so the guard is re-run
+    let failNow = false;
+    const switching: GitProbeRunner = (recipe, input, ctx) =>
+      failNow ? failingRunner(recipe, input, ctx) : runAsync(recipe, input, ctx);
+    const app = makeApp({ runner: switching });
+    const pending = exists(app, unknown);
+    const p = await nextPrompt();
+    failNow = true;
+    await coordinator.onResponse({ promptId: p.promptId, plane: p.plane, subject: p.subject, verdict: "allow-always" });
+    const res = await pending;
+    expect([res.statusCode, res.headers["retry-after"], res.json().code]).toEqual([503, "1", "cwd-admission-unavailable"]);
+  });
+
+  it("X6(a): an undecidable first admission answers 503 without raising a dialog", async () => {
+    const unknown = path.join(tmp, "x6a-ws");
+    fs.mkdirSync(unknown);
+    const res = await exists(makeApp({ runner: failingRunner }), unknown);
+    expect([res.statusCode, res.json().code]).toEqual([503, "cwd-admission-unavailable"]);
+    expect(sent.filter((m) => m.type === "grant_request")).toHaveLength(0);
   });
 });
 

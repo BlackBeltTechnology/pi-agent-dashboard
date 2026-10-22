@@ -203,7 +203,8 @@ describe("GET /api/file/raw", () => {
   it("403s when cwd is not a known session", async () => {
     const res = await app.inject({ method: "GET", url: "/api/file/raw?cwd=/nope&path=foo.pdf" });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "unknown session path" });
+    // `code: "cwd_unknown"` is the additive admission wire code (core-file-cwd-admission D4).
+    expect(res.json()).toEqual({ success: false, error: "unknown session path", code: "cwd_unknown" });
   });
 
   it("403s on path traversal", async () => {
@@ -1672,7 +1673,7 @@ describe("POST /api/diagram/render and Kroki resolution (test-plan #E1–#E7, #X
  * shapes would have merged into one and the pre-existing contract would have
  * changed.
  */
-describe("gate refusals never leak their internal `code` to the wire (test-plan #E25)", () => {
+describe("gate refusals never leak their internal numeric `code` to the wire (test-plan #E25)", () => {
   let app: FastifyInstance;
   let tmp: string;
 
@@ -1709,7 +1710,8 @@ describe("gate refusals never leak their internal `code` to the wire (test-plan 
     });
     expect(unknownCwd.statusCode).toBe(403);
     expect(unknownCwd.json()).toMatchObject({ success: false, error: "unknown session path" });
-    expect(unknownCwd.json()).not.toHaveProperty("code");
+    // Only the admission wire code string may appear — never the internal numeric status `code`.
+    expect(unknownCwd.json().code).toBe("cwd_unknown");
   });
 
   it("gateFilePath keeps { success, error } on the EML route", async () => {
@@ -1721,6 +1723,6 @@ describe("gate refusals never leak their internal `code` to the wire (test-plan 
     });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ success: false, error: "unknown session path" });
-    expect(res.json()).not.toHaveProperty("code");
+    expect(res.json().code).toBe("cwd_unknown");
   });
 });
