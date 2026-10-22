@@ -6,6 +6,7 @@ Files in this directory. One row per source file.
 |------|---------|
 | `__tests__/host-project-trust.test.ts` | Legacy decision table + real pi, plus shared decision, #E24 agent dir, #X10 boot log, #E27 no trust.json writes. See change: mirror-dashboard-trust-to-pi. |
 | `__tests__/pi-trust-mirror-service.test.ts` | #E1 #E3 #E4 #E19 #E20 #E22 #E26 #X5–#X9: registry, snapshot content, ordering and fault behaviour. See change: mirror-dashboard-trust-to-pi. |
+| `__tests__/remote-bridge-ticket-origin.test.ts` | #E14: remote bridge on the real two-port topology. `createTestServer` + paired-device bearer; `resolveDashboardHttpOrigin` → `mintBridgeTicket` → `withTicket` → dial gateway opens; control arm minting from the gateway port gives `wrong-origin` (426). See change: fix-remote-bridge-ticket-origin. |
 | `__tests__/resource-toggle-trust-mirror.test.ts` | #E17 #E18: pre-selection, recorded refusal, ancestor refusal, never, always. See change: mirror-dashboard-trust-to-pi. |
 | `__tests__/session-diff.perf.test.ts` | #P1: `buildSessionDiff` + git enrichment over a REAL temp repo with 200 changed files (server `MAX_FILES`); p95 of 20 sequential runs < 300 ms, median/p95/max logged. Own file because `session-diff.test.ts` mocks git + `node:fs`. See change: add-composer-dock (task 4.3, 10.24). |
 | `__tests__/session-routes-ui-links.test.ts` | #E6 owner-filtered rows with `uiUrl`/`diffUrl`, nothing persisted; #E7 `?id=` filter (prefix floor, case, owner gate, 400 on repeat). See change: add-session-ui-deep-links-for-agents. |

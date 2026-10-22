@@ -13,7 +13,7 @@ The client SHALL display a theme picker dropdown in the sidebar header area, ope
 
 #### Scenario: Current theme indicated
 - **WHEN** the theme picker dropdown is open
-- **THEN** the currently active theme SHALL show a checkmark or highlight
+- **THEN** the currently active theme SHALL show a highlight (selected-chip fill and border, semibold name)
 
 #### Scenario: Close dropdown
 - **WHEN** the user clicks outside the theme picker dropdown

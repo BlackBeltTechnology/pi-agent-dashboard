@@ -25,18 +25,21 @@ afterEach(() => {
 });
 
 describe("RuntimeUpdateBadge", () => {
-	it("shows the available version when updatable, and opens Settings → Packages", async () => {
-		serve({ runtime: runtime(true), check: { state: "available", target: "0.9.1" }, pending: null });
+	it("E12: glyph-only — the available version is in title/aria-label, not visible text; click opens Settings → Packages", async () => {
+		serve({ runtime: runtime(true), check: { state: "available", target: "0.12.3" }, pending: null });
 		render(<RuntimeUpdateBadge />);
-		fireEvent.click(await screen.findByTestId("runtime-update-badge"));
-		expect(screen.getByTestId("runtime-update-badge").textContent).toContain("0.9.1");
+		const badge = await screen.findByTestId("runtime-update-badge");
+		expect(badge.textContent).toBe("");
+		expect(badge.getAttribute("title")).toContain("0.12.3");
+		expect(badge.getAttribute("aria-label")).toContain("0.12.3");
+		fireEvent.click(badge);
 		expect(navigate).toHaveBeenCalledWith("/settings/add-ons");
 	});
 
 	it("shows a staged pending that is not the active runtime", async () => {
 		serve({ runtime: runtime(true), check: { state: "up_to_date", target: "0.9.0" }, pending: "0.9.2" });
 		render(<RuntimeUpdateBadge />);
-		expect((await screen.findByTestId("runtime-update-badge")).textContent).toContain("0.9.2");
+		expect((await screen.findByTestId("runtime-update-badge")).getAttribute("aria-label")).toContain("0.9.2");
 	});
 
 	it("hidden when the runtime is not updatable, even with a release available", async () => {

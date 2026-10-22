@@ -1,3 +1,5 @@
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import {
   DEVICE_TOKEN_ENV,
@@ -88,5 +90,70 @@ describe("minting a bridge ticket", () => {
 
   it("appends the ticket without clobbering an existing query", () => {
     expect(withTicket("ws://h:1/?a=b", "t k")).toBe("ws://h:1/?a=b&ticket=t%20k");
+  });
+});
+
+/**
+ * A wrong HTTP origin (the pi gateway answering the mint) must read as a wrong
+ * origin, not as a revoked credential.
+ * See change: fix-remote-bridge-ticket-origin (D3).
+ */
+describe("mint failure taxonomy", () => {
+  const statusFetch = (status: number) => (async () => ({ ok: false, status })) as unknown as typeof fetch;
+
+  it("#X1 a gateway answering the mint is a wrong origin", async () => {
+    const r = await mintBridgeTicket({
+      httpBase: "http://dash.example:9999",
+      token: "t",
+      originSource: "endpoint-host+http-port",
+      fetchImpl: statusFetch(426),
+    });
+    expect(r).toMatchObject({ ok: false, cause: "wrong-origin" });
+    const reason = r.ok === false ? r.reason : "";
+    expect(reason).toContain("http://dash.example:9999/api/ws-ticket");
+    expect(reason).toContain("426");
+    expect(reason).toContain("PI_DASHBOARD_HTTP_URL");
+    expect(reason).toContain("endpoint-host+http-port");
+    expect(reason).not.toContain("revoked");
+  });
+
+  it.each([
+    [401, "refused"],
+    [403, "refused"],
+    [400, "wrong-origin"],
+    [404, "wrong-origin"],
+    [500, "wrong-origin"],
+    [503, "wrong-origin"],
+  ])("#X2 HTTP %i → %s", async (status, cause) => {
+    const r = await mintBridgeTicket({ httpBase: "http://x", token: "t", fetchImpl: statusFetch(status) });
+    expect(r).toMatchObject({ ok: false, cause });
+  });
+
+  it("#X3 a redirect is never followed with the bearer", async () => {
+    const seen: Array<string | undefined> = [];
+    const server = http.createServer((req, res) => {
+      seen.push(req.headers.authorization);
+      res.writeHead(307, { location: "/api/ws-ticket2" });
+      res.end();
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const port = (server.address() as AddressInfo).port;
+      const r = await mintBridgeTicket({ httpBase: `http://127.0.0.1:${port}`, token: "t" });
+      expect(r).toMatchObject({ ok: false, cause: "wrong-origin" });
+      expect(seen).toHaveLength(1);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("#X4 a network error stays unreachable", async () => {
+    const server = http.createServer();
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as AddressInfo).port;
+    await new Promise<void>((r) => server.close(() => r()));
+    const r = await mintBridgeTicket({ httpBase: `http://127.0.0.1:${port}`, token: "t" });
+    expect(r).toMatchObject({ ok: false, cause: "unreachable" });
   });
 });

@@ -19,7 +19,6 @@ import { AbortLatch } from "./abort-latch.js";
 import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractLatestTurnWindow, } from "./bridge-context.js";
-import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import {
   createCommandHandler,
   tryExecSlashTemplate,
@@ -63,7 +62,7 @@ import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { getOwnPgid, } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
-import { httpBaseUrlFor, isRemoteEndpoint } from "./remote-registration-gate.js";
+import { createRemoteUpgradePreparer } from "./remote-upgrade-preparer.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, resolveNamingModel } from "./role-manager.js";
 import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels, isLive } from "./session-sync.js";
@@ -1034,27 +1033,15 @@ function initBridge(pi: ExtensionAPI) {
   inst.transportDiagnostics = transportDiagnostics;
   transportDiagnostics.record({ event: "endpoint_resolved", detail: endpointDetail });
 
-  /**
-   * Mint a fresh, single-use bridge ticket for a REMOTE endpoint.
-   *
-   * Returns undefined for a local endpoint (nothing to mint) and THROWS when a
-   * remote endpoint cannot be authorised, so ConnectionManager retries on its
-   * backoff rather than dialling a credential-less upgrade the gateway will
-   * refuse. The reason is logged once per attempt: "refused" here means the
-   * bearer is missing, unpaired or revoked, which is an operator problem and
-   * must not be reported as an unreachable dashboard.
-   */
-  async function prepareRemoteUpgrade(endpoint: string): Promise<{ url?: string } | undefined> {
-    if (!isRemoteEndpoint(endpoint)) return undefined;
-    const httpBase = httpBaseUrlFor(endpoint);
-    if (!httpBase) return undefined;
-    const minted = await mintBridgeTicket({ httpBase, token: readDeviceToken() });
-    if (!minted.ok) {
-      console.error(`[dashboard] bridge ticket ${minted.cause}: ${minted.reason}`);
-      throw new Error(minted.reason);
-    }
-    return { url: withTicket(endpoint, minted.ticket) };
-  }
+  // Mint a bridge ticket per remote dial; origin + failure causes: see
+  // `remote-upgrade-preparer.ts`. Log the resolved HTTP origin up front too
+  // (D4), deduped with the per-dial log.
+  const prepareRemoteUpgrade = createRemoteUpgradePreparer({
+    env: process.env,
+    log: console,
+    record: (d) => transportDiagnostics.record(d),
+  });
+  prepareRemoteUpgrade.noteOrigin(inst.dashboardUrl);
 
   // Long-lived ctx wrapper for the Extension UI System (Phase 1) — see
   // change: add-extension-ui-modal. `getSessionId` reads the closed-over

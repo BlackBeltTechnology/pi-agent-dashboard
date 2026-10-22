@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CHAT_PANE_ROW_TABLE, YOLO_FOOTER_HEIGHT } from "../layout/chat-pane-row-class.js";
+import { CHAT_PANE_ROW_TABLE, COLLAPSED_BAR_PX, YOLO_FOOTER_HEIGHT } from "../layout/chat-pane-row-class.js";
 
 /**
  * Task 2.2 / Test-Plan #E2: Classification completeness.
@@ -28,6 +28,8 @@ describe("chat-pane row classification completeness (L1, #E2)", () => {
       "composer-stack-anchor",
       "composer-dock",
       "composer-dock:footer-only",
+      "composer-dock:collapsed",
+      "composer-dock:collapsed-yolo",
       "composer-root",
       "content-inline-footer",
     ];
@@ -95,6 +97,23 @@ describe("composer dock row entries (L1, #F14)", () => {
   it("composer-dock:footer-only: bound == YOLO_FOOTER_HEIGHT, floor = bound + 1", () => {
     const spec = CHAT_PANE_ROW_TABLE["composer-dock:footer-only"];
     expect(spec).toMatchObject({ rowClass: "shrinkable", bound: YOLO_FOOTER_HEIGHT, floor: YOLO_FOOTER_HEIGHT + 1 });
+  });
+
+  // test-plan #E9 — See change: composer-dock-collapse-and-file-open.
+  it("collapsed entries: shrinkable, bound = bar (+ YOLO footer), floor = bound + 1", () => {
+    expect(COLLAPSED_BAR_PX).toBe(44);
+    expect(CHAT_PANE_ROW_TABLE["composer-dock:collapsed"]).toEqual({
+      rowClass: "shrinkable",
+      floor: COLLAPSED_BAR_PX + 1,
+      bound: COLLAPSED_BAR_PX,
+      weight: 1,
+    });
+    expect(CHAT_PANE_ROW_TABLE["composer-dock:collapsed-yolo"]).toEqual({
+      rowClass: "shrinkable",
+      floor: COLLAPSED_BAR_PX + YOLO_FOOTER_HEIGHT + 1,
+      bound: COLLAPSED_BAR_PX + YOLO_FOOTER_HEIGHT,
+      weight: 1,
+    });
   });
 
   it("the footer's fixed height is the h-8 line (32px) and the legacy fixed rows are gone", () => {

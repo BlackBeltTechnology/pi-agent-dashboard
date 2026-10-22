@@ -46,8 +46,10 @@ export interface ComposerDockLanesInput {
   onShutdownSession?: (sessionId: string) => void;
   /** Review: open the diff view. */
   onReview?: () => void;
-  /** Open one changed file's diff. */
+  /** Open one changed file itself in the editor pane (cwd-relative path). */
   onOpenFile?: (path: string) => void;
+  /** Open one changed file's diff tab in the editor pane (cwd-relative path). */
+  onOpenDiff?: (path: string) => void;
   /** Show the unclaimed working-tree changes (defaults to `onReview`). */
   onShowOtherChanges?: () => void;
 
@@ -97,6 +99,7 @@ export function useComposerDockLanes(input: ComposerDockLanesInput): readonly Ma
     mergeIsPrimary,
     onReview: input.onReview,
     onOpenFile: input.onOpenFile,
+    onOpenDiff: input.onOpenDiff,
     onShowOtherChanges: input.onShowOtherChanges,
   });
   const openspec = useOpenSpecLane({

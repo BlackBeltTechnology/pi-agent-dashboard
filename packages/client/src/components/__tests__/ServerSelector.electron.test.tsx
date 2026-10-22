@@ -40,7 +40,7 @@ async function openMenu(props: Partial<React.ComponentProps<typeof ServerSelecto
   const onSwitch = vi.fn();
   render(<ServerSelector currentHost="localhost" currentPort={8000} connected={true} onSwitch={onSwitch} {...props} />);
   await act(async () => {});
-  fireEvent.click(screen.getByTitle("Switch server"));
+  fireEvent.click(screen.getByTestId("connection-chip"));
   await act(async () => {});
   return { onSwitch };
 }
@@ -118,8 +118,8 @@ describe("local entry & absent capability (E39)", () => {
     const { onSwitch } = await openMenu({ currentHost: "192.168.16.204", currentPort: 8000 });
     // localhost probe is dead in this harness → make it available
     (globalThis as any).fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) } as Response));
-    fireEvent.click(screen.getByTitle("Switch server")); // close
-    fireEvent.click(screen.getByTitle("Switch server")); // reopen → re-probe
+    fireEvent.click(screen.getByTestId("connection-chip")); // close
+    fireEvent.click(screen.getByTestId("connection-chip")); // reopen → re-probe
     await act(async () => {});
     await waitFor(() => expect(entryButton("localhost:8000").textContent).toMatch(/Available/));
     fireEvent.click(entryButton("localhost:8000"));

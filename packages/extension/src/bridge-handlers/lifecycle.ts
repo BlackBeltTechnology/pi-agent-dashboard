@@ -213,6 +213,7 @@ export function registerProjectTrust(inst: BridgeInstance, overrides: Partial<Pr
             liveQuery: createHttpLiveQuery({
               endpoint: () => inst.dashboardUrl,
               httpPort: () => inst.rendezvous?.httpPort,
+              env: process.env,
             }),
             ...overrides,
           },
@@ -474,6 +475,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
         const verdict = await gateRemoteRegistration({
           endpoint: inst.dashboardUrl,
           store: loadServerPins(pinsFile),
+          env: process.env,
         });
         // Task 10.3: the cause is distinguishable in the log, not folded into
         // a generic connection failure.

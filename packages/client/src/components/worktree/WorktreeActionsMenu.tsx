@@ -381,6 +381,10 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             ref={sheetTriggerRef}
             type="button"
             onClick={() => setSheetOpen((s) => !s)}
+            // Marks the sheet as an open dock popover: a peeked composer dock stays open while it is up.
+            // See change: composer-dock-collapse-and-file-open (D3).
+            aria-haspopup="menu"
+            aria-expanded={sheetOpen}
             title={i18nT("worktree.worktreeActions", undefined, "Worktree actions")}
             data-testid="worktree-actions-mobile-trigger"
             className="inline-flex items-center justify-center min-h-6 min-w-6 px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"

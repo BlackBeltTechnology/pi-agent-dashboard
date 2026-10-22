@@ -77,6 +77,11 @@ export const CHAT_HEADER_WEIGHT = 2;
 export const YOLO_FOOTER_HEIGHT = 32;
 export const DOCK_LANE_HEADER_FLOOR = 41;
 export const DOCK_WEIGHT = 1;
+/**
+ * Height of the collapsed dock's one-line summary bar (also its phone tap target).
+ * See change: composer-dock-collapse-and-file-open (D2, D5).
+ */
+export const COLLAPSED_BAR_PX = 44;
 
 /**
  * Single source of truth for row classifications in `split-chat-pane`.
@@ -111,6 +116,20 @@ export const CHAT_PANE_ROW_TABLE: Record<string, ChatPaneRowSpec> = {
     rowClass: "shrinkable",
     floor: YOLO_FOOTER_HEIGHT + 1,
     bound: YOLO_FOOTER_HEIGHT,
+    weight: DOCK_WEIGHT,
+  },
+  // Collapsed dock (summary bar; peek overlay is absolute and not part of the row).
+  // Bound = bar (+ YOLO footer when live); floor = bound + 1 so the bar is never clipped.
+  "composer-dock:collapsed": {
+    rowClass: "shrinkable",
+    floor: COLLAPSED_BAR_PX + 1,
+    bound: COLLAPSED_BAR_PX,
+    weight: DOCK_WEIGHT,
+  },
+  "composer-dock:collapsed-yolo": {
+    rowClass: "shrinkable",
+    floor: COLLAPSED_BAR_PX + YOLO_FOOTER_HEIGHT + 1,
+    bound: COLLAPSED_BAR_PX + YOLO_FOOTER_HEIGHT,
     weight: DOCK_WEIGHT,
   },
   "content-header-sticky": {
