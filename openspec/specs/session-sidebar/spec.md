@@ -1,13 +1,15 @@
 ## Purpose
 
 The session sidebar is the primary navigation surface in the dashboard chrome. It displays the Pi brand mark, filter controls, and folder/session groupings, and SHALL render consistently across desktop and mobile shells.
+
 ## Requirements
+
 ### Requirement: Sidebar header
-The sidebar header SHALL display Pi branding (π symbol) that links to home (`/`) instead of the static "Sessions" text. Filter controls (theme picker, active only, show hidden) SHALL remain in the header row.
+The sidebar header SHALL display Pi branding (π symbol) that links to home (`/`) instead of the static "Sessions" text. The arrangement of the other header controls is governed by the `sidebar-header` capability.
 
 #### Scenario: Header displays Pi branding
 - **WHEN** the sidebar is rendered
-- **THEN** the header shows a styled "π" symbol linking to `/` alongside the existing filter controls
+- **THEN** the header shows the Pi brand mark linking to `/`
 
 #### Scenario: Header no longer shows Sessions text
 - **WHEN** the sidebar is rendered
@@ -28,12 +30,13 @@ Each folder group SHALL contain the group header (folder name, git info), the fo
 - **THEN** no session cards SHALL appear
 
 ### Requirement: Sidebar header brand mark (PiLogo)
-The sidebar header SHALL display the Pi brand mark via a shared inline-SVG React component (`PiLogo`) that links to home (`/`), instead of a literal `π` text character, a raster `<img>`, or the static "Sessions" text. Both sidebar implementations — the desktop sidebar header in `SessionList.tsx` and the alternate sidebar header in `SessionSidebar.tsx` — SHALL use the same `PiLogo` component. The SVG SHALL use `fill="currentColor"` so it inherits the surrounding text color (no opaque background, fully transparent in both light and dark themes), and SHALL expose `role="img"` with `aria-label="Pi Dashboard"`. The wrapping `<button>` SHALL retain `title="Home"`, click-to-home navigation, and theme-color styling (`text-blue-500 hover:text-blue-400 transition-colors`). Filter controls (theme picker, active only, show hidden, pin folder) SHALL remain in the header row.
+The sidebar header SHALL display the Pi brand mark via a shared inline-SVG React component (`PiLogo`) that links to home (`/`), instead of a literal `π` text character, a raster `<img>`, or the static "Sessions" text. Both sidebar implementations — the desktop sidebar header in `SessionList.tsx` and the alternate sidebar header in `SessionSidebar.tsx` — SHALL use the same `PiLogo` component. The SVG SHALL use `fill="currentColor"` so it inherits the surrounding text color (no opaque background, fully transparent in both light and dark themes), and SHALL expose `role="img"` with `aria-label="Pi Dashboard"`. The wrapping `<button>` SHALL retain `title="Home"`, click-to-home navigation, and theme-color styling (`text-blue-500 hover:text-blue-400 transition-colors`). The desktop header SHALL place the Discord link immediately after the home button; all other header controls follow the `sidebar-header` capability.
 
 #### Scenario: Header displays Pi branding via PiLogo SVG
 - **WHEN** the sidebar is rendered
 - **THEN** the header home button contains an `<svg>` element with `aria-label="Pi Dashboard"`
-- **AND** the button links to `/` alongside the existing filter controls
+- **AND** the button links to `/`
+- **AND** in the desktop header the next control after the button SHALL be the Discord link
 
 #### Scenario: Header brand element is not a text glyph or raster image
 - **WHEN** the sidebar is rendered
@@ -55,4 +58,3 @@ The sidebar header SHALL display the Pi brand mark via a shared inline-SVG React
 - **WHEN** the user hovers the sidebar header brand button
 - **THEN** the SVG visually responds via the button's `hover:text-blue-400` color transition
 - **AND** the `title="Home"` tooltip is exposed for assistive technologies
-

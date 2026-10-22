@@ -25,6 +25,7 @@ export function ThemeToggle() {
               : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
           }`}
           title={opt.label}
+          aria-pressed={preference === opt.value}
           data-testid={`theme-${opt.value}`}
         >
           <Icon path={opt.icon} size={0.5} />

@@ -1065,3 +1065,5 @@ export async function openAddPicker(page: Page): Promise<Locator> {
   return root;
 }
 
+
+export { connectionChip, openAppearance, openConnectionMenu, setSearch } from "./header.js";

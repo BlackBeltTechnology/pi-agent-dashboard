@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { openConnectionMenu } from "./header.js";
 
 /**
  * Remote access dialog helpers (change: add-remote-access-wizard).
@@ -9,6 +10,7 @@ import { expect, type Page } from "@playwright/test";
  * tolerate whichever step the stubbed state makes current.
  */
 export async function openRemoteAccess(page: Page): Promise<void> {
+  await openConnectionMenu(page);
   const btn = page.getByTestId("tunnel-btn");
   await expect(btn).toBeVisible({ timeout: 15_000 });
   await btn.click();

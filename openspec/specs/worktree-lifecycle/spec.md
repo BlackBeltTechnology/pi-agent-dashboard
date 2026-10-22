@@ -297,8 +297,10 @@ be registered in the `directory` group of `FOLDER_MENU_GROUPS`, opening the
 shared `WorktreeList` in `manage` mode.
 
 The server side requires no new capability for this: `POST
-/api/git/worktree/remove` already accepts any `cwd`, and `CloseWorktreeDialog`
-is already `cwd`-driven. Note the endpoint consults the session manager twice —
+/api/git/worktree/remove` accepts any admitted `cwd` (see `core-cwd-admission`),
+which includes every linked worktree of a repository whose main checkout is a
+session cwd or a pinned directory, and `CloseWorktreeDialog` is already
+`cwd`-driven. Note the endpoint consults the session manager twice —
 for the `409 active_sessions` guard, and to stamp `cwdMissing` on success.
 
 #### Scenario: Removing a worktree with no session
@@ -311,6 +313,16 @@ for the `409 active_sessions` guard, and to stamp `cwdMissing` on success.
 - **WHEN** removal from the manage surface returns `409 active_sessions`
 - **THEN** the dialog SHALL render the session list and the "End N sessions and remove worktree" path exactly as it does when opened from `WorktreeActionsMenu`
 - **AND** a `dirty_worktree` or `branch_not_merged` response SHALL auto-tick the `--force` checkbox as it does today
+
+#### Scenario: Worktree of a repository known only through a sibling worktree
+- **WHEN** the only known folder of a repository is a session inside linked worktree A, and the user removes linked worktree B from the manage surface
+- **THEN** the remove SHALL be refused with `cwd_unknown` and a hint to pin the repository
+- **AND** the dialog SHALL NOT report the worktree as removed or already gone
+
+#### Scenario: Sessionless worktree vanished before confirm
+- **WHEN** a sessionless linked worktree of a pinned repository is deleted outside the dashboard after the manage list loaded, and the user confirms its removal
+- **THEN** the remove SHALL be refused with `cwd_unknown`
+- **AND** the dialog SHALL show the error instead of closing as removed
 
 ### Requirement: Remove SHALL support deleting the worktree's branch
 
@@ -360,11 +372,16 @@ on the first failure, so a client can escalate the failed rows individually
 successful ones.
 
 Each item result SHALL carry `code: RemoveCode | "active_sessions" |
-"cwd_invalid" | "is_main_worktree"`, and SHALL carry `sessionIds: string[]` on
-the `active_sessions` case. The union is wider than `RemoveCode` deliberately:
+"cwd_invalid" | "cwd_unknown" | "cwd-admission-unavailable" | "is_main_worktree" |
+"main_checkout_unresolved"`,
+and SHALL carry `sessionIds: string[]` on the `active_sessions` case. The union is wider than `RemoveCode` deliberately:
 `active_sessions` is a route-level 409 condition and is not a member of
 `RemoveCode`, so without the widening the per-row escalation this requirement
-exists to enable would be unimplementable.
+exists to enable would be unimplementable. Items SHALL be admitted sequentially,
+one admission per distinct `cwd` per request, under a whole-batch admission
+budget of 10 seconds. An item whose admission is indeterminate, or is not yet
+decided when the budget is exhausted, SHALL report `cwd-admission-unavailable`;
+the batch response SHALL stay HTTP 200 without a `Retry-After` header.
 
 #### Scenario: Partial failure does not abort the batch
 - **WHEN** a batch of 3 removals is posted and the 2nd worktree is dirty
@@ -374,7 +391,7 @@ exists to enable would be unimplementable.
 - **AND** worktrees 1 and 3 SHALL be removed on disk
 
 #### Scenario: Per-item containment
-- **WHEN** any item in the batch carries a `cwd` that fails `validateCwd`, or resolves outside the main worktree
+- **WHEN** any item in the batch carries a `cwd` that fails `validateCwd` (including cwd admission), or resolves outside the main worktree
 - **THEN** that item SHALL be rejected with the validation code
 - **AND** the remaining items SHALL still be processed
 
@@ -397,6 +414,17 @@ exists to enable would be unimplementable.
 - **THEN** that item SHALL report `active_sessions` with its own `sessionIds`
 - **AND** the remaining items SHALL still be processed
 
+#### Scenario: Indeterminate admission is reported per item
+- **WHEN** one item of a 3-item batch has an indeterminate cwd admission
+- **THEN** that item SHALL report `cwd-admission-unavailable`
+- **AND** the other two items SHALL still be processed
+- **AND** the response SHALL be HTTP 200 without `Retry-After`
+
+#### Scenario: Exhausted admission budget
+- **WHEN** a batch's admissions have used the 10-second budget before every item is decided
+- **THEN** every undecided item SHALL report `cwd-admission-unavailable`
+- **AND** no git command SHALL run for those items
+
 ### Requirement: Stale worktree registrations SHALL be prunable
 
 `POST /api/git/worktree/prune` SHALL run `git worktree prune` in the resolved
@@ -414,8 +442,8 @@ main worktree, clearing registrations whose directory no longer exists.
 
 ### Requirement: Rows whose directory is gone SHALL route to prune, not remove
 
-`validateCwd` rejects a nonexistent path with `400 cwd_invalid` before any git
-command runs, so `remove` can never clear a registration whose directory has
+`validateCwd` rejects a nonexistent path before any git command runs (`400
+cwd_invalid` for a known path, `400 cwd_unknown` for an unknown one), so `remove` can never clear a registration whose directory has
 vanished. Because those registrations are exactly the abandoned entries the
 manage surface exists to clear, `GET /api/git/worktrees` SHALL report per-entry
 directory existence and the list SHALL route such rows to `prune`.

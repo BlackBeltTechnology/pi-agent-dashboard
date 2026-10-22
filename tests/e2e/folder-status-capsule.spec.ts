@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { dismissToasts, ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, folderHeaderBranch, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { dismissToasts, ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, folderHeaderBranch, gotoDashboard, sendPrompt, setSearch, spawnFreshGitSession } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -319,8 +319,8 @@ test.describe("folder status capsule", () => {
     // The folder filter is required alongside it: in session-search-only mode
     // the sidebar shows PINNED folders only, and this fixture folder is
     // unpinned.
-    await page.getByTestId("workspace-filter-input").first().fill("sample-git");
-    await page.getByTestId("session-search-input").first().fill(KEEP_NAME);
+    await setSearch(page, "folders", "sample-git");
+    await setSearch(page, "sessions", KEEP_NAME);
 
     // Capsule counts are filter-blind: the segment is still there.
     await expect(segment(page, "error")).toBeVisible();
@@ -334,8 +334,8 @@ test.describe("folder status capsule", () => {
       timeout: 15_000,
     });
 
-    await page.getByTestId("session-search-input").first().fill("");
-    await page.getByTestId("workspace-filter-input").first().fill("");
+    await setSearch(page, "sessions", "");
+    await setSearch(page, "folders", "");
   });
 
   test("removing the only errored session drops its segment, never a dead target (test-plan #X2)", async ({

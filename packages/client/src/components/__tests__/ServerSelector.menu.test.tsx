@@ -36,13 +36,16 @@ describe("ServerSelector menu button", () => {
 
   // retro-ux-identity-connectivity (test-plan #E8, #F1, #F2, #F4): trigger word + APG menu button.
   describe("trigger word (E8)", () => {
+    // declutter-sidebar-header: the always-on "Connected" word is gone (the dot + name carry it);
+    // only the disconnected state keeps a visible word.
     it.each([
       [true, "Connected"],
       [false, "Offline"],
-    ])("connected=%s shows the word %s, names it, keeps the title", async (connected, word) => {
+    ])("connected=%s names the state %s, keeps the title", async (connected, word) => {
       render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={connected} onSwitch={() => {}} />);
       const trigger = screen.getByTitle("Switch server");
-      expect(within(trigger).getByText(word)).toBeTruthy();
+      if (connected) expect(within(trigger).queryByText(word)).toBeNull();
+      else expect(within(trigger).getByText(word)).toBeTruthy();
       expect(trigger.getAttribute("aria-label")?.toLowerCase()).toContain(word.toLowerCase());
       expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
       expect(trigger.getAttribute("aria-expanded")).toBe("false");

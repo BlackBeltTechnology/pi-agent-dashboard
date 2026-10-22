@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { harnessContainer, inContainer } from "./helpers/folder-collapse.js";
-import { byTestId, dismissToasts, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, dismissToasts, openAppearance, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — AsciiDoc preview styling (change: asciidoc-support, test-plan
 // #F1–#F6). The server renders `.adoc` via asciidoctor; the client wraps that
@@ -120,9 +120,7 @@ test.describe("AsciiDoc preview styling", () => {
     // The ThemePicker lives in the sidebar header, which stays mounted next to
     // the editor pane — so no navigation or reload happens between samples.
     await dismissToasts(page);
-    await page.getByTestId("theme-picker-trigger").click();
-    const dropdown = page.getByTestId("theme-picker-dropdown");
-    await expect(dropdown).toBeVisible({ timeout: 10_000 });
+    const dropdown = await openAppearance(page);
     const options = dropdown.locator('[data-testid^="theme-option-"]');
     const count = await options.count();
     expect(count).toBeGreaterThan(1);
@@ -135,8 +133,7 @@ test.describe("AsciiDoc preview styling", () => {
       await expect(dropdown).toHaveCount(0, { timeout: 10_000 });
       after = await headingColor();
       if (after !== before) break;
-      await page.getByTestId("theme-picker-trigger").click();
-      await expect(dropdown).toBeVisible({ timeout: 10_000 });
+      await openAppearance(page);
     }
     expect(after, "no registered theme changed the .asciidoc-body heading colour").not.toBe(before);
     // Same document object: the sentinel survived, so the colour change came

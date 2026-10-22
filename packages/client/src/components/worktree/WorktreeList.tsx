@@ -27,6 +27,7 @@
 
 import { slugifyBranch } from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
 import { useEffect, useMemo, useState } from "react";
+import { resolveServerMessage } from "../../lib/api/server-error.js";
 import type { WorktreeEntry } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
@@ -445,7 +446,7 @@ function WorktreeRow({
             className="mt-1 flex items-center gap-2 text-[12px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded px-2 py-1"
           >
             <span aria-hidden="true">⚠</span>
-            <span>{failure.message ?? failure.code}</span>
+            <span>{failure.message ?? resolveServerMessage({ code: failure.code })}</span>
             {failure.onRetry && (
               <button
                 type="button"

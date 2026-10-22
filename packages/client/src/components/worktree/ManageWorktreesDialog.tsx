@@ -20,6 +20,7 @@
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { resolveServerMessage } from "../../lib/api/server-error.js";
 import {
   fetchWorktrees,
   pruneWorktrees,
@@ -269,7 +270,7 @@ function buildFailures(
   return next;
 }
 
-function describeFailure(item: RemoveBatchItemResult): string {
+export function describeFailure(item: RemoveBatchItemResult): string {
   switch (item.code) {
     case "active_sessions":
       // Carry the per-item sessionIds through so an escalation retry can use them.
@@ -279,6 +280,7 @@ function describeFailure(item: RemoveBatchItemResult): string {
     case "cwd_invalid":
       return i18nT("worktree.alreadyGone", undefined, "already gone");
     default:
-      return item.code;
+      // `cwd_unknown` / `cwd-admission-unavailable` resolve through `err.*`; an unmapped code stays itself.
+      return resolveServerMessage({ code: item.code });
   }
 }

@@ -23,13 +23,20 @@ import { createWorktreeInitRegistry } from "../git-worktree/worktree-init-regist
 import { recordTrust } from "../git-worktree/worktree-init-trust.js";
 import { registerGitRoutes } from "../routes/git-routes.js";
 
+/** Dirs the route admission treats as known folders (session/pinned stand-ins). See change: core-cwd-admission. */
+const KNOWN: string[] = [];
+const known = <T extends string>(p: T): T => {
+  KNOWN.push(p);
+  return p;
+};
+
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"] });
 }
 
 /** Repo with a declared worktreeInit hook. `command` defaults to a no-op. */
 function makeHookRepo(hook: WorktreeInitHook): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-init-")));
+  const dir = known(realpathSync(mkdtempSync(join(tmpdir(), "git-wt-init-"))));
   git("-c init.defaultBranch=main init", dir);
   git("config user.email test@test.com", dir);
   git("config user.name Test", dir);
@@ -43,7 +50,7 @@ function makeHookRepo(hook: WorktreeInitHook): string {
 
 /** Non-git dir with a declared worktreeInit hook (no `git init`). */
 function makeHookDir(hook: WorktreeInitHook): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "nongit-wt-init-")));
+  const dir = known(realpathSync(mkdtempSync(join(tmpdir(), "nongit-wt-init-"))));
   mkdirSync(join(dir, ".pi"), { recursive: true });
   writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({ worktreeInit: hook }));
   return dir;
@@ -51,12 +58,12 @@ function makeHookDir(hook: WorktreeInitHook): string {
 
 /** Non-git dir with no `.pi/settings.json`. */
 function makePlainDir(): string {
-  return realpathSync(mkdtempSync(join(tmpdir(), "nongit-wt-plain-")));
+  return known(realpathSync(mkdtempSync(join(tmpdir(), "nongit-wt-plain-"))));
 }
 
 /** Plain repo: no `.pi/settings.json`. */
 function makePlainRepo(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-plain-")));
+  const dir = known(realpathSync(mkdtempSync(join(tmpdir(), "git-wt-plain-"))));
   git("-c init.defaultBranch=main init", dir);
   git("config user.email test@test.com", dir);
   git("config user.name Test", dir);
@@ -68,7 +75,7 @@ function makePlainRepo(): string {
 
 /** Repo with `.pi/settings.json` but NO `worktreeInit` hook (state ③). */
 function makeConfiguredNoHookRepo(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-nohook-")));
+  const dir = known(realpathSync(mkdtempSync(join(tmpdir(), "git-wt-nohook-"))));
   git("-c init.defaultBranch=main init", dir);
   git("config user.email test@test.com", dir);
   git("config user.name Test", dir);
@@ -82,7 +89,7 @@ function makeConfiguredNoHookRepo(): string {
 
 async function makeApp(guard: (req: any, reply: any) => Promise<void> = async () => {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
-  registerGitRoutes(app, { networkGuard: guard });
+  registerGitRoutes(app, { networkGuard: guard, knownCwds: () => KNOWN });
   await app.ready();
   return app;
 }
@@ -181,7 +188,7 @@ describe("GET /api/git/worktree/init-status", () => {
   // test-plan #E3
   it("config-root resolution: a worktree resolves its checklist against the main checkout", async () => {
     repo = makePlainRepo(); // committed README only, no tracked .pi/
-    const wt = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-linked-")));
+    const wt = known(realpathSync(mkdtempSync(join(tmpdir(), "git-wt-linked-"))));
     rmSync(wt, { recursive: true, force: true });
     execSync(`git worktree add ${wt} -b feat-checklist`, { cwd: repo, stdio: ["pipe", "pipe", "pipe"] });
     // Write .pi/settings.json ONLY in the main checkout, untracked, so the
@@ -372,7 +379,7 @@ describe("POST /api/git/worktree/init — trust scope", () => {
 
   it("S12 session scope on external non-git dir → runs, disk unchanged", async () => {
     const hook = scriptHook("test ! -d node_modules", "touch RAN_MARKER");
-    dir = realpathSync(mkdtempSync(join(tmpdir(), "nongit-scope-")));
+    dir = known(realpathSync(mkdtempSync(join(tmpdir(), "nongit-scope-"))));
     mkdirSync(join(dir, ".pi"), { recursive: true });
     writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({ worktreeInit: hook }));
     const res = await app.inject({
@@ -489,7 +496,7 @@ describe("non-git dir — POST /api/git/worktree/init", () => {
 describe("GET /api/git/worktree/active-inits", () => {
   async function makeAppWithRegistry(registry: ReturnType<typeof createWorktreeInitRegistry>) {
     const app = Fastify({ logger: false });
-    registerGitRoutes(app, { networkGuard: async () => {}, worktreeInitRegistry: registry });
+    registerGitRoutes(app, { networkGuard: async () => {}, worktreeInitRegistry: registry, knownCwds: () => KNOWN });
     await app.ready();
     return app;
   }
@@ -555,7 +562,7 @@ describe("worktree-init endpoints — off-loopback", () => {
 describe("apply-checkout-root-to-worktree-ops — E20: null config root skips the probe", () => {
   it("bare repo with a declared hook → hasHook:false; the hook is never read (no probe under cwd)", async () => {
     const normal = makePlainRepo();
-    const bare = `${normal}-bare.git`;
+    const bare = known(`${normal}-bare.git`);
     execSync(`git clone -q --bare "${normal}" "${bare}"`, { stdio: "pipe" });
     // The bare hub carries `.pi/settings.json` declaring a hook. A config
     // root coerced to cwd would read and report it; the fail-closed null

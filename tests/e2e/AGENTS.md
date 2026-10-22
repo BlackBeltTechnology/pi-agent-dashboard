@@ -229,6 +229,7 @@ One row per file.
 | `settings-default-model-catalogue.spec.ts` | → `settings-default-model-catalogue.spec.ts.AGENTS.md` |
 | `severity-contrast.spec.ts` | → `severity-contrast.spec.ts.AGENTS.md` |
 | `settings-provider-auth-corrupt-authfile.spec.ts` | → `settings-provider-auth-corrupt-authfile.spec.ts.AGENTS.md` |
+| `sidebar-header-fit.spec.ts` | → `sidebar-header-fit.spec.ts.AGENTS.md` |
 | `skill-atlas.spec.ts` | → `skill-atlas.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | → `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | → `smoke.spec.ts.AGENTS.md` |

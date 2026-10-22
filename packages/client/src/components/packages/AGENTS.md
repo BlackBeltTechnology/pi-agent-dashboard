@@ -11,7 +11,6 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `AddonsIssuesTab.tsx` | Add-ons Issues tab: enabled plugins with `error`/missing requirements (`CopyableErrorBlock`, `MissingRequirementsBlock`, settings link) + `PackageHealthPanel`; "No issues"; restart banner after cleanup. Reads the shared `useAddonIssues` snapshot. See change: addons-hub-folder-view. |
 | `AddonsUpdatesTab.tsx` | Updates tab: updatable package parts + pi core, "Update all" enqueues parts then core FIFO via the package queue. Row rendering injected. `updatableParts`. See change: addons-hub-feature-catalog. |
 | `InstallBanner.tsx` | Mobile-only PWA install banner (`md:hidden`). Shows iOS Share→Add-to-Home-Screen hint or generic install… → see `InstallBanner.tsx.AGENTS.md` |
-| `InstallButton.tsx` | Icon-only install-app button (`mdiDownload`). Renders null when `!canInstall` or `isInstalled`. Exports `InstallButton`. |
 | `InstalledPackagesList.tsx` | Shared installed-packages list for Settings + Pi Resources. → see `InstalledPackagesList.tsx.AGENTS.md` |
 | `PackageBrowser.tsx` | Main package management surface. Exports `PackageBrowser`. → see `PackageBrowser.tsx.AGENTS.md` |
 | `PackageCard.tsx` | Search-result card for one npm package. Exports `PackageCard`. → see `PackageCard.tsx.AGENTS.md` |

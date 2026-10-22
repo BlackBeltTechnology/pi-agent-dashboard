@@ -22,6 +22,7 @@
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React, { useState } from "react";
+import { resolveServerMessage } from "../../lib/api/server-error.js";
 import { removeWorktree } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
@@ -132,7 +133,7 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
         {error && (
           <div className="text-xs text-red-400 space-y-1" data-testid="close-error">
             <div>
-              {error.code}
+              {resolveServerMessage({ code: error.code })}
               {(error.code === "dirty_worktree" || error.code === "branch_not_merged") && (
                 <span className="ml-2 text-[var(--text-secondary)]">
                   {i18nT("common.uncommittedChangesEnable", undefined, "— uncommitted changes. Enable")} <code>--force</code> {i18nT("common.aboveAndClickRemoveAgain", undefined, "above and click Remove again.")}

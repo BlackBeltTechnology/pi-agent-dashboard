@@ -44,3 +44,21 @@ describe("resolveServerMessage", () => {
     expect(resolveServerMessage({ message: "plain error" }, hu)).toBe("plain error");
   });
 });
+
+// core-cwd-admission (test-plan E18): the new core codes resolve through the err.* catalog.
+describe("core-cwd-admission codes", () => {
+  it.each([
+    ["cwd_unknown", "err.cwd_unknown"],
+    ["cwd-admission-unavailable", "err.cwd_admission_unavailable"],
+    ["invalid_name", "err.invalid_name"],
+  ])("%s maps to %s and renders catalog text, not the raw code", async (code, key) => {
+    expect(errKeyForCode(code)).toBe(key);
+    const en = (await import("../lib/i18n-en-source.json")).default as Record<string, string>;
+    expect(en[key]).toBeTruthy();
+    // English UI (no catalog): the built-in fallback equals the en-source text.
+    expect(resolveServerMessage({ code })).toBe(en[key]);
+    // A translated UI resolves through the catalog even when the server sent its own message.
+    const out = resolveServerMessage({ code, message: "server english" }, makeT({ [key]: "translated" }));
+    expect(out).toBe("translated");
+  });
+});

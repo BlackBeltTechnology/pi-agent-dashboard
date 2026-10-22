@@ -78,7 +78,7 @@ The server SHALL expose `POST /api/git/stash-pop` (localhost-only) that pops the
 ### Requirement: Read HEAD endpoint
 The server SHALL expose `GET /api/git/head?cwd=<path>` (localhost-only) returning the current HEAD state of the given directory. The endpoint SHALL be used by the worktree dialog to compute its default base branch.
 
-Response shape: `{ branch: string | null, detached: boolean, sha: string | null }`. On error, `{ success: false, error: <code>, message: <human> }` with stable codes (`not_a_repo`, `cwd_invalid`, `git_failed`).
+Response shape: `{ branch: string | null, detached: boolean, sha: string | null }`. On error, `{ success: false, error: <code>, message: <human> }` with stable codes (`not_a_repo`, `cwd_invalid`, `cwd_unknown`, `cwd-admission-unavailable`, `git_failed`).
 
 #### Scenario: Attached HEAD on a branch
 - **WHEN** `GET /api/git/head?cwd=/repo` is called and HEAD points to `develop`
@@ -93,8 +93,12 @@ Response shape: `{ branch: string | null, detached: boolean, sha: string | null 
 - **THEN** the response SHALL be `{ success: false, error: "not_a_repo", message: "<human-readable>" }`
 
 #### Scenario: Missing or invalid cwd
-- **WHEN** the `cwd` query parameter is absent or fails realpath validation
+- **WHEN** the `cwd` query parameter is absent, or names an admitted path that does not exist or is not a directory
 - **THEN** the response SHALL be `{ success: false, error: "cwd_invalid" }`
+
+#### Scenario: Cwd not admitted
+- **WHEN** the `cwd` query parameter names a path the cwd admission guard refuses
+- **THEN** the response SHALL carry `cwd_unknown`
 
 #### Scenario: Localhost-only
 - **WHEN** the request originates from a non-loopback address and is not in the trusted bypass set
@@ -192,7 +196,7 @@ The endpoint SHALL:
 
 The endpoint SHALL NOT run any initialization or dependency-install step. Initialization is delegated to the gated, manually-triggered worktree-init hook (`GET /api/git/worktree/init-status` + `POST /api/git/worktree/init`).
 
-Error response shape: `{ success: false, error: <code>, message: <human>, stderr?: string }`. Stable codes: `not_a_repo`, `cwd_invalid`, `branch_in_use`, `branch_exists`, `path_exists`, `base_not_found`, `git_failed`.
+Error response shape: `{ success: false, error: <code>, message: <human>, stderr?: string }`. Stable codes: `not_a_repo`, `cwd_invalid`, `cwd_unknown`, `cwd-admission-unavailable`, `branch_in_use`, `branch_exists`, `path_exists`, `base_not_found`, `git_failed`.
 
 When the server maps a git error to `branch_in_use`, the `message` field SHALL include the path of the worktree currently holding the branch when git's stderr exposes it (pattern `already used by worktree at '<path>'`). When the path cannot be parsed, the message SHALL fall back to a generic phrasing.
 
@@ -264,7 +268,7 @@ The server SHALL register the four new endpoints under `/api/git/worktree/*` def
 - `POST /api/git/worktree/pr`
 - `GET /api/git/worktree/diff-stat`
 
-Every route SHALL apply the existing `validateCwd` (realpath check via `safeRealpathSync`) and SHALL be gated on loopback / trusted-bypass like the existing `POST /api/git/worktree` (create) route.
+Every route SHALL apply `validateCwd`, which admits the `cwd` with the shared cwd admission guard before any other check (see "Git endpoints admit the cwd before endpoint-specific validation"), and SHALL be gated on loopback / trusted-bypass like the existing `POST /api/git/worktree` (create) route.
 
 #### Scenario: All routes accept POST/GET shape from existing dialog
 - **WHEN** any of the four routes is called with a valid cwd
@@ -632,7 +636,9 @@ The resolution SHALL be performed at most ONCE PER DISTINCT `cwd` per request
 and threaded to the operation, and SHALL be issued with an explicit per-probe
 timeout suited to a request path rather than the default batch-job budget. A
 batch endpoint that classifies per item resolves once per item `cwd`; it SHALL
-NOT resolve the same `cwd` twice within one request.
+NOT resolve the same `cwd` twice within one request. The cwd admission guard's own
+main-checkout derivation (see `core-cwd-admission`) is a guard probe that runs
+before the operation and is not counted as this resolution.
 
 #### Scenario: Submodule checkout resolves to the submodule working tree
 - **GIVEN** `cwd` is inside a submodule whose git dir is `<super>/.git/modules/<name>`
@@ -692,6 +698,10 @@ NOT resolve the same `cwd` twice within one request.
 - **WHEN** a worktree operation resolves the main checkout for that `cwd`
 - **THEN** the resolution SHALL be treated as unresolved
 - **AND** the operation SHALL refuse with its established error code
+
+#### Scenario: Admission derivation is not the anchor resolution
+- **WHEN** a remove request names a sessionless linked worktree of a pinned repository, so admission derives its main checkout
+- **THEN** the remove operation SHALL still resolve its anchor at most once for that `cwd`
 
 ### Requirement: Main-worktree removal guard fails closed
 
@@ -851,3 +861,53 @@ generic failure whose stderr is empty.
 #### Scenario: Pull-request creation passes the title untouched
 - **WHEN** a create-pull-request request carries a title containing `"` and `$(`
 - **THEN** `gh pr create` SHALL receive the title as one argument with those characters intact
+
+### Requirement: Git endpoints admit the cwd before endpoint-specific validation
+Every `/api/git/*` endpoint that accepts a `cwd` SHALL admit it (see
+`core-cwd-admission`) before any other check on it, other than presence and type. A cwd
+that is not admitted SHALL be refused with `400 { success: false, code:
+"cwd_unknown" }` and a message stating it is not a known folder and the
+repository can be pinned. Admission SHALL take precedence over every
+endpoint-specific outcome (e.g. `not_a_repo`).
+
+#### Scenario: Unknown directory on worktree create
+- **WHEN** a worktree create request names an existing directory that is not admitted
+- **THEN** the response SHALL be 400 `cwd_unknown` with the not-a-known-folder message, and no `git worktree` command SHALL run
+
+#### Scenario: Unknown directory on a mutating lifecycle endpoint
+- **WHEN** a remove, prune, merge, push or PR-create request names an existing directory that is not admitted
+- **THEN** the response SHALL be 400 `cwd_unknown`, and no git command SHALL run
+
+#### Scenario: Unknown directory on git init
+- **WHEN** a `POST /api/git/init` request names an existing directory that is not admitted
+- **THEN** the response SHALL be 400 `cwd_unknown`, and no repository SHALL be created
+
+#### Scenario: Unknown directory on branch checkout
+- **WHEN** a `POST /api/git/checkout` request names an existing directory that is not admitted
+- **THEN** the response SHALL be 400 `cwd_unknown`, and no git command SHALL run
+
+#### Scenario: Unknown non-repository directory
+- **WHEN** a HEAD request names an existing non-repository directory that is not admitted
+- **THEN** the response SHALL be 400 `cwd_unknown`, not `not_a_repo`
+
+#### Scenario: Known non-repository directory
+- **WHEN** a HEAD request names a pinned directory that is not a git repository
+- **THEN** the response SHALL be `not_a_repo` as before this change
+
+### Requirement: Git cwd validation codes extend the stable code sets
+An omitted cwd SHALL keep `cwd_invalid` "cwd required". An admitted cwd that does
+not exist or is not a directory SHALL keep `cwd_invalid` with its existing
+message. `cwd_unknown` and `cwd-admission-unavailable` SHALL extend every git
+endpoint's set of stable error codes.
+
+#### Scenario: Unknown missing path reveals no existence
+- **WHEN** a git request names a path that does not exist and is not a known folder
+- **THEN** the response SHALL be 400 `cwd_unknown`
+
+#### Scenario: Known missing path keeps its message
+- **WHEN** a git request names a session cwd whose directory was deleted
+- **THEN** the response SHALL be 400 `cwd_invalid` with message `cwd does not exist`
+
+#### Scenario: Omitted cwd unchanged
+- **WHEN** a git request omits `cwd`
+- **THEN** the response SHALL be 400 `cwd_invalid` with message `cwd required`

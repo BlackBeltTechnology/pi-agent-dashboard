@@ -392,7 +392,7 @@ describe("SessionList header layout", () => {
     expect(appBar.contains(settingsBtn)).toBe(true);
   });
 
-  it("places theme controls in app-bar row", () => {
+  it("places the Appearance control in the app-bar row; the mode toggle lives inside its dropdown", () => {
     render(
       <TestRouter>
         <ThemeProvider>
@@ -405,9 +405,10 @@ describe("SessionList header layout", () => {
     );
     const appBar = screen.getByTestId("header-app-bar");
     const themePicker = appBar.querySelector('[data-testid="theme-picker"]');
-    const themeToggle = appBar.querySelector('[data-testid="theme-toggle"]');
     expect(themePicker).toBeTruthy();
-    expect(themeToggle).toBeTruthy();
+    expect(appBar.querySelector('[data-testid="theme-toggle"]')).toBeNull();
+    fireEvent.click(screen.getByTestId("theme-picker-trigger"));
+    expect(appBar.querySelector('[data-testid="theme-picker-dropdown"] [data-testid="theme-toggle"]')).toBeTruthy();
   });
 
   it("filter bar no longer renders the folder pin chip", () => {

@@ -94,7 +94,8 @@ describe("directory card blocks (#E17)", () => {
     renderList({ global: { "folder-create": false } });
     expect(has("folder-spawn-session-btn")).toBe(false);
     expect(screen.queryByText("Create")).toBeNull();
-    expect(screen.queryByText("Sessions")).toBeNull();
+    // The scoped search box has its own "Sessions" toggle; only the folder-card divider must be gone.
+    expect(screen.queryAllByText("Sessions").filter((el) => !el.closest('[data-testid="search-scope-sessions"]'))).toEqual([]);
     expect(has(`folder-ended-toggle-${CWD}`)).toBe(true);
   });
 

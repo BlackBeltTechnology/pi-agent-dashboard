@@ -26,6 +26,11 @@ import {
 } from "./git-api.js";
 import { initStore } from "./worktree-init-store.js";
 
+/** Re-probe cadence while the server still reports the new worktree as an unknown cwd (D7). */
+const ADMISSION_REPROBE_MS = 500;
+/** Give-up deadline for that re-probing; the manual `WorktreeInitButton` stays available. */
+const ADMISSION_REPROBE_DEADLINE_MS = 10_000;
+
 /** Route a run result to the store (done-flash / failed-sticky / clear). */
 function applyRunResult(cwd: string, res: WorktreeInitResult): void {
   if (res.ok) {
@@ -54,7 +59,16 @@ export async function maybeAutoInitWorktreeOnSpawn(cwd: string): Promise<boolean
     const enabled = await fetchAutoInitWorktreePref();
     if (!enabled) return false;
 
-    const status = await fetchWorktreeInitStatus(cwd);
+    // The spawned session registers its cwd concurrently; until then the server answers
+    // `cwd_unknown`. Re-probe (500 ms, at most 10 s) instead of mistaking it for "no hook".
+    // See change: core-cwd-admission (D7).
+    const probeStartedAt = Date.now();
+    let status = await fetchWorktreeInitStatus(cwd);
+    while (status.cwdUnknown === true) {
+      if (Date.now() - probeStartedAt >= ADMISSION_REPROBE_DEADLINE_MS) return false;
+      await new Promise((resolve) => setTimeout(resolve, ADMISSION_REPROBE_MS));
+      status = await fetchWorktreeInitStatus(cwd);
+    }
     if (status.hasHook !== true || status.needsInit !== true || status.trusted !== true) {
       return false;
     }

@@ -16,3 +16,4 @@ Exports `WorktreeList`, plus pure helpers `normalisePath`, `basenameOf`, `isInTr
 See change: align-ui-with-theme-tokens. Buttons/links 12 px, `min-h-[44px] sm:min-h-[32px]`, `focus-ring`; remove ✕ 44/32 px with `--tint-red-*` hover; main/missing badges 11 px no uppercase. `ManageWorktreesDialog` inherits.
 
 See change: align-ui-with-theme-tokens. Tint/target recipe via `tint-action-*` / `tap-target` utilities (index chunk cap).
+Failure strip text: `failure.message ?? resolveServerMessage({code})`. See change: core-cwd-admission.

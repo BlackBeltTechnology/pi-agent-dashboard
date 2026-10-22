@@ -2,7 +2,46 @@
 
 Research dossier. Explore-mode, no change / no impl.
 Date: 2026-10-21.
-Status: OPEN — spikes A-parts, B prototype, monorepo spikes C+D done, direction not chosen.
+Status: OPEN — spikes C–G done; SECURITY finding + remote-bridge bug found; direction not chosen.
+
+## Security finding — loopback trust from containers (2026-10-22)
+
+**SECURITY. Fix independently, urgently. Not part of containerized spawn.**
+
+Env: macOS Docker Desktop; podman 6 applehv; live dashboard `:8000`.
+
+Observed:
+- Container → `host.docker.internal` reaches host servers bound `127.0.0.1` only.
+- Host server sees `peer=127.0.0.1`.
+- Podman applehv: injected `host.containers.internal` = `169.254.1.2` → connection refused.
+- gvproxy gateway `192.168.127.254` works; `peer=127.0.0.1`.
+- Honest `Host: host.docker.internal` → 403 `host_not_allowed` (host admission).
+- Spoofed `Host: 127.0.0.1:<port>` from container → treated as genuinely-local caller.
+
+Isolated test dashboard (HOME scratch, ports 18777/18779):
+- `POST /api/ws-ticket {scope:"bridge"}`, no bearer → 200 ticket.
+- `POST /api/paired-devices` (operatorGuard) → 200 DURABLE device token.
+- Tier `observe` default; tier `operate` on request.
+
+LIVE dashboard `:8000`, one read-only probe from a container:
+- Spoofed Host `GET /api/paired-devices` → 200, count 7.
+- Honest Host → 403.
+
+Impact:
+- Any process in any Docker Desktop container on this Mac can mint `operate`-tier durable credential.
+- Example: malicious package postinstall in unrelated container.
+
+Root cause (as observed):
+- `operatorGuard` and `/api/ws-ticket` accept bare loopback peer + admitted Host header.
+- Safe pattern: `createApprovalGuard`. No bare-loopback branch. Requires login session / local-proof cookie / `X-Pi-Local-Token`.
+
+Also observed:
+- Unrelated local service `127.0.0.1:18791` (browser control endpoint) readable from container.
+- General Docker Desktop loopback exposure.
+
+Action:
+- Separate security-hardening change. Not containerized spawn.
+- Never trust bare loopback.
 
 ## Problem
 
@@ -442,6 +481,117 @@ Contrast Spike C `:O`: stale ESTALE on host delete, split-brain on container wri
 | c | host-side watcher deletes stray Linux artefacts |
 | d | mount whole `packages/` rw + `NODE_COMPILE_CACHE` → VM-local dir (kills leak 1) |
 
+## Spike E — node_modules drift detect + recreate loop (2026-10-22)
+
+Setup:
+- Scratch clone `~/.pi-spike-e` (outside repo).
+- `up.sh` recreates container from `nm-dirs.txt`.
+- Volume name = hash of dir path. Mount `:U`.
+- podman `--userns=keep-id --init`.
+
+Timings:
+| Step | Result |
+|---|---|
+| Root install, fresh store | 55 s ("Done in 53.9s") |
+| Recreate container, first | 4 s |
+| Recreate container, later | 13 s |
+| Deps after recreate | volumes persist ⇒ 1106 entries, no reinstall |
+
+Drift forced:
+- `semver@5.7.2` added to `packages/anti-slop` (root semver 7.8.5).
+- Nested `packages/anti-slop/node_modules` (6 files) leaked to host.
+- Detector also caught `packages/pi-forms-bpmn/node_modules` (552 files, node compile cache).
+
+`drift.sh` loop:
+1. Detect non-empty `node_modules` dirs not in list.
+2. Append to `nm-dirs.txt`.
+3. Purge host-side content.
+4. Recreate container.
+5. Reinstall.
+
+| Step | Time |
+|---|---|
+| detect + purge | 1 s |
+| recreate | 2 s |
+| reinstall | 2 s |
+| total | 5 s |
+
+- Mounts 57 → 59.
+- Second run: "no drift" (idempotent).
+- Host clean.
+
+Hazard — plain reinstall = no-op:
+- `pnpm install --frozen-lockfile` after recreate → no-op ("Done in 470ms" / "317ms").
+- New volume empty ⇒ container resolved semver 7.8.5 (wrong).
+- Delete only `node_modules/.modules.yaml` → still no-op.
+- Delete `node_modules/.modules.yaml` AND `node_modules/.pnpm-workspace-state-v1.json` ⇒ forced relink 128 s ("Done in 2m 8.6s").
+- After relink: container anti-slop semver 5.7.2 ✓; root 7.8.5 ✓; host anti-slop entries 0 ✓.
+
+pnpm hazards:
+1. `packages/client` `prepare` (`node scripts/vite-build.mjs build && node scripts/precompress.mjs`) → V8 "JavaScript heap out of memory" in 5g container (passed in Spike D once) ⇒ `NODE_OPTIONS=--max-old-space-size=3072`.
+2. Interrupted pnpm run (OOM abort / failed `pnpm add` exit 1 after 157 s) ⇒ next install stalls on `[WARN] GET …@biomejs/cli-<other-platform>… error (23)` retries (cross-platform optional tarballs). Recovery = wipe store volume.
+3. Relinks also emit `error (23)` retries (8 in 128 s run) but complete.
+
+## Spike F — non-root re-run (2026-10-22)
+
+- Container uid 502 (`--userns=keep-id`).
+- Container-written files appear on host as `robson` 501:20.
+- `corepack enable` impossible non-root ⇒ use `corepack pnpm`.
+
+Fix-by-fix:
+| Former env failure | Cause | Fix | Result |
+|---|---|---|---|
+| extension `project-trust.test.ts` #X11 unreadable parent | root ignores chmod 000 | non-root | 60/60 ✓ |
+| shared `openspec-effective-status-script.test.ts` (5) | `.pi/skills/openspec-shared/scripts/effective-status.sh` needs `jq` (9 uses) + `openspec` (8 uses); image has neither ⇒ `ready` instead of `done` | `apt-get install jq` + `PATH=<repo>/node_modules/.bin:$PATH` | ✓ |
+| shared `platform-process.test.ts` E55/E56 | PID 1 `sleep infinity` doesn't reap ⇒ zombies ⇒ `{ok:false,forced:true}` | `--init` (PID 1 `podman-init`) | ✓ |
+| shared `node-electron-resolution.test.ts` "falls through to where" | fully mocked (`platform:"darwin"`, `which` → `/usr/local/bin/node`) yet fails when real `/usr/local/bin/node` exists (host lacks it → passes) | — | suspected test-isolation bug, still fails |
+
+Full re-run (non-root, `--init`, jq, `.bin` PATH):
+- extension 199/199, Duration 27.41 s.
+- shared 2 failed / 298 passed / 1 skipped (301), Duration 50.26 s.
+- Remaining:
+  - `node-electron-resolution` (above).
+  - `bundled-server-materialization.test.ts` ("Stale/broken bundle: packages/electron/resources/server is missing …pi-dashboard-web/dist/index.html") = Electron bundle artefact dependency. Same family as host pre-existing failure. Not container env.
+
+## Spike G — option A round trip on isolated dashboard (2026-10-22)
+
+Setup:
+- Main-repo server code. `HOME=~/.pi-spike-g/home`.
+- `PI_GATEWAY_TCP=1 PI_DASHBOARD_NO_MDNS=1 … cli.ts --port 18777 --pi-port 18779 --no-tunnel`.
+- Health: `gateway.listeners ["unix","tcp"]`, both bound `127.0.0.1`.
+
+Pairing:
+- `/api/pair/payload` → `no_reachable_endpoint` on loopback-only bind. QR flow needs LAN-reachable endpoint.
+- Operator `POST /api/paired-devices {label, tier:"operate"}` + `X-Pi-Local-Token` (`~/.pi/dashboard/local/token`) → device token len 43.
+- Tiers: `observe`, `control`, `operate`.
+
+Bridge in container:
+- Image `pi-dashboard:local` (`--entrypoint pi`).
+- Host repo mounted ro, path-identical.
+- `pi --mode rpc -e <repo>/packages/extension/src/bridge.ts`.
+- Env: `PI_DASHBOARD_URL`, `PI_DASHBOARD_TOKEN`, `PI_DASHBOARD_NO_MDNS=1`, `PI_DASHBOARD_BRIDGE=on`.
+- `allowedHosts: ["host.docker.internal"]` added to isolated config.
+
+BUG — remote bridge cannot authenticate as shipped:
+- `PI_DASHBOARD_URL=ws://host.docker.internal:18779` (gateway TCP) ⇒ `bridge.ts` `prepareRemoteUpgrade` mints ticket at `httpBaseUrlFor(endpoint)` = `http://host.docker.internal:18779/api/ws-ticket`.
+- Gateway answers HTTP 426 ⇒ bridge logs "bridge ticket refused: ticket mint refused with HTTP 426 — the bearer may be unpaired or revoked" (misleading cause). 6 retries, 0 sessions.
+- `PI_DASHBOARD_URL=ws://host.docker.internal:18777/ws/bridge` (dashboard port) ⇒ ticket mints; server rejects upgrade by design (`server.ts` ~4643: scope `bridge` on dashboard listener → 400). Log: `[ws-upgrade] rejected status=400 scope=bridge peer=127.0.0.1 fwd=none ticket=present`.
+- Cause: ticket origin (dashboard port) ≠ bridge listener (gateway port). Bridge derives both from one URL.
+- e2e helper `tests/e2e/helpers/bridge-credential.ts` mints at dashboardBase, dials gatewayPort separately ⇒ masks bug.
+
+Workaround (spike only):
+- ~25-line in-container shim: HTTP `/api/*` → dashboard 18777; WS upgrade → gateway 18779.
+- Shim on container IP `ws://172.17.0.2:9000` (non-loopback ⇒ bridge stays on remote/ticket path).
+- Result: `[gateway] session registered: 01a16177-… cwd=/Users/robson/.pi-spike-g/proj`.
+- `/api/sessions`: 1 session, status active, path-identical cwd.
+- Bridge registered MCP server `pi-dashboard`.
+- Bridge warns `remote identity unpinned-legacy` (no server pin).
+
+Reverse path (dashboard → container):
+- `POST /api/session/<id>/prompt` → 200 `transmitted:true`.
+- Container pi processed it: `extension_error` "No API key found for the selected model" (container has no credentials).
+- ⇒ delivery proven.
+
 ## Runtime mount / port options
 
 | # | Mechanism | Status | Notes |
@@ -493,6 +643,9 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 - Monorepo deps: Linux install via `:O` upper = 62 s, host untouched — solved.
 - Layout (2) = viable B layout for this monorepo: coherent writes both ways + isolated deps; cost = maintaining node_modules mount list (drift ⇒ recreate container).
 - Solved by layout (2) (Spike D), residual risk: mount-list drift leaks.
+- SECURITY: containers on this Mac reach host loopback and can impersonate local operator via Host spoof. Fix independently, urgently. Any container spawn design must not rely on loopback trust.
+- Option A works end-to-end only with a shim today. Remote-bridge ticket-origin bug blocks it. Fix = separate ticket HTTP base from bridge WS URL (or gateway serves `/api/ws-ticket`).
+- Option B layout (2) operationally viable: non-root + `--init` + jq/`.bin` in image clears env failures. Drift loop = 5 s; forced relink 128 s. pnpm store hazards need store-wipe recovery.
 
 ## Open questions
 
@@ -507,17 +660,23 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 9. B layout for writes: per-dir node_modules overlay vs copy-in + delta-back vs A?
 10. Container user: non-root uid mapping (root defeats permission tests).
 11. Mount-list maintenance: lockfile-derived vs post-install diff + recreate?
+12. Drift loop trigger: watch lockfile/package.json changes vs post-install scan?
+13. Image contents for B/A: jq, openspec on PATH, `--init`, non-root default — bake into `docker/` image?
+14. Remote bridge fix shape: env `PI_DASHBOARD_HTTP_URL` vs gateway-served ticket route?
 
 ## Next spikes
 
-- A full round trip: isolated test dashboard (NOT live one) with `PI_GATEWAY_TCP=1`; container pi bridge via `host.docker.internal` + ticket.
+- ~~A full round trip: isolated test dashboard (NOT live one) with `PI_GATEWAY_TCP=1`; container pi bridge via `host.docker.internal` + ticket.~~ DONE 2026-10-22 (needs shim) → see Spike G.
+- A without shim once remote-bridge bug fixed.
+- Security fix verification: after hardening, container spoofed-Host probe must get 401/403 on `/api/ws-ticket` + `/api/paired-devices`.
 - ~~B prototype: pi extension overriding tools → podman `exec` backend vs Gondolin backend. Measure `pnpm test` with VM-local deps.~~ DONE 2026-10-22 → see Prototype B.
 - Gondolin readdir invalidation after grant.
 - podman `:O` delta → `.wh.*` converter + apply on host.
 - ~~B on this repo: `pnpm install` Linux deps volume for monorepo (hoisted, nested `packages/*/node_modules`) + `npm test` timing.~~ DONE 2026-10-22 (subset) → see Spike C.
 - ~~Layout (2): rw bind + `:O` on each existing node_modules dir (63 mounts). Verify bash writes reach host, deps stay isolated, new nested node_modules behaviour.~~ DONE 2026-10-22 (named volumes, 57 dirs) → see Spike D.
-- Run as `--userns=keep-id` non-root; re-run shared/extension to clear env failures.
-- Post-install drift detector + container recreate loop prototype.
+- ~~Run as `--userns=keep-id` non-root; re-run shared/extension to clear env failures.~~ DONE 2026-10-22 → see Spike F.
+- node-electron-resolution test isolation (real `/usr/local/bin/node` leak).
+- ~~Post-install drift detector + container recreate loop prototype.~~ DONE 2026-10-22 → see Spike E.
 - `NODE_COMPILE_CACHE` relocation to kill compile-cache leak.
 
 ## Continue this research

@@ -62,7 +62,7 @@ describe("openspec tasks REST routes", () => {
     const directoryService = makeDirectoryService();
     registerOpenSpecRoutes(fastify, {
       sessionManager: { listAll: () => [] } as any,
-      preferencesStore: { getPinnedDirectories: () => [] } as any,
+      preferencesStore: { getPinnedDirectories: () => [tmpDir] } as any,
       directoryService,
       networkGuard: opts.networkGuard ?? PASSTHRU_GUARD,
       onOpenSpecChanged: opts.onOpenSpecChanged,

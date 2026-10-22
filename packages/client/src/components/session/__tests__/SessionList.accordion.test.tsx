@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { CardSectionsProvider } from "../../../lib/state/CardSectionsContext.js";
+import { setSidebarSearch } from "../../__tests__/sidebar-search-helper.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
 import { SessionList } from "../SessionList.js";
 
@@ -145,7 +146,7 @@ describe("accordion render modes", () => {
 
   it("search forces every folder full", () => {
     render(<Harness selectedId="a1" />);
-    fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "b" } });
+    setSidebarSearch("sessions", "b");
     // forced full → compact markers gone
     expect(has(`folder-compact-body-${B}`)).toBe(false);
     expect(has(`folder-compact-row-${B}`)).toBe(false);

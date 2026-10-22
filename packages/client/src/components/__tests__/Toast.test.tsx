@@ -90,9 +90,10 @@ describe("single canonical ToastVariant (E3)", () => {
     }
   });
 
-  it("useAsyncAction re-exports it (no 2nd declaration)", () => {
+  it("useAsyncAction imports it (no 2nd declaration)", () => {
     expect(USE_ASYNC).toMatch(/import type \{ ToastVariant \} from "\.\.\/components\/primitives\/Toast\.js"/);
-    expect(USE_ASYNC).toMatch(/export type \{ ToastVariant \}/);
+    // The re-export was dropped with its last consumer (TunnelButton) — declutter-sidebar-header.
+    expect(USE_ASYNC).not.toMatch(/export type \{ ToastVariant \}/);
     // The stale local `export type ToastVariant = "error" | ...` is gone.
     expect(USE_ASYNC).not.toMatch(/export type ToastVariant =/);
   });

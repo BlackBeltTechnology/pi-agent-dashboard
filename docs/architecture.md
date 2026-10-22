@@ -2287,7 +2287,7 @@ Primitive: `useAsyncAction(fn, opts)` in `packages/client/src/hooks/useAsyncActi
 
 Two completion modes:
 
-- `confirm:"http"` (default, fast ops): pending ends when `fetch()` settles. TunnelButton connect/disconnect, ProviderAuthSection sign-out/remove-key.
+- `confirm:"http"` (default, fast ops): pending ends when `fetch()` settles. Remote access dialog (opened from the connection menu) connect/disconnect, ProviderAuthSection sign-out/remove-key.
 - `confirm:"ws"` (slow ops): pending holds after HTTP ack until correlated `ServerToBrowserMessage` matches `opts.confirmEvent(msg, requestId)`. `opts.confirmTimeoutMs` (default 15000ms) fallback clears pending + info toast. Never stuck-spins.
 
 Correlation contract: client generates requestId, sends in REST body, registers WS handler on `run()` BEFORE fn fires (race-free). Server echoes requestId into completion broadcast.
@@ -4171,6 +4171,59 @@ flowchart TD
   G -->|refuse| F
 ```
 
+### Core cwd admission (git / openspec routes)
+
+Git routes + caller-`cwd` openspec routes admit via `admitRouteCwd` (`packages/server/src/lib/route-admission.ts`) → shared `admitCwd` (`packages/shared/src/cwd-guard.ts`). Same tri-state as plugin cwd admission (above).
+
+- Route branches `admissionAllows(admission, cwd)` on RAW request value (same var passed to `admitRouteCwd`).
+- Git ops run on `token.canonCwd`.
+- Openspec ops + keys keep raw `cwd`. Guard sanitizes the variable itself.
+- Known set = `listKnownFolderCwds` (session cwds ∪ pinned dirs, unfiltered). Same fn behind `host.knownFolderCwds`.
+- Openspec fallbacks (`knownCwds()[0]`, `update {all}`) unchanged, not admitted.
+
+Admitted: known cwd; subdirs + linked worktrees of known main checkout.
+Refused: sibling worktree of known worktree; main checkout of known worktree; child repo of pinned non-repo folder; symlink to unknown; regular file (`checkoutRootsClassifiedAsync` reads `spawn ENOTDIR` as `none` → refuse; Windows errno may differ → 503).
+
+Gated openspec writes (`init`, `workflow-schema`, dependencies GET/PUT): admit first, then exact `knownInitTargets` membership + opt-out (raw + canonical) + global-dir exclusion. Refusal bodies unchanged.
+
+Codes:
+
+| Condition | Status | Body |
+|---|---|---|
+| git refuse | 400 | `code: cwd_unknown` |
+| ungated openspec refuse | 403 | `code: cwd_unknown`, `reason`, `hint` |
+| indeterminate | 503 + `Retry-After: 1` | `success:false`, `code` = `error` = `cwd-admission-unavailable`, `message`, `retryAfterMs:1000` |
+| non-portable `change` segment | 400 | `code: invalid_name` |
+| git cwd missing / not dir (admitted only) | 400 | `code: cwd_invalid` |
+| folder-project | 503 | own body `{error, message, retryAfterMs}`, no `code` |
+
+`remove-batch`: items admitted sequentially, memo per raw cwd. Whole-batch budget 10 s; per-admission deadline `min(3000, remaining)`. Budget spent → only direct matches decided, rest `cwd-admission-unavailable`. Per-item codes (`cwd_unknown` / `cwd_invalid` / `cwd-admission-unavailable`). Envelope 200, no `Retry-After`. Classification memo keyed by `token.canonCwd`.
+
+Token: released on `reply.raw` close (git + openspec helpers); `finally` in `remove-batch` and folder-project.
+
+Client: text via `err.cwd_unknown`, `err.cwd_admission_unavailable`, `err.invalid_name`. `fetchWorktreeInitStatus` reports `cwdUnknown`. Post-spawn auto-init (`autoInitWorktreeOnSpawn` ON) re-probes every 500 ms, up to 10 s, on `cwd_unknown`. MCP server plugin tools surface refusals as tool errors.
+
+```mermaid
+flowchart TD
+  R["request cwd (raw)"] --> A["admitRouteCwd"]
+  A --> D{"admitCwd decision"}
+  D -->|"admit"| B{"admissionAllows(adm, cwd)"}
+  B -->|"true"| OK["200 path: git on token.canonCwd, openspec on raw cwd"]
+  B -->|"false"| RF["refuse"]
+  D -->|"refuse"| RF
+  D -->|"indeterminate"| IND["503 cwd-admission-unavailable, Retry-After 1"]
+  RF -->|"git"| E400["400 cwd_unknown"]
+  RF -->|"ungated openspec"| E403["403 cwd_unknown"]
+  RF -->|"gated openspec"| EG["today's refusal body"]
+```
+
+Latency (`evidence/latency.md`, 84 known folders, direct match):
+
+- `git status`: +0.66 ms p50 / +1.48 ms p99 (gate ≤2 / ≤15). `openspec tasks`: +0.30 ms p50 / +0.36 ms p99.
+- Derivation path: 0 indeterminate / 200; p99 < 0.5 s.
+
+See change: core-cwd-admission.
+
 ### OAuth Authentication Flow
 
 Optional OAuth2 authentication protects the dashboard when accessed remotely.
@@ -4702,6 +4755,21 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 3. Sends only changed fields via `PUT /api/config` (partial merge)
 4. Server preserves `***` secrets (doesn't overwrite real values), writes to disk, and applies runtime-safe changes
 5. Port/piPort changes flag `restartRequired` in the response
+
+### Sidebar header grouping
+- Header = Tailwind `@container`. Row 1 `flex-wrap` (wraps, never clips).
+- Row 1 left: logo · Discord (`discord-btn`) · divider · Appearance (`ThemePicker`, `theme-picker-trigger`) · Focus (`focus-toggle-btn`).
+- Appearance dropdown: Mode toggle (`ThemeToggle`) + palette list.
+- Row 1 right: open-questions pill (`QuestionStack`) · update badge · connection chip (`connection-chip`, `ServerSelector`) · Settings (`settings-btn`).
+- Connection chip: status dot · server name (hidden when header container < 400 px) · offline word (>= 400 px) or cloud-off glyph (< 400 px) · remote-access tone glyph (internet/partial/failed) · waiting-device badge (`tunnel-btn-badge`).
+- Chip menu: servers · "Manage servers…" · Access group.
+- Access group: Remote access (`tunnel-btn`, opens `RemoteAccessDialog`) · Install as app (`install-btn`, only when installable).
+- `useRemoteAccessIndicator` (hooks): tunnel-status poll, reachability, pending-pairing count, saved-run resume. Called once in `App.tsx`.
+- `App` hosts lazy `RemoteAccessDialog`.
+- `TunnelButton` and `InstallButton` deleted.
+- Row 2: one scoped search box. Scope toggle Sessions|Folders. Inactive query = chip with switch + clear buttons.
+- Filter funnel (`filter-funnel-btn`) opens popover. Badge counts Include archive + Show hidden.
+- Layout floors: common state one line at >= 280 px sidebar. Worst state one line at >= 400 px.
 
 ### Reconnection Flow
 1. Browser reconnects with `subscribe` message including `lastSeq`

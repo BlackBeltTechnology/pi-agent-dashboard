@@ -20,7 +20,7 @@ import path from "node:path";
 import type { GitPrChecks, GitPrState, GitStatus } from "../types.js";
 import { type CheckRollupEntry, collapseCheckRollup } from "./check-rollup.js";
 import { normalizePath, samePath } from "./paths.js";
-import { type Recipe, type Result, type RunCtx, run, runAsync, unwrap } from "./runner.js";
+import { type ExecError, type Recipe, type Result, type RunCtx, run, runAsync, unwrap } from "./runner.js";
 
 /**
  * Parse `git status --porcelain=v2 --branch` stdout into a `GitStatus`.
@@ -984,32 +984,37 @@ export async function checkoutRootsClassifiedAsync(
 ): Promise<ClassifiedCheckoutRoots> {
   const exec = classifiedRunner(opts);
   const failed: string[] = [];
-  const fail = (name: string) => {
-    if (!failed.includes(name)) failed.push(name);
+  // A cwd that is a regular file cannot host a process (`spawn ENOTDIR`): that is "this is not a
+  // repository", a definitive answer — not a failed probe, which would read as `indeterminate`.
+  // See change: core-cwd-admission (D6).
+  let notADirectory = false;
+  const fail = (name: string, error: ExecError) => {
+    if (error.kind === "spawn-failure" && /\bENOTDIR\b/.test(error.message)) notADirectory = true;
+    else if (!failed.includes(name)) failed.push(name);
   };
   const roots = await resolveCheckoutRootsFromAsync({
     gitDir: async () => {
       const r = await exec(GIT_DIR_ABS, input);
       if (r.ok) return r.value;
-      if (r.error.kind !== "exit") fail("git-dir");
+      if (r.error.kind !== "exit") fail("git-dir", r.error);
       return undefined;
     },
     commonDir: async () => {
       const r = await exec(GIT_COMMON_DIR_ABS, input);
       if (r.ok) return r.value;
-      if (r.error.kind !== "exit") fail("git-common-dir");
+      if (r.error.kind !== "exit") fail("git-common-dir", r.error);
       return undefined;
     },
     topLevel: async () => {
       const r = await exec(GIT_TOPLEVEL, input);
       if (r.ok) return r.value;
-      if (r.error.kind !== "exit") fail("show-toplevel");
+      if (r.error.kind !== "exit") fail("show-toplevel", r.error);
       return undefined;
     },
     localCoreWorktree: async (commonDir) => {
       const r = await exec(GIT_CONFIG_LOCAL_CORE_WORKTREE, { cwd: input.cwd, gitDir: commonDir });
       if (r.ok) return r.value;
-      fail("config core.worktree");
+      fail("config core.worktree", r.error);
       return undefined;
     },
     localCoreBare: async (commonDir) => {
@@ -1017,12 +1022,13 @@ export async function checkoutRootsClassifiedAsync(
       if (failed.length > 0) return "unknown";
       const r = await exec(GIT_CONFIG_LOCAL_CORE_BARE, { cwd: input.cwd, gitDir: commonDir });
       if (!r.ok) {
-        fail("config core.bare");
+        fail("config core.bare", r.error);
         return "unknown";
       }
       return r.value === "true" ? "bare" : "not-bare";
     },
   });
+  if (notADirectory && failed.length === 0) return { kind: "none" };
   if (failed.length > 0) return { kind: "failed", failedProbes: failed };
   return roots ? { kind: "roots", roots } : { kind: "none" };
 }

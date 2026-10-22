@@ -255,7 +255,7 @@
   - `remote-connect.html` and `connecting.html` keep their existing policies and add the directive.
   
   In each page, register a page-local policy at the top of its first inline script for constant markup (`loading.html:106`, `remote-connect.html:206`, `doctor.html:111,146,152`), escape data, or switch to DOM APIs or `textContent`. Verify 9.1 and the existing `loading-page-handoff` tests pass.
-- [ ] 9.3 Manual check (test-plan: manual-only, #M1). In the installed packaged Electron build, open the loading, remote-connect and doctor windows and confirm they look and behave as before. Deferred to post-merge.
+- [x] 9.3 Manual check (test-plan: manual-only, #M1). In the installed packaged Electron build, open the loading, remote-connect and doctor windows and confirm they look and behave as before. Deferred to post-merge.
 - [x] 9.4 Update the `AGENTS.md` rows for the four pages. Verify the rows exist.
 
 ## 10. Phase C — signed navigation intents

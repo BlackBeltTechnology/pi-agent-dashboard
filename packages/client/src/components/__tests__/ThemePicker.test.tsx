@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { THEMES } from "../../lib/theme/themes.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
-import { THEMES } from "../../lib/theme/themes.js";
+
+afterEach(() => cleanup());
 
 beforeEach(() => {
   localStorage.clear();
@@ -23,11 +25,12 @@ beforeEach(() => {
 });
 
 function renderPicker() {
+  const container = document.body.appendChild(document.createElement("div"));
   return render(
     <ThemeProvider>
       <ThemePicker />
     </ThemeProvider>,
-    { container: document.createElement("div") },
+    { container },
   );
 }
 
@@ -72,5 +75,74 @@ describe("ThemePicker", () => {
     // Base is default — check it has the active class
     const baseOption = getByTestId("theme-option-base");
     expect(baseOption.className).toContain("text-[var(--accent-blue)]");
+  });
+
+  // ---- declutter-sidebar-header (test-plan #E16 #F2 #F3, D1) ----
+  it("E16: mode switch keeps the dropdown open; a palette closes it, focuses the trigger and persists", () => {
+    const { getByTestId, queryByTestId, unmount } = renderPicker();
+    fireEvent.click(getByTestId("theme-picker-trigger"));
+    fireEvent.click(getByTestId("theme-light"));
+    expect(getByTestId("theme-light").getAttribute("aria-pressed")).toBe("true");
+    expect(queryByTestId("theme-picker-dropdown")).not.toBeNull();
+    fireEvent.click(getByTestId("theme-option-nord"));
+    expect(queryByTestId("theme-picker-dropdown")).toBeNull();
+    expect(document.activeElement).toBe(getByTestId("theme-picker-trigger"));
+    unmount();
+    const again = renderPicker();
+    fireEvent.click(again.getByTestId("theme-picker-trigger"));
+    expect(again.getByTestId("theme-option-nord").className).toContain("text-[var(--accent-blue)]");
+  });
+
+  it("the mode control lives inside the dropdown only", () => {
+    const { getByTestId, queryByTestId } = renderPicker();
+    expect(queryByTestId("theme-toggle")).toBeNull();
+    fireEvent.click(getByTestId("theme-picker-trigger"));
+    expect(getByTestId("theme-picker-dropdown").contains(getByTestId("theme-toggle"))).toBe(true);
+  });
+
+  it("F3: keyboard open focuses the pressed mode button", () => {
+    const { getByTestId } = renderPicker();
+    const trigger = getByTestId("theme-picker-trigger");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(document.activeElement).toBe(getByTestId("theme-system"));
+  });
+
+  it("F2: Escape closes the dropdown and focuses the trigger", () => {
+    const { getByTestId, queryByTestId } = renderPicker();
+    const trigger = getByTestId("theme-picker-trigger");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
+    expect(queryByTestId("theme-picker-dropdown")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("anchors to the right edge when a left-anchored panel would not fit (trigger near the viewport edge)", () => {
+    const { getByTestId } = renderPicker();
+    const trigger = getByTestId("theme-picker-trigger");
+    const vw = window.innerWidth;
+    trigger.getBoundingClientRect = () =>
+      ({ top: 10, bottom: 30, left: vw - 20, right: vw - 4, width: 16, height: 20, x: vw - 20, y: 10, toJSON() {} }) as DOMRect;
+    act(() => { fireEvent.click(trigger); });
+    expect(getByTestId("theme-picker-dropdown").className).toContain("right-0");
+  });
+
+  it("stays left-anchored when there is room", () => {
+    const { getByTestId } = renderPicker();
+    const trigger = getByTestId("theme-picker-trigger");
+    trigger.getBoundingClientRect = () =>
+      ({ top: 10, bottom: 30, left: 20, right: 36, width: 16, height: 20, x: 20, y: 10, toJSON() {} }) as DOMRect;
+    act(() => { fireEvent.click(trigger); });
+    expect(getByTestId("theme-picker-dropdown").className).toContain("left-0");
+  });
+
+  it("ArrowDown on the trigger of an already-open dropdown moves focus to the pressed mode button", () => {
+    const { getByTestId } = renderPicker();
+    const trigger = getByTestId("theme-picker-trigger");
+    fireEvent.click(trigger);
+    expect(document.activeElement).not.toBe(getByTestId("theme-system"));
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(getByTestId("theme-system"));
   });
 });
