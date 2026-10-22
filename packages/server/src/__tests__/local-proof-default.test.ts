@@ -178,3 +178,53 @@ describe("E6 — default: a loopback /ws upgrade needs proof", () => {
     expect(await dial(wsUrl, { origin, ...proofHeaders(`http://127.0.0.1:${handle.httpPort}/ws`) })).toEqual({ kind: "open" });
   }, 40000);
 });
+
+
+describe("D8 wiring on the REAL server: the per-request caller reaches the file routes", () => {
+  it("a session outside $HOME cannot read the token or config through the ~/.pi anchor unless the caller proves; ~/.pi/agent stays readable", async () => {
+    const cwd = fs.realpathSync(fs.mkdtempSync(path.join(process.env.HOME!, "..", "state-wiring-")));
+    fs.mkdirSync(path.join(dash, "local"), { recursive: true });
+    fs.writeFileSync(path.join(dash, "local", "marker-secret"), "LOCAL-SECRET-MARKER");
+    fs.writeFileSync(path.join(dash, "config.json"), JSON.stringify({ auth: { secret: "CONFIG-SECRET-MARKER" } }), { mode: 0o600 });
+    fs.mkdirSync(path.join(process.env.HOME!, ".pi", "agent"), { recursive: true });
+    fs.writeFileSync(path.join(process.env.HOME!, ".pi", "agent", "x.md"), "# agent\n");
+    resetConfigSnapshot();
+    handle = await createTestServer();
+
+    // A real session whose cwd is `cwd`, registered over the (loopback-grace) bridge gateway.
+    const bridge = new WebSocket(`ws://127.0.0.1:${handle.piPort}`);
+    await new Promise<void>((res, rej) => {
+      bridge.on("open", () => res());
+      bridge.on("error", rej);
+    });
+    bridge.send(JSON.stringify({ type: "session_register", sessionId: "state-wiring", cwd, source: "cli" }));
+    bridge.send(JSON.stringify({ type: "replay_complete", sessionId: "state-wiring" }));
+    await new Promise((r) => setTimeout(r, 300));
+
+    const read = (abs: string, how: "bare" | "proof") => {
+      const url = `${base()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(abs)}`;
+      return how === "proof" ? proofFetch(url) : fetch(url);
+    };
+    const token = path.join(dash, "local", "marker-secret");
+    const config = path.join(dash, "config.json");
+    const agent = path.join(process.env.HOME!, ".pi", "agent", "x.md");
+
+    try {
+      for (const how of ["bare", "proof"] as const) {
+        const t = await read(token, how);
+        expect(t.status, `${how} local/**`).toBe(403);
+        expect(await t.text()).not.toContain("LOCAL-SECRET-MARKER");
+      }
+      const bareCfg = await read(config, "bare");
+      expect(bareCfg.status).toBe(403);
+      expect(await bareCfg.text()).not.toContain("CONFIG-SECRET-MARKER");
+      const proofCfg = await read(config, "proof");
+      expect(proofCfg.status).toBe(200);
+      expect(await proofCfg.text()).toContain("CONFIG-SECRET-MARKER");
+      expect((await read(agent, "bare")).status).toBe(200);
+    } finally {
+      bridge.close();
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  }, 40000);
+});
