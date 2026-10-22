@@ -109,7 +109,7 @@ export function registerCspViolationRoutes(fastify: FastifyInstance, deps: CspVi
       errorHandler: (err, _req, reply) => {
         const status = err.statusCode && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 400;
         deps.log?.warn(`csp-violations: rejected report (${status})`);
-        void reply.code(status).send({ success: false, error: "invalid report" });
+        return reply.code(status).send({ success: false, error: "invalid report" });
       },
     },
     async (request, reply) => {

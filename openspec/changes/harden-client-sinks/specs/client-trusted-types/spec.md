@@ -26,10 +26,10 @@ Every application-owned HTML, script-URL, or script sink SHALL receive a trusted
 - **WHEN** an AsciiDoc preview, a DOCX preview, a server-rendered diagram preview, an inline math rewrite, an e-mail body frame, or a Mermaid diagram injects HTML
 - **THEN** the value is produced by the sanitized-HTML policy using that sink's existing sanitizer configuration
 
-#### Scenario: Mermaid colorize parse
-- **WHEN** the Mermaid colorize step parses renderer output as SVG
-- **THEN** the input is produced by the dedicated Mermaid-parse policy, not by the default policy
-- **AND** the parsed result is still sanitized as the final step before injection
+#### Scenario: Mermaid colorize
+- **WHEN** the Mermaid colorize step tints default nodes of renderer output
+- **THEN** it works on a DOM produced by the sanitizer, with no string parse of the unsanitized output and no default-policy invocation
+- **AND** the colorized result is still sanitized as the final step before injection
 
 #### Scenario: Constant icon markup
 - **WHEN** a plugin app renders an icon from a compile-time constant SVG map

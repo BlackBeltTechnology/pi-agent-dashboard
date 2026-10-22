@@ -54,7 +54,7 @@
     - annotated lines with and without a reason;
     - a file under `dashboard-plugin-runtime/src/server/`;
     - a test file;
-    - a `trustedMermaidParse` import from a non-Mermaid file.
+    - a `trustedMermaidParse` import from a non-Mermaid file (implemented as a `trustedStaticSvg` import from a non-owner file once `pi-mermaid-parse` was dropped, see 6.1).
   - Trigger: `analyzeClientSinks(root, {ruleSets})`, first with `nav` only, then with all rule sets.
   - Observable:
     - the `nav` run flags exactly the 5 nav tokens;
@@ -139,6 +139,7 @@
 ## 6. Phase B — move app-owned sinks to named policies
 
 - [x] 6.1 Route `MermaidBlock.tsx` colorize through `pi-mermaid-parse` and the final injection through `pi-sanitized-html` (`mermaid` profile). Verify the existing `MermaidBlock.test.tsx` and the mermaid sanitization tests pass.
+  - Superseded at ship-it 4.4b (operator decision on CodeQL alerts): colorize now sanitizes first into a DOM (DOMPurify `RETURN_DOM`) and tints that DOM; `pi-mermaid-parse` and `trustedMermaidParse` were removed (design D5, spec deltas updated). The guard's policy-helper fixture uses `trustedStaticSvg`.
 - [x] 6.2 Route `AsciiDocPreview.tsx` and `lib/preview/adoc-math.ts` (template parse and KaTeX output) through `pi-sanitized-html` (`asciidoc` and `katex` profiles). Verify 5.6 and the AsciiDoc and math tests pass. If output parity fails, stop and write `SHIP_IT_BLOCKED.md` (no wrap-only fallback, design D5).
 - [x] 6.3 Test (test-plan #E22), L1, extending `packages/client/src/components/preview/__tests__/DiagramPreview.test.tsx` and `DocxPreview.test.tsx` (exemplars: those files).
   - Input: server-rendered diagram SVG and DOCX HTML, each containing `<img src=x onerror=f()>`.

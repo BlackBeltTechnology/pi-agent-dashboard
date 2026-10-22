@@ -63,6 +63,10 @@ Format: TT violations / default-policy hits.
 - Enforce would sanitize whole document, dropping `<base target="_blank">`.
 - Fix: assign `iframe.srcdoc` as property in layout effect (`EmlPreview.tsx`).
 
+### `pi-mermaid-parse` dropped
+
+- Policy removed (CodeQL js/xml-bomb + js/xss). Colorize sanitizes into DOM first (DOMPurify `RETURN_DOM`, mermaid profile). F1 re-run after the change.
+
 ### `eval` / `new Function` not TT-routed
 
 - Baseline `script-src` keeps `'unsafe-eval'`.

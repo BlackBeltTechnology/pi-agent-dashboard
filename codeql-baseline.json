@@ -225,13 +225,6 @@
       "reason": "untriaged"
     },
     {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/Gateway/GatewayTlsSection.tsx",
-      "lineHash": "852fd92308679508:1",
-      "count": 1,
-      "reason": "false-positive: certUrl pins the scheme to https:// and the host is the dashboard's own advertised TLS name from its same-origin /api response; rendered as an operator-clicked target=_blank rel=noopener link, not a redirect. Local-only (--threat-model=remote)."
-    },
-    {
       "ruleId": "js/resource-exhaustion",
       "file": "packages/client/src/components/chat/ThinkingBlock.tsx",
       "lineHash": "83ed8a78314ca05:1",
@@ -253,27 +246,6 @@
       "reason": "untriaged"
     },
     {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/packages/WhatsNewDialog.tsx",
-      "lineHash": "ddb89da1d3fcc68e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/components/packages/WhatsNewDialog.tsx",
-      "lineHash": "ddb89da1d3fcc68e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/components/preview/DiagramPreview.tsx",
-      "lineHash": "bcd9cf92854935c:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
       "ruleId": "js/xss",
       "file": "packages/client/src/components/preview/DocxPreview.tsx",
       "lineHash": "905c7e0ffbedb03c:1",
@@ -284,48 +256,6 @@
       "ruleId": "js/double-escaping",
       "file": "packages/client/src/components/preview/MermaidBlock.tsx",
       "lineHash": "beaa342126d9d5cd:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xml-bomb",
-      "file": "packages/client/src/components/preview/MermaidBlock.tsx",
-      "lineHash": "27fbc925a3ce1547:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/components/preview/MermaidBlock.tsx",
-      "lineHash": "27fbc925a3ce1547:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/settings/ToolsSection.tsx",
-      "lineHash": "fcf93ad22326da4e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/components/settings/ToolsSection.tsx",
-      "lineHash": "fcf93ad22326da4e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/tool-renderers/CtxToolRenderer.tsx",
-      "lineHash": "bb153855dd3dee55:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/tool-renderers/CtxToolRenderer.tsx",
-      "lineHash": "e477276840b2136e:1",
       "count": 1,
       "reason": "untriaged"
     },
@@ -365,11 +295,18 @@
       "reason": "accepted-risk: pre-existing on develop (runtime-plugin-loader.ts), outside fix-folder-card-pill-contrast"
     },
     {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/lib/preview/adoc-math.ts",
-      "lineHash": "72017053c49a39a1:1",
+      "ruleId": "js/client-side-unvalidated-url-redirection",
+      "file": "packages/dashboard-plugin-runtime/src/safe-navigation.tsx",
+      "lineHash": "3eaa1aca7dbc7351:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "false-positive: SafeLink is the URL-policy chokepoint — href rendered only after classifyUrl + literal ^(https?://|mailto:) test (internal re-rooted same-origin); a general external link cannot carry a constant host. See change: harden-client-sinks"
+    },
+    {
+      "ruleId": "js/xss",
+      "file": "packages/dashboard-plugin-runtime/src/safe-navigation.tsx",
+      "lineHash": "3eaa1aca7dbc7351:1",
+      "count": 1,
+      "reason": "false-positive: SafeLink is the URL-policy chokepoint — href rendered only after classifyUrl + literal ^(https?://|mailto:) test (internal re-rooted same-origin); a general external link cannot carry a constant host. See change: harden-client-sinks"
     },
     {
       "ruleId": "js/missing-rate-limiting",

@@ -8540,7 +8540,7 @@ flowchart LR
 ### Client policies
 - File: `packages/client/src/lib/security/trusted-types.ts`. Registered before first render (`lib/boot/client-boot.ts` `bootClient`).
 - `pi-sanitized-html`: profiles from `packages/shared/src/sanitize-profiles.ts` (same configs as server sanitizers).
-- `pi-mermaid-parse`: wrap-only, MermaidBlock colorize.
+- No mermaid parse policy. MermaidBlock colorize runs on sanitized DOM: DOMPurify `RETURN_DOM` (mermaid profile) → tint → XML serialize. No string parse of unsanitized output. Final `sanitizeMermaidSvg` + `pi-sanitized-html` still run before injection.
 - `pi-worker-url`: `/sw.js`, `/assets/<file>.m?js`.
 - `default`: mode-aware.
   - report: pass-through + count.

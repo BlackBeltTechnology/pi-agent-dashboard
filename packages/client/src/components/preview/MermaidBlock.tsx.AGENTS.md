@@ -16,4 +16,4 @@ On-demand AI repair (opt-in, `mermaidRepair` config via `useMermaidRepairClientC
 
 Apply fix to file: optional `ordinal` prop + `useMermaidSourceContext()`; when both present and a fixed source exists (`repaired.code`, or AI-fixed `outcome.code`/`fixedCode`) renders `MermaidApplyFix` after the badge row (sibling BEFORE `.mermaid-diagram`, structure unchanged). Chat/no ordinal/not repaired → none. See change: add-preview-apply-fix-to-file.
 
-Colorize `DOMParser` input via `trustedMermaidParse` (pi-mermaid-parse, wrap-only; import allowlisted to this file); injection via memoized `trustedSanitizedHtml(svg, "mermaid")` — failure → `ErrorView`, SVG never injected. `sanitizeMermaidSvg` uses shared `MERMAID_SVG_PROFILE`. See change: harden-client-sinks.
+`colorizeDefaultNodes` sanitizes FIRST into a DOM (DOMPurify `RETURN_DOM`, mermaid profile), tints it, strips explicit `xmlns`, XML-serializes (no string parse of renderer output); injection via memoized `trustedSanitizedHtml(svg, "mermaid")` — failure → `ErrorView`, SVG never injected. `sanitizeMermaidSvg` uses shared `MERMAID_SVG_PROFILE`. See change: harden-client-sinks.

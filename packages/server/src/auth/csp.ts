@@ -74,8 +74,12 @@ export function resolveTrustedTypesMode(raw: string | undefined, cspMode: CspMod
 
 const headerFor = (mode: CspMode) => (mode === "enforce" ? "content-security-policy" : "content-security-policy-report-only");
 
-/** Register the CSP hook. No-op when both the baseline and Trusted Types are `off`. */
-export function registerCsp(fastify: FastifyInstance, mode: CspMode, ttMode: CspMode = resolveTrustedTypesMode(undefined, mode)): void {
+/**
+ * Register the CSP hook. No-op when both the baseline and Trusted Types are
+ * `off`. `ttMode` defaults to `off` (callers opt in; `server.ts` passes the
+ * resolved `PI_DASHBOARD_TRUSTED_TYPES` mode).
+ */
+export function registerCsp(fastify: FastifyInstance, mode: CspMode, ttMode: CspMode = "off"): void {
   // header kind → value; each kind is added only when absent (a route-level policy stands).
   const headers = new Map<string, string>();
   if (mode !== "off") headers.set(headerFor(mode), ttMode === mode ? `${buildCsp()}; ${TRUSTED_TYPES_DIRECTIVE}` : buildCsp());

@@ -41,7 +41,7 @@ describe("client boot order (#E26)", () => {
     const renderAt = order.indexOf("render");
     expect(renderAt).toBe(order.length - 1);
     const before = order.slice(0, renderAt);
-    expect(before).toEqual(expect.arrayContaining(["policy:pi-sanitized-html", "policy:pi-mermaid-parse", "policy:pi-worker-url"]));
+    expect(before).toEqual(expect.arrayContaining(["policy:pi-sanitized-html", "policy:pi-worker-url"]));
     expect(before.filter((p) => p === "policy:default")).toHaveLength(1);
   });
 

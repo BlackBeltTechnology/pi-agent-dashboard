@@ -72,6 +72,12 @@ export function classifyNavigationTarget(url: unknown): UrlClass {
 export interface OpenUrlOptions {
   /** Window name; a named target reuses its window. Default `_blank`. */
   target?: string;
+  /**
+   * Same-origin (`internal`) targets only: keep the `opener` link (e.g. a
+   * named app window the host reuses). External / loopback targets never
+   * keep it. Default `false` (`noopener`).
+   */
+  keepOpener?: boolean;
 }
 
 /**
@@ -93,8 +99,10 @@ export function openExternalUrl(url: unknown, opts: OpenUrlOptions = {}): boolea
     return true;
   }
   const target = opts.target ?? "_blank";
-  if (cls === "internal") window.open(raw, target);
-  else window.open(raw, target, "noopener,noreferrer");
+  if (cls === "internal") {
+    if (opts.keepOpener) window.open(raw, target);
+    else window.open(raw, target, "noopener");
+  } else window.open(raw, target, "noopener,noreferrer");
   return true;
 }
 
@@ -113,6 +121,27 @@ export function assignLocation(url: unknown): boolean {
   return true;
 }
 
+const SAFE_HREF = /^(?:https?:\/\/|mailto:)/i;
+
+/**
+ * The href to render for an allowed target, or `null` (render inert). On top
+ * of `classifyUrl` (the floor), an absolute target must literally start with
+ * `http(s)://` or `mailto:`; an internal one is re-rooted as a same-origin path.
+ */
+function safeHrefOf(raw: string, cls: UrlClass): string | null {
+  if (cls === "blocked") return null;
+  const href = raw.trim();
+  if (cls !== "internal") return SAFE_HREF.test(href) ? href : null;
+  // Already origin-relative (`/path`, `#frag`, `?q`): render as written.
+  if (/^(?:\/(?!\/)|[#?])/.test(href)) return href;
+  try {
+    const url = new URL(href, typeof window === "undefined" ? undefined : window.location.href);
+    return `/${url.pathname.replace(/^\/+/, "")}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 export type SafeLinkProps = Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   href: string | null | undefined;
   children?: React.ReactNode;
@@ -124,14 +153,15 @@ export type SafeLinkProps = Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 
  */
 export function SafeLink({ href, children, rel, target, ...rest }: SafeLinkProps) {
   const cls = classifyNavigationTarget(href);
-  if (cls === "blocked" || !href) {
+  const safeHref = href ? safeHrefOf(href, cls) : null;
+  if (safeHref === null) {
     // Inert text: keep presentational / test attributes, drop anchor-only ones.
     const { download: _d, hrefLang: _h, media: _m, ping: _p, referrerPolicy: _r, type: _t, ...spanProps } = rest;
     return <span {...(spanProps as React.HTMLAttributes<HTMLSpanElement>)}>{children}</span>;
   }
   const outward = cls === "external" || cls === "loopback";
   return (
-    <a {...rest} href={href.trim()} target={target} rel={outward ? "noopener noreferrer" : rel}>
+    <a {...rest} href={safeHref} target={target} rel={outward ? "noopener noreferrer" : rel}>
       {children}
     </a>
   );

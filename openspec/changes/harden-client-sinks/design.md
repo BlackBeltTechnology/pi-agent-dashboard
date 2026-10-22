@@ -105,7 +105,7 @@ Phase 0 (OIDC) → A (URL policy) → B (Trusted Types) → C (navigation intent
     Also flagged: property navigation assignments `.href =`, `.src =`, `.action =`, and `window.location =`/`document.location =`. Constant-identifier hrefs get an annotation.
   - `html` (Phase B): `dangerouslySetInnerHTML`, `.innerHTML =`, `.outerHTML =`, `insertAdjacentHTML`, `srcDoc`/`srcdoc`, `setAttribute("srcdoc", …)`, `.srcdoc =`, `document.write(`, `createContextualFragment(`, `setHTMLUnsafe(`, `new Worker(`, `new SharedWorker(`, `eval(`, `new Function(`.
   - The guard cannot tell a named-policy site from a raw one by token, so every migrated sink carries the annotation `// client-sinks: allow — trusted via <policy>`. Review checks that the policy named in the annotation is what the line actually uses.
-  - Policy-helper import allowlist (Phase B): `trustedMermaidParse` may be imported only by `MermaidBlock.tsx`, and `trustedStaticSvg` only by `team-app/src/ui/icons.tsx`. This catches developer reuse of a wrap-only policy.
+  - Policy-helper import allowlist (Phase B): `trustedStaticSvg` may be imported only by `team-app/src/ui/icons.tsx`. This catches developer reuse of a key-lookup policy. (`trustedMermaidParse` was dropped with `pi-mermaid-parse`, see D5.)
 - File allowlist: the chokepoint and policy modules.
 - Its report is the authoritative sink inventory that the migration tasks drain. It covers the token patterns above, not every possible indirect flow. The e2e budget (D9) is the runtime backstop for HTML and script sinks only. A missed navigation sink to an `https:` URL raises no Trusted Types signal, so for navigation the guard is the only gate (accepted; React 19 still blocks `javascript:` in JSX).
 - Per-line opt-out marker `// client-sinks: allow — <reason>`, which must sit directly above the line, so every exemption is reviewable.
@@ -118,17 +118,12 @@ The module exports typed helpers. Sanitization **always** runs, with or without 
 | Policy | Input contract | Rule |
 |---|---|---|
 | `pi-sanitized-html` | `(html, profile)` with profile `mermaid` / `asciidoc` / `katex` / `eml` / `docx` / `diagram-svg` | DOMPurify with that profile's existing config. All configs, including `sanitizeMermaidSvg`'s (`MermaidBlock.tsx:100-110`), move into `packages/shared/src/sanitize-profiles.ts`, so the policy module never imports a component (no cycle) |
-| `pi-mermaid-parse` | the `svg` returned by `mermaid.render` | wrap only, no sanitize; used only inside `MermaidBlock` |
 | `pi-static-svg` | `(map, key)` for the compile-time `ICON` and `GALLERY` maps (both defined in `team-app/src/i18n/catalog.ts`; sinks at `icons.tsx:12` and `:38`) | looks up the constant; an unknown key yields empty markup, as today's `ICON[name] ?? ""` does. Keys may come from data (avatar ids), but the output is always a compile-time constant |
 | `pi-worker-url` | URL string | `^/sw\.js$` or `^/assets/[^/]+\.m?js$` on the same origin, otherwise throws |
 | `default` | anything from library internals | see D6 |
 
-- **Mermaid** uses two policies because the spike showed that routing the pre-sanitize colorize `DOMParser.parseFromString(svg, "image/svg+xml")` through a sanitizer HTML-serializes the SVG. The XML parse then fails and colorize is silently skipped.
-  - `pi-mermaid-parse` is wrap-only and **cannot** verify where its input came from. Its safety does not rest on that:
-    - a `DOMParser` document is inert, so no script runs and no resource loads during the parse;
-    - the final `sanitizeMermaidSvg` still runs on the colorized result before injection (`MermaidBlock.tsx:98`, `:1020`).
-  - Colorize already runs on unsanitized renderer output today (`MermaidBlock.tsx:183,225-240`). This change does not widen that; it only makes the existing order work under Trusted Types.
-  - Developer reuse of the wrap-only policy is caught by the D4 policy-helper import allowlist. Pinning policy names (the `trusted-types` directive) remains a later tightening (Non-Goals).
+- **Mermaid** needs no parse policy. The spike showed that routing the pre-sanitize colorize `DOMParser.parseFromString(svg, "image/svg+xml")` through a sanitizer HTML-serializes the SVG, so the XML parse fails and colorize is silently skipped. The colorize step therefore sanitizes FIRST into a DOM (DOMPurify `RETURN_DOM` with the mermaid profile), tints that DOM, XML-serializes it, and the final `sanitizeMermaidSvg` still runs before injection through `pi-sanitized-html`.
+  - *Superseded during implementation:* the planned wrap-only `pi-mermaid-parse` policy for the string parse. The local CodeQL ratchet (ship-it 4.4b) flagged that parse (`js/xml-bomb`, `js/xss`) and the wrap-only policy (`js/xss`), and the operator chose to restructure. Colorize no longer touches unsanitized renderer output, so the residual risk this design had accepted is removed.
 - **AsciiDoc, DOCX, EML and diagram SVG** HTML is sanitized on the server. The client *re-sanitizes* it through `pi-sanitized-html` with the server's own configuration (one shared definition) as defense in depth.
   - Parity is proven by the visual suite (D9).
   - There is **no** wrap-only fallback, because that would violate "sanitized with the existing configuration". A parity failure blocks the phase (`SHIP_IT_BLOCKED.md`) and returns to design.

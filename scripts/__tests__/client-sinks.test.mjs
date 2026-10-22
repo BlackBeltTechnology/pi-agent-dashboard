@@ -65,7 +65,7 @@ const FIXTURE = {
   'packages/client/src/nav.tsx': NAV_FILE,
   'packages/client/src/html.tsx': HTML_FILE,
   'packages/client/src/inert.tsx': INERT_FILE,
-  'packages/client/src/imports-policy.ts': 'import { trustedMermaidParse } from "./lib/security/trusted-types.js";\nexport const p = trustedMermaidParse;\n',
+  'packages/client/src/imports-policy.ts': 'import { trustedStaticSvg } from "../../team-app/src/ui/trusted-static-svg.js";\nexport const p = trustedStaticSvg;\n',
   'packages/dashboard-plugin-runtime/src/server/pool.ts': 'export const w = (x: string) => new Worker(x);\nwindow.open("x" + w);\n',
   'packages/client/src/__tests__/a.test.tsx': 'window.open(x); el.innerHTML = x;\n',
   'packages/client/src/b.test.ts': 'window.open(x);\n',
@@ -117,7 +117,6 @@ describe('client sink guard (#E11)', () => {
 
   it('the policy-helper import is allowed from its owning module', () => {
     const root = makeFixtureTree({
-      'packages/client/src/components/MermaidBlock.tsx': 'import { trustedMermaidParse } from "../lib/security/trusted-types.js";\nexport const p = trustedMermaidParse;\n',
       'packages/team-app/src/ui/icons.tsx': 'import { trustedStaticSvg } from "./tt.js";\nexport const q = trustedStaticSvg;\n',
     });
     expect(analyzeClientSinks(root, { ruleSets: ['nav', 'html'] }).violations).toEqual([]);

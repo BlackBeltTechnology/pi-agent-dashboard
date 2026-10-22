@@ -5,9 +5,6 @@
  * Named policies — every app-owned sink uses one of these:
  *   - `pi-sanitized-html`  `(html, profile)` → DOMPurify with the shared profile
  *                          config (`shared/sanitize-profiles.ts`).
- *   - `pi-mermaid-parse`   wrap only — the colorize `DOMParser` pass in
- *                          `MermaidBlock` (inert document; the final sanitize
- *                          still runs before injection).
  *   - `pi-worker-url`      same-origin `/sw.js` or `/assets/<file>.m?js`
  *                          (+ dev-server worker paths in DEV builds).
  *
@@ -57,7 +54,6 @@ interface TtFactory {
 }
 
 const POLICY_SANITIZED_HTML = "pi-sanitized-html";
-const POLICY_MERMAID_PARSE = "pi-mermaid-parse";
 const POLICY_WORKER_URL = "pi-worker-url";
 
 // ── mode ────────────────────────────────────────────────────────────────────
@@ -169,7 +165,6 @@ function emlSrcDoc(body: string, cidToBlob: ReadonlyMap<string, string> | undefi
 interface State {
   mode: TrustedTypesMode;
   sanitized?: TtPolicy;
-  mermaidParse?: TtPolicy;
   workerUrl?: TtPolicy;
   installed: boolean;
 }
@@ -227,7 +222,6 @@ export function installTrustedTypes(mode: TrustedTypesMode = readTrustedTypesMod
         ? emlSrcDoc(html, cidToBlob as ReadonlyMap<string, string> | undefined)
         : sanitizeWithProfile(html, profile as SanitizeProfile),
   });
-  state.mermaidParse = tt.createPolicy(POLICY_MERMAID_PARSE, { createHTML: (svg) => svg });
   state.workerUrl = tt.createPolicy(POLICY_WORKER_URL, {
     createScriptURL: (url) => {
       if (!isAllowedScriptUrl(url, ctx)) throw new TypeError(`pi-worker-url: refused ${url}`);
@@ -267,14 +261,6 @@ export function trustedSanitizedHtml(html: string, profile: SanitizeProfile): Tr
 export function trustedEmlSrcDoc(body: string, cidToBlob: ReadonlyMap<string, string>): TrustedHTML | string {
   if (state.sanitized) return state.sanitized.createHTML(body, "eml", cidToBlob);
   return emlSrcDoc(body, cidToBlob);
-}
-
-/**
- * Wrap-only value for the Mermaid colorize `DOMParser` pass. Import is
- * restricted to `MermaidBlock.tsx` by the sink guard.
- */
-export function trustedMermaidParse(svg: string): TrustedHTML | string {
-  return state.mermaidParse ? state.mermaidParse.createHTML(svg) : svg;
 }
 
 /** Script URL for app-owned worker / service-worker registration. Throws when not allowlisted. */
@@ -371,7 +357,6 @@ export function __resetTrustedTypesForTests(): void {
   state.mode = "report";
   state.installed = false;
   state.sanitized = undefined;
-  state.mermaidParse = undefined;
   state.workerUrl = undefined;
   pending.clear();
 }

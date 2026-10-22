@@ -11,8 +11,14 @@
 
 export type UrlClass = "internal" | "loopback" | "external" | "mailto" | "blocked";
 
-/** Leading/trailing C0 controls and space, trimmed before classification. */
-const EDGE_WS = /^[\u0000-\u0020]+|[\u0000-\u0020]+$/g;
+/** Trim leading/trailing C0 controls and space (index-based: no backtracking regex). */
+function trimEdges(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s.charCodeAt(start) <= 0x20) start++;
+  while (end > start && s.charCodeAt(end - 1) <= 0x20) end--;
+  return s.slice(start, end);
+}
 /**
  * Any C0 control, DEL, or backslash left after trimming. The URL parser
  * silently strips TAB/CR/LF and treats `\` as `/` for special schemes, so the
@@ -52,7 +58,7 @@ function classifyHttp(url: URL): UrlClass {
  */
 export function classifyUrl(raw: unknown, origin: string | null): UrlClass {
   if (typeof raw !== "string") return "blocked";
-  const s = raw.replace(EDGE_WS, "");
+  const s = trimEdges(raw);
   if (s === "" || RAW_FORBIDDEN.test(s)) return "blocked";
   const pageOrigin = parseOrigin(origin);
 

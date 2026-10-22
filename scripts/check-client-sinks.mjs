@@ -21,8 +21,8 @@
  *          `.outerHTML =`, `.srcdoc =`, `setAttribute("srcdoc", …)`,
  *          `insertAdjacentHTML(`, `document.write(`, `createContextualFragment(`,
  *          `setHTMLUnsafe(`, `eval(`, `new Function(`, `new Worker(`,
- *          `new SharedWorker(`, and an import of a wrap-only policy helper
- *          (`trustedMermaidParse`, `trustedStaticSvg`) outside its owner.
+ *          `new SharedWorker(`, and an import of a key-lookup policy helper
+ *          (`trustedStaticSvg`) outside its owner.
  *
  * Per-occurrence exemption — directly above the flagged line:
  *
@@ -63,7 +63,6 @@ const FILE_ALLOWLIST = new Set([
 
 /** Wrap-only policy helpers and the single module allowed to import each. */
 const POLICY_HELPER_OWNERS = {
-  trustedMermaidParse: (file) => file.startsWith("packages/client/src/") && file.endsWith("/MermaidBlock.tsx"),
   trustedStaticSvg: (file) => file === "packages/team-app/src/ui/icons.tsx",
 };
 

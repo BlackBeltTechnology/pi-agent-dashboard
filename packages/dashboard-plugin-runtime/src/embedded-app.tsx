@@ -192,7 +192,7 @@ function createEmbeddedHost(o: {
       const base = suffix.startsWith("#") || standaloneUrl.endsWith("/") ? standaloneUrl : `${standaloneUrl}/`;
       // One named window per app ⇒ a repeated call reuses it. In Electron every
       // window.open is handed to the system browser (no BrowserWindow).
-      openExternalUrl(`${base}${suffix}`, { target: `pi-app-${app.id}` });
+      openExternalUrl(`${base}${suffix}`, { target: `pi-app-${app.id}`, keepOpener: true });
     },
     requestFullscreen(el) {
       const target = (el ?? rt.appRoot) as HTMLElement | null;

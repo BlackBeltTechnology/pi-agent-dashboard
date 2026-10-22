@@ -83,3 +83,13 @@ describe("classifyUrl — no page origin", () => {
     expect(classifyUrl("http://localhost:8000/x", null)).toBe("loopback");
   });
 });
+
+describe("classifyUrl — long control runs stay linear (CodeQL js/polynomial-redos)", () => {
+  it("a 100k run of interior control characters classifies quickly as blocked", () => {
+    const evil = `https://a${"\u0000".repeat(100_000)}b`;
+    const t0 = performance.now();
+    expect(classifyUrl(evil, "https://dash.example")).toBe("blocked");
+    expect(classifyUrl(`${" ".repeat(100_000)}x${" ".repeat(100_000)}`, null)).toBe("blocked");
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+});

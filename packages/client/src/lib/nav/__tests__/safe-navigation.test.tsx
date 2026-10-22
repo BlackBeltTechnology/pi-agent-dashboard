@@ -89,3 +89,13 @@ describe("SafeLink", () => {
     expect(a?.getAttribute("rel")).toBe("noopener noreferrer");
   });
 });
+
+describe("SafeLink internal hrefs", () => {
+  it("keeps fragment / query / root-relative hrefs as written and re-roots absolute same-origin URLs", () => {
+    const render1 = (h: string) => render(<SafeLink href={h}>x</SafeLink>).container.querySelector("a")?.getAttribute("href");
+    expect(render1("#section")).toBe("#section");
+    expect(render1("?tab=1")).toBe("?tab=1");
+    expect(render1("/settings/general")).toBe("/settings/general");
+    expect(render1(`${window.location.origin}/folder/x/view?path=a.md#h`)).toBe("/folder/x/view?path=a.md#h");
+  });
+});
