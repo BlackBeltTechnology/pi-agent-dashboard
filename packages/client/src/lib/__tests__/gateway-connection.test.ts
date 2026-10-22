@@ -81,12 +81,12 @@ describe("remoteAccessIndicator — toolbar dot + title (test-plan #E11)", () =>
     expect(remoteAccessIndicator(failedDetail, "0.0.0.0").tone).toBe("failed");
     expect(remoteAccessIndicator(counts(1, 2), "127.0.0.1").tone).toBe("partial");
     expect(remoteAccessIndicator(counts(2, 2, "active"), "127.0.0.1").tone).toBe("internet");
-    expect(remoteAccessIndicator(counts(0, 1), "0.0.0.0")).toEqual({ tone: "network", title: "Remote access: listening on the network" });
-    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1")).toEqual({ tone: "local", title: "Remote access: this computer only" });
+    expect(remoteAccessIndicator(counts(0, 1), "0.0.0.0")).toEqual({ tone: "network", state: "listening on the network", title: "Remote access: listening on the network" });
+    expect(remoteAccessIndicator(counts(0, 1), "127.0.0.1")).toEqual({ tone: "local", state: "this computer only", title: "Remote access: this computer only" });
   });
 
   it("an unreadable bind host is unknown, not 'this computer only'", () => {
-    expect(remoteAccessIndicator(counts(0, 1), null)).toEqual({ tone: "local", title: "Remote access: network status unknown" });
+    expect(remoteAccessIndicator(counts(0, 1), null)).toEqual({ tone: "local", state: "network status unknown", title: "Remote access: network status unknown" });
     // tunnel states still drive the dot while the bind is unknown
     expect(remoteAccessIndicator(counts(2, 2, "active"), null).title).toBe("Remote access: internet on");
   });

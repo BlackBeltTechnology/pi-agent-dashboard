@@ -99,7 +99,7 @@ export const serverSelectorStates: UiState[] = [
     install: (page) => stubServers(page, "mixed"),
     open: async (page) => {
       await trigger(page).waitFor({ state: "visible" });
-      await page.getByText("Connected", { exact: true }).first().waitFor();
+      await page.locator('[data-testid="connection-chip"][aria-label$=", connected"]').first().waitFor();
     },
     root: trigger,
   },

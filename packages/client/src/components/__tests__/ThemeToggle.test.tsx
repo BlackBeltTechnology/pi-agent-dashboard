@@ -54,4 +54,12 @@ describe("ThemeToggle", () => {
     fireEvent.click(screen.getByTestId("theme-dark"));
     expect(document.documentElement.getAttribute("data-theme")).toBeNull();
   });
+
+  it("exactly one button is aria-pressed and it follows the preference", () => {
+    renderToggle();
+    const pressed = () => ["light", "system", "dark"].filter((v) => screen.getByTestId(`theme-${v}`).getAttribute("aria-pressed") === "true");
+    expect(pressed()).toEqual(["system"]);
+    fireEvent.click(screen.getByTestId("theme-light"));
+    expect(pressed()).toEqual(["light"]);
+  });
 });

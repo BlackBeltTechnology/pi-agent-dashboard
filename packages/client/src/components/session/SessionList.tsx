@@ -3,20 +3,20 @@ import {
   useFolderMenuRefreshRunner,
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { cardSectionFolderKey, isPluginSectionVisible, resolveCardSectionVisible, resolveFolderListMode } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
 import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
-import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { useLaneHysteresis } from "../../hooks/useLaneHysteresis.js";
 import { cssEscape } from "../../lib/css-escape.js";
 import { demandsAttention, type FocusIntent, type GroupRenderMode, resolveActiveCwd, resolveGroupRenderMode } from "../../lib/folder-focus.js";
@@ -65,7 +65,6 @@ import { type SessionMenuScope, SessionMenuScopeContext, type SessionMenuState, 
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { useYoloAppBar, YoloBarLink } from "../access-grant/YoloIndicators.js";
-import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
@@ -73,12 +72,10 @@ import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsu
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
-import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { QuestionStack } from "../questions/QuestionStack.js";
 import { ThemePicker } from "../settings/ThemePicker.js";
-import { ThemeToggle } from "../settings/ThemeToggle.js";
 import { allTagsInUse } from "../tags/all-tags.js";
 import { TagDeleteConfirmDialog } from "../tags/TagDeleteConfirmDialog.js";
 import { TagFilterGroup } from "../tags/TagFilterGroup.js";
@@ -376,15 +373,20 @@ export function folderIsGitRepo(
 function ToggleButton({
   active,
   onClick,
+  testId,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  testId?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-pressed={active}
+      data-testid={testId}
       className={`text-[12px] px-1.5 py-0.5 rounded border ${
         active
           ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
@@ -406,7 +408,6 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // Orange tint + title on the app bar while YOLO is live; never ticks. See change: fix-yolo-indicator-overflow.
   const yoloAppBar = useYoloAppBar();
   const { messages, showToast, dismissToast } = useToast();
-  const installPrompt = useInstallPrompt();
 
   // Scroll-to-selected-card wiring.
   // See change: auto-scroll-selected-session-card.
@@ -498,6 +499,13 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   // are filled. See change: pin-and-search-sessions (design D1 revised).
   const [workspaceFilter, setWorkspaceFilter] = useState("");
   const [sessionSearch, setSessionSearch] = useState("");
+  // One scoped search box: which of the two queries the input edits. Not persisted.
+  // See change: declutter-sidebar-header (D5).
+  const [searchScope, setSearchScope] = useState<"sessions" | "folders">("sessions");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [funnelAnchor, setFunnelAnchor] = useState<HTMLButtonElement | null>(null);
+  const funnelBtnRef = useRef<HTMLButtonElement>(null);
+  const funnelPanelRef = useRef<HTMLDivElement>(null);
   // Tag + phase filter axes. Kept as TWO SEPARATE sets so a user tag named
   // `apply` and an openspecPhase of `apply` never collide. OR-within each
   // axis; AND-across axes and with folder/search. See change: add-session-tags.
@@ -549,6 +557,24 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       return !prev;
     });
   }, []);
+  const funnelCount = (includeArchive ? 1 : 0) + (showHidden ? 1 : 0);
+  const inactiveQuery = searchScope === "sessions" ? workspaceFilter : sessionSearch;
+  const inactiveChipTitle =
+    searchScope === "sessions"
+      ? t("sessionList.filterFolders", undefined, "Filter folders by path")
+      : t("sessionList.searchSessions", undefined, "Search sessions across folders");
+  const closeFunnel = useCallback(() => {
+    setFunnelAnchor(null);
+    funnelBtnRef.current?.focus();
+  }, []);
+  // Popover renders hidden until measured, so focus the first control one frame after mount.
+  useEffect(() => {
+    if (!funnelAnchor) return;
+    const id = requestAnimationFrame(() => {
+      funnelPanelRef.current?.querySelector<HTMLElement>('[data-testid="search-include-archive"]')?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [funnelAnchor]);
   const openArchivedSession = useCallback((id: string) => {
     navigate(`/session/${id}?archived=1`);
   }, [navigate]);
@@ -1547,6 +1573,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     (sessionId: string) => {
       setSessionSearch("");
       setWorkspaceFilter("");
+      setSearchScope("sessions");
       clearTagFilters();
       onSelect(sessionId);
       onSeekToCard?.(sessionId);
@@ -2824,28 +2851,19 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   return (
     <SessionMenuScopeContext.Provider value={menuScopeValue}>
     <div className="w-full border-r border-[var(--border-primary)] flex flex-col min-h-0 h-full">
-      <div className="border-b border-[var(--border-primary)]">
+      <div className="@container border-b border-[var(--border-primary)]">
         <div
           {...yoloAppBar}
-          className={`relative flex items-center justify-between px-3 py-1.5 ${yoloAppBar.className ?? ""}`}
+          className={`relative flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 ${yoloAppBar.className ?? ""}`}
           data-testid="header-app-bar"
         >
           {/* Focus-revealed link to Access while YOLO is live; out of flow. See change: fix-yolo-indicator-overflow. */}
           <YoloBarLink />
+          {/* Brand + tools: logo · Discord · divider · Appearance · Focus. See change: declutter-sidebar-header (D4). */}
           <div className="flex gap-1.5 items-center">
             <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={t("common.home", undefined, "Home")}>
               <PiLogo size={24} />
             </button>
-            <ThemePicker />
-            <ThemeToggle />
-          </div>
-          <div className="flex gap-1 items-center">
-            <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
-            <TunnelButton showToast={showToast} />
-            {/* Open-questions pill + panel; absent at 0, AFTER the YOLO slot. See change: add-pending-question-stack. */}
-            <QuestionStack sessions={sessions} onOpenSession={openQuestionSession} />
-            <FocusToggle />
-            {headerExtra}
             {/* Community entry point. MDI 7 dropped brand icons, so the Discord
                 glyph is an inline path constant. See change: add-discord-link. */}
             <a
@@ -2859,6 +2877,15 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             >
               <Icon path={mdiDiscordPath} size={0.6} />
             </a>
+            <span aria-hidden="true" className="h-4 w-px bg-[var(--border-secondary)]" />
+            <ThemePicker />
+            <FocusToggle />
+          </div>
+          {/* Status group: wraps under the left group instead of clipping. */}
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
+            {/* Open-questions pill + panel; absent at 0. See change: add-pending-question-stack. */}
+            <QuestionStack sessions={sessions} onOpenSession={openQuestionSession} />
+            {headerExtra}
             <button
               onClick={() => navigate("/settings")}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -2869,47 +2896,132 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-between px-3 py-1.5 gap-2" data-testid="header-filter-bar">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-1.5" data-testid="header-filter-bar">
           <input
+            ref={searchInputRef}
             type="search"
-            value={workspaceFilter}
-            onChange={(e) => setWorkspaceFilter(e.target.value)}
-            placeholder={t("sessionList.folderPlaceholder", undefined, "Folder...")}
+            value={searchScope === "sessions" ? sessionSearch : workspaceFilter}
+            onChange={(e) => (searchScope === "sessions" ? setSessionSearch : setWorkspaceFilter)(e.target.value)}
+            placeholder={
+              searchScope === "sessions"
+                ? t("sessionList.sessionPlaceholder", undefined, "Session...")
+                : t("sessionList.folderPlaceholder", undefined, "Folder...")
+            }
             className="focus-ring min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-            data-testid="workspace-filter-input"
-            aria-label={t("sessionList.filterFolders", undefined, "Filter folders by path")}
+            data-testid={searchScope === "sessions" ? "session-search-input" : "workspace-filter-input"}
+            aria-label={
+              searchScope === "sessions"
+                ? t("sessionList.searchSessions", undefined, "Search sessions across folders")
+                : t("sessionList.filterFolders", undefined, "Filter folders by path")
+            }
           />
-          <input
-            type="search"
-            value={sessionSearch}
-            onChange={(e) => setSessionSearch(e.target.value)}
-            placeholder={t("sessionList.sessionPlaceholder", undefined, "Session...")}
-            className="focus-ring min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-            data-testid="session-search-input"
-            aria-label={t("sessionList.searchSessions", undefined, "Search sessions across folders")}
-          />
-          {/* Include-archive chip (archive-sessions-lazy-load): opt-in,
-              persisted, off by default. ON + query ≥ 3 chars → debounced
-              server-side archive search rendered as `Archive matches`
-              sections. Chip off → search behaves exactly as before. */}
+          <div className="flex flex-shrink-0 gap-0.5" role="group" aria-label={t("sessionList.searchScope", undefined, "Search scope")}>
+            {(["sessions", "folders"] as const).map((scope) => (
+              <ToggleButton
+                key={scope}
+                active={searchScope === scope}
+                testId={`search-scope-${scope}`}
+                onClick={() => {
+                  setSearchScope(scope);
+                  searchInputRef.current?.focus();
+                }}
+              >
+                {scope === "sessions"
+                  ? t("sessionList.scopeSessions", undefined, "Sessions")
+                  : t("sessionList.scopeFolders", undefined, "Folders")}
+              </ToggleButton>
+            ))}
+          </div>
+          {/* Filter funnel: Include archive + Show hidden live in its popover.
+              Badge = how many of the two are on (tag filters excluded). */}
           <button
+            ref={funnelBtnRef}
             type="button"
-            onClick={toggleIncludeArchive}
-            aria-pressed={includeArchive}
-            data-testid="search-include-archive"
-            className={`flex-shrink-0 inline-flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 rounded border ${
-              includeArchive
-                ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
-                : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
-            title={t("sessionList.includeArchive", undefined, "archive")}
+            onClick={() => setFunnelAnchor((a) => (a ? null : funnelBtnRef.current))}
+            aria-haspopup="dialog"
+            aria-expanded={funnelAnchor !== null}
+            aria-label={t("sessionList.filtersLabel", { count: funnelCount }, "Filters, {count} on")}
+            data-testid="filter-funnel-btn"
+            className="focus-ring relative flex-shrink-0 rounded p-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
-            <Icon path={mdiArchiveOutline} size={0.45} />
-            <span>{t("sessionList.includeArchive", undefined, "archive")}</span>
+            <Icon path={mdiFilterVariant} size={0.6} />
+            {funnelCount > 0 && (
+              <span
+                data-testid="filter-funnel-badge"
+                className="absolute -right-1 -top-1 min-w-[14px] rounded-full bg-[var(--accent-solid)] px-1 text-center text-[9px] font-bold leading-[14px] text-white"
+              >
+                {funnelCount}
+              </span>
+            )}
           </button>
-          <ToggleButton active={showHidden} onClick={() => setShowHidden((p) => !p)}>
-            {t("common.hidden", undefined, "Hidden")}
-          </ToggleButton>
+          {funnelAnchor && (
+            <Popover anchorEl={funnelAnchor} onDismiss={closeFunnel}>
+              <div
+                ref={funnelPanelRef}
+                className="flex flex-col gap-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] p-2 shadow-xl"
+                data-testid="filter-funnel-panel"
+              >
+                {/* Include-archive chip (archive-sessions-lazy-load): opt-in,
+                    persisted, off by default. ON + query ≥ 3 chars → debounced
+                    server-side archive search rendered as `Archive matches`
+                    sections. Chip off → search behaves exactly as before. */}
+                <button
+                  type="button"
+                  onClick={toggleIncludeArchive}
+                  aria-pressed={includeArchive}
+                  data-testid="search-include-archive"
+                  className={`flex-shrink-0 inline-flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 rounded border ${
+                    includeArchive
+                      ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
+                      : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                  title={t("sessionList.includeArchive", undefined, "archive")}
+                >
+                  <Icon path={mdiArchiveOutline} size={0.45} />
+                  <span>{t("sessionList.includeArchive", undefined, "archive")}</span>
+                </button>
+                <ToggleButton active={showHidden} testId="show-hidden-toggle" onClick={() => setShowHidden((p) => !p)}>
+                  {t("common.hidden", undefined, "Hidden")}
+                </ToggleButton>
+              </div>
+            </Popover>
+          )}
+          {/* The inactive scope's query stays visible as a chip: two sibling buttons (switch · clear). */}
+          {inactiveQuery !== "" && (
+            <span
+              className="inline-flex max-w-full items-center rounded border border-[var(--border-secondary)] text-[12px] text-[var(--text-secondary)]"
+              data-testid="search-chip"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchScope(searchScope === "sessions" ? "folders" : "sessions");
+                  searchInputRef.current?.focus();
+                }}
+                className="focus-ring min-w-0 truncate px-1.5 py-0.5 hover:text-[var(--text-primary)]"
+                data-testid="search-chip-switch"
+                title={inactiveChipTitle}
+              >
+                {inactiveQuery}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  (searchScope === "sessions" ? setWorkspaceFilter : setSessionSearch)("");
+                  searchInputRef.current?.focus();
+                }}
+                className="focus-ring px-0.5 py-0.5 hover:text-[var(--text-primary)]"
+                aria-label={
+                  searchScope === "sessions"
+                    ? t("sessionList.clearFolderFilter", undefined, "Clear folder filter")
+                    : t("sessionList.clearSessionSearch", undefined, "Clear session search")
+                }
+                data-testid="search-chip-clear"
+              >
+                <Icon path={mdiClose} size={0.5} />
+              </button>
+            </span>
+          )}
         </div>
         {/* Master tag-area collapse. ONE header folds BOTH the user-tag group
             and the read-only phase group (default collapsed, persisted). The

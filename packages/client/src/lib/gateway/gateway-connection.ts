@@ -62,6 +62,8 @@ export interface RemoteAccessIndicator {
   tone: RemoteAccessTone;
   /** Full accessible name / title: `Remote access: <state>[, N device(s) waiting]`. */
   title: string;
+  /** Bare state phrase (no `Remote access:` prefix, no waiting suffix). */
+  state: string;
 }
 
 const REMOTE_ACCESS_STATE: Record<RemoteAccessTone, string> = {
@@ -112,5 +114,5 @@ export function remoteAccessIndicator(
   else tone = "local";
   const state = tone === "local" && bindHost === null ? "network status unknown" : REMOTE_ACCESS_STATE[tone];
   const suffix = waiting > 0 ? `, ${waiting} ${waiting === 1 ? "device" : "devices"} waiting` : "";
-  return { tone, title: `Remote access: ${state}${suffix}` };
+  return { tone, state, title: `Remote access: ${state}${suffix}` };
 }

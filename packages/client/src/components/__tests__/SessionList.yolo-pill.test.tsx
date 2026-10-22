@@ -52,7 +52,7 @@ function renderRow(onRender?: React.ProfilerOnRenderCallback) {
 }
 
 /** Row-1 controls that exist regardless of YOLO. */
-const TODAY = ["theme-toggle", "discord-btn", "settings-btn"];
+const TODAY = ["theme-picker-trigger", "discord-btn", "settings-btn"];
 const rowTestIds = (row: HTMLElement) =>
   [...row.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid"));
 

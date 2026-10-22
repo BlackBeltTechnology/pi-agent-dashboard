@@ -20,6 +20,7 @@ import { catalog as craft_web_catalog } from "@blackbelt-technology/pi-dashboard
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
+import { DemoSettings, DemoToolRenderer, DemoAppRoute, DemoScopedAppRoute, DemoScopedFolderEntry, isDemoScopedFolder, DemoDocxHandler } from "@blackbelt-technology/demo-plugin";
 import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";
 
@@ -1129,6 +1130,84 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "DemoAppRoute",
+                "path": "/folder/:encodedCwd/demo-app/*?",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd",
+                "presentation": "content"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "DemoScopedAppRoute",
+                "path": "/folder/:encodedCwd/demo-scoped/*?",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd",
+                "presentation": "content"
+            },
+            {
+                "slot": "sidebar-folder-section",
+                "component": "DemoScopedFolderEntry",
+                "predicate": "isDemoScopedFolder"
+            },
+            {
+                "slot": "editor-pane-file-handler",
+                "component": "DemoDocxHandler",
+                "id": "docx",
+                "extensions": [
+                    ".docx"
+                ],
+                "mode": "edit",
+                "label": "Edit (demo)",
+                "keepAlive": {
+                    "max": 2
+                },
+                "copySuffix": "demo",
+                "validator": true
+            }
+        ],
+        "client": "./src/client.tsx",
+        "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
+        "fixture": true,
+        "vaultBindings": [
+            "POLY_PIZZA_KEY"
+        ],
+        "projectTypes": [
+            {
+                "type": "demo-scoped",
+                "markers": [
+                    ".pi/dashboard/demo-scoped"
+                ]
+            }
+        ]
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+      { pluginId: "demo", priority: 1000, slot: "shell-overlay-route", path: "/folder/:encodedCwd/demo-app/*?", depth: 2, parentPath: "/folder/:encodedCwd", presentation: "content", Component: DemoAppRoute },
+      { pluginId: "demo", priority: 1000, slot: "shell-overlay-route", path: "/folder/:encodedCwd/demo-scoped/*?", depth: 2, parentPath: "/folder/:encodedCwd", presentation: "content", Component: DemoScopedAppRoute },
+      { pluginId: "demo", priority: 1000, slot: "sidebar-folder-section", Component: DemoScopedFolderEntry, predicate: isDemoScopedFolder },
+      { pluginId: "demo", priority: 1000, slot: "editor-pane-file-handler", fileHandler: {"id":"docx","extensions":[".docx"],"mode":"edit","label":"Edit (demo)","keepAlive":{"max":2},"copySuffix":"demo","validator":true}, Component: DemoDocxHandler },
+    ],
+  },
+  {
+    manifest: {
         "id": "web-access",
         "displayName": "Web access",
         "priority": 1000,
@@ -1154,4 +1233,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "2273f7a93a95c7d71a6d846e02c36c48ace662844916fbbb8327b46c1b29dd44";
+export const PLUGIN_REGISTRY_HASH = "9b554ea82bab238eb87e7df8acb0cf4a3141b18db1eed7800b60215d75132551";

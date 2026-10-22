@@ -1,5 +1,6 @@
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiAccessPointNetwork, mdiDownload } from "@mdi/js";
 import type React from "react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
@@ -11,6 +12,7 @@ import { CommandInput } from "./components/chat/CommandInput.js";
 import { ComposerDockHost } from "./components/chat/ComposerDockHost.js";
 import { useDockAccordion } from "./components/chat/composer-dock-model.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
+import type { AccessItem } from "./components/connectivity/ServerSelector.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
@@ -72,6 +74,7 @@ import { useNetworkDenied } from "./hooks/useNetworkDenied.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
 import { type OpenSpecGetInflight, useOpenSpecReconcile } from "./hooks/useOpenSpecReconcile.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
+import { useRemoteAccessIndicator } from "./hooks/useRemoteAccessIndicator.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
@@ -174,6 +177,10 @@ const RuntimeUpdateBadge = lazy(() =>
 // See change: add-access-provisioning.
 const ProvisionPromptHost = lazy(() =>
   import("./components/access-grant/ProvisionPromptHost.js").then((m) => ({ default: m.ProvisionPromptHost })),
+);
+// The Remote access dialog (wizard, step bodies, QR) stays off the entry chunk: it loads on first open.
+const RemoteAccessDialog = lazy(() =>
+  import("./components/remote-access/RemoteAccessDialog.js").then((m) => ({ default: m.RemoteAccessDialog })),
 );
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
@@ -710,6 +717,7 @@ export default function App() {
   const chatViewRef = useRef<ChatViewHandle>(null);
   const isMobile = useMobile();
   const installPrompt = useInstallPrompt();
+  const remoteAccess = useRemoteAccessIndicator();
   const launchSource = useLaunchSource();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
@@ -2137,6 +2145,40 @@ export default function App() {
   // session list changes. See change: add-session-tags.
   const allTags = useMemo(() => allTagsInUse(Array.from(sessions.values())), [sessions]);
 
+  // Connection-menu "Access" group: Remote access (opens the dialog hosted below) + Install as app.
+  // See change: declutter-sidebar-header.
+  const accessItems: AccessItem[] = [
+    {
+      id: "remote-access",
+      label: i18nT("connection.remoteAccess", undefined, "Remote access"),
+      sublabel: remoteAccess.label.replace(/^Remote access: /, ""),
+      icon: mdiAccessPointNetwork,
+      testId: "tunnel-btn",
+      tone: remoteAccess.tone,
+      opensDialog: true,
+      onSelect: (trigger) => {
+        void remoteAccess.openDialog(trigger).catch(logRejection("App.openRemoteAccess"));
+      },
+    },
+    ...(installPrompt.canInstall && !installPrompt.isInstalled
+      ? [
+          {
+            id: "install-app",
+            label: i18nT("packages.installApp", undefined, "Install app"),
+            icon: mdiDownload,
+            testId: "install-btn",
+            onSelect: () => installPrompt.prompt(),
+          },
+        ]
+      : []),
+  ];
+
+  const remoteAccessDialogHost = remoteAccess.dialogOpen ? (
+    <Suspense fallback={null}>
+      <RemoteAccessDialog initialRun={remoteAccess.resumeRun} onClose={remoteAccess.closeDialog} />
+    </Suspense>
+  ) : null;
+
   const sessionList = (
     <SessionList
       sessions={Array.from(sessions.values())}
@@ -2259,6 +2301,8 @@ export default function App() {
             </Suspense>
           )}
           <ServerSelector
+            remoteAccess={{ tone: remoteAccess.tone, state: remoteAccess.state, pending: remoteAccess.pending }}
+            accessItems={accessItems}
             currentHost={currentServerHost}
             currentPort={currentServerPort}
             connected={status === "connected"}
@@ -3232,6 +3276,7 @@ export default function App() {
         {grantPromptHost}
         {provisionPromptHost}
         {pairingApprovalHost}
+        {remoteAccessDialogHost}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {
@@ -3280,6 +3325,7 @@ export default function App() {
       {grantPromptHost}
       {provisionPromptHost}
       {pairingApprovalHost}
+      {remoteAccessDialogHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:
           friendlier-worktree-init. */}

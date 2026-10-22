@@ -11,6 +11,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { openFilterFunnel } from "./sidebar-search-helper.js";
 
 const CWD = "/home/user/project";
 
@@ -61,6 +62,7 @@ const PRESSED = ["text-[var(--text-primary)]", "bg-[var(--accent-soft)]", "borde
 describe("SessionList pill colour roles", () => {
   it("include-archive chip: unpressed --text-secondary, pressed = selected-chip recipe, 12px", () => {
     renderList();
+    openFilterFunnel();
     const chip = screen.getByTestId("search-include-archive");
     expect(chip.className).toContain("text-[var(--text-secondary)]");
     expect(chip.className).toContain("text-[12px]");
@@ -73,14 +75,17 @@ describe("SessionList pill colour roles", () => {
 
   it("Hidden ToggleButton: same recipe on then off", () => {
     renderList();
-    const btn = screen.getByText("Hidden").closest("button") as HTMLElement;
+    openFilterFunnel();
+    const btn = screen.getByTestId("show-hidden-toggle");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
     expect(btn.className).toContain("text-[var(--text-secondary)]");
     expect(btn.className).toContain("text-[12px]");
     fireEvent.click(btn);
-    const on = screen.getByText("Hidden").closest("button") as HTMLElement;
+    const on = screen.getByTestId("show-hidden-toggle");
+    expect(on.getAttribute("aria-pressed")).toBe("true");
     for (const c of PRESSED) expect(on.className).toContain(c);
     fireEvent.click(on);
-    const off = screen.getByText("Hidden").closest("button") as HTMLElement;
+    const off = screen.getByTestId("show-hidden-toggle");
     expect(off.className).toContain("text-[var(--text-secondary)]");
     expect(off.className).not.toContain("bg-[var(--accent-soft)]");
   });

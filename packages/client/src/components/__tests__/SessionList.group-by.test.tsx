@@ -14,6 +14,7 @@ import { memoryLocation } from "wouter/memory-location";
 import * as lanesModule from "../../lib/session/session-lanes.js";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { setSidebarSearch } from "./sidebar-search-helper.js";
 
 vi.mock("../../lib/session/session-lanes.js", async (orig) => {
   const actual = await orig<typeof import("../../lib/session/session-lanes.js")>();
@@ -160,9 +161,9 @@ describe("lane rendering", () => {
 
   it("session search flattens lanes; clearing restores them", () => {
     render(<List sessions={statusMix()} groupByPrefs={prefs({ folderGroupBy: { [CWD]: "status" } })} />);
-    fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "w1" } });
+    setSidebarSearch("sessions", "w1");
     expect(document.querySelector("section[data-lane]")).toBeNull();
-    fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "" } });
+    setSidebarSearch("sessions", "");
     expect(document.querySelector("section[data-lane]")).toBeTruthy();
   });
 });

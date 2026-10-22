@@ -18,6 +18,12 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { openFilterFunnel, setSidebarSearch } from "./sidebar-search-helper.js";
+
+const archiveChip = () => {
+  openFilterFunnel();
+  return screen.getByTestId("search-include-archive");
+};
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -107,7 +113,7 @@ describe("SessionList tag filter", () => {
     const { container, getByLabelText, getByTestId } = renderList([a, b]);
 
     fireEvent.click(getByLabelText("Filter by tag feature"));
-    fireEvent.change(getByTestId("workspace-filter-input"), { target: { value: "/proj/api" } });
+    setSidebarSearch("folders", "/proj/api");
 
     expect(visible(container, a.id)).toBe(true);
     expect(visible(container, b.id)).toBe(false);
@@ -119,7 +125,7 @@ describe("SessionList tag filter", () => {
     const { container, getByLabelText, getByTestId } = renderList([a, b]);
 
     fireEvent.click(getByLabelText("Filter by tag feature"));
-    fireEvent.change(getByTestId("session-search-input"), { target: { value: "auth" } });
+    setSidebarSearch("sessions", "auth");
 
     expect(visible(container, a.id)).toBe(true);
     expect(visible(container, b.id)).toBe(false);
@@ -229,7 +235,7 @@ describe("SessionList — include-archive search chip (archive-sessions-lazy-loa
       vi.stubGlobal("fetch", fetchImpl);
       renderList([makeSession({ name: "Live session" })]);
 
-      fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "allowlist" } });
+      setSidebarSearch("sessions", "allowlist");
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
 
       expect(archivedCalls(fetchImpl)).toHaveLength(0);
@@ -248,8 +254,8 @@ describe("SessionList — include-archive search chip (archive-sessions-lazy-loa
       renderList([makeSession({ name: "Live session" })]);
 
       // Chip ON.
-      fireEvent.click(screen.getByTestId("search-include-archive"));
-      expect(screen.getByTestId("search-include-archive").getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(archiveChip());
+      expect(archiveChip().getAttribute("aria-pressed")).toBe("true");
 
       const input = screen.getByTestId("session-search-input");
       fireEvent.change(input, { target: { value: "al" } });
@@ -282,8 +288,8 @@ describe("SessionList — include-archive search chip (archive-sessions-lazy-loa
       vi.stubGlobal("fetch", fetchImpl);
       renderList([makeSession({ name: "Live session" })]);
 
-      fireEvent.click(screen.getByTestId("search-include-archive"));
-      fireEvent.change(screen.getByTestId("session-search-input"), { target: { value: "al" } });
+      fireEvent.click(archiveChip());
+      setSidebarSearch("sessions", "al");
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
 
       expect(archivedCalls(fetchImpl)).toHaveLength(0);
@@ -296,11 +302,11 @@ describe("SessionList — include-archive search chip (archive-sessions-lazy-loa
   it("F13: chip state persists in localStorage across remounts", () => {
     window.localStorage.setItem("sidebar.search.includeArchive", "true");
     const first = renderList([makeSession()]);
-    expect(screen.getByTestId("search-include-archive").getAttribute("aria-pressed")).toBe("true");
+    expect(archiveChip().getAttribute("aria-pressed")).toBe("true");
     first.unmount();
 
     const second = renderList([makeSession()]);
-    expect(screen.getByTestId("search-include-archive").getAttribute("aria-pressed")).toBe("true");
+    expect(archiveChip().getAttribute("aria-pressed")).toBe("true");
     second.unmount();
   });
 });

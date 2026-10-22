@@ -378,7 +378,7 @@ test.describe.serial("access-grant prompt dialog (add-access-grant-dialog 10g)",
   test("10.66 / #E50 / #E15: no YOLO session, row 1 holds today's controls, untinted, no YOLO link", async ({ page }) => {
     inContainer(`fetch("http://127.0.0.1:${DASHBOARD_PORT}/api/access/yolo", { method: "DELETE" })`);
     await openDashboard(page);
-    await expect(page.getByTestId("tunnel-btn").first()).toBeVisible();
+    await expect(page.getByTestId("connection-chip").first()).toBeVisible();
     const row = page.getByTestId("header-app-bar");
     await expect(row).not.toHaveAttribute("data-yolo", /.*/);
     expect(await row.getAttribute("title")).toBeNull();

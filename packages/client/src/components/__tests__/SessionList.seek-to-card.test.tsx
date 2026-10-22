@@ -28,6 +28,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { setSidebarSearch } from "./sidebar-search-helper.js";
 
 function TestRouter({ children }: { children: React.ReactNode }) {
   const { hook } = memoryLocation({ path: "/", static: true });
@@ -216,7 +217,7 @@ describe("SessionList seek-to-card", () => {
     const onSetWorkspaceCollapsed = vi.fn();
     const sessions = [s({ id: "s1", hidden: true })];
     const { container, ctl, getByTestId } = mount({ sessions, onSetWorkspaceCollapsed });
-    const hiddenToggleBefore = getByTestId("workspace-filter-input"); // sanity: list rendered
+    const hiddenToggleBefore = getByTestId("session-search-input"); // sanity: list rendered
     expect(hiddenToggleBefore).toBeTruthy();
     act(() => { ctl.seek("s1"); });
     tick();
@@ -231,7 +232,7 @@ describe("SessionList seek-to-card", () => {
   it("degrades a folder-path-filtered session; filter unchanged, no reveal", () => {
     const sessions = [s({ id: "s1", cwd: "/proj" })];
     const { container, getByTestId, ctl } = mount({ sessions });
-    fireEvent.change(getByTestId("workspace-filter-input"), { target: { value: "zzz-nomatch" } });
+    setSidebarSearch("folders", "zzz-nomatch");
     act(() => { ctl.seek("s1"); });
     tick();
     expect(scrollSpy).not.toHaveBeenCalled();

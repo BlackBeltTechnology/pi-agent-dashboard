@@ -23,7 +23,7 @@ import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
-import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { FIXTURE_GIT, gotoDashboard, setSearch } from "./helpers/index.js";
 import { BASE_URL, DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 /** A transcript path need not exist — `sessionFile` only has to be SET for the
@@ -161,7 +161,7 @@ function card(page: Page, sessionId: string) {
  * card in a container every other spec is also writing to.
  */
 async function revealSession(page: Page, sessionId: string): Promise<void> {
-  await page.getByTestId("session-search-input").fill(sessionId);
+  await setSearch(page, "sessions", sessionId);
   await expect(card(page, sessionId)).toBeVisible({ timeout: 30_000 });
 }
 
