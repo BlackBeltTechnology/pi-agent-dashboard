@@ -67,7 +67,7 @@ Test tasks are folded from `test-plan.md` (one task per manifest row). Each test
 
 ## 7. Rendered UI
 
-- [ ] 7.1 Author `tests/e2e/pinned-folder-preview.spec.ts` (copy harness glue from `tests/e2e/preview-denial-remedy.spec.ts`; port from `.pi-test-harness.json`): input · docker harness, a pinned temp dir with `readme.md` and `pic.png`, no session in it · trigger · open the folder pane and open both files · observable · markdown heading text rendered; image `naturalWidth > 0`; no "unknown session path" / "no longer available" text in the pane (test-plan #F2).
+- [x] 7.1 Author `tests/e2e/pinned-folder-preview.spec.ts` (copy harness glue from `tests/e2e/preview-denial-remedy.spec.ts`; port from `.pi-test-harness.json`): input · docker harness, a pinned temp dir with `readme.md` and `pic.png`, no session in it · trigger · open the folder pane and open both files · observable · markdown heading text rendered; image `naturalWidth > 0`; no "unknown session path" / "no longer available" text in the pane (test-plan #F2).
 
 ## 8. CodeQL, docs, ship prep
 
@@ -78,4 +78,4 @@ Test tasks are folded from `test-plan.md` (one task per manifest row). Each test
 
 ## 9. Manual (post-merge)
 
-- [ ] 9.1 On a macOS desktop dashboard, pin a folder that holds a PDF with no session in it, open the PDF in the folder pane and click *Open in system app*; confirm it opens in the default app (test-plan: manual-only, #F5).
+- [x] 9.1 On a macOS desktop dashboard, pin a folder that holds a PDF with no session in it, open the PDF in the folder pane and click *Open in system app*; confirm it opens in the default app (test-plan: manual-only, #F5).
