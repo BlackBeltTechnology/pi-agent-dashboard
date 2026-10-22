@@ -2,7 +2,7 @@
 
 Research dossier. Explore-mode, no change / no impl.
 Date: 2026-10-21.
-Status: OPEN — spikes + B prototype + monorepo spike done, direction not chosen.
+Status: OPEN — spikes A-parts, B prototype, monorepo spikes C+D done, direction not chosen.
 
 ## Problem
 
@@ -278,7 +278,7 @@ Target: pi-agent-dashboard monorepo. Throwaway clone, deleted after. Subset test
 ### Problem shape
 
 - pnpm 11.15.1, `nodeLinker: hoisted`.
-- Root `node_modules` 1.5G + 63 nested `node_modules` dirs (`packages/*/node_modules`, `scripts/node_modules`, …).
+- Root `node_modules` 1.5G + 63 nested `node_modules` dirs (`packages/*/node_modules`, `scripts/node_modules`, …) (Spike D filter excl. `__tests__/fixtures` + `.worktrees`, incl. root: 57).
 - ⇒ per-dir volume shadowing does not scale.
 - darwin native addons in root `node_modules`:
   - `@earendil-works/pi-tui`, `@img/sharp-darwin-arm64`, `@koromix/koffi-darwin-arm64`, `@napi-rs/canvas-darwin-arm64`
@@ -348,11 +348,99 @@ Host failures (3 files) = repo-walking lint tests: `no-legacy-pi-fork`, `real-pr
 | # | Layout | Pros | Open / risks |
 |---|---|---|---|
 | 1 | `:O` whole repo | deps isolated | bash writes trapped; needs delta-back; split-brain risk |
-| 2 | rw bind source + per-dir `:O` (or volume) on each EXISTING node_modules dir (63 mounts, auto-generated from `find`) | source live both ways; deps isolated | new nested node_modules dirs would leak to host — untested |
+| 2 | rw bind source + per-dir `:O` (or volume) on each EXISTING node_modules dir (63 mounts, auto-generated from `find`) | source live both ways; deps isolated | tested → Spike D: coherent writes both ways, deps isolated; dirs missing from mount list leak to host (compile cache, new nested node_modules) |
 | 3 | copy-in workspace (Gondolin-style snapshot) + explicit delta-back | clean semantics | needs apply/merge UI |
 | 4 | whole pi in container (A) | sidesteps file-tool split entirely | A tradeoffs (see Tradeoffs) |
 
 - Full suite (3227 files) not run. Subset only.
+
+## Spike D — layout (2): rw source + per-dir node_modules volumes (2026-10-22)
+
+Target: pi-agent-dashboard monorepo. Layout 2 from Spike C table. Scratch clone outside repo.
+
+### Why scratch outside repo
+
+- `real-process-project-guard` skips `.worktrees` only.
+  - SKIP_DIRS: `node_modules`, `.git`, `dist`, `.worktrees`.
+- `no-legacy-pi-fork`: SKIP_DIRS `node_modules`, `out`, `dist`, `.git`.
+- `source-reading-tests-pinned`: walks everything.
+- ⇒ no in-repo copy safe. Not even under `.worktrees`.
+- Scratch: `~/.pi-spike-d/repo`.
+
+### Setup
+
+- `git clone --local --branch develop` → `~/.pi-spike-d/repo`.
+- Mount list: `find` over main repo `node_modules` dirs. Excl `.worktrees`, `.git`, `__tests__/fixtures`. Plus root ⇒ 57 dirs.
+- Per dir:
+  - `mkdir -p` empty mount point in host tree.
+  - `-v spike-d-nm-<i>:<abs path>` (podman named volume, VM-local).
+- Source: `-v R:R` rw bind, path-identical. `R` = clone.
+- Image `node:22-bookworm`. `--cpus 4 --memory 5g`.
+- Env: `ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 CI=1`. pnpm store volume.
+
+### Install
+
+| Metric | Value |
+|---|---|
+| `pnpm install --frozen-lockfile` | "Done in 59.3s" |
+| wall | 61 s |
+| host `git status --porcelain` before / after | 0 / 0 lines |
+| host write outside node_modules | `packages/client/dist/` only (gitignored build artefact) |
+| host node_modules mount points | empty. Root `node_modules` 0 entries (test marker only) |
+
+### Live semantics
+
+| # | Scenario | Result |
+|---|---|---|
+| 1 | host edit → container | sees `// HOST-1` ✓ |
+| 2 | container write → host | sees `// CONT-2` ✓ |
+| 3 | host edit after container write → container | sees `// HOST-3` ✓ (no split-brain) |
+| 4 | host delete → container | clean ENOENT ✓ (no ESTALE) |
+| 5 | container delete → host | file gone ✓ |
+| 7 | host `node_modules/HOST_DARWIN_MARKER` → container | invisible ✓ (volume shadows host dir) |
+| 7b | container deps → host | invisible ✓ (host root `node_modules` only marker) |
+| 8 | `git status` in container | clean, correct ` D` / ` M` / `??` ✓ |
+| 9 | extension tests in container | 1 failed / 198 passed (199), Duration 28.56 s |
+
+Contrast Spike C `:O`: stale ESTALE on host delete, split-brain on container write.
+
+### Tests
+
+- Extension tests in container: 1 failed / 198 passed (199). Duration 28.56 s.
+- Same env-only failure as Spike C.
+
+### Biome
+
+- `npx biome format --write` in container: paths ignored, "No files were processed".
+- Host darwin, same clone: also ignored.
+- Main repo `biome format` on `server.ts`, `App.tsx`, `bridge.ts`, `check-conventions.mjs` → "Checked 0 file".
+- ⇒ repo Biome config/invocation quirk (vcs `useIgnoreFile`). Not container-related.
+- Write-through proven by plain echo / rm.
+- Repo wrapper: `npm run quality:changed`.
+
+### Findings
+
+- Layout 2 fixes Spike C write split.
+  - bash writes, host file tools, git: coherent.
+  - deps isolated both directions.
+  - install cost = `:O` (61 s wall vs 62 s Spike C).
+- Weak spot = mount-list completeness.
+  - Forced leak: container `mkdir -p packages/anti-slop/node_modules/fake-dep` + `x.node` ⇒ host sees `x.node`.
+  - Real leak: `packages/pi-forms-bpmn/node_modules/.tmp/node-compile-cache/v22.23.3-arm64-…` (2.5M) on host.
+    - Dir absent from mount list (main repo has no `packages/pi-forms-bpmn/node_modules`).
+    - Node compile cache, not deps.
+  - ⇒ ANY node_modules dir missing from mount list leaks Linux artefacts to host (new nested dir after `pnpm add`, lockfile drift, compile cache).
+- Mount count 57: ok for podman.
+- List changes with deps ⇒ container recreate on drift. pi process unaffected under B.
+
+### Mitigations (unbuilt)
+
+| # | Mitigation |
+|---|---|
+| a | after each in-container `pnpm install` / `add`: diff actual node_modules dirs vs mount list → recreate container with added volumes (move content in) |
+| b | derive list from lockfile / hoist result in pre-pass |
+| c | host-side watcher deletes stray Linux artefacts |
+| d | mount whole `packages/` rw + `NODE_COMPILE_CACHE` → VM-local dir (kills leak 1) |
 
 ## Runtime mount / port options
 
@@ -403,7 +491,8 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 - B prototype viable: bash-only override + host-identical paths = smallest surface. read/write/edit untouched.
 - Podman backend = best perf/complexity today (6.4 s vs host 1.95 s, 0.12 s/exec). Gondolin = best policy (runtime grants, egress allowlist, secret placeholders) but needs copy-in workspace.
 - Monorepo deps: Linux install via `:O` upper = 62 s, host untouched — solved.
-- Unsolved for B: bash-side writes vs host-side file tools. Pick layout (2) per-dir node_modules overlay, (3) copy-in + delta-back, or go A.
+- Layout (2) = viable B layout for this monorepo: coherent writes both ways + isolated deps; cost = maintaining node_modules mount list (drift ⇒ recreate container).
+- Solved by layout (2) (Spike D), residual risk: mount-list drift leaks.
 
 ## Open questions
 
@@ -417,6 +506,7 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 8. Guest HOME=/root vs host HOME — set HOME to host path inside backend?
 9. B layout for writes: per-dir node_modules overlay vs copy-in + delta-back vs A?
 10. Container user: non-root uid mapping (root defeats permission tests).
+11. Mount-list maintenance: lockfile-derived vs post-install diff + recreate?
 
 ## Next spikes
 
@@ -425,8 +515,10 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 - Gondolin readdir invalidation after grant.
 - podman `:O` delta → `.wh.*` converter + apply on host.
 - ~~B on this repo: `pnpm install` Linux deps volume for monorepo (hoisted, nested `packages/*/node_modules`) + `npm test` timing.~~ DONE 2026-10-22 (subset) → see Spike C.
-- Layout (2): rw bind + `:O` on each existing node_modules dir (63 mounts). Verify bash writes reach host, deps stay isolated, new nested node_modules behaviour.
+- ~~Layout (2): rw bind + `:O` on each existing node_modules dir (63 mounts). Verify bash writes reach host, deps stay isolated, new nested node_modules behaviour.~~ DONE 2026-10-22 (named volumes, 57 dirs) → see Spike D.
 - Run as `--userns=keep-id` non-root; re-run shared/extension to clear env failures.
+- Post-install drift detector + container recreate loop prototype.
+- `NODE_COMPILE_CACHE` relocation to kill compile-cache leak.
 
 ## Continue this research
 
