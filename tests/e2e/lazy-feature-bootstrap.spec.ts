@@ -1,4 +1,4 @@
-import { byTestId, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
+import { byTestId, gotoDashboard, launchFromNewTabMenu, spawnFreshGitSession } from "./helpers/index.js";
 import { expect, test } from "./fixtures.js";
 import { BASE_URL } from "./lifecycle.js";
 
@@ -112,7 +112,7 @@ test.describe("lazy feature bootstrap — boundary failure containment", () => {
     await page.getByTestId("layout-mode-switch").waitFor({ state: "visible", timeout: 30_000 });
     await page.getByTestId("layout-mode-split").click();
     await expect(page.getByTestId("split-editor-pane")).toBeVisible();
-    await page.getByTestId("new-terminal-launch").click();
+    await launchFromNewTabMenu(page, "new-terminal-launch");
 
     // The lazy `import()` REJECTS during render. The pane-local ErrorBoundary
     // must catch it: without one this escalates to the app-level boundary and

@@ -229,6 +229,25 @@ export async function robustClick(page: Page, testid: string): Promise<void> {
 }
 
 /**
+ * Launch a new pane tab from the pane bar's `+` menu: open the menu, then click
+ * the item (`new-terminal-launch`, `live-preview-launch`, `open-file-launch`).
+ * The launchers moved off the header into this menu; the item ids are unchanged.
+ * See change: scope-anchor-editor-pane-controls (D9, D12).
+ */
+export async function launchFromNewTabMenu(
+  page: Page,
+  item: "new-terminal-launch" | "live-preview-launch" | "open-file-launch",
+): Promise<void> {
+  await expect(async () => {
+    await dismissToasts(page);
+    if ((await page.getByTestId("new-tab-menu-toggle").getAttribute("aria-expanded")) !== "true") {
+      await page.getByTestId("new-tab-menu-toggle").click({ timeout: 2_000 });
+    }
+    await page.getByTestId(item).click({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
+
+/**
  * Pick an editor layout mode at any width. The wide header renders the 3-segment
  * radiogroup (`layout-mode-<mode>` visible directly); below the mobile breakpoint
  * it renders a menu whose trigger is `layout-mode-switch` and whose

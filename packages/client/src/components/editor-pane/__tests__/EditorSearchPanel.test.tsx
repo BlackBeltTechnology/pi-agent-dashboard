@@ -1,8 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GrepMatch } from "../../../lib/api/grep-api.js";
-import { EditorSearchPanel } from "../EditorSearchPanel.js";
+import { EditorSearchPanel, type Mode } from "../EditorSearchPanel.js";
+
+/** The pane owns the mode (so shortcuts can switch it); this harness plays the pane. */
+function Panel(props: Omit<React.ComponentProps<typeof EditorSearchPanel>, "mode" | "onModeChange">) {
+  const [mode, setMode] = useState<Mode>("file");
+  return <EditorSearchPanel {...props} mode={mode} onModeChange={setMode} />;
+}
 
 afterEach(() => cleanup());
 
@@ -14,13 +21,13 @@ const contentMatches: GrepMatch[] = [
   { path: "src/a.ts", line: 80, col: 3, snippet: "const MAX_VISITS = 20000" },
 ];
 
-function setup(overrides: Partial<React.ComponentProps<typeof EditorSearchPanel>> = {}) {
+function setup(overrides: Partial<React.ComponentProps<typeof Panel>> = {}) {
   const onFilenameSearch = vi.fn();
   const onContentSearch = vi.fn(async () => contentMatches);
   const onOpen = vi.fn();
   const onClose = vi.fn();
   render(
-    <EditorSearchPanel
+    <Panel
       cwd="/proj"
       fileResults={{ query: "edit", files }}
       onFilenameSearch={onFilenameSearch}
@@ -84,8 +91,23 @@ describe("EditorSearchPanel", () => {
     });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith("src/edit-log.ts", undefined));
+    // Escape is handled by the rail container (EditorPane), not the panel (D4).
     fireEvent.keyDown(input, { key: "Escape" });
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("prefill: a new nonce replaces the query and focuses the field", () => {
+    const { rerender } = render(
+      <EditorSearchPanel cwd="/proj" fileResults={null} onFilenameSearch={vi.fn()} onContentSearch={vi.fn(async () => [])} onOpen={vi.fn()} onClose={vi.fn()} mode="file" onModeChange={vi.fn()} prefill={{ nonce: 1, query: "kickoff" }} />,
+    );
+    const input = screen.getByTestId("editor-search-input") as HTMLInputElement;
+    expect(input.value).toBe("kickoff");
+    expect(document.activeElement).toBe(input);
+    fireEvent.change(input, { target: { value: "other" } });
+    rerender(
+      <EditorSearchPanel cwd="/proj" fileResults={null} onFilenameSearch={vi.fn()} onContentSearch={vi.fn(async () => [])} onOpen={vi.fn()} onClose={vi.fn()} mode="file" onModeChange={vi.fn()} prefill={{ nonce: 2, query: "again" }} />,
+    );
+    expect(input.value).toBe("again");
   });
 
   it("content match opens with its line for scroll-to", async () => {

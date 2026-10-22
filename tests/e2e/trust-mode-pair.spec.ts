@@ -20,7 +20,7 @@ import { execFileSync } from "node:child_process";
 import { expect, test } from "./fixtures.js";
 import { operatorHeaders } from "./helpers/bridge-credential.js";
 import { resolveContainer } from "./helpers/container-proc.js";
-import { gotoDashboard, robustClick, spawnFreshGitSession } from "./helpers/index.js";
+import { gotoDashboard, launchFromNewTabMenu, robustClick, spawnFreshGitSession } from "./helpers/index.js";
 import { readBaselineFile, readConfig, writeConfig } from "./helpers/trust-access.js";
 import { BASE_URL } from "./lifecycle.js";
 
@@ -206,7 +206,7 @@ test.describe("trust mode pair — live preview capability (F11)", () => {
       page.on("websocket", (w) => sockets.push(w.url()));
 
       await robustClick(page, "layout-mode-split");
-      await robustClick(page, "live-preview-launch");
+      await launchFromNewTabMenu(page, "live-preview-launch");
       await page.getByTestId("live-url").fill(`http://127.0.0.1:${FIXTURE_PORT}`);
       await robustClick(page, "live-confirm");
 

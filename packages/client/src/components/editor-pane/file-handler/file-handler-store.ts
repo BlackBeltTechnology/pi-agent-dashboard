@@ -21,7 +21,7 @@ import type { FileHandlerHostApi } from "./file-handler-host.js";
 /** Live handler instances per browser page, across plugins and sessions. */
 export const MAX_LIVE_HANDLERS = 3;
 
-type HandlerDirtyState = boolean | "unknown";
+export type HandlerDirtyState = boolean | "unknown";
 /** What triggers a discard: selects the wording of the confirm. */
 type DiscardKind = "switch-mode" | "close-tab" | "refresh" | "reload" | "discard";
 
@@ -111,7 +111,7 @@ export interface FileHandlerStore {
   guardDiscard(key: string, kind: DiscardKind): Promise<boolean>;
   /** Re-mount from a fresh snapshot (call after `guardDiscard`). */
   remount(key: string): void;
-  /** Remove the instance (call after `guardDiscard`). */
+  /** Remove the instance (call after `guardDiscard` or the bulk-close summary confirmation). */
   discard(key: string): void;
   /** Leave the evicted state so the next `activate` mounts again. */
   resume(key: string): void;

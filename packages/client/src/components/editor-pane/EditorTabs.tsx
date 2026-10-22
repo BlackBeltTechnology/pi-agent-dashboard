@@ -5,6 +5,10 @@
  *
  * See change: add-internal-monaco-editor-pane.
  * See change: improve-content-editor (per-kind tab icon #2).
+ * The strip is the flexible item of the pane bar (`min-w-0`, scrolls on
+ * overflow); its × is a 24 px target visible on keyboard focus; a secondary
+ * click, ContextMenu key or Shift+F10 opens the tab context menu.
+ * See change: scope-anchor-editor-pane-controls (D1, D9).
  */
 
 import { mdiClose, mdiConsoleLine, mdiPuzzleOutline } from "@mdi/js";
@@ -14,6 +18,7 @@ import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { fileIcon } from "../../lib/preview/file-icon.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { basename, prefixOf } from "./tab-labels.js";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
@@ -30,16 +35,10 @@ interface EditorTabsProps {
    * See change: add-browser-editor-pane-tab (D1).
    */
   pluginLabel?: (path: string) => ReactNode;
-}
-
-const prefixOf = (p: string): string => {
-  const i = p.indexOf(":");
-  return i > 0 ? p.slice(0, i) : p;
-};
-
-function basename(p: string): string {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(i + 1) : p;
+  /** Open the tab context menu for tab `index`, anchored at `anchorEl`. */
+  onContextMenuTab?: (index: number, anchorEl: HTMLElement) => void;
+  /** A pane overlay (confirmation, popover, menu) is open: Cmd/Ctrl-W is inert. */
+  closeShortcutSuspended?: boolean;
 }
 
 /** True while the OS requests reduced motion (WCAG 2.2.2). Reactive. */
@@ -93,7 +92,17 @@ function UnreadDot({ file }: { file: OpenFile }) {
   );
 }
 
-export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder, terminalTitle, pluginLabel }: EditorTabsProps) {
+export function EditorTabs({
+  openFiles,
+  activeIndex,
+  onActivate,
+  onClose,
+  onReorder,
+  terminalTitle,
+  pluginLabel,
+  onContextMenuTab,
+  closeShortcutSuspended = false,
+}: EditorTabsProps) {
   const { t } = useI18n();
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -102,6 +111,11 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
   // Roving-tabindex keyboard navigation across the tab strip.
   const onTabKeyDown = (e: React.KeyboardEvent, i: number) => {
     let next: number | null = null;
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      e.preventDefault();
+      onContextMenuTab?.(i, e.currentTarget as HTMLElement);
+      return;
+    }
     if (e.key === "ArrowRight") next = Math.min(i + 1, openFiles.length - 1);
     else if (e.key === "ArrowLeft") next = Math.max(i - 1, 0);
     else if (e.key === "Home") next = 0;
@@ -121,6 +135,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "w" || e.key === "W")) {
+        if (closeShortcutSuspended) return;
         if (activeIndex >= 0) {
           e.preventDefault();
           onClose(activeIndex);
@@ -129,10 +144,10 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeIndex, onClose]);
+  }, [activeIndex, onClose, closeShortcutSuspended]);
 
   return (
-    <div role="tablist" aria-label={t("editor.openFiles", undefined, "Open files")} className="flex shrink-0 overflow-x-auto border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+    <div role="tablist" aria-label={t("editor.openFiles", undefined, "Open files")} className="flex min-w-0 overflow-x-auto">
       {openFiles.map((file, i) => (
         <div
           key={file.path}
@@ -164,6 +179,11 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
             setDragOver(null);
           }}
           onClick={() => onActivate(i)}
+          onContextMenu={(e) => {
+            if (!onContextMenuTab) return;
+            e.preventDefault();
+            onContextMenuTab(i, e.currentTarget as HTMLElement);
+          }}
           onMouseDown={(e) => {
             if (e.button === 1) {
               e.preventDefault();
@@ -171,7 +191,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
             }
           }}
           className={[
-            "group flex max-w-[16rem] cursor-pointer items-center gap-1.5 whitespace-nowrap border-r border-[var(--border-primary)] px-3 py-1.5 text-xs",
+            "group flex min-h-7 max-w-[16rem] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap border-r border-[var(--border-primary)] py-0.5 pl-3 pr-1 text-xs",
             i === activeIndex
               ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
               : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
@@ -205,7 +225,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
               e.stopPropagation();
               onClose(i);
             }}
-            className="opacity-0 transition-opacity hover:text-[var(--text-primary)] group-hover:opacity-100"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover:opacity-100"
           >
             <Icon path={mdiClose} size={0.5} />
           </button>

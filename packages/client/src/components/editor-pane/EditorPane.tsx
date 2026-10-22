@@ -15,13 +15,15 @@
  */
 
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { mdiClose, mdiConsoleLine, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
+import { mdiChevronDown, mdiClose, mdiFileTreeOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { grepContents } from "../../lib/api/grep-api.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { ancestorDirs } from "../../lib/layout/editor-pane-state.js";
 import { clampRailWidth, useRailWidth } from "../../lib/layout/rail-width.js";
 import { stripTermId } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { copyText } from "../../lib/util/clipboard.js";
 import { useTreeVisible } from "../../lib/util/tree-visible.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { SplitDivider } from "../split/SplitDivider.js";
@@ -30,10 +32,12 @@ import { TerminalLimitNotice } from "../terminal/TerminalLimitNotice.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorFileTree } from "./EditorFileTree.js";
-import { EditorSearchPanel } from "./EditorSearchPanel.js";
+import { BulkCloseConfirm } from "./BulkCloseConfirm.js";
+import { DocumentBar } from "./DocumentBar.js";
+import { EditorSearchPanel, type Mode as SearchMode } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
+import { type BulkClosePlan, type BulkRiskEntry, planBulkClose } from "./file-handler/close-risk.js";
 import { FileHandlerAnchor } from "./file-handler/FileHandlerAnchor.js";
-import { FileModeSwitcher } from "./file-handler/FileModeSwitcher.js";
 import { type FileModeOffers, FileModeOffersContext } from "./file-handler/file-mode-offers.js";
 import { useFileHandlerPane } from "./file-handler/use-file-handler-pane.js";
 
@@ -53,10 +57,34 @@ import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js
 import { CappedViewer } from "./CappedViewer.js";
 import { PluginTabHost, pluginTabPrefix } from "./PluginTabHost.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
-import { TabActions, type TabActionTarget } from "./TabActions.js";
+import { NewTabMenu } from "./NewTabMenu.js";
+import { TabContextMenu } from "./TabContextMenu.js";
+import { TabSearchPopover } from "./TabSearchPopover.js";
+import { basename } from "./tab-labels.js";
 import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
+
+/** Pane width below which the document bar folds (design D3). */
+const NARROW_PX = 640;
+
+/** `true` while the observed element is narrower than `NARROW_PX` (no observer → never narrow). */
+function useNarrow(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? el.getBoundingClientRect().width;
+      setNarrow(width < NARROW_PX);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return narrow;
+}
+
+const riskKey = (e: BulkRiskEntry): string => (e.kind === "terminal" ? `t:${e.id}` : `h:${e.key}`);
 
 export function EditorPane() {
   const { t } = useI18n();
@@ -71,6 +99,7 @@ export function EditorPane() {
     consumePendingScroll,
     fileResults,
     onFilenameSearch,
+    hasFileSearch,
     changedFiles,
     clearChanged,
     changeDetection,
@@ -126,22 +155,68 @@ export function EditorPane() {
   const [baselineReadyKey, setBaselineReadyKey] = useState<string | null>(null);
   const captureBaselineRef = useRef(captureBaseline);
   captureBaselineRef.current = captureBaseline;
-  const [searchOpen, setSearchOpen] = useState(false);
   const [railWidth, setRailWidth] = useRailWidth(sessionId);
 
-  // Cmd/Ctrl-P (filenames) or Cmd/Ctrl-Shift-F (contents) toggles the search.
+  // Search is a rail view (design D4): ephemeral `railView` + `searchMode`; the
+  // rail renders when the persisted preference says so OR Search is showing.
+  // Search never writes the persisted preference. Folder panes have no search.
+  const [railView, setRailView] = useState<"files" | "search">("files");
+  const [searchMode, setSearchMode] = useState<SearchMode>("file");
+  const [searchPrefill, setSearchPrefill] = useState<{ query?: string; nonce: number }>({ nonce: 0 });
+  const searchShowing = hasFileSearch && railView === "search";
+  const railVisible = treeVisible || searchShowing;
+  // Reset the ephemeral search state when the pane is reused for another session.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset keyed on the session id only
   useEffect(() => {
+    setRailView("files");
+    setSearchMode("file");
+  }, [sessionId]);
+
+  // Pane overlays (confirmation, Search-tabs popover, menus): Cmd/Ctrl-W is inert while any is open.
+  const [tabSearchOpen, setTabSearchOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ index: number; anchor: HTMLElement } | null>(null);
+  const [bulk, setBulk] = useState<{ targets: string[]; plan: BulkClosePlan } | null>(null);
+  const [menusOpen, setMenusOpen] = useState({ newTab: false, docMore: false });
+  const onNewTabOpen = useCallback((open: boolean) => setMenusOpen((m) => (m.newTab === open ? m : { ...m, newTab: open })), []);
+  const onDocMoreOpen = useCallback((open: boolean) => setMenusOpen((m) => (m.docMore === open ? m : { ...m, docMore: open })), []);
+  const paneOverlayOpen = !!bulk || tabSearchOpen || !!contextMenu || menusOpen.newTab || menusOpen.docMore;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const narrow = useNarrow(rootRef);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const tabSearchBtnRef = useRef<HTMLButtonElement>(null);
+
+  const openSearch = useCallback(
+    (mode: SearchMode, query?: string) => {
+      if (!hasFileSearch) return;
+      setSearchMode(mode);
+      setRailView("search");
+      setSearchPrefill((p) => ({ query, nonce: p.nonce + 1 }));
+    },
+    [hasFileSearch],
+  );
+  const closeSearch = useCallback(() => {
+    setRailView("files");
+    bodyRef.current?.focus();
+  }, []);
+
+  // Cmd/Ctrl-P (filenames) or Cmd/Ctrl-Shift-F (contents): same mode closes the
+  // view, the other mode switches. Without file search the key is not
+  // intercepted (Cmd-P still reaches the browser's Print).
+  useEffect(() => {
+    if (!hasFileSearch) return;
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
-      if (e.key === "p" || e.key === "P" || (e.shiftKey && (e.key === "f" || e.key === "F"))) {
-        e.preventDefault();
-        setSearchOpen((v) => !v);
-      }
+      const mode: SearchMode | null =
+        e.shiftKey && (e.key === "f" || e.key === "F") ? "content" : e.key === "p" || e.key === "P" ? "file" : null;
+      if (!mode) return;
+      e.preventDefault();
+      if (railView === "search" && searchMode === mode) closeSearch();
+      else openSearch(mode);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [hasFileSearch, railView, searchMode, openSearch, closeSearch]);
 
   const onContentSearch = useCallback(
     (q: string, regex: boolean) => grepContents(cwd, q, regex),
@@ -171,20 +246,10 @@ export function EditorPane() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // System-open tab actions (D9). Gated on the server capability; only a real
-  // file or a url tab exposes an action (virtual live-server/diff/terminal do
-  // not). See change: open-view-command-in-editor-pane.
+  // Server-advertised host capabilities: `systemOpen` gates Open/Reveal in the
+  // document bar, `platform` labels Reveal. See change: open-view-command-in-editor-pane (D9),
+  // scope-anchor-editor-pane-controls (D10).
   const caps = useServerCapabilities();
-  // `url` MUST be tested before the pseudo-tab guard: it is the one pseudo-tab
-  // kind that still exposes an action. Collapsing all four onto the guard would
-  // silently drop system-open for `url:` tabs, with no type error.
-  const tabActionTarget: TabActionTarget | null = !activeTab
-    ? null
-    : activeTab.viewer === "url"
-      ? { kind: "url", url: activeTab.path.replace(/^url:/, "") }
-      : isPseudoTabViewer(activeTab.viewer)
-        ? null
-        : { kind: "file", cwd, path: activeTab.path };
 
   // Honour a pending scroll for the active tab exactly once, then clear it.
   useEffect(() => {
@@ -291,128 +356,320 @@ export function EditorPane() {
 
   const language = activeTab ? activeTab.path.slice(activeTab.path.lastIndexOf(".") + 1) : "";
 
+  // ── Closing: single close (per tab) and the bulk runner (design D6) ────────
+  const closeTabAt = (i: number) => {
+    const f = stateRef.current.openFiles[i];
+    const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
+    // D4 — closing a terminal tab kills its terminal (silent: no confirmation).
+    if (termId) terminal.closeTerminalTab(termId);
+    else if (f?.handlerMode && changeDetection) {
+      // Closing the last tab of a handler instance with unsaved/unknown
+      // edits asks first; re-resolve the index afterwards (async).
+      void fh.guardTabClose(i).then((ok) => {
+        if (!ok) return;
+        const idx = stateRef.current.openFiles.findIndex((t) => t.path === f.path);
+        if (idx >= 0) dispatch({ type: "closeTab", index: idx });
+      });
+    } else dispatch({ type: "closeTab", index: i });
+  };
+  const closeTabByPath = (path: string) => {
+    const i = stateRef.current.openFiles.findIndex((f) => f.path === path);
+    if (i >= 0) closeTabAt(i);
+  };
+  // Close popovers first (their Escape listener is not on the escape stack), then
+  // either close at once or ask once about the risky tabs.
+  const runBulkClose = (paths: string[]) => {
+    setTabSearchOpen(false);
+    setContextMenu(null);
+    const plan = planBulkClose(stateRef.current.openFiles, paths, fh.closeLookups);
+    if (plan.targets.length === 0) return;
+    if (plan.risky.length === 0) dispatch({ type: "closeTabs", paths: plan.targets });
+    else setBulk({ targets: plan.targets, plan });
+  };
+  // Re-plan against the CURRENT state on confirm; a risk the dialog did not list
+  // re-shows the dialog instead of acting (design D6, "recompute on confirm").
+  const confirmBulk = (mode: "keep" | "discard") => {
+    if (!bulk) return;
+    const fresh = planBulkClose(stateRef.current.openFiles, bulk.targets, fh.closeLookups);
+    const listed = new Set(bulk.plan.risky.map(riskKey));
+    if (fresh.risky.some((e) => !listed.has(riskKey(e)))) {
+      setBulk({ targets: bulk.targets, plan: fresh });
+      return;
+    }
+    if (mode === "keep") {
+      const kept = new Set(fresh.risky.flatMap((e) => e.tabPaths));
+      dispatch({ type: "closeTabs", paths: fresh.targets.filter((p) => !kept.has(p)) });
+    } else {
+      for (const e of fresh.risky) {
+        // Kill only (never `closeTerminalTab`, which would dispatch `closeByPath` first).
+        if (e.kind === "terminal") terminal.killTerminal(e.id);
+        else fh.discardInstance(e.key);
+      }
+      dispatch({ type: "closeTabs", paths: fresh.targets });
+    }
+    setBulk(null);
+  };
+  const bulkItems = bulk
+    ? bulk.plan.risky.map((e) => ({
+        key: riskKey(e),
+        reason: e.reason,
+        name: e.kind === "terminal" ? (terminalTitle(e.id) ?? t("terminal.terminal", undefined, "terminal")) : basename(e.tabPaths[0] ?? ""),
+      }))
+    : [];
+
+  // ── Rail / tree reveals ────────────────────────────────────────────────────
+  const revealFolder = (relPath: string) => {
+    dispatch({ type: "expandTreeRoots", relPaths: [...ancestorDirs(`${relPath}/x`), relPath] });
+    setRailView("files");
+    setTreeVisible(true);
+  };
+  const showInTree = (path: string) => {
+    dispatch({ type: "expandTreeRoots", relPaths: ancestorDirs(path) });
+    setRailView("files");
+    setTreeVisible(true);
+  };
+  const toggleFiles = () => {
+    if (railVisible) {
+      setRailView("files");
+      setTreeVisible(false);
+    } else setTreeVisible(true);
+  };
+
+  const textDeps = useMemo(
+    () => ({ terminalTitle, terminalFallback: t("terminal.terminal", undefined, "terminal") }),
+    [terminalTitle, t],
+  );
+  const BAR_BTN =
+    "inline-flex h-7 shrink-0 items-center justify-center rounded text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50";
+  const contextTab = contextMenu ? state.openFiles[contextMenu.index] : null;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-3 py-2">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
+      {/* Pane bar: Files · tabs · + ··· ⌄ ✕ (design D1) */}
+      <div data-testid="pane-bar" className="flex shrink-0 items-center gap-1 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)] px-2 py-0.5">
         <button
           type="button"
-          onClick={() => setTreeVisible(!treeVisible)}
-          aria-pressed={treeVisible}
-          aria-label={t("editor.toggleFileTree", undefined, "Toggle file tree")}
+          onClick={toggleFiles}
+          aria-pressed={railVisible}
           data-testid="tree-toggle"
           className={[
-            "flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium",
-            treeVisible
+            "flex h-7 shrink-0 items-center gap-1.5 rounded px-2 text-xs font-medium",
+            railVisible
               ? "bg-[var(--bg-selected)] text-[var(--text-primary)]"
               : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
           ].join(" ")}
-          title={treeVisible ? t("editor.hideFileTree", undefined, "Hide file tree") : t("editor.showFileTree", undefined, "Show file tree")}
+          title={railVisible ? t("editor.hideFileTree", undefined, "Hide file tree") : t("editor.showFileTree", undefined, "Show file tree")}
         >
           <Icon path={mdiFileTreeOutline} size={0.7} />
           <span>{t("common.files", undefined, "Files")}</span>
         </button>
-        <span className="truncate text-sm font-medium">{activePath ?? t("editor.editorTitle", undefined, "Editor")}</span>
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "openFile", path: "live:preview", viewer: "live-server" })}
-          data-testid="live-preview-launch"
-          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          title={t("editor.previewLocalDevServer", undefined, "Preview a local dev server")}
-        >
-          <Icon path={mdiWeb} size={0.7} />
-        </button>
-        <button
-          type="button"
-          onClick={() => terminal.createTerminal()}
-          data-testid="new-terminal-launch"
-          className="text-[var(--text-tertiary)] hover:text-cyan-400"
-          title={t("terminal.newTerminal", undefined, "New Terminal")}
-        >
-          <Icon path={mdiConsoleLine} size={0.7} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setSearchOpen((v) => !v)}
-          aria-pressed={searchOpen}
-          data-testid="editor-search-toggle"
-          className={searchOpen ? "text-blue-400" : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"}
-          title={t("editor.searchShortcutHint", undefined, "Search (Cmd-P / Cmd-Shift-F)")}
-        >
-          <Icon path={mdiMagnify} size={0.7} />
-        </button>
-        {tabActionTarget && <TabActions target={tabActionTarget} systemOpen={caps.systemOpen} />}
-        {activeTab && (
-          <button
-            type="button"
-            onClick={() => (fh.handlerView ? void fh.refreshHandler() : setRefreshNonce((n) => n + 1))}
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-            title={t("editor.reloadFile", undefined, "Reload file")}
-          >
-            <Icon path={mdiRefresh} size={0.7} />
-          </button>
+        {state.openFiles.length > 0 && (
+          <EditorTabs
+            openFiles={state.openFiles}
+            activeIndex={state.activeIndex}
+            terminalTitle={terminalTitle}
+            pluginLabel={pluginLabel}
+            onActivate={(i) => dispatch({ type: "setActive", index: i })}
+            onClose={closeTabAt}
+            onReorder={(from, to) => dispatch({ type: "reorderTabs", from, to })}
+            onContextMenuTab={(index, anchor) => setContextMenu({ index, anchor })}
+            closeShortcutSuspended={paneOverlayOpen}
+          />
         )}
+        <NewTabMenu
+          onNewTerminal={() => terminal.createTerminal()}
+          onLivePreview={() => dispatch({ type: "openFile", path: "live:preview", viewer: "live-server" })}
+          onOpenFile={hasFileSearch ? () => openSearch("file") : undefined}
+          onOpenChange={onNewTabOpen}
+        />
+        <span className="min-w-0 flex-1" />
+        <button
+          ref={tabSearchBtnRef}
+          type="button"
+          data-testid="tab-search-toggle"
+          disabled={state.openFiles.length === 0}
+          aria-haspopup="dialog"
+          aria-expanded={tabSearchOpen}
+          aria-label={t("editor.searchTabs", undefined, "Search tabs")}
+          title={t("editor.searchTabs", undefined, "Search tabs")}
+          onClick={() => setTabSearchOpen((v) => !v)}
+          className={`${BAR_BTN} w-7`}
+        >
+          <Icon path={mdiChevronDown} size={0.7} />
+        </button>
         <button
           type="button"
+          data-testid="editor-pane-close"
           onClick={() => updateSplit({ mode: "closed" })}
-          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          className={`${BAR_BTN} w-7`}
+          aria-label={t("editor.closeEditor", undefined, "Close editor")}
           title={t("editor.closeEditor", undefined, "Close editor")}
         >
           <Icon path={mdiClose} size={0.7} />
         </button>
       </div>
 
-      {/* A refused terminal spawn (PTY cap) reports here, under the header that has the "+".
+      {/* A refused terminal spawn (PTY cap) reports here, under the bar that has the "+".
           See change: harden-server-capability-bounds. */}
       <TerminalLimitNotice cwd={cwd} inline={false} />
 
-      {/* Tabs */}
-      {state.openFiles.length > 0 && (
-        <EditorTabs
+      <DocumentBar
+        tab={activeTab}
+        cwd={cwd}
+        narrow={narrow}
+        systemOpen={caps.systemOpen}
+        platform={caps.platform}
+        claims={activeTab && !isPseudoTabViewer(activeTab.viewer) ? fh.matching : []}
+        selectedMode={fh.handlerView ? activeTab?.handlerMode : undefined}
+        outsideCwd={fh.outsideCwd}
+        onSelectMode={(m) => void fh.selectMode(m)}
+        terminalTitle={terminalTitle}
+        pluginLabel={pluginLabel}
+        onReload={() => (fh.handlerView ? void fh.refreshHandler() : setRefreshNonce((n) => n + 1))}
+        onShowInTree={() => activePath && showInTree(activePath)}
+        onOpenFolder={revealFolder}
+        onOverlayChange={onDocMoreOpen}
+      />
+
+      {tabSearchOpen && tabSearchBtnRef.current && (
+        <TabSearchPopover
+          anchorEl={tabSearchBtnRef.current}
           openFiles={state.openFiles}
           activeIndex={state.activeIndex}
-          terminalTitle={terminalTitle}
+          textDeps={textDeps}
           pluginLabel={pluginLabel}
-          onActivate={(i) => dispatch({ type: "setActive", index: i })}
-          onClose={(i) => {
-            const f = state.openFiles[i];
-            const termId = f?.viewer === "terminal" ? stripTermId(f.path) : null;
-            // D4 — closing a terminal tab kills its terminal.
-            if (termId) terminal.closeTerminalTab(termId);
-            else if (f?.handlerMode && changeDetection) {
-              // Closing the last tab of a handler instance with unsaved/unknown
-              // edits asks first; re-resolve the index afterwards (async).
-              void fh.guardTabClose(i).then((ok) => {
-                if (!ok) return;
-                const idx = stateRef.current.openFiles.findIndex((t) => t.path === f.path);
-                if (idx >= 0) dispatch({ type: "closeTab", index: idx });
-              });
-            } else dispatch({ type: "closeTab", index: i });
+          unsavedPaths={
+            new Set(
+              state.openFiles
+                .filter((f) => {
+                  const k = fh.closeLookups.keyOf(f);
+                  return !!k && fh.closeLookups.getInstance(k)?.dirty === true;
+                })
+                .map((f) => f.path),
+            )
+          }
+          hasFileSearch={hasFileSearch}
+          onActivate={(path) => {
+            const i = stateRef.current.openFiles.findIndex((f) => f.path === path);
+            if (i >= 0) dispatch({ type: "setActive", index: i });
           }}
-          onReorder={(from, to) => dispatch({ type: "reorderTabs", from, to })}
+          onCloseTab={closeTabByPath}
+          onBulkClose={runBulkClose}
+          onFallThrough={(q) => openSearch("file", q)}
+          onClose={() => setTabSearchOpen(false)}
+        />
+      )}
+
+      {contextMenu && contextTab && (
+        <TabContextMenu
+          anchorEl={contextMenu.anchor}
+          isLast={contextMenu.index === state.openFiles.length - 1}
+          fileTab={!isPseudoTabViewer(contextTab.viewer)}
+          onClose={() => setContextMenu(null)}
+          onCloseTab={() => closeTabAt(contextMenu.index)}
+          onCloseOthers={() => runBulkClose(state.openFiles.filter((_, i) => i !== contextMenu.index).map((f) => f.path))}
+          onCloseRight={() => runBulkClose(state.openFiles.slice(contextMenu.index + 1).map((f) => f.path))}
+          onCloseAll={() => runBulkClose(state.openFiles.map((f) => f.path))}
+          onShowInTree={() => {
+            dispatch({ type: "setActive", index: contextMenu.index });
+            showInTree(contextTab.path);
+          }}
+          onCopyPath={() => void copyText(absOf(cwd, contextTab.path))}
+        />
+      )}
+
+      {bulk && (
+        <BulkCloseConfirm
+          items={bulkItems}
+          keptCount={bulk.plan.keptCount}
+          onCancel={() => setBulk(null)}
+          onKeep={() => confirmBulk("keep")}
+          onDiscard={() => confirmBulk("discard")}
         />
       )}
 
       {/* Tree + inner divider + viewer */}
       <div ref={rowRef} className="flex min-h-0 flex-1">
-        {treeVisible && (
+        {railVisible && (
           <>
-            <div ref={railRef} className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
-              {/* Changes section pinned atop the project-tree rail (change:
-                  add-change-summary-table). Absent when no changes. */}
-              <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <EditorFileTree
-                  cwd={cwd}
-                  treeOpenRoots={state.treeOpenRoots}
-                  onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
-                  onOpenFile={(relPath) => openInSplit(relPath)}
-                  onOpenDiff={(relPath) => openDiffTab(relPath)}
-                  activePath={activePath}
-                  sessionOnly={sessionOnly}
-                />
-              </div>
+            <div
+              ref={railRef}
+              className="shrink-0 flex min-h-0 flex-col"
+              style={{ width: railWidth }}
+              data-testid="editor-rail"
+              onKeyDown={(e) => {
+                // Escape closes Search only while focus is inside the rail.
+                if (e.key === "Escape" && searchShowing) {
+                  e.preventDefault();
+                  closeSearch();
+                }
+              }}
+            >
+              {hasFileSearch && (
+                <div role="tablist" aria-label={t("editor.railView", undefined, "Rail view")} className="flex shrink-0 items-center gap-1 border-b border-[var(--border-primary)] px-2 py-1">
+                  {(
+                    [
+                      ["files", "rail-view-files", t("common.files", undefined, "Files")],
+                      ["search", "editor-search-toggle", t("editor.search", undefined, "Search")],
+                    ] as const
+                  ).map(([view, testId, label]) => (
+                    <button
+                      key={view}
+                      type="button"
+                      role="tab"
+                      data-testid={testId}
+                      aria-selected={railView === view}
+                      onClick={() => {
+                        if (view === "files") {
+                          setRailView("files");
+                          setTreeVisible(true);
+                        } else openSearch(searchMode);
+                      }}
+                      title={view === "search" ? t("editor.searchShortcutHint", undefined, "Search (Cmd-P / Cmd-Shift-F)") : undefined}
+                      className={[
+                        "inline-flex min-h-6 items-center rounded px-2 text-xs font-medium",
+                        railView === view
+                          ? "bg-[var(--bg-selected)] text-[var(--text-primary)]"
+                          : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {searchShowing ? (
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <EditorSearchPanel
+                    cwd={cwd}
+                    fileResults={fileResults}
+                    onFilenameSearch={onFilenameSearch}
+                    onContentSearch={onContentSearch}
+                    onOpen={(relPath, line) => openInSplit(relPath, line)}
+                    onClose={closeSearch}
+                    mode={searchMode}
+                    onModeChange={setSearchMode}
+                    prefill={searchPrefill}
+                  />
+                </div>
+              ) : (
+                <>
+                  {/* Changes section pinned atop the project-tree rail (change:
+                      add-change-summary-table). Absent when no changes. */}
+                  <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <EditorFileTree
+                      cwd={cwd}
+                      treeOpenRoots={state.treeOpenRoots}
+                      onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
+                      onOpenFile={(relPath) => openInSplit(relPath)}
+                      onOpenDiff={(relPath) => openDiffTab(relPath)}
+                      activePath={activePath}
+                      sessionOnly={sessionOnly}
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <SplitDivider
               orientation="h"
@@ -428,16 +685,6 @@ export function EditorPane() {
           </>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
-          {searchOpen && (
-            <EditorSearchPanel
-              cwd={cwd}
-              fileResults={fileResults}
-              onFilenameSearch={onFilenameSearch}
-              onContentSearch={onContentSearch}
-              onOpen={(relPath, line) => openInSplit(relPath, line)}
-              onClose={() => setSearchOpen(false)}
-            />
-          )}
           {activePath && changedFiles?.has(activePath) && (
             <ChangedOnDiskBanner
               fileName={activePath}
@@ -462,19 +709,11 @@ export function EditorPane() {
               onDismiss={() => clearChanged(activePath)}
             />
           )}
-          {activeTab && fh.matching.length > 0 && (
-            <FileModeSwitcher
-              claims={fh.matching}
-              selected={fh.handlerView ? activeTab.handlerMode : undefined}
-              outsideCwd={fh.outsideCwd}
-              onSelect={(m) => void fh.selectMode(m)}
-            />
-          )}
           {/* File viewer + keep-alive terminal layer share the body region.
               When a file tab is active the terminals are display:none; when a
               term tab is active `body` is the null placeholder and the layer's
               active terminal fills. See change: terminals-in-tabbed-panes. */}
-          <div className="min-h-0 flex-1 flex flex-col">
+          <div ref={bodyRef} tabIndex={-1} className="min-h-0 flex-1 flex flex-col focus:outline-none">
             {body}
             {/* D3: mount the lazy layer only once a terminal tab has been the
                 active tab. The `Suspense` fallback fills the same pane-body

@@ -170,7 +170,8 @@ describe("EditorPane — rail toggle (#6)", () => {
     renderPane("s1");
     const toggle = screen.getByTestId("tree-toggle");
     // Labelled + discoverable.
-    expect(toggle.getAttribute("aria-label")).toMatch(/toggle file tree/i);
+    // Accessible name begins with the visible label (WCAG 2.5.3): "Files".
+    expect(screen.getByRole("button", { name: /^Files/ })).toBe(toggle);
     expect(toggle.textContent).toContain("Files");
     // Collapsed by default (no persisted preference) — rail + divider absent.
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
