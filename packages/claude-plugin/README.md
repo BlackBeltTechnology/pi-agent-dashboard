@@ -17,6 +17,49 @@ In Claude Code:
 In claude.ai, Customize > Plugins: add the marketplace `BlackBeltTechnology/pi-agent-dashboard`,
 or upload `pi-dashboard-claude-plugin-<version>.zip` from the latest GitHub Release.
 
+## Install with a prompt
+
+Paste this into Claude Code (CLI or the desktop Code tab). Claude installs the plugin with the
+`claude plugin` CLI from its shell. It does not work in Chat or Cowork, which have no shell on your
+machine; upload the zip there instead.
+
+~~~~markdown
+Install the `pi-dashboard` Claude Code plugin for me, at user scope. Use your shell
+for each step, show me the output, and stop to tell me if a step fails.
+
+1. Check the Claude Code version: `claude --version`. If it is older than 2.1.300,
+   tell me and ask if you should run `npm i -g @anthropic-ai/claude-code@latest`
+   before going on. Older versions may reject the marketplace manifest.
+
+2. Add the marketplace (a sparse checkout of the GitHub repo):
+   `claude plugin marketplace add BlackBeltTechnology/pi-agent-dashboard --sparse .claude-plugin packages/claude-plugin`
+   If it says the marketplace already exists, run
+   `claude plugin marketplace update pi-agent-dashboard` instead.
+
+3. Install the plugin:
+   `claude plugin install pi-dashboard@pi-agent-dashboard --scope user`
+
+4. Check the install: `claude plugin list`. `pi-dashboard` must be listed and enabled.
+
+5. Fallback, only if step 2 or 3 fails (for example `Unrecognized key` in the
+   manifest): download the release zip and load it for one session only.
+   ```
+   mkdir -p ~/.claude/local-plugins/pi-dashboard
+   gh release download --repo BlackBeltTechnology/pi-agent-dashboard \
+     -p 'pi-dashboard-claude-plugin-*.zip' -D /tmp --clobber
+   unzip -o /tmp/pi-dashboard-claude-plugin-*.zip -d ~/.claude/local-plugins/pi-dashboard
+   ```
+   Then tell me to start Claude with
+   `claude --plugin-dir ~/.claude/local-plugins/pi-dashboard`.
+
+Rules:
+- Do not install the pi-dashboard server or app itself. The plugin's
+  `pi-dashboard-bootstrap` skill asks me about that later.
+- Do not create, print or store any tokens.
+- When done, tell me to restart Claude Code. Then I can try:
+  "Check the pi dashboard and list my sessions."
+~~~~
+
 ## What it does
 
 | Skill | Purpose |
