@@ -1,12 +1,13 @@
 /**
  * Tests for WorktreeActionsMenu. See change: add-worktree-lifecycle-actions.
  */
+
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, act, waitFor } from "@testing-library/react";
-import { WorktreeActionsMenu, __resetGhAvailableCache } from "../worktree/WorktreeActionsMenu.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { __resetGhAvailableCache, WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 
 // Stub useMobile + git-api + tools-api so we drive every branch.
 let mobile = false;
@@ -193,6 +194,15 @@ describe("WorktreeActionsMenu — F9 boundary-aware sheet (fix-popover-container
 
 describe("WorktreeActionsMenu — mobile", () => {
   beforeEach(() => { mobile = true; });
+
+  it("the ⋯ trigger reports its sheet as an open popover (aria-haspopup / aria-expanded) so a peeked dock stays open", () => {
+    renderMenu(makeSession());
+    const trigger = screen.getByTestId("worktree-actions-mobile-trigger");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
 
   it("renders a ⋯ trigger instead of inline buttons", () => {
     renderMenu(makeSession());

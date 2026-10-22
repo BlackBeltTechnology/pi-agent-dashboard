@@ -27,20 +27,28 @@
  *   text lives in leaves outside it.
  * - Nothing renders for `readOnly` (archived) views, or when no lane and no
  *   YOLO footer has content (the always-mounted claim summary mounts add no DOM).
+ * - Collapse (live docks with a visible lane): a Hide handle on the top edge folds the lane
+ *   region (kept mounted, `hidden`) into a one-line summary bar of each lane's `summaryText`.
+ *   Resting on the bar (fine hover) peeks the region as an absolute overlay growing upward
+ *   (the row never changes height); Pin / a click on the bar expands in flow. The collapsed
+ *   bit is per session (`useDockCollapsed`); a peek is transient. The YOLO footer stays in flow.
  *
  * See change: add-composer-dock (design D1–D4, D10, D11, D23).
+ * See change: composer-dock-collapse-and-file-open (D1–D5).
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiChevronDown } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { YoloStatusStore } from "../../lib/access-grants/yolo-status.js";
 import { t } from "../../lib/i18n/i18n.js";
-import { CHAT_PANE_ROW_TABLE } from "../../lib/layout/chat-pane-row-class.js";
+import { CHAT_PANE_ROW_TABLE, COLLAPSED_BAR_PX } from "../../lib/layout/chat-pane-row-class.js";
 import { useYoloLiveForCwd, YoloDockFooter } from "../access-grant/YoloIndicators.js";
 import { type DockLane, type DockLaneKey, type MaybeDockLane, orderLanes } from "./composer-dock-model.js";
+import { DockPeekContext } from "./dock-peek-context.js";
 import { type ProcessesLaneInput, useProcessesLane } from "./ProcessesLane.js";
+import { useDockCollapse } from "./useDockCollapse.js";
 import { useDockCompactMode } from "./useDockCompactMode.js";
 
 export interface ComposerDockProps {
@@ -61,6 +69,12 @@ export interface ComposerDockProps {
   lanes?: readonly MaybeDockLane[];
   /** Test seam for the YOLO store. */
   yoloStore?: YoloStatusStore;
+  /**
+   * The dock is live for the session the editor pane serves (default `true`). A non-live dock (a
+   * frozen transition underlay) renders the stored collapsed state read-only: no Hide, Pin or peek,
+   * and it never writes the state.
+   */
+  live?: boolean;
 }
 
 /**
@@ -296,6 +310,83 @@ function CompactDock({
   );
 }
 
+/** `Session context: a, b, c` bar + (while peeked) Pin. The bar is one button; Pin is its sibling. */
+function SummaryBar({
+  lanes,
+  regionId,
+  peeking,
+  readOnly,
+  barRef,
+  pinRef,
+  onActivate,
+  onPin,
+}: {
+  lanes: readonly DockLane[];
+  regionId: string;
+  peeking: boolean;
+  /** Non-live dock: shows the bar but cannot expand it. */
+  readOnly: boolean;
+  barRef: { current: HTMLButtonElement | null };
+  pinRef: { current: HTMLButtonElement | null };
+  onActivate: () => void;
+  onPin: () => void;
+}) {
+  const summary = lanes.map((l) => l.summaryText).join(", ");
+  return (
+    <div
+      data-testid="composer-dock-bar-row"
+      style={{ height: COLLAPSED_BAR_PX }}
+      className={`flex flex-none items-stretch ${peeking ? "border-t border-[var(--border-subtle)]" : ""}`}
+    >
+      <button
+        ref={barRef}
+        type="button"
+        data-testid="composer-dock-bar"
+        aria-expanded={false}
+        aria-controls={regionId}
+        aria-label={t("dock.barName", { summary }, "Session context: {summary}")}
+        disabled={readOnly}
+        onClick={onActivate}
+        className="focus-ring flex min-w-0 flex-1 items-center px-3 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+      >
+        <span className="min-w-0 flex-1 truncate whitespace-nowrap">
+          {lanes.map((lane, i) => (
+            <Fragment key={lane.key}>
+              {i > 0 && (
+                <span aria-hidden="true" className="px-1.5 text-[var(--text-secondary)]">
+                  {"\u00b7"}
+                </span>
+              )}
+              {lane.key === "processes" && (
+                <span
+                  aria-hidden="true"
+                  data-testid="composer-dock-bar-working"
+                  className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[var(--status-working)] motion-safe:animate-pulse"
+                />
+              )}
+              <span data-dock-bar-segment={lane.key} className="tabular-nums">
+                {lane.summaryText}
+              </span>
+            </Fragment>
+          ))}
+        </span>
+      </button>
+      {peeking && (
+        <button
+          ref={pinRef}
+          type="button"
+          data-testid="composer-dock-pin"
+          aria-label={t("dock.pinLabel", undefined, "Pin session context open")}
+          onClick={onPin}
+          className="focus-ring m-1 inline-flex min-h-6 min-w-6 flex-none items-center justify-center rounded px-2 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] max-md:min-h-11 max-md:min-w-11"
+        >
+          {t("dock.pin", undefined, "Pin")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ComposerDockInner({
   session,
   cwd,
@@ -305,8 +396,15 @@ function ComposerDockInner({
   processes,
   lanes: extraLanes,
   yoloStore,
+  live = true,
 }: Omit<ComposerDockProps, "readOnly">) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const regionRef = useRef<HTMLDivElement | null>(null);
+  const barRef = useRef<HTMLButtonElement | null>(null);
+  const pinRef = useRef<HTMLButtonElement | null>(null);
+  const hideRef = useRef<HTMLButtonElement | null>(null);
+  const regionId = `${useId()}-lanes`;
+  const sessionId = session?.id ?? "";
   const [emptyLanes, setEmptyLanes] = useState<ReadonlySet<DockLaneKey>>(new Set());
   const onEmptyChange = useCallback((key: DockLaneKey, empty: boolean) => {
     setEmptyLanes((prev) => {
@@ -329,6 +427,15 @@ function ComposerDockInner({
   });
   const lanes = orderLanes([processesLane, ...(extraLanes ?? [])]);
   const yoloLive = useYoloLiveForCwd(cwd, yoloStore);
+  const hasVisibleLane = lanes.some((l) => !emptyLanes.has(l.key));
+  const { collapsed, peeking, expand, hide, endPeek, onRootKeyDown } = useDockCollapse({
+    sessionId,
+    live,
+    hasVisibleLane,
+    columnEl,
+    els: { root: rootRef, region: regionRef, bar: barRef, pin: pinRef, hide: hideRef },
+  });
+  const dockPeekApi = useRef({ endPeek }).current;
 
   // A lane that left (its content is gone) is no longer "open": a later arrival
   // must render collapsed, never re-expand on its own.
@@ -363,12 +470,25 @@ function ComposerDockInner({
     .join(". ");
   // Chat-pane row classification (App picks the static table entry by state): the
   // lower bound is the YOLO footer line, or 0 without it; lanes give height by scrolling.
-  const rowKey = lanes.length === 0 ? "composer-dock:footer-only" : "composer-dock";
+  // A collapsed (or peeked) dock declares its own entry: the bar is never squeezed, and the peek
+  // overlay is absolutely positioned, outside the budget.
+  const rowKey = collapsed
+    ? yoloLive
+      ? "composer-dock:collapsed-yolo"
+      : "composer-dock:collapsed"
+    : lanes.length === 0
+      ? "composer-dock:footer-only"
+      : "composer-dock";
   const rowSpec = CHAT_PANE_ROW_TABLE[rowKey];
   const rowStyle =
     rowSpec?.rowClass === "shrinkable"
-      ? { flexShrink: rowSpec.weight, minHeight: yoloLive ? rowSpec.bound + DOCK_CHROME_PX : 0 }
+      ? { flexShrink: rowSpec.weight, minHeight: collapsed || yoloLive ? rowSpec.bound + DOCK_CHROME_PX : 0 }
       : undefined;
+  const visibleLanes = lanes.filter((l) => !emptyLanes.has(l.key));
+  const showHide = live && !collapsed && hasVisibleLane && lanes.length > 0;
+  const regionClass = peeking
+    ? "absolute -inset-x-px bottom-full z-raised min-h-0 overflow-y-auto rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg"
+    : "min-h-0 flex-initial overflow-y-auto rounded-t-xl";
   const toggle = (key: DockLaneKey) => onOpenLaneChange(effectiveOpen === key ? null : key);
   // Every lane renders nothing visible (claims that return `null`) and no footer: leave no chrome.
   const allEmpty = !yoloLive && lanes.every((l) => emptyLanes.has(l.key));
@@ -383,11 +503,35 @@ function ComposerDockInner({
         hidden={allEmpty || undefined}
         data-footer-only={lanes.length === 0 ? "true" : undefined}
         data-pane-row={rowKey}
+        data-collapsed={collapsed || undefined}
+        data-peek={peeking || undefined}
+        onKeyDown={onRootKeyDown}
         style={rowStyle}
-        className="relative z-0 mx-5 -mb-6 flex min-h-0 shrink flex-col overflow-hidden rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] pb-6 shadow-[inset_0_1px_0_var(--elevation-rim)]"
+        className={`relative z-0 mx-5 -mb-6 flex min-h-0 shrink flex-col rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] pb-6 shadow-[inset_0_1px_0_var(--elevation-rim)] ${lanes.length === 0 ? "overflow-hidden" : ""}`}
       >
+        {showHide && (
+          <button
+            ref={hideRef}
+            type="button"
+            data-testid="composer-dock-hide"
+            aria-label={t("dock.hideLabel", undefined, "Hide session context")}
+            aria-controls={regionId}
+            title={t("dock.hide", undefined, "Hide")}
+            onClick={hide}
+            className="focus-ring absolute left-1/2 top-0 z-raised inline-flex min-h-6 min-w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] max-md:min-h-11 max-md:min-w-11"
+          >
+            <Icon path={mdiChevronDown} size={0.7} aria-hidden="true" />
+          </button>
+        )}
         {lanes.length > 0 && (
-          <div data-testid="composer-dock-scroll" className="min-h-0 flex-initial overflow-y-auto">
+          <div
+            ref={regionRef}
+            id={regionId}
+            data-testid="composer-dock-scroll"
+            hidden={(collapsed && !peeking) || undefined}
+            className={regionClass}
+          >
+            <DockPeekContext.Provider value={dockPeekApi}>
             {compact ? (
               <CompactDock
                 lanes={lanes}
@@ -407,7 +551,20 @@ function ComposerDockInner({
                 />
               ))
             )}
+            </DockPeekContext.Provider>
           </div>
+        )}
+        {collapsed && (
+          <SummaryBar
+            lanes={visibleLanes}
+            regionId={regionId}
+            peeking={peeking}
+            readOnly={!live}
+            barRef={barRef}
+            pinRef={pinRef}
+            onActivate={expand}
+            onPin={expand}
+          />
         )}
         <YoloDockFooter cwd={cwd} store={yoloStore} />
         {/* Sibling of the lanes and the footer — never an ancestor of either. */}

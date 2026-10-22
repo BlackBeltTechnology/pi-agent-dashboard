@@ -13,6 +13,7 @@
  * See changes: add-worktree-lifecycle-actions, redesign-composer-session-strip (D6).
  */
 
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArrowUpBoldOutline,
@@ -22,7 +23,6 @@ import {
   mdiSourcePull,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
@@ -380,6 +380,10 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             ref={sheetTriggerRef}
             type="button"
             onClick={() => setSheetOpen((s) => !s)}
+            // Marks the sheet as an open dock popover: a peeked composer dock stays open while it is up.
+            // See change: composer-dock-collapse-and-file-open (D3).
+            aria-haspopup="menu"
+            aria-expanded={sheetOpen}
             title={i18nT("worktree.worktreeActions", undefined, "Worktree actions")}
             data-testid="worktree-actions-mobile-trigger"
             className="inline-flex items-center justify-center min-h-6 min-w-6 px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
