@@ -352,7 +352,8 @@ describe("transient", () => {
     renderLanesDock({ input: { session: makeSession(), working: false, openspecHasDir: false, openspecPending: false } });
     const settle = () =>
       act(async () => {
-        await new Promise((r) => setTimeout(r, 0));
+        // Microtask flush (mocked fetch + state), deterministic under load.
+        for (let i = 0; i < 20; i++) await Promise.resolve();
       });
     await settle();
     fireEvent.click(document.querySelector("[data-dock-toggle='changes']") as HTMLElement); // open lane → fetch
@@ -388,7 +389,8 @@ describe("transient", () => {
     renderLanesDock({ input: { session: makeSession(), working: false, openspecHasDir: false, openspecPending: false, onOpenFile, onOpenDiff: vi.fn(), onReview } });
     const settle = () =>
       act(async () => {
-        await new Promise((r) => setTimeout(r, 0));
+        // Microtask flush (mocked fetch + state), deterministic under load.
+        for (let i = 0; i < 20; i++) await Promise.resolve();
       });
     await settle();
     fireEvent.click(document.querySelector("[data-dock-toggle='changes']") as HTMLElement);

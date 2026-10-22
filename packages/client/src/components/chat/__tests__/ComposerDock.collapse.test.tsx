@@ -103,7 +103,8 @@ describe("collapse to a summary bar", () => {
       },
     });
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      // Microtask flush (mocked fetch + state), deterministic under load.
+      for (let i = 0; i < 20; i++) await Promise.resolve();
     });
     fireEvent.click(hideBtn());
     expect(segments()).toEqual(["os/x 4 files +120 \u221233"]);

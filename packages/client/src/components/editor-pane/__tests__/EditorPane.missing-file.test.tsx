@@ -71,8 +71,8 @@ function Openers() {
 
 const flush = () =>
   act(async () => {
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
+    // Microtask flush (mocked fetch + state), deterministic under load.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 
 function renderPane() {

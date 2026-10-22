@@ -50,6 +50,7 @@ const CENSUS: Record<string, string[]> = {
     "PR failure shows human-readable label + stderr in <details>",
     "flips the mobile sheet to left-0 when the pane's right anchor cannot fit",
     "keeps the sheet right-0 (default) when the pane has ample room to the left",
+    "the ⋯ trigger reports its sheet as an open popover (aria-haspopup / aria-expanded) so a peeked dock stays open",
     "renders a ⋯ trigger instead of inline buttons",
     "opens an action sheet on click revealing the actions and the PR segment",
     "mobile sheet hides until the trigger is clicked",
