@@ -19,12 +19,19 @@
  * YOLO is started through the REST API (`POST /api/access/yolo`) before the page
  * loads so the status store's first fetch already sees it; ending it is `DELETE`.
  *
- * See change: fix-yolo-indicator-overflow.
+ * add-composer-dock: the strip became the composer dock's YOLO footer (same
+ * `yolo-composer-strip` id and internals) — a `flex-none` fixed one-line row,
+ * `YOLO_FOOTER_HEIGHT` = 32 px (`h-8`) — so "one line" below means exactly that height,
+ * and the E6/E7 width probes drive the dock's width. #F9 / #F10 (add-composer-dock
+ * test-plan) are the footer-never-clipped and one-line-in-every-language cases.
+ *
+ * See change: fix-yolo-indicator-overflow, add-composer-dock.
  */
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import type { Locator, Page } from "@playwright/test";
 import { expect, narrowTrust, test } from "./fixtures.js";
+import { connectComposerBridge, ensureFixturePinned, openComposerSession } from "./helpers/composer-bridge.js";
 import { contrastRatio, elementColors, resolveColor, setThemeMode } from "./helpers/computed-contrast.js";
 import { ensureGitSession, FIXTURE_GIT, robustClick } from "./helpers/index.js";
 import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
@@ -32,6 +39,8 @@ import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 type Scope = "scoped" | "unscoped";
 type Lang = "en" | "hu";
 
+/** `YOLO_FOOTER_HEIGHT` (chat-pane-row-class.ts): the footer is one fixed `h-8` line. */
+const FOOTER_HEIGHT = 32;
 const WIDTHS = [375, 768, 1500] as const;
 const HEIGHT = 900;
 const SCOPES: Scope[] = ["scoped", "unscoped"];
@@ -124,16 +133,13 @@ interface StripGeometry {
 /** Strip height vs one line box, right edge vs the composer column, time legibility. */
 async function stripGeometry(page: Page): Promise<StripGeometry> {
   return strip(page).evaluate((el) => {
-    const cs = getComputedStyle(el);
-    const px = (v: string) => Number.parseFloat(v) || 0;
-    const line = Number.parseFloat(cs.lineHeight) || px(cs.fontSize) * 1.5;
     const root = document.querySelector('[data-testid="composer-root"]') as HTMLElement;
     const time = el.lastElementChild as HTMLElement;
     const r = el.getBoundingClientRect();
     const tr = time.getBoundingClientRect();
     return {
       height: r.height,
-      oneLine: line + px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth),
+      oneLine: 32, // YOLO_FOOTER_HEIGHT — the footer is a fixed one-line row
       right: r.right,
       columnRight: root.getBoundingClientRect().right,
       timeLegible: time.scrollWidth <= time.clientWidth && tr.left >= r.left - 0.5 && tr.right <= r.right + 0.5,
@@ -144,7 +150,7 @@ async function stripGeometry(page: Page): Promise<StripGeometry> {
 
 async function expectStripSingleLine(page: Page, label: string): Promise<void> {
   const g = await stripGeometry(page);
-  expect(g.height, `${label}: strip is one line box`).toBeLessThanOrEqual(g.oneLine + 1);
+  expect(g.height, `${label}: footer is exactly one line (32 px)`).toBeCloseTo(g.oneLine, 0);
   expect(g.right, `${label}: strip right <= composer column right`).toBeLessThanOrEqual(g.columnRight + 0.5);
   expect(g.timeLegible, `${label}: time legible`).toBe(true);
   expect(g.timeText.length, `${label}: time present`).toBeGreaterThan(0);
@@ -314,7 +320,10 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     await page.reload();
     await openSession(page, 1500);
     await expect(strip(page)).toBeVisible({ timeout: 20_000 });
+    // The footer's host is the dock. Hide its lane region so the dock's max-content width is
+    // the footer's own preferred width (a Changes/Context lane would otherwise widen it).
     const wrapper = stripHost(page);
+    await page.getByTestId("composer-dock-scroll").evaluate((e) => ((e as HTMLElement).style.display = "none")).catch(() => undefined);
 
     const measure = () =>
       strip(page).evaluate((el) => {
@@ -328,12 +337,9 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
           const b = n.getBoundingClientRect();
           return b.left >= r.left - 0.5 && b.right <= r.right + 0.5;
         };
-        const cs = getComputedStyle(el);
-        const px = (v: string) => Number.parseFloat(v) || 0;
-        const line = Number.parseFloat(cs.lineHeight) || px(cs.fontSize) * 1.5;
         return {
           height: r.height,
-          oneLine: line + px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth),
+          oneLine: 32, // YOLO_FOOTER_HEIGHT
           ellipsed: sentence.scrollWidth > sentence.clientWidth,
           shieldInside: inside(shield),
           timeInside: inside(time),
@@ -350,13 +356,14 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     const preferred = await wrapper.evaluate((e) => e.getBoundingClientRect().width);
 
     // E6: preferred - 1 px -> the sentence ellipses; shield + time legible; one line; inside the host.
+    // (The dock's `mx-3` margins sit outside its width, so `width` is the footer's width + the dock border.)
     await wrapper.evaluate((e, w) => {
       (e as HTMLElement).style.cssText = `width:${w}px;max-width:none;flex:none;`;
     }, preferred - 1);
     const e6 = await measure();
     expect(e6.ellipsed, "E6: sentence ellipsed").toBe(true);
     expect(e6.shieldInside && e6.timeInside && e6.timeLegible, "E6: shield + time legible").toBe(true);
-    expect(e6.height, "E6: one line").toBeLessThanOrEqual(e6.oneLine + 1);
+    expect(e6.height, "E6: one line").toBeCloseTo(e6.oneLine, 0);
     expect(e6.right, "E6: inside host").toBeLessThanOrEqual(e6.hostRight + 0.5);
 
     // E7: floor = shield + time + 2 gaps + padding + border (+ wrapper px-3).
@@ -367,6 +374,7 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
       const shield = link.querySelector("svg") as SVGElement;
       const time = el.lastElementChild as HTMLElement;
       const hostCs = getComputedStyle(el.parentElement as HTMLElement);
+      const hostBorders = px(hostCs.borderLeftWidth) + px(hostCs.borderRightWidth);
       return (
         shield.getBoundingClientRect().width +
         time.scrollWidth +
@@ -376,7 +384,8 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
         px(cs.borderLeftWidth) +
         px(cs.borderRightWidth) +
         px(hostCs.paddingLeft) +
-        px(hostCs.paddingRight)
+        px(hostCs.paddingRight) +
+        hostBorders
       );
     });
     await wrapper.evaluate((e, w) => {
@@ -384,7 +393,7 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     }, Math.ceil(floor));
     const e7 = await measure();
     expect(e7.shieldInside && e7.timeInside && e7.timeLegible, "E7: shield + time legible at the floor").toBe(true);
-    expect(e7.height, "E7: one line at the floor").toBeLessThanOrEqual(e7.oneLine + 1);
+    expect(e7.height, "E7: one line at the floor").toBeCloseTo(e7.oneLine, 0);
     expect(e7.right, "E7: inside host at the floor").toBeLessThanOrEqual(e7.hostRight + 0.5);
   });
 
@@ -403,7 +412,7 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     expect(widths.hu, `hu ${widths.hu} >= zh-CN ${widths["zh-CN"]}`).toBeGreaterThanOrEqual(widths["zh-CN"]);
   });
 
-  test("#E20 the strip sits outside the composer card, above the composer root", async ({ page }) => {
+  test("#E20 the footer sits outside the composer card, inside the dock directly above the composer root", async ({ page }) => {
     await ensureGitSession(page);
     await setLanguage(page, "en");
     await startYolo(page, "scoped");
@@ -413,12 +422,15 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     const rel = await strip(page).evaluate((el) => {
       const card = document.querySelector('[data-testid="composer-card"]') as HTMLElement;
       const root = document.querySelector('[data-testid="composer-root"]') as HTMLElement;
+      const dock = document.querySelector('[data-testid="composer-dock"]') as HTMLElement;
       return {
         insideCard: card.contains(el),
+        insideDock: dock.contains(el),
         gap: root.getBoundingClientRect().top - el.getBoundingClientRect().bottom,
       };
     });
     expect(rel.insideCard).toBe(false);
+    expect(rel.insideDock, "the footer belongs to the dock").toBe(true);
     expect(rel.gap).toBeGreaterThanOrEqual(-0.5);
   });
 
@@ -481,6 +493,7 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
       await page.goto(`/session/${id}?archived=1`);
       await expect(page.getByTestId("chat-scroll-container")).toBeVisible({ timeout: 30_000 });
       await expect(page.getByTestId("composer-card")).toHaveCount(0);
+      await expect(page.getByTestId("composer-dock")).toHaveCount(0);
       await expect(page.getByTestId("yolo-composer-strip")).toHaveCount(0);
       await expect(page.getByTestId("yolo-session-indicator")).toHaveCount(0);
       await expect(bar(page)).toHaveAttribute("data-yolo", "unscoped", { timeout: 20_000 });
@@ -704,4 +717,108 @@ test.describe("YOLO strip touch path", () => {
     await expect(active).toContainText(/planes/i);
     await expect(active).toContainText(/every folder|everywhere/i);
   });
+});
+
+// ── add-composer-dock: the YOLO footer inside the dock (test-plan #F9, #F10) ────────────────
+
+test.describe.serial("composer dock YOLO footer (add-composer-dock)", () => {
+  test.beforeAll(async ({ request }) => {
+    await narrowTrust(request, { hostGate: { mode: "enforce" } });
+  });
+
+  test.afterEach(async ({ page }) => {
+    await endYolo(page);
+  });
+
+  test.afterAll(async ({ request }) => {
+    await request.delete("/api/access/yolo").catch(() => undefined);
+  });
+
+  test("#F9 (dock): with an expanded 12-row Processes lane the footer stays fully inside the dock and the viewport at every scroll position", async ({ page }) => {
+    await ensureGitSession(page);
+    await ensureFixturePinned(page);
+    await setLanguage(page, "en");
+    await startYolo(page, "scoped");
+    await page.reload();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const bridge = await connectComposerBridge(page, "dock-f9");
+    try {
+      await openComposerSession(page, bridge.sessionId);
+      bridge.setProcesses(
+        Array.from({ length: 12 }, (_, i) => ({ pid: 70_000 + i, pgid: 70_000 + i, command: `node worker-${i}.js`, elapsedMs: 5_000 + i * 1_000, kind: "task" as const })),
+      );
+      const dock = page.getByTestId("composer-dock");
+      const lane = dock.getByRole("group", { name: "Processes", exact: true });
+      await expect(lane).toBeVisible({ timeout: 20_000 });
+      await lane.locator("[data-dock-toggle='processes']").click();
+      await expect(lane.getByRole("button", { name: /Kill/ }).first()).toBeVisible({ timeout: 10_000 });
+
+      // The chat pane is 600 px tall: the dock gives height by scrolling, never the footer.
+      await page.getByTestId("split-chat-pane").evaluate((el) => {
+        const e = el as HTMLElement;
+        e.style.flex = "none";
+        e.style.height = "600px";
+        e.style.maxHeight = "600px";
+      });
+
+      const footer = strip(page);
+      await expect(footer).toBeVisible();
+      const viewport = page.viewportSize() as { width: number; height: number };
+      const check = async (label: string) => {
+        const f = (await footer.boundingBox()) as { x: number; y: number; width: number; height: number };
+        const d = (await dock.boundingBox()) as { x: number; y: number; width: number; height: number };
+        expect(f.height, `${label}: footer keeps its one 32 px line`).toBeCloseTo(FOOTER_HEIGHT, 0);
+        expect(f.y, `${label}: footer top inside the dock`).toBeGreaterThanOrEqual(d.y - 0.5);
+        expect(f.y + f.height, `${label}: footer bottom inside the dock`).toBeLessThanOrEqual(d.y + d.height + 0.5);
+        expect(f.y, `${label}: footer top inside the viewport`).toBeGreaterThanOrEqual(0);
+        expect(f.y + f.height, `${label}: footer bottom inside the viewport`).toBeLessThanOrEqual(viewport.height);
+      };
+
+      await check("lane expanded");
+      // Every scrollport of the lane region: the dock's lane scroller and the expanded body.
+      const scrollers = [page.getByTestId("composer-dock-scroll"), lane.locator("[id$='-body']")];
+      for (const scroller of scrollers) {
+        const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+        for (const frac of [0, 0.5, 1]) {
+          await scroller.evaluate((el, top) => ((el as HTMLElement).scrollTop = top), Math.round(max * frac));
+          await check(`scrollTop ${Math.round(frac * 100)}%`);
+        }
+      }
+      await expect(footer).toContainText(/\d+:\d\d/);
+    } finally {
+      bridge.close();
+    }
+  });
+
+  for (const scope of SCOPES) {
+    for (const lang of LANGS) {
+      test(`#F10 footer is one 32 px line, time fully visible, accessible name = description (${scope}, ${lang}) at 375 / 768 / 1500`, async ({ page }) => {
+        await ensureGitSession(page);
+        await setLanguage(page, lang);
+        await startYolo(page, scope);
+        await page.reload();
+        for (const w of WIDTHS) {
+          await openSession(page, w);
+          const footer = strip(page);
+          await expect(footer).toHaveAttribute("data-scope", scope, { timeout: 20_000 });
+          const label = `${scope}/${lang}@${w}`;
+          const g = await stripGeometry(page);
+          expect(g.height, `${label}: footer height`).toBeCloseTo(FOOTER_HEIGHT, 0);
+          expect(g.timeLegible, `${label}: time fully visible`).toBe(true);
+          expect(g.timeText, `${label}: time text`).toMatch(/\d+:\d\d|∞|no expiry/);
+
+          const link = footer.locator("a").first();
+          const description = await link.getAttribute("title");
+          expect(description, `${label}: link carries the full description`).toBeTruthy();
+          await expect(link, `${label}: accessible name is the full description`).toHaveAccessibleName(description as string);
+          const name = await link.evaluate((el) => el.textContent ?? "");
+          expect(name, `${label}: the time is not part of the link name`).not.toMatch(/\d+:\d\d/);
+          expect(
+            await footer.evaluate((el) => !!el.closest("[aria-live], [role='status'], [role='alert'], [role='log']")),
+            `${label}: footer has no live-region ancestor`,
+          ).toBe(false);
+        }
+      });
+    }
+  }
 });

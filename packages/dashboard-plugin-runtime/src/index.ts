@@ -25,6 +25,8 @@ export {
   CommandRouteSlot,
   /** @deprecated Import `ComposerContextGroupSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   ComposerContextGroupSlot,
+  /** @deprecated Import `ComposerDockProcessGroupSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
+  ComposerDockProcessGroupSlot,
   /** @deprecated Import `ComposerPanelSlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */
   ComposerPanelSlot,
   /** @deprecated Import `ContentHeaderStickySlot` from `@blackbelt-technology/dashboard-plugin-runtime/host` (tests: `/test-support`). Removed after one minor release. */

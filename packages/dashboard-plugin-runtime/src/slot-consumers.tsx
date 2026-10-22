@@ -9,6 +9,7 @@
  * 4. Renders nothing when zero claims match.
  */
 import type { IntentNode } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/intent-types.js";
+import type { ProcessGroupSummary } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import type { SlotId } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import React, { useCallback, useState } from "react";
@@ -486,6 +487,100 @@ export function ComposerContextGroupSlot({ session }: { session: DashboardSessio
 }
 
 /**
+ * One mounted `composer-dock-process-group` claim. Sits INSIDE the per-claim
+ * `SlotErrorBoundary`, so a throwing contribution unmounts this wrapper too and
+ * its summary entry is dropped. Only the `"summary"` instance reports; the
+ * `"rows"` instance gets a no-op `reportSummary`, so a claim is never counted
+ * twice. The entry is dropped on unmount, so a contribution needs no cleanup.
+ */
+function DockProcessGroupInstance({
+  Comp,
+  claimKey,
+  session,
+  mode,
+  onReport,
+}: {
+  Comp: React.ComponentType<Record<string, unknown>>;
+  claimKey: string;
+  session: DashboardSession;
+  mode: "summary" | "rows";
+  onReport?: (claimKey: string, summary: ProcessGroupSummary | null) => void;
+}) {
+  const onReportRef = React.useRef(onReport);
+  onReportRef.current = onReport;
+  const reportSummary = useCallback(
+    (summary: ProcessGroupSummary | null) => {
+      if (mode === "summary") onReportRef.current?.(claimKey, summary);
+    },
+    [claimKey, mode],
+  );
+  React.useEffect(
+    () => () => {
+      if (mode === "summary") onReportRef.current?.(claimKey, null);
+    },
+    [claimKey, mode],
+  );
+  return <Comp session={session} mode={mode} reportSummary={reportSummary} />;
+}
+
+/**
+ * `composer-dock-process-group` consumer: mounts every applicable claim in the
+ * given `mode` (session-scoped, priority-ordered, `shouldRender`-aware, each in
+ * its own error boundary). `"summary"` instances render `null` and report
+ * `{ count, noun } | null` through `onReport(claimKey, …)`; `"rows"` instances
+ * render their `ComposerDockRow`s. `wrapClaim` lets the host frame each claim's
+ * rows (e.g. a group heading). See change: add-composer-dock (D4).
+ */
+export function ComposerDockProcessGroupSlot({
+  session,
+  mode,
+  onReport,
+  wrapClaim,
+}: {
+  session: DashboardSession;
+  mode: "summary" | "rows";
+  onReport?: (claimKey: string, summary: ProcessGroupSummary | null) => void;
+  wrapClaim?: (claimKey: string, node: React.ReactNode) => React.ReactNode;
+}) {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return null;
+  const claims = forSessionRendered(registry.getClaims("composer-dock-process-group"), session);
+  if (!claims.length) return null;
+  const perPlugin = new Map<string, number>();
+  return (
+    <>
+      {claims.map((c) => {
+        const Comp = c.Component as React.ComponentType<Record<string, unknown>> | undefined;
+        if (!Comp) return null;
+        const index = perPlugin.get(c.pluginId) ?? 0;
+        perPlugin.set(c.pluginId, index + 1);
+        const claimKey = `${c.pluginId}:${index}`;
+        // Keyed by session too: a session switch remounts the claim, which drops the
+        // old session's summary (unmount) before the new one reports.
+        const nodeKey = `${claimKey}:${session.id}`;
+        const node = (
+          <SlotErrorBoundary key={nodeKey} pluginId={c.pluginId} slotId="composer-dock-process-group">
+            <React.Suspense fallback={null}>
+              <CurrentPluginLayer pluginId={c.pluginId}>
+                <DockProcessGroupInstance
+                  Comp={Comp}
+                  claimKey={claimKey}
+                  session={session}
+                  mode={mode}
+                  onReport={onReport}
+                />
+              </CurrentPluginLayer>
+            </React.Suspense>
+          </SlotErrorBoundary>
+        );
+        return wrapClaim ? <React.Fragment key={nodeKey}>{wrapClaim(claimKey, node)}</React.Fragment> : node;
+      })}
+    </>
+  );
+}
+
+/**
  * One labelled group container for the composer context strip — shared by the
  * host groups (OpenSpec / Git / Status) and every `composer-context-group`
  * plugin, so all groups read the same.
@@ -548,7 +643,7 @@ export function ToolbarGroup({
         data-testid={labelTestId ?? (testId ? `${testId}-label` : undefined)}
         // Text pinned to the FIRST row (26 px = min-h-7 minus borders), so a
         // group wrapping onto several rows keeps its label beside its first item.
-        className={`toolbar-group-label flex-shrink-0 inline-flex items-start leading-[26px] px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
+        className={`toolbar-group-label flex-shrink-0 inline-flex items-start leading-[26px] px-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
           isActions ? "bg-[var(--bg-surface)] border-r border-[var(--border-secondary)]" : ""
         }`}
       >

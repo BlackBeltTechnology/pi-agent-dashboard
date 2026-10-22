@@ -11,6 +11,10 @@
  */
 export { PLUGIN_HOST_API_VERSION, satisfiesHostApi } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
 export {
+  ComposerDockRow,
+  type ComposerDockRowProps,
+} from "./ComposerDockRow.js";
+export {
   openPluginTabRoute,
   pluginTabRouteHref,
 } from "./editor-pane-tab.js";

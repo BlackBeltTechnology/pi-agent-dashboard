@@ -1031,6 +1031,9 @@ importers:
       oauth4webapi:
         specifier: ^3.8.8
         version: 3.8.8
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -1038,6 +1041,9 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.2.5(@types/react@19.2.18)
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       react:
         specifier: ^19.0.0
         version: 19.2.8

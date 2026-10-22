@@ -72,7 +72,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
     open,
     estimatedWidth: 288, // w-72 natural width (fits the notify select's longest label)
     // The menu (~20 rows) never fits a 200px strip: always open toward the
-    // side with more room (the trigger sits above the composer → up).
+    // side with more room (the trigger sits in the session header → down).
     threshold: Number.POSITIVE_INFINITY,
     boundaryRef,
   });

@@ -170,4 +170,20 @@ describe("mintWsTicket via cookie (F3 / F5 / E36)", () => {
     expect(await mintWsTicket()).toBeNull();
     expect(f).not.toHaveBeenCalled();
   });
+
+  it("probeCookie: an unmarked browser tries the cookie once and marks itself on success", async () => {
+    const f = vi.fn(async () => res(200, { success: true, data: { ticket: "PROBE-TK" } }));
+    vi.stubGlobal("fetch", f);
+    expect(await mintWsTicket("browser", { probeCookie: true })).toBe("PROBE-TK");
+    const init = (f.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(init.credentials).toBe("same-origin");
+    expect(new Headers(init.headers).get("Authorization")).toBeNull();
+    expect(isDevicePaired()).toBe(true);
+  });
+
+  it("probeCookie: a refused probe returns null and leaves the browser unmarked", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => res(401, { success: false })));
+    expect(await mintWsTicket("browser", { probeCookie: true })).toBeNull();
+    expect(isDevicePaired()).toBe(false);
+  });
 });

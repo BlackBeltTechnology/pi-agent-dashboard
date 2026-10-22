@@ -4,9 +4,11 @@
  * the commands. See change: add-gmail-plugin.
  * Plus the sign-in error table (`errorKey`, `ERROR_EN`).
  * See change: improve-gmail-settings-ux.
+ * `ERROR_EN` also carries the hand-off reason sentences. See change: add-gmail-auto-setup.
  */
 import { type FlowCode, knownFlowCode } from "../shared/flow-codes.js";
 import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../shared/setup.js";
+import { AUTO_SETUP_ERROR_EN } from "./auto-setup.js";
 
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -170,6 +172,8 @@ export const ERROR_EN: Record<string, string> = {
   errCancelled: "Sign-in was cancelled.",
   errAborted: "Sign-in was aborted.",
   errGeneric: "Sign-in failed. Try again; if it keeps failing, check the setup steps above.",
+  // Automatic setup: hand-off reasons + start/link errors (change: add-gmail-auto-setup).
+  ...AUTO_SETUP_ERROR_EN,
 };
 
 /** i18n key for a terminal flow error; unknown input → `errGeneric` (exact match only). */
@@ -186,3 +190,7 @@ export const CONSENT_HINT_EN =
 
 export const AUDIENCE_HELP_EN =
   "Internal admits only accounts of the project's own Workspace organization: choose it only when every account you will connect belongs to that organization. Otherwise choose External and add every address you will connect as a test user. In Testing, tokens expire after 7 days. Publishing the app removes the 7-day token expiry. An unverified app shows Google's warning and admits at most 100 users. Accounts added while in Testing need one re-auth after publishing.";
+
+/** Sign-in notice for an External or unknown audience (design D11). See change: add-gmail-auto-setup. */
+export const UNVERIFIED_HINT_EN =
+  "Google may show “Google hasn’t verified this app”. Choose Advanced, then continue to the app.";

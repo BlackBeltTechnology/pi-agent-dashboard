@@ -142,6 +142,7 @@ export {
   AnchoredPopoverSlot,
   CommandRouteSlot,
   ComposerContextGroupSlot,
+  ComposerDockProcessGroupSlot,
   ComposerPanelSlot,
   ContentHeaderStickySlot,
   ContentInlineFooterSlot,

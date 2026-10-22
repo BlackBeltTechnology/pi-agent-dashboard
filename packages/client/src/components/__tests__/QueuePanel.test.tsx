@@ -19,6 +19,7 @@
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeSession, renderLanesDock, stubSessionDiffFetch } from "../chat/__tests__/dock-harness.js";
 import { QueuePanel } from "../session/QueuePanel.js";
 
 /**
@@ -210,7 +211,7 @@ describe("QueuePanel — edit", () => {
     const onEdit = vi.fn();
     const { getByTestId } = render(<QueuePanel followUp={fu("orig")} onEdit={onEdit} />);
     fireEvent.click(getByTestId("queue-followup-edit"));
-    const editor = getByTestId("queue-followup-editor") as HTMLTextAreaElement;
+    expect(getByTestId("queue-followup-editor")).toBeTruthy();
     // Don't change anything; value stays "orig"
     fireEvent.click(getByTestId("queue-followup-editor-submit"));
     expect(onEdit).not.toHaveBeenCalled();
@@ -253,5 +254,65 @@ describe("QueuePanel — index clamping on rerender", () => {
     expect(getByTestId("queue-chip-followup").textContent).toBe("b");
     rerender(<QueuePanel followUp={fu("a", "b", "c")} />);
     expect(getByTestId("queue-chip-followup").textContent).toBe("c");
+  });
+});
+
+// Hosted by the composer dock's Queue lane. See change: add-composer-dock (D13, task 6.1).
+describe("QueuePanel — embedded mode (dock Queue lane)", () => {
+  it("keeps the height cap, the attachment indicator and the position; drops the subtitle and Clear all", () => {
+    const long = "x".repeat(400);
+    const { getByTestId, queryByTestId, container } = render(
+      <QueuePanel
+        embedded
+        followUp={[
+          { text: "first", imageCount: 0 },
+          { text: long, imageCount: 2 },
+        ]}
+        onClearAll={vi.fn()}
+      />,
+    );
+    expect(getByTestId("queue-panel").getAttribute("data-embedded")).toBe("true");
+    const chip = getByTestId("queue-chip-followup");
+    expect(chip.className).toContain("max-h-80");
+    expect(chip.className).toContain("overflow-auto");
+    expect(getByTestId("queue-followup-attachments").textContent).toContain("2");
+    expect(getByTestId("queue-followup-position").textContent).toContain("2 of 2");
+    expect(queryByTestId("queue-followup-clear-all")).toBeNull();
+    expect(container.textContent).not.toContain("delivered when the agent finishes the turn");
+    // Edit / promote / remove / navigation stay.
+    for (const id of ["queue-followup-edit", "queue-followup-promote", "queue-followup-remove", "queue-followup-prev", "queue-followup-next"]) {
+      expect(getByTestId(id)).toBeTruthy();
+    }
+  });
+
+  it("default (non-embedded) mode is unchanged: subtitle and Clear all present", () => {
+    const { getByTestId, container } = render(<QueuePanel followUp={fu("a", "b")} onClearAll={vi.fn()} />);
+    expect(container.textContent).toContain("delivered when the agent finishes the turn");
+    expect(getByTestId("queue-followup-clear-all")).toBeTruthy();
+    expect(getByTestId("queue-panel").hasAttribute("data-embedded")).toBe(false);
+  });
+});
+
+describe("Queue lane header (#E16)", () => {
+  const sessionWith = (n: number) =>
+    makeSession({ pendingQueues: { steering: [], followUp: Array.from({ length: n }, (_, i) => ({ text: `f${i}`, imageCount: 0 })) } } as never);
+  const renderLane = (n: number, onClearFollowUps: () => void) => {
+    stubSessionDiffFetch(() => ({ body: { success: true, data: { files: [], isGitRepo: true } } }));
+    return renderLanesDock({ input: { session: sessionWith(n), working: false, openspecHasDir: false, openspecPending: false, onClearFollowUps } });
+  };
+
+  it("1 follow-up → `1 queued follow-up`, no Clear all; 2 → `2 queued follow-ups` and Clear all calls onClearAll", () => {
+    const onClear = vi.fn();
+    const one = renderLane(1, onClear);
+    const lane = () => one.getByRole("group", { name: "Queue" });
+    expect(lane().textContent).toContain("1 queued follow-up");
+    expect(lane().textContent).not.toContain("follow-ups");
+    expect(lane().querySelector("[data-testid=queue-followup-clear-all]")).toBeNull();
+    one.unmount();
+
+    const two = renderLane(2, onClear);
+    expect(two.getByRole("group", { name: "Queue" }).textContent).toContain("2 queued follow-ups");
+    fireEvent.click(two.getByTestId("queue-followup-clear-all"));
+    expect(onClear).toHaveBeenCalledTimes(1);
   });
 });

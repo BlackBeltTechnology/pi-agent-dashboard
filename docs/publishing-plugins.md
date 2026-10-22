@@ -178,7 +178,7 @@ Package `@blackbelt-technology/dashboard-plugin-runtime`. Layers:
 
 ## `hostApi` range
 
-- Manifest `pi-dashboard-plugin.hostApi`: `^MAJOR.MINOR[.PATCH]` or exact `MAJOR.MINOR.PATCH`. Current `PLUGIN_HOST_API_VERSION = "1.0.0"` (`packages/shared/src/dashboard-plugin/host-api.ts`).
+- Manifest `pi-dashboard-plugin.hostApi`: `^MAJOR.MINOR[.PATCH]` or exact `MAJOR.MINOR.PATCH`. Current `PLUGIN_HOST_API_VERSION = "1.1.0"` (1.1.0 added slot `composer-dock-process-group`, `ComposerDockRow`, `ProcessGroupSummary`; claim of it needs `^1.1`) (`packages/shared/src/dashboard-plugin/host-api.ts`).
 - ONE range covers both halves (server entry + client). Checked at discovery. Result in `PluginStatus.hostApi`.
 - `workspace` / `bundled` source: mismatch = warning only.
 - `installed` / `pi-package` source: mismatch refuses both halves. Server entry not loaded (error `host-api`). Client `delivery: "refused"`, reason `host-api`.

@@ -215,8 +215,9 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
         position: "relative",
         height,
         borderRadius: height,
-        background: "var(--bg-tertiary, rgba(63,63,70,0.5))",
-        overflow: "hidden",
+        // Mixed from the muted text colour so the empty track stays visible on
+        // every theme (`--bg-tertiary` blends into the strip background).
+        background: "color-mix(in srgb, var(--text-muted, #71717a) 35%, transparent)",
       }}
     >
       <div
@@ -234,10 +235,11 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
           data-testid="quota-now-tick"
           style={{
             position: "absolute",
-            top: -1,
-            bottom: -1,
+            top: -2,
+            bottom: -2,
             left: `${pace.elapsedPercent}%`,
             width: 1.5,
+            transform: "translateX(-50%)",
             background: "var(--text-primary, #e4e4e7)",
             opacity: 0.7,
           }}
@@ -289,8 +291,8 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
           <span
             data-testid="quota-no-adapter-note"
             style={{
-              fontSize: 10,
-              color: "var(--text-muted, #71717a)",
+              fontSize: 11,
+              color: "var(--text-secondary)",
               border: "1px dashed var(--border-subtle, rgba(82,82,91,0.6))",
               borderRadius: 4,
               padding: "0 4px",
@@ -329,7 +331,7 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 4,
+                gap: 8,
                 background: "transparent",
                 // Borderless: the host `ToolbarGroup` (info variant) is the
                 // container now. See change: redesign-composer-session-strip.
@@ -338,7 +340,7 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 padding: "0 6px",
                 minHeight: 24,
                 lineHeight: 1.4,
-                fontSize: 10,
+                fontSize: 12,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
                 color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",
@@ -369,13 +371,22 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 return (
                   <span
                     key={`${w.label}-${i}`}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 3 }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                   >
                     <span>{w.label}</span>
                     <span style={{ display: "inline-block", width: 40 }}>
                       <MiniBar pace={{ ...pace, severity }} usedPercent={w.usedPercent} height={3} />
                     </span>
-                    <span>{Math.round(w.usedPercent)}%</span>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        minWidth: "4ch",
+                        textAlign: "right",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {Math.round(w.usedPercent)}%
+                    </span>
                   </span>
                 );
               })}

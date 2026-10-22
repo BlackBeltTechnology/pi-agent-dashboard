@@ -9,7 +9,9 @@ hand-rolled "open upward + cap height" logic previously duplicated across
 several popovers.
 
 See change: fix-popover-viewport-flip.
+
 ## Requirements
+
 ### Requirement: Viewport-anchored popovers SHALL flip and clamp to stay on-screen
 
 The client SHALL provide a shared `usePopoverFlip` hook consumed by
@@ -42,21 +44,22 @@ never exceeds the available space — with content scrolling inside the popover
 when it would exceed `maxHeight`.
 
 A consumer that applies only `maxHeight` silently loses its floor, so the
-complete set of consumer surfaces SHALL be enumerated — **9 surfaces resolving to
-8 hook call sites** (the launch-dialog row re-mounts two existing call sites
+complete set of consumer surfaces SHALL be enumerated — **10 surfaces resolving to
+9 hook call sites** (the launch-dialog row re-mounts two existing call sites
 rather than adding a new one):
 
 | # | Surface | Hook call site | Floor |
 |---|---|---|---|
-| 1 | `ModelSelector` | own | 260 (filterable list) |
+| 1 | `ModelSelector` (also the composer's merged model · thinking chip, with the thinking levels inside the same popover) | own | 260 (filterable list) |
 | 2 | `ThinkingLevelSelector` | own | 120 default |
 | 3 | `ThemePicker` | own | 120 default |
 | 4 | `ChatViewMenu` | own | 120 default (content always exceeds it) |
 | 5 | `CommandInput` composer dropdown | own | 260 (filterable list) |
-| 6 | `CommandInput` attach (＋) menu | own | n/a — horizontal axis only, applies no height bound |
+| 6 | `CommandInput` attach (＋) menu (also the toolbar's fold host: delivery states and folded controls below 420 px) | own | 120 default |
 | 7 | `WorktreeActionsMenu` | own | 120 default |
 | 8 | `PackageRow` | own | 120 default |
 | 9 | OpenSpec launch-dialog run-config row ("Runs with") | re-mounts #1 + #2 | inherited from #1/#2 |
+| 10 | `CommandInput` delivery (`Steer ▾`) menu | own | n/a — horizontal axis only, applies no height bound (two fixed items) |
 
 Surface 9 inherits both bounds because the floor opt-in lives INSIDE each
 consumer component rather than at its mount site; a new host therefore cannot
@@ -245,4 +248,3 @@ attached only while the popover is open.
 - **GIVEN** a popover whose `open` state is false
 - **WHEN** the viewport is resized or scrolled
 - **THEN** the hook performs no measurement and attaches no resize/scroll listeners
-

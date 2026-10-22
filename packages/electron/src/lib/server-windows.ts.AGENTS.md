@@ -1,3 +1,4 @@
 # server-windows.ts — index
 
 `createServerWindows(deps)`: one window per paired server on its own origin. open → pick host (prove pinned fp) → `session.fetch` `/api/device-session` in the server's partition (`redirect:manual`) → load origin. Sandbox, no preload, same-origin nav only (`will-navigate`/`will-redirect`), `setWindowOpenHandler` deny, permission allowlist. 401/403 only triggers rate-limited (5 min) exchange re-run; refused ⇒ needs pairing + one dialog. Re-verify identity 60 s / focus / resume; mismatch ⇒ `about:blank` + cookie removed. Forget. Pure helpers `classifyExchange`, `composeTitle`, `parseManualUrl`. Electron via injected ports. See change: add-electron-server-windows (D5–D8, D12, D14).
+`dom-ready` on own origin ⇒ `executeJavaScript` plants non-secret `pi-dashboard:device-paired` marker so remote client mints WS ticket (bearer never enters page).

@@ -32,8 +32,9 @@ test.describe("change summary table", () => {
     await robustClick(page, "changed-files-chip");
     const rail = page.getByTestId("changes-rail-section");
     await expect(rail).toBeVisible({ timeout: 10_000 });
-    // Chat stays mounted alongside the pane (no full-screen takeover).
-    await expect(page.getByTestId("status-bar")).toBeVisible();
+    // Chat stays mounted alongside the pane (no full-screen takeover): its composer card is
+    // still rendered (the StatusBar this once probed was removed by add-composer-dock).
+    await expect(page.getByTestId("composer-card")).toBeVisible();
 
     // 3. A changes row opens the file's diff tab. The per-file rows no longer
     // live in `changes-rail-section` (now a slim summary bar) — they render

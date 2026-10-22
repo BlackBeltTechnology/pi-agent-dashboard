@@ -221,9 +221,15 @@ export function installDeviceAuthFetch(): void {
  * Returns null when this browser is unpaired (cookie/loopback auth path) or the
  * mint fails — callers fall back to opening the socket without a ticket.
  */
-export async function mintWsTicket(scope: "browser" | "terminal" | "live" = "browser"): Promise<string | null> {
+export async function mintWsTicket(
+  scope: "browser" | "terminal" | "live" = "browser",
+  opts: { probeCookie?: boolean } = {},
+): Promise<string | null> {
   const token = getApiBearer();
-  const cookieOnly = !token && isDevicePaired();
+  const marked = isDevicePaired();
+  // probeCookie: no marker, but the device cookie may have been planted out of band
+  // (Electron server window exchanges it from main). Try it once; mark on success.
+  const cookieOnly = !token && (marked || opts.probeCookie === true);
   if (!token && !cookieOnly) return null;
   try {
     const res = await fetch(`${getApiBase()}/api/ws-ticket`, {
@@ -236,9 +242,11 @@ export async function mintWsTicket(scope: "browser" | "terminal" | "live" = "bro
       body: JSON.stringify({ scope }),
     });
     // Stale marker (cookie revoked/expired): forget it.
-    if (cookieOnly && res.status === 401) setDevicePaired(false);
+    if (cookieOnly && marked && res.status === 401) setDevicePaired(false);
     const json = (await res.json()) as { success?: boolean; data?: { ticket?: string } };
-    return json?.data?.ticket ?? null;
+    const ticket = json?.data?.ticket ?? null;
+    if (cookieOnly && !marked && res.ok && ticket) setDevicePaired(true);
+    return ticket;
   } catch {
     return null;
   }

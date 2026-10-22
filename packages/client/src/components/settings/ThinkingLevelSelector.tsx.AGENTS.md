@@ -15,3 +15,7 @@ See change: honor-native-models-json-metadata — `THINKING_LEVELS` extended to 
 - Same port as `ModelSelector`: `LayerPortal` + `fixed z-popover`, `triggerRect`-driven positioning, `panelRef`-first outside-click (+ `touchstart`).
 - Keeps the fixed `w-32` and does NOT destructure `maxWidth` — width is not pane-derived here.
 - Portaling moves the panel OUT of the component container: tests must query it via `screen`/`baseElement`, not `within(container)`.
+
+## add-composer-dock
+
+- Exports `thinkingLevelsFor(supported?)` (canonical order, six-level fallback); shared with the merged model chip's level radio group. Standalone selector unchanged. See change: add-composer-dock.

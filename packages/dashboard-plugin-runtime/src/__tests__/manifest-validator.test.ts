@@ -47,6 +47,14 @@ describe("validateManifest — valid cases", () => {
     expect(m.claims[0].slot).toBe("composer-panel");
   });
 
+  it("accepts a composer-dock-process-group claim (change: add-composer-dock)", () => {
+    const m = validateManifest({
+      ...validManifest,
+      claims: [{ slot: "composer-dock-process-group", component: "SubagentDockGroup" }],
+    });
+    expect(m.claims[0].slot).toBe("composer-dock-process-group");
+  });
+
   it("accepts a login-provider claim with a component (D16, LG-6)", () => {
     const m = validateManifest({
       ...validManifest,

@@ -31,8 +31,8 @@ import { useI18n } from "../../lib/i18n/i18n.js";
 import { isFolderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { AgentSelect } from "../AgentSelect.js";
-import { YoloComposerStrip } from "../access-grant/YoloIndicators.js";
 import { CommandInput } from "../chat/CommandInput.js";
+import { ComposerDock } from "../chat/ComposerDock.js";
 import { EditorPane } from "../editor-pane/EditorPane.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { SplitWorkspace } from "../split/SplitWorkspace.js";
@@ -85,6 +85,9 @@ export interface DirectoryHomeViewProps {
   /** Open the folder settings surface (header gear). */
   onOpenSettings?: (cwd: string) => void;
 }
+
+/** The folder home has no lanes, so there is nothing to open. */
+const NOOP_OPEN_LANE = () => {};
 
 function folderName(cwd: string): string {
   const trimmed = cwd.replace(/\/+$/, "");
@@ -275,8 +278,9 @@ export function DirectoryHomeView({
         </div>
 
         <AgentSelect cwd={cwd} onChange={setAgent} className="mx-3 mb-1 flex items-center gap-2 text-xs" />
-        {/* Active-YOLO strip directly above the composer. See change: fix-yolo-indicator-overflow. */}
-        <YoloComposerStrip cwd={cwd} />
+        {/* Dock with the YOLO footer only (no session, so no lanes), directly above the composer.
+            See change: add-composer-dock (task 8.2). */}
+        <ComposerDock session={undefined} cwd={cwd} openLane={null} onOpenLaneChange={NOOP_OPEN_LANE} />
         <CommandInput
           commands={commands}
           commandsOrigin={commandsOrigin}

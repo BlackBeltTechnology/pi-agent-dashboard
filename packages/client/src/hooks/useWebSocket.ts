@@ -5,6 +5,7 @@ import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-util
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
+import { isLoopbackHost } from "../lib/gateway/gateway-connection.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
@@ -268,9 +269,13 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
   // ride the socket (F6). Mint a FRESH single-use ticket per (re)connect and
   // present only that. Browsers with neither (cookie/loopback auth) skip
   // ticketing — unchanged path.
+  // A non-loopback page with neither may still hold a device cookie planted out of
+  // band (Electron server window): probe a cookie ticket so the socket is admitted.
   const connect = useCallback(() => {
-    if (getApiBearer() || isDevicePaired()) {
-      mintWsTicket("browser")
+    const credentialed = Boolean(getApiBearer()) || isDevicePaired();
+    const probeCookie = !credentialed && !isLoopbackHost(window.location.hostname);
+    if (credentialed || probeCookie) {
+      mintWsTicket("browser", { probeCookie })
         .then((ticket) => openSocket(ticket ? appendWsTicket(url, ticket) : url))
         .catch(() => openSocket(url));
     } else {

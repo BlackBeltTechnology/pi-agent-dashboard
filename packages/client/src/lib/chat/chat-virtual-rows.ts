@@ -182,6 +182,31 @@ export function buildTurnToFirstRowIndex(rows: BurstItem[]): Map<number, number>
   return map;
 }
 
+/**
+ * `toolCallId → first display-row index` over the filtered rows: a plain tool
+ * row, a bare `×N` group member, or a member of a temporal burst all resolve to
+ * the row that renders them. Backs `ChatViewHandle.scrollToTool` (the composer
+ * dock's Show). A tool whose row the display prefs hide is simply absent.
+ * See change: add-composer-dock (task 3.1).
+ */
+export function buildToolCallToRowIndex(rows: BurstItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  const add = (toolCallId: string | undefined, index: number) => {
+    if (toolCallId && !map.has(toolCallId)) map.set(toolCallId, index);
+  };
+  const visit = (item: BurstItem | ChatMessage | ToolCallGroup, index: number): void => {
+    if (isBurst(item as BurstItem)) {
+      for (const inner of (item as ToolBurstGroup).items) visit(inner, index);
+    } else if (isGroup(item as BurstItem)) {
+      for (const m of (item as ToolCallGroup).messages) add(m.toolCallId, index);
+    } else {
+      add((item as ChatMessage).toolCallId, index);
+    }
+  };
+  rows.forEach((row, index) => visit(row, index));
+  return map;
+}
+
 // --- Active-selection retention (change: preserve-chat-selection-during-churn) ---
 
 /** Inclusive display-row index span [min..max] a selection intersects. */

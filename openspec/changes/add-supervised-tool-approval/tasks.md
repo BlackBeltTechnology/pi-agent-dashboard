@@ -149,7 +149,7 @@ YOLO, pi 1.3.0) — see `design.md`.
 UI reference: `mockups/index.html` + `mockups/ui-plan.md` (states a-*, b-*, c-*).
 
 - [ ] 5.1 Mode chip in the composer settings row (`CommandInput.tsx` `toolbarExtra`) with the
-      two-option menu and scope caveat; folds into ⋯ below `@[44rem]`; static "Gateway policy"
+      two-option menu and scope caveat; sits in the toolbar's leading cluster and folds into `＋` below 420 px; static "Gateway policy"
       note on gateway-spawned sessions (mockup a-*).
 - [ ] 5.1a Pass the supervised metadata keys (`kind`, `deadline`, `tool`, `summary`,
       `command`, `path`, `diffStat`, `diff`, `cwd`) through at BOTH client prompt sites:
@@ -656,9 +656,9 @@ UI reference: `mockups/index.html` + `mockups/ui-plan.md` (states a-*, b-*, c-*)
       Security tab section · enter 9, 3601, 10; set ask_user timeout 30 with supervised 120 ·
       9/3601 show field error, save disabled; 10 saves; undercut → warning visible stating
       effective 29 s (test-plan #F22)
-- [ ] 8.96 Chip folds into ⋯ on narrow container — see `tests/e2e/composer-session-strip.spec.ts`,
+- [ ] 8.96 Chip folds into `＋` on narrow container — see `tests/e2e/composer-session-strip.spec.ts`,
       `tests/e2e/split-composer-overflow.spec.ts`. Triple: viewport 375 px · open composer · mode
-      control absent from settings row, present inside ⋯ menu with both options (test-plan #F23)
+      control absent from the toolbar, present inside the `＋` menu with both options (test-plan #F23)
 
 ### Manual (deferred post-merge by `ship-change`)
 

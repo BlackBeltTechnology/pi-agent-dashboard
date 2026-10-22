@@ -114,7 +114,7 @@ function prSegmentParts(session: DashboardSession): {
   const checksGlyph: Record<string, string> = { passing: "✓", failing: "✕", pending: "…" };
   if (st === "merged") {
     const word = i18nT("worktree.prMerged", undefined, "merged");
-    return { glyph: "⑂", word, tone: "text-purple-400", aria: `${prLabel}, ${word}` };
+    return { glyph: "⑂", word, tone: "text-[var(--accent-purple-text)]", aria: `${prLabel}, ${word}` };
   }
   if (st === "closed") {
     const word = i18nT("worktree.prClosed", undefined, "closed");
@@ -128,10 +128,10 @@ function prSegmentParts(session: DashboardSession): {
   const tone = draft
     ? "text-[var(--text-secondary)]"
     : c === "failing"
-      ? "text-red-400"
+      ? "text-[var(--accent-red-text)]"
       : c === "pending"
-        ? "text-orange-400"
-        : "text-green-400";
+        ? "text-[var(--accent-orange-text)]"
+        : "text-[var(--accent-green-text)]";
   const aria = checks
     ? `${prLabel}, ${word}, ${i18nT("worktree.prChecksAria", { state: checks.word }, "checks {state}")}`
     : `${prLabel}, ${word}`;
@@ -164,7 +164,8 @@ export function PrSegment({ session, className = "" }: { session: DashboardSessi
     "data-pr-state": session.gitPrState ?? undefined,
     "aria-label": parts.aria,
     title: parts.aria,
-    className: `inline-flex items-center gap-1 ${parts.tone} ${className}`,
+    // A linked PR is interactive: 12 px floor (composer-dock text-size rule); the plain segment keeps the group size.
+    className: `inline-flex items-center gap-1 ${session.gitPrUrl ? "text-xs " : ""}${parts.tone} ${className}`,
   };
   return session.gitPrUrl ? (
     <a {...common} href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
@@ -312,9 +313,9 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)]",
   };
   const segmentText: Record<BtnVariant, string> = {
-    warn: "text-orange-400 hover:text-orange-300",
-    success: "text-green-400 hover:text-green-300",
-    danger: "text-red-400 hover:text-red-300",
+    warn: "text-[var(--accent-orange-text)] hover:text-[var(--text-primary)]",
+    success: "text-[var(--accent-green-text)] hover:text-[var(--text-primary)]",
+    danger: "text-[var(--accent-red-text)] hover:text-[var(--text-primary)]",
     neutral: "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
   };
   const segments = appearance === "segments";
@@ -323,7 +324,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   // leading hairline. See change: redesign-composer-session-strip (review r1).
   const segmentEdge = "border-l border-[var(--border-subtle)]";
   const itemBase = segments
-    ? `inline-flex items-center gap-0.5 px-2 min-h-6 min-w-6 self-stretch bg-transparent hover:bg-[var(--bg-hover)] ${segmentEdge}`
+    ? `inline-flex items-center gap-0.5 px-2 min-h-6 min-w-6 text-xs self-stretch bg-transparent hover:bg-[var(--bg-hover)] ${segmentEdge}`
     : "inline-flex items-center px-1.5 py-[1px] rounded border";
   const streamingTip = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
 
@@ -372,7 +373,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const items = [prSegment, ...buttons.map(renderButton), separator, renderButton(closeButton)];
 
   return (
-    <div data-testid="worktree-actions-menu" className={segments ? "contents text-[10px]" : "flex items-center gap-1 text-[10px] flex-wrap"}>
+    <div data-testid="worktree-actions-menu" className={segments ? "contents text-[11px]" : "flex items-center gap-1 text-[10px] flex-wrap"}>
       {isMobile ? (
         <div className="relative">
           <button

@@ -5,3 +5,5 @@ L3 for the access-grant prompt dialog + YOLO UI (change: add-access-grant-dialog
 Adds F11: an MCP server save for an unpinned existing dir raises the cwd dialog; Always allow pins it and the PUT returns 200 (unpinned again in cleanup). See change: harden-plugin-cwd-admission. `hostGate.mode` (beforeAll, describe scope) and in-test `hostGate`/`trustedNetworks` narrowing via `narrowTrust` (test scope; try/finally removed); `accessGrants` still raw in-container write (not trust-bearing). See change: triage-browser-e2e-offbox-poison.
 
 Retargeted: YOLO pill/session-indicator assertions now check the tinted `header-app-bar` (`data-yolo`), absence of `yolo-pill`, and the composer strip on the mobile session view; adds #E15 untinted-by-default. See change: fix-yolo-indicator-overflow.
+
+add-composer-dock: #F5 also asserts the YOLO strip lives inside `composer-dock` (footer). See change: add-composer-dock.

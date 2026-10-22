@@ -62,6 +62,7 @@ import {
   isWebUiUrl,
   scrubCookies,
 } from "./dedicated-deny.js";
+import { disposeEphemeralContext } from "./ephemeral-context.js";
 import { HiddenTargets, openHiddenTab as openHiddenTabOnPipe } from "./hidden-targets.js";
 import { type CdpError, nextCdpId, PipeCallError, type PipeLike } from "./pipe-call.js";
 import { TabIdMap } from "./tab-id-map.js";
@@ -100,6 +101,17 @@ export interface DedicatedInstanceDeps {
   /** Shared registry of server-owned hidden targets; default: private. */
   hidden?: HiddenTargets;
   holder?: DedicatedHolder;
+  /**
+   * Private (change: add-gmail-auto-setup): no tabs in the status composition, every viewer
+   * subscribe/input refused and audited `viewer-subscribe-refused`.
+   */
+  private?: boolean;
+  /**
+   * Server-created browser context of an ephemeral instance: client `createTarget` is pinned
+   * into it, discovery shows only its targets, the client may neither create nor dispose
+   * contexts, and it is disposed when the instance closes.
+   */
+  ephemeralContextId?: string;
   /** Fired exactly once when the instance dies; the manager removes the guid. */
   onClosed(reason: string): void;
   /** Fired on any instance/tab/state change so status can be rebroadcast. */
@@ -273,8 +285,9 @@ export class DedicatedInstance implements RelayLike {
     return this.cdp ? "connected" : "no-cdp-client";
   }
 
-  /** Visible agent tabs only: hidden targets never appear. */
+  /** Visible agent tabs only: hidden targets never appear; a private instance lists none. */
   tabList(): RelayTabView[] {
+    if (this.deps.private) return [];
     const states = this.tap.tabStates();
     const out: RelayTabView[] = [];
     for (const entry of this.targets.values()) {
@@ -304,6 +317,10 @@ export class DedicatedInstance implements RelayLike {
 
   /** Viewer subscribe: hidden tabs are refused and audited. */
   subscribe(viewer: RelaySocket, tabId: number, opts?: SubscribeOptions): { ok: boolean; state?: TapTabState | "detached" } {
+    if (this.deps.private) {
+      this.audit("viewer-subscribe-refused", `tab:${tabId} reason:private`);
+      return { ok: false, state: "detached" };
+    }
     const entry = this.entryForTab(tabId);
     if (entry?.hidden) {
       this.audit("viewer-subscribe-refused", `tab:${tabId} reason:hidden`);
@@ -323,6 +340,10 @@ export class DedicatedInstance implements RelayLike {
   }
 
   input(viewer: RelaySocket, tabId: number, msg: unknown, remoteAddress?: string): Promise<void> {
+    if (this.deps.private) {
+      this.audit("viewer-subscribe-refused", `tab:${tabId} reason:private via:input`);
+      return Promise.resolve();
+    }
     if (this.entryForTab(tabId)?.hidden) {
       this.audit("viewer-subscribe-refused", `tab:${tabId} reason:hidden via:input`);
       return Promise.resolve();
@@ -358,7 +379,12 @@ export class DedicatedInstance implements RelayLike {
       throw err;
     }
     this.chrome.touch?.();
-    const result = await openHiddenTabOnPipe(this.chrome, this.hidden, url);
+    const result = await openHiddenTabOnPipe(
+      this.chrome,
+      this.hidden,
+      url,
+      this.deps.ephemeralContextId ? { browserContextId: this.deps.ephemeralContextId } : {},
+    );
     this.audit("open", url);
     return result;
   }
@@ -403,8 +429,9 @@ export class DedicatedInstance implements RelayLike {
   }
 
   private handleClient(message: WireCommand): void {
-    const { id, sessionId, method, params } = message;
+    const { id, sessionId, method } = message;
     if (typeof id !== "number" || typeof method !== "string") return;
+    const params = this.pinContext(method, message.params);
     this._lastActivity = this.now();
     this.chrome.touch?.();
 
@@ -427,6 +454,19 @@ export class DedicatedInstance implements RelayLike {
     this.forward(id, sessionId, method, params);
   }
 
+  /** Ephemeral instance: every `Target.createTarget` lands in the instance's own context, whatever the client asked for. */
+  private pinContext(method: string, params: unknown): unknown {
+    const ctx = this.deps.ephemeralContextId;
+    if (ctx === undefined || method !== "Target.createTarget") return params;
+    return { ...(typeof params === "object" && params !== null ? params : {}), browserContextId: ctx };
+  }
+
+  /** A target outside the ephemeral context is never shown to the client (fails closed when Chrome names no context). */
+  private foreignContext(info: TargetInfo): boolean {
+    const ctx = this.deps.ephemeralContextId;
+    return ctx !== undefined && info.browserContextId !== ctx;
+  }
+
   /** A CDP error when `params` names a hidden target or a session the client does not own. */
   private hiddenParamError(params: unknown): CdpError | undefined {
     if (typeof params !== "object" || params === null) return undefined;
@@ -446,12 +486,18 @@ export class DedicatedInstance implements RelayLike {
 
   private refuseDenied(id: number, sessionId: string | undefined, method: string, params: unknown): boolean {
     const relay = isBlankNavigation(method, params) ? null : deniedMethod(method, params, this.effectiveDomains());
-    const denied = relay ?? dedicatedDenied(method, params, sessionId);
+    const denied = relay ?? dedicatedDenied(method, params, sessionId) ?? this.ephemeralDenied(method);
     if (!denied) return false;
     this.audit("denied", denied);
     this.deps.logger.warn(`[browser-relay] denied ${denied} profile=${DEDICATED_PROFILE}`);
     this.sendToCdp({ id, sessionId, error: denyError(denied) });
     return true;
+  }
+
+  /** An ephemeral client cannot manage browser contexts: the server owns the one it has. */
+  private ephemeralDenied(method: string): string | null {
+    if (this.deps.ephemeralContextId === undefined) return null;
+    return method === "Target.createBrowserContext" || method === "Target.disposeBrowserContext" ? method : null;
   }
 
   private ackAndDrop(id: number, sessionId: string | undefined, method: string): boolean {
@@ -882,6 +928,7 @@ export class DedicatedInstance implements RelayLike {
     const id = entry.info.targetId;
     if (this.hidden.isStickyHidden(id)) return true;
     if (isWebUiUrl(entry.info.url)) return true;
+    if (this.foreignContext(entry.info)) return true;
     for (const parent of [entry.info.openerId, entry.info.parentFrameId, entry.info.openerFrameId]) {
       if (typeof parent === "string" && parent !== "" && this.isHiddenTarget(parent)) {
         this.hidden.addDerived(id);
@@ -1038,6 +1085,7 @@ export class DedicatedInstance implements RelayLike {
       if (!this.hidden.isStickyHidden(targetId)) this.sendRaw("Target.closeTarget", { targetId });
     }
     for (const browserContextId of this.createdContexts) this.sendRaw("Target.disposeBrowserContext", { browserContextId });
+    if (this.deps.ephemeralContextId) disposeEphemeralContext(this.chrome, this.deps.ephemeralContextId);
     if (this.started) {
       this.sendRaw("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
       this.sendRaw("Target.setDiscoverTargets", { discover: false });

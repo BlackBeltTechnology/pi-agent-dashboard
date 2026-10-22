@@ -1271,6 +1271,13 @@ mark.markdown-search-highlight-active {
   display: none;
 }
 
+/* Composer dock tucks under the composer card as one connected panel: the
+   composer root's full-width top border would cut across the dock, so drop it
+   while a visible dock sits directly above. */
+[data-testid="composer-dock"]:not([hidden]) + [data-testid="composer-root"] {
+  border-top-color: transparent;
+}
+
 /* Composer lifecycle-bar box: a definite inline size under the stepper's
    250px container-query cutoff, so the composer bar is always in letters mode
    while the session card keeps full labels. See change:

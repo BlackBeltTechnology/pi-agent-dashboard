@@ -561,6 +561,11 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "tab": "general"
             },
             {
+                "slot": "composer-dock-process-group",
+                "component": "SubagentDockGroup",
+                "module": "./src/client/SubagentDockGroup.tsx"
+            },
+            {
                 "slot": "shell-overlay-route",
                 "component": "SubagentPopoutClaim",
                 "module": "./src/client/SubagentPopoutClaim.tsx",
@@ -594,6 +599,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "subagents", priority: 100, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentsSettings"), "SubagentsSettings") },
+      { pluginId: "subagents", priority: 100, slot: "composer-dock-process-group", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentDockGroup"), "SubagentDockGroup") },
       { pluginId: "subagents", priority: 100, slot: "shell-overlay-route", path: "/session/:sessionId/subagent/:agentId", sessionParam: "sessionId", depth: 2, parentPath: "/session/:sessionId", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentPopoutClaim"), "SubagentPopoutClaim") },
       { pluginId: "subagents", priority: 100, slot: "tool-renderer", toolName: "Agent", expandWhileRunning: true, Component: lazyClaim(() => import("../../../subagents-plugin/src/client/AgentToolRenderer"), "AgentToolRenderer"), resultPending: isAgentResultNotReceived },
     ],
@@ -1148,4 +1154,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "ecddc750bacdbe3f54bea9fd0c00e8e8074cdbfe4c8c8784b7bfc5014ff713fb";
+export const PLUGIN_REGISTRY_HASH = "2273f7a93a95c7d71a6d846e02c36c48ace662844916fbbb8327b46c1b29dd44";

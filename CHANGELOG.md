@@ -102,6 +102,11 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Desktop app: a paired remote server window no longer shows "Server offline".** The app sets the
+  device cookie behind the scenes, but the remote page never learned it was paired, so it opened the
+  live connection without a ticket and the server refused it. The window now marks the page as paired,
+  and a dashboard page on a network address also tries its cookie for a ticket on its own.
+
 ## [0.10.0] - 2026-10-20
 
 ### Added

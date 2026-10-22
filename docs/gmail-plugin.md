@@ -86,6 +86,137 @@ Never logs email, message, URL, token. Original error rethrown unchanged.
 
 See change: improve-gmail-settings-ux.
 
+## Automatic setup
+
+Entry: `Set up automatically` secondary button, settings UI (`data-testid` `gmail-setup-run`).
+Local-only. Drives Google Cloud console in dedicated Chrome → stores Desktop OAuth client.
+Manual wizard stays fallback.
+Deterministic server recipe. No model. No CLI.
+
+```mermaid
+stateDiagram-v2
+  [*] --> starting
+  starting --> running: connect ok
+  starting --> busy: connect 409 busy
+  starting --> handoff: refusal
+  busy --> running: POST takeover
+  busy --> cancelled: DELETE
+  running --> waiting_user: checkpoint
+  waiting_user --> running: human action / POST continue
+  running --> waiting_decision: audience or links
+  waiting_decision --> running: POST continue
+  running --> done: all steps pass
+  running --> handoff: verify fail / timeout / refusal
+  running --> cancelled: DELETE
+```
+
+### Availability
+
+`GET state` → `autoSetup: {available, reason?, local, replacesClient?, runId?}`.
+`available` requires all:
+- `ctx.consume("browser.dedicated")` defined; looked up per request.
+- `status().enabled && status().available`.
+- Loopback peer, no proxy header (`isGenuinelyLocal`, `setup/local.ts`).
+- No client, or client with zero accounts (else `client_in_use`; `replacesClient: true` when client exists).
+- No live run (else `run_active` + `runId`).
+`reason` values: `service_missing`, `disabled`, `status_failed`, `remote_dashboard`, browser refusal reason.
+No `dependsOn` on browser plugin: hard + transitive, browser ships disabled.
+Browser plugin provides `browser.dedicated` via `ctx.provide` (`browser-plugin/src/server/index.ts:200`).
+
+### Run
+
+`POST /api/plugins/gmail/setup/run {mode, projectId?, ownerEmail}` → `{runId}`.
+- `mode`: `new` | `existing`. `existing` requires `projectId`.
+- `projectId` must pass `classifyProjectId` → `ok`.
+- `new` without `projectId` → `pi-dashboard-<6 random [a-z0-9]>` (`generateProjectId`).
+- Start requires loopback peer, no proxy header; else 403 `remote_dashboard`.
+- One live run per server; second start → 409 `run_active`.
+- 400 errors: `invalid_mode`, `invalid_owner_email`, `invalid_project_id`.
+- Saves `projectId`, `ownerAccount` to plugin config (best effort).
+- Connects `browser.dedicated` with `{client: "gmail-setup", private: true, ephemeral: true}`.
+
+Each step: check → act → verify. Verify fail, unknown page, or step > 60 s (`stepLimitMs`) → handoff.
+
+| id | Effect | wizardStep |
+|---|---|---|
+| `project` | Create (`new`) or confirm project; reads parent org. | 1 |
+| `api` | Enable Gmail API. Done when `Disable API` shown. | 1 |
+| `branding` | Consent screen: app name, support email = owner, audience, contact email, policy checkpoint. | 2 |
+| `publish` | External audience only: links, Save, click `Publish app`; user confirms dialog. | 3 |
+| `client` | Create Desktop client `pi-dashboard` (or `pi-dashboard-<n>`). Never `done` (old secret unrecoverable). | 4 |
+| `capture` | Read secret, store (see Secret capture). | 4 |
+
+Navigation URLs: `authuser=<ownerEmail>`, `project=<projectId>`, `hl=en`.
+Elements found by role + accessible name via `Accessibility.queryAXTree`.
+Page `lang` not `en` → handoff `locale`.
+Denied navigation → handoff `domain_blocked`, `domains: ["console.cloud.google.com", "accounts.google.com"]`.
+Keep-alive `Runtime.evaluate` every 30 s (`keepAliveMs`); browser idle sweep is 5 min.
+Socket closed by browser, not by run → handoff `browser_closed`.
+
+### Decisions
+
+State `waiting_decision`; `decision` in run view. Answer: `POST /api/plugins/gmail/setup/run/:runId/continue`.
+- Audience, asked only when `branding` not done: `{audience: "internal" | "external"}`.
+  - Detected `internal` when parent org exists, else `external`.
+  - Other values → 400 `invalid_audience`.
+- Links, asked before `publish`: `{links: {homePage, privacyPolicy, authorizedDomain}, confirmLinks: true}`.
+  - Missing `confirmLinks: true` → 400 `confirm_required`.
+  - Invalid links → 400 `links_required`, `invalid_authorized_domain`, or `invalid_<key>`.
+  - Defaults (`DEFAULT_PUBLISH_LINKS`): home + privacy `https://github.com/BlackBeltTechnology/pi-agent-dashboard`; domain `github.com`.
+  - Links appear on Google consent screen for every account. User may replace them.
+
+### Human checkpoints
+
+State `waiting_user`; `checkpoint.kind` in run view. Run never clicks sign-in, consent, terms, policy, or publish confirmation.
+- `sign_in`:
+  - Redirect guard: run tab `Fetch` pattern `https://accounts.google.com/*`; top-level hit → `Fetch.failRequest` (`BlockedByClient`) → checkpoint.
+  - Run tab → `about:blank`.
+  - Sign-in opens in hidden tab of run's ephemeral context (`open`, `login_hint: <ownerEmail>`), then `focus`.
+  - Resume when `tabOrigin` leaves `https://accounts.google.com` or `POST …/continue`.
+- `console_terms`: `Agree and continue` dialog gone.
+- `policy`: User Data Policy checkbox; run `Page.bringToFront`; waits for user.
+- `publish`: `Push to production?` dialog; resume at `In production`.
+  - Dialog gone for 5 polls (`publishGracePolls`) without `In production` → handoff `publish_cancelled`.
+- Limit 15 min (`checkpointLimitMs`) → handoff `timeout`.
+
+### Busy and takeover
+
+`connect` → 409 `busy` → state `busy`, `busy.holder` (session id or client label; never instance id).
+`POST …/takeover` → 409 `not_busy` if not busy.
+Takeover reconnects with `takeover: true`; atomic in browser plugin.
+Other refusals → handoff at `project`.
+
+### Handoff
+
+State `handoff`; `handoff: {step, wizardStep, reason, domains?}`.
+`wizardStep`: `project`, `api` → 1; `branding` → 2; `publish` → 3; `client`, `capture` → 4.
+`created: {projectId?, clients[]}` lists Google resources made by run.
+Reasons:
+- recipe: `unexpected_page`, `locale`, `domain_blocked`, `publish_cancelled`, `timeout`, `secret_capture_failed`, `client_in_use`, `browser_closed`.
+- browser refusal (step `project`): `disabled`, `unloaded`, `no-chrome`, `no-display`, `owned-by-other-server`, `profile-in-use`, `launch-failed`.
+
+Logs: `[gmail] setup step <id> <done|skipped|handoff:<reason>> <ms>ms`; masked; no URLs.
+
+### Secret capture (step `capture`)
+
+1. Read client id + secret from `OAuth client created` dialog DOM. In-memory only.
+2. Fallback: click `Download JSON`; read newest new `client_secret_*.json` in `downloadsDir`.
+3. Every new download removed in `finally`.
+4. Store via same function as `PUT /client`: validation, `client_in_use`, `projectId`.
+5. Both reads fail → click `OK`, handoff `secret_capture_failed`.
+
+Isolation:
+- Run connects `private: true, ephemeral: true`: tabs absent from relay status and viewer.
+- Owner Google session, downloads, cache live in throwaway browser context.
+- Context discarded on run end, cancel, or Chrome exit.
+- Later agent `browser_connect` not signed in as owner.
+
+Masking: `maskSecrets` on every log line and handoff text. `GOCSPX-[A-Za-z0-9_-]+` → `GOCSPX-***`.
+Run view and errors never carry secret or `instanceId`.
+
+Unverified: real-console selectors until manual task 7.2.
+See change: add-gmail-auto-setup.
+
 ## Token lease
 
 ```mermaid
@@ -170,11 +301,18 @@ Responses omit tokens and client secret.
 |---|---|---|
 | `GET` | `/api/plugins/gmail/state` | Return client metadata and account summaries. |
 | `PUT` | `/api/plugins/gmail/client` | Validate and save Desktop client JSON. |
-| `POST` | `/api/plugins/gmail/accounts` | Start add flow; default `readonly`. |
+| `POST` | `/api/plugins/gmail/accounts` | Start add flow; default `readonly`; optional `email` → `login_hint`. |
 | `POST` | `/api/plugins/gmail/accounts/:sub/level` | Apply covered level or start re-consent. |
 | `POST` | `/api/plugins/gmail/accounts/:sub/reauth` | Re-consent current level. |
 | `PATCH` | `/api/plugins/gmail/accounts/:sub` | Change alias. |
 | `DELETE` | `/api/plugins/gmail/accounts/:sub` | Attempt remote revoke; delete local account. |
+| `POST` | `/api/plugins/gmail/setup/run` | Start automatic setup; local-only; → `{runId}`. |
+| `GET` | `/api/plugins/gmail/setup/run/:id` | Secret-free run view. |
+| `POST` | `/api/plugins/gmail/setup/run/:id/continue` | Answer decision or acknowledge `sign_in`. |
+| `POST` | `/api/plugins/gmail/setup/run/:id/takeover` | Confirmed takeover of busy dedicated profile. |
+| `DELETE` | `/api/plugins/gmail/setup/run/:id` | Cancel run. |
+
+`GET /state` adds `autoSetup` (see Automatic setup).
 
 ## Settings UI
 
@@ -182,6 +320,7 @@ Revoke requires host `ui:confirm-dialog`; no DELETE until confirmed.
 Alias blur shows `gmail-alias-feedback` ("Saved" role=status, or mapped `alias_taken`/`invalid_alias` sentence).
 Level `<option>`s read `<tier> — <description>`.
 Add-account select has visible `<label>` + `gmail-cross-org-hint`.
+`Set up automatically` secondary button (`gmail-setup-entry`) rendered only when `autoSetup.available`; toggles run form (`gmail-setup-form`); run panel `gmail-setup-run`.
 Collapsed wizard `<summary data-testid="gmail-setup-summary">` shows `✓ project <projectId>`, else `✓ <clientId>`, else `not configured`.
 Theme uses only declared host tokens (`--border-primary`, `--bg-tertiary`, `--severity-{success,warning,error}-*`, `--accent` step highlight, `--accent-text` links).
 `.focus-ring` on every control.
@@ -203,5 +342,6 @@ Mail content remains attacker-controlled; without `untrusted-content-guard`, onl
 Attachment save rejects traversal and overwrite; symlinked targets/parents refused; parent-directory swap by another local process mid-save remains documented residual TOCTOU.
 Logs contain email, operation, outcome; no tokens.
 Local revoke failure needs manual Google removal at <https://myaccount.google.com/permissions>.
+Automatic setup: start loopback-only (403 `remote_dashboard`); client secret never in run view, logs, errors; `maskSecrets` on logs; downloaded JSON deleted in `finally`; owner sign-in confined to ephemeral private context; redirect guard blocks `accounts.google.com` top-level loads in run tab.
 
 See change: add-gmail-plugin.

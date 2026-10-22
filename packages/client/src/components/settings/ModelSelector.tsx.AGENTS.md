@@ -32,3 +32,9 @@ See change: fix-popover-container-clip — ModelSelector opts into the horizonta
 - Role refs render through `RoleRef` (`dashboard-plugin-runtime`): trigger (`follows`; `viaRole` → once-mode, `model-via-role` on "from @role"), Roles tab rows (check + `aria-current`, `role-unassigned` pill). Current model = check icon + `aria-selected`.
 - Capability badge: "assumed" word + `sr-only` text; footer = warning pill + "Open providers" ghost button; empty state = headline + help + secondary button; refreshing = `role="status"`.
 
+## add-composer-dock
+
+- Merged model · thinking chip (opt-in): `onSelectLevel` enables it. New props `level`, `levelPlaceholder`, `levelTag`, `supportedLevels`, `onSelectLevel`.
+- Face appends `· level` (`model-chip-level`, `hidden @[26.25rem]:inline-flex`; omitted when model and level are both unset). Level `thinking-tag` rides there. `aria-label` = `Model <m>, thinking <l>` (only in merged mode).
+- Popover appends `LevelRadioGroup` (`model-level-group`, `role=radiogroup` "Thinking level", `role=radio` + `data-level`, roving tabindex, arrows move focus); levels via `thinkingLevelsFor(supportedLevels)`; a pick calls `onSelectLevel`, closes, refocuses the trigger.
+- Root `min-w-0`, trigger `max-w-full min-w-0`: the id truncates with an ellipsis before any other toolbar control folds. Role display (`from @<role>`, `RoleRef`) unchanged. See change: add-composer-dock.

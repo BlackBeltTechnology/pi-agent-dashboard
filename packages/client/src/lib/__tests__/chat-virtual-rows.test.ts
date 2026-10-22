@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildToolCallToRowIndex,
   buildTurnToFirstRowIndex,
   computeRowTextChars,
   estimateVirtualRowSize,
@@ -362,5 +363,41 @@ describe("extendRangeWithSelection (task 4.2 / 4.4)", () => {
     expect(out.length).toBe(100);
     expect(out[0]).toBe(0);
     expect(out[99]).toBe(99);
+  });
+});
+
+describe("buildToolCallToRowIndex (composer dock Show)", () => {
+  it("maps a plain toolResult row's toolCallId to its row index", () => {
+    const rows: BurstItem[] = [
+      msg({ id: "u0", role: "user" }),
+      msg({ id: "t1", role: "toolResult", toolCallId: "call-1" }),
+    ];
+    expect(buildToolCallToRowIndex(rows).get("call-1")).toBe(1);
+  });
+
+  it("maps members of a ×N group and a burst to the row that wraps them", () => {
+    const grouped = {
+      type: "group",
+      toolName: "bash",
+      messages: [msg({ id: "g1", role: "toolResult", toolCallId: "call-g" })],
+    } as unknown as ToolCallGroup;
+    const bursted: ToolBurstGroup = {
+      type: "burst",
+      id: "b0",
+      items: [msg({ id: "b1", role: "toolResult", toolCallId: "call-b" }), grouped],
+    };
+    const map = buildToolCallToRowIndex([msg({ id: "a", role: "assistant" }), grouped, bursted]);
+    expect(map.get("call-g")).toBe(1);
+    expect(map.get("call-b")).toBe(2);
+  });
+
+  it("keeps the first row for a duplicated id and returns nothing for rows without ids", () => {
+    const map = buildToolCallToRowIndex([
+      msg({ id: "x", role: "toolResult", toolCallId: "dup" }),
+      msg({ id: "y", role: "toolResult", toolCallId: "dup" }),
+      msg({ id: "z", role: "assistant" }),
+    ]);
+    expect(map.get("dup")).toBe(0);
+    expect(map.size).toBe(1);
   });
 });

@@ -80,6 +80,7 @@ class FakeWindow implements ServerWindowLike {
   restore = vi.fn(() => void (this.minimized = false));
   focus = vi.fn();
   loaded: string[] = [];
+  scripts: string[] = [];
   windowOpenHandler?: (d: { url: string }) => { action: "deny" };
   webContents: ServerWindowLike["webContents"];
   options: ServerWindowOptions;
@@ -93,6 +94,7 @@ class FakeWindow implements ServerWindowLike {
       setWindowOpenHandler: (fn: any) => void (this.windowOpenHandler = fn),
       loadURL: async (u: string) => void this.loaded.push(u),
       getURL: () => this.loaded.at(-1) ?? "",
+      executeJavaScript: async (code: string) => void this.scripts.push(code),
     };
   }
   on = (e: string, fn: (...a: any[]) => void) => this.ev.on(e, fn);
@@ -267,6 +269,23 @@ describe("opening (E24, E30, X1-ish)", () => {
     expect(w.options.webPreferences.partition).toMatch(/^persist:server-[0-9a-f]{32}$/);
     expect(w.windowOpenHandler?.({ url: "https://example.com" })).toEqual({ action: "deny" });
     expect(w.options.title).toBe("home-imac");
+  });
+
+  it("marks the page as cookie-paired on dom-ready so its client mints a WS ticket", async () => {
+    await rig.sw.open(F);
+    const w = win(rig);
+    w.wcEv.emit("dom-ready");
+    expect(w.scripts).toHaveLength(1);
+    expect(w.scripts[0]).toContain("localStorage.setItem(\"pi-dashboard:device-paired\",\"1\")");
+    expect(w.scripts[0]).not.toContain(BEARER);
+  });
+
+  it("does not mark a page that is not on the server's origin", async () => {
+    await rig.sw.open(F);
+    const w = win(rig);
+    w.loaded.push("about:blank");
+    w.wcEv.emit("dom-ready");
+    expect(w.scripts).toEqual([]);
   });
 
   it("E30 second open focuses the existing (minimized) window; no second window", async () => {

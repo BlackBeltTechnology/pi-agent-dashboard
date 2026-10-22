@@ -9,7 +9,7 @@
  *  F2  a read inside the granted root succeeds; a sibling skill read comes back as
  *      `team: path_outside_root`
  *  F3  a granted `/skill:` reaches the model as the bridge-built envelope; an ungranted one
- *      never sends and the chat says so
+ *      never sends and the chat says so (+ add-composer-dock X13: `invalid` border kept, no dock)
  *  F5  a widening managed edit ends nothing; the live session keeps answering
  *  F4  a narrowing managed edit ends the streaming session within 5 s, keeps the record,
  *      refuses the reopen with `reason:"targets"` and shows the reason-specific banner with
@@ -166,6 +166,20 @@ test("F3: a granted /skill: reaches the model as an envelope; an ungranted one n
   await expect(anna.page.getByText(/nem érhető el ennek az ügynöknek|not available to this agent/).first()).toBeVisible({ timeout: 10_000 });
   await expect(box).toHaveValue("/skill:memory-x\nsummarise"); // text kept
   await expect(box).toBeEnabled(); // settled — no 30 s spinner
+  // X13 (add-composer-dock): the restructured toolbar keeps the `invalid` state — the textarea is
+  // aria-invalid and the card border is the error token — and team-app's chat pane renders NO dock.
+  await expect(box).toHaveAttribute("aria-invalid", "true");
+  const [cardBorder, errorToken] = await anna.page.evaluate(() => {
+    const card = document.querySelector('[data-testid="composer-card"]') as HTMLElement;
+    const probe = document.createElement("div");
+    probe.style.borderTop = "1px solid var(--severity-error-border)";
+    document.body.appendChild(probe);
+    const out = [getComputedStyle(card).borderTopColor, getComputedStyle(probe).borderTopColor];
+    probe.remove();
+    return out;
+  });
+  expect(cardBorder).toBe(errorToken);
+  await expect(anna.page.getByTestId("composer-dock")).toHaveCount(0);
   await new Promise((r) => setTimeout(r, 3_000));
   expect(llm.requests.length).toBe(turns); // no new model request
 });

@@ -10,22 +10,22 @@ import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
-import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useChatMotion } from "../../hooks/useChatMotion.js";
+import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { ChatMotionContext, type ChatMotionValue } from "../../lib/chat/chat-motion-context.js";
-import { FollowGlide, planBottomPin } from "../../lib/chat/follow-glide.js";
 import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
-import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
+import { buildToolCallToRowIndex, buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
 import { collapseRepeatedNotifies } from "../../lib/chat/collapse-repeated-notifies.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../../lib/chat/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
+import { FollowGlide, planBottomPin } from "../../lib/chat/follow-glide.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import {
@@ -35,11 +35,11 @@ import {
   SETTLE_MS,
   shouldAutoLoadHistory,
 } from "../../lib/chat/history-gap.js";
-import { type ArrivalInput, ArrivalTracker, type ArrivalToolRow, BULK_ARRIVAL_LIMIT, NO_ARRIVALS, sameDecision } from "../../lib/chat/live-arrival.js";
+import { type ArrivalInput, type ArrivalToolRow, ArrivalTracker, BULK_ARRIVAL_LIMIT, NO_ARRIVALS, sameDecision } from "../../lib/chat/live-arrival.js";
 import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
+import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { splitTopLevelBlocks } from "../../lib/chat/split-markdown-blocks.js";
 import { usePacedText } from "../../lib/chat/use-paced-text.js";
-import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   CHAT_TRANSCRIPT_BOUND,
@@ -62,9 +62,9 @@ import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
+import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChatEnter } from "./ChatEnter.js";
 import { TrailingEdge } from "./TrailingEdge.js";
-import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 
 // D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
 // a lazy boundary so a chat transcript without terminal history does not fetch
@@ -454,6 +454,8 @@ const scrollStateMap = new Map<string, { anchorRowId: string | null; offset: num
 
 export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
+  /** Scroll to the row rendering a tool call (composer dock Show). No-op when the row is hidden. */
+  scrollToTool: (toolCallId: string) => void;
 }
 
 const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking, historyPhase, historyStartedAt, onRetryHistory }, ref) {
@@ -1169,6 +1171,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // walks content blocks. Feeds the content-aware estimate (Decision 1).
   const rowTextChars = useMemo(() => displayRows.map(computeRowTextChars), [displayRows]);
   const turnToFirstRowIndex = useMemo(() => buildTurnToFirstRowIndex(displayRows), [displayRows]);
+  const toolCallToRowIndex = useMemo(() => buildToolCallToRowIndex(displayRows), [displayRows]);
 
   // --- Active-selection preservation (change: preserve-chat-selection-during-churn) ---
   // Row count + device-aware retained-row ceiling read as refs so the stable
@@ -2003,7 +2006,18 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       stampProgrammaticScroll();
       virtualizer.scrollToIndex(rowIndex, { align: "start" });
     },
-  }), [turnToFirstRowIndex, virtualizer, stampProgrammaticScroll]);
+    scrollToTool(toolCallId: string) {
+      const rowIndex = toolCallToRowIndex.get(toolCallId);
+      if (rowIndex == null) return;
+      // Same jump semantics as `scrollToTurn`: leave the sticky bottom so the
+      // stream does not pull the user off the command they asked to see.
+      descendingRef.current = false;
+      stickToBottomRef.current = false;
+      setShowScrollButton(true);
+      stampProgrammaticScroll();
+      virtualizer.scrollToIndex(rowIndex, { align: "center" });
+    },
+  }), [turnToFirstRowIndex, toolCallToRowIndex, virtualizer, stampProgrammaticScroll]);
 
   // ── Live-arrival detection (change: add-fluid-chat-motion, D2) ──────────────
   // The decision is a READ in render; the commit is recorded in a layout effect

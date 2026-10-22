@@ -33,10 +33,14 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { Audience, AutoSetupState, SetupRunView } from "../shared/auto-setup.js";
 import { validateClientJson } from "../shared/client-json.js";
 import type { AccountInfo } from "../shared/protocol.js";
 import { TIERS, type Tier } from "../shared/scopes.js";
 import { classifyProjectId, isEmail, normalizeEmail, normalizeProjectId } from "../shared/setup.js";
+import { AutoSetupSection } from "./AutoSetup.js";
+import { showUnverifiedNotice } from "./auto-setup.js";
+import { api, btn, errorText, muted } from "./ui.js";
 import {
   AUDIENCE_HELP_EN,
   CONSENT_HINT_EN,
@@ -45,16 +49,17 @@ import {
   errorKey,
   errorStep,
   gcloudCommands,
+  UNVERIFIED_HINT_EN,
   type WizardStep,
 } from "./wizard.js";
-
-const API = "/api/plugins/gmail";
 
 interface GmailState {
   client: { configured: boolean; clientId?: string; projectId?: string };
   accounts: AccountInfo[];
   /** Saved setup fields (`plugins.gmail`); absent from older servers. */
   setup?: { projectId?: string; ownerAccount?: string };
+  /** Automatic-setup availability; absent from older servers. See change: add-gmail-auto-setup. */
+  autoSetup?: AutoSetupState;
 }
 
 interface SavedSetup {
@@ -65,26 +70,11 @@ interface SavedSetup {
 type FlowState = React.ComponentProps<ReturnType<typeof useUiPrimitive<"ui:oauth-flow">>>["flow"];
 type FlowStatus = NonNullable<FlowState["status"]>;
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    ...init,
-    headers: init?.body ? { "content-type": "application/json" } : undefined,
-  });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw Object.assign(new Error(body.error ?? `HTTP ${res.status}`), { code: body.error });
-  return body;
-}
-
-// Secondary button recipe (`ui-contract.md`); `tap-target` = 44 px touch, 32 px from sm.
-const btn =
-  "focus-ring tap-target rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50";
 // The section's one primary action (white on the theme-invariant `--accent-solid`).
 const primaryBtn =
   "focus-ring tap-target rounded-md bg-[var(--accent-solid)] px-3 text-xs font-semibold text-white disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]";
 const field =
   "focus-ring rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-primary)]";
-const muted = "text-xs text-[var(--text-secondary)]";
-const errorText = "text-xs text-[var(--severity-error-fg)]";
 // Static strings: Tailwind cannot see interpolated class names.
 const pillBase = "inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-semibold";
 const badgeOk = `${pillBase} border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] text-[var(--severity-success-fg)]`;
@@ -205,6 +195,150 @@ function WizardStepItem({
   );
 }
 
+type Translate = ReturnType<typeof useT>;
+
+function currentWizardStep(state: GmailState, focus: WizardStep | null): WizardStep | null {
+  return focus ?? (!state.client.configured ? 1 : state.accounts.length === 0 ? 6 : null);
+}
+
+function isStepDone(state: GmailState, current: WizardStep | null, n: WizardStep): boolean {
+  return n !== current && (state.client.configured ? n <= 5 || state.accounts.length > 0 : current !== null && n < current);
+}
+
+/** Flush a valid, unsaved typed project id; resolves false when the save failed. */
+async function flushTypedProjectId(
+  projectId: string,
+  savedId: string,
+  saveSetup: (partial: Partial<SavedSetup>) => Promise<void>,
+): Promise<boolean> {
+  if (classifyProjectId(projectId) !== "ok" || normalizeProjectId(projectId) === savedId) return true;
+  try {
+    await saveSetup({ projectId: normalizeProjectId(projectId) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function uploadMessages(t: Translate): Record<string, string> {
+  return {
+    not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
+    web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
+    not_installed: t("errNotInstalled", undefined, "No Desktop (`installed`) client in this file. Create a Desktop app client (step 4)."),
+    bad_client_id: t("errBadClientId", undefined, "The client id does not end in .apps.googleusercontent.com (step 4)."),
+    client_in_use: t(
+      "errClientInUse",
+      undefined,
+      "Accounts are connected with the current client. Revoke them first, then upload a different client.",
+    ),
+    missing_secret: t("errMissingSecret", undefined, "The file has no client secret. Download it again from the client page (step 5)."),
+    setup_save_failed: t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1)."),
+  };
+}
+
+function projectErrorText(t: Translate, projectErr: "looks_like_name" | "invalid" | null): string | null {
+  return (
+    projectErr === "looks_like_name"
+      ? t(
+          "errProjectLooksLikeName",
+          undefined,
+          "That looks like the project name. The wizard needs the project id (lower-case, for example pidashboard-510015): open the project list and copy the ID column.",
+        )
+      : projectErr === "invalid"
+        ? t(
+            "errProjectInvalid",
+            undefined,
+            "A project id is 6–30 characters: lower-case letters, digits and hyphens, starting with a letter and not ending with a hyphen.",
+          )
+        : null
+  );
+}
+
+function ProjectModeLinks({
+  mode,
+  links,
+  cmds,
+}: {
+  mode: "new" | "existing";
+  links: ReturnType<typeof consoleLinks>;
+  cmds: ReturnType<typeof gcloudCommands>;
+}) {
+  const t = useT();
+  return mode === "new" ? (
+    <>
+      <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
+      <div className="flex gap-3">
+        <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
+      </div>
+      {cmds.create && (
+        <>
+          <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
+          <Copyable value={cmds.create} />
+        </>
+      )}
+    </>
+  ) : (
+    <>
+      <div className={muted}>{t("findProject", undefined, "Find your project's id:")}</div>
+      <div className="flex gap-3">
+        <StepLink href={links.projectList} label={t("openProjectList", undefined, "Open the project list")} />
+      </div>
+      <Copyable value={cmds.projectsList} />
+    </>
+  );
+}
+
+function MismatchNotice({ mismatch, onUse }: { mismatch: { saved: string; json: string }; onUse: () => void }) {
+  const t = useT();
+  return (
+    <SettingsNotice tone="error" testId="gmail-project-mismatch">
+      <div className="flex flex-col gap-1">
+        <span>
+          {t(
+            "projectMismatch",
+            { saved: mismatch.saved, json: mismatch.json },
+            `The uploaded client belongs to project ${mismatch.json}, but the saved project id is ${mismatch.saved}.`,
+          )}
+        </span>
+        <span>
+          <button type="button" className={btn} data-testid="gmail-project-mismatch-use" onClick={onUse}>
+            {t("projectMismatchUse", { id: mismatch.json }, `Use ${mismatch.json}`)}
+          </button>
+        </span>
+      </div>
+    </SettingsNotice>
+  );
+}
+
+function AuthLoginNote({ cmds }: { cmds: ReturnType<typeof gcloudCommands> }) {
+  const t = useT();
+  if (!cmds.authLogin) return null;
+  return (
+    <>
+      <div className={muted} data-testid="gmail-auth-login-note">
+        {t("authLoginNote", undefined, "Run this once first, so gcloud can act as the owner account:")}
+      </div>
+      <Copyable value={cmds.authLogin} />
+    </>
+  );
+}
+
+function EnableGmailApi({ links, cmds }: { links: ReturnType<typeof consoleLinks>; cmds: ReturnType<typeof gcloudCommands> }) {
+  const t = useT();
+  return links.gmailApi && cmds.enable ? (
+    <>
+      <div className="flex gap-3">
+        <StepLink href={links.gmailApi} label={t("enableGmail", undefined, "Enable the Gmail API")} />
+      </div>
+      <Copyable value={cmds.enable} />
+    </>
+  ) : (
+    <div className={muted} data-testid="gmail-need-project-id">
+      {t("needValidProjectId", undefined, "A valid project id is needed before the project links and commands appear.")}
+    </div>
+  );
+}
+
 export function SetupWizard({
   state,
   highlight,
@@ -285,6 +419,19 @@ export function SetupWizard({
     saveOnBlur({ projectId: id });
   };
 
+  const reconcileJsonProject = (jsonId: string | undefined) => {
+    if (!jsonId) return;
+    const savedId = savedSetup.current.projectId;
+    if (!savedId) {
+      // Nothing saved yet: adopt the client's project id.
+      setProjectId(jsonId);
+      setProjectErr(null);
+      saveOnBlur({ projectId: jsonId });
+    } else if (savedId !== jsonId) {
+      setMismatch({ saved: savedId, json: jsonId });
+    }
+  };
+
   const upload = async (file: File) => {
     setUploadError(null);
     setMismatch(null);
@@ -296,28 +443,13 @@ export function SetupWizard({
     }
     // Flush a valid, unsaved typed id first (removes the blur/upload race); a failed
     // save aborts the upload so the comparison never runs against a stale id.
-    if (classifyProjectId(projectId) === "ok" && normalizeProjectId(projectId) !== savedSetup.current.projectId) {
-      try {
-        await saveSetup({ projectId: normalizeProjectId(projectId) });
-      } catch {
-        setUploadError({ code: "setup_save_failed", step: 1 });
-        return;
-      }
+    if (!(await flushTypedProjectId(projectId, savedSetup.current.projectId, saveSetup))) {
+      setUploadError({ code: "setup_save_failed", step: 1 });
+      return;
     }
     try {
       const reply = await api<{ projectId?: string }>("/client", { method: "PUT", body: JSON.stringify({ json: JSON.parse(textContent) }) });
-      const jsonId = reply.projectId;
-      if (jsonId) {
-        const savedId = savedSetup.current.projectId;
-        if (!savedId) {
-          // Nothing saved yet: adopt the client's project id.
-          setProjectId(jsonId);
-          setProjectErr(null);
-          saveOnBlur({ projectId: jsonId });
-        } else if (savedId !== jsonId) {
-          setMismatch({ saved: savedId, json: jsonId });
-        }
-      }
+      reconcileJsonProject(reply.projectId);
       onUploaded();
     } catch (err) {
       const code = (err as { code?: string }).code ?? "upload_failed";
@@ -326,37 +458,10 @@ export function SetupWizard({
   };
 
   // Current step: the highlighted one, else the next thing the user has to do.
-  const current: WizardStep | null =
-    focus ?? (!state.client.configured ? 1 : state.accounts.length === 0 ? 6 : null);
-  const isDone = (n: WizardStep) =>
-    n !== current && (state.client.configured ? n <= 5 || state.accounts.length > 0 : current !== null && n < current);
-  const uploadMsg: Record<string, string> = {
-    not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
-    web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
-    not_installed: t("errNotInstalled", undefined, "No Desktop (`installed`) client in this file. Create a Desktop app client (step 4)."),
-    bad_client_id: t("errBadClientId", undefined, "The client id does not end in .apps.googleusercontent.com (step 4)."),
-    client_in_use: t(
-      "errClientInUse",
-      undefined,
-      "Accounts are connected with the current client. Revoke them first, then upload a different client.",
-    ),
-    missing_secret: t("errMissingSecret", undefined, "The file has no client secret. Download it again from the client page (step 5)."),
-    setup_save_failed: t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1)."),
-  };
-  const projectErrText =
-    projectErr === "looks_like_name"
-      ? t(
-          "errProjectLooksLikeName",
-          undefined,
-          "That looks like the project name. The wizard needs the project id (lower-case, for example pidashboard-510015): open the project list and copy the ID column.",
-        )
-      : projectErr === "invalid"
-        ? t(
-            "errProjectInvalid",
-            undefined,
-            "A project id is 6–30 characters: lower-case letters, digits and hyphens, starting with a letter and not ending with a hyphen.",
-          )
-        : null;
+  const current = currentWizardStep(state, focus);
+  const isDone = (n: WizardStep) => isStepDone(state, current, n);
+  const uploadMsg = uploadMessages(t);
+  const projectErrText = projectErrorText(t, projectErr);
 
   return (
     <ol className="m-0 flex list-none flex-col p-0" data-testid="gmail-wizard">
@@ -424,66 +529,10 @@ export function SetupWizard({
             {t("errSetupSave", undefined, "The project id could not be saved, so the upload was not sent. Try again (step 1).")} ({saveError})
           </div>
         )}
-        {mismatch && (
-          <SettingsNotice tone="error" testId="gmail-project-mismatch">
-            <div className="flex flex-col gap-1">
-              <span>
-                {t(
-                  "projectMismatch",
-                  { saved: mismatch.saved, json: mismatch.json },
-                  `The uploaded client belongs to project ${mismatch.json}, but the saved project id is ${mismatch.saved}.`,
-                )}
-              </span>
-              <span>
-                <button type="button" className={btn} data-testid="gmail-project-mismatch-use" onClick={useJsonProject}>
-                  {t("projectMismatchUse", { id: mismatch.json }, `Use ${mismatch.json}`)}
-                </button>
-              </span>
-            </div>
-          </SettingsNotice>
-        )}
-        {cmds.authLogin && (
-          <>
-            <div className={muted} data-testid="gmail-auth-login-note">
-              {t("authLoginNote", undefined, "Run this once first, so gcloud can act as the owner account:")}
-            </div>
-            <Copyable value={cmds.authLogin} />
-          </>
-        )}
-        {mode === "new" ? (
-          <>
-            <div className={muted}>{t("withoutGcloud", undefined, "Without gcloud:")}</div>
-            <div className="flex gap-3">
-              <StepLink href={links.projectCreate} label={t("createProject", undefined, "Create project")} />
-            </div>
-            {cmds.create && (
-              <>
-                <div className={muted}>{t("withGcloud", undefined, "With gcloud (run it yourself):")}</div>
-                <Copyable value={cmds.create} />
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <div className={muted}>{t("findProject", undefined, "Find your project's id:")}</div>
-            <div className="flex gap-3">
-              <StepLink href={links.projectList} label={t("openProjectList", undefined, "Open the project list")} />
-            </div>
-            <Copyable value={cmds.projectsList} />
-          </>
-        )}
-        {links.gmailApi && cmds.enable ? (
-          <>
-            <div className="flex gap-3">
-              <StepLink href={links.gmailApi} label={t("enableGmail", undefined, "Enable the Gmail API")} />
-            </div>
-            <Copyable value={cmds.enable} />
-          </>
-        ) : (
-          <div className={muted} data-testid="gmail-need-project-id">
-            {t("needValidProjectId", undefined, "A valid project id is needed before the project links and commands appear.")}
-          </div>
-        )}
+        {mismatch && <MismatchNotice mismatch={mismatch} onUse={useJsonProject} />}
+        <AuthLoginNote cmds={cmds} />
+        <ProjectModeLinks mode={mode} links={links} cmds={cmds} />
+        <EnableGmailApi links={links} cmds={cmds} />
       </WizardStepItem>
       <WizardStepItem n={2} title={t("step2", undefined, "2. Branding")} current={current === 2} done={isDone(2)}>
         <ProjectLink href={links.branding} label={t("openBranding", undefined, "Open Branding")} step={2} />
@@ -766,11 +815,17 @@ function AddAccount({
   configured,
   newTier,
   onTier,
+  email,
+  onEmail,
+  emailError,
   onAdd,
 }: {
   configured: boolean;
   newTier: Tier;
   onTier: (t: Tier) => void;
+  email: string;
+  onEmail: (v: string) => void;
+  emailError: boolean;
   onAdd: () => void;
 }) {
   const t = useT();
@@ -785,6 +840,17 @@ function AddAccount({
         options={tierOptions}
         onChange={(v) => onTier(v as Tier)}
         testIds={{ control: "gmail-new-level" }}
+      />
+      <TextField
+        label={t("addEmail", undefined, "Account email (optional)")}
+        hint={t("addEmailHint", undefined, "Google then skips its account chooser and signs in as this address.")}
+        error={emailError ? t("errOwnerInvalid", undefined, "Enter a full email address, for example you@gmail.com.") : null}
+        type="email"
+        autoComplete="email"
+        value={email}
+        onChange={onEmail}
+        placeholder="you@gmail.com"
+        testIds={{ control: "gmail-add-email", error: "gmail-add-email-error" }}
       />
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -829,6 +895,39 @@ function FlowErrorNotice({ code, step, errKey, clientId }: { code: string; step:
   );
 }
 
+/** `POST /accounts` body (the optional email becomes `login_hint`); `null` when the email is typed but not an address. */
+function accountRequest(tier: Tier, rawEmail: string): { tier: Tier; email?: string } | null {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return { tier };
+  return isEmail(email) ? { tier, email } : null;
+}
+
+/** The wizard's props: a hand-off run overlays its project id / owner account and picks the step (task 4.3). */
+function wizardProps(state: GmailState, handoff: SetupRunView | null, errorStep: WizardStep | null): { state: GmailState; highlight: WizardStep | null } {
+  if (!handoff) return { state, highlight: errorStep };
+  return {
+    state: {
+      ...state,
+      setup: {
+        projectId: handoff.projectId ?? handoff.created.projectId ?? state.setup?.projectId,
+        ownerAccount: handoff.ownerEmail ?? state.setup?.ownerAccount,
+      },
+    },
+    highlight: handoff.handoff?.wizardStep ?? errorStep,
+  };
+}
+
+/** Sign-in notice for an External or unknown audience (design D11). */
+function UnverifiedHint({ audience }: { audience: Audience | null }) {
+  const t = useT();
+  if (!showUnverifiedNotice(audience)) return null;
+  return (
+    <p className={`${muted} m-0`} data-testid="gmail-unverified-hint">
+      {t("unverifiedHint", undefined, UNVERIFIED_HINT_EN)}
+    </p>
+  );
+}
+
 export function GmailSettings() {
   const t = useT();
   const OAuthFlow = useUiPrimitive("ui:oauth-flow");
@@ -838,6 +937,12 @@ export function GmailSettings() {
   const [flowError, setFlowError] = useState<string | null>(null);
   const [lastRevoke, setLastRevoke] = useState<string | null>(null);
   const [newTier, setNewTier] = useState<Tier>("readonly");
+  const [addEmail, setAddEmail] = useState("");
+  const [addEmailError, setAddEmailError] = useState(false);
+  // Automatic setup (change: add-gmail-auto-setup): hand-off view for the wizard, audience
+  // for the unverified-app notice (null = unknown → the notice shows).
+  const [handoff, setHandoff] = useState<SetupRunView | null>(null);
+  const [audience, setAudience] = useState<Audience | null>(null);
   // Latch (design D1): once the user reports a Google-page code, no late poll
   // result may overwrite it or re-mount the flow view. Reset on a new flow.
   const reportedRef = useRef<string | null>(null);
@@ -888,11 +993,17 @@ export function GmailSettings() {
   };
 
   const addAccount = async () => {
+    const request = accountRequest(newTier, addEmail);
+    setAddEmailError(!request);
+    if (!request) return;
     reportedRef.current = null;
     setFlowError(null);
     setFlow({ phase: "starting" });
     try {
-      const r = await api<{ flowId: string }>("/accounts", { method: "POST", body: JSON.stringify({ tier: newTier }) });
+      const r = await api<{ flowId: string }>("/accounts", {
+        method: "POST",
+        body: JSON.stringify(request),
+      });
       await startFlow(r.flowId);
     } catch (err) {
       setFlow(null);
@@ -917,6 +1028,7 @@ export function GmailSettings() {
   const step = errorStep(flowError);
   const errKey = errorKey(flowError);
   const { client } = state;
+  const wizard = wizardProps(state, handoff, step);
   const summary = !client.configured
     ? t("summaryNotConfigured", undefined, "not configured")
     : client.projectId
@@ -931,9 +1043,22 @@ export function GmailSettings() {
         title={t("setup", undefined, "Google Cloud setup")}
         meta={summary}
         summaryTestId="gmail-setup-summary"
-        defaultOpen={!client.configured || state.accounts.length === 0 || step !== null}
+        defaultOpen={!client.configured || state.accounts.length === 0 || step !== null || handoff !== null}
       >
-        <SetupWizard state={state} highlight={step} onUploaded={() => void refresh()} />
+        <AutoSetupSection
+          autoSetup={state.autoSetup}
+          setup={state.setup}
+          onAudience={setAudience}
+          onOwnerEmail={setAddEmail}
+          onHandoff={setHandoff}
+          onRefresh={() => void refresh()}
+        />
+        <SetupWizard
+          key={handoff ? `handoff-${handoff.runId}` : "manual"}
+          state={wizard.state}
+          highlight={wizard.highlight}
+          onUploaded={() => void refresh()}
+        />
       </SettingsGroup>
 
       <div className="flex flex-col gap-2" data-testid="gmail-accounts">
@@ -976,6 +1101,7 @@ export function GmailSettings() {
                 CONSENT_HINT_EN,
               )}
             </p>
+            <UnverifiedHint audience={audience} />
             <OAuthFlow
               flow={flow}
               onSendInput={(id, value) => oauthFlowClient.input(id, value)}
@@ -1006,7 +1132,18 @@ export function GmailSettings() {
             )}
           </div>
         ) : (
-          <AddAccount configured={client.configured} newTier={newTier} onTier={setNewTier} onAdd={() => void addAccount()} />
+          <AddAccount
+            configured={client.configured}
+            newTier={newTier}
+            onTier={setNewTier}
+            email={addEmail}
+            onEmail={(v) => {
+              setAddEmail(v);
+              setAddEmailError(false);
+            }}
+            emailError={addEmailError}
+            onAdd={() => void addAccount()}
+          />
         )}
         {flowError && <FlowErrorNotice code={flowError} step={step} errKey={errKey} clientId={client.clientId ?? ""} />}
         {lastRevoke && (

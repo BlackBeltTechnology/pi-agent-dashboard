@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.js";
 import { spawnAcpSession } from "./helpers/acp.js";
-import { byTestId, sendPrompt } from "./helpers/index.js";
+import { byTestId, expandQueueLane, sendPrompt } from "./helpers/index.js";
 
 /**
  * A prompt sent while an ACP turn is running is queued (chip), then runs when
@@ -17,6 +17,7 @@ test("a mid-turn prompt on an ACP session shows in the queue and then runs", asy
   const composer = page.getByPlaceholder(/message/i).first();
   await composer.fill("queued prompt");
   await composer.press("Enter");
+  await expandQueueLane(page); // the chip lives in the dock's Queue lane body
   await expect(byTestId(page, "queueChipFollowup").first()).toContainText("queued prompt", { timeout: 15_000 });
   await expect(byTestId(page, "queueChipFollowup")).toHaveCount(0, { timeout: 60_000 });
 });
