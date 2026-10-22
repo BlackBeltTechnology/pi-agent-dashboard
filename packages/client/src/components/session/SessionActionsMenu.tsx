@@ -111,7 +111,7 @@ export function SessionActionsMenu({ session, groups, ctx, open, source, point, 
             close(true);
           }
         }}
-        className="focus-ring relative inline-flex items-center justify-center flex-shrink-0 w-[13px] h-[26px] rounded-lg bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-tertiary)] group-hover/card:text-[var(--text-secondary)] group-hover/card:border-[var(--border-primary)] focus-visible:text-[var(--text-secondary)] focus-visible:border-[var(--border-primary)] aria-expanded:text-[var(--text-secondary)] aria-expanded:border-[var(--border-primary)] hover:bg-[var(--bg-hover)] before:content-[''] before:absolute before:top-0 before:bottom-0 before:right-0 before:w-[24px]"
+        className="focus-ring relative inline-flex items-center justify-center flex-shrink-0 w-[13px] h-[26px] rounded-lg bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-tertiary)] group-hover/card:text-[var(--text-secondary)] group-hover/card:border-[var(--border-primary)] focus-visible:text-[var(--text-secondary)] focus-visible:border-[var(--border-primary)] aria-expanded:text-[var(--text-secondary)] aria-expanded:border-[var(--border-primary)] hover:[background-image:linear-gradient(var(--bg-hover),var(--bg-hover))] before:content-[''] before:absolute before:top-0 before:bottom-0 before:right-0 before:w-[24px]"
       >
         <svg width="3" height="13" viewBox="0 0 3 13" fill="currentColor" aria-hidden="true" focusable="false">
           <circle cx="1.5" cy="1.5" r="1.5" />
