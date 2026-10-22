@@ -1,0 +1,3 @@
+blocked_by:
+  - change: group-servers-by-identity
+    reason: "Row states and pair actions render on the grouped per-identity server row; the device proof is sent only after its proven-route challenge, which also issues `deviceNonce`; electron-server-windows and keyring deltas are written on top of its text. Its `server-identity-routes` (pair action, paired-state labels), `server-selector` and `known-servers` blocks are rebased here as whole-block MODIFIED copies of its text (the first and the last are ADDED by it, so they only apply after it is archived); if its text changes before archive, re-copy the block and re-apply the edits. Archive after it."

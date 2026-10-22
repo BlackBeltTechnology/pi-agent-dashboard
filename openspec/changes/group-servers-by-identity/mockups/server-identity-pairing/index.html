@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Server list by identity + pair from the list (explore mockup)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="mockup.css" />
+<link rel="stylesheet" href="srv.css" />
+<script src="icons.js"></script>
+<script src="probe.js"></script>
+</head>
+<body>
+<div class="toolbar" role="toolbar" aria-label="Board controls">
+  <h1>Servers by identity · pair from the list (explore)</h1>
+  <span class="seg-label" id="lbl-theme">Theme</span>
+  <div class="seg" aria-labelledby="lbl-theme" data-group="theme">
+    <button aria-pressed="true" data-v="base-dark">Base dark</button>
+    <button aria-pressed="false" data-v="base-light">Base light</button>
+    <button aria-pressed="false" data-v="nord-dark">Nord dark</button>
+  </div>
+  <span class="seg-label" id="lbl-w">Frame</span>
+  <div class="seg" aria-labelledby="lbl-w" data-group="width">
+    <button aria-pressed="false" data-v="375">375</button>
+    <button aria-pressed="false" data-v="768">768</button>
+    <button aria-pressed="true" data-v="full">Full</button>
+  </div>
+  <span class="seg-label" id="lbl-c">Client</span>
+  <div class="seg" aria-labelledby="lbl-c" data-group="client">
+    <button aria-pressed="true" data-v="electron">Electron</button>
+    <button aria-pressed="false" data-v="browser">Browser</button>
+    <button aria-pressed="false" data-v="mobile">Mobile shell</button>
+  </div>
+  <span class="pill neutral" id="probe-all" title="Contrast and text-size probe over every frame">probe…</span>
+</div>
+<nav class="jump" aria-label="Sections">
+  <a href="#s0">S0 Model</a><a href="#s1">S1 Selector: as-built vs proposed</a><a href="#s2">S2 Settings ▸ Servers</a><a href="#s3">S3 Request access flow</a><a href="#s4">S4 Pair with code fallback</a><a href="#s5">S5 Client matrix</a><a href="#s6">S6 Decisions</a><a href="#s7">S7 Device key: mutual check</a><a href="#s8">S8 Approval: companion key</a><a href="#s9">S9 Device states + migration</a><a href="#s10">S10 Paired devices (server side)</a>
+</nav>
+<main id="board"></main>
+
+<script>
+/* ── helpers ─────────────────────────────────────────────────── */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICON[n] || ""}"/></svg>`;
+const pill = (sev, text, icon) => `<span class="pill ${sev}">${icon ? ic(icon, "sm") : ""}${esc(text)}</span>`;
+let CLIENT = "electron";
+
+/* ── fixture: one entry per IDENTITY, routes underneath ───────── */
+const KIND = {
+  loopback: { icon: "HomeOutline", label: "This machine" },
+  lan:      { icon: "Lan",         label: "Local network" },
+  mdns:     { icon: "AccessPoint", label: "mDNS name" },
+  tunnel:   { icon: "Earth",       label: "Tunnel (zrok)" },
+  domain:   { icon: "Web",         label: "Public URL" },
+};
+const SERVERS = [
+  { id: "self", name: "robson-mbp", fp: "sha256:Qm4t9XcN2pLr7VfA", self: true, auth: "owner",
+    routes: [
+      { kind: "loopback", url: "http://localhost:8000", proof: "ok", ms: 1, best: true, src: "local" },
+      { kind: "lan", url: "http://192.168.16.31:8000", proof: "ok", ms: 2, src: "mDNS" },
+      { kind: "tunnel", url: "https://k3x9p2.share.zrok.io", proof: "ok", ms: 131, src: "config" },
+    ] },
+  { id: "imac", name: "home-imac", fp: "sha256:Z7wq1Hd0uTe5bKsC", auth: "paired", tier: "Operator",
+    routes: [
+      { kind: "lan", url: "http://192.168.16.204:8000", proof: "ok", ms: 4, best: true, src: "mDNS" },
+      { kind: "mdns", url: "http://home-imac.local:8000", proof: "ok", ms: 9, src: "mDNS" },
+      { kind: "tunnel", url: "https://h0me1mac.share.zrok.io", proof: "ok", ms: 118, src: "learned at pairing" },
+    ] },
+  { id: "studio", name: "studio-mbp", fp: "sha256:Rk8aP3nVj6yWq2Lx", auth: "none",
+    routes: [ { kind: "lan", url: "http://192.168.16.77:8000", proof: "ok", ms: 6, best: true, src: "mDNS", knock: true } ] },
+  { id: "box", name: "build-box", fp: "sha256:Hn2cX9sLa0Vt4MqE", auth: "none",
+    routes: [ { kind: "tunnel", url: "https://b0x7.share.zrok.io", proof: "ok", ms: 142, best: true, src: "added by hand" } ] },
+  { id: "lab", name: "lab-server", fp: "sha256:Wd5yK1oPf8Rg3NjB", auth: "paired", tier: "Viewer",
+    routes: [
+      { kind: "lan", url: "http://192.168.16.50:8000", proof: "mismatch", proven: "sha256:Ee0Tz6uJq4Xc9HaM", src: "mDNS" },
+      { kind: "domain", url: "https://lab.example.org", proof: "ok", ms: 48, best: true, src: "learned at pairing" },
+    ] },
+  { id: "nas", name: "old-nas", fp: null, auth: "none", version: "0.9.4",
+    routes: [ { kind: "lan", url: "http://192.168.16.12:8000", proof: "unverified", ms: 11, src: "mDNS", knock: true } ] },
+];
+
+const AUTH = {
+  owner:  () => pill("info", "This dashboard", "HomeOutline"),
+  paired: (s) => pill("success", `Paired · ${s.tier}`, "ShieldCheckOutline"),
+  none:   () => pill("neutral", "Not paired", "LockOutline"),
+};
+const browserAuth = (s) => s.self ? AUTH.owner() : pill("neutral", "Unknown in this tab", "HelpCircleOutline");
+
+function routeChip(r) {
+  const k = KIND[r.kind];
+  if (r.proof === "mismatch") return `<span class="rc bad" title="Proves a different identity — never used">${ic("ShieldAlertOutline")}${k.label}: different identity</span>`;
+  if (r.proof === "down") return `<span class="rc off">${ic(k.icon)}${k.label}: offline</span>`;
+  return `<span class="rc ok ${r.best ? "best" : ""}">${ic(k.icon)}${k.label}${r.ms != null ? ` · ${r.ms} ms` : ""}</span>`;
+}
+
+/* What the pair action is, per server × client. One rule set, shown everywhere. */
+function pairAction(s) {
+  if (s.self || s.auth === "paired") return null;
+  const lanKnock = s.routes.some((r) => r.knock && r.proof !== "mismatch");
+  if (lanKnock && !s.fp) return { kind: "verify", label: "Verify and request access…", icon: "Fingerprint", why: "Identity not advertised (older dashboard). You compare its fingerprint first." };
+  if (lanKnock) return { kind: "knock", label: CLIENT === "browser" ? "Request access ↗" : "Request access…", icon: "AccountKeyOutline",
+    why: CLIENT === "browser" ? "Opens its page in a new tab; your browser keeps the access there." : "The owner types the code you see on that machine." };
+  return { kind: "code", label: "Pair with code…", icon: "Qrcode", why: "Reachable only through a tunnel — network requests work only on the same local network." };
+}
+
+/* ── S1 selector ─────────────────────────────────────────────── */
+function selectorAsBuilt() {
+  const rows = [
+    ["Local", "localhost:8000", "success", "Available", true],
+    ["robson-mbp", "192.168.16.31:8000", "success", "Available", false, "this same dashboard again"],
+    ["home-imac", "192.168.16.204:8000", "warning", "Network not allowed", false],
+    ["home-imac (zrok)", "h0me1mac.share.zrok.io", "warning", "Blocked in this browser", false, "same server as row above"],
+    ["studio-mbp", "192.168.16.77:8000", "warning", "Network not allowed", false],
+  ];
+  return `<div class="hdr"><button class="p-trigger focus-ring" aria-haspopup="menu" aria-expanded="true">${ic("Server")}<span>Local</span><span class="word">Connected</span>${ic("ChevronDown","sm")}</button></div>
+  <div class="p-panel" role="menu" aria-label="Servers (as-built)">
+    ${rows.map(([n, a, sev, st, cur, dup]) => `<button class="p-opt ${dup ? "dup" : ""}" role="menuitemradio" aria-checked="${cur}" ${sev !== "success" ? 'aria-disabled="true"' : ""}>
+      <span class="main"><span class="t">${esc(n)}</span><span class="s mono">${esc(a)}</span>${dup ? `<div class="why">⚠ ${esc(dup)}</div>` : ""}</span>${pill(sev, st)}</button>`).join("")}
+    <div class="sep"></div><button class="p-opt sub-action" role="menuitem">Manage servers…</button>
+  </div>
+  <p class="annot">Rows keyed by <code>host:port</code>, probed with <code>/api/health</code> (proves nothing). Same server shows twice; a server with no credential is a dead row — no way to ask for access from here.</p>`;
+}
+
+function selectorRow(s, cur) {
+  const a = pairAction(s);
+  const auth = CLIENT === "browser" ? browserAuth(s) : AUTH[s.auth](s);
+  const usable = s.self || s.auth === "paired" || CLIENT === "browser";
+  const best = s.routes.find((r) => r.best);
+  const main = `<button class="p-opt" role="menuitemradio" aria-checked="${cur}" ${!usable ? 'aria-disabled="true"' : ""} aria-describedby="why-${s.id}">
+      <span class="main"><span class="t">${esc(s.name)}${CLIENT === "electron" && !s.self && usable ? ic("OpenInNew","sm") : ""}<span class="end">${auth}</span></span>
+      <span class="fp mono">${s.fp ? esc(s.fp) : "identity not advertised"}${best ? ` · via ${KIND[best.kind].label.toLowerCase()}` : ""}</span>
+      <span class="routes">${s.routes.map(routeChip).join("")}</span>
+      ${!usable ? `<div class="why" id="why-${s.id}">No access from this device yet.</div>` : ""}</span></button>`;
+  const sub = a ? `<button class="p-opt sub-action" role="menuitem">${ic(a.icon,"sm")}<span>${esc(a.label)}</span></button>` : "";
+  return main + sub;
+}
+
+function selectorProposed() {
+  const paired = SERVERS.filter((s) => !s.self && s.auth === "paired");
+  const other = SERVERS.filter((s) => !s.self && s.auth !== "paired");
+  const self = SERVERS.find((s) => s.self);
+  const lists = CLIENT === "browser"
+    ? `<div class="grp-h">This dashboard</div>${selectorRow(self, true)}<div class="sep"></div><div class="grp-h">On your network &amp; saved</div>${[...paired, ...other].map((s) => selectorRow(s, false)).join("")}`
+    : `<div class="grp-h">This dashboard</div>${selectorRow(self, true)}<div class="sep"></div><div class="grp-h">Paired</div>${paired.map((s) => selectorRow(s, false)).join("")}<div class="sep"></div><div class="grp-h">Not paired on this device</div>${other.map((s) => selectorRow(s, false)).join("")}`;
+  return `<div class="hdr"><button class="p-trigger focus-ring" aria-haspopup="menu" aria-expanded="true">${ic("Server")}<span>robson-mbp</span><span class="word">Connected</span>${ic("ChevronDown","sm")}</button></div>
+  <div class="p-panel wide" role="menu" aria-label="Servers (proposed)">
+    ${lists}
+    <div class="sep"></div>
+    <button class="p-opt sub-action" role="menuitem">${ic("Magnify","sm")}Find dashboards on this network</button>
+    <button class="p-opt sub-action" role="menuitem">${ic("CogOutline","sm")}Manage servers…</button>
+  </div>`;
+}
+
+/* ── S2 Settings ▸ Servers ───────────────────────────────────── */
+function proofCell(r) {
+  if (r.proof === "ok") return `<span class="state-word sev-fg-success">${ic("ShieldCheckOutline","sm")}Identity proven</span>`;
+  if (r.proof === "mismatch") return `<span class="state-word sev-fg-error">${ic("ShieldAlertOutline","sm")}Different identity ${esc(r.proven)}</span>`;
+  return `<span class="state-word sev-fg-warning">${ic("HelpCircleOutline","sm")}Can't prove identity</span>`;
+}
+function serverCard(s) {
+  const a = pairAction(s);
+  const auth = CLIENT === "browser" ? browserAuth(s) : AUTH[s.auth](s);
+  const mism = s.routes.filter((r) => r.proof === "mismatch");
+  const btns = s.self ? `<button class="p-btn sm secondary">${ic("ContentCopy","sm")}Copy fingerprint</button>`
+    : [
+      s.auth === "paired" || CLIENT === "browser" ? `<button class="p-btn sm secondary">${ic("OpenInNew","sm")}Open</button>` : "",
+      a ? `<button class="p-btn sm ${a.kind === "code" ? "secondary" : "primary"}" style="${a.kind === "code" ? "" : "min-height:32px"}">${ic(a.icon,"sm")}${esc(a.label)}</button>` : "",
+      `<button class="p-btn sm ghost icon" aria-label="More actions for ${esc(s.name)}">${ic("DotsVertical","sm")}</button>`,
+    ].join("");
+  return `<article class="srv ${s.self ? "self" : ""}" aria-label="${esc(s.name)}">
+    <div class="srv-h">
+      <span class="ava">${ic(s.self ? "Laptop" : "Server")}</span>
+      <div class="main">
+        <div class="name">${esc(s.name)} ${auth}${mism.length ? pill("error", `${mism.length} address refused`, "ShieldAlertOutline") : ""}</div>
+        <div class="sub"><span class="mono">${s.fp ? ic("Fingerprint","sm") + " " + esc(s.fp) : "Identity not advertised · v" + esc(s.version)}</span><span>${s.routes.length} address${s.routes.length > 1 ? "es" : ""}</span></div>
+      </div>
+      <div class="acts">${btns}</div>
+    </div>
+    <table class="rt"><thead><tr><th>Route</th><th>Address</th><th>Identity</th><th>Latency</th><th>Learned from</th></tr></thead><tbody>
+      ${s.routes.map((r) => `<tr class="${r.proof === "mismatch" ? "mismatch" : ""}"><td class="k"><span class="kind">${ic(KIND[r.kind].icon,"sm")}${KIND[r.kind].label}</span>${r.best ? " " + pill("success", "used") : ""}</td><td class="addr mono">${esc(r.url)}</td><td>${proofCell(r)}</td><td class="lat">${r.ms != null ? r.ms + " ms" : "—"}</td><td class="lat">${esc(r.src)}</td></tr>`).join("")}
+    </tbody></table>
+    ${a ? `<div class="why"><p class="p-help" style="margin:8px 0 0">${ic("InformationOutline","sm")} ${esc(a.why)}</p></div>` : ""}
+    ${mism.length ? `<div class="why"><div class="callout error">${ic("ShieldAlertOutline")}<div class="body"><b>${esc(mism[0].url)}</b> answered with a different identity (${esc(mism[0].proven)}). It is never used and no credential is sent there. Another machine may have taken this address.</div></div></div>` : ""}
+  </article>`;
+}
+
+/* ── S3 / S4 pairing sheet ───────────────────────────────────── */
+const dlg = (title, icon, body, foot) => `<div class="stage"><section class="dlg" role="dialog" aria-label="${esc(title)}">
+  <div class="dlg-h">${ic(icon)}${esc(title)}<button class="p-btn sm ghost icon x" aria-label="Close">${ic("Close","sm")}</button></div>
+  <div class="dlg-b">${body}</div><div class="dlg-f">${foot}</div></section></div>`;
+
+const steps = (cur) => `<ol class="sf-steps">${["Check identity", "Owner approves with a code", "Saved on this device"].map((t, i) =>
+  `<li class="${i < cur ? "done" : ""}" ${i === cur ? 'aria-current="step"' : ""}><span class="n">${i < cur ? ic("Check","sm") : i + 1}</span><span class="t">${t}</span></li>`).join("")}</ol>`;
+
+function flowStates() {
+  const s1 = dlg("Request access to studio-mbp", "AccountKeyOutline", `${steps(0)}
+    <dl class="kv"><dt>Address</dt><dd class="mono">http://192.168.16.77:8000 · local network</dd>
+      <dt>Identity</dt><dd><span class="state-word sev-fg-success">${ic("ShieldCheckOutline","sm")}sha256:Rk8aP3nVj6yWq2Lx — matches the network advert</span></dd></dl>
+    <div><label class="p-label" for="dn">Device name</label><input id="dn" class="p-input" value="Robson’s MacBook Pro" aria-describedby="dn-h" /><p class="p-help" id="dn-h">Shown to the owner of studio-mbp. Leave empty to send no name.</p></div>
+    <div class="callout warning">${ic("LockOpenVariantOutline")}<div class="body">This address is plain <code>http</code>: the request and the access it grants travel unencrypted on this network.</div></div>`,
+    `<button class="p-btn sm ghost">Cancel</button><button class="p-btn primary sm" style="min-height:32px">Send request</button>`);
+  const s2 = dlg("Waiting for studio-mbp", "TimerSandEmpty", `${steps(1)}
+    <p style="margin:0">On <b>studio-mbp</b>, the owner sees “Robson’s MacBook Pro wants access”. Ask them to type this code:</p>
+    <div class="ccode" aria-label="Code 4 8 2 1, 7 7 3 0">4821 7730</div><p class="count" aria-live="polite">Expires in 4:52</p>`,
+    `<button class="p-btn sm secondary">Stop waiting</button>`);
+  const s3 = dlg("studio-mbp paired", "ShieldCheckOutline", `${steps(3)}
+    <div class="callout info">${ic("CheckCircleOutline")}<div class="body"><b>Access granted · Operator.</b> studio-mbp is pinned to sha256:Rk8aP3nVj6yWq2Lx on this device.</div></div>
+    <div><div class="colh">Addresses learned with the pairing</div><div class="routes" style="display:flex;gap:4px;flex-wrap:wrap">${routeChip({ kind: "lan", ms: 6, best: true })}${routeChip({ kind: "tunnel", ms: 140 })}${routeChip({ kind: "mdns", ms: 8 })}</div>
+      <p class="p-help">Only a paired device receives the server’s other addresses, so it can still reach studio-mbp away from this network.</p></div>`,
+    `<button class="p-btn primary sm" style="min-height:32px">${ic("OpenInNew","sm")}Open studio-mbp</button>`);
+  const mism = dlg("Request access to old-nas", "Fingerprint", `${steps(0)}
+    <div class="callout warning">${ic("HelpCircleOutline")}<div class="body">old-nas doesn’t advertise its identity (v0.9.4). Compare this fingerprint with the one shown on old-nas under <b>Gateway ▸ This dashboard</b> before you send.</div></div>
+    <div class="fpbig">sha256:Pb3vL0qTz8Kc1WnYr5xHd2Gu7JeMs4Ao9Fi6Ql0Bt</div>`,
+    `<button class="p-btn sm ghost">Cancel</button><button class="p-btn primary sm" style="min-height:32px">They match — send request</button>`);
+  const refused = (code, msg, remedy) => dlg("Request not sent", "CloseCircleOutline", `<div class="callout error">${ic("AlertCircleOutline")}<div class="body"><b>${msg}</b><br/>${remedy}<div class="p-meta"><code>${code}</code></div></div></div>`,
+    `<button class="p-btn sm secondary">Close</button>${code === "knock_not_lan" ? `<button class="p-btn sm primary" style="min-height:32px">${ic("Qrcode","sm")}Pair with code instead</button>` : ""}`);
+  return `<div class="state-h"><b>1 · Confirm + name</b> identity proven before anything is sent</div>${s1}
+    <div class="pair2" style="margin-top:12px"><div><div class="state-h"><b>2 · Waiting</b></div>${s2}</div><div><div class="state-h"><b>3 · Approved</b> routes delegated after pairing</div>${s3}</div></div>
+    <div class="pair2" style="margin-top:12px"><div><div class="state-h"><b>No advertised identity</b> trust on first use</div>${mism}</div>
+      <div><div class="state-h"><b>Refusals</b> same meanings as the request landing</div>
+      ${refused("knock_disabled", "studio-mbp isn’t accepting requests from this network.", "Its owner can turn on “Accept requests from the local network” in Gateway.")}
+      <div style="height:8px"></div>${refused("knock_not_lan", "Requests work only on the same local network.", "You reached build-box through a tunnel. Ask its owner for a pairing code.")}</div></div>`;
+}
+
+function codeFallback() {
+  return dlg("Pair with build-box", "Qrcode", `<p style="margin:0">build-box is reachable only through <b>https://b0x7.share.zrok.io</b>, so a network request would be refused. On build-box, the owner opens <b>Gateway ▸ Let a phone or laptop in</b> and shows a pairing code.</p>
+    <div class="pair2"><button class="p-btn secondary" style="min-height:44px">${ic("Qrcode")}Scan QR (mobile)</button><button class="p-btn secondary" style="min-height:44px">${ic("ContentCopy")}Paste pairing text</button></div>
+    <div><label class="p-label" for="pt">Pairing text</label><input id="pt" class="p-input mono" placeholder="pi:pair:v1.…" aria-describedby="pt-h" /><p class="p-help" id="pt-h">Must carry fingerprint sha256:Hn2cX9sLa0Vt4MqE — anything else is refused.</p></div>`,
+    `<button class="p-btn sm ghost">Cancel</button><button class="p-btn primary sm" style="min-height:32px" disabled>Pair</button>`);
+}
+
+/* ── S5 matrix, S6 decisions ─────────────────────────────────── */
+function matrix() {
+  const rows = [
+    ["Electron app", "Main-process keyring, keyed by fingerprint (exists)", "Knows: keyring entry present / needs pairing", "Main-process knock → Connecting window (exists) — now reachable from the list", "Server window on that origin"],
+    ["Mobile / neutral shell", "Device keyring by fingerprint (exists)", "Knows: keyring entry", "Native knock on LAN; QR otherwise", "Races routes, pins identity"],
+    ["Browser tab", "Cookie on <i>that</i> server’s origin only", "<b>Can’t tell</b> from another origin (open question D2)", "Opens <code>/pair?request</code> on that origin in a new tab (cross-origin knock is refused)", "Navigate / new tab to best proven route"],
+  ];
+  return `<div class="frame"><table class="mx"><thead><tr><th>Client</th><th>Where access lives</th><th>“Paired?” in the list</th><th>Request access does</th><th>Open does</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
+const opt = (title, rec, pros, cons, extra = "") => `<div class="opt ${rec ? "rec" : ""}"><h4>${title}${rec ? pill("info", "chosen") : ""}</h4>${extra}<ul>${pros.map((p) => `<li class="pro">${p}</li>`).join("")}${cons.map((c) => `<li class="con">${c}</li>`).join("")}</ul></div>`;
+function decisions() {
+  return `<div class="state-h"><b>D1 · How a client learns all routes of one server (“delegation”)</b></div><div class="pair3">
+    ${opt("A · mDNS TXT carries <code>urls=</code>", false, ["Zero round-trips; visible before pairing"], ["Unauthenticated — anyone on the LAN can inject or read", "Broadcasts the tunnel URL to every device on the network", "TXT strings cap at 255 bytes"])}
+    ${opt("B · Challenge response returns signed <code>routes[]</code>", false, ["Signed with the identity key — can’t be forged", "Works for any route, not only LAN"], ["Public endpoint → leaks the tunnel URL to any caller"])}
+    ${opt("C · mDNS keeps only <code>fp</code>; routes delivered to paired devices", true, ["Routes come with the pairing result (same as QR <code>urls[]</code>)", "Unpaired list groups by proven fingerprint only", "No new public surface"], ["An unpaired device sees only routes it discovered itself"])}
+  </div>
+  <div class="state-h"><b>D2 · How the list knows “paired on this device”</b></div><div class="pair2">
+    ${opt("A · Per-client store only", false, ["Exists for Electron + mobile keyring"], ["Browser tab can’t know about another origin’s cookie → “Unknown in this tab”"])}
+    ${opt("B · Device keypair + mutual check", true, ["Client signs the check with its own key; server answers <code>paired | unknown | revoked</code> (S7)", "Same check gives server identity and device status in one call", "Matches the “no private key presented → offer pairing” idea"], ["New device-key registration at pairing; browser key is per-origin (IndexedDB, non-extractable)", "Browser on another dashboard needs a status-only companion key (S8)"], `<p style="margin:0 0 4px"><code>POST /api/pair/challenge {nonce, device?:{pub,sig}}</code> → <code>{fingerprint, publicKey, signature, device}</code></p>`)}
+  </div>
+  <div class="state-h"><b>D3 · Browser: where the request is made</b></div><div class="pair3">
+    ${opt("A · New tab on that origin (today’s “Connect”)", true, ["No gate change; credential lands where it is used"], ["Leaves this tab; no status back"])}
+    ${opt("B · Cross-origin knock via CORS allowlist", false, ["Stays in this tab"], ["Weakens the mutation-origin gate; credential still useless cross-origin"])}
+    ${opt("C · Hand off to the desktop app if installed", false, ["Best experience on desktop"], ["Needs a protocol handler; not on mobile"])}
+  </div>`;
+}
+
+
+/* ── S7–S10 device key ───────────────────────────────────────── */
+function mutualCheck() {
+  const req = `POST /api/pair/challenge
+{
+  "nonce": "q8Zr…32 bytes b64url",
+  "device": {                       // optional — omitted ⇒ today's behaviour
+    "pub": "MCow…ed25519 spki b64url",
+    "ts": 1792629400,               // ±300 s
+    "sig": "Ed25519(pi-devcheck/v1 ‖ fp(server) ‖ nonce ‖ ts)"
+  }
+}`;
+  const res = `200
+{
+  "fingerprint": "sha256:Z7wq1Hd0uTe5bKsC…",
+  "publicKey":   "MCow…",
+  "signature":   "Ed25519(nonce)",
+  "device": {                       // present only when a valid device proof was sent
+    "status": "paired",             // paired | unknown | revoked
+    "tier": "operator",             // only when paired
+    "scope": "full"                 // full | status-only (companion)
+  }
+}`;
+  const rows = [
+    ["No <code>device</code> field", "Identity only (today)", "none", "—"],
+    ["Signature invalid / ts outside ±300 s", "<code>device</code> omitted from reply; identity still answered", "warning", "Never reveals whether the key is known"],
+    ["Valid, key not in registry", "<code>status: unknown</code>", "neutral", "→ row shows pair action"],
+    ["Valid, key registered", "<code>status: paired</code> + tier + scope", "success", "→ row shows Paired · tier"],
+    ["Valid, key on revoked list", "<code>status: revoked</code>", "error", "→ “Access removed” + Pair again"],
+  ];
+  return `<div class="pair2"><div><div class="colh">Request</div><pre class="code">${esc(req)}</pre></div><div><div class="colh">Response</div><pre class="code">${esc(res)}</pre></div></div>
+    <div class="state-h"><b>Server decision table</b></div>
+    <table class="mx"><thead><tr><th>Device proof</th><th>Reply</th><th>Row effect</th></tr></thead><tbody>
+    ${rows.map(([a, b, sev, c]) => `<tr><td>${a}</td><td>${sev === "none" ? pill("neutral", "no check") : pill(sev, sev === "success" ? "paired" : sev === "error" ? "revoked" : sev === "warning" ? "ignored" : "unknown")} ${b}</td><td>${c}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function approvalCompanion() {
+  const body = (withComp) => `<p style="margin:0;color:var(--text-secondary)">Approve only if it’s your device.</p>
+    <dl class="kv"><dt>Address</dt><dd class="mono">192.168.16.31 · local network</dd>
+      <dt>Says it is</dt><dd>Robson’s MacBook Pro <span class="p-meta">(name typed on that device, not verified)</span></dd>
+      <dt>Browser</dt><dd>Chrome 140 on macOS</dd>
+      <dt>Device key</dt><dd class="mono">${ic("KeyOutline","sm")} dk:4Fq9…Lm2T</dd></dl>
+    ${withComp ? `<div class="callout info">${ic("EyeOutline")}<div class="body"><b>Also lets the dashboard at http://192.168.16.31:8000 see that this device is paired.</b><br/>It can only <i>see</i> the pairing — it can’t sign in or act with it. <label style="display:flex;gap:6px;align-items:center;margin-top:6px;color:var(--text-primary)"><input type="checkbox" /> Allow this status check</label></div></div>` : ""}
+    <fieldset style="border:0;padding:0;margin:0"><legend class="p-label">Access for this device</legend>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-primary)"><label><input type="radio" name="t${withComp}" /> Viewer</label><label><input type="radio" name="t${withComp}" checked /> Operator</label></div></fieldset>
+    <div><label class="p-label" for="cc${withComp}">Code shown on the device</label><input id="cc${withComp}" class="p-input mono" placeholder="0000 0000" /><p class="p-help">8 digits, on the other browser’s screen</p></div>`;
+  const foot = `<button class="p-btn sm danger">Deny</button><button class="p-btn primary sm" style="min-height:32px">Approve device</button>`;
+  return `<div class="pair2"><div><div class="state-h"><b>Electron / mobile / same-origin browser</b> one key, full scope</div>${dlg("A device wants to connect", "Devices", body(false), foot)}</div>
+    <div><div class="state-h"><b>Browser opened from another dashboard</b> + companion key, status-only</div>${dlg("A device wants to connect", "Devices", body(true), foot)}</div></div>`;
+}
+
+function deviceStates() {
+  const st = [
+    ["Paired · Operator", "success", "ShieldCheckOutline", "Mutual check: <code>paired</code>.", "Open"],
+    ["Paired · status only", "info", "EyeOutline", "Browser on another dashboard; companion key says paired. Open goes to that server’s page — access lives there.", "Open ↗"],
+    ["Access removed", "error", "LinkOff", "Device revoked on the server (held 90 days, owner can undo). Bearer kept locally until the 90 days pass, so an undo needs no re-pairing.", "Pair again…"],
+    ["Not paired", "neutral", "LockOutline", "Mutual check: <code>unknown</code>.", "Request access… / Pair with code…"],
+    ["Paired · key pending", "warning", "KeyOutline", "Old pairing: bearer works, no device key yet. Registered silently on next authenticated call (migration).", "Open"],
+    ["Status unknown", "neutral", "HelpCircleOutline", "Server too old for the device check, or browser with no companion key.", "Open ↗ / Request access…"],
+  ];
+  return `<table class="mx"><thead><tr><th>Row state</th><th>Meaning</th><th>Primary action</th></tr></thead><tbody>
+    ${st.map(([l, sev, icn, m, a]) => `<tr><td>${pill(sev, l, icn)}</td><td>${m}</td><td>${a}</td></tr>`).join("")}</tbody></table>
+    <div class="state-h"><b>Migration of existing paired devices</b></div>
+    <div class="flow"><span class="n">device holds bearer, no key</span>${ic("ArrowRight")}<span class="n hl">first authenticated call: <code>POST /api/pair/device-key {pub, sig}</code> with bearer</span>${ic("ArrowRight")}<span class="n">server binds key to that device row</span>${ic("ArrowRight")}<span class="n">list shows Paired · tier</span></div>
+    <p class="annot">Binding needs the bearer (proves it is that device) and a signature (proves the key). One primary key per device row; a second call replaces it only with a bearer, never anonymously.</p>`;
+}
+
+function serverDevices() {
+  const devs = [
+    { n: "Robson’s MacBook Pro", via: "Electron app", k: "dk:4Fq9…Lm2T", comp: 0, seen: "2 min ago", tier: "Operator" },
+    { n: "Pixel 9", via: "Mobile shell", k: "dk:Hx81…0aPe", comp: 0, seen: "yesterday", tier: "Viewer" },
+    { n: "Chrome on robson-mbp", via: "Browser", k: "dk:Zr2m…Q7cd", comp: 1, seen: "5 min ago", tier: "Operator" },
+    { n: "Old iPad", via: "Browser", k: null, comp: 0, seen: "3 weeks ago", tier: "Viewer" },
+  ];
+  return `<div class="srv"><table class="rt"><thead><tr><th>Device</th><th>Device key</th><th>Status checks from</th><th>Last seen</th><th></th></tr></thead><tbody>
+    ${devs.map((d) => `<tr><td><b>${esc(d.n)}</b><div class="p-meta">${esc(d.via)} · ${esc(d.tier)}</div></td>
+      <td class="mono">${d.k ? esc(d.k) : pill("warning", "none yet", "KeyOutline")}</td>
+      <td>${d.comp ? `${pill("info", "1 dashboard", "EyeOutline")}<div class="p-meta mono">http://192.168.16.31:8000</div>` : `<span class="p-meta">—</span>`}</td>
+      <td class="lat">${esc(d.seen)}</td>
+      <td><button class="p-btn sm danger">Revoke</button></td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="state-h"><b>Right after Revoke</b> toast, 10 s</div>
+    <div class="callout info" role="status">${ic("CheckCircleOutline")}<div class="body"><b>Kitchen tablet revoked.</b> It can’t connect any more. <button class="p-btn sm secondary" style="margin-left:6px">Undo</button></div></div>
+    <div class="state-h"><b>Revoked devices</b> kept 90 days, then deleted for good</div>
+    <div class="srv"><table class="rt"><thead><tr><th>Device</th><th>Revoked</th><th>Deleted for good</th><th></th></tr></thead><tbody>
+      <tr><td><b>Kitchen tablet</b><div class="p-meta">Browser · Viewer · 1 key</div></td><td class="lat">just now · by robson</td><td class="lat">in 90 days</td>
+        <td><div class="acts" style="display:flex;gap:6px;flex-wrap:wrap"><button class="p-btn sm secondary">${ic("Restart","sm")}Undo revoke</button><button class="p-btn sm ghost">Delete now</button></div></td></tr>
+      <tr><td><b>Work laptop</b><div class="p-meta">Electron app · Operator · 1 key + 1 companion</div></td><td class="lat">Aug 2 · by robson</td><td class="lat">in 3 days</td>
+        <td><div class="acts" style="display:flex;gap:6px;flex-wrap:wrap"><button class="p-btn sm secondary">${ic("Restart","sm")}Undo revoke</button><button class="p-btn sm ghost">Delete now</button></div></td></tr>
+    </tbody></table>
+    <div class="why"><p class="p-help" style="margin:8px 0 0">${ic("AlertOutline","sm")} Undo only if you revoked by mistake. If the device was lost or stolen, leave it revoked: undo makes its saved access work again.</p></div></div>
+    <p class="annot">Revoke is a state, not a delete: bearer hash, tier, keys and companions stay, every check answers <code>revoked</code>, every credential is refused, and its WS sessions are closed. Undo (operator only) restores the row exactly. After 90 days, or Delete now, the row is purged and checks answer <code>unknown</code>. Companions can still be removed alone.</p>`;
+}
+
+/* ── render ──────────────────────────────────────────────────── */
+function sec(id, title, lead, body, notes = []) {
+  return `<section class="sec" id="${id}"><h2>${title}<span class="pill neutral probe-badge" data-for="${id}">probe…</span></h2><p class="lead">${lead}</p>${body}${notes.length ? `<ul class="notes">${notes.map((n) => `<li>${n}</li>`).join("")}</ul>` : ""}</section>`;
+}
+function render() {
+  document.getElementById("board").innerHTML = [
+    sec("s0", "S0 · Model: a server is an identity, addresses are routes", "Every check against an address is the identity challenge, not a health ping. The answer (fingerprint + public key + signature) decides which server the address belongs to.",
+      `<div class="frame"><div class="flow">
+        <span class="n">${ic("AccessPoint","sm")} mDNS advert <code>fp</code></span>${ic("Plus","sm")}<span class="n">${ic("Server","sm")} saved addresses</span>${ic("Plus","sm")}<span class="n">${ic("Earth","sm")} routes learned at pairing</span>
+        ${ic("ArrowRight")}<span class="n hl">${ic("Fingerprint","sm")} <code>POST /api/pair/challenge</code> per address</span>${ic("ArrowRight")}
+        <span class="n">group by proven fingerprint</span>${ic("ArrowRight")}<span class="n">one row per server · best proven route · paired?</span></div></div>`,
+      ["Address proving a different fingerprint than its group’s pin → shown red, never used (impostor / re-used IP).", "Two instances sharing one identity on different ports stay two rows (existing mdns-discovery rule), labelled “same identity as …”.", "No credential for a server on this device → the row carries the pair action. What that action is depends on the route (LAN → request, tunnel only → code)."]),
+    sec("s1", "S1 · Header server selector", "Left: what users see today. Right: grouped by identity, routes as chips, pair action on the row. Toggle Client in the toolbar.",
+      `<div class="pair2"><div class="frame"><div class="colh">As-built</div>${selectorAsBuilt()}</div><div class="frame"><div class="colh">Proposed · ${CLIENT}</div>${selectorProposed()}</div></div>`,
+      ["Electron: a paired row opens the server window; an unpaired row is disabled with “No access from this device yet” and the sub-action starts pairing.", "Browser: rows are links to the best proven route (new tab); paired state is unknown cross-origin unless D2-B lands.", "Keyboard: sub-actions are their own <code>menuitem</code> so roving focus reaches them (matches the existing “Update to …” moved item)."]),
+    sec("s2", "S2 · Settings ▸ Servers (Known servers + Network discovery merged)", "One card per identity. Route table shows how each address was learned and whether it proved the identity.",
+      `<div class="frame">${SERVERS.map(serverCard).join("")}</div>`,
+      ["Merges today’s two sections: “Known servers” (saved) and “Network discovery” (scan). Discovery becomes a source column, not a separate list.", "“used” = the route the client picks: proven, lowest latency, https preferred over http at similar latency.", "Known-server rows become <code>{fingerprint, label, routes[]}</code> instead of one <code>host:port</code> — migration: group existing entries by pinned fingerprint."]),
+    sec("s3", "S3 · Request access from the list (LAN knock)", "Same three steps on every client. Electron/mobile run it in-app; the browser runs steps 1–2 on the server’s own page.", `<div class="frame">${flowStates()}</div>`,
+      ["Step 1 never sends anything until the proven fingerprint equals the advert / pin (existing lan-knock-pairing rule).", "Step 3 is where D1-C delivers the other routes (tunnel, public URL) — the paired device can then reach the server off-network."]),
+    sec("s4", "S4 · Tunnel-only server: pair with code", "Knocks over zrok are refused by design (<code>knock_not_lan</code>), so the list offers the code path up front instead of a request that is bound to fail.", `<div class="frame">${codeFallback()}</div>`),
+    sec("s5", "S5 · What the same row means per client", "", matrix()),
+    sec("s6", "S6 · Decisions", "Blue border = chosen. D1-C, D2-B, D3-A agreed; revoke is undoable for 90 days; companion is opt-in; plain-http relay of the status answer accepted.", `<div class="frame">${decisions()}</div>`),
+    sec("s7", "S7 · Device key: one check proves both sides", "Optional <code>device</code> proof on the existing challenge. Unauthenticated, but it only ever answers about a key the caller can sign with.", `<div class="frame">${mutualCheck()}</div>`,
+      ["Signed context includes the server fingerprint → a proof captured at server A is useless at server B.", "Keys: browser = WebCrypto Ed25519, <code>extractable:false</code>, in IndexedDB; Electron = main process, private key under <code>safeStorage</code>; mobile = existing keyring store.", "Rate-limited like the challenge today; same reply timing for unknown and revoked lookups is not needed (caller owns the key)."]),
+    sec("s8", "S8 · Operator approval with a device key (and an optional companion)", "Today’s dialog plus a Device key row. The companion line appears only when the request page was opened from another dashboard.", `<div class="frame">${approvalCompanion()}</div>`,
+      ["Companion key rides the URL fragment of the request link (<code>/pair?request#companion=&lt;pub&gt;.&lt;sig&gt;</code>): never sent in a request line or logged, and the tab keeps <code>noopener</code>. Signed over <code>fp(B) ‖ origin(A) ‖ ts</code>.", "Companion scope is <code>status-only</code>: never accepted for cookie exchange, WS ticket or any route. That is what neutralises the phishing link in the explore notes.", "Opt-in: “Allow this status check” starts unticked. Left unticked, the device is paired without the companion and that dashboard shows “Status unknown”."]),
+    sec("s9", "S9 · Row states on the device", "What the list shows per server once the mutual check exists.", `<div class="frame">${deviceStates()}</div>`),
+    sec("s10", "S10 · Settings ▸ Security ▸ Paired devices (server side)", "Device key + companion visibility next to today’s label / last seen / revoke.", `<div class="frame">${serverDevices()}</div>`),
+  ].join("");
+  badge();
+}
+
+/* ── probe ───────────────────────────────────────────────────── */
+function probe() { const per = {}; document.querySelectorAll(".sec").forEach((s) => { per[s.id] = [...s.querySelectorAll(".frame")].flatMap(window.__probeRoot); }); return per; }
+function badge() {
+  requestAnimationFrame(() => {
+    const per = probe(); let total = 0;
+    document.querySelectorAll(".probe-badge").forEach((b) => {
+      const f = per[b.dataset.for] || []; total += f.length;
+      b.className = `pill ${f.length ? "error" : "success"} probe-badge`;
+      b.textContent = f.length ? `${f.length} probe failure${f.length > 1 ? "s" : ""}` : "0 probe failures"; b.title = f.join("\n");
+    });
+    const a = document.getElementById("probe-all"); a.className = `pill ${total ? "error" : "success"}`; a.textContent = total ? `Probe: ${total} failures` : "Probe: 0 failures";
+  });
+}
+window.__probeMock = () => probe();
+
+/* ── toolbar ─────────────────────────────────────────────────── */
+document.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  const v = b.dataset.v, html = document.documentElement;
+  if (seg.dataset.group === "theme") {
+    const [pal, mode] = v.split("-");
+    mode === "light" ? html.setAttribute("data-theme", "light") : html.removeAttribute("data-theme");
+    pal === "nord" ? html.setAttribute("data-palette", "nord") : html.removeAttribute("data-palette");
+    badge();
+  }
+  if (seg.dataset.group === "width") { document.body.style.setProperty("--frame-w", v === "full" ? "100%" : `${v}px`); badge(); }
+  if (seg.dataset.group === "client") { CLIENT = v; render(); }
+}));
+render();
+const params = new URLSearchParams(location.search);
+for (const g of ["theme", "width", "client"]) if (params.get(g)) document.querySelector(`.seg[data-group="${g}"] button[data-v="${params.get(g)}"]`)?.click();
+</script>
+</body>
+</html>
