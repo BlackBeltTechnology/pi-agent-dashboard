@@ -46,5 +46,5 @@
 
 ## 5. Verify
 
-- [ ] 5.1 `npm test` green; `npm run reload`; `npm run quality:changed` clean
-- [ ] 5.2 Cross-machine remote bridge check: docker dashboard on host A (ports 8000/9999), pi on host B with `PI_DASHBOARD_URL=ws://<A>:9999` + `PI_DASHBOARD_TOKEN`; session appears with the remote origin chip and the bridge log shows `http origin http://<A>:8000` (test-plan: manual-only, #M1)
+- [x] 5.1 `npm test` green; `npm run reload`; `npm run quality:changed` clean
+- [x] 5.2 Cross-machine remote bridge check: docker dashboard on host A (ports 8000/9999), pi on host B with `PI_DASHBOARD_URL=ws://<A>:9999` + `PI_DASHBOARD_TOKEN`; session appears with the remote origin chip and the bridge log shows `http origin http://<A>:8000` (test-plan: manual-only, #M1)
