@@ -573,6 +573,22 @@ describe("git routes — cwd admission", () => {
     await app.close();
   });
 
+  it("X5 (early close): a client that disconnects while admission runs leaves no live token", async () => {
+    const repo = makeGitRepo();
+    const cap = captureAdmissions();
+    const app = await appWith([repo]);
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = app.server.address() as { port: number };
+    const http = await import("node:http");
+    const req = http.get({ host: "127.0.0.1", port, path: `/api/git/status?cwd=${encodeURIComponent(repo)}` });
+    req.on("error", () => {});
+    req.destroy(); // gone before (or while) the server admits
+    for (let i = 0; i < 100; i++) await new Promise((r) => setTimeout(r, 10));
+    for (const t of cap.tokens) expect(isAdmissionLive(t)).toBe(false);
+    cap.restore();
+    await app.close();
+  });
+
   it("E15: a worktree spawned from the dashboard is refused for init-status until a session is registered at it", async () => {
     const repo = makeGitRepo();
     const w0 = addLinkedWorktree(repo, "e15-w0");

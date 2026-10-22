@@ -9,13 +9,13 @@
  * `PI_BENCH_LIST_ALL=<n>` sets the live `sessionManager.listAll()` size to size the known set.
  * See change: core-cwd-admission (test-plan P1–P3, design D5).
  */
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { registerGitRoutes } from "../routes/git-routes.js";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
-import { addLinkedWorktree, cleanupAdmissionDirs, makeGitRepo, tmpDir } from "./helpers/admission-test-kit.js";
+import { addLinkedWorktree, cleanupAdmissionDirs, makeGitRepo, realpathFailingFor, tmpDir } from "./helpers/admission-test-kit.js";
 
 const WARMUP = 20;
 const N = 200;
@@ -23,14 +23,15 @@ const pct = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.min(
 const KNOWN_SIZE = Math.max(30, Number(process.env.PI_BENCH_LIST_ALL ?? 0) || 0);
 const q = encodeURIComponent;
 
-async function appWith(known: string[]): Promise<FastifyInstance> {
+async function appWith(known: string[], admitOptions?: AdmitCwdOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
-  registerGitRoutes(app, { networkGuard: async () => {}, knownCwds: () => known });
+  registerGitRoutes(app, { networkGuard: async () => {}, knownCwds: () => known, ...(admitOptions ? { admitOptions } : {}) });
   registerOpenSpecRoutes(app, {
     sessionManager: { listAll: () => known.map((cwd, i) => ({ id: `s${i}`, cwd })) } as never,
     preferencesStore: { getPinnedDirectories: () => [] } as never,
     directoryService: { refreshOpenSpec: vi.fn(), getOpenSpecData: vi.fn() } as never,
     networkGuard: async () => {},
+    ...(admitOptions ? { admitOptions } : {}),
   });
   await app.ready();
   return app;
@@ -104,23 +105,16 @@ describe.skipIf(process.env.PI_BENCH !== "1")("core cwd admission latency", () =
     const conc = await wave(`/api/git/status?cwd=${q(wt)}`);
     console.log(row("P3 8 concurrent derivation path", conc.ms, ` 503s=${conc.s503}/${conc.ms.length}`));
 
-    // One unreadable known entry: parent dir mode 000, entry inside it.
-    const locked = tmpDir("bench-locked-");
-    const entry = join(locked, "child");
-    mkdirSync(entry);
-    writeFileSync(join(entry, "f"), "x");
-    chmodSync(locked, 0o000);
-    try {
-      const eacces = await appWith([repo, entry]);
-      const unknown = tmpDir("bench-unknown-");
-      const u = await sample(eacces, `/api/git/status?cwd=${q(unknown)}`, 50, 5);
-      const k = await sample(eacces, `/api/git/status?cwd=${q(repo)}`, 50, 5);
-      console.log(row("P3 EACCES entry, unknown cwd", u.ms, ` statuses=${JSON.stringify([...u.codes])}`));
-      console.log(row("P3 EACCES entry, session cwd", k.ms, ` statuses=${JSON.stringify([...k.codes])}`));
-      expect(u.codes.get(503)).toBe(50);
-      expect(k.codes.get(200)).toBe(50);
-    } finally {
-      chmodSync(locked, 0o755);
-    }
+    // One unreadable known entry (EACCES), injected through the admission realpath seam so the case does
+    // not depend on the process privileges (root bypasses mode 000).
+    const entry = join(tmpDir("bench-locked-"), "child");
+    const eacces = await appWith([repo, entry], { realpath: realpathFailingFor(entry) });
+    const unknown = tmpDir("bench-unknown-");
+    const u = await sample(eacces, `/api/git/status?cwd=${q(unknown)}`, 50, 5);
+    const k = await sample(eacces, `/api/git/status?cwd=${q(repo)}`, 50, 5);
+    console.log(row("P3 EACCES entry, unknown cwd", u.ms, ` statuses=${JSON.stringify([...u.codes])}`));
+    console.log(row("P3 EACCES entry, session cwd", k.ms, ` statuses=${JSON.stringify([...k.codes])}`));
+    expect(u.codes.get(503)).toBe(50);
+    expect(k.codes.get(200)).toBe(50);
   }, 120_000);
 });

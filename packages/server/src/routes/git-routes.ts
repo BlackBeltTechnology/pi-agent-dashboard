@@ -221,6 +221,8 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     }
     const token = admission.token;
     reply.raw.once("close", () => releaseAdmission(token));
+    // The client may have gone while admission ran (`close` already fired): release at once.
+    if (reply.raw.destroyed) releaseAdmission(token);
     return { ok: true, cwd: token.canonCwd, token };
   }
 

@@ -67,11 +67,11 @@ Test tasks are folded from `test-plan.md` (one task per manifest row). Each test
 
 ## 6. Integration
 
-- [x] 6.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify 0 failed.
-- [x] 6.2 Run the CodeQL before/after gate: input · `codeql-baseline.json`, the before counts from 1.1, and the PR CodeQL analysis · trigger · `npm run codeql` after the change, then the PR analysis during ship · observable · no new results; the `js/path-injection` count drops on the cwd-fed files listed in `evidence/site-matrix.md`; the PR analysis shows the same per-file drop; the residue is recorded in `evidence/codeql.md` for `triage-codeql-alert-debt` (test-plan #E17).
+- [x] 6.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify 0 failed. **Observed:** after merging `develop`, failures were only (a) unlinked workspace packages in the worktree (fixed by reinstall), (b) load-sensitive perf/timing tests that pass in isolation, (c) `spawn-correlation-performance` and `repo-hygiene` (docs/AGENTS.md byte cap), both red on pristine `origin/develop`; the cap was then fixed in this PR. PR CI green after re-running 2 unrelated timing flakes.
+- [x] 6.2 Run the CodeQL before/after gate: input · `codeql-baseline.json`, the before counts from 1.1, and the PR CodeQL analysis · trigger · `npm run codeql` after the change, then the PR analysis during ship · observable · no new results; the `js/path-injection` count drops on the cwd-fed files listed in `evidence/site-matrix.md`; the PR analysis shows the same per-file drop; the residue is recorded in `evidence/codeql.md` for `triage-codeql-alert-debt` (test-plan #E17). **Observed:** local `npm run codeql` pass, `js/path-injection` 109 → 78, 0 new; PR CodeQL analysis (javascript-typescript) passes.
 - [x] 6.3 Verify that `evidence/latency.md`, `evidence/codeql-probe.md` and `evidence/site-matrix.md` exist and record passing gates; block the merge otherwise.
 - [x] 6.4 Spawn `Audit` on the diff (security-hardening: tightening, residual existence/membership oracle, opt-out and global-dir preservation, TOCTOU, symlinks, batch budget) and run `review-code`. Verify no high-severity finding is left unresolved.
-- [x] 6.5 Live smoke on the operator instance after `curl -X POST http://localhost:8000/api/restart`: git status on a session cwd → 200; an unknown dir → 400 `cwd_unknown`; openspec tasks on a pinned repo → 200 (test-plan: manual-only, #E19).
+- [x] 6.5 Live smoke on the operator instance after `curl -X POST http://localhost:8000/api/restart`: git status on a session cwd → 200; an unknown dir → 400 `cwd_unknown`; openspec tasks on a pinned repo → 200 (test-plan: manual-only, #E19). **Deferred (manual-only):** not run before merge; to be done post-merge on the operator instance.
 
 ## Workflow follow-up
 

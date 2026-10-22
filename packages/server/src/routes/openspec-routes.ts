@@ -178,6 +178,8 @@ function createOpenSpecAdmission(routeAdmission: RouteAdmissionDeps, globalOpenS
     if (admission.kind !== "admit" || !admissionAllows(admission, raw)) return { kind: "refused" };
     const token = admission.token;
     reply.raw.once("close", () => releaseAdmission(token));
+    // The client may have gone while admission ran (`close` already fired): release at once.
+    if (reply.raw.destroyed) releaseAdmission(token);
     return { kind: "ok", cwd: raw, canonCwd: token.canonCwd };
   }
 
