@@ -179,7 +179,7 @@ The KB folder row SHALL derive its presentation from the folder's KB stats and f
 - **AND** activating `Retry` re-issues the reindex for `C`
 
 #### Scenario: Unadmitted folder shows denied, not failed
-- **WHEN** `GET /api/kb/stats?cwd=C` responds `403 { error: "cwd not allowed" }` (folder `C` is neither a known session cwd nor a pinned directory nor admitted via its main checkout)
+- **WHEN** `GET /api/kb/stats?cwd=C` responds `403 { error: "cwd not allowed" }` (folder `C` is neither a known folder — session cwd, pinned directory or workspace folder — nor admitted via its main checkout)
 - **THEN** the row shows a neutral (non-error-colored) `not allowed` label, never `index failed`
 - **AND** the row's tooltip explains, in the user's language, that the folder is not admitted and that pinning it grants access
 - **AND** the row offers no `Retry` action
@@ -378,7 +378,7 @@ The per-folder KB settings page (opened from the folder row's `→`) SHALL let t
 
 ### Requirement: KB cwd admission
 
-Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided known-folder set (live session cwds ∪ pinned directories) BEFORE opening a store or touching disk. The match SHALL be realpath-canonicalized on BOTH sides — the query `cwd` and each known folder are resolved to an absolute path and, best-effort, symlink-followed — so that two paths denoting the same directory match regardless of symlink traversal. In addition, when the direct match fails, a `cwd` that is a git worktree whose MAIN working-tree path is a known folder SHALL be admitted; the main path is derived server-side via git and never taken from client input. A `cwd` that is neither a known folder nor a git worktree of a known folder SHALL be rejected with `403`. When the guard cannot decide admission because a git probe failed to complete (timeout, spawn failure, missing binary), the route SHALL respond `503` with `error: "cwd-admission-unavailable"` (`plugin-cwd-admission`) — neither admitting nor rejecting — and SHALL NOT open a store or touch disk.
+Every `/api/kb/*` route SHALL validate the query `cwd` against the host-provided known-folder set (live session cwds ∪ pinned directories ∪ workspace folders) BEFORE opening a store or touching disk. The match SHALL be realpath-canonicalized on BOTH sides — the query `cwd` and each known folder are resolved to an absolute path and, best-effort, symlink-followed — so that two paths denoting the same directory match regardless of symlink traversal. In addition, when the direct match fails, a `cwd` that is a git worktree whose MAIN working-tree path is a known folder SHALL be admitted; the main path is derived server-side via git and never taken from client input. A `cwd` that is neither a known folder nor a git worktree of a known folder SHALL be rejected with `403`. When the guard cannot decide admission because a git probe failed to complete (timeout, spawn failure, missing binary), the route SHALL respond `503` with `error: "cwd-admission-unavailable"` (`plugin-cwd-admission`) — neither admitting nor rejecting — and SHALL NOT open a store or touch disk.
 
 #### Scenario: Symlink-equivalent cwd matches a known folder
 - **WHEN** `GET /api/kb/stats?cwd=A` is called where `A` reaches a known folder `K` through a symlink (for example `/tmp` for a session/pinned `/private/tmp`)

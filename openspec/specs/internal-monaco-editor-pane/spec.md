@@ -252,7 +252,7 @@ The lazy chunk gzipped size SHALL be ≤ 2 MB (warn budget) and SHALL be ≤ 3 M
 
 `mtime` SHALL be the file's modification time in milliseconds at full filesystem precision (not rounded or truncated). It is the optimistic-concurrency token for `POST /api/file/write`. Echoing it back unchanged for an unmodified file SHALL pass the write-side conflict check.
 
-`GET /api/file/raw?cwd=<cwd>&path=<relPath>` SHALL stream raw file bytes with the resolved `Content-Type` header. Both endpoints SHALL apply the existing security gates: `cwd` matched against a known session path; resolved path SHALL start with `cwd + path.sep` (path-traversal prevention).
+`GET /api/file/raw?cwd=<cwd>&path=<relPath>` SHALL stream raw file bytes with the resolved `Content-Type` header. Both endpoints SHALL apply the existing security gates: `cwd` admitted by the shared cwd admission guard (`core-cwd-admission`: a known folder — session cwd, pinned directory or workspace folder — or a subdirectory / linked worktree whose main checkout is a known folder); the resolved path SHALL lie inside the containment anchors of `file-read-containment` (path-traversal prevention).
 
 The file-kind discrimination SHALL invoke the shared `fileKind` module with the first 1024 bytes of the file as the `sniff` argument; the server SHALL NOT read the full file just to classify.
 
@@ -796,7 +796,7 @@ limit.
 `GET /api/file/digest?cwd=<cwd>&path=<path>` SHALL return `{ size, mtime, sha1 }` for a
 regular file, where `sha1` is the lowercase hex SHA-1 of the file bytes and `mtime` is
 the full-precision `stat.mtimeMs`, without returning the content. It SHALL apply the
-same session check, path decoding, containment anchors and layers as `GET /api/file`,
+same cwd admission, path decoding, containment anchors and layers as `GET /api/file`,
 in the same order, SHALL admit the same files (including an in-`cwd` symlink to a
 regular file, and the grant-verified open for grant-admitted paths), and SHALL refuse with the same status, error,
 and remedy fields for every path `GET /api/file` refuses; a path refused by containment

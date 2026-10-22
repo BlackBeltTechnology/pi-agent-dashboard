@@ -21,7 +21,7 @@ Feature roll-up, first match wins (folder-local facts before the global switch):
 - `off-globally` — the feature's global toggle (`addons-feature-catalog`) has it off;
 - `inherited` — otherwise.
 
-Each feature SHALL also carry `restoreRecorded` (a restore record exists on this machine for every off package). A folder package entry that narrows its own resources SHALL report the number of resources that load versus the package total. The response SHALL include counts of loose resources under `<cwd>/.pi` (skills, agents, prompts, extensions, themes) and, per feature, the number of package-contributed agents (pi deltas cannot filter agents, so they still load when the feature is off here). The `cwd` SHALL be absolute and normalised (400 otherwise) and SHALL pass the shared `admitCwd` guard (`@blackbelt-technology/pi-dashboard-shared/cwd-guard.js`, known session or pinned directory) with that guard's rejection status. The read SHALL be auth-gated like the global catalog and SHALL NOT be trust-gated. With 50 features and 500 loose `.pi` files the folder catalog join SHALL complete with p95 < 300 ms. When `<cwd>/.pi/settings.json` is unparseable the response SHALL carry `settingsError` and no folder state other than `inherited`/`dashboard-only`/`off-globally`.
+Each feature SHALL also carry `restoreRecorded` (a restore record exists on this machine for every off package). A folder package entry that narrows its own resources SHALL report the number of resources that load versus the package total. The response SHALL include counts of loose resources under `<cwd>/.pi` (skills, agents, prompts, extensions, themes) and, per feature, the number of package-contributed agents (pi deltas cannot filter agents, so they still load when the feature is off here). The `cwd` SHALL be absolute and normalised (400 otherwise) and SHALL pass the shared `admitCwd` guard (`@blackbelt-technology/pi-dashboard-shared/cwd-guard.js`, known folder — session cwd, pinned directory or workspace folder — or a subdirectory / linked worktree whose main checkout is one) with that guard's rejection status. The read SHALL be auth-gated like the global catalog and SHALL NOT be trust-gated. With 50 features and 500 loose `.pi` files the folder catalog join SHALL complete with p95 < 300 ms. When `<cwd>/.pi/settings.json` is unparseable the response SHALL carry `settingsError` and no folder state other than `inherited`/`dashboard-only`/`off-globally`.
 
 #### Scenario: Repo that loads one extension of itself
 - **GIVEN** `<cwd>/.pi/settings.json` has `{ "source": "..", "extensions": ["+packages/kb-extension/src/index.ts"] }`
@@ -52,6 +52,10 @@ Each feature SHALL also carry `restoreRecorded` (a restore record exists on this
 - **GIVEN** `/repo` has no trust decision
 - **WHEN** the folder catalog is requested for `/repo`
 - **THEN** the response SHALL be 200 with folder states
+
+#### Scenario: Workspace-only folder catalog
+- **WHEN** the folder catalog is requested for a folder that is only in a workspace
+- **THEN** it SHALL be admitted and report per-feature folder state
 
 ### Requirement: The folder toggle SHALL write a pi-standard project delta
 

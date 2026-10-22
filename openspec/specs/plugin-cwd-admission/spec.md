@@ -99,7 +99,7 @@ The server SHALL log `indeterminate` admission decisions at warn level as `[cwd-
 - It SHALL resolve as a refusal without raising a prompt when the cwd does not exist, when its canonical path contains a `.git` segment, or when it names an ungrantable subject.
 - It SHALL accept only origins from a closed server-side set, and SHALL resolve as a refusal for any other origin.
 - Otherwise it SHALL hold the request on the `cwd` access plane with origin `plugin:<pluginId>:<origin>`.
-- On an `allow-always` verdict it SHALL re-run the guard against the live known-folder set (sessions and pins) and return the resulting classification. A re-run that is `indeterminate` SHALL yield `503`, not `403`.
+- On an `allow-always` verdict it SHALL re-run the guard against the live known-folder set (sessions, pins and workspace folders) and return the resulting classification. A re-run that is `indeterminate` SHALL yield `503`, not `403`.
 - On an `allow-once` verdict, it SHALL re-resolve the cwd's real path at release time and require it to equal the verdict subject. It SHALL re-check existence, the `.git` rule, and grantability, and SHALL then return `admit` for that cwd, without requiring known-folder membership.
 
 A first-party plugin SHALL call `holdCwdDenial` only after a `refuse` classification on a user-initiated write route. It SHALL NOT call it on `indeterminate`, from a read (GET) route, or from a `plugin_action` handler.
