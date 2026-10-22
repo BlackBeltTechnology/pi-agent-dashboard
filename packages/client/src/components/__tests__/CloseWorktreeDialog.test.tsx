@@ -97,4 +97,17 @@ describe("CloseWorktreeDialog", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(onRemoved).toHaveBeenCalled();
   });
+
+  // test-plan #F1 (core-cwd-admission): a refused cwd is an error, never "already removed".
+  it("cwd_unknown keeps the dialog open with the localized text and never reports a removal", async () => {
+    removeWorktreeMock.mockResolvedValueOnce({ ok: false, code: "cwd_unknown", error: "cwd is not a known folder" });
+    const onRemoved = vi.fn();
+    const { props } = renderDialog({ onRemoved });
+    fireEvent.click(screen.getByTestId("close-confirm"));
+    await waitFor(() => expect(screen.getByTestId("close-error")).toBeTruthy());
+    expect(screen.getByTestId("close-error").textContent).toContain("not known to the dashboard");
+    expect(screen.getByTestId("close-error").textContent).not.toContain("cwd_unknown");
+    expect(onRemoved).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
 });

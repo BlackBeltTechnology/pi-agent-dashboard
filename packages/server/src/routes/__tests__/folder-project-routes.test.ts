@@ -6,10 +6,12 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isAdmissionLive } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { FolderProject } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { GitProbeRunner } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { captureAdmissions } from "../../__tests__/helpers/admission-test-kit.js";
 import { registerFolderProjectRoutes } from "../folder-project-routes.js";
 
 // Record every fs touch the resolver could make under a folder.
@@ -173,5 +175,53 @@ describe("P2: per-cwd de-dup", () => {
     const responses = await all;
     expect(responses.map((r) => r.statusCode)).toEqual(Array(10).fill(200));
     expect(resolve).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── core-cwd-admission: token release and the unchanged 503 body (test-plan X9, X6) ──────────
+
+describe("core-cwd-admission: folder-project token release", () => {
+  it("X9 (a): the token is no longer live after the error response when `run` throws", async () => {
+    const dir = folder();
+    const cap = captureAdmissions();
+    const { app } = build({ known: [dir], resolve: async () => { throw new Error("boom"); } });
+    const res = await get(app, dir);
+    expect(res.statusCode).toBe(500);
+    expect(cap.tokens).toHaveLength(1);
+    expect(isAdmissionLive(cap.tokens[0])).toBe(false);
+    cap.restore();
+  });
+
+  it("X9 (b): a client disconnect before `run` settles ends the token at once", async () => {
+    const dir = folder();
+    const cap = captureAdmissions();
+    let unblock: () => void = () => {};
+    const gate = new Promise<void>((r) => { unblock = r; });
+    const { app } = build({ known: [dir], resolve: async () => { await gate; return { id: null, types: [], source: "none" }; } });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = app.server.address() as { port: number };
+    const http = await import("node:http");
+    const req = http.get({ host: "127.0.0.1", port, path: `/api/folder/project?cwd=${encodeURIComponent(dir)}` });
+    req.on("error", () => {});
+    for (let i = 0; i < 200 && cap.tokens.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(cap.tokens).toHaveLength(1);
+    expect(isAdmissionLive(cap.tokens[0])).toBe(true); // still running
+    req.destroy();
+    for (let i = 0; i < 200 && isAdmissionLive(cap.tokens[0]); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(isAdmissionLive(cap.tokens[0])).toBe(false);
+    unblock();
+    cap.restore();
+  });
+
+  it("X6 (regression guard): the 503 body is unchanged — no `code`, error carries the identifier", async () => {
+    const dir = folder();
+    const { app } = build({ runner: timeoutRunner });
+    const res = await get(app, dir);
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({
+      error: "cwd-admission-unavailable",
+      message: "cwd admission could not be decided right now",
+      retryAfterMs: 1000,
+    });
   });
 });

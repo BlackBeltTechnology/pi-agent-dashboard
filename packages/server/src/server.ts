@@ -207,6 +207,7 @@ import {
 } from "./lib/client-dist.js";
 import { collectRuleSources } from "./lib/folder-project.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
+import { listKnownFolderCwds } from "./lib/route-admission.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -1588,12 +1589,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // routes against arbitrary-path indexing — a session-less worktree appears
   // only via pinned dirs, unreachable from the plugin sessionManager surface.
   // See change: add-kb-folder-slot.
-  pluginServiceRegistry.set("host.knownFolderCwds", (): string[] => {
-    const set = new Set<string>();
-    for (const s of sessionManager.listAll()) if (s.cwd) set.add(s.cwd);
-    for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
-    return [...set];
-  });
+  // The ONE known-set function: core git/openspec/folder-project route admission uses it
+  // too. See change: core-cwd-admission.
+  const knownFolderCwds = (): string[] => listKnownFolderCwds({ sessionManager, preferencesStore });
+  pluginServiceRegistry.set("host.knownFolderCwds", knownFolderCwds);
   // `indeterminate` plugin cwd admissions (a git probe that did not complete)
   // are worth a log line — today they are invisible — but throttled per cwd and
   // LRU-bounded. Plugins pass this as `admitCwd`'s `onIndeterminate`.
@@ -2668,6 +2667,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // the workspace link) yields `undefined` — the route clamps to the
     // default. The cast is dropped once the branch lands.
     removeBatchCap: (loadConfig() as DashboardConfig & { removeBatchCap?: number }).removeBatchCap,
+    // Core cwd admission against the same known set as plugin routes.
+    // See change: core-cwd-admission.
+    knownCwds: knownFolderCwds,
+    admitOptions: { onIndeterminate: cwdAdmissionLogger },
   });
 
   // Browser channel for worktree-init event subscriptions. The dialog
@@ -2731,10 +2734,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // request. See change: add-project-scoped-apps.
   registerFolderProjectRoutes(fastify, {
     networkGuard,
-    knownCwds: () => [
-      ...sessionManager.listAll().map((s) => s.cwd),
-      ...preferencesStore.getPinnedDirectories(),
-    ],
+    knownCwds: knownFolderCwds,
     getRuleSources: () => {
       const cfg = loadConfig();
       const store = getPluginStatusStore();
@@ -2798,6 +2798,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // `reconfigurePolling`) bounds the route's `newer`/`conflict` validate too.
     // See changes: add-pi-spec-driven-schema, move-workflow-schema-status-to-poll-worker.
     spawnSemaphore: directoryService.semaphore,
+    // Core cwd admission against the same known set as plugin routes.
+    // See change: core-cwd-admission.
+    knownFolderCwds,
+    admitOptions: { onIndeterminate: cwdAdmissionLogger },
     onOpenSpecChanged: (cwd) => {
       const data = directoryService.getOpenSpecData(cwd);
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });

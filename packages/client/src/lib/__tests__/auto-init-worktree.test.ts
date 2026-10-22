@@ -11,8 +11,8 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { maybeAutoInitWorktreeOnSpawn } from "../git/auto-init-worktree.js";
-import { initStore } from "../git/worktree-init-store.js";
 import { __resetInitBusForTests } from "../git/worktree-init-bus.js";
+import { initStore } from "../git/worktree-init-store.js";
 
 const { fetchAutoInitWorktreePref, fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
   fetchAutoInitWorktreePref: vi.fn(),
@@ -97,5 +97,61 @@ describe("maybeAutoInitWorktreeOnSpawn", () => {
     const run = initStore.getRun("/repo/.worktrees/feat");
     expect(run?.phase).toBe("failed");
     expect(run?.stderr).toBe("trace");
+  });
+});
+
+// ── core-cwd-admission D7: re-probe until the spawned session registers (test-plan F3–F5) ──
+describe("maybeAutoInitWorktreeOnSpawn — cwd_unknown re-probe", () => {
+  const W = "/repo/.worktrees/feat";
+  const UNKNOWN = { hasHook: false, cwdUnknown: true };
+
+  it("F3: re-probes every 500 ms and runs init exactly once after the cwd becomes known", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchAutoInitWorktreePref.mockResolvedValue(true);
+      let known = false;
+      fetchWorktreeInitStatus.mockImplementation(async () =>
+        known ? { hasHook: true, needsInit: true, trusted: true } : UNKNOWN,
+      );
+      runWorktreeInit.mockResolvedValue({ ok: true, ran: true });
+      const done = maybeAutoInitWorktreeOnSpawn(W);
+      await vi.advanceTimersByTimeAsync(1400);
+      expect(runWorktreeInit).not.toHaveBeenCalled();
+      expect(fetchWorktreeInitStatus.mock.calls.length).toBe(3); // t = 0, 500, 1000
+      known = true;
+      await vi.advanceTimersByTimeAsync(200); // t = 1.5 s probe is trusted
+      expect(await done).toBe(true);
+      expect(runWorktreeInit).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("F4: gives up silently at 10 s — no init, no probe after the deadline, no error toast, resolves false", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      fetchAutoInitWorktreePref.mockResolvedValue(true);
+      fetchWorktreeInitStatus.mockResolvedValue(UNKNOWN);
+      const done = maybeAutoInitWorktreeOnSpawn(W);
+      await vi.advanceTimersByTimeAsync(10_500);
+      expect(await done).toBe(false);
+      expect(runWorktreeInit).not.toHaveBeenCalled();
+      const probes = fetchWorktreeInitStatus.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fetchWorktreeInitStatus.mock.calls.length).toBe(probes); // nothing after the deadline
+      expect(probes).toBeLessThanOrEqual(22); // 0..10 s at 500 ms
+      expect(initStore.getRun(W)).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("F5: preference OFF never probes, even though the cwd would be unknown", async () => {
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    expect(await maybeAutoInitWorktreeOnSpawn(W)).toBe(false);
+    expect(fetchWorktreeInitStatus).not.toHaveBeenCalled();
   });
 });

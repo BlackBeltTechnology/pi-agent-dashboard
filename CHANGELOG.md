@@ -59,6 +59,29 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Git and OpenSpec routes now admit the folder first (tightening).** A `cwd` sent to a `/api/git/*` or
+  caller-`cwd` `/api/openspec*` / `/api/pi-resources*` route must be a known folder (a session cwd or a pinned
+  directory) or lie in a git repository whose main checkout is one. Anything else is refused before any
+  work: git answers `400 { code: "cwd_unknown" }` with "pin the repository to allow git operations", the
+  previously open openspec routes answer `403 { code: "cwd_unknown", reason, hint }`. **What stops working:**
+  a repository known only through a session in a *sibling* linked worktree, the *main checkout* of a repository
+  known only through a linked worktree, and a child repository of a pinned non-repository folder — pin the
+  repository (or open a session in it). An unknown path no longer gets an existence message (`cwd does not
+  exist`); `cwd does not exist` / `cwd is not a directory` now only describe a known cwd. `branches`,
+  `checkout`, `init` and `stash-pop`, which took a raw `cwd`, are gated too. An undecidable admission (git
+  cannot run, or one known folder is unreadable) is `503` with `Retry-After: 1` and code
+  `cwd-admission-unavailable`; in `remove-batch` it is a per-item code and the envelope stays 200, whose
+  items now report `cwd_unknown` / `cwd-admission-unavailable` instead of a blanket `cwd_invalid`. Worktrees and
+  subdirectories of a known repository are now admitted on the OpenSpec read/toggle routes; the OpenSpec
+  `init`, `workflow-schema` and dependencies routes keep their exact known-folder check. OpenSpec change names
+  must be one portable path segment (`400 invalid_name`): Windows-reserved names such as `aux` and names
+  ending in a dot are refused on `tasks` / `tasks/toggle`. The MCP server plugin surfaces these refusals as
+  tool errors. The client resolves the three new codes through `err.cwd_unknown`,
+  `err.cwd_admission_unavailable` and `err.invalid_name`, and the post-spawn worktree auto-init re-probes for
+  up to 10 s until the new session registers its folder.
+  **`pi-dashboard-shared` patch:** a `cwd` that is a regular file is now refused (it was `503`) by the shared
+  admission guard.
+
 - **Plugin runtime root split (deprecation).** Shell-internal names (every `*Slot` consumer,
   `createSlotRegistry`, the providers, the `publish*`/`clear*` stores, `setSender`, `intentStore`,
   `IntentRenderer`, `SlotErrorBoundary`, `use*ClaimsVersion`, `useSlotRegistry`, graph helpers, ...)

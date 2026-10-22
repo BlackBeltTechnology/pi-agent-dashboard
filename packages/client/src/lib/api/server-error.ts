@@ -43,9 +43,20 @@ export function resolveServerMessage(input: CodedMessage, translate: Translator 
     const key = errKeyForCode(code);
     // t() returns the key itself when unmapped; detect that to fall back to
     // the server message (graceful degradation, never a bare code).
-    const resolved = translate(key, vars, message ?? key);
+    const resolved = translate(key, vars, message ?? ENGLISH_FALLBACKS[key] ?? key);
     if (resolved !== key) return resolved;
   }
   if (message) return message;
   return code ?? "";
 }
+
+/**
+ * English text for codes the server emits with no usable `message` (the English UI has no
+ * catalog: English lives at call sites). Mirrors the `err.*` entries of `i18n-en-source.json`.
+ * See change: core-cwd-admission.
+ */
+const ENGLISH_FALLBACKS: Record<string, string> = {
+  "err.cwd_unknown": "This folder is not known to the dashboard. Pin the repository to allow this action.",
+  "err.cwd_admission_unavailable": "This folder could not be checked right now. Try again in a moment.",
+  "err.invalid_name": "That name is not valid.",
+};

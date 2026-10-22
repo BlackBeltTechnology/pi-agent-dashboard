@@ -6,23 +6,43 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import * as sharedGitPlatform from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { GIT_DIR_ABS } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { runAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as gitOps from "../git-worktree/git-operations.js";
 import { addWorktree } from "../git-worktree/git-operations.js";
-import { registerGitRoutes } from "../routes/git-routes.js";
+import { type GitRoutesDeps, registerGitRoutes } from "../routes/git-routes.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import {
+  addLinkedWorktree,
+  captureAdmissions,
+  cleanupAdmissionDirs,
+  failingRunner,
+  makeGitRepo,
+  tmpDir,
+} from "./helpers/admission-test-kit.js";
+
+/** Dirs the route admission treats as known folders (session/pinned stand-ins). See change: core-cwd-admission. */
+const KNOWN: string[] = [];
+const known = <T extends string>(p: T): T => {
+  KNOWN.push(p);
+  return p;
+};
+
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"] });
 }
 
 function makeRepo(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-life-routes-")));
+  const dir = known(realpathSync(mkdtempSync(join(tmpdir(), "git-wt-life-routes-"))));
   git("-c init.defaultBranch=main init", dir);
   git("config user.email test@test.com", dir);
   git("config user.name Test", dir);
@@ -79,6 +99,7 @@ async function makeApp(opts?: {
     networkGuard: async () => {},
     sessionManager,
     browserGateway: opts?.gateway as any,
+    knownCwds: () => KNOWN,
   });
   await app.ready();
   return app;
@@ -141,7 +162,7 @@ describe("POST /api/git/worktree/remove", () => {
   });
 
   it("returns 400 + not_a_worktree on non-repo path", async () => {
-    const plain = realpathSync(mkdtempSync(join(tmpdir(), "no-repo-")));
+    const plain = known(realpathSync(mkdtempSync(join(tmpdir(), "no-repo-"))));
     try {
       app = await makeApp();
       const res = await app.inject({
@@ -254,7 +275,7 @@ describe("POST /api/git/worktree/push", () => {
   });
 
   it("succeeds against a bare-repo remote", async () => {
-    const bare = realpathSync(mkdtempSync(join(tmpdir(), "bare-")));
+    const bare = known(realpathSync(mkdtempSync(join(tmpdir(), "bare-"))));
     try {
       execSync("git init --bare", { cwd: bare, stdio: ["pipe", "pipe", "pipe"] });
       execSync(`git remote add origin ${bare}`, { cwd: repo });
@@ -452,7 +473,7 @@ describe("POST /api/git/worktree/remove-batch", () => {
     // A real directory OUTSIDE the repo, actually TARGETED by the batch — a
     // bad item that is merely `""` would leave the marker untouched under any
     // implementation, making the assertion vacuous.
-    const outside = realpathSync(mkdtempSync(join(tmpdir(), "outside-")));
+    const outside = known(realpathSync(mkdtempSync(join(tmpdir(), "outside-"))));
     const marker = join(outside, "keep.txt");
     writeFileSync(marker, "keep");
 
@@ -615,4 +636,98 @@ describe("POST /api/git/worktree/prune", () => {
       expect(res.statusCode, url).not.toBe(404);
     }
   });
+});
+
+
+// ── core-cwd-admission: remove-batch admission (test-plan E13, X3, X4) ────────────────────
+// See change: core-cwd-admission.
+
+describe("POST /api/git/worktree/remove-batch — cwd admission", () => {
+  afterAll(() => cleanupAdmissionDirs());
+  afterEach(() => vi.restoreAllMocks());
+
+  async function appWith(known: string[], extra: Partial<GitRoutesDeps> = {}): Promise<FastifyInstance> {
+    const a = Fastify({ logger: false });
+    registerGitRoutes(a, { networkGuard: async () => {}, knownCwds: () => known, ...extra });
+    await a.ready();
+    return a;
+  }
+  const batch = (a: FastifyInstance, items: Array<{ cwd: string }>) =>
+    a.inject({ method: "POST", url: "/api/git/worktree/remove-batch", payload: { items } });
+
+  it("E13 (a): 50 items with one cwd admit once", async () => {
+    const repo = makeGitRepo();
+    const cap = captureAdmissions();
+    const app = await appWith([repo]);
+    const res = await batch(app, Array.from({ length: 50 }, () => ({ cwd: repo })));
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.results).toHaveLength(50);
+    expect(cap.calls).toHaveLength(1);
+    cap.restore();
+    await app.close();
+  });
+
+  it("E13 (b): two spellings of one directory classify once", async () => {
+    const repo = makeGitRepo();
+    const link = join(tmpDir("adm-b-"), "L");
+    symlinkSync(repo, link);
+    const classify = vi.spyOn(sharedGitPlatform, "checkoutRoots");
+    const app = await appWith([repo, link]);
+    const res = await batch(app, [{ cwd: repo }, { cwd: link }]);
+    expect(res.json().data.results.map((r: { code: string }) => r.code)).toEqual(["is_main_worktree", "is_main_worktree"]);
+    expect(classify.mock.calls.filter(([o]) => (o as { cwd: string }).cwd === realpathSync(repo))).toHaveLength(1);
+    await app.close();
+  });
+
+  it("E13 (c): refusal codes pass through per item; never a hard-coded cwd_invalid", async () => {
+    const repo = makeGitRepo();
+    const unknown = tmpDir("adm-c-");
+    const gone = tmpDir("adm-cgone-");
+    rmSync(gone, { recursive: true });
+    const app = await appWith([repo, gone]);
+    const res = await batch(app, [{ cwd: join(repo, "README.md") }, { cwd: unknown }, { cwd: gone }]);
+    expect(res.json().data.results.map((r: { code: string }) => r.code)).toEqual(["cwd_unknown", "cwd_unknown", "cwd_invalid"]);
+    await app.close();
+  });
+
+  it("X3: an indeterminate item does not fail the batch (200, no Retry-After); the others are processed", async () => {
+    const repo = makeGitRepo();
+    const w1 = addLinkedWorktree(repo, "x3a");
+    const w3 = addLinkedWorktree(repo, "x3c");
+    const unknown = tmpDir("adm-x3-");
+    const app = await appWith([w1, w3], { admitOptions: { runner: failingRunner } });
+    const res = await batch(app, [{ cwd: w1 }, { cwd: unknown }, { cwd: w3 }]);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["retry-after"]).toBeUndefined();
+    const results = res.json().data.results;
+    expect(results[0]).toMatchObject({ ok: true });
+    expect(results[1]).toMatchObject({ ok: false, code: "cwd-admission-unavailable" });
+    expect(results[2]).toMatchObject({ ok: true });
+    await app.close();
+  });
+
+  it("X4: the whole-batch admission budget bounds the time; undecided items are unavailable and run no operation", async () => {
+    const repo = makeGitRepo();
+    const worktrees = Array.from({ length: 6 }, (_, i) => addLinkedWorktree(repo, `x4-${i}`));
+    // Scaled 10x down from the production 10 s budget / 3 s cap: budget 3000, cap 1000, 900 ms per derivation.
+    const slowDerivation: NonNullable<GitRoutesDeps["admitOptions"]>["runner"] = async (recipe, input, ctx) => {
+      if ((recipe as unknown) === GIT_DIR_ABS) await new Promise((r) => setTimeout(r, 900));
+      return runAsync(recipe, input, ctx);
+    };
+    const removeSpy = vi.spyOn(gitOps, "removeWorktree");
+    const app = await appWith([repo], {
+      admitOptions: { runner: slowDerivation, deadlineMs: 1000 },
+      removeBatchAdmissionBudgetMs: 3000,
+    });
+    const started = Date.now();
+    const res = await batch(app, worktrees.map((cwd) => ({ cwd })));
+    const elapsed = Date.now() - started;
+    const results: Array<{ ok: boolean; code: string }> = res.json().data.results;
+    expect(elapsed).toBeLessThan(3000 + 1500); // budget + (sequential removals, git) slack
+    const unavailable = results.filter((r) => r.code === "cwd-admission-unavailable");
+    expect(unavailable.length).toBeGreaterThanOrEqual(2);
+    expect(results.slice(-2).map((r) => r.code)).toEqual(["cwd-admission-unavailable", "cwd-admission-unavailable"]);
+    expect(removeSpy).toHaveBeenCalledTimes(results.filter((r) => r.ok).length);
+    await app.close();
+  }, 20_000);
 });

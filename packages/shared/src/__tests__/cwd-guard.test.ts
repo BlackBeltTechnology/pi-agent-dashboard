@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -204,6 +204,15 @@ describe("admitCwd", () => {
     const { runner, spy } = spyRunner();
     expect(kindOf(await admitCwd(gone, () => [repo], { runner }))).toBe("refuse");
     expect(spy.total).toBe(0);
+  });
+
+  it("a regular file inside a known repository is refused, never indeterminate (core-cwd-admission D6)", async () => {
+    const repo = makeDir("admit-file-");
+    git(repo, ["-c", "init.defaultBranch=main", "init"]);
+    const file = join(repo, "note.txt");
+    writeFileSync(file, "x");
+    const { runner } = spyRunner();
+    expect(kindOf(await admitCwd(file, () => [repo], { runner }))).toBe("refuse");
   });
 
   it("E11: a non-ENOENT realpath error is indeterminate and names realpath", async () => {

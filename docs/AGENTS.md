@@ -55,7 +55,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `plan/electron-app.md` | Comprehensive Electron desktop-app plan. Bundle dashboard standalone macOS/Linux/Windows, zero prereqs,… → see `plan/electron-app.md.AGENTS.md` |
 | `playwright.config.ts` | (repo root) Playwright config. testDir `tests/e2e`, `use.baseURL` imports `BASE_URL` from lifecycle.ts,… → see `playwright.config.ts.AGENTS.md` |
 | `playwright.electron.config.ts` | (repo root) Playwright config for Electron-E2E suite. testDir `tests/e2e-electron`. → see `playwright.electron.config.ts.AGENTS.md` |
-| `pi-settings-editor.md` | pi global `settings.json` editor (Settings → pi → `pi settings`). REST `/api/pi-settings`, `…/raw`, `…/sync-defaults`, `…/legacy-credentials` (key move/remove). Shared schema, etag, lock + tmp+rename, `PI_CODING_AGENT_DIR`, default-model mirror. See change: edit-pi-agent-settings, pi-settings-full-coverage |
+| `pi-settings-editor.md` | pi global `settings.json` editor (Settings → pi). REST `/api/pi-settings`. Shared schema, etag, lock + tmp+rename. → see `pi-settings-editor.md.AGENTS.md` |
 | `plugin-apps.md` | Plugin React apps embedded + standalone. `<EmbeddedApp>` (`./embedded-app`), `EmbeddedAppShellProvider`,… → see `plugin-apps.md.AGENTS.md` |
 | `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims; slot-claims invalidation store; badge-gate rule; `shell-headless` slot. See change: auto-hide-empty-session-subcards, add-blackhole-session-pipeline, fix-empty-status-subcard. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
@@ -134,6 +134,6 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `slash-command.md` | Bridge routes typed `/foo` chat text to pi handlers. `parseSendPrompt` + `bridge.ts::sessionPrompt` 11-step… → see `slash-command.md.AGENTS.md` See change: update-pi-core-1-0-adopt-apis. |
 | `system-one.md` | Shared decision registry. `@blackbelt-technology/pi-system-one` library (`predict` over… → see `system-one.md.AGENTS.md` |
 | `ui-contract.md` | (repo root) Cross-screen design control plane. Single source of truth for visual consistency. → see `ui-contract.md.AGENTS.md` |
-| `untrusted-plugin-ui-gap.md` | Read-only gap analysis. Untrusted plugin UI via descriptor protocol (`extension-ui-system`) vs React path. 53% claims blocked (`react-only` slots). Rec: descriptors + sandboxed-iframe escape hatch. Runtime client = trusted path (`auth.trustedPlugins`). See change: decouple-plugins-from-core. |
+| `untrusted-plugin-ui-gap.md` | Read-only gap analysis. Untrusted plugin UI via descriptor protocol vs React path. 53% claims blocked. → see `untrusted-plugin-ui-gap.md.AGENTS.md` |
 | `user-features.md` | End-user feature subset. Curated from docs/features.md. Communicable to end users. Excludes internal plumbing, CI/QA, packaging, refactors. See change: streamline-first-run. First-run Landing (3-step list, create-project, Claude peer auto-install status). |
 | `vitest.config.ts` | (repo root) Root Vitest config. `defineConfig`. Vitest 4 dropped `vitest.workspace.ts`. → see `vitest.config.ts.AGENTS.md` |

@@ -12,6 +12,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorktreeEntry } from "../../lib/git/git-api.js";
+import { describeFailure } from "../worktree/ManageWorktreesDialog.js";
 import { isInTree, suppressPathLine, WorktreeList } from "../worktree/WorktreeList.js";
 
 afterEach(() => cleanup());
@@ -360,5 +361,37 @@ describe("WorktreeList — no resolved main entry (bare hub)", () => {
     // select-all selects `selectable`; the batch bar counts the same set.
     expect(screen.getByTestId("worktree-remove-selected").textContent).toContain("1");
     expect(checkboxes).toHaveLength(1);
+  });
+});
+
+// ── core-cwd-admission: per-item batch failure text (test-plan #F2) ─────────────────────────
+
+describe("WorktreeList manage mode — admission failure codes", () => {
+  it("each failing row shows its localized message; only cwd_invalid reads as already gone", () => {
+    const entries = [
+      entry({ path: MAIN, branch: "main", isMain: true }),
+      entry({ path: `${MAIN}/.worktrees/a`, branch: "a" }),
+      entry({ path: `${MAIN}/.worktrees/b`, branch: "b" }),
+      entry({ path: `${MAIN}/.worktrees/c`, branch: "c" }),
+    ];
+    const items = [
+      { cwd: entries[1].path, ok: false, code: "cwd_unknown" },
+      { cwd: entries[2].path, ok: false, code: "cwd-admission-unavailable" },
+      { cwd: entries[3].path, ok: false, code: "cwd_invalid" },
+    ];
+    const failures = Object.fromEntries(items.map((i) => [i.cwd, { code: i.code, message: describeFailure(i) }]));
+    render(<WorktreeList entries={entries} mode="manage" failures={failures} />);
+    const text = (p: string) => screen.getByTestId(`worktree-row-failure-${encodeURIComponent(p)}`).textContent ?? "";
+    expect(text(entries[1].path)).toContain("not known to the dashboard");
+    expect(text(entries[2].path)).toContain("could not be checked right now");
+    expect(text(entries[3].path)).toContain("already gone");
+    expect(text(entries[1].path)).not.toContain("already gone");
+    expect(text(entries[2].path)).not.toContain("already gone");
+  });
+
+  it("a failure without a message still resolves the code through the catalog", () => {
+    const entries = [entry({ path: MAIN, branch: "main", isMain: true }), entry({ path: `${MAIN}/.worktrees/a`, branch: "a" })];
+    render(<WorktreeList entries={entries} mode="manage" failures={{ [entries[1].path]: { code: "cwd_unknown" } }} />);
+    expect(screen.getByTestId(`worktree-row-failure-${encodeURIComponent(entries[1].path)}`).textContent).toContain("not known to the dashboard");
   });
 });

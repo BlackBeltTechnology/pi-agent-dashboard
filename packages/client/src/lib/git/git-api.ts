@@ -254,6 +254,12 @@ export interface SetupArtifact {
 /** GET /api/git/worktree/init-status result. */
 export interface WorktreeInitStatus {
   hasHook: boolean;
+  /**
+   * Fail-open path only: the server refused the cwd as not (yet) a known folder
+   * (`cwd_unknown`). A just-spawned worktree reads this until its session registers; the
+   * post-spawn auto-init re-probes on it. See change: core-cwd-admission (D7).
+   */
+  cwdUnknown?: boolean;
   /** Present only when hasHook === true. */
   needsInit?: boolean;
   /** Present only when hasHook === true. */
@@ -282,8 +288,9 @@ export interface WorktreeInitStatus {
 /** GET /api/git/worktree/init-status?cwd=<path>. Fail-open: returns hasHook:false on error. */
 export async function fetchWorktreeInitStatus(cwd: string): Promise<WorktreeInitStatus> {
   try {
-    const json = await fetchJson(`${getApiBase()}/api/git/worktree/init-status?cwd=${encodeURIComponent(cwd)}`);
-    if (!json.success) return { hasHook: false };
+    const { res, json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/init-status?cwd=${encodeURIComponent(cwd)}`);
+    if (json?.code === "cwd_unknown") return { hasHook: false, cwdUnknown: true };
+    if (!res.ok || !json?.success) return { hasHook: false };
     return json.data as WorktreeInitStatus;
   } catch {
     return { hasHook: false };
