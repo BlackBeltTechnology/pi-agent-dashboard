@@ -75,6 +75,11 @@ describe("GET /api/sessions — UI links and id filter", () => {
     expect(rows.every((r) => !("uiUrl" in r) && !("diffUrl" in r))).toBe(true);
   });
 
+  it("the response depends on the request Host, so it is never cacheable", async () => {
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions", headers: { host: "localhost:8000" } });
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
   it("E7: id filter — case-insensitive prefix >= 8, exact full id, owner-gated, single value", async () => {
     expect(((await get("?id=01A16086")).body.data ?? []).length).toBe(2);
     expect(((await get("?id=01a1608")).body.data ?? []).length).toBe(0);

@@ -35,7 +35,7 @@ Open these in a browser (an agent's browser pane) to show the dashboard UI. Pref
 | `/folder/:encodedCwd/openspec/:changeName/:artifactId` | One OpenSpec change artifact |
 | `/folder/:encodedCwd/openspec/archive[/:entry[/:artifact]]` | OpenSpec archive list, one entry, one artifact |
 
-**Session ids.** Use the full `id` from `GET /api/sessions`. A prefix of at least 8 characters (case-insensitive) is accepted when it matches exactly one session, and the URL converges to the full id. A shorter or unknown id shows "Session not found" (the page is not redirected), and an ambiguous prefix lists the candidates. `GET /api/sessions?id=<id>` returns only the matching rows (same rules).
+**Session ids.** Use the full `id` from `GET /api/sessions`. A prefix of at least 8 characters (case-insensitive) is accepted when it matches exactly one session, and the URL converges to the full id. Session ids are time-ordered UUIDs, so sessions created within about a minute share their first 8 characters: prefer `uiUrl` over a hand-cut prefix. A shorter or unknown id shows "Session not found" (the page is not redirected), and an ambiguous prefix lists the candidates. `GET /api/sessions?id=<id>` returns only the matching rows (same rules).
 
 **Archived sessions.** Open `/session/<full id>?archived=1`. The full id is required, a prefix is not resolved for archived sessions. Get ids from `GET /api/sessions/archived`.
 

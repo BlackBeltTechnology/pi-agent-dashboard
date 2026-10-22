@@ -136,6 +136,8 @@ export function registerSessionRoutes(
         return id === idQuery || (idQuery.length >= 8 && id.startsWith(idQuery));
       });
     }
+    // The links depend on the request's Host / X-Forwarded-Host: never cacheable.
+    reply.header("Cache-Control", "no-store");
     const links = deps.uiLinks;
     const base = resolveRequestUiBase({
       host: headerString(request.headers.host),

@@ -60,6 +60,12 @@ describe("resolveRequestUiBase", () => {
     expect(base("localhost:abc")).toBe("http://localhost:8000");
   });
 
+  it("an unbracketed IPv6 Host never yields a port from its last group (audit finding)", () => {
+    const base = (host: string) => resolveRequestUiBase(input({ host }));
+    expect(base("::1")).toBe("http://[::1]");
+    expect(base("::1:8000")).toBe("http://[::1:8000]");
+  });
+
   it("E5: no Host / unadmitted unconfigured Host fall back to localhost:<port>", () => {
     // Host gate in report mode lets such a request through; the resolver must not reflect it.
     const a = resolveRequestUiBase(input({}));

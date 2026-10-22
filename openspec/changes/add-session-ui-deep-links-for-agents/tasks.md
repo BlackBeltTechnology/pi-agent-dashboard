@@ -203,7 +203,7 @@ TDD throughout: write each test task first, watch it fail, then implement. Rebui
 
 ## 5. L3 browser scenarios (docker harness; port from `.pi-test-harness.json`)
 
-- [ ] 5.1 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (new `tests/e2e/session-deep-link-embed.spec.ts`).
+- [x] 5.1 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (new `tests/e2e/session-deep-link-embed.spec.ts`).
   - Setup: 1 seeded live session, viewport 1024×768.
   - Trigger: open `/session/<id>?embed=1`, then `/settings`.
   - Expect:
@@ -211,43 +211,43 @@ TDD throughout: write each test task first, watch it fail, then implement. Rebui
     - `session-list`, the sidebar handle and the hamburger count 0;
     - the settings panel is visible with the sidebar still at 0.
   - (test-plan #F10)
-- [ ] 5.2 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (same spec).
+- [x] 5.2 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (same spec).
   - Setup: embed on.
   - Trigger: click the diff entry, so the URL becomes `/session/<id>/diff` with no query.
   - Expect: diff visible, sidebar count 0, `sessionStorage['pi-dash-embed']==="1"` (test-plan #F11).
-- [ ] 5.3 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (same spec).
+- [x] 5.3 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (same spec).
   - Setup: viewport 400×800, 1 session.
   - Trigger: open `/session/<id>?embed=1`, then press the header back button.
   - Expect: the detail is visible; after back, the URL is `/`, the embed home message is visible and there are 0 session cards (test-plan #F12).
-- [ ] 5.4 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (same spec).
+- [x] 5.4 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (same spec).
   - Setup: 1 session `<id>`.
   - Trigger: open `/session/<first 8>/diff?embed=1`.
   - Expect: the URL converges to `/session/<id>/diff?embed=1`, the diff is visible, and `goBack()` never lands on the 8-character URL (test-plan #F13).
-- [ ] 5.5 L3 test, exemplar `tests/e2e/archive-fold.spec.ts` (new `tests/e2e/session-not-found.spec.ts`).
+- [x] 5.5 L3 test, exemplar `tests/e2e/archive-fold.spec.ts` (new `tests/e2e/session-not-found.spec.ts`).
   - Setup: at least 1 seeded session, viewport 1280×800.
   - Trigger: open `/session/does-not-exist` and wait until the seeded session appears in the sidebar.
   - Expect: `session-not-found` visible, containing the id; the URL is unchanged after a further 2 s `expect.poll` (test-plan #F14).
-- [ ] 5.6 L3 test, exemplar `tests/e2e/sessions-page-stub-group.spec.ts` (same new spec as 5.5).
+- [x] 5.6 L3 test, exemplar `tests/e2e/sessions-page-stub-group.spec.ts` (same new spec as 5.5).
   - Setup: 130 ended sessions seeded in one group.
   - Trigger: open `/session/<oldest id>`.
   - Expect: one request to `/api/sessions?id=<oldest>`, the header shows that session's name, and `session-not-found` count is 0 (test-plan #F15).
-- [ ] 5.7 L3 test, exemplar `tests/e2e/durable-session-diff.spec.ts` (same new spec as 5.5).
+- [x] 5.7 L3 test, exemplar `tests/e2e/durable-session-diff.spec.ts` (same new spec as 5.5).
   - Setup: viewport 1280×800, recording network requests.
   - Trigger: open `/session/does-not-exist/diff`.
   - Expect: `session-not-found` visible and zero `session-diff` requests for `does-not-exist` (test-plan #F16).
-- [ ] 5.8 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (the `session-deep-link-embed.spec.ts` spec).
+- [x] 5.8 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (the `session-deep-link-embed.spec.ts` spec).
   - Setup: embed on at `/session/<id>`.
   - Trigger: click `embed-exit`.
   - Expect: the URL ends `?embed=0`, the sidebar is visible, and `history.length` is unchanged (test-plan #F17).
-- [ ] 5.9 L3 test, exemplar `tests/e2e/paging-exhausted-reconnect-rearm.spec.ts` (the `session-not-found.spec.ts` spec).
+- [x] 5.9 L3 test, exemplar `tests/e2e/paging-exhausted-reconnect-rearm.spec.ts` (the `session-not-found.spec.ts` spec).
   - Setup: viewing `/session/<id>` with the chat rendered.
   - Trigger: force a WebSocket reconnect.
   - Expect: `session-not-found` and `session-resolving` count 0 at every poll, and the chat container keeps the same element handle (test-plan #F18).
-- [ ] 5.10 L3 test, exemplar `tests/e2e/archive-fold.spec.ts` (the `session-not-found.spec.ts` spec).
+- [x] 5.10 L3 test, exemplar `tests/e2e/archive-fold.spec.ts` (the `session-not-found.spec.ts` spec).
   - Setup: viewing an ended `/session/<id>`.
   - Trigger: archive it through the session menu.
   - Expect: the URL converges to `/` and `session-not-found` count is 0 (test-plan #F19).
-- [ ] 5.11 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (the `session-deep-link-embed.spec.ts` spec).
+- [x] 5.11 L3 test, exemplar `tests/e2e/mobile-viewport-bound.spec.ts` (the `session-deep-link-embed.spec.ts` spec).
   - Setup: page A at `/session/<id>?embed=1`.
   - Trigger: open page B in a fresh context at `/session/<id>`.
   - Expect: B shows the sidebar and A still shows none (test-plan #F20).
@@ -300,6 +300,6 @@ TDD throughout: write each test task first, watch it fail, then implement. Rebui
 ## 9. Verify
 
 - [ ] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. Everything must be green.
-- [ ] 9.2 `npm run quality:changed` comes back clean.
-- [ ] 9.3 Run `review-code` on the diff, and `Audit` on the D1 resolver and the `id` filter (they handle untrusted input).
-- [ ] 9.4 `openspec validate add-session-ui-deep-links-for-agents --strict`.
+- [x] 9.2 `npm run quality:changed` comes back clean.
+- [x] 9.3 Run `review-code` on the diff, and `Audit` on the D1 resolver and the `id` filter (they handle untrusted input).
+- [x] 9.4 `openspec validate add-session-ui-deep-links-for-agents --strict`.

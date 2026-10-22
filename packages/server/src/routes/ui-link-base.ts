@@ -33,9 +33,18 @@ export interface UiBaseInput {
 
 const stripSlashes = (s: string): string => s.replace(/\/+$/, "");
 
-/** Trailing `:digits` of a raw Host (after `]` for IPv6), only when 1–65535. */
+/**
+ * Trailing `:digits` of a raw Host, only when 1–65535. An UNBRACKETED IPv6
+ * literal has no port (its last group is not one), so only a name/IPv4 host or
+ * a bracketed `[v6]:port` yields a port.
+ */
 function validPort(hostHeader: string): string | null {
-  const m = /:(\d{1,5})$/.exec(hostHeader.trim());
+  const value = hostHeader.trim();
+  const bracketed = value.startsWith("[");
+  const portStart = bracketed ? value.indexOf("]") + 1 : value.indexOf(":");
+  if (portStart <= 0) return null; // no port separator (or a malformed bracket)
+  if (!bracketed && value.indexOf(":", portStart + 1) !== -1) return null; // unbracketed IPv6
+  const m = /^:(\d{1,5})$/.exec(value.slice(portStart));
   if (!m) return null;
   const n = Number(m[1]);
   return n >= 1 && n <= 65535 ? String(n) : null;
