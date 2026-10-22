@@ -13,6 +13,10 @@ When the chat view is bound to a session, the composer is shown, and at least on
 - **WHEN** the bound session has one background process and nothing else
 - **THEN** one dock SHALL render directly above the composer card, containing a Processes lane
 
+#### Scenario: Dock and card read as one connected panel
+- **WHEN** the dock renders above the composer card
+- **THEN** the dock SHALL be inset from the card's sides, its bottom edge SHALL sit under the card's top edge with no visible gap between them, and no full-width divider line SHALL cross the dock
+
 #### Scenario: Quiet session has no dock
 - **WHEN** the bound session's folder has no OpenSpec directory, the session has no `gitWorktree`, and the session has no running work, changed files, queued follow-ups, plugin context or active YOLO
 - **THEN** no dock SHALL render

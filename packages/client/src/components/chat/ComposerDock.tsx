@@ -2,8 +2,10 @@
  * ComposerDock — the surface above the composer card that shows the bound
  * session's live context as collapsible lanes (Processes, Changes, OpenSpec,
  * Queue, Context) plus the YOLO footer. A sibling of `CommandInput`, never part
- * of it: the visual join is CSS only (inset by `mx-3`, bottom edge tucked under
- * the card with a negative margin).
+ * of it: the visual join is CSS only (inset by `mx-5`, 8px inside the card's
+ * edges so it reads as a drawer sliding out from behind it; bottom edge tucked
+ * 12px under the card's rounded top with a negative margin; composer-root drops
+ * its top border while the dock is visible — index.css).
  *
  * Owns, and only owns: lane layout, the one-open-lane accordion render, compact
  * mode, the YOLO footer and the single polite live region. Lanes are adapters:
@@ -63,10 +65,11 @@ export interface ComposerDockProps {
 
 /**
  * Chrome that sits inside the dock's box but outside its footer: the top border
- * (1px) and the bottom padding tucked under the card (`pb-3`, 12px). The row
- * table's bound is the footer line; the CSS min-height must include this chrome.
+ * (1px) and the bottom padding tucked under the card (`pb-6`, 24px: 12px of
+ * composer-root padding + 12px under the card). The row table's bound is the
+ * footer line; the CSS min-height must include this chrome.
  */
-const DOCK_CHROME_PX = 13;
+const DOCK_CHROME_PX = 25;
 
 const NO_COMMANDS: ProcessesLaneInput["commands"] = [];
 const noopKill = () => {};
@@ -381,7 +384,7 @@ function ComposerDockInner({
         data-footer-only={lanes.length === 0 ? "true" : undefined}
         data-pane-row={rowKey}
         style={rowStyle}
-        className="relative z-0 mx-3 -mb-3 flex min-h-0 shrink flex-col overflow-hidden rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] pb-3 shadow-[inset_0_1px_0_var(--elevation-rim)]"
+        className="relative z-0 mx-5 -mb-6 flex min-h-0 shrink flex-col overflow-hidden rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] pb-6 shadow-[inset_0_1px_0_var(--elevation-rim)]"
       >
         {lanes.length > 0 && (
           <div data-testid="composer-dock-scroll" className="min-h-0 flex-initial overflow-y-auto">

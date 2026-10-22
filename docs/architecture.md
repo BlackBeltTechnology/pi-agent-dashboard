@@ -1116,7 +1116,7 @@ flowchart TB
   DK --> CI["CommandInput card: textarea + one toolbar row"]
 ```
 
-- Sibling of `CommandInput`, never inside it. Mounted by `ComposerDockHost.tsx` (hook boundary for `App.tsx`; also `DirectoryHomeView.tsx`). Visual join CSS only: `mx-3` inset, bottom edge tucked under card. team-app `ChatPane` embeds `CommandInput` bare: no dock.
+- Sibling of `CommandInput`, never inside it. Mounted by `ComposerDockHost.tsx` (hook boundary for `App.tsx`; also `DirectoryHomeView.tsx`). Visual join CSS only: `mx-5` inset (8px inside card edges, drawer look), `-mb-6 pb-6` tucks bottom edge 12px under card; `composer-root` drops its full-width `border-t` while dock visible (index.css sibling rule). team-app `ChatPane` embeds `CommandInput` bare: no dock.
 - Nothing renders for `readOnly` (archived) views or when no lane and no YOLO footer.
 - Files (`packages/client/src/components/chat/`): `ComposerDock.tsx` (layout, accordion render, compact mode, YOLO footer, live region), `composer-dock-model.ts` (`DockLane`, `DockLaneKey`, `DOCK_LANE_ORDER`, `useDockAccordion`), `useComposerDockLanes.ts` (builds Changes/OpenSpec/Queue/Context lanes), `ProcessesLane.tsx` + `ProcessesLaneBody.tsx` (built into dock), `ChangesLane.tsx`, `QueueLane.tsx`, `ContextLane.tsx`, `useDockCompactMode.ts`.
 - Lane order fixed: Processes, Changes, OpenSpec, Queue, Context. Lane renders only with content. Lane = `DockLane { key, label, icon, title, meta, summary, summaryText, actions, renderBody, expandable, live }`.
