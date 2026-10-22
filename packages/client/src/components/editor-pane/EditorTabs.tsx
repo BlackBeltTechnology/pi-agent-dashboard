@@ -139,6 +139,8 @@ export function EditorTabs({
       onClose(i);
       return;
     }
+    // Enter/Space on the nested × belongs to the button (its native click), not tab activation.
+    if ((e.key === "Enter" || e.key === " ") && e.target !== e.currentTarget) return;
     const next = tabNavTarget(e.key, i, openFiles.length - 1);
     if (next === null) return;
     e.preventDefault();

@@ -579,7 +579,7 @@ export function EditorPane() {
             dispatch({ type: "setActive", index: contextMenu.index });
             showInTree(contextTab.path);
           }}
-          onCopyPath={() => void copyText(absOf(cwd, contextTab.path))}
+          onCopyPath={() => void copyText(contextTab.path)}
         />
       )}
 

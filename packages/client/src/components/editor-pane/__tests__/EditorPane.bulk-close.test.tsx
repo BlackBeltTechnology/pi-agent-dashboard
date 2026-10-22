@@ -99,12 +99,16 @@ describe("tab context menu (#E14, #F7)", () => {
   });
 
   it("B4: outside-cwd file tabs get neither Show in file tree nor Copy path; in-cwd file tabs get both", () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
     seedPane("s1", [tab("src/a.ts"), tab("/etc/hosts"), tab("term:t1")], 0);
-    mount({ terminals: [{ id: "t1", title: "zsh" }] });
+    mount({ cwd: "/proj", terminals: [{ id: "t1", title: "zsh" }] });
     openMenuOn("src/a.ts");
     expect(screen.queryByTestId("tab-menu-show-in-tree")).toBeTruthy();
-    expect(screen.queryByTestId("tab-menu-copy-path")).toBeTruthy();
-    fireEvent.keyDown(screen.getByTestId("tab-context-menu"), { key: "Escape" });
+    // The item copies the RELATIVE path (spec: "Copy relative path" for tabs inside the cwd).
+    expect(screen.getByTestId("tab-menu-copy-path").textContent).toBe("Copy relative path");
+    fireEvent.click(screen.getByTestId("tab-menu-copy-path"));
+    expect(writeText).toHaveBeenLastCalledWith("src/a.ts");
     openMenuOn("/etc/hosts");
     expect(screen.queryByTestId("tab-menu-show-in-tree")).toBeNull();
     expect(screen.queryByTestId("tab-menu-copy-path")).toBeNull();

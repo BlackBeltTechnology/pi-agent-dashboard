@@ -1,6 +1,7 @@
 /**
  * Tab context menu (`tab-context-menu`): Close, Close other tabs, Close tabs
- * to the right, Close all tabs, and for file tabs Show in file tree / Copy path.
+ * to the right, Close all tabs, and for file tabs inside the pane cwd Show in file tree /
+ * Copy relative path.
  * Opened by secondary click, the ContextMenu key or Shift+F10 on a tab.
  *
  * See change: scope-anchor-editor-pane-controls (D9, D12).
@@ -43,7 +44,7 @@ export function TabContextMenu(p: TabContextMenuProps) {
       {p.fileTab && (
         <>
           <MenuItem testId="tab-menu-show-in-tree" label={t("editor.showInFileTree", undefined, "Show in file tree")} onSelect={run(p.onShowInTree)} />
-          <MenuItem testId="tab-menu-copy-path" label={t("editor.copyPath", undefined, "Copy path")} onSelect={run(p.onCopyPath)} />
+          <MenuItem testId="tab-menu-copy-path" label={t("editor.copyRelativePath", undefined, "Copy relative path")} onSelect={run(p.onCopyPath)} />
         </>
       )}
     </MenuPopover>

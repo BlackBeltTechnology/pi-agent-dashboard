@@ -69,6 +69,21 @@ describe("EditorTabs pane-bar behaviour", () => {
     expect(p.onClose).toHaveBeenCalledWith(1);
   });
 
+  it("Enter/Space on the nested × is left to the button (no tab activation, default not prevented)", () => {
+    const p = props();
+    render(<EditorTabs {...p} />);
+    const x = screen.getAllByRole("button")[0];
+    for (const key of ["Enter", " "]) {
+      const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      x.dispatchEvent(ev);
+      expect(ev.defaultPrevented, key).toBe(false);
+    }
+    expect(p.onActivate).not.toHaveBeenCalled();
+    // The tab itself still activates on Enter.
+    fireEvent.keyDown(screen.getAllByTestId("editor-tab")[0], { key: "Enter" });
+    expect(p.onActivate).toHaveBeenCalledWith(0);
+  });
+
   it("secondary click, ContextMenu key and Shift+F10 request the tab menu with the tab as anchor", () => {
     const onContextMenuTab = vi.fn();
     render(<EditorTabs {...props()} onContextMenuTab={onContextMenuTab} />);
