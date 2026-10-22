@@ -32,6 +32,7 @@ import { notifyExposureChanged } from "../lib/live-preview/exposure-store.js";
 import { setQuestions } from "../lib/questions/question-store.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
 import type { ReplayPersister } from "../lib/replay/replay-persist.js";
+import { removeLookupOnly } from "../lib/session/lookup-merge.js";
 import { inferPlatform, pathKey, resolveSessionGroupPath } from "../lib/session/session-grouping.js";
 import { clearRecoveryOffer, setRecoveryOffer } from "../lib/state/recovery-offer-bus.js";
 import { pushSpawnErrorToast } from "../lib/state/spawn-error-toast-bus.js";
@@ -225,6 +226,12 @@ export interface MessageHandlerSetters {
    * See change: fix-connect-snapshot-frame-loss (D7/D9).
    */
   setSnapshotGeneration?: React.Dispatch<React.SetStateAction<number>>;
+  /**
+   * Ids merged into `sessions` by a deep-link lookup that no page/snapshot has
+   * delivered yet. A page result removes the ids it carries; a snapshot clears
+   * the set (it REPLACES `sessions`). See change: add-session-ui-deep-links-for-agents.
+   */
+  setLookupOnlyIds?: React.Dispatch<React.SetStateAction<Set<string>>>;
 }
 
 export interface MessageHandlerDeps {
@@ -326,7 +333,7 @@ export function useMessageHandler(
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
-    setPageReplyGen, setPageExhausted,
+    setPageReplyGen, setPageExhausted, setLookupOnlyIds,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
@@ -1678,6 +1685,7 @@ export function useMessageHandler(
           for (const s of msg.sessions) next.set(s.id, s);
           return next;
         });
+        setLookupOnlyIds?.((prev) => removeLookupOnly(prev, msg.sessions.map((s) => s.id)));
         setSessionOrderMap((prev) => {
           const next = new Map(prev);
           const current = prev.get(msg.cwd) ?? [];
@@ -1749,6 +1757,7 @@ export function useMessageHandler(
         // “Show N ended” divider after a reconnect.
         // See change: fix-stale-sessions-on-reconnect.
         setSessions(new Map(msg.sessions.map((s) => [s.id, s])));
+        setLookupOnlyIds?.((prev) => (prev.size === 0 ? prev : new Set()));
         setSessionOrderMap(new Map(Object.entries(msg.orders)));
         // D4/D9: endedTotals replaced wholesale; pages are void after a
         // snapshot (the window resets); the generation bump re-runs OpenSpec

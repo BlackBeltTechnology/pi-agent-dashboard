@@ -3575,4 +3575,12 @@ export const huCatalog: Record<string, string> = {
   "sessionList.clearFolderFilter": "Mappaszűrő törlése",
   "sessionList.clearSessionSearch": "Munkamenet-keresés törlése",
   "connection.offlineWord": "Offline",
+  "session.notFound.title": "Munkamenet nem található",
+  "session.notFound.hint": "A teljes munkamenet-azonosítót a GET /api/sessions adja meg. Archivált munkamenet a teljes azonosítóval és ?archived=1 paraméterrel nyílik meg.",
+  "session.notFound.back": "Vissza a munkamenetekhez",
+  "session.notFound.candidates": "Egyező munkamenetek:",
+  "session.notFound.retry": "Újra",
+  "session.resolving": "Munkamenet betöltése…",
+  "embed.exit": "Teljes irányítópult megnyitása",
+  "embed.noSession": "Nincs kiválasztott munkamenet",
 };

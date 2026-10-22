@@ -101,6 +101,8 @@ The result never has a trailing slash.
 
 **Gate (task 2.1)** — zrok's Host / `X-Forwarded-Host` behaviour has not been verified. If a live share carries the share host in neither header, branch 1 cannot select the tunnel and tunnel callers get a localhost link. In that case `ship-it` hands back (`SHIP_IT_BLOCKED.md`) for a design revision. There is no silent fallback.
 
+**Gate result (task 2.1, passed)** — a live `zrok share public` (v2, `shares.zrok.io` frontend) to a header-echo listener showed `Host: <share>.shares.zrok.io` (the share host, no port), no `X-Forwarded-Host`, and `X-Forwarded-Proto: https`. Branch 1 therefore matches on `Host`; the `X-Forwarded-Host` candidate stays as a harmless extra for other proxies. The spike share and listener were torn down afterwards.
+
 ### D2 — Shared `sessionUiPath(id, view?)`
 
 `packages/shared/src/session-ui-path.ts` exports `sessionUiPath(id, view?: "diff" | "editor")`, which returns `/session/${encodeURIComponent(id)}` plus `/${view}`. It is pure and has no base.
@@ -243,6 +245,7 @@ Independently, the flag lives in this tab's `sessionStorage`, which survives a s
 - **zrok header behaviour unknown** → gated by spike 2.1, which hands back on failure.
 - **Sticky embed** → per-tab, inherited only by opened-from tabs, with a visible exit and `?embed=0`.
 - **Prefix collision** → ≥ 8-character floor, ambiguity listing, exact match wins, re-evaluation on `sessions` change. Resolution covers the whole registry through the server lookup, not just the snapshot window.
+- **UUIDv7 prefix collisions** → session ids are UUIDv7: the first 8 hex characters are the top 32 bits of a millisecond timestamp, so sessions created within about 65 s share them (seen in the L3 harness). The 8-character floor therefore resolves only when the prefix is unique; otherwise the not-found state lists the candidates. The reference tells agents to prefer `uiUrl`. Not a defect of the rule, but "first UUID group is what an agent naturally copies" does not give uniqueness.
 - **Delayed subscribe** → a fresh full-id deep link waits for the snapshot (one frame). Reconnects keep the sticky id.
 - **Looked-up rows outside the order map** → a later `sessions_page_result` that contains the id must still place it in order. Pinned by a test (task 3.x).
 - **Redirect semantics** → `url-routing` "Deep-link session on refresh" is modified. The vanish-while-viewing redirect is kept and pinned by scenarios. `add-persistent-onboarding-card` only navigates to ids it just received, which are live.

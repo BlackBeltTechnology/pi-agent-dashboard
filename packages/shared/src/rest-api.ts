@@ -81,7 +81,12 @@ export interface ListSessionsQuery {
   status?: "active" | "ended";
 }
 
-export type ListSessionsResponse = ApiResponse<DashboardSession[]>;
+/** A `GET /api/sessions` row: the session plus absolute browser links built
+ *  from the origin the caller used. Never stored, never sent over the WebSocket.
+ *  See change: add-session-ui-deep-links-for-agents. */
+export type SessionListItem = DashboardSession & { uiUrl: string; diffUrl: string };
+
+export type ListSessionsResponse = ApiResponse<SessionListItem[]>;
 
 // ── Events ──────────────────────────────────────────────────────────
 

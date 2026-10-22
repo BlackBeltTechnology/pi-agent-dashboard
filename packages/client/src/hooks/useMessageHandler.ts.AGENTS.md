@@ -26,3 +26,5 @@ See change: add-pending-question-stack — `case "questions_update"` → `setQue
 - `terminal_limit_reached` → notice store; `terminal_added` clears that cwd's notices; `folder_refused` → error toast. See change: harden-server-capability-bounds.
 
 Handles `preview_exposure_changed` → `notifyExposureChanged(epoch)`. See change: improve-canvas-html-and-url-ux.
+
+New setter `setLookupOnlyIds`: `sessions_page_result` removes the ids it delivers, `sessions_snapshot` clears the set (lookup-merged rows are excluded from the held-ended count until then). See change: add-session-ui-deep-links-for-agents.

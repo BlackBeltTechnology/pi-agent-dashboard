@@ -3577,4 +3577,12 @@ export const zhCNCatalog: Record<string, string> = {
   "sessionList.clearFolderFilter": "清除文件夹筛选",
   "sessionList.clearSessionSearch": "清除会话搜索",
   "connection.offlineWord": "离线",
+  "session.notFound.title": "未找到会话",
+  "session.notFound.hint": "完整的会话 ID 来自 GET /api/sessions。已归档的会话需使用完整 ID 和 ?archived=1 打开。",
+  "session.notFound.back": "返回会话列表",
+  "session.notFound.candidates": "匹配的会话：",
+  "session.notFound.retry": "重试",
+  "session.resolving": "正在加载会话…",
+  "embed.exit": "打开完整仪表板",
+  "embed.noSession": "未选择会话",
 };
