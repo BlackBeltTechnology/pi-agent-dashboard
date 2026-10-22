@@ -501,9 +501,15 @@
     "pin-electron-bundle-dependency-tree": "ui",
     "fix-split-divider-drag": "ui",
     "add-access-provisioning": "ui",
+    "add-fluid-chat-motion": "ui",
     "codeql-model-pack-and-mirror": "codeql-debt",
     "core-cwd-admission": "codeql-debt",
-    "triage-codeql-alert-debt": "codeql-debt"
+    "triage-codeql-alert-debt": "codeql-debt",
+    "add-composer-dock": "ui",
+    "reorganize-session-header": "ui",
+    "fix-folder-card-pill-contrast": "ui",
+    "fix-windows-bundled-bash-exe": "ui",
+    "fix-worktree-init-chip-overflow": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -518,16 +524,15 @@
       "ab-test-rlm-delegation-claim",
       "fix-npm12-remote-tarball-install",
       "close-residual-audit-findings",
-      "prove-vault-bridge-tls"
+      "prove-vault-bridge-tls",
+      "add-craft-web-media-projects"
     ],
     "ui": [
-      "pin-electron-bundle-dependency-tree",
-      "add-meeting-bot-attendee",
-      "fix-split-divider-drag",
-      "add-access-provisioning",
-      "resync-hermes-memory-config-0-9",
-      "improve-canvas-html-and-url-ux",
-      "extend-craft-web-to-all-apps"
+      "fix-worktree-init-chip-overflow",
+      "fix-windows-bundled-bash-exe",
+      "fix-folder-card-pill-contrast",
+      "add-composer-dock",
+      "add-meeting-bot-attendee"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
