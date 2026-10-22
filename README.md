@@ -298,7 +298,15 @@ CLI flags → environment variables → config file → built-in defaults.
 
 Push notifications: manage devices and webhooks under Settings ▸ Sessions ▸ Push notifications; details in "Push Notifications" in [docs/architecture.md](docs/architecture.md).
 
-The bridge also honours `PI_DASHBOARD_URL=ws://host:port` to point at a remote server instead of localhost.
+The bridge also honours `PI_DASHBOARD_URL=ws://host:port` to point at a remote server instead of localhost. For a remote server, `port` is the **pi gateway** port (default `9999`), not the web UI port.
+
+A remote bridge (one with `PI_DASHBOARD_TOKEN` set) also makes HTTP calls to the dashboard (ticket mint, identity check, trust query). It sends those to the dashboard's **HTTP** origin, resolved as:
+
+1. `PI_DASHBOARD_HTTP_URL` (e.g. `https://dash.example`) when set. Only its origin is used. It applies to the host named in `PI_DASHBOARD_URL`; an invalid value (not `http(s)`, or with credentials) is refused, never ignored.
+2. Plaintext `ws://host:<port>`: `http://host:<HTTP port>`, where the HTTP port is `PI_DASHBOARD_PORT` → `DASHBOARD_PORT` → `8000`. The bridge machine's own `~/.pi/dashboard/config.json` is not read. If this machine also runs its own dashboard on a custom port, set `PI_DASHBOARD_HTTP_URL` instead.
+3. `wss://host[:port]` or a port-less `ws://host`: the endpoint's own origin (a TLS proxy in front is assumed to route `/api`).
+
+**Breaking (narrow):** a plaintext reverse proxy serving both `/api` and the bridge path on one explicit non-default `ws://host:<port>` now needs `PI_DASHBOARD_HTTP_URL` (or `PI_DASHBOARD_PORT=<port>`). The bridge log prints the resolved `http origin <origin> (<source>)`; `bridge ticket wrong-origin` means that origin is not the dashboard's HTTP listener.
 
 #### Pi sessions directory
 
