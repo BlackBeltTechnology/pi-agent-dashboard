@@ -55,7 +55,7 @@ import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
 import { createDigestGate, type DigestGate, type DigestLane } from "../lib/digest-gate.js";
 import { EML_SIZE_CAP, loadParsedEml, toParseResult } from "../lib/eml.js";
-import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire } from "../lib/file-cwd-admission.js";
+import { admitFileCwd, CWD_UNAVAILABLE_FAILURE, cwdAnchors, type GateWire, releaseOnClose } from "../lib/file-cwd-admission.js";
 import { enumerateMdCandidates } from "../lib/md-candidates.js";
 import { extToContentType } from "../lib/mime-types.js";
 import {
@@ -1152,8 +1152,7 @@ export function registerFileRoutes(
         if (held.kind !== "admit" || !admissionAllows(held, cwd)) return existsRefusal();
         const token = held.token;
         const release = (): void => releaseAdmission(token);
-        reply.raw.once("close", release);
-        if (reply.raw.destroyed) release();
+        releaseOnClose(reply, release);
         admitted = { ok: true, cwd, canonCwd: token.canonCwd, release };
       }
       // Anti-traversal: probePath MUST be inside cwd (or a pinned dir / repo

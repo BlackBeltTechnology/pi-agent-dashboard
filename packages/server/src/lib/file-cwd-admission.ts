@@ -63,6 +63,15 @@ export type FileCwdAdmission =
   | { ok: false; failure: CwdFailure };
 
 /**
+ * Release an admission when the response closes (success, error, throw or disconnect). The client may
+ * have gone while admission ran (`close` already fired): then release at once.
+ */
+export function releaseOnClose(reply: FastifyReply, release: () => void): void {
+  reply.raw.once("close", release);
+  if (reply.raw.destroyed) release();
+}
+
+/**
  * Admit a request `cwd` through the shared guard for the file-family routes (change:
  * core-file-cwd-admission, D1). The branch on `admissionAllows(admission, raw)` is right here so
  * the modelled path-injection barrier survives; every file gate helper and inline route calls
@@ -84,11 +93,7 @@ export async function admitFileCwd(
   }
   const token = admission.token;
   const release = (): void => releaseAdmission(token);
-  if (opts.reply) {
-    opts.reply.raw.once("close", release);
-    // The client may have gone while admission ran (`close` already fired): release at once.
-    if (opts.reply.raw.destroyed) release();
-  }
+  if (opts.reply) releaseOnClose(opts.reply, release);
   return { ok: true, cwd: raw, canonCwd: token.canonCwd, release };
 }
 
