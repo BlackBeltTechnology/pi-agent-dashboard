@@ -293,13 +293,13 @@ TDD throughout: write each test task first, watch it fail, then implement. Rebui
 
 ## 8. Manual verification (post-merge)
 
-- [ ] 8.1 Manual: look at the embed home message and `SessionNotFound` on base dark and base light, at 400 px and 1280 px. They should be readable, the exit control easy to find, and the layout not broken (test-plan: manual-only, #F21).
-- [ ] 8.2 Manual: through a real zrok public share, `curl https://<share>/api/sessions` with an observe token. Every `uiUrl` should start with `https://<share>/session/` (test-plan: manual-only, #X4).
-- [ ] 8.3 Manual: in the Claude desktop app with the plugin installed, ask the agent to show a session. The pane should open `uiUrl?embed=1` and show the chat with no sidebar (test-plan: manual-only, #X5).
+- [x] 8.1 Manual: look at the embed home message and `SessionNotFound` on base dark and base light, at 400 px and 1280 px. They should be readable, the exit control easy to find, and the layout not broken (test-plan: manual-only, #F21).
+- [x] 8.2 Manual: through a real zrok public share, `curl https://<share>/api/sessions` with an observe token. Every `uiUrl` should start with `https://<share>/session/` (test-plan: manual-only, #X4).
+- [x] 8.3 Manual: in the Claude desktop app with the plugin installed, ask the agent to show a session. The pane should open `uiUrl?embed=1` and show the chat with no sidebar (test-plan: manual-only, #X5).
 
 ## 9. Verify
 
-- [ ] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. Everything must be green.
+- [x] 9.1 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then grep the summary. Everything must be green.
 - [x] 9.2 `npm run quality:changed` comes back clean.
 - [x] 9.3 Run `review-code` on the diff, and `Audit` on the D1 resolver and the `id` filter (they handle untrusted input).
 - [x] 9.4 `openspec validate add-session-ui-deep-links-for-agents --strict`.
