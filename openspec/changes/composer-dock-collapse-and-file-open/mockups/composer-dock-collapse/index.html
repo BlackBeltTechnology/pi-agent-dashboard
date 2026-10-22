@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Composer dock — collapsible + hover-peek, Open file vs Diff (explore mockup)</title>
+<link rel="stylesheet" href="tokens.css" />
+<script src="icons.js"></script>
+<style>
+  /* Tokens only (tokens.css = generated copy of packages/client/src/index.css). */
+  * { box-sizing: border-box; }
+  html { background: var(--bg-primary); color: var(--text-primary); }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .mono { font-family: "SF Mono", Menlo, Monaco, Consolas, monospace; }
+  svg.i { width: 16px; height: 16px; fill: currentColor; flex: none; }
+  svg.i.sm { width: 13px; height: 13px; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-radius: 4px; }
+
+  /* ── board chrome ── */
+  .toolbar { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 8px 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-secondary); }
+  .toolbar h1 { font-size: 14px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .seg button { padding: 4px 10px; font-size: 12px; color: var(--text-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--tint-blue-bg); color: var(--tint-blue-fg); }
+  .seg button + button { border-left: 1px solid var(--border-secondary); }
+  .lbl { font-size: 12px; color: var(--text-secondary); }
+  main { padding: 20px 24px 80px; max-width: 1240px; }
+  h2 { font-size: 16px; margin: 40px 0 4px; }
+  h2:first-child { margin-top: 8px; }
+  h2 .tag, h3 .tag { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: 2px; }
+  .tag.rec { background: var(--tint-green-bg); color: var(--tint-green-fg); border: 1px solid var(--tint-green-border); }
+  .tag.cur { background: var(--tint-red-bg); color: var(--tint-red-fg); border: 1px solid var(--tint-red-border); }
+  .tag.alt { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-secondary); }
+  p.lead { color: var(--text-secondary); margin: 0 0 12px; max-width: 920px; font-size: 13px; }
+  h3 { font-size: 13px; margin: 22px 0 6px; color: var(--text-secondary); font-weight: 600; }
+  .note { font-size: 12px; color: var(--text-tertiary); margin: 6px 0 0; max-width: 920px; }
+  table.diag { border-collapse: collapse; font-size: 12px; margin-top: 12px; width: 100%; max-width: 1040px; }
+  table.diag th, table.diag td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border-primary); vertical-align: top; }
+  table.diag th { color: var(--text-tertiary); font-weight: 600; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 20px; max-width: 1180px; }
+
+  /* ── chat column replica ── */
+  .col { position: relative; width: 100%; max-width: 980px; height: 560px; display: flex; flex-direction: column;
+    border: 1px solid var(--border-secondary); border-radius: 10px; overflow: hidden; background: var(--bg-primary); }
+  body.narrow .col { max-width: 560px; }
+  .col.short { height: 330px; }
+  .transcript { flex: 1; min-height: 0; overflow: auto; padding: 18px 28px; color: var(--text-secondary); font-size: 14px; }
+  .transcript p { margin: 0 0 12px; max-width: 720px; }
+  .transcript .user { margin-left: auto; max-width: 520px; background: var(--bg-tertiary); border-radius: 10px; padding: 8px 12px; color: var(--text-primary); }
+  .bottom { flex: none; padding: 0 12px 12px; }
+
+  /* ── dock ── */
+  .dockwrap { position: relative; margin: 0 20px -24px; }           /* mx-5, tucks under composer card (-mb-6) */
+  .dock { position: relative; background: var(--bg-secondary); border: 1px solid var(--border-secondary);
+    border-radius: 12px 12px 0 0; padding-bottom: 24px; }            /* pb-6 under the card */
+  .lane { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 14px;
+    border-top: 1px solid var(--border-primary); }
+  .lane:first-child { border-top: 0; }
+  .lane .ttl { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: var(--text-primary); }
+  .lane .ttl svg { color: var(--text-secondary); }
+  .sp { flex: 1; }
+  .add { color: var(--accent-green-text); } .del { color: var(--accent-red-text); }
+  .act { font-weight: 600; font-size: 13px; padding: 4px 8px; border-radius: 6px; color: var(--text-primary); }
+  .act:hover { background: var(--bg-hover); }
+  .dash { border: 1px dashed var(--border-strong); border-radius: 6px; padding: 3px 8px; font-size: 13px; display: inline-flex; gap: 4px; align-items: center; color: var(--text-secondary); }
+  .cyan { color: var(--accent-blue-text); font-size: 13px; display: inline-flex; gap: 4px; align-items: center; }
+  .quota { display: inline-flex; align-items: center; gap: 8px; border: 1px dashed var(--border-strong); border-radius: 8px; padding: 3px 8px; font-size: 12px; }
+  .quota b { font-size: 11px; letter-spacing: .06em; color: var(--text-tertiary); }
+  .qp { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--tint-blue-border); border-radius: 6px; padding: 2px 6px; }
+  .bar { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--border-secondary); position: relative; overflow: hidden; vertical-align: middle; }
+  .bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent-green); }
+  .files { padding: 0 14px 6px 40px; }
+  .frow { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; border-radius: 6px; padding: 0 6px; margin: 0 -6px; }
+  .frow .nm { font-weight: 600; color: var(--text-primary); }
+  .frow .dir { color: var(--text-tertiary); font-size: 13px; }
+  .frow .dl { font-size: 13px; min-width: 56px; text-align: right; }
+  .foot { font-size: 13px; color: var(--text-secondary); padding: 6px 0 4px; display: flex; gap: 14px; }
+  .lanebody[hidden] { display: none; }
+
+  /* collapse handle on the dock's top edge (pinned state) */
+  .handle { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); z-index: 3;
+    display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 8px 0 6px; border-radius: 11px;
+    font-size: 11px; font-weight: 600; color: var(--text-secondary);
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary); }
+  .handle:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+  /* collapsed summary bar */
+  .cbar { display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 12px; text-align: left;
+    font-size: 12.5px; color: var(--text-secondary); background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary); border-bottom: 0; border-radius: 12px 12px 0 0; }
+  .cbar-wrap { padding-bottom: 24px; background: var(--bg-secondary); border-radius: 12px 12px 0 0; }
+  .cbar { overflow: hidden; white-space: nowrap; }
+  .cbar:hover { color: var(--text-primary); }
+  .col.short .cbar .hint, body.narrow .cbar .hint, .col.short .quota > span:last-child, body.narrow .quota > span:last-child { display: none; }
+  .quota, .qp { white-space: nowrap; }
+  .cbar .chip { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .cbar .chip b { color: var(--text-primary); font-weight: 600; }
+  .cbar .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); flex: none; }
+  .cbar .hint { margin-left: auto; font-size: 11px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 4px; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--status-working); box-shadow: 0 0 0 0 var(--status-working); animation: p 1.6s infinite; }
+  @keyframes p { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-working) 60%, transparent); } 100% { box-shadow: 0 0 0 6px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } .dock.peek { transition: none !important; } }
+
+  /* peek = overlay growing upward, composer never moves */
+  .dockwrap.is-collapsed, .dockwrap.is-peek { height: 58px; }        /* 34 bar + 24 tuck */
+  .dockwrap.is-peek .dock { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;  /* above transcript, below composer card (z 4) */
+    box-shadow: 0 -10px 28px -8px rgba(0,0,0,.28); border-color: var(--border-strong); }
+  .dock.peek { animation: grow .14s ease-out; transform-origin: bottom; }
+  @keyframes grow { from { opacity: .4; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .peekbadge { position: absolute; top: -11px; right: 14px; z-index: 3; display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11px; font-weight: 600;
+    background: var(--tint-blue-bg); color: var(--tint-blue-fg); border: 1px solid var(--tint-blue-border); }
+
+  /* composer card */
+  .card { position: relative; z-index: 4; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 14px; }
+  .card .in { padding: 14px 18px 10px; color: var(--text-tertiary); font-size: 15px; border-bottom: 1px solid var(--border-primary); min-height: 50px; }
+  .card .tb { display: flex; align-items: center; gap: 14px; padding: 8px 12px; font-size: 13px; color: var(--text-secondary); }
+  .card .send { width: 40px; height: 40px; border-radius: 8px; background: var(--bg-surface); display: grid; place-items: center; color: var(--text-tertiary); }
+
+  /* event log */
+  .log { margin-top: 8px; max-width: 980px; font-size: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .state { font-weight: 600; padding: 2px 8px; border-radius: 4px; background: var(--bg-tertiary); border: 1px solid var(--border-secondary); }
+  .log ol { margin: 0; padding: 0; list-style: none; display: flex; gap: 6px; flex-wrap: wrap; color: var(--text-tertiary); }
+  .log li::after { content: "→"; margin-left: 6px; color: var(--text-muted); }
+  .log li:last-child::after { content: ""; }
+
+  /* file-row variants */
+  .vbox { border: 1px solid var(--border-secondary); border-radius: 10px; background: var(--bg-secondary); padding: 8px 14px 10px; }
+  .vbox .files { padding-left: 26px; }
+  .linkbtn { font-weight: 600; font-size: 13px; padding: 3px 8px; border-radius: 6px; color: var(--text-primary); display: inline-flex; align-items: center; gap: 4px; }
+  .linkbtn:hover { background: var(--bg-hover); }
+  .linkbtn[aria-disabled="true"] { color: var(--text-muted); cursor: not-allowed; }
+  .linkbtn[aria-disabled="true"]:hover { background: none; }
+  .iconbtn { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--text-secondary); }
+  .iconbtn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .nmbtn { display: inline-flex; align-items: baseline; gap: 8px; border-radius: 4px; text-align: left; min-width: 0; }
+  .nmbtn:hover .nm { text-decoration: underline; text-underline-offset: 3px; }
+  .muted-note { font-size: 11px; color: var(--text-tertiary); }
+  .menu { position: absolute; right: 0; top: 30px; z-index: 10; min-width: 170px; background: var(--bg-secondary); border: 1px solid var(--border-strong);
+    border-radius: 8px; box-shadow: var(--shadow-card); padding: 4px; }
+  .menu button { display: flex; gap: 8px; align-items: center; width: 100%; padding: 6px 8px; border-radius: 5px; font-size: 13px; }
+  .menu button:hover { background: var(--bg-hover); }
+
+  /* mini editor pane (result of a click) */
+  .ep { margin-top: 10px; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; background: var(--bg-primary); font-size: 12px; }
+  .ep .tabs { display: flex; background: var(--bg-secondary); border-bottom: 1px solid var(--border-primary); }
+  .ep .tab { padding: 6px 12px; display: inline-flex; gap: 6px; align-items: center; border-right: 1px solid var(--border-primary); color: var(--text-secondary); }
+  .ep .tab.on { background: var(--bg-primary); color: var(--text-primary); font-weight: 600; }
+  .ep pre { margin: 0; padding: 8px 12px; font: 12px/1.55 "SF Mono", Menlo, monospace; color: var(--text-secondary); min-height: 92px; }
+  .ep .a { background: var(--tint-green-bg); color: var(--tint-green-fg); display: block; }
+  .ep .r { background: var(--tint-red-bg); color: var(--tint-red-fg); display: block; }
+  .ep .foot2 { padding: 4px 12px; color: var(--text-tertiary); border-top: 1px solid var(--border-primary); background: var(--bg-secondary); }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <h1>Composer dock — collapse + hover-peek · Open file vs Diff</h1>
+  <span class="lbl">Theme</span>
+  <div class="seg" id="theme">
+    <button aria-pressed="false" data-v="dark">Base dark</button><button aria-pressed="true" data-v="light">Base light</button><button aria-pressed="false" data-v="nord">Nord dark</button>
+  </div>
+  <span class="lbl">Column</span>
+  <div class="seg" id="width">
+    <button aria-pressed="true" data-v="wide">Desktop</button><button aria-pressed="false" data-v="narrow">Narrow</button>
+  </div>
+</div>
+
+<main>
+<h2>1 · Live replica — try it <span class="tag rec">proposed</span></h2>
+<p class="lead">Click the <b>Hide</b> handle on the dock's top edge to collapse. Then rest the pointer on the slim bar:
+after a <b>300 ms dwell</b> below the speed cutoff (same constants as the session-actions menu hover strip) the dock <b>peeks</b> as an overlay growing upward over the transcript (composer never moves, no chat reflow).
+Leave → closes after a <b>300 ms grace</b>. Click the bar while peeking → <b>pins</b> it open (same rule as the session-actions menu:
+a click converts a hover-open into a click-open). A sweep across the bar toward the composer (≥0.4 px/ms over the last 100 ms) never arms. <kbd>Esc</kbd> closes a peek.</p>
+
+<div class="col" id="live">
+  <div class="transcript">
+    <p class="user">Add a keyboard shortcut for the editor-pane toolbar and mock up the tooltip.</p>
+    <p>I updated <span class="mono">mockups/editor-pane-toolbar/index.html</span> with the anchored controls and added an <span class="mono">AGENTS.md</span> row.</p>
+    <p>Still open: the keyboard shortcut. Chrome's is ⌘⇧A, but I haven't checked whether that's already taken in the dashboard's global keymap.</p>
+    <p>Three files changed in this session; twenty other working-tree changes predate it.</p>
+  </div>
+  <div class="bottom">
+    <div class="dockwrap" id="dw"></div>
+    <div class="card">
+      <div class="in">Message, /command, !shell, or @file…</div>
+      <div class="tb"></div>
+    </div>
+  </div>
+</div>
+<div class="log"><span>State:</span><span class="state" id="st">expanded · pinned</span><ol id="ev"></ol></div>
+
+<h2>2 · States</h2>
+<p class="lead">Collapsed bar = one line of lane summaries (counts only, never actions). A lane that needs attention keeps its signal in the bar
+(pulse for running processes, count for queued follow-ups) so collapsing never hides live state.</p>
+<div class="grid2" id="states"></div>
+
+<h2>3 · Changes rows — open the file itself, not only the diff</h2>
+<p class="lead">Today every row has one action, <b>Diff</b>, and it ignores the path: <span class="mono">onOpenFile={() =&gt; navigate(buildSessionDiffUrl(id))}</span>
+opens the whole-session diff page. Proposal: two targets per row. <b>Open</b> → <span class="mono">openInSplit(path)</span> opens the file in the editor pane
+(file viewer / Monaco, plugin file-handler modes apply). <b>Diff</b> → a per-file <span class="mono">diff:</span> tab via <span class="mono">openDiffTab()</span>.
+Click a button in each variant to see what lands in the editor pane.</p>
+<div class="grid2" id="variants"></div>
+
+<h2>4 · Behaviour contract (draft)</h2>
+<table class="diag">
+<tr><th>Trigger</th><th>Collapsed</th><th>Peek (hover-open)</th><th>Expanded (pinned)</th></tr>
+<tr><td>Pointer stays on bar 300 ms, speed &lt; 0.4 px/ms (last 100 ms)</td><td>→ Peek</td><td>—</td><td>—</td></tr>
+<tr><td>Pointer leaves bar + dock &gt; 300 ms grace</td><td>—</td><td>→ Collapsed</td><td>stays</td></tr>
+<tr><td>Click bar / Enter / Space on bar</td><td>→ Expanded</td><td>→ Expanded (pin)</td><td>—</td></tr>
+<tr><td>Click <b>Pin</b> button (peek)</td><td>—</td><td>→ Expanded (pin)</td><td>—</td></tr>
+<tr><td>Click <b>Hide</b> handle</td><td>—</td><td>→ Collapsed</td><td>→ Collapsed</td></tr>
+<tr><td><kbd>Esc</kbd></td><td>—</td><td>→ Collapsed, focus to bar</td><td>—</td></tr>
+<tr><td>Popover / menu open inside the dock (⋯, Attach change, Worktree)</td><td>—</td><td>leave does NOT close (pinned implicitly)</td><td>—</td></tr>
+<tr><td>Lane accordion (Changes files list)</td><td colspan="3">Independent of collapse. Peek shows the dock with the lane open/closed exactly as last left (<span class="mono">useDockAccordion</span> unchanged).</td></tr>
+<tr><td>Touch / no hover (<span class="mono">(hover: none)</span>)</td><td colspan="3">No peek. Tap bar toggles Expanded. Bar min height 44 px on touch.</td></tr>
+<tr><td>Compact column (&lt;32.5rem, chip row + sheet)</td><td colspan="3">Collapse hides the chip row behind the same bar; tap opens the existing sheet directly.</td></tr>
+<tr><td>Persistence</td><td colspan="3"><b>Per session</b>: collapsed/expanded kept per session id (<span class="mono">localStorage</span> key <span class="mono">composer-dock:collapsed:&lt;sessionId&gt;</span>, like <span class="mono">useTreeVisible(sessionId)</span>). New session starts <b>expanded</b>; no auto-collapse — the user drives it with Hide / Pin.</td></tr>
+<tr><td>a11y</td><td colspan="3">Bar = <span class="mono">button aria-expanded aria-controls=dock</span>, label "Session context: 3 files changed, OpenSpec, quota 55%". Handle = "Hide session context". Peek never moves focus. Existing sr-only live region keeps announcing counts while collapsed.</td></tr>
+</table>
+
+<h3>Decisions</h3>
+<ul class="note" style="font-size:13px;color:var(--text-secondary)">
+  <li><b>Dwell 300 ms + speed cutoff 0.4 px/ms + 300 ms grace</b> — the session-actions menu hover-strip constants (<span class="mono">session-hover-intent.ts</span>), reused.</li>
+  <li><b>Explicit Hide + Pin buttons.</b> Default state expanded; no auto-collapse. Hide (top-edge handle) collapses; Pin (on a peek) or a click on the bar keeps it open.</li>
+  <li><b>Per session</b> persistence of the collapsed state.</li>
+  <li><b>Out-of-cwd files: Open always offered.</b> A granted folder opens directly; an ungranted one raises the standard access-grant dialog from the viewer's own read (no client pre-check). No Diff outside the session folder (unchanged).</li>
+  <li>Variant A: file name click = Open, plus explicit Open and Diff buttons.</li>
+</ul>
+</main>
+
+<script>
+/* ---------- shared fragments ---------- */
+const FILES = [
+  { nm: "AGENTS.md", dir: "mockups", d: '<span class="add">+1</span> <span class="del">−0</span>' },
+  { nm: "editor-pane-toolbar", dir: "mockups", d: "" },
+  { nm: "index.html", dir: "mockups/editor-pane-toolbar", d: "" },
+];
+function changesLane(open = true) {
+  return `<div class="lane"><span class="ttl">${ic("FileDocumentMultipleOutline")}3 files changed <span class="add">+1</span> <span class="del">−0</span>
+      <button class="iconbtn" data-acc aria-expanded="${open}" aria-label="Toggle file list">${ic(open ? "ChevronDown" : "ChevronUp")}</button></span>
+      <span class="sp"></span><button class="act">Review</button></div>
+    <div class="lanebody files" ${open ? "" : "hidden"}>
+      ${FILES.map((f) => `<div class="frow">${ic("FileDocumentOutline")}<span class="nm">${f.nm}</span><span class="dir">${f.dir}</span><span class="sp"></span>
+        <span class="dl">${f.d}</span><button class="linkbtn">${ic("FileEyeOutline", "sm")}Open</button><button class="linkbtn">${ic("FileCompare", "sm")}Diff</button></div>`).join("")}
+      <div class="foot">20 other changes, not from this session <button class="act" style="padding:0">Show</button></div>
+    </div>`;
+}
+const openspecLane = `<div class="lane"><span class="ttl">${ic("TextBoxCheckOutline")}OpenSpec</span><span class="sp"></span>
+  <span class="dash">${ic("Paperclip", "sm")}Attach change…</span><span class="cyan">${ic("CompassOutline", "sm")}Explore</span>
+  <button class="iconbtn" aria-label="More">${ic("DotsHorizontal")}</button></div>`;
+const contextLane = `<div class="lane"><span class="ttl">${ic("ViewDashboardOutline")}</span><span class="sp"></span>
+  <span class="quota"><b>QUOTA</b><span class="qp"><strong>Anthropic</strong> 5h <span class="bar"><i style="width:55%"></i></span> 55% 7d <span class="bar"><i style="width:31%"></i></span> 31%</span>
+  <span style="color:var(--text-tertiary)">OpenCode Go 5h 0% · 7d 5% · 30d 24%</span></span></div>`;
+const processLane = `<div class="lane"><span class="ttl">${ic("CursorDefaultOutline")}1 running <span class="muted-note" style="font-weight:400">npm test · 42s</span></span><span class="sp"></span><button class="act">Kill</button></div>`;
+
+function cbar({ withProc = false, queued = 0 } = {}) {
+  return `<div class="cbar-wrap"><button class="cbar" data-cbar aria-expanded="false" aria-controls="dock"
+     aria-label="Session context: 3 files changed, OpenSpec, quota 55 percent. Show">
+    ${ic("ChevronUp", "sm")}
+    ${withProc ? `<span class="chip"><span class="pulse"></span><b>1 running</b></span><span class="dot"></span>` : ""}
+    <span class="chip">${ic("FileDocumentMultipleOutline", "sm")}<b>3 files</b> <span class="add">+1</span> <span class="del">−0</span></span><span class="dot"></span>
+    <span class="chip">${ic("TextBoxCheckOutline", "sm")}OpenSpec</span><span class="dot"></span>
+    <span class="chip">${ic("ViewDashboardOutline", "sm")}Anthropic 55% · 31%</span>
+    ${queued ? `<span class="dot"></span><span class="chip"><b>${queued} queued</b></span>` : ""}
+    <span class="hint">hover to peek · click to open</span></button></div>`;
+}
+function dock({ state, withProc = false, accOpen = true }) {
+  const lanes = (withProc ? processLane : "") + changesLane(accOpen) + openspecLane + contextLane;
+  if (state === "collapsed") return cbar({ withProc });
+  return `<div class="dock ${state === "peek" ? "peek" : ""}" id="dock">
+    <button class="handle" data-hide aria-label="Hide session context">${ic("ChevronDown", "sm")}Hide</button>
+    ${state === "peek" ? `<button class="peekbadge" data-pin aria-label="Pin session context open">${ic("Pin", "sm")}Pin</button>` : ""}
+    ${lanes}</div>`;
+}
+const composer = `<div class="card"><div class="in">Message, /command, !shell, or @file…</div>
+  <div class="tb">${ic("Plus")}<span style="display:inline-flex;gap:4px;align-items:center">${ic("Flag", "sm")}Steer ${ic("ChevronDown", "sm")}</span>
+  <span class="sp"></span><span class="mono" style="font-size:13px">anthropic/claude-opus-5-5 · high ${''}</span><span class="send">${ic("Send")}</span></div></div>`;
+
+/* ---------- 1 · live replica ---------- */
+const live = document.getElementById("live");
+live.querySelector(".card").outerHTML = composer;
+const dw = document.getElementById("dw");
+const st = document.getElementById("st"), ev = document.getElementById("ev");
+let S = "expanded", acc = true, dwellT = 0, graceT = 0, samples = [];
+const DWELL = 300, GRACE = 300, SPEED = 0.4, WIN = 100; // session-hover-intent constants
+function log(s) { const li = document.createElement("li"); li.textContent = s; ev.appendChild(li); while (ev.children.length > 7) ev.firstChild.remove(); }
+function set(s, why) {
+  S = s; clearTimeout(dwellT); dwellT = 0; clearTimeout(graceT);
+  dw.className = "dockwrap" + (s === "collapsed" ? " is-collapsed" : s === "peek" ? " is-peek" : "");
+  dw.innerHTML = s === "peek" ? cbar() + dock({ state: "peek", accOpen: acc }) : dock({ state: s, accOpen: acc });
+  st.textContent = { expanded: "expanded · pinned", collapsed: "collapsed", peek: "peek · hover-open (overlay)" }[s];
+  if (why) log(why);
+}
+dw.addEventListener("click", (e) => {
+  if (e.target.closest("[data-hide]")) return set("collapsed", "Hide click");
+  if (e.target.closest("[data-pin]")) return set("expanded", "Pin click → pinned");
+  if (e.target.closest("[data-cbar]") || (S === "peek" && e.target.closest(".dock"))) {
+    if (S !== "expanded") { set("expanded", S === "peek" ? "click → pin" : "bar click → expand"); }
+    return;
+  }
+  if (e.target.closest("[data-acc]")) { acc = !acc; set(S, acc ? "Changes lane open" : "Changes lane closed"); }
+});
+dw.addEventListener("pointermove", (e) => {
+  if (S !== "collapsed" || e.pointerType === "touch") return;
+  // session-hover-intent rule: open once the pointer has stayed DWELL ms AND its speed over the
+  // last WIN ms is below SPEED. A fast pass toward the composer leaves before either holds.
+  const now = performance.now();
+  samples.push({ t: now, x: e.clientX, y: e.clientY });
+  samples = samples.filter((p) => now - p.t <= WIN);
+  if (!dwellT) dwellT = setTimeout(function check() {
+    const t = performance.now(); const w = samples.filter((p) => t - p.t <= WIN);
+    const sp = w.length < 2 ? 0 : Math.hypot(w.at(-1).x - w[0].x, w.at(-1).y - w[0].y) / Math.max(1, w.at(-1).t - w[0].t);
+    if (sp < SPEED) { dwellT = 0; set("peek", "dwell 300ms → peek"); } else dwellT = setTimeout(check, 50);
+  }, DWELL);
+});
+dw.addEventListener("pointerleave", () => {
+  clearTimeout(dwellT); dwellT = 0; samples = [];
+  if (S === "peek") graceT = setTimeout(() => set("collapsed", "left > 300ms grace → collapse"), GRACE);
+});
+dw.addEventListener("pointerenter", () => clearTimeout(graceT));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && S === "peek") { set("collapsed", "Esc"); dw.querySelector("[data-cbar]")?.focus(); } });
+set("expanded");
+
+/* ---------- 2 · static states ---------- */
+const states = [
+  ["A · Expanded (pinned) — today + Hide handle", "expanded", {}],
+  ["B · Collapsed — one-line summary bar", "collapsed", {}],
+  ["C · Peek — overlay grows upward, composer fixed", "peek", {}],
+  ["D · Collapsed with live process — signal survives", "collapsed", { withProc: true }],
+];
+document.getElementById("states").innerHTML = states.map(([t, s, o]) => `<div><h3>${t}</h3>
+  <div class="col short"><div class="transcript"><p>…transcript…</p><p>Still open: the keyboard shortcut. Chrome's is ⌘⇧A, but I haven't checked whether that's already taken.</p></div>
+  <div class="bottom"><div class="dockwrap ${s === "collapsed" ? "is-collapsed" : s === "peek" ? "is-peek" : ""}">
+  ${s === "peek" ? cbar(o) + dock({ state: "peek", accOpen: false, ...o }) : dock({ state: s, accOpen: false, ...o })}</div>${composer}</div></div></div>`).join("");
+
+/* ---------- 3 · file-row variants ---------- */
+const ROWS = [
+  { nm: "AGENTS.md", dir: "mockups", d: '<span class="add">+1</span> <span class="del">−0</span>' },
+  { nm: "index.html", dir: "mockups/editor-pane-toolbar", d: '<span class="add">+412</span>' },
+  { nm: "old-toolbar.css", dir: "mockups", d: '<span class="del">−88</span>', deleted: true },
+  { nm: "settings.json", dir: "~/.pi/agent (granted)", d: "", outside: true },
+  { nm: "notes.md", dir: "~/Private (no grant → access dialog)", d: "", outside: true, noAccess: true },
+];
+function result(kind, r) {
+  if (kind === "open") return `<div class="ep"><div class="tabs"><span class="tab on">${ic("FileDocumentOutline", "sm")}${r.nm}</span><span class="tab">${ic("FileCompare", "sm")}Changes</span></div>
+    <pre>&lt;!DOCTYPE html&gt;\n&lt;html lang="en"&gt;\n&lt;head&gt;\n  &lt;meta charset="utf-8" /&gt;\n  &lt;title&gt;Editor pane — scope-anchored controls&lt;/title&gt;</pre>
+    <div class="foot2">file viewer · html · ${r.dir}/${r.nm} — the file itself, current working-tree content</div></div>`;
+  return `<div class="ep"><div class="tabs"><span class="tab">${ic("FileDocumentOutline", "sm")}Changes</span><span class="tab on">${ic("FileCompare", "sm")}diff: ${r.nm}</span></div>
+    <pre><span class="r">- | \`editor-pane/\` | Editor pane mockup |</span><span class="a">+ | \`editor-pane-toolbar/\` | Scope-anchored toolbar mockup. Pending change: … |</span>  | \`goal/\` | …</pre>
+    <div class="foot2">diff: tab · per-file, scrolled to this file (not the whole-session diff page)</div></div>`;
+}
+const why = (r) => r.deleted ? "File deleted — nothing to open" : r.noAccess ? "No folder access" : "";
+const noOpen = (r) => r.deleted;
+const V = {
+  A: { title: "A · Name opens file + explicit Open / Diff", tag: "rec", row: (r, i) => `
+      <button class="nmbtn" data-k="open" data-i="${i}" ${noOpen(r) ? 'aria-disabled="true"' : ""} aria-label="Open ${r.nm} in editor">
+        ${ic("FileDocumentOutline")}<span class="nm" ${r.deleted ? 'style="text-decoration:line-through;color:var(--text-tertiary)"' : ""}>${r.nm}</span><span class="dir">${r.dir}</span></button>
+      <span class="sp"></span><span class="dl">${r.d}</span>
+      <button class="linkbtn" data-k="open" data-i="${i}" ${noOpen(r) ? 'aria-disabled="true" title="' + why(r) + '"' : ""}>Open</button>
+      ${r.outside ? '<span class="linkbtn" aria-disabled="true" title="No diff outside the session folder" style="visibility:hidden">Diff</span>' : `<button class="linkbtn" data-k="diff" data-i="${i}">Diff</button>`}`,
+    note: "Both targets visible (touch-safe, discoverable). Name = Open, matching file links elsewhere (tool cards, @file). Deleted file: Open disabled, Diff still works. Out-of-cwd: Open only; ungranted folders raise the access-grant dialog on open." },
+  B: { title: "B · Icon buttons (file / compare)", tag: "alt", row: (r, i) => `
+      ${ic("FileDocumentOutline")}<span class="nm">${r.nm}</span><span class="dir">${r.dir}</span><span class="sp"></span><span class="dl">${r.d}</span>
+      <button class="iconbtn" data-k="open" data-i="${i}" aria-label="Open ${r.nm}" title="${why(r) || "Open file"}" ${noOpen(r) ? 'aria-disabled="true" style="opacity:.35"' : ""}>${ic("FileEyeOutline")}</button>
+      <button class="iconbtn" data-k="diff" data-i="${i}" aria-label="Diff ${r.nm}" title="Open diff" ${r.outside ? 'style="visibility:hidden"' : ""}>${ic("FileCompare")}</button>`,
+    note: "Denser, but icon meaning is weak (eye vs compare) and needs tooltips; the dock today uses text actions everywhere (Review, Show, Kill)." },
+  C: { title: "C · Split button “Diff ▾” → Open file", tag: "cur", row: (r, i) => `
+      ${ic("FileDocumentOutline")}<span class="nm">${r.nm}</span><span class="dir">${r.dir}</span><span class="sp"></span><span class="dl">${r.d}</span>
+      <span style="position:relative;display:inline-flex"><button class="linkbtn" data-k="diff" data-i="${i}">Diff</button><button class="iconbtn" data-menu="${i}" aria-haspopup="menu" aria-label="More for ${r.nm}" style="width:22px">${ic("ChevronDown", "sm")}</button></span>`,
+    note: "Keeps today's single visible action, but Open is hidden one level down — the exact discoverability problem being reported. Not recommended." },
+};
+const vEl = document.getElementById("variants");
+vEl.innerHTML = Object.entries(V).map(([k, v]) => `<div><h3>${v.title} <span class="tag ${v.tag}">${v.tag === "rec" ? "recommended" : v.tag === "cur" ? "rejected" : "alternative"}</span></h3>
+  <div class="vbox" data-v="${k}"><div class="lane" style="padding:4px 0;min-height:36px"><span class="ttl">${ic("FileDocumentMultipleOutline")}5 files changed</span><span class="sp"></span><button class="act">Review</button></div>
+  <div class="files">${ROWS.map((r, i) => `<div class="frow">${v.row(r, i)}</div>`).join("")}</div><div class="res"></div></div>
+  <p class="note">${v.note}</p></div>`).join("");
+vEl.addEventListener("click", (e) => {
+  const box = e.target.closest(".vbox"); if (!box) return;
+  const m = e.target.closest("[data-menu]");
+  box.querySelectorAll(".menu").forEach((x) => x.remove());
+  if (m) { const i = m.dataset.menu; m.parentElement.insertAdjacentHTML("beforeend", `<div class="menu" role="menu">
+      <button role="menuitem" data-k="open" data-i="${i}">${ic("FileEyeOutline", "sm")}Open file</button>
+      <button role="menuitem" data-k="diff" data-i="${i}">${ic("FileCompare", "sm")}Open diff</button></div>`); return; }
+  const b = e.target.closest("[data-k]"); if (!b || b.getAttribute("aria-disabled") === "true") return;
+  box.querySelector(".res").innerHTML = result(b.dataset.k, ROWS[+b.dataset.i]);
+});
+
+/* ---------- toolbar ---------- */
+function seg(id, fn) { const el = document.getElementById(id); el.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return;
+  el.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b)); fn(b.dataset.v); }); }
+seg("theme", (v) => { const h = document.documentElement; h.removeAttribute("data-theme"); h.removeAttribute("data-palette");
+  if (v === "light") h.setAttribute("data-theme", "light"); if (v === "nord") h.setAttribute("data-palette", "nord"); });
+seg("width", (v) => document.body.classList.toggle("narrow", v === "narrow"));
+</script>
+</body>
+</html>
