@@ -114,7 +114,7 @@ describe("Servers section retro-ux", () => {
     fireEvent.click(remove());
     fireEvent.click(screen.getByText("Confirm remove"));
     await waitFor(() => expect(removeKnownServer).toHaveBeenCalledTimes(1));
-    expect(removeKnownServer).toHaveBeenCalledWith("office-mac.local", 8000);
+    expect(removeKnownServer).toHaveBeenCalledWith("office-mac.local", 8000, "http");
     await waitFor(() => expect(screen.queryByText("office-mac")).toBeNull());
   });
 
@@ -229,12 +229,12 @@ describe("Servers section — identity cards (#F7)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove address 192.168.16.204:8000 of home-imac" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm remove address 192.168.16.204:8000 of home-imac" }));
     await waitFor(() => expect(removeKnownServer).toHaveBeenCalledTimes(1));
-    expect(removeKnownServer).toHaveBeenCalledWith("192.168.16.204", 8000);
+    expect(removeKnownServer).toHaveBeenCalledWith("192.168.16.204", 8000, "http");
     await waitFor(() => expect(screen.queryByText("192.168.16.204:8000", { exact: false })).toBeNull());
     expect(screen.getByRole("article", { name: "home-imac" })).toBeTruthy();
   });
 
-  it("removing a whole server removes every saved route; an https route names its scheme", async () => {
+  it("removing a whole server removes every saved route, each under its own scheme", async () => {
     listKnownServersWithAccess.mockResolvedValueOnce({ servers: [HOME], canManage: true }).mockResolvedValue({ servers: [], canManage: true });
     render(<KnownServersSection />);
     await screen.findByRole("article", { name: "home-imac" });
@@ -242,8 +242,8 @@ describe("Servers section — identity cards (#F7)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm remove home-imac and all its saved addresses" }));
     await waitFor(() => expect(removeKnownServer).toHaveBeenCalledTimes(3));
     expect(removeKnownServer.mock.calls).toEqual([
-      ["192.168.16.204", 8000],
-      ["home-imac.local", 8000],
+      ["192.168.16.204", 8000, "http"],
+      ["home-imac.local", 8000, "http"],
       ["home-imac-0a1b.share.zrok.io", 443, "https"],
     ]);
   });

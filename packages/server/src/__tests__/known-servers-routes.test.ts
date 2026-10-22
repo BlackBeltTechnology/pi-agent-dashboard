@@ -688,6 +688,34 @@ describe("known-servers routes (identity pinning)", () => {
       expect(routeUrls()).toEqual(["http://a.local:8000", "http://b.local:8000"]);
     });
 
+    it("review B1: backfill does not fold two instances that share a fingerprint on different http ports", async () => {
+      seed([
+        { host: "a.local", port: 8000, addedAt: T0, routes: [route("a.local", 8000), route("lab.example.org", 443, "https")] },
+        { host: "b.local", port: 9000, addedAt: T0, fingerprint: F, routes: [route("b.local", 9000)] },
+      ]);
+      await mkCtx();
+      ctx.answers["a.local:8000"] = { proven: F };
+      const r = await operator("POST", "/api/known-servers", { host: "a.local", port: 8000 });
+      expect(r.json()).toEqual({ success: true });
+      expect(entries()).toHaveLength(2);
+      expect(entries().map((e) => e.fingerprint)).toEqual([F, F]);
+      expect(entries().map((e) => e.routes.map((x) => `${x.scheme}://${x.host}:${x.port}`))).toEqual([
+        ["http://a.local:8000", "https://lab.example.org:443"],
+        ["http://b.local:9000"],
+      ]);
+    });
+
+    it("review B1: backfill still folds an https-only entry into the instance that holds the identity", async () => {
+      seed([
+        { host: "lab.example.org", port: 443, addedAt: T0, routes: [route("lab.example.org", 443, "https")] },
+        { host: "b.local", port: 9000, addedAt: T0, fingerprint: F, routes: [route("b.local", 9000)] },
+      ]);
+      await mkCtx();
+      ctx.answers["https://lab.example.org:443"] = { proven: F };
+      await operator("POST", "/api/known-servers", { host: "lab.example.org", port: 443, scheme: "https" });
+      expect(entries()).toHaveLength(1);
+    });
+
     describe("delete", () => {
       const twoRoutes = {
         host: "a.local",

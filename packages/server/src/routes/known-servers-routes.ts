@@ -173,13 +173,24 @@ export function registerKnownServersRoutes(fastify: FastifyInstance, deps: Known
    * same identity on the same instance (D1 rule) into it — it keeps its routes first, then gains
    * the other's, keeps its label else takes the other's.
    */
+  /**
+   * One instance = a shared `http` route port, or one side has no `http` route at all (its https routes join the
+   * holder, D1). Two entries on different `http` ports stay two rows even though an https route could attach to either.
+   */
+  function sameInstance(a: KnownServer, b: KnownServer): boolean {
+    const ports = (e: KnownServer) => new Set(e.routes.filter((r) => r.scheme === "http").map((r) => r.port));
+    const pa = ports(a);
+    const pb = ports(b);
+    return pa.size === 0 || pb.size === 0 || [...pa].some((p) => pb.has(p));
+  }
+
   function foldDuplicates(list: KnownServer[], idx: number): void {
     const survivor = list[idx];
     if (!survivor.fingerprint) return;
     for (let j = list.length - 1; j >= 0; j--) {
       if (j === idx) continue;
       const other = list[j];
-      if (!survivor.routes.some((r) => findAttachTarget([other], r, survivor.fingerprint) === 0)) continue;
+      if (other.fingerprint !== survivor.fingerprint || !sameInstance(survivor, other)) continue;
       const keys = new Set(survivor.routes.map(routeKey));
       for (const r of other.routes) if (!keys.has(routeKey(r))) survivor.routes.push(r);
       if (!survivor.label && other.label) survivor.label = other.label;

@@ -18,8 +18,8 @@ import { logRejection } from "../../lib/report-error.js";
 import { errorMessage } from "./connectivity-ui.js";
 import type { ServerCardActions } from "./ServerCard.js";
 
-const dropRoute = (r: Pick<Route, "host" | "port" | "scheme">) =>
-  r.scheme === "https" ? removeKnownServer(r.host, r.port, "https") : removeKnownServer(r.host, r.port);
+/** Always names the scheme: without it the server's pre-routes wildcard also removes the sibling route at the same host:port. */
+const dropRoute = (r: Pick<Route, "host" | "port" | "scheme">) => removeKnownServer(r.host, r.port, r.scheme);
 
 export function createServerCardActions(storedSource: ReadonlyMap<string, RouteSource>, refresh: () => Promise<void>): ServerCardActions {
   const removeFailed = (e: unknown) => i18nT("connection.removeFailed", { error: errorMessage(e) }, "Could not remove: {error}");
