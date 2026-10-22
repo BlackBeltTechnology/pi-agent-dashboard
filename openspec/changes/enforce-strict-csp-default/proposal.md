@@ -1,6 +1,6 @@
 ## Why
 
-`close-residual-audit-findings` (S3b) ships the strict nonce-based CSP, a
+`harden-cors-and-csp-reporting` (S3b) ships the strict nonce-based CSP, a
 baseline report sink and a persisted violation counter, but keeps the CSP
 default at `report`: both the baseline and the strict policy are report-only,
 and `enforce` (strict policy enforced) is opt-in via `PI_DASHBOARD_CSP=enforce`.
@@ -50,9 +50,9 @@ None.
   tests.
 - Users: the strict `script-src` (no `'unsafe-inline'` / `'unsafe-eval'`) is
   enforced by default; an unseen inline script stops running. Vite dev mode
-  keeps its carve-out (defined by `close-residual-audit-findings`).
+  keeps its carve-out (defined by `harden-cors-and-csp-reporting`).
 - Docs: release note and CSP mode docs state the new default and the rollback.
-- Depends on `close-residual-audit-findings` (sink, counter, strict policy,
+- Depends on `harden-cors-and-csp-reporting` (sink, counter, strict policy,
   `enforce` semantics). See `dependencies.yaml`.
 
 ## Discipline Skills

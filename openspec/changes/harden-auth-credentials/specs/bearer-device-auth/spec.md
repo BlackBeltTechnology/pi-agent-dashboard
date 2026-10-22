@@ -100,7 +100,7 @@ Every `/api/*` route SHALL have a tier from a single route→tier map in
 request admitted via a paired-device bearer SHALL be refused with HTTP 403,
 `WWW-Authenticate: Bearer error="insufficient_scope" scope="<tier>"` and a
 logged refusal when the route's tier exceeds the row's tier. `/api/ws-ticket`
-SHALL require `operate`. `POST /api/paired-devices/rotate` SHALL be entered in that map at tier `observe`, so any valid browser-held bearer, of any tier, may rotate itself; the route SHALL authenticate by that bearer and SHALL rotate only the device that bearer belongs to. `POST /api/csp-reports/reset` SHALL be entered at `operate`. Principals admitted by other means (browser cookie
+SHALL require `operate`. `POST /api/paired-devices/rotate` SHALL be entered in that map at tier `observe`, so any valid browser-held bearer, of any tier, may rotate itself; the route SHALL authenticate by that bearer and SHALL rotate only the device that bearer belongs to. Principals admitted by other means (browser cookie
 session, local token) SHALL see no change. A bearer presented from a genuinely
 local address SHALL NOT be tier-refused. A bearer presented from a
 trusted-network address SHALL NOT be tier-refused **only when the effective

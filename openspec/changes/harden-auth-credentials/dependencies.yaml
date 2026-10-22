@@ -1,0 +1,3 @@
+blocked_by:
+  - change: close-container-loopback-impersonation
+    reason: "Both MODIFY bearer-device-auth, trust-and-credential-boundaries and oauth-authentication. That change flips requireLocalProof (B14r) now; land this change after it and rebase every shared MODIFIED block on its archived text."
