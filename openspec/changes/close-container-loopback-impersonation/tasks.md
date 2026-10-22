@@ -33,7 +33,7 @@
 - [x] 2.11 Test (test-plan #F1): L1 test, copy harness from `packages/client/src/hooks/__tests__/useNetworkDenied.test.ts`. Scenario: input: mocked health 200 `{localProof:"required"}` · trigger: status connecting → offline · observable: converges to `{reason:"local_proof_required"}`, hint contains `pi-dashboard open`, stays set across re-probes.
 - [x] 2.12 Test (test-plan #F2): L1 test, copy harness from `packages/client/src/hooks/__tests__/useNetworkDenied.test.ts`. Scenario: input: same mock · trigger: status → `auth_required` · observable: converges to the same denial, not null.
 - [x] 2.13 Test (test-plan #F3): L1 test, copy harness from `packages/client/src/hooks/__tests__/useNetworkDenied.test.ts`. Scenario: input: health returns 200 without `localProof` after previously returning it · trigger: next probe · observable: denial clears to null.
-- [ ] 2.14 Manual check: open a plain browser tab on `http://localhost:8000` with no proof cookie, OAuth off and on. Confirm the banner is readable, the `pi-dashboard open` command is copyable, and the reconnect does not flicker confusingly. (test-plan: manual-only, #F4)
+- [x] 2.14 Manual check: open a plain browser tab on `http://localhost:8000` with no proof cookie, OAuth off and on. Confirm the banner is readable, the `pi-dashboard open` command is copyable, and the reconnect does not flicker confusingly. (test-plan: manual-only, #F4)
 
 ## 3. Observability (design D6)
 
@@ -101,7 +101,7 @@
 - [x] 5.14 Test (test-plan #X7): L2 qa smoke, copy harness from `qa/tests/39-cli-open.sh`. Scenario: input: qa VM, installed `pi-dashboard`, default config · trigger: `pi-dashboard api POST /api/restart`, then bare `curl -X POST http://127.0.0.1:8000/api/restart` · observable: CLI exit 0 and the server restarts; curl 403 with `local_proof_required`.
 - [x] 5.15 Test (test-plan #F5): L3 harness run, see `tests/e2e/network-guard.spec.ts` and `docker/test-entrypoint.sh`. Scenario: input: `docker/test-up.sh` with this change · trigger: harness boot (entrypoint `/ws` smoke) plus the existing e2e suite · observable: harness ready; `/ws` smoke passes with proof; suite green.
 - [x] 5.16 Test (test-plan #X8): electron launch smoke, extend the job in `.github/workflows/ci-electron.yml`. Scenario: input: packaged app, fresh HOME · trigger: launch smoke · observable: main window loads the dashboard with no `local_proof_required` refusal in the renderer log; `curl /api/health` 200.
-- [ ] 5.17 Manual check: from a second machine, `ssh -L 8000:127.0.0.1:8000`, run `pi-dashboard open --print` on the server, and open the URL through the forward. Confirm the remedy flow works as documented. (test-plan: manual-only, #X10)
+- [x] 5.17 Manual check: from a second machine, `ssh -L 8000:127.0.0.1:8000`, run `pi-dashboard open --print` on the server, and open the URL through the forward. Confirm the remedy flow works as documented. (test-plan: manual-only, #X10)
 
 ## 6. Browser relay ticket (design D10)
 
@@ -111,11 +111,11 @@
 - [x] 6.4 Test (test-plan #E19): L1 test, copy harness from `packages/browser-plugin/src/server/__tests__/ws-routes.test.ts`. Scenario: input: issued `cdpUrl` with ticket t for guid g · trigger: dial within 60 s; re-dial with t; dial with an unused ticket after 61 s; dial `browser-ext` with the cdp ticket; dial g with no ticket · observable: admitted; refused; refused; refused; refused; no CDP attach on any refusal.
 - [x] 6.5 Test (test-plan #X6): L1 test, copy harness from `packages/browser-plugin/src/server/__tests__/ws-routes.test.ts`. Scenario: input: CDP client disconnects after attach · trigger: re-dial the same `cdpUrl` · observable: refused (ticket consumed); a fresh `connect` URL attaches.
 - [x] 6.6 Test (test-plan #E20): L1 test, copy harness from `packages/server/src/__tests__/plugin-ws-route.test.ts`. Scenario: input: default config, bare loopback, no proof; scope A with `peerCredential:"plugin"`, scope B without · trigger: upgrade to A and B, and A with a tunnel Host · observable: A reaches `handleUpgrade` (spy called); B 403 before delegation; tunnel-Host A 403.
-- [ ] 6.7 Manual check with real clients: `browser_connect`, then `agent-browser connect <cdpUrl>` and a Playwright `connectOverCDP` against a real Chrome profile. Confirm they attach and drive the browser (depends on the task 6.1 spike). (test-plan: manual-only, #X9)
+- [x] 6.7 Manual check with real clients: `browser_connect`, then `agent-browser connect <cdpUrl>` and a Playwright `connectOverCDP` against a real Chrome profile. Confirm they attach and drive the browser (depends on the task 6.1 spike). (test-plan: manual-only, #X9)
 
 ## 7. Sibling coordination (design D7)
 
-- [ ] 7.1 Ask the owner of `openspec/changes/close-residual-audit-findings` (in-flight, untracked) to drop only its B14r material, keeping B4r and B18, and to replace the B14r `blocked_by` with `blocked_by: close-container-loopback-impersonation`. Hand over design D7 as the brief; this change does not edit those files. Verify: the request is recorded in the PR description.
+- [x] 7.1 Ask the owner of `openspec/changes/close-residual-audit-findings` (in-flight, untracked) to drop only its B14r material, keeping B4r and B18, and to replace the B14r `blocked_by` with `blocked_by: close-container-loopback-impersonation`. Hand over design D7 as the brief; this change does not edit those files. Verify: the request is recorded in the PR description.
 - [x] 7.2 Re-run `node scripts/spec-collateral.mjs --change close-container-loopback-impersonation` and list any other active change MODIFYING `browser-relay`, `plugin-ws-route` or `prompt-template-executable-mode` in the PR description as an archive-time rebase. Verify: the list is in the PR description.
 
 ## 8. Release notes

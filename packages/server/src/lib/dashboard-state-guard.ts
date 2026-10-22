@@ -174,7 +174,7 @@ let cachedSyncReal = "";
  */
 export function isDashboardStateDirSync(dir: string): boolean {
   const configured = getDashboardConfigDir();
-  if (path.basename(dir) !== path.basename(configured)) return false;
+  if (norm(path.basename(dir)) !== norm(path.basename(configured))) return false;
   const key = `${os.homedir()}`;
   if (cachedSyncFor !== key) {
     try {
