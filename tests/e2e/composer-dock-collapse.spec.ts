@@ -124,7 +124,7 @@ test.describe("composer dock collapse / peek / file open (L3)", () => {
       await page.locator("[data-dock-toggle='changes']").click();
       const gapExpanded = await bottomGap(page);
       const transcriptExpanded = await box(transcript(page));
-      await expect(composerRoot(page)).toHaveCSS("border-top-width", "0px");
+      await expect(composerRoot(page)).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
 
       await hide(page).click();
       await expect(bar(page)).toBeVisible();
@@ -134,20 +134,22 @@ test.describe("composer dock collapse / peek / file open (L3)", () => {
       const footerBox = await box(footer);
       expect(barBox.y + barBox.height).toBeLessThanOrEqual(footerBox.y + 1);
       expect(Math.abs((await bottomGap(page)) - gapExpanded)).toBeLessThanOrEqual(1);
-      await expect(composerRoot(page)).toHaveCSS("border-top-width", "0px");
+      await expect(composerRoot(page)).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
       const transcriptCollapsed = await box(transcript(page));
       expect(transcriptCollapsed.height).toBeGreaterThan(transcriptExpanded.height);
       const scrollTop = await transcript(page).evaluate((el) => el.scrollTop);
 
       // Peek: hover the bar and rest.
       const b = await box(bar(page));
+      // Leave the bar once first: the pointer still rests on it after Hide (post-Hide cooldown).
+      await page.mouse.move(b.x + 40, b.y - 200);
       await page.mouse.move(b.x + 40, b.y + b.height / 2);
       await page.mouse.move(b.x + 41, b.y + b.height / 2);
       await expect(dock(page)).toHaveAttribute("data-peek", "true", { timeout: 3_000 });
       expect(Math.abs((await bottomGap(page)) - gapExpanded)).toBeLessThanOrEqual(1);
       expect((await box(transcript(page))).height).toBe(transcriptCollapsed.height);
       expect(await transcript(page).evaluate((el) => el.scrollTop)).toBe(scrollTop);
-      await expect(composerRoot(page)).toHaveCSS("border-top-width", "0px");
+      await expect(composerRoot(page)).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
       await expect(footer).toBeVisible();
     } finally {
       await page.request.delete("/api/access/yolo").catch(() => undefined);
@@ -226,6 +228,8 @@ test.describe("composer dock collapse / peek / file open (L3)", () => {
       await page.locator("[data-dock-toggle='changes']").click();
       await hide(page).click();
       const b = await box(bar(page));
+      // The pointer rests on the new bar after Hide: leave it once so the post-Hide cooldown lifts.
+      await page.mouse.move(b.x + 40, b.y - 200);
       await page.mouse.move(b.x + 40, b.y + b.height / 2);
       await page.mouse.move(b.x + 41, b.y + b.height / 2);
       await expect(dock(page)).toHaveAttribute("data-peek", "true", { timeout: 3_000 });
