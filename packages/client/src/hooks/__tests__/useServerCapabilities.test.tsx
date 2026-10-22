@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useServerCapabilities } from "../useServerCapabilities.js";
 
@@ -23,9 +23,13 @@ describe("useServerCapabilities platform (scope-anchor-editor-pane-controls D10)
   });
 
   it("a failing health fetch keeps the defaults", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("down"));
     const { result } = renderHook(() => useServerCapabilities());
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    // Let the rejection settle through the hook's `.catch` before asserting the defaults held.
+    await act(async () => {
+      await fetchSpy.mock.results[0].value.catch(() => {});
+    });
     expect(result.current).toEqual({ systemOpen: false });
   });
 });
