@@ -42,7 +42,7 @@ export function SessionNotFound({ id, candidates, lookupFailed, onRetry }: Props
           <ul className="flex flex-col gap-1">
             {candidates.map((c) => (
               <li key={c}>
-                <Link href={sessionUiPath(c)} className="font-mono text-[var(--accent-blue)] underline">
+                <Link href={sessionUiPath(c)} className="font-mono text-[var(--link)] hover:text-[var(--link-hover)] underline">
                   {c}
                 </Link>
               </li>
