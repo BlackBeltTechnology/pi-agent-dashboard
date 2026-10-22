@@ -16,11 +16,15 @@
  *   caller (`mergeIsPrimary`).
  * - Body (mounted only while expanded; mounting refetches under the
  *   coalescing rule): one row per in-cwd file with its line delta (sign glyph
- *   as well as colour) and a `via bash` mark; out-of-cwd rows carry no diff
- *   link; a `N other changes` footer; one inline `Couldn't refresh changes`
- *   line with Retry while the last good list stays.
+ *   as well as colour) and a `via bash` mark; a `N other changes` footer; one
+ *   inline `Couldn't refresh changes` line with Retry while the last good list stays.
+ * - Row targets (in-cwd rows only, visible without hover, only when the caller passes
+ *   the handlers): **Open** (and the file name) → `onOpenFile(rel)` opens the file itself
+ *   in the editor pane; **Diff** → `onOpenDiff(rel)` opens its `diff:` tab. Out-of-cwd
+ *   rows carry no target. Review is lane-level. Activating any of them ends a dock peek.
  *
  * See change: add-composer-dock (tasks 4.1, 4.2; design D5, D6).
+ * See change: composer-dock-collapse-and-file-open (D6).
  */
 import { ComposerDockRow, SettingsActionError } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
@@ -33,6 +37,7 @@ import { t } from "../../lib/i18n/i18n.js";
 import { GitIdentity } from "../worktree/GitIdentity.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 import { type DockLane, dockLaneLabel } from "./composer-dock-model.js";
+import { useDockPeek } from "./dock-peek-context.js";
 
 export interface ChangesLaneInput {
   /** Bound session; `undefined` → no lane. */
@@ -46,14 +51,16 @@ export interface ChangesLaneInput {
   mergeIsPrimary: boolean;
   /** Open the diff view (Review). */
   onReview?: () => void;
-  /** Open one file's diff. */
+  /** Open one changed file itself (cwd-relative path) in the editor pane. */
   onOpenFile?: (path: string) => void;
+  /** Open one changed file's diff tab (cwd-relative path). */
+  onOpenDiff?: (path: string) => void;
   /** Show the unclaimed working-tree changes (defaults to `onReview`). */
   onShowOtherChanges?: () => void;
 }
 
 const ACTION_BUTTON =
-  "focus-ring inline-flex min-h-6 min-w-6 items-center gap-1 rounded px-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] max-md:min-h-11 max-md:min-w-11 max-md:justify-center";
+  "focus-ring inline-flex min-h-6 min-w-6 shrink-0 items-center gap-1 rounded px-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] max-md:min-h-11 max-md:min-w-11 max-md:justify-center";
 
 const NO_SESSIONS: readonly DashboardSession[] = [];
 const noopShutdown = () => {};
@@ -90,7 +97,46 @@ function splitPath(path: string): { name: string; dir: string } {
   return slash < 0 ? { name: path, dir: "" } : { name: path.slice(slash + 1), dir: path.slice(0, slash) };
 }
 
-function FileRow({ file, onOpen }: { file: FileDiffEntry; onOpen?: (path: string) => void }) {
+/** Open / Diff buttons of one in-cwd row (each only when its handler exists). */
+function FileTargets({ path, open, diff }: { path: string; open?: () => void; diff?: () => void }) {
+  return (
+    <>
+      {open && (
+        <button
+          type="button"
+          data-testid="composer-dock-file-open"
+          onClick={open}
+          aria-label={t("dock.changes.openFile", { path }, "Open {path} in editor")}
+          className={ACTION_BUTTON}
+        >
+          {t("dock.changes.open", undefined, "Open")}
+        </button>
+      )}
+      {diff && (
+        <button
+          type="button"
+          data-testid="composer-dock-file-diff"
+          onClick={diff}
+          aria-label={t("dock.changes.openDiff", { path }, "Open diff of {path}")}
+          className={ACTION_BUTTON}
+        >
+          {t("dock.changes.diff", undefined, "Diff")}
+        </button>
+      )}
+    </>
+  );
+}
+
+function FileRow({
+  file,
+  onOpen,
+  onDiff,
+}: {
+  file: FileDiffEntry;
+  onOpen?: (path: string) => void;
+  onDiff?: (path: string) => void;
+}) {
+  const { endPeek } = useDockPeek();
   const { name, dir } = splitPath(file.path);
   const hasDelta = file.additions !== undefined || file.deletions !== undefined;
   const viaBash = file.detectedVia === "bash-artifact";
@@ -105,26 +151,26 @@ function FileRow({ file, onOpen }: { file: FileDiffEntry; onOpen?: (path: string
         {hasDelta && <Delta additions={file.additions ?? 0} deletions={file.deletions ?? 0} />}
       </span>
     ) : undefined;
-  const openable = onOpen !== undefined && file.previewable !== false;
+  // Targets exist only for in-cwd rows whose handler the live dock provided; each also ends a dock peek.
+  const inCwd = file.previewable !== false;
+  const target = (handler?: (path: string) => void) =>
+    inCwd && handler
+      ? () => {
+          handler(file.path);
+          endPeek();
+        }
+      : undefined;
+  const open = target(onOpen);
+  const diff = target(onDiff);
   return (
     <ComposerDockRow
       icon={<Icon path={mdiFileOutline} size={0.6} />}
       title={name}
       detail={dir || undefined}
       meta={meta}
-      actions={
-        openable && (
-          <button
-            type="button"
-            data-testid="composer-dock-file-diff"
-            onClick={() => onOpen(file.path)}
-            aria-label={t("dock.changes.openDiff", { path: file.path }, "Open diff of {path}")}
-            className={ACTION_BUTTON}
-          >
-            {t("dock.changes.diff", undefined, "Diff")}
-          </button>
-        )
-      }
+      onTitleActivate={open}
+      titleLabel={open ? t("dock.changes.openFile", { path: file.path }, "Open {path} in editor") : undefined}
+      actions={(open || diff) && <FileTargets path={file.path} open={open} diff={diff} />}
     />
   );
 }
@@ -132,10 +178,12 @@ function FileRow({ file, onOpen }: { file: FileDiffEntry; onOpen?: (path: string
 function ChangesLaneBody({
   diff,
   onOpenFile,
+  onOpenDiff,
   onShowOtherChanges,
 }: {
   diff: DockDiff;
   onOpenFile?: (path: string) => void;
+  onOpenDiff?: (path: string) => void;
   onShowOtherChanges?: () => void;
 }) {
   const errorId = useId();
@@ -163,7 +211,7 @@ function ChangesLaneBody({
         </SettingsActionError>
       )}
       {diff.files.map((file) => (
-        <FileRow key={file.path} file={file} onOpen={onOpenFile} />
+        <FileRow key={file.path} file={file} onOpen={onOpenFile} onDiff={onOpenDiff} />
       ))}
       {diff.outOfCwd.map((file) => (
         <FileRow key={`out:${file.path}`} file={file} />
@@ -226,10 +274,19 @@ function ChangesActions({
   session: DashboardSession;
   withCount: boolean;
 }) {
+  const { endPeek } = useDockPeek();
   return (
     <>
       {withCount && onReview && (
-        <button type="button" data-testid="composer-dock-review" onClick={onReview} className={ACTION_BUTTON}>
+        <button
+          type="button"
+          data-testid="composer-dock-review"
+          onClick={() => {
+            onReview();
+            endPeek();
+          }}
+          className={ACTION_BUTTON}
+        >
           {t("dock.changes.review", undefined, "Review")}
         </button>
       )}
@@ -257,6 +314,7 @@ export function useChangesLane({
   mergeIsPrimary,
   onReview,
   onOpenFile,
+  onOpenDiff,
   onShowOtherChanges,
 }: ChangesLaneInput): DockLane | null {
   const diff = useDockDiff({
@@ -291,7 +349,7 @@ export function useChangesLane({
       />
     ),
     renderBody: () => (
-      <ChangesLaneBody diff={diff} onOpenFile={onOpenFile} onShowOtherChanges={onShowOtherChanges ?? onReview} />
+      <ChangesLaneBody diff={diff} onOpenFile={onOpenFile} onOpenDiff={onOpenDiff} onShowOtherChanges={onShowOtherChanges ?? onReview} />
     ),
   };
 }

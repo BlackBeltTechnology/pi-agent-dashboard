@@ -68,7 +68,7 @@ describe("ServerSelector server-side probe", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      act(() => screen.getByTitle("Switch server").click());
+      act(() => screen.getByTestId("connection-chip").click());
       return { onSwitch, row: () => screen.getByText(`${LAN}:8000`).closest("button") as HTMLButtonElement };
     }
 
@@ -118,11 +118,11 @@ describe("ServerSelector server-side probe", () => {
       await waitFor(() => expect(probeKnownServer).toHaveBeenCalledTimes(1));
       const health = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/health")).length;
       expect(health()).toBe(2); // localhost seed + the LAN entry (current server is not probed)
-      act(() => screen.getByTitle("Switch server").click()); // close
+      act(() => screen.getByTestId("connection-chip").click()); // close
       await act(async () => {});
       expect(health()).toBe(2);
       expect(probeKnownServer).toHaveBeenCalledTimes(1);
-      act(() => screen.getByTitle("Switch server").click()); // reopen
+      act(() => screen.getByTestId("connection-chip").click()); // reopen
       await waitFor(() => expect(probeKnownServer).toHaveBeenCalledTimes(2));
       expect(health()).toBe(4);
     });
@@ -149,7 +149,7 @@ describe("ServerSelector server-side probe", () => {
       const onSwitch = vi.fn();
       render(<ServerSelector currentHost="my-pc" currentPort={8000} connected={true} onSwitch={onSwitch} />);
       await act(async () => {});
-      act(() => screen.getByTitle("Switch server").click());
+      act(() => screen.getByTestId("connection-chip").click());
       return { onSwitch };
     };
     const item = (host: string) => screen.getByText(`${host}:8000`).closest("button") as HTMLButtonElement;

@@ -23,6 +23,8 @@ type TicketMintCause =
   | "no-token"
   | "unreachable"
   | "refused"
+  /** The URL answered, but it is not the dashboard's HTTP listener (or is broken). */
+  | "wrong-origin"
   | "malformed";
 
 export type TicketMintResult =
@@ -51,6 +53,8 @@ export function readDeviceToken(env: NodeJS.ProcessEnv = process.env): string | 
 export async function mintBridgeTicket(input: {
   httpBase: string;
   token: string | undefined;
+  /** Where `httpBase` came from (`resolveDashboardHttpOrigin().source`), named in a wrong-origin reason. */
+  originSource?: string;
   fetchImpl?: typeof fetch;
 }): Promise<TicketMintResult> {
   if (!input.token) {
@@ -61,10 +65,22 @@ export async function mintBridgeTicket(input: {
     };
   }
   const doFetch = input.fetchImpl ?? fetch;
+  const url = `${input.httpBase}/api/ws-ticket`;
+  const wrongOrigin = (what: string): TicketMintResult => ({
+    ok: false,
+    cause: "wrong-origin",
+    reason:
+      `ticket mint at ${url} ${what}` +
+      `${input.originSource ? ` (origin from ${input.originSource})` : ""} — ` +
+      "if this is not the dashboard's HTTP address, set PI_DASHBOARD_HTTP_URL; if it is, check the server log",
+  });
   let res: Response;
   try {
-    res = await doFetch(`${input.httpBase}/api/ws-ticket`, {
+    res = await doFetch(url, {
       method: "POST",
+      // Never follow a redirect: it would re-send the bearer to a URL the
+      // operator did not configure.
+      redirect: "error",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${input.token}`,
@@ -72,14 +88,20 @@ export async function mintBridgeTicket(input: {
       body: JSON.stringify({ scope: "bridge" }),
     });
   } catch (err) {
+    // `redirect: "error"` surfaces as a TypeError whose cause names the redirect.
+    const detail = `${(err as Error).message} ${((err as { cause?: { message?: string } }).cause?.message) ?? ""}`;
+    if (/redirect/i.test(detail)) return wrongOrigin("answered with a redirect");
     return { ok: false, cause: "unreachable", reason: `ticket mint failed: ${(err as Error).message}` };
   }
   if (!res.ok) {
-    return {
-      ok: false,
-      cause: "refused",
-      reason: `ticket mint refused with HTTP ${res.status} — the bearer may be unpaired or revoked`,
-    };
+    if (res.status === 401 || res.status === 403) {
+      return {
+        ok: false,
+        cause: "refused",
+        reason: `ticket mint refused with HTTP ${res.status} — the bearer may be unpaired or revoked`,
+      };
+    }
+    return wrongOrigin(`answered HTTP ${res.status}`);
   }
   let body: unknown;
   try {

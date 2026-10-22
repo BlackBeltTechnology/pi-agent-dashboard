@@ -2295,7 +2295,7 @@ export default function App() {
       resumeErrors={resumeErrors}
       onDismissResumeError={(id) => setResumeErrors((prev) => { const next = new Map(prev); next.delete(id); return next; })}
       headerExtra={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {launchSource !== null && launchSource !== "electron" && <PiUpdateBadge />}
           {launchSource === "electron" && (
             <Suspense fallback={null}>
@@ -2684,6 +2684,7 @@ export default function App() {
             state={selectedState}
             cwd={selectedCwd}
             working={isComposerWorking(composerStatus, retrySessionIds.has(selectedId))}
+            live={!frozen}
             openLane={frozen ? null : dockAccordion.openLane}
             onOpenLaneChange={frozen ? NOOP_OPEN_LANE : dockAccordion.setOpenLane}
             columnEl={frozen ? null : composerAnchor?.parentElement ?? null}
@@ -2693,7 +2694,6 @@ export default function App() {
             allSessions={Array.from(sessions.values())}
             onShutdownSession={handleShutdownSession}
             onReview={() => navigate(buildSessionDiffUrl(selectedId))}
-            onOpenFile={() => navigate(buildSessionDiffUrl(selectedId))}
             changes={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
             openspecHasDir={selectedCwd ? openspecMap.get(selectedCwd)?.hasOpenspecDir : undefined}
             openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}

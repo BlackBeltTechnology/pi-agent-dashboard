@@ -2,7 +2,9 @@
  * Header badge for the Electron dashboard runtime: shown only when the runtime
  * is updatable (`runtime.updatable`) AND a newer release is available or one
  * is staged awaiting activation. Click → Settings → Packages.
- * Replaces PiUpdateBadge under Electron (E21).
+ * Replaces PiUpdateBadge under Electron (E21). Glyph-only in the sidebar header
+ * (the version lives in `title` / `aria-label`) to keep row 1 on one line.
+ * See change: polish-sidebar-header-controls.
  * See change: electron-runtime-overlay-updates.
  */
 import { mdiArrowUpBold } from "@mdi/js";
@@ -33,7 +35,6 @@ export function RuntimeUpdateBadge() {
 			data-testid="runtime-update-badge"
 		>
 			<Icon path={mdiArrowUpBold} size={0.45} />
-			<span>{version}</span>
 		</button>
 	);
 }

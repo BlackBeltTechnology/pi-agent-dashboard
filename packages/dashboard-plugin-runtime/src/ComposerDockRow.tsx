@@ -15,7 +15,11 @@
  *   outside every live region. When `decouple-plugins-from-core` ships
  *   `ui:elapsed-badge`, switch the leaf to it — no caller changes.
  *
+ * - Title: a plain truncating `span`; with `onTitleActivate` it is a `button` named by
+ *   `titleLabel` (falls back to `title`) that keeps the truncation (e.g. "open this file").
+ *
  * See change: add-composer-dock (D11).
+ * See change: composer-dock-collapse-and-file-open (D6).
  */
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -32,6 +36,10 @@ export interface ComposerDockRowProps {
   startedAt?: number;
   /** Row actions (Open / Kill / Show …). Target sizes are enforced by the row. */
   actions?: ReactNode;
+  /** Makes the title a button that calls this (e.g. open the file). Omit for a plain title. */
+  onTitleActivate?: () => void;
+  /** Accessible name of the activatable title; defaults to `title`. Ignored without `onTitleActivate`. */
+  titleLabel?: string;
 }
 
 const ACTION_TARGETS = [
@@ -69,7 +77,7 @@ function DockRowElapsed({ startedAt }: { startedAt: number }) {
   );
 }
 
-export function ComposerDockRow({ icon, title, detail, meta, startedAt, actions }: ComposerDockRowProps) {
+export function ComposerDockRow({ icon, title, detail, meta, startedAt, actions, onTitleActivate, titleLabel }: ComposerDockRowProps) {
   return (
     <div
       data-testid="composer-dock-row"
@@ -81,13 +89,22 @@ export function ComposerDockRow({ icon, title, detail, meta, startedAt, actions 
       >
         {icon}
       </span>
-      <span
-        data-testid="composer-dock-row-title"
-        title={title}
-        className="min-w-0 shrink truncate font-semibold"
-      >
-        {title}
-      </span>
+      {onTitleActivate ? (
+        <button
+          type="button"
+          data-testid="composer-dock-row-title"
+          title={title}
+          aria-label={titleLabel ?? title}
+          onClick={onTitleActivate}
+          className="min-h-6 min-w-0 shrink truncate rounded text-left font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)] max-md:min-h-11"
+        >
+          {title}
+        </button>
+      ) : (
+        <span data-testid="composer-dock-row-title" title={title} className="min-w-0 shrink truncate font-semibold">
+          {title}
+        </span>
+      )}
       {detail !== undefined && (
         <span
           data-testid="composer-dock-row-detail"

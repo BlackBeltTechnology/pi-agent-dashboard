@@ -297,9 +297,10 @@ async function armFirstLaunchDismiss(page: Page): Promise<void> {
   });
 }
 
-export async function gotoDashboard(page: Page): Promise<void> {
+/** `url` may be absolute to reach the harness through another origin (e.g. `http://127.0.0.2:<port>/`). */
+export async function gotoDashboard(page: Page, url = "/"): Promise<void> {
   await armFirstLaunchDismiss(page);
-  await page.goto("/");
+  await page.goto(url);
   await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
 }
 

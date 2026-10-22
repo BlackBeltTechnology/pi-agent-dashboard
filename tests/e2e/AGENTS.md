@@ -19,6 +19,7 @@ One row per file.
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `chat-motion.spec.ts` | → `chat-motion.spec.ts.AGENTS.md` |
+| `composer-dock-collapse.spec.ts` | L3 composer dock collapse/peek/file open (synthetic bridge, stubbed diff/quota): 44 px one-line bar at 375 px (#E5), Open/Diff 44 px targets + truncated folder (#E17), composer card + YOLO footer fixed across expanded/collapsed/peek and `composer-root` border-top 0 (#F17/#F18), fast pass never peeks (#F19), per-session persistence across reload (#F20), Open/Diff land in the editor pane never `/diff` (#F21), portaled menu holds the peek (#F22). See change: composer-dock-collapse-and-file-open. |
 | `composer-dock.spec.ts` | L3 composer dock (synthetic bridge): collapsed default, accordion, compact chips 480 px, Kill (`kill_process`), plugin subagent rows ≥44 px at 375 px, #F16 (767 px canvas hides dock), YOLO footer in `hu` at 375 px, #F18 contrast (base dark/light, nord dark). See change: add-composer-dock. |
 | `composer-liveness-reload.spec.ts` | → `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | → `composer-session-strip.spec.ts.AGENTS.md` |

@@ -63,7 +63,7 @@ describe("ServerSelector", () => {
         onSwitch={() => {}}
       />,
     );
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click()); // open
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map((c) => c[0] as string);
@@ -92,7 +92,7 @@ describe("ServerSelector", () => {
       />,
     );
     // open the dropdown
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click());
     await waitFor(() => {
       const unreachable = screen.queryAllByText(/Unreachable/i);
@@ -110,7 +110,7 @@ describe("ServerSelector", () => {
         onSwitch={onSwitch}
       />,
     );
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click());
     await waitFor(() => screen.queryByText(/Unreachable/i));
     const localEntry = screen.getByText("localhost:8000").closest("button") as HTMLButtonElement;
@@ -149,7 +149,7 @@ describe("ServerSelector", () => {
     // Let the mount-time known-servers load flush so the LAN entry exists
     // BEFORE opening (the probe effect runs once on open, over current entries).
     await act(async () => {});
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click());
     await waitFor(() => {
       expect(screen.queryAllByText(/Blocked in this browser/i).length).toBeGreaterThan(0);
@@ -174,7 +174,7 @@ describe("ServerSelector", () => {
         inFlightSwitchKey="localhost:8000"
       />,
     );
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click());
     await waitFor(() => {
       expect(screen.queryAllByText(/Switching/i).length).toBeGreaterThan(0);
@@ -190,7 +190,7 @@ describe("ServerSelector", () => {
         onSwitch={() => {}}
       />,
     );
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click());
     await act(async () => {});
     // Panel may be in document.body (portaled). Use document.querySelector.
@@ -211,7 +211,7 @@ describe("ServerSelector", () => {
         onSwitch={() => {}}
       />,
     );
-    const btn = screen.getByTitle("Switch server");
+    const btn = screen.getByTestId("connection-chip");
     act(() => btn.click());
     await act(async () => {});
     expect(document.querySelector('[class*="z-popover"]')).not.toBeNull();

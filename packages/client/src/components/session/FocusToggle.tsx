@@ -7,6 +7,7 @@ import { mdiTarget } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useFocusActions, useFocusState } from "../../lib/state/CardSectionsContext.js";
+import { HEADER_ICON_BTN, HEADER_ICON_SIZE } from "../primitives/header-icon-button.js";
 
 export function FocusToggle() {
   const { enabled } = useFocusState();
@@ -21,13 +22,9 @@ export function FocusToggle() {
       disabled={!actions.canWrite}
       data-testid="focus-toggle-btn"
       onClick={() => actions.setEnabled(!enabled)}
-      className={`focus-ring inline-flex items-center justify-center rounded px-0.5 disabled:opacity-40 disabled:cursor-not-allowed ${
-        enabled
-          ? "text-blue-400 bg-blue-500/15"
-          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-      }`}
+      className={HEADER_ICON_BTN}
     >
-      <Icon path={mdiTarget} size={0.6} />
+      <Icon path={mdiTarget} size={HEADER_ICON_SIZE} />
     </button>
   );
 }

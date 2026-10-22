@@ -541,6 +541,31 @@ test.describe.serial("YOLO indicator layout (fix-yolo-indicator-overflow)", () =
     expect(failures, failures.join("\n")).toEqual([]);
   });
 
+  // polish-sidebar-header-controls #F6: the 28 px icon buttons and the chip's server-kind glyph sit on
+  // the same YOLO tint; each glyph (and the offline `--accent-red-text` the chip switches to) keeps the
+  // 3:1 non-text floor against it.
+  test("#F6 row-1 icon glyphs and the chip glyph stay legible on the YOLO tint", async ({ page }) => {
+    await ensureGitSession(page);
+    await startYolo(page, "unscoped");
+    await page.setViewportSize({ width: 1500, height: HEIGHT });
+    const failures: string[] = [];
+    for (const [theme, mode] of [["base", "dark"], ["base", "light"], ["nord", "dark"]] as const) {
+      await setThemeMode(page, mode, theme);
+      await expect(bar(page)).toHaveAttribute("data-yolo", "unscoped", { timeout: 20_000 });
+      const tint = (await elementColors(bar(page))).bg;
+      for (const id of ["discord-btn", "theme-picker-trigger", "focus-toggle-btn", "settings-btn", "connection-chip-glyph"]) {
+        const el = bar(page).locator(`[data-testid="${id}"]:visible`).first();
+        await expect(el).toBeVisible();
+        const ratio = contrastRatio((await elementColors(el)).fg, tint);
+        if (ratio < 3) failures.push(`${theme}/${mode} ${id}: ${ratio.toFixed(2)}:1 on tint`);
+      }
+      const offline = contrastRatio(await resolveColor(page, "var(--accent-red-text)"), tint);
+      if (offline < 3) failures.push(`${theme}/${mode} offline glyph: ${offline.toFixed(2)}:1 on tint`);
+    }
+    await setThemeMode(page, "dark", "base");
+    expect(failures, failures.join("\n")).toEqual([]);
+  });
+
   // ── F8 - F12: interaction paths ─────────────────────────────────────────
 
   test("#F8 hover tooltips carry the coverage sentence and never navigate", async ({ page }) => {

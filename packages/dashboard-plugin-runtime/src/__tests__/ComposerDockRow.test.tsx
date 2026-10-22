@@ -2,7 +2,7 @@
  * ComposerDockRow — the shared Processes-lane row primitive.
  * See change: add-composer-dock (dashboard-shell-slots: "Process group rows use the dock row primitive").
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComposerDockRow } from "../ComposerDockRow.js";
@@ -34,6 +34,39 @@ describe("ComposerDockRow", () => {
     expect(screen.getByText("explorer")).toBeTruthy();
     expect(screen.getByText("Map the repo")).toBeTruthy();
     expect(screen.getByText("scout · 3 steps")).toBeTruthy();
+  });
+
+  // test-plan #E18 — See change: composer-dock-collapse-and-file-open.
+  it("an activatable title is a button named by titleLabel, calls onTitleActivate once and still truncates", () => {
+    const onActivate = vi.fn();
+    render(
+      <ComposerDockRow
+        icon={null}
+        title="App.tsx"
+        titleLabel="Open packages/client/src/App.tsx in editor"
+        onTitleActivate={onActivate}
+      />,
+    );
+    const title = screen.getByRole("button", { name: "Open packages/client/src/App.tsx in editor" });
+    expect(title.tagName).toBe("BUTTON");
+    expect(title.className).toContain("truncate");
+    fireEvent.click(title);
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("an activatable title falls back to its text as the accessible name", () => {
+    render(<ComposerDockRow icon={null} title="App.tsx" onTitleActivate={() => {}} />);
+    expect(screen.getByRole("button", { name: "App.tsx" })).toBeTruthy();
+  });
+
+  // test-plan #E19
+  it("a plain title is a non-interactive span (titleLabel ignored without onTitleActivate)", () => {
+    render(<ComposerDockRow icon={null} title="App.tsx" titleLabel="ignored" />);
+    const title = screen.getByTestId("composer-dock-row-title");
+    expect(title.tagName).toBe("SPAN");
+    expect(title.getAttribute("aria-label")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(title.className).toBe("min-w-0 shrink truncate font-semibold");
   });
 
   it("truncates title and detail, exposing the full text as a tooltip", () => {
