@@ -6,7 +6,7 @@
  * 8-character floor and lowercasing.
  * See change: add-session-ui-deep-links-for-agents.
  */
-export const MIN_SESSION_PREFIX = 8;
+const MIN_SESSION_PREFIX = 8;
 
 export type SessionRouteMatch =
   | { kind: "match"; id: string }
