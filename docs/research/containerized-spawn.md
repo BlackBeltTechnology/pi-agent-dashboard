@@ -2,7 +2,7 @@
 
 Research dossier. Explore-mode, no change / no impl.
 Date: 2026-10-21.
-Status: OPEN — spikes + B prototype done, direction not chosen.
+Status: OPEN — spikes + B prototype + monorepo spike done, direction not chosen.
 
 ## Problem
 
@@ -266,7 +266,93 @@ Exec overhead per command:
 
 - pi path-gate denied Write to `~/.pi-spike-b` (120 s prompt timeout = deny, then "recently-denied").
   - spike moved to repo-local `.tmp/spike-b`, excluded via `.git/info/exclude` `/.tmp/`. removed afterwards.
-- Root vitest config: explicit per-package projects. shared `no-direct-*` walkers scan `packages/*/src` ⇒ repo-root scratch dir safe.
+- Root vitest config: explicit per-package projects. shared `no-direct-*` walkers scan `packages/*/src`.
+- CORRECTION (Spike C): repo-root scratch OK only for small files. NEVER repo clone/copy.
+  - shared lint tests `real-process-project-guard`, `no-legacy-pi-fork`, `source-reading-tests-pinned` walk WHOLE repo tree incl. untracked/ignored dirs.
+  - ⇒ fail for every session running them (verified Spike C).
+
+## Spike C — B on this monorepo (2026-10-22)
+
+Target: pi-agent-dashboard monorepo. Throwaway clone, deleted after. Subset tests only.
+
+### Problem shape
+
+- pnpm 11.15.1, `nodeLinker: hoisted`.
+- Root `node_modules` 1.5G + 63 nested `node_modules` dirs (`packages/*/node_modules`, `scripts/node_modules`, …).
+- ⇒ per-dir volume shadowing does not scale.
+- darwin native addons in root `node_modules`:
+  - `@earendil-works/pi-tui`, `@img/sharp-darwin-arm64`, `@koromix/koffi-darwin-arm64`, `@napi-rs/canvas-darwin-arm64`
+  - `@oxc-parser/binding-darwin-arm64`, `@oxc-resolver/binding-darwin-arm64`, `@rollup/rollup-darwin-arm64`
+  - `@tailwindcss/oxide-darwin-arm64`, `fs-xattr`, `fsevents`, `lightningcss-darwin-arm64`, `macos-alias`
+  - `node-pty`, `playwright`, `sherpa-onnx-darwin-arm64` (+ `@electron-internal/extract-zip`)
+- Full suite `npm test` (= `test:parallel` + `test:real-process`): 3227 test files, host Duration 1124.70–1388.78 s.
+- Spike subset: `packages/shared` (301 files) + `packages/extension` (199 files).
+
+### Setup
+
+- `git clone --local --branch develop` → repo-local scratch. 4 s, 23048 files.
+- Image `node:22-bookworm`: node v22.23.3, git, gcc, python3, corepack. engines `>=22.19.0 <27`.
+- `podman run -d --cpus 4 --memory 5g -e ELECTRON_SKIP_BINARY_DOWNLOAD=1 -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 -e CI=1 -v R:R:O,upperdir=/var/tmp/<x>/upper,workdir=/var/tmp/<x>/work -v <store-vol>:/pnpm-store`
+  - `R` = repo path.
+- `corepack enable`; `pnpm config set store-dir /pnpm-store`.
+
+### Install
+
+- `pnpm install --frozen-lockfile` exit 0, "Done in 1m 1.4s", wall 62 s (cold store).
+- upper 1.8G, VM-local.
+- Host clone: NO `node_modules`.
+- Native check: `@rollup/rollup-linux-arm64-gnu` present; `require("node-pty")` OK.
+
+### Tests
+
+HOME=mktemp (like `test:parallel`), `npx vitest run` per package, default maxWorkers "50%".
+
+| Project | container (4 vCPU) | host (18 cores) |
+|---|---|---|
+| shared | Duration 56.36 s; 3 failed / 297 passed / 1 skipped (301); 8 failed tests | Duration 13.16 s; 3 failed / 297 passed / 1 skipped |
+| extension | Duration 27.23 s; 1 failed / 198 passed (199) | Duration 15.94 s; 199 passed |
+
+Container-only failures = environment, not mechanism:
+- `project-trust.test.ts` #X11 unreadable parent folder: container runs as ROOT ⇒ chmod-000 no-op.
+- `openspec-effective-status-script.test.ts` (5 tests): `effective-status.sh`.
+- `platform-process.test.ts` E55/E56: `killProcessGroup` POSIX real processes.
+- extension `node-electron-resolution.test.ts`: system node fall-through.
+- ⇒ run container as non-root uid + add missing tools to image.
+
+Host failures (3 files) = repo-walking lint tests: `no-legacy-pi-fork`, `real-process-project-guard`, `source-reading-tests-pinned`.
+- Cause (a): spike clone at `.tmp/spike-c/repo/...` (`real-process-project-guard` listed `.tmp/spike-c/repo/packages/server/vitest.real-process.config.ts`).
+- Cause (b): pre-existing git-ignored `packages/electron/resources/server` build copy.
+- After clone removal only (b) remains.
+
+### `:O` live-edit semantics (overlay over virtiofs lower)
+
+| Scenario | Result |
+|---|---|
+| host edits file not copied-up | container sees edit ✓ |
+| container writes file (copy-up), then host edits it | split-brain: container sees `CONTAINER`, host sees host edit ⚠️ |
+| host creates new file | container sees it ✓ |
+| host deletes lower file | container `Stale file handle` (ESTALE), also in `git status` ⚠️ |
+| `git status` in container | linux node_modules ignored ✓; ESTALE noise |
+| upper delta excl. node_modules after install | 474 files (bin chmod copy-ups `packages/*/bin/*`, `packages/client/dist/*`, `packages/client/src/generated/plugin-registry.tsx`) |
+
+### Findings
+
+- `:O` isolates Linux deps. Cheap (62 s install). Host untouched.
+- Bash writes (formatter `biome --write`, build, codegen, `git commit`) land in upper ⇒ never reach host.
+- B split: file tools on host + bash in container ⇒ diverges.
+- ⇒ `:O` alone unfit for B-live. Needs delta-back/merge or different layout.
+- Container 4 vCPU ⇒ 1.7–4.3x host on subset (shared 4.3x, extension 1.7x).
+
+### Layout options for B on monorepo
+
+| # | Layout | Pros | Open / risks |
+|---|---|---|---|
+| 1 | `:O` whole repo | deps isolated | bash writes trapped; needs delta-back; split-brain risk |
+| 2 | rw bind source + per-dir `:O` (or volume) on each EXISTING node_modules dir (63 mounts, auto-generated from `find`) | source live both ways; deps isolated | new nested node_modules dirs would leak to host — untested |
+| 3 | copy-in workspace (Gondolin-style snapshot) + explicit delta-back | clean semantics | needs apply/merge UI |
+| 4 | whole pi in container (A) | sidesteps file-tool split entirely | A tradeoffs (see Tradeoffs) |
+
+- Full suite (3227 files) not run. Subset only.
 
 ## Runtime mount / port options
 
@@ -316,6 +402,8 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
   - move images via `docker save | podman load`.
 - B prototype viable: bash-only override + host-identical paths = smallest surface. read/write/edit untouched.
 - Podman backend = best perf/complexity today (6.4 s vs host 1.95 s, 0.12 s/exec). Gondolin = best policy (runtime grants, egress allowlist, secret placeholders) but needs copy-in workspace.
+- Monorepo deps: Linux install via `:O` upper = 62 s, host untouched — solved.
+- Unsolved for B: bash-side writes vs host-side file tools. Pick layout (2) per-dir node_modules overlay, (3) copy-in + delta-back, or go A.
 
 ## Open questions
 
@@ -327,6 +415,8 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 6. gateway TCP default-on for container spawns + auto-minted ticket per spawn?
 7. Copy-in workspace (Gondolin) ⇒ need delta-back step (ties to podman `:O` / OCI layer converter) — accept?
 8. Guest HOME=/root vs host HOME — set HOME to host path inside backend?
+9. B layout for writes: per-dir node_modules overlay vs copy-in + delta-back vs A?
+10. Container user: non-root uid mapping (root defeats permission tests).
 
 ## Next spikes
 
@@ -334,7 +424,9 @@ Universal trap: host `node_modules` darwin-native → Linux install needed.
 - ~~B prototype: pi extension overriding tools → podman `exec` backend vs Gondolin backend. Measure `pnpm test` with VM-local deps.~~ DONE 2026-10-22 → see Prototype B.
 - Gondolin readdir invalidation after grant.
 - podman `:O` delta → `.wh.*` converter + apply on host.
-- B on this repo: `pnpm install` Linux deps volume for monorepo (hoisted, nested `packages/*/node_modules`) + `npm test` timing.
+- ~~B on this repo: `pnpm install` Linux deps volume for monorepo (hoisted, nested `packages/*/node_modules`) + `npm test` timing.~~ DONE 2026-10-22 (subset) → see Spike C.
+- Layout (2): rw bind + `:O` on each existing node_modules dir (63 mounts). Verify bash writes reach host, deps stay isolated, new nested node_modules behaviour.
+- Run as `--userns=keep-id` non-root; re-run shared/extension to clear env failures.
 
 ## Continue this research
 
