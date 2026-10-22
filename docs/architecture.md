@@ -8524,3 +8524,59 @@ flowchart LR
 - Revert change. Delete `~/.pi/dashboard/role-bindings.json` (optional).
 - Targets keep last concrete value.
 - Grammar `llm.role` configs fall back to "pick a model".
+
+## Client sink hardening (Trusted Types, URL policy, navigation intents)
+
+### Trusted Types mode
+- Env `PI_DASHBOARD_TRUSTED_TYPES=off|report|enforce`.
+- Unset → `off` iff `PI_DASHBOARD_CSP=off`, else `report`. Independent of `PI_DASHBOARD_CSP`.
+- Resolver: `packages/server/src/auth/csp.ts` `resolveTrustedTypesMode`.
+- `registerCsp` appends `require-trusted-types-for 'script'` to baseline header when modes match. Else sets other header kind with directive alone.
+- Add-if-absent per header kind. `/live/` skipped. `serveApp` mounts keep own enforcing policy.
+- Server injects `<meta name="pi-trusted-types" content="<mode>">` into index.html (`lib/index-html.ts`).
+- Dev: `trustedTypesDevPlugin` in `packages/client/vite.config.ts` injects same meta.
+- Missing meta → client treats as `report`.
+
+### Client policies
+- File: `packages/client/src/lib/security/trusted-types.ts`. Registered before first render (`lib/boot/client-boot.ts` `bootClient`).
+- `pi-sanitized-html`: profiles from `packages/shared/src/sanitize-profiles.ts` (same configs as server sanitizers).
+- `pi-mermaid-parse`: wrap-only, MermaidBlock colorize.
+- `pi-worker-url`: `/sw.js`, `/assets/<file>.m?js`.
+- `default`: mode-aware.
+  - report: pass-through + count.
+  - enforce: sanitize, `createScript` → null, script-URL allowlist.
+- Team app: `pi-static-svg` in `packages/team-app/src/ui/trusted-static-svg.ts`.
+
+### Violation channel
+- Client batches `securitypolicyviolation` events + default hits every 30 s and on `pagehide`.
+- Dedupe key: directive/sink/source. Cap ≤ 50 keys + `overflow`. No samples. Source without query/fragment.
+- `POST /api/csp-violations`: network guard, 8 KiB cap, per-principal burst 3 / 12 per min → 429, counters only, LRU 500.
+- `GET /api/csp-violations` (operate tier): returns counters.
+- Unrelated to live-preview `/__pi/csp-report`.
+
+### URL policy
+- `packages/shared/src/url-policy.ts` `classifyUrl(raw, origin|null)` → `internal|loopback|external|mailto|blocked`.
+- Chokepoints in `packages/dashboard-plugin-runtime/src/safe-navigation.tsx` (plugin SDK, host API 1.2.0): `SafeLink`, `openExternalUrl`, `assignLocation`, `useSafeNavigation`.
+- Re-used by `packages/client/src/lib/nav/safe-navigation.tsx`.
+- Electron `isAllowedExternalUrl` delegates to `classifyUrl`.
+- CI guard: `scripts/check-client-sinks.mjs` (ci.yml step + ship-it 4.4). Rejects raw nav / html / script sinks.
+- Exemption: `// client-sinks: allow — <reason>`.
+
+### Navigation intents
+- `POST /api/nav-intent` mints `ni = b64url(e).b64url(HMAC-SHA256(key, principal\0kind\0target\0e))`. TTL 600 s. Per-process key (restart invalidates).
+- `POST /api/nav-intent/verify` → `{ok}`. Constant-time compare.
+- Route-backed overlays (`/folder/:cwd/view?path=`, `/pi-view?url=`):
+  - verified `ni` → operator provenance (≤ 2 s pending, then agent on failure).
+  - no `ni` → agent provenance (restricted egress).
+- Minted only from operator Expand on operator-provenance `PreviewCard`. Modifier / middle clicks and agent cards never mint.
+- `returnTo` / `returnUrl` not intent-gated.
+
+### OIDC discovery
+- `packages/client-utils/src/identity/login-flow.ts` rejects non-`https:` discovery endpoints (loopback `http:` allowed).
+- Throws `LoginFlowError("discovery-failed")` before any navigation or token request.
+
+### Electron bundled pages
+- `src/renderer/{doctor,remote-connect,connecting}.html`, `resources/loading.html`.
+- Meta CSP `require-trusted-types-for 'script'` from day one. Not governed by env knob.
+
+See change: harden-client-sinks.

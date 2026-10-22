@@ -185,6 +185,9 @@ services:
       # CSP mode for the dashboard's own responses: report (default) | enforce | off. Empty = server default
       # (report-only). `enforce` is the X12 arm. See change: decouple-plugins-from-core (task 8.3).
       PI_DASHBOARD_CSP: "${PI_DASHBOARD_CSP:-}"
+      # Trusted Types mode: off | report | enforce. Empty = follow the baseline CSP
+      # (report unless PI_DASHBOARD_CSP=off). See change: harden-client-sinks (D7).
+      PI_DASHBOARD_TRUSTED_TYPES: "${PI_DASHBOARD_TRUSTED_TYPES:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

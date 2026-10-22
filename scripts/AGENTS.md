@@ -11,6 +11,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection vi… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independ… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
+| `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
 | `__tests__/host-api-surface.test.mjs` | Bump-rule table for `host-api-surface.mjs` (#E29), committed snapshot is current, accent-token expansion, unexpanded … |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
@@ -23,7 +24,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN`… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). → see `__tests__/codeql-local-real.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-mirror.test.mjs` | `--mirror-dismissal` vs fake `codeql` + fake `gh` (#M1-#M17). See change: codeql-model-pack-and-mirror. |
-| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1; #E11, #E13, #E14, #E16 reason grammar, spike glob, remote parser). See change: add-local-codeql-ratchet, codeql-model-pack-and-mirror. |
+| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1; #E11, #E13,… → see `__tests__/codeql-local.test.mjs.AGENTS.md` |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. Also E22 (keycloak dep dropped) and E… → see `__tests__/client-isolate-gate.test.mjs.AGENTS.md` |
@@ -32,7 +33,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
-| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, optional fake-`gh` plan (`run(..., { gh })`), SARIF + baseline + `ghAlert` builders. See change: add-local-codeql-ratchet, codeql-model-pack-and-mirror. |
+| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, optional fake-`gh` plan… → see `__tests__/fixtures/codeql-harness.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-resolve-extensions.json` | Captured real `codeql resolve extensions` JSON (CLI 2.27.2); `fake-codeql.mjs` substitutes the model file. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
 | `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`,… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
@@ -103,6 +104,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/verify-plugin-install-load.test.mjs` | Tests for `verify-plugin-install-load.mjs` (E8 scope filter always; |
 | `__tests__/verify-docker-plugin-load.test.mjs` | Tests for `verify-docker-plugin-load.mjs` (X12): harness-s… → see `__tests__/verify-docker-plugin-load.test.mjs.AGENTS.md` |
 | `__tests__/vitest-workers.test.mjs` | Guard over the vitest worker consolidation (test-plan E15-… → see `__tests__/vitest-workers.test.mjs.AGENTS.md` |
+| `check-client-sinks.mjs` | Client sink guard. → see `check-client-sinks.mjs.AGENTS.md` |
 | `check-conventions.mjs` | Deterministic half of the ship gate, run by `ship-it` step 4.4. → see `check-conventions.mjs.AGENTS.md` |
 | `check-e2e-fixture-import.mjs` | Guard: every `tests/e2e/*.spec.ts` MUST import `test` from `./fixtures.js`, never `@playwright/test` directly… → see `check-e2e-fixture-import.mjs.AGENTS.md` |
 | `check-fixed-tick-waits.mjs` | Fixed-tick wait guard, run by ci.yml (standalone step) + ship gate. → see `check-fixed-tick-waits.mjs.AGENTS.md` |

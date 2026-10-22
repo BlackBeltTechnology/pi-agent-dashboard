@@ -9,6 +9,7 @@
  * Cross-site callers cannot mint or read: the CORS allowlist gives them no
  * ACAO and the global mutation-origin gate refuses their POST.
  */
+import { classifyUrl } from "@blackbelt-technology/pi-dashboard-shared/url-policy.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { canonicalNavTarget, isNavIntentKind, type NavIntents, type NavIntentTarget } from "../auth/nav-intent.js";
 import { requestPrincipalKey } from "../auth/request-principal.js";
@@ -29,6 +30,10 @@ export function registerNavIntentRoutes(fastify: FastifyInstance, deps: NavInten
     const { kind, target } = (request.body ?? {}) as { kind?: unknown; target?: unknown };
     if (!isNavIntentKind(kind) || canonicalNavTarget(kind, target) === null) {
       return reply.code(400).send({ success: false, error: "invalid intent request" });
+    }
+    // A url-view target the client URL policy blocks is never minted for.
+    if (kind === "url-view" && classifyUrl((target as { url: string }).url, null) === "blocked") {
+      return reply.code(400).send({ success: false, error: "blocked target" });
     }
     return { success: true, ni: deps.intents.mint(principalOf(request), kind, target as NavIntentTarget) };
   });

@@ -65,6 +65,18 @@ describe("cross-site mint refused (#X4)", () => {
     expect((await verify({ ...BODY.target, path: "other.html" })).json()).toMatchObject({ ok: false });
   });
 
+  it("a url-view target the URL policy blocks is never minted for", async () => {
+    const mint = vi.spyOn(intents, "mint");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/nav-intent",
+      headers: { host: "127.0.0.1:8000", "content-type": "application/json" },
+      payload: JSON.stringify({ kind: "url-view", target: { url: "javascript:alert(1)" } }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mint).not.toHaveBeenCalled();
+  });
+
   it("a malformed mint body → 400", async () => {
     const res = await app.inject({
       method: "POST",

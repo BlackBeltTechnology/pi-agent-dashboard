@@ -18,8 +18,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requestPrincipalKey } from "../auth/request-principal.js";
 import type { NetworkGuard } from "./route-deps.js";
 
-export const CSP_VIOLATIONS_BODY_LIMIT = 8192;
-export const MAX_COUNTER_KEYS = 500;
+const CSP_VIOLATIONS_BODY_LIMIT = 8192;
+const MAX_COUNTER_KEYS = 500;
 const MAX_ENTRIES = 50;
 const BURST = 3;
 const PER_MINUTE = 12;

@@ -34,7 +34,7 @@ export function injectImportMap(html: string, opts: { nonce?: string } = {}): st
 }
 
 /** Pure: `html` with the Trusted Types mode meta inserted right after `<head>` (else first). */
-export function injectTrustedTypesMeta(html: string, mode: "off" | "report" | "enforce"): string {
+function injectTrustedTypesMeta(html: string, mode: "off" | "report" | "enforce"): string {
   const tag = `<meta name="pi-trusted-types" content="${mode}">`;
   const head = html.match(/<head\b[^>]*>/i);
   if (head?.index !== undefined) {

@@ -14,12 +14,12 @@
  * today's fail-closed agent provenance.
  */
 import crypto from "node:crypto";
+import type { NavIntentKind, NavIntentTarget } from "@blackbelt-technology/pi-dashboard-shared/nav-intent.js";
 
 export const NAV_INTENT_TTL_S = 600;
 const MAX_NI_LENGTH = 256;
 
-export type NavIntentKind = "url-view" | "file-view";
-export type NavIntentTarget = { url: string } | { cwd: string; path: string };
+export type { NavIntentKind, NavIntentTarget };
 
 export function isNavIntentKind(v: unknown): v is NavIntentKind {
   return v === "url-view" || v === "file-view";

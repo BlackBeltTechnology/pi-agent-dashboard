@@ -23,11 +23,15 @@ import {
   mdiYoutube,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { lazy, Suspense } from "react";
+import type React from "react";
+import { lazy, Suspense } from "react";
 import { useLocation } from "wouter";
-import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
+import { usePreviewOpener } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { mintNavIntent, withNavIntent } from "../../lib/nav/nav-intent.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { dispatchPreview, type RendererKind } from "../../lib/preview/preview-dispatch.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { AsciiDocPreview } from "./AsciiDocPreview.js";
 import { AudioPreview } from "./AudioPreview.js";
 import { DiagramPreview } from "./DiagramPreview.js";
@@ -167,6 +171,20 @@ export function PreviewCard({ target }: Props) {
   const kind = dispatchPreview(target);
   const label = labelFor(target);
   const expandUrl = expandUrlFor(target);
+  // Expand on an OPERATOR-provenance card is an operator open: carry a signed
+  // navigation intent so the route-backed overlay keeps operator provenance.
+  // Agent cards and modifier / middle clicks (plain href, new tab) never mint.
+  // Minting failure → navigate without `ni`. See change: harden-client-sinks (D10).
+  const opener = usePreviewOpener();
+  const onExpand = (e: React.MouseEvent) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (opener !== "operator") {
+      navigate(expandUrl);
+      return;
+    }
+    void mintNavIntent(target).then((ni) => navigate(ni ? withNavIntent(expandUrl, ni) : expandUrl));
+  };
   return (
     <div
       className="rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] my-2"
@@ -176,15 +194,16 @@ export function PreviewCard({ target }: Props) {
       <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--border-secondary)] text-xs">
         <Icon path={iconFor(kind)} size={0.7} />
         <span className="truncate flex-1 font-mono text-[var(--text-secondary)]">{label}</span>
-        <button
+        <SafeLink
+          href={expandUrl}
           className="p-1 rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          onClick={() => navigate(expandUrl)}
+          onClick={onExpand}
           title={i18nT("common.expand", undefined, "Expand")}
           aria-label={i18nT("common.expandPreview", undefined, "Expand preview")}
           data-testid="preview-expand"
         >
           <Icon path={mdiOpenInNew} size={0.7} />
-        </button>
+        </SafeLink>
       </div>
       <div className={bodyClassFor(kind)}>
         <PreviewBody kind={kind} target={target} />

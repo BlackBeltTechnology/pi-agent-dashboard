@@ -56,9 +56,9 @@ interface TtFactory {
   createPolicy(name: string, options: TtPolicyOptions): TtPolicy;
 }
 
-export const POLICY_SANITIZED_HTML = "pi-sanitized-html";
-export const POLICY_MERMAID_PARSE = "pi-mermaid-parse";
-export const POLICY_WORKER_URL = "pi-worker-url";
+const POLICY_SANITIZED_HTML = "pi-sanitized-html";
+const POLICY_MERMAID_PARSE = "pi-mermaid-parse";
+const POLICY_WORKER_URL = "pi-worker-url";
 
 // ── mode ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ export function readTrustedTypesMode(doc: Document | undefined = globalThis.docu
 
 // ── script URL allowlist ────────────────────────────────────────────────────
 
-export interface ScriptUrlContext {
+interface ScriptUrlContext {
   origin: string;
   /** `import.meta.env.DEV`: also accept dev-server worker paths. */
   dev: boolean;
@@ -81,7 +81,7 @@ export interface ScriptUrlContext {
 const PROD_SCRIPT_PATH = /^\/(?:sw\.js|assets\/[^/]+\.m?js)$/;
 
 /** Same-origin `/sw.js` or a single `/assets/` `.js`/`.mjs` file; dev adds Vite worker paths. */
-export function isAllowedScriptUrl(raw: string, ctx: ScriptUrlContext): boolean {
+function isAllowedScriptUrl(raw: string, ctx: ScriptUrlContext): boolean {
   let url: URL;
   try {
     url = new URL(raw, ctx.origin);
@@ -118,7 +118,7 @@ function assertPurify(): void {
 }
 
 /** Sanitize `html` with a shared profile. Throws (fail closed) when DOMPurify is unsupported. */
-export function sanitizeWithProfile(html: string, profile: SanitizeProfile): string {
+function sanitizeWithProfile(html: string, profile: SanitizeProfile): string {
   assertPurify();
   const cfg = SANITIZE_PROFILES[profile];
   if (profile !== "asciidoc") return DOMPurify.sanitize(html, cfg) as string;
@@ -134,7 +134,7 @@ export function sanitizeWithProfile(html: string, profile: SanitizeProfile): str
 const XML_PROLOGUE = /^(?:\s+|<\?xml[\s\S]*?\?>|<!--[\s\S]*?-->|<!doctype[^>]*>)*/i;
 
 /** `default` createHTML rules in enforce mode (D6). */
-export function enforceDefaultHtml(s: string): string {
+function enforceDefaultHtml(s: string): string {
   if (!s.includes("<")) return s;
   assertPurify();
   const rest = s.replace(XML_PROLOGUE, "");
@@ -189,7 +189,7 @@ function bump(directive: string, sink: string, source: string): void {
 }
 
 /** Script URL without query / fragment (keeps `?ni=`, paths and tokens out of counters), plus `:line`. */
-export function stripSource(raw: string | undefined | null, line?: number | null): string {
+function stripSource(raw: string | undefined | null, line?: number | null): string {
   if (!raw) return "unknown";
   const base = raw.split(/[?#]/)[0];
   return line ? `${base}:${line}` : base;
@@ -287,16 +287,16 @@ export function trustedWorkerUrl(url: string): TrustedScriptUrlValue {
 // ── violation reporter (D8) ─────────────────────────────────────────────────
 
 export const MAX_REPORT_KEYS = 50;
-export const FLUSH_INTERVAL_MS = 30_000;
+const FLUSH_INTERVAL_MS = 30_000;
 const SINK_MAX = 64;
 
-export interface ViolationEntry {
+interface ViolationEntry {
   directive: string;
   sink: string;
   source: string;
   count: number;
 }
-export interface ViolationReport {
+interface ViolationReport {
   entries: ViolationEntry[];
   overflow?: number;
 }
@@ -317,7 +317,7 @@ export function recordViolation(e: {
 }
 
 /** Drain the pending tallies into one bounded report (`null` when empty). */
-export function takeReport(): ViolationReport | null {
+function takeReport(): ViolationReport | null {
   if (pending.size === 0) return null;
   const entries: ViolationEntry[] = [];
   let overflow = 0;

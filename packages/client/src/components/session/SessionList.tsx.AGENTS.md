@@ -43,3 +43,5 @@ See change: add-focus-mode-and-card-block-toggles.
 Selector escaping via `cssEscape` (`lib/css-escape.ts`); local `cssEscapeId` removed. See change: fix-codeql-small-findings.
 
 See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions onOpenSession={openQuestionSession}/>` right after `TunnelButton` (YOLO adds no row-1 control; absent at 0). `openQuestionSession(id)` clears session search, folder filter and tag axes, calls `onSelect(id)`, then `onSeekToCard?.(id)` (reveals collapsed workspace/folder/lane). Test: `__tests__/SessionList.question-pill.test.tsx`.
+
+Constant / same-origin navigation sink carries a `client-sinks: allow — <reason>` annotation. See change: harden-client-sinks.

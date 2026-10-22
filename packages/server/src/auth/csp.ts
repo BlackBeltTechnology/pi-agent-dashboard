@@ -64,7 +64,7 @@ export function resolveCspMode(raw: string | undefined): CspMode {
   return "report"; // default — safe, non-breaking
 }
 
-export const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for 'script'";
+const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for 'script'";
 
 /** `PI_DASHBOARD_TRUSTED_TYPES`: explicit value wins; unset / unknown → `off` iff the baseline is `off`, else `report`. */
 export function resolveTrustedTypesMode(raw: string | undefined, cspMode: CspMode): CspMode {
