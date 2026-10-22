@@ -2955,9 +2955,12 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             )}
           </button>
           {funnelAnchor && (
-            <Popover anchorEl={funnelAnchor} onDismiss={closeFunnel}>
+            <Popover anchorEl={funnelAnchor} onDismiss={() => setFunnelAnchor(null)}>
               <div
                 ref={funnelPanelRef}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") closeFunnel();
+                }}
                 className="flex flex-col gap-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] p-2 shadow-xl"
                 data-testid="filter-funnel-panel"
               >
