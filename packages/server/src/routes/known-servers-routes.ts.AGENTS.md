@@ -9,3 +9,7 @@ Known-servers config + mDNS discovery routes. Exports `registerKnownServersRoute
 - `POST /api/discover-servers`: peers + `fingerprint`/`name`.
 - ONE module-level serialized write queue; every write re-reads config and aborts if its target (present at snapshot time) was deleted meanwhile.
 Deps seams: `prove`, `lookup`, `fetchImpl`, `moves`, `timeouts`, `log`. See change: stabilize-mdns-server-identity.
+
+## group-servers-by-identity
+
+Routes-aware list/add/remove/probe via one serialized write queue; add attaches route to proven identity (no `already_known`); scheme-aware bounded proof; `invalid_scheme`. See change: group-servers-by-identity.

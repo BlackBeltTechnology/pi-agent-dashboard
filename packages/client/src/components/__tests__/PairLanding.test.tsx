@@ -422,6 +422,30 @@ describe("PairLanding request mode", () => {
     expect(screen.getByTestId("pair-landing-request-code")).toBeDefined();
   });
 
+  // See change: group-servers-by-identity (test-plan #X16, task 4.4, design D7).
+  it("X16 an approved answer carrying routes: bearer stored as before, no route contacted or stored", async () => {
+    const fetchSpy = vi.fn(async () => new Response("{}"));
+    vi.stubGlobal("fetch", fetchSpy);
+    requestAccess.mockResolvedValue(knock());
+    postJson.mockImplementation(async (_b: string, path: string) => {
+      if (path === "/api/pair/poll") return { status: "approved", token: "TOK", routes: ["https://k3x9p2.share.zrok.io"] };
+      throw new Error(`unexpected ${path}`);
+    });
+    render(<PairLanding />);
+    await click("pair-landing-request-send");
+    await flush(2000);
+    expect(storeDeviceBearer).toHaveBeenCalledTimes(1);
+    expect(storeDeviceBearer).toHaveBeenCalledWith("TOK");
+    expect(hrefSets).toEqual(["/"]);
+    // Nothing contacts the delivered route: every request goes to this page's own origin.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(postJson.mock.calls.every(([base]) => base === "")).toBe(true);
+    // Nothing stores it: no storage write mentions it.
+    const stored = [localStorage, sessionStorage].flatMap((st) => Object.keys(st).map((k) => `${k}=${st.getItem(k)}`)).join("\n");
+    expect(stored).not.toContain("k3x9p2");
+    expect(storeDeviceBearer.mock.calls.flat().join(" ")).not.toContain("k3x9p2");
+  });
+
   it("approved stores the bearer through finishDevicePairing then loads the dashboard", async () => {
     requestAccess.mockResolvedValue(knock());
     pollWith("approved", "TOK");

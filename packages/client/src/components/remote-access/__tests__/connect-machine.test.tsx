@@ -62,6 +62,23 @@ describe("Which machine", () => {
     await waitFor(() => expect(calls.some((c) => c.url.includes("/api/known-servers/probe"))).toBe(true));
   });
 
+  // See change: group-servers-by-identity (test-plan #X18, task 5.4).
+  it("X18: adding office-mac:8000 for an identity already stored elsewhere probes the TYPED address and offers no Remove", async () => {
+    const { calls } = withServers([known({ host: "192.168.16.204" })], [], {
+      "POST /api/known-servers": [200, { success: true, data: { updated: true } }],
+      "POST /api/known-servers/probe": [200, { success: true, data: { status: "timeout" } }],
+    });
+    renderDialog({ run: task() });
+    fireEvent.change(await screen.findByTestId("remote-access-machine-input"), { target: { value: "office-mac:8000" } });
+    fireEvent.click(screen.getByTestId("remote-access-machine-continue"));
+    await screen.findByTestId("remote-access-reach-failed");
+    const probes = calls.filter((c) => c.url.includes("/api/known-servers/probe") && c.method === "POST");
+    expect(probes.some((c) => (c.body as { host?: string })?.host === "office-mac")).toBe(true);
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/api/known-servers"))).toBe(true);
+    // The entry existed before this run (the add attached a route): nothing the wizard created, so no Remove.
+    expect(screen.queryByTestId("remote-access-reach-remove")).toBeNull();
+  });
+
   it("E15: a discovered server that is not known reads 'found on this network' and is not probed", async () => {
     const { calls } = withServers([], [{ host: "nuc.local", port: 8000, piPort: 9999, version: "1", pid: 1, isLocal: false }]);
     renderDialog({ run: task() });

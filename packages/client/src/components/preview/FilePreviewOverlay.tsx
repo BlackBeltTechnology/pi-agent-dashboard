@@ -91,6 +91,10 @@ export function friendlyReadError(
   if (rawError === "unknown session path") {
     return `Session working directory is no longer available, so ${path} can't be previewed (was: ${cwd}).`;
   }
+  if (rawError === "cwd-admission-unavailable") {
+    // The server could not decide the folder's admission right now (503); nothing is wrong with the file.
+    return i18nT("err.cwd_admission_unavailable", undefined, "This folder could not be checked right now. Try again in a moment.");
+  }
   return rawError ?? "Failed to read file";
 }
 

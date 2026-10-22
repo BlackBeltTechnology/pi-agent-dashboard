@@ -26,11 +26,12 @@
     .fp { display: block; margin: 0.5rem 0 0.75rem; padding: 0.5rem 0.6rem; overflow-wrap: anywhere; line-height: 1.4; }
     p { line-height: 1.5; font-size: 0.925rem; margin-bottom: 0.9rem; }
     label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; font-weight: 500; }
-    input {
+    input, textarea {
       width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius);
       background: var(--surface); color: var(--text); font-size: 0.95rem; margin-bottom: 1rem;
     }
-    input:focus-visible, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    textarea { min-height: 7rem; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+    input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .code {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 2.2rem; letter-spacing: 0.12em;
       color: var(--heading); text-align: center; background: var(--surface); border: 1px solid var(--border);
@@ -53,6 +54,13 @@
   <main class="dialog" aria-live="polite">
     <h1 id="title">Connecting…</h1>
     <div class="target" id="target"></div>
+
+    <section id="view-code" class="hidden">
+      <p>On the server's dashboard, show a pairing code, then copy its text (or link) and paste it here. The text stays in this window.</p>
+      <label for="code-text">Pairing text</label>
+      <textarea id="code-text" autocomplete="off" spellcheck="false" aria-describedby="code-hint"></textarea>
+      <p id="code-hint" class="target">It is used once and is checked against this server's identity before anything is sent.</p>
+    </section>
 
     <section id="view-proving" class="hidden"><p>Checking this dashboard's identity…</p></section>
 
@@ -77,6 +85,7 @@
     <div class="notice hidden" id="unencrypted">The request and the resulting access travel unencrypted on this network.</div>
 
     <div class="actions">
+      <button id="btn-submit-code" class="primary hidden">Pair</button>
       <button id="btn-send" class="primary hidden">Send request</button>
       <button id="btn-stop" class="secondary hidden">Stop waiting</button>
       <button id="btn-retry" class="primary hidden">Pair again</button>
@@ -89,7 +98,7 @@
     // All dynamic text goes through textContent (the label is untrusted text).
     const api = window.connecting;
     const $ = (id) => document.getElementById(id);
-    const views = ["proving", "confirm", "waiting", "message"];
+    const views = ["code", "proving", "confirm", "waiting", "message"];
     let state = null;
 
     function groupCode(code) { return /^\d{8}$/.test(code) ? code.slice(0, 4) + " " + code.slice(4) : code; }
@@ -105,13 +114,18 @@
 
     function render(s) {
       state = s;
-      $("title").textContent = "Connecting to " + s.label;
+      $("title").textContent = (s.mode === "code" ? "Pair with code — " : "Connecting to ") + s.label;
       $("target").textContent = s.host + (s.shortFp ? " · " + s.shortFp : "");
       for (const v of views) show("view-" + v, false);
-      for (const b of ["btn-send", "btn-stop", "btn-retry"]) show(b, false);
+      for (const b of ["btn-send", "btn-stop", "btn-retry", "btn-submit-code"]) show(b, false);
       show("unencrypted", !!s.unencrypted && (s.phase === "confirm" || s.phase === "waiting"));
 
       const phase = s.phase;
+      if (phase === "code") {
+        show("view-code", true);
+        show("btn-submit-code", true);
+        $("btn-submit-code").disabled = false;
+      }
       if (phase === "proving") show("view-proving", true);
       if (phase === "confirm") {
         show("view-confirm", true);
@@ -137,6 +151,13 @@
 
     $("device-name").addEventListener("input", () => { $("device-name").dataset.touched = "1"; });
     $("btn-send").addEventListener("click", () => { $("btn-send").disabled = true; api.sendRequest($("device-name").value); });
+    $("btn-submit-code").addEventListener("click", () => {
+      const text = $("code-text").value.trim();
+      if (!text) return;
+      $("btn-submit-code").disabled = true;
+      $("code-text").value = "";
+      api.submitCode(text);
+    });
     $("btn-stop").addEventListener("click", () => api.stopWaiting());
     $("btn-retry").addEventListener("click", () => { $("device-name").dataset.touched = ""; $("btn-send").disabled = false; api.pairAgain(); });
     $("btn-close").addEventListener("click", () => api.close());

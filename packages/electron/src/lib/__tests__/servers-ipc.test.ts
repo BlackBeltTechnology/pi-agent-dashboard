@@ -121,6 +121,8 @@ function build() {
     retryPairing: vi.fn(),
     connectingState: vi.fn(() => ({ phase: "proving" })),
     isOpen: vi.fn(() => false),
+    pairWithCode: vi.fn(async () => ({ ok: true, pairing: true })),
+    submitCode: vi.fn(),
   };
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sipc-"));
   const keyring = loadKeyring({ dir, crypto: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(s), decryptString: (b) => b.toString() }, log: () => {} });
@@ -282,3 +284,66 @@ describe("no mode / MRU change (E35)", () => {
   });
 });
 
+
+// ── group-servers-by-identity: list + pair-with-code bridges only on the local main frame (X17) ──
+
+describe("listServers / pairWithCode channels (#X17)", () => {
+  const SENTINEL = "BEARER-ZZ9";
+
+  it("#X17: servers:list from the main top frame on the local origin answers; the JSON carries no bearer, cookie or partition", async () => {
+    const b = build();
+    b.keyring.savePaired({ fingerprint: `sha256:${"B".repeat(43)}`, label: "build-box", host: { scheme: "https", host: "b.share.zrok.io", port: 443, source: "pairing" }, bearer: SENTINEL });
+    const r = JSON.stringify(await b.handlers.get("servers:list")!(mainEvent()));
+    expect(r).toContain("build-box");
+    for (const secret of [SENTINEL, "B1", "partition", "cookie", "bearer", "token"]) expect(r.toLowerCase(), secret).not.toContain(secret.toLowerCase());
+  });
+
+  it("#X17: servers:list is refused from a remote-origin main frame, a subframe and a server window", async () => {
+    const b = build();
+    const iframe: ServersEvent = { sender: main.webContents as never, senderFrame: { url: `${LOCAL}/frame` } as never };
+    for (const e of [topEvent(main, "http://192.168.16.204:8000/"), iframe, topEvent(server, "http://192.168.16.204:8000/")]) {
+      const r = JSON.stringify(await b.handlers.get("servers:list")!(e));
+      expect(r).toBe(JSON.stringify({ ok: false, reason: "untrusted" }));
+      expect(r).not.toContain("home-imac");
+    }
+  });
+
+  it("#X17: servers:pair-with-code from the local main top frame starts code pairing for a validated fingerprint", async () => {
+    const b = build();
+    expect(await b.handlers.get("servers:pair-with-code")!(mainEvent(), { fingerprint: F, text: "ignored", partition: "evil" })).toEqual({ ok: true, pairing: true });
+    expect(b.sw.pairWithCode).toHaveBeenCalledWith(F);
+  });
+
+  it("#X17: servers:pair-with-code is refused from a remote-origin frame, a subframe, a server window, and the other trusted windows", async () => {
+    const b = build();
+    const iframe: ServersEvent = { sender: main.webContents as never, senderFrame: { url: `${LOCAL}/frame` } as never };
+    const refused = { ok: false, reason: "untrusted" };
+    for (const e of [topEvent(main, "http://192.168.16.204:8000/"), iframe, topEvent(server, "http://192.168.16.204:8000/"), rcEvent(), connEvent()]) {
+      expect(await b.handlers.get("servers:pair-with-code")!(e, { fingerprint: F })).toEqual(refused);
+    }
+    expect(b.sw.pairWithCode).not.toHaveBeenCalled();
+  });
+
+  it("#X17: servers:pair-with-code validates the fingerprint shape", async () => {
+    const b = build();
+    for (const bad of [undefined, "sha256:short", 5, { fingerprint: F }]) {
+      expect(await b.handlers.get("servers:pair-with-code")!(mainEvent(), { fingerprint: bad })).toEqual({ ok: false, reason: "invalid" });
+    }
+    expect(await b.handlers.get("servers:pair-with-code")!(mainEvent(), undefined)).toEqual({ ok: false, reason: "invalid" });
+    expect(b.sw.pairWithCode).not.toHaveBeenCalled();
+  });
+
+  it("#X11: the pasted text is accepted only from the connecting window, bounded, and never logged", async () => {
+    const b = build();
+    expect(await b.handlers.get("servers:submit-code")!(connEvent(), { text: "pi:pair:v1.ZZ9" })).toEqual({ ok: true });
+    expect(b.sw.submitCode).toHaveBeenCalledWith("pi:pair:v1.ZZ9");
+    b.sw.submitCode!.mockClear();
+    for (const e of [mainEvent(), rcEvent(), topEvent(server, "http://x/")]) {
+      expect(await b.handlers.get("servers:submit-code")!(e, { text: "pi:pair:v1.ZZ9" })).toEqual({ ok: false, reason: "untrusted" });
+    }
+    expect(await b.handlers.get("servers:submit-code")!(connEvent(), { text: 5 })).toEqual({ ok: false });
+    expect(await b.handlers.get("servers:submit-code")!(connEvent(), { text: "x".repeat(20_000) })).toEqual({ ok: false });
+    expect(b.sw.submitCode).not.toHaveBeenCalled();
+    expect(b.logs.join("\n")).not.toContain("ZZ9");
+  });
+});

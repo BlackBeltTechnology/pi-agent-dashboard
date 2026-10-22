@@ -5,3 +5,5 @@ Extension/package management routes. Exports `registerPackageRoutes`. Endpoints:
 ## addons-hub-declutter
 
 `GET /api/packages/installed?scope=global` reads `listManagedBridges()` + `listManagedPackageOwnership()` (never throws; warns once on reader error or when registry non-empty and nothing matches) and passes `managedPaths` to the enricher. See change: addons-hub-declutter.
+
+`routeAdmission` dep (default fail-closed). A supplied `cwd` (`installed`, `install`, `remove`, `update`, `move` fromCwd + toCwd, `reset-to-npm`, `check-updates`) is admitted via `admitOptionalCwd`; refusal 403 `{code:"cwd_unknown", error:"cwd not allowed", reason, hint}`, undecidable 503 + `Retry-After`; no cwd keeps the wrapper fallback. `move` / `reset-to-npm` answer `400 invalid_request` for a local scope without a string cwd before admission; move refusal beats 503. See change: core-file-cwd-admission.

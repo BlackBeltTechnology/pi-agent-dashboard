@@ -5,3 +5,7 @@ Settings section for mDNS server discovery. Exports `NetworkDiscoverySection`. S
 Remote rows gain "Connect" — opens the peer's `/pair?request` in a new tab (`noopener`; IPv6 hosts bracketed). See change: add-lan-knock-pairing.
 
 New-context opens go through `openExternalUrl` (`classifyUrl`; `noopener,noreferrer`). See change: harden-client-sinks.
+
+## group-servers-by-identity
+
+Scan bar, scan hook, diagnostic, manual-add form + `validateManualAdd`; no separate section. See change: group-servers-by-identity.

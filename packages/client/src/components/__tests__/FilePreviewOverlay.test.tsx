@@ -259,6 +259,10 @@ describe("FilePreviewOverlay — stale link errors", () => {
     );
   });
 
+  it("maps an undecidable cwd admission to the retry-in-a-moment text (core-file-cwd-admission)", () => {
+    expect(friendlyReadError("cwd-admission-unavailable", "src/foo.ts", "/repo")).toMatch(/could not be checked right now/i);
+  });
+
   it("passes through an unrecognised error verbatim", () => {
     expect(friendlyReadError("path outside working directory", "x.ts", "/repo")).toBe(
       "path outside working directory",

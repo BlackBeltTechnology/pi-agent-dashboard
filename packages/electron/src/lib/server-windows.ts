@@ -20,7 +20,7 @@
  * whole lifecycle is unit-tested with fakes (`__tests__/server-windows.test.ts`).
  * No bearer or confirmation code is ever logged.
  *
- * See change: add-electron-server-windows (D5–D8, D12, D14).
+ * See change: add-electron-server-windows (D5–D8, D12, D14), group-servers-by-identity (D8).
  */
 import type { ProveFn } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
 import { decideServerWindowNavigation } from "./link-handling.js";
@@ -31,6 +31,7 @@ import {
   type PairingTarget,
   startPairing,
 } from "./pairing-client.js";
+import { type CodePairingSession, startCodePairing } from "./pairing-code-client.js";
 import {
   buildCandidates,
   type Candidate,
@@ -179,6 +180,8 @@ export interface ServerWindowsDeps {
   now?: () => number;
   /** Test seam: pairing client factory. */
   startPairing?: typeof startPairing;
+  /** Test seam: in-app code-redeem factory. */
+  startCodePairing?: typeof startCodePairing;
   /** Pairing poll hooks (tests). */
   pairingHooks?: { now?: () => number; sleep?: (ms: number) => Promise<void>; pollIntervalMs?: number };
 }
@@ -219,6 +222,10 @@ export interface ServerWindows {
   connectManual(url: string): Promise<OpenResult>;
   /** Re-run pairing for a keyring entry. */
   pairAgain(fp: string): Promise<OpenResult>;
+  /** "Pair with code" (main window): open the Connecting window in code mode for a pinned fingerprint. */
+  pairWithCode(fp: string): Promise<OpenResult>;
+  /** Connecting-window intent: the pasted pairing text (never logged). */
+  submitCode(text: string): void;
   forget(fp: string): Promise<{ ok: boolean; message: string }>;
   /** Connecting-window intents. */
   sendRequest(deviceName: string): void;
@@ -239,11 +246,14 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     p.catch((e: unknown) => log(`[server-windows] ${what} failed: ${e instanceof Error ? e.message : String(e)}`));
   };
   const pairingFactory = deps.startPairing ?? startPairing;
+  const codePairingFactory = deps.startCodePairing ?? startCodePairing;
 
-  // pairing state (one connecting window at a time)
+  // pairing state (one connecting window at a time; a knock session OR a code session)
   let connecting: ConnectingHandle | null = null;
   let session: PairingSession | null = null;
-  let lastTarget: PairingTarget | null = null;
+  let codeSession: CodePairingSession | null = null;
+  /** Re-runs the current pairing (the Connecting window's "Pair again"). */
+  let retry: (() => void) | null = null;
   let lastState: ConnectingState | null = null;
 
   const hostText = (r: HostRef) => `${r.host}:${r.port}`;
@@ -368,7 +378,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   async function loadVerified(entry: KeyringEntryView, bearer: string, host: Candidate, opts: { notify?: boolean }): Promise<OpenResult> {
     const fp = entry.fingerprint;
     const origin = serverOrigin(host.ref);
-    if (host.source === "discovered") keyring.heal(fp, host.ref);
+    if (host.source === "discovered") keyring.heal(fp, { ...host.ref, source: "mdns" });
 
     const partition = partitionFor(fp, entry.remembered);
     const ses = ports.sessionFor(partition);
@@ -597,16 +607,12 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     if (connecting?.isOpen()) connecting.push(state);
   }
 
-  function startPairingFor(target: PairingTarget): OpenResult {
+  /** Supersede whatever pairing is active and show `initial` in the (re)used Connecting window. */
+  function beginPairing(initial: ConnectingState): void {
     session?.stop();
-    lastTarget = target;
-    const initial: ConnectingState = {
-      label: target.label,
-      host: hostText(target.ref),
-      unencrypted: target.ref.scheme === "http",
-      phase: "proving",
-      deviceName: target.deviceName,
-    };
+    codeSession?.stop();
+    session = null;
+    codeSession = null;
     lastState = initial;
     if (connecting?.isOpen()) {
       connecting.focus();
@@ -614,6 +620,31 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     } else {
       connecting = ports.openConnectingWindow(initial);
     }
+  }
+
+  /** On approval: close the Connecting window and open the server's window. */
+  function watchPairing(isCurrent: () => boolean, done: Promise<PairingResult>): void {
+    done
+      .then((res: PairingResult) => {
+        if (!isCurrent()) return; // superseded
+        if (res.status === "approved") {
+          connecting?.close();
+          connecting = null;
+          background(open(res.fingerprint, { notify: true }), "open after pairing");
+        }
+      })
+      .catch((e: unknown) => log(`[server-windows] pairing ended abnormally: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
+  function startPairingFor(target: PairingTarget): OpenResult {
+    retry = () => void startPairingFor(target);
+    beginPairing({
+      label: target.label,
+      host: hostText(target.ref),
+      unencrypted: target.ref.scheme === "http",
+      phase: "proving",
+      deviceName: target.deviceName,
+    });
     const s = pairingFactory(target, {
       prove: deps.prove,
       keyring,
@@ -622,17 +653,34 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       ...(deps.pairingHooks ?? {}),
     });
     session = s;
-    s.done
-      .then((res: PairingResult) => {
-        if (session !== s) return; // superseded
-        if (res.status === "approved") {
-          connecting?.close();
-          connecting = null;
-          background(open(res.fingerprint, { notify: true }), "open after pairing");
-        }
-      })
-      .catch((e: unknown) => log(`[server-windows] pairing ended abnormally: ${e instanceof Error ? e.message : String(e)}`));
+    watchPairing(() => session === s, s.done);
     return { ok: true, pairing: true };
+  }
+
+  /** "Pair with code": the Connecting window asks for the pasted text; main does the rest. */
+  function startCodePairingFor(fp: string): OpenResult {
+    const label = codeLabel(fp);
+    retry = () => void startCodePairingFor(fp);
+    const deviceName = ports.deviceName();
+    beginPairing({ mode: "code", label, host: "pairing code", unencrypted: false, phase: "code", deviceName });
+    const s = codePairingFactory(
+      { fingerprint: fp, label, deviceName },
+      { prove: deps.prove, keyring, log, onState: pushState, ...(deps.pairingHooks ?? {}) },
+    );
+    codeSession = s;
+    watchPairing(() => codeSession === s, s.done);
+    return { ok: true, pairing: true };
+  }
+
+  /** Sanitised label for a fingerprint the page named: keyring label, else the discovered name, else the short fingerprint. */
+  function codeLabel(fp: string): string {
+    const fallback = `server ${shortFingerprint(fp)}`;
+    const known = keyring.get(fp)?.label ?? discovery.list().find((d) => d.fingerprint === fp)?.name;
+    return sanitizeDisplayName(known, fallback);
+  }
+
+  function pairWithCode(fp: string): Promise<OpenResult> {
+    return Promise.resolve(startCodePairingFor(fp));
   }
 
   function pairAgain(fp: string): Promise<OpenResult> {
@@ -647,6 +695,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
         label: entry.label,
         ref,
         pinnedFp: fp,
+        ...(advert ? { source: "mdns" as const } : {}),
         ...(advert?.fingerprint ? { advertFp: advert.fingerprint } : {}),
         deviceName: ports.deviceName(),
       }),
@@ -662,6 +711,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     return startPairingFor({
       label: entry.name,
       ref: { scheme: "http", host: entry.host, port: entry.port },
+      source: "mdns",
       ...(entry.fingerprint && keyring.has(entry.fingerprint) ? { pinnedFp: entry.fingerprint } : {}),
       ...(entry.fingerprint ? { advertFp: entry.fingerprint } : {}),
       deviceName: ports.deviceName(),
@@ -676,6 +726,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     return startPairingFor({
       label: sanitizeDisplayName(ref.host, ref.host),
       ref,
+      source: "saved",
       ...(known ? { pinnedFp: known.fingerprint } : {}),
       deviceName: ports.deviceName(),
     });
@@ -718,11 +769,16 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     connectDiscovered,
     connectManual,
     pairAgain,
+    pairWithCode,
+    submitCode: (text) => codeSession?.submitCode(text),
     forget,
     sendRequest: (name) => session?.send(name),
-    stopWaiting: () => session?.stop(),
+    stopWaiting: () => {
+      session?.stop();
+      codeSession?.stop();
+    },
     retryPairing() {
-      if (lastTarget) startPairingFor(lastTarget);
+      retry?.();
     },
     connectingState: () => lastState,
     isOpen: (fp) => {
@@ -731,6 +787,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     },
     closeAll() {
       session?.stop();
+      codeSession?.stop();
       for (const ow of registry.values()) {
         if (!ow.win.isDestroyed()) ow.win.close();
       }

@@ -139,3 +139,50 @@ describe("hostile peer bounds (audit)", () => {
     expect(await sendKnock(BASE, F, "x", hooks())).toEqual({ status: "expired" });
   });
 });
+
+describe("approved poll carries validated routes (D7, #E6)", () => {
+  const approvedWith = (routes: unknown) => [{ status: "approved", token: "T", ...(routes === undefined ? {} : { routes }) }];
+  const run = async (routes: unknown) => {
+    stubFetch(() => knockOk(), approvedWith(routes));
+    return knockServerWith(async () => ({ proven: F }), BASE, F, "Laptop", hooks());
+  };
+
+  it("#E6 carries the valid https origins, normalised, in delivery order", async () => {
+    expect(await run(["https://k3x9p2.share.zrok.io/", "https://lab.example.org"])).toEqual({
+      status: "approved",
+      token: "T",
+      fingerprint: F,
+      routes: ["https://k3x9p2.share.zrok.io", "https://lab.example.org"],
+    });
+  });
+
+  it("#E6 hostile entries are dropped, the valid one kept", async () => {
+    const out = await run([
+      "https://10.0.0.5",
+      "https://[fd12::4]",
+      "https://localhost",
+      "https://printer.local",
+      "https://user:pw@host.example",
+      "https://host.example/path",
+      "https://host.example?a=1",
+      "https://host.example#x",
+      "http://host.example",
+      "wss://host.example",
+      "https://k3x9p2.share.zrok.io",
+    ]);
+    expect(out).toMatchObject({ status: "approved", routes: ["https://k3x9p2.share.zrok.io"] });
+  });
+
+  it("#E6 9 valid routes → the first 8", async () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `https://h${i}.example`);
+    const out = await run(nine);
+    expect(out).toMatchObject({ status: "approved", routes: nine.slice(0, 8) });
+  });
+
+  it.each([[undefined], [[]], ["https://a.example"], [{ 0: "https://a.example" }], [42], [["http://only.example"]]])(
+    "no usable routes (%j) → approved without a routes key",
+    async (routes) => {
+      expect(await run(routes)).toEqual({ status: "approved", token: "T", fingerprint: F });
+    },
+  );
+});

@@ -8,3 +8,5 @@ Live-server-preview REST. `registerLiveServerRoutes`. `POST /api/live-server/sta
 
 
 Egress routes (registered when deps `egress` is set; all flat `{success,ok}`; owner-only = token's minting principal, other principal 403, unknown token 404): `GET /:id/egress?token=<tokenId>` (control) → `{origins,scanIncomplete,rootAbsolute,runtimeChannel,promptingEnabled}`; `POST /:id/allow-once {tokenId,viewerId,origin}` (control; viewer must own the token; ungrantable/invalid → 400, logged `allow refused`; logs `allow-once`); `POST /:id/egress-grant-request {tokenId,origin}` (control; static + markup-detected + grantable only → `requestEgressGrant`; prompting off → 200 `{ok:false,reason:"prompting-disabled"}`; registry rate limit → 429 `rate-limited`). Deps `egress`, `requestEgressGrant`, `channelOf`. See change: improve-canvas-html-and-url-ux.
+
+`StaticStartGate` failure gains optional `headers` (the 503 of an undecidable cwd admission carries `Retry-After: 1`). See change: core-file-cwd-admission.

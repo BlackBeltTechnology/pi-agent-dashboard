@@ -7,7 +7,7 @@ Lets dashboard servers and browsers find each other on a local network without h
 ## Requirements
 
 ### Requirement: Server mDNS advertisement
-The dashboard server SHALL advertise itself via mDNS as `_pi-dashboard._tcp` on startup and unpublish on shutdown. The TXT record SHALL carry `{ version, pid, piPort, fp, name }`, where `version` is the dashboard server's own package version, `fp` is the server identity fingerprint (the same value the identity challenge proves), and `name` is the operator-configured dashboard name when set, otherwise the machine's hostname — for display only.
+The dashboard server SHALL advertise itself via mDNS as `_pi-dashboard._tcp` on startup and unpublish on shutdown. The TXT record SHALL carry `{ version, pid, piPort, fp, name }`, where `version` is the dashboard server's own package version, `fp` is the server identity fingerprint (the same value the identity challenge proves), and `name` is the operator-configured dashboard name when set, otherwise the machine's hostname — for display only. The TXT record SHALL NOT carry any URL, tunnel address or other route of the server; the fingerprint is the only identity data. The `fp` key SHALL be present only when the server has an identity.
 
 #### Scenario: Server advertises on startup
 - **WHEN** the dashboard server starts successfully
@@ -25,6 +25,11 @@ The dashboard server SHALL advertise itself via mDNS as `_pi-dashboard._tcp` on 
 #### Scenario: Server unpublishes on shutdown
 - **WHEN** the dashboard server shuts down
 - **THEN** it SHALL unpublish the mDNS service before closing
+
+#### Scenario: Advertisement carries no routes
+- **GIVEN** the server has an active tunnel and a public base URL
+- **WHEN** a peer reads the TXT record
+- **THEN** the keys SHALL be no others than `version`, `pid`, `piPort`, `name` and, when an identity exists, `fp`, and no value SHALL contain a tunnel or public URL
 
 ### Requirement: mDNS service browsing
 A shared discovery module SHALL browse for `_pi-dashboard._tcp` services and return discovered servers. Each discovered server SHALL carry `host`, `port`, `piPort`, `version`, `isLocal`, `addresses`, and, when advertised, `fingerprint` and `name`. For a server on the local machine, `host` SHALL be an IP address literal of a local interface the server serves on, IPv4 preferred, so reaching it does not depend on mDNS name resolution. Every URL built from a discovered `host` SHALL bracket IPv6 literals.

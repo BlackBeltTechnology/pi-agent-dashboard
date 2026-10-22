@@ -4583,6 +4583,37 @@ sequenceDiagram
 
 `request-access` remedy on `operate_required`: present iff no credential + knock pre-switch gates pass (`knockPeerGate`). Discloses only `host_not_admitted` | `knock_not_lan`. Never reads `acceptLanRequests`. See `docs/credential-vault.md` §10. See change: add-request-access-remedy.
 
+#### Route delegation and pair action (change: group-servers-by-identity)
+
+Identity challenge is public and separate from access check:
+
+- `POST /api/pair/challenge {nonce}` → `{fingerprint, publicKey, signature, v}`. Public (`PUBLIC_PAIRING_PREFIXES`, `pairing-routes.ts`). Answers where `/api/health` returns `403 network_not_allowed`.
+- Proof: Node `proveServerIdentity` (`packages/shared/src/server-pinning.ts`); browser `challengeIdentity` (`packages/client/src/lib/pairing/pair-protocol.ts`).
+
+Delegation (D7):
+
+- `POST /api/pair/poll` `approved` answer → `{status, token, routes}`. `routes` = `reachableUrls()` filtered to `https:`, origin-normalised (`httpsOrigins`, `pairing-routes.ts`). `wss://` and `PI_E2E_SEED` loopback `http` stay in QR `urls`, never in `routes`.
+- `routes` only on the one `approved` answer carrying the one-shot token. Never on `pending` / `rejected` / `unknown`, `/api/pair/challenge`, or TXT.
+- Receiver validates (`validateDeliveredRoutes`): `https`, origin only, DNS name (no IP literal, `localhost`, `*.local`), ≤ 8 routes, host ≤ 253 chars.
+- Receiver stores only after challenge at that origin proves pinned `F` (`recordDeliveredRoutes`, `packages/electron/src/lib/delivered-routes.ts`). Source `pairing`.
+- Browser ignores `routes`: no own store for them. Electron keyring keeps ≤ 3 delivered (`MAX_DELIVERED_STORED`), then 5-host cap, https first.
+
+Pair action per row (`pairAction`, `packages/shared/src/server-routes.ts`; hook `use-pair-action.ts`):
+
+- Browser, on-link route: "Request access…" → `window.open("http://<host>:<port>/pair?request", "_blank", "noopener")`. URL via `buildRequestPageUrl`; refused unless it round-trips. No fp check (Electron only).
+- Browser, otherwise: "Pair with code…" → pasted payload; local check payload `id` = entry `F`; new tab `<https origin>/pair#<payload>`. Landing runs `challengeIdentity` before redeem.
+- Electron, no `F`, on-link route discovered: "Verify and request access…" (TOFU compare).
+- Electron, on-link route discovered or in keyring: "Request access…" → `piDashboard.openServerWindow({host, port})`. Connecting window proves identity first.
+- Otherwise: "Pair with code…".
+- Knock refusals: `knock_disabled` → remedy text; `knock_not_lan` → "Pair with code instead"; `knock_pending`, `knock_busy` unchanged.
+
+Electron bridges (main window only, local-origin gate):
+
+- `piDashboard.listServers()` → `servers:list`. Renderer-safe state (`pairedRow`, `discovered`); no bearer.
+- `piDashboard.pairWithCode({fingerprint})` → `servers:pair-with-code` → `serverWindows.pairWithCode(fp)` → Connecting window code mode. Pasted text travels only on `servers:submit-code` from the connecting window.
+- In-app redeem (`packages/electron/src/lib/pairing-code-client.ts`): decode; payload `F` ≠ pin → no request; prove first payload `https` URL that proves pin; `POST /api/pair/redeem`; poll for approval (compare code shown in Connecting window only); bearer → keyring (`safeStorage` rules); routes validated + proven.
+- Pasted text, pairing code, bearer never reach dashboard page or logs.
+
 #### Bearer device auth — D5/D7
 
 Approval mints long-lived opaque bearer token. Registry `~/.pi/dashboard/paired-devices.json` (0600). Stores only SHA-256 hash. Revoke = row delete (Settings → Security → Paired Devices). Auth branch: `Authorization: Bearer` (REST) feeds existing `request.isAuthenticated` — one OR branch, registered before OAuth plugin. Modules `paired-devices.ts`, `bearer-auth.ts`.
@@ -6074,42 +6105,84 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 
 ### Known Servers
 - Users can persist remote servers in `config.json` via `knownServers: KnownServer[]`
-- Each entry has `host`, `port`, optional `label`, `addedAt` timestamp, optional `fingerprint` (`sha256:` prefix, pinned, see Identity pinning)
-- REST API: `GET /api/known-servers` (list + `canManage`, `networkGuard`), `POST`/`DELETE /api/known-servers` (operator-only), `POST /api/known-servers/accept-move` (operator), `POST /api/known-servers/probe` (operator), `POST /api/discover-servers` for on-demand mDNS scan
+- Entry = one server instance, keyed by `fingerprint` (`sha256:` prefix, pinned). Shape `{fingerprint?, label?, addedAt, routes[], host, port}`. `host`/`port` mirror primary route (first `http` route, else first route). See Routes and identity grouping.
+- REST API: `GET /api/known-servers` (list + `canManage`, `networkGuard`; entries carry `routes[]`), `POST /api/known-servers {host, port, scheme?, label?, fingerprint?}` (attach route, operator-only), `DELETE /api/known-servers` by `{host, port, scheme?}` (route; entry removed with its last route) or `{fingerprint}` (whole entry), `POST /api/known-servers/accept-move` (operator), `POST /api/known-servers/probe {host, port, scheme?}` (operator), `POST /api/discover-servers` for on-demand mDNS scan
 - Mutations and probe are operator-only: `preHandler: [networkGuard, operatorGuard]`. Network-trusted browsers can list entries but not change them. Breaking, see release note.
 - Localhost is always implicitly available (not stored)
 - The data model is extensible for future key exchange / auth tokens
 
 ### Known-server identity pinning (change: stabilize-mdns-server-identity)
-- Uniqueness key: `(fingerprint, port)`. `parseKnownServers` (`packages/shared/src/config.ts`) passes `sha256:` fingerprints through; duplicates merged on load, first entry wins, later hosts dropped (logged).
+- Uniqueness: per `http` route `(fingerprint, port)`; https routes join oldest entry holding F. `parseKnownServers` (`packages/shared/src/config.ts`) passes `sha256:` fingerprints through; legacy `{host, port}` reads as one route (`https` on port 443, else `http`); duplicate entries merged on load, first stored wins.
 - Proof: `proveServerIdentity(baseUrl, {timeoutMs})` (`packages/shared/src/server-pinning.ts`). Fresh nonce → `POST /api/pair/challenge`. `redirect: "manual"`. Response read with 4 KiB cap. Fingerprint recomputed from presented key. Signature verified.
 - `challengePinnedServer` unchanged (remote-registration gate relies on it).
 - Pin written only after proof. Two paths: operator add; backfill (operator probe reports `reachable` for unpinned entry).
-- Add: proof runs outside write queue. Queued write re-reads config and re-validates.
-  - Proven `F`, no conflict → pinned.
-  - `F` held by other entry at same port, holder's stored address still proves `F` → `409 already_known {host, port}`. Nothing written.
-  - `F` held, holder's stored address no longer proves `F` → holder host updated → `{updated: true}`. Label replaced only when non-empty label supplied. `addedAt` kept.
-  - Target pinned to `G ≠ F` → `409 identity_changed {expected, proven}`.
+- Add: challenge over route scheme runs outside write queue. `scheme` allowlist `http`|`https` (else `400 invalid_scheme`). Queued write re-reads config and re-validates.
+  - Proven `F` → route attached per grouping rule. No `409 already_known`, no holder re-probe.
+  - Route already stored → label refresh / pin → `{success: true}`.
+  - New route attached to existing entry → `{updated: true}`. New entry → `{success: true}`.
+  - Route stored under pin `G ≠ F` → `409 identity_changed {expected, proven}`.
+  - Label replaced only when non-empty label supplied. `addedAt` kept.
 - Add never clears or replaces a pin. Failed challenge keeps existing pin.
-- Backfill: proven `F` pinned at stored address. Existing `(F, port)` holder → merged into verified entry (label kept when verified entry has none), other entry removed, dropped host logged.
+- Backfill: proven `F` pinned at primary route (own scheme). Existing `(F, port)` holder → merged into verified entry (survivor keeps routes, gains other's missing routes; label kept when verified entry has none), other entry removed, dropped host logged.
 - All known-server writes (add, delete, backfill, accept-move) → one module-level serialized queue (`known-servers-routes.ts`). Challenges run before enqueue. Each write aborts if target entry gone.
+
+### Routes and identity grouping (change: group-servers-by-identity)
+
+- Entry = one server instance. Key = fingerprint `F`. Route = address proven to be `F`.
+- Route item: `{host, port, scheme: "http"|"https", source: "saved"|"mdns"|"pairing"}`. Pure helpers in `packages/shared/src/server-routes.ts` (server, client, Electron): `classifyRoute`, `groupRoutes`, `findAttachTarget`, `rankRoutes`, `pairAction`, `buildRequestPageUrl`, `validateDeliveredRoutes`, `originToRoute`. Constants: `SIMILAR_LATENCY_MS = 50`, `MAX_DELIVERED_ROUTES = 8`.
+- Route kind derived, never stored: `loopback` (127/8, `::1`, `localhost`); `lan` (RFC1918, CGNAT 100.64/10, link-local, `fc00::/7`, `fe80::/10`, internal names); `mdns` (`*.local`); `tunnel` (https under `zrok.io`); else `public`. Kind picks label and pair action only.
+- Grouping (`findAttachTarget`): proven route joins entry holding `F` when route is `https`, or entry has no `http` route, or entry has `http` route on same port. Else new entry with same `F`, labelled "same identity as …". Two `http` ports = two rows.
+- https route joins oldest entry holding `F` (stored list order).
+- Unpinned entry: single route, keyed `host:port` until proof.
+- Merge, same identity: on load first stored wins; on backfill proven entry wins. Survivor keeps routes, gains missing routes, keeps or takes label.
+- Host normalised (`normalizeHost`): lower-case, one trailing dot removed, brackets and zone id stripped, IPv4-mapped IPv6 as IPv4.
+- Route proof, two concurrent calls per route:
+  - identity challenge (`POST /api/pair/challenge`, route scheme): proof + latency.
+  - `GET /api/health`: access. `403 network_not_allowed` → "Network not allowed".
+
+| Challenge | Health | Route state |
+| --- | --- | --- |
+| proves `F` | ok | proven, usable |
+| proves `F` | `403 network_not_allowed` | proven, network not allowed |
+| proves `F′ ≠ F` | any | refused: different identity; no credential sent |
+| bad signature / bad key | any | refused: invalid identity proof |
+| non-200 or no `publicKey`/`signature` | ok | can't prove identity (older server) |
+| transport failure | n/a | unreachable |
+
+- Server proof scheme-aware: `proveServerIdentity("<scheme>://host:port")`. Normal TLS verification, `redirect: "manual"`, 2 s, 4 KiB body cap.
+- Browser proof: `challengeIdentity` (`packages/client/src/lib/pairing/pair-protocol.ts`), same CORS and mixed-content limits as health. Blocked routes explained by server probe.
+- Concurrency: at most 6 route checks in flight; 2 s each.
+- mDNS advert `fp` unauthenticated: picks display group only. Route used only after proof of that `F`.
+- Best route, `rankRoutes(routes, {credentialed})`, proven routes only:
+  - `credentialed: false` (list marker, browser switch): https wins when `https − http ≤ 50 ms` (inclusive); else lowest latency.
+  - `credentialed: true` (Electron open that sends stored bearer): stored https, then stored http, then discovered https, then discovered. First proven wins; latency ignored. Prevents bearer downgrade to cleartext.
+
+```mermaid
+flowchart TD
+  R["proven routes"] --> C{"credentialed?"}
+  C -- "no" --> L["fastest http, fastest https"]
+  L --> G{"https − http ≤ 50 ms?"}
+  G -- "yes" --> HS["https"]
+  G -- "no" --> F["lowest latency"]
+  C -- "yes" --> O["stored https, then stored http, then discovered https, then discovered; first proven, no latency"]
+```
 
 ### Move suggestions (change: stabilize-mdns-server-identity)
 - Trigger: `up` / `srv-update` / refresh sweep for peer whose `(fp, port)` matches pinned entry at different host.
 - Rate: one challenge per `(fp, port)` per `MOVE_CHALLENGE_INTERVAL_MS` (60 s).
-- Stored address still proves `F` → no action.
+- Primary route still proves `F` → no action.
 - Else challenge peer address only if on-link (inside a subnet of a local interface, or IPv6 prefix match) and not loopback / link-local / unspecified / multicast. Else skip, logged `move-skipped`.
 - Proof → in-memory suggestion `{entry, host, port, verifiedAt}`. Not persisted. Fn: `known-server-moves.ts`.
 - `GET /api/known-servers` returns `movedTo` per entry.
 - Dropped when: stored address proves `F` again; peer disappears; not re-verified within `MOVE_SUGGESTION_TTL_MS` (10 min).
 - Advert alone never writes config.
-- Accept: `POST /api/known-servers/accept-move {host, port}` (operator). Re-verifies: stored address fails + suggested address proves `F`. Rewrites host/port; label, `fingerprint`, `addedAt` kept.
+- Accept: `POST /api/known-servers/accept-move {host, port}` (operator). Re-verifies: primary route fails + suggested address proves `F`. Rewrites primary route `host`/`port` (scheme `http`); other routes, label, `fingerprint`, `addedAt` kept.
 - Logs: `[known-servers] move-suggested|move-withdrawn|move-skipped fp=<short> <old> -> <new>`; accept logs `[known-servers] moved fp=<short> <old> -> <new>`. `<short>` = fingerprint without `sha256:`, 16 chars.
 
 ### Operator probe (change: stabilize-mdns-server-identity)
-- `POST /api/known-servers/probe {host, port}` (operator). Refuses unless `normalizeHostKey(host):port` matches persisted entry.
-- Order: DNS lookup first (own budget `PROBE_DNS_TIMEOUT_MS`), then `GET http://<formatHostPort>/api/health` (`redirect: "manual"`, `PROBE_HTTP_TIMEOUT_MS`). Separate budgets: slow negative `.local` lookup ≠ HTTP timeout.
-- One in-flight probe per entry.
+- `POST /api/known-servers/probe {host, port, scheme?}` (operator). Refuses unless `normalizeHostKey(host):port` + scheme matches a stored route.
+- Order: DNS lookup first (own budget `PROBE_DNS_TIMEOUT_MS`), then `GET <scheme>://<formatHostPort>/api/health` (`redirect: "manual"`, `PROBE_HTTP_TIMEOUT_MS`). Separate budgets: slow negative `.local` lookup ≠ HTTP timeout.
+- One in-flight probe per route. On `reachable`, challenge over same route adds `fingerprint`. Result carries `scheme`.
 - States:
   - `name-not-resolved`: `ENOTFOUND` / `EAI_NONAME`.
   - `timeout`: DNS timeout, `EAI_AGAIN`, HTTP `AbortError` / `TimeoutError`.
@@ -6119,7 +6192,7 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 
 ### Server Selector UI
 - The header dropdown shows persisted known servers (from config) plus localhost, not raw mDNS results
-- Each entry shows label (or hostname), host:port, Local/Remote badge, and availability status
+- Each row is one identity: label (or hostname), best route `host:port`, Local/Remote badge, availability status. Routes listed per row with kind and proof state (`ServerRouteTable.tsx`, `server-route-chips.tsx`).
 - **Probe lifecycle**: availability is probed via `/api/health` **only when the dropdown opens** — once per open. No mount probe, no timer, no probing while the dropdown is closed. Current-server status is derived from the live WebSocket state, not a separate probe.
 - **Unreachable entries** are rendered with `opacity-50`, `cursor-not-allowed`, and the `disabled` attribute set; clicks are no-ops. To re-probe, close and reopen the dropdown. The transactional switch (below) still protects against races between the last probe and a click on a reachable entry.
 - Last-used server persisted in `localStorage` (`pi-dashboard-last-server`) — **only after** a successful switch (see transactional switching below).
@@ -6161,9 +6234,8 @@ An `inFlightSwitchKey` ref guards against duplicate clicks; the clicked dropdown
 `ConnectionStatusBanner` (`packages/client/src/components/ConnectionStatusBanner.tsx`) mounts above `<MobileShell>`. It shows "Disconnected from &lt;host&gt;. Retrying…" when the active WebSocket has been non-`OPEN` for more than 3 seconds continuously. The threshold is implemented via `setTimeout` cleared on any return-to-`OPEN` or unmount, so brief reconnects (laptop sleep, wifi hiccup) never flash the banner. During an in-flight staging switch the banner is suppressed — the live socket is still open, so no disconnection has actually occurred.
 
 ### Server Management (Settings Panel)
-- **Known Servers section**: lists persisted servers with remove buttons and an inline add form (host, port, label)
-- **Network Discovery section**: "Scan network" triggers `POST /api/discover-servers`, shows results with "Add" button that prompts for a label
-- Already-known servers show "Already added" badge in discovery results
+- **Servers section** (`ServersTab` → `KnownServersSection`): one merged section, saved + discovered servers, one row per identity. Replaces separate Known Servers and Network Discovery sections. Per-row pair action (see Routes and identity grouping; Route delegation and pair action).
+- Add form takes host, port, scheme, label. Scan triggers `POST /api/discover-servers`.
 - Electron loading page shows known servers as fallback when primary server is unreachable
 
 ## Bridge↔Server Connection — transport & identity (designed)
@@ -6582,13 +6654,24 @@ See change: terminals-in-tabbed-panes.
 ```json
 {
   "knownServers": [
-    { "host": "office-mac.local", "port": 8000, "label": "Office Mac", "addedAt": "2024-01-15T10:30:00Z" },
+    {
+      "host": "office-mac.local", "port": 8000, "label": "Office Mac", "addedAt": "2024-01-15T10:30:00Z",
+      "fingerprint": "sha256:<43 chars>",
+      "routes": [
+        { "host": "office-mac.local", "port": 8000, "scheme": "http", "source": "saved" },
+        { "host": "office.example.ts.net", "port": 443, "scheme": "https", "source": "pairing" }
+      ]
+    },
     { "host": "build-server", "port": 8000, "addedAt": "2024-01-20T14:00:00Z" }
   ]
 }
 ```
 
 Managed via REST API (`/api/known-servers`) or Settings panel. Localhost is always implicit.
+
+- `routes[]` item: `{host, port, scheme, source}`. Kind derived, never stored.
+- Legacy entry (no `routes`) reads as one route. Startup never rewrites file; first mutation writes `routes[]` + mirror. One log line.
+- Rollback: previous build reads `host`/`port` mirror only; drops `routes` on its next write. Secondary routes lost (re-learned via mDNS / pairing). `https` route read back as `http`; legacy port-443 entries read as `https` again on re-upgrade. No entry lost.
 
 ## Bundled Skill: pi-dashboard
 

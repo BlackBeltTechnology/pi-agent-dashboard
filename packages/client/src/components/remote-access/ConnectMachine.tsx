@@ -128,7 +128,6 @@ export function MachineBody({ ctx, cm }: { ctx: StepCtx; cm: ConnectMachine }) {
     setBusy(false);
     switch (out.kind) {
       case "known":
-      case "known-elsewhere":
         cm.setTarget(out.address);
         cm.setCreated(false);
         break;
@@ -255,7 +254,8 @@ export function ReachBody({ ctx, cm }: { ctx: StepCtx; cm: ConnectMachine }) {
               <SmallButton
                 testId="remote-access-reach-remove"
                 onClick={() => {
-                  void removeKnownServer(target.host, target.port).then(() => {
+                  // The wizard only ever creates the plain-http route it typed; name it so an https sibling survives.
+                  void removeKnownServer(target.host, target.port, "http").then(() => {
                     cm.setTarget(null);
                     cm.setCreated(false);
                     setReach({ status: "idle" });

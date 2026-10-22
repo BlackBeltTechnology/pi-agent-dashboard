@@ -4,8 +4,8 @@
  * same payload as `decodePayloadString("pi:pair:v1.<b64>")` so ONE QR serves both
  * the phone camera and an Electron "Scan QR"/paste.
  */
-import { describe, expect, it } from "vitest";
-import { decodePayloadString, type PairingPayload, pollOutcome } from "./protocol.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { decodePayloadString, getJson, type PairingPayload, pollOutcome } from "./protocol.js";
 
 const PAYLOAD: PairingPayload = {
   v: 1,
@@ -58,5 +58,17 @@ describe("pollOutcome", () => {
     expect(pollOutcome({ status: "pending" })).toEqual({ kind: "pending" });
     expect(pollOutcome({ status: "approved", token: "T" })).toEqual({ kind: "approved", token: "T" });
     expect(pollOutcome({ status: "weird" }).kind).toBe("expired");
+  });
+});
+
+describe("request scheme guard (CodeQL js/request-forgery, change: group-servers-by-identity)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("refuses a non-https base before any request is made", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(getJson("http://192.168.16.77:8000", "/api/health", "t")).rejects.toThrow(/non-https/);
+    await expect(getJson("file:///etc/passwd", "/", "t")).rejects.toThrow(/non-https/);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

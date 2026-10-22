@@ -11,6 +11,7 @@ Files in this directory. One row per source file.
 | `build-version.ts` | Windows-safe build version helper. Exports `deriveWindowsBuildVersion(pkgVersion, runNumber)` → 4-integer… → see `build-version.ts.AGENTS.md` |
 | `bundled-node.ts` | Resolves bundled Node.js/npm paths in Electron resources |
 | `connecting-window.ts` | `openConnectingWindow(initial, onClosed)` → `ConnectingHandle{push,focus,close,isOpen}`;… → see `connecting-window.ts.AGENTS.md` |
+| `delivered-routes.ts` | `recordDeliveredRoutes`: validate, prove, keep <=3 delivered https routes; hostile routes never contacted. See change: group-servers-by-identity. |
 | `dependency-detector.ts` | Detects pi, openspec, Node.js on system PATH + managed install. → see `dependency-detector.ts.AGENTS.md` |
 | `doctor-bridge-contract.ts` | `DoctorBridge` TypeScript interface. Imported by preload + renderer. Channel-name-drift breaks type-check. |
 | `doctor-window.ts` | `openDoctorWindow()` factory. BrowserWindow 1000×720. Single-instance focus-reuse. → see `doctor-window.ts.AGENTS.md` |
@@ -23,6 +24,7 @@ Files in this directory. One row per source file.
 | `lock-metadata.ts` | Read per-HOME dashboard lock sidecar. Exports `DashboardLockMetadata` interface, `getLockMetaPath()`,… → see `lock-metadata.ts.AGENTS.md` |
 | `managed-paths.ts` | Managed install paths, mirrored locally (no shared-pkg import for ESM resolution in packaged app). → see `managed-paths.ts.AGENTS.md` |
 | `pairing-client.ts` | `startPairing(target, deps)` → `PairingSession{send,stop,done}`. → see `pairing-client.ts.AGENTS.md` |
+| `pairing-code-client.ts` | In-app code redeem: decode pasted text, refuse wrong fingerprint before any request, prove at first https URL, redeem, wait approval, store bearer. No secrets logged. See change: group-servers-by-identity. |
 | `pick-node.ts` | `pickNodeForServer(PickNodeInput): PickNodeResult` — discriminated union… → see `pick-node.ts.AGENTS.md` |
 | `quit-guard.ts` | `installQuitGuard(app, {isQuitting, requestQuit})`: `before-quit` → full quit (stop server, tray, exit) for… → see `quit-guard.ts.AGENTS.md` |
 | `remote-probe.ts` | Main-process remote-dashboard reachability probe, extracted from `remote-connect-window.ts` so `main.ts` can… → see `remote-probe.ts.AGENTS.md` |

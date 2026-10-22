@@ -4,6 +4,10 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `PairWithCodeDialog.tsx` | Browser Pair with code dialog; refuses payload for other identity; opens payload https origin `/pair#` with noopener. See change: group-servers-by-identity. |
+| `ServerCard.tsx` | Card per identity: route table, pair action, two-step remove. See change: group-servers-by-identity. |
+| `ServerRouteTable.tsx` | Route rows with proof state and Remove address. See change: group-servers-by-identity. |
+| `VerifyAndRequestDialog.tsx` | Electron Verify and request access: full fingerprint compare, then `openServerWindow`. See change: group-servers-by-identity. |
 | `__tests__/PasskeyImpactNote.test.tsx` | Impact note: cleared override still asks, partial draft skipped, url query + silent on zero. See change: add-passkey-user-auth. |
 | `__tests__/UsersSection.test.tsx` | Users section: list/orphaned, add, invite QR, re-tier + two-click revoke, unstable disabled-with-reason, disabled note, bootstrap; status pill texts, testids kept, copy-failed colour, load Retry. See change: add-passkey-user-auth; retro-ux-identity-connectivity. |
 | `__tests__/secure-context-scan.test.ts` | Scans manifest-derived client roots (every plugin client entry dir minus server/bridge, `packages/*/src/client`, client, client-utils, runtime client surface) for bare `crypto.randomUUID` / `crypto.subtle` / `navigator.clipboard` / `navigator.mediaDevices` / `getUserMedia` forms; TS-parser comment stripping; fixture self-tests; allowlist of capability-checked sites. See change: audit-plugin-bundles-non-secure-context. |
@@ -21,3 +25,8 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `PasskeyImpactNote.tsx` | `PasskeyImpactNote({query,testId,debounceMs})`: `query` = `{url}` (provider switch) or `{redirectBaseUrl}` (draft override; empty = cleared, still asked); non-URL drafts skipped. Fetches `credentialImpact`, renders `impactConsequence` or nothing (errors swallowed — advisory). See change: add-passkey-user-auth. |
 | `ServerSelector.tsx` | Server selector = row-1 **connection chip** (server-kind glyph `connection-chip-glyph` + dot badge · name · offline word (≥480 px) · remote-access tone glyph · waiting badge · chevron); exports `currentServerKind`. See change: polish-sidebar-header-controls. + menu with an **Access** group (`accessItems`: Remote access, Install as app). → see `ServerSelector.tsx.AGENTS.md` |
 | `UsersSection.tsx` | Settings → Security → Users: add user + tier (empty ⇒ first-operator bootstrap, no tier picker), re-tier select, two-click revoke, Invite QR (img data URL + copy link), status + orphaned severity pills (Active / Invite pending / Revoked; separate warning orphaned pill), unstable origin ⇒ warning callout + invite DISABLED with `aria-describedby` reason, disabled feature ⇒ how-to-enable note, load failure ⇒ error callout + Retry, labelled add form with the section's one primary button, 32 px row actions, copy-failed in `--severity-error-fg`; QR keeps `bg-white` (quiet-zone exception). Uses `lib/users/*`. See change: add-passkey-user-auth; retro-ux-identity-connectivity. |
+| `server-card-actions.ts` | Card action helpers (remove per route / whole server). See change: group-servers-by-identity. |
+| `server-route-chips.tsx` | Route chips: kind + latency + state as text. See change: group-servers-by-identity. |
+| `use-electron-servers.ts` | Hook reading `piDashboard.listServers()` (renderer-safe rows). See change: group-servers-by-identity. |
+| `use-pair-action.ts` | Hook running the pair action per client (request page / code dialog / verify). See change: group-servers-by-identity. |
+| `use-route-proofs.ts` | Hook running route checks on demand with stale-result guard. See change: group-servers-by-identity. |

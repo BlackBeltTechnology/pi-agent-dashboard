@@ -13,13 +13,19 @@
  * be on one of this server's own subnets and not loopback / link-local /
  * unspecified / multicast.
  *
- * See change: stabilize-mdns-server-identity (D6).
+ * An entry is evaluated on its PRIMARY route only (the first `http` route, else the
+ * first route — the `host`/`port` mirror): the stored address is re-proved in that
+ * route's own scheme and a suggestion moves that route alone; the entry's other
+ * routes are untouched. Peers found by mDNS are always `http`.
+ *
+ * See change: stabilize-mdns-server-identity (D6), group-servers-by-identity (D2).
  */
 import net from "node:net";
 import os from "node:os";
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { formatHostPort, normalizeHostKey } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import type { DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { primaryRoute, type Route } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import type { ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 
 /** Min gap between evaluations of one (fingerprint, port). */
@@ -58,6 +64,8 @@ export interface KnownServerMoves {
 }
 
 const keyOf = (fingerprint: string, port: number) => `${fingerprint}|${port}`;
+/** The entry's primary route (`routes` is never empty: `parseKnownServers` guarantees one). */
+const primaryOf = (entry: KnownServer): Route => primaryRoute(entry.routes) as Route;
 const short = (fingerprint: string) => fingerprint.replace(/^sha256:/, "").slice(0, 16);
 
 function isSpecial(address: string): boolean {
@@ -122,9 +130,10 @@ export function createKnownServerMoves(deps: KnownServerMovesDeps): KnownServerM
       if (!fingerprint) return;
       expire();
       for (const entry of deps.loadKnown()) {
-        if (entry.fingerprint !== fingerprint || entry.port !== peer.port) continue;
+        const primary = primaryOf(entry);
+        if (entry.fingerprint !== fingerprint || primary.port !== peer.port) continue;
         const key = keyOf(fingerprint, peer.port);
-        const storedKey = normalizeHostKey(entry.host);
+        const storedKey = normalizeHostKey(primary.host);
         // The entry already points at where this peer lives — not a move.
         if (storedKey === normalizeHostKey(peer.host) || peer.addresses?.some((a) => normalizeHostKey(a) === storedKey)) {
           drop(key, fingerprint, "peer is at the stored address");
@@ -134,7 +143,7 @@ export function createKnownServerMoves(deps: KnownServerMovesDeps): KnownServerM
         if (last !== undefined && now() - last < MOVE_CHALLENGE_INTERVAL_MS) continue;
         lastEvaluated.set(key, now());
 
-        const stored = await deps.prove(`http://${formatHostPort(entry.host, entry.port)}`);
+        const stored = await deps.prove(`${primary.scheme}://${formatHostPort(primary.host, primary.port)}`);
         if ("proven" in stored && stored.proven === fingerprint) {
           drop(key, fingerprint, "stored address answers again");
           continue;
@@ -151,7 +160,7 @@ export function createKnownServerMoves(deps: KnownServerMovesDeps): KnownServerM
         const existing = suggestions.get(key);
         suggestions.set(key, { host: normalizeHostKey(target), port: peer.port, fromHost: storedKey, verifiedAt: now() });
         if (!existing || existing.host !== normalizeHostKey(target)) {
-          log(`[known-servers] move-suggested fp=${short(fingerprint)} ${entry.host} -> ${target}:${peer.port}`);
+          log(`[known-servers] move-suggested fp=${short(fingerprint)} ${primary.host} -> ${target}:${peer.port}`);
         }
       }
     },
@@ -164,12 +173,13 @@ export function createKnownServerMoves(deps: KnownServerMovesDeps): KnownServerM
     suggestionFor(entry) {
       if (!entry.fingerprint) return undefined;
       expire();
-      const s = suggestions.get(keyOf(entry.fingerprint, entry.port));
-      return s && s.fromHost === normalizeHostKey(entry.host) ? { host: s.host, port: s.port } : undefined;
+      const primary = primaryOf(entry);
+      const s = suggestions.get(keyOf(entry.fingerprint, primary.port));
+      return s && s.fromHost === normalizeHostKey(primary.host) ? { host: s.host, port: s.port } : undefined;
     },
 
     withdraw(entry, reason) {
-      if (entry.fingerprint) drop(keyOf(entry.fingerprint, entry.port), entry.fingerprint, reason);
+      if (entry.fingerprint) drop(keyOf(entry.fingerprint, primaryOf(entry).port), entry.fingerprint, reason);
     },
   };
 }

@@ -46,7 +46,7 @@ const target = (over: Partial<PairingTarget> = {}): PairingTarget => ({
   ...over,
 });
 
-function routeFetch(opts: { request?: () => Response; polls?: Array<{ status: string; token?: string }> } = {}) {
+function routeFetch(opts: { request?: () => Response; polls?: Array<{ status: string; token?: string; routes?: unknown }> } = {}) {
   const polls = [...(opts.polls ?? [{ status: "pending" }, { status: "approved", token: BEARER }])];
   const f = vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
     const u = String(url);
@@ -283,5 +283,131 @@ describe("observability without secrets (X12)", () => {
     await s.done;
     expect(logs.join("\n")).not.toContain(G);
     expect(logs.join("\n")).not.toContain(H);
+  });
+});
+
+// ── group-servers-by-identity: native knock gates (X10), delivered routes (X14, X15) ──
+
+describe("native knock identity gates (#X10)", () => {
+  it("#X10: manual address — H is shown, nothing is sent until the user confirms, a denied knock pins nothing", async () => {
+    const H2 = H;
+    const f = routeFetch({ polls: [{ status: "rejected" }], request: () => json(200, { success: true, data: { pendingId: "p", confirmCode: CODE, expiresAt: 1_000_000, fingerprint: H2 } }) });
+    const s = run(target({ ref: { scheme: "http", host: "10.0.0.5", port: 8000 } }), async () => ({ proven: H2, publicKey: "PUBH" }));
+    await settle();
+    expect(states.at(-1)).toMatchObject({ phase: "confirm", tofu: true, fullFp: H2 });
+    expect(posts(f, "/api/pair/request")).toHaveLength(0);
+    s.send("Laptop");
+    expect(await s.done).toEqual({ status: "rejected" });
+    expect(keyring.has(H2)).toBe(false);
+    expect(keyring.list()).toEqual([]);
+  });
+
+  it("#X10: advert F, challenge proves G ⇒ zero requests to /api/pair/request and an identity-mismatch state", async () => {
+    const f = routeFetch();
+    const s = run(target({ ref: { scheme: "http", host: "192.168.16.204", port: 8000 }, advertFp: F }), async () => ({ proven: G }));
+    expect(await s.done).toEqual({ status: "mismatch" });
+    expect(posts(f, "/api/pair/request")).toHaveLength(0);
+    expect(states.at(-1)).toMatchObject({ phase: "mismatch" });
+  });
+
+  it("#X10: pin F with advert G ⇒ no knock, identity mismatch, and no request of any kind", async () => {
+    const f = routeFetch();
+    const s = run(target({ pinnedFp: F, advertFp: G }), async () => ({ proven: F }));
+    expect(await s.done).toEqual({ status: "mismatch" });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("#X10: the knock response fingerprint differs from the proven one ⇒ no bearer is stored", async () => {
+    routeFetch({ request: () => json(200, { success: true, data: { pendingId: "p", confirmCode: CODE, expiresAt: 1_000_000, fingerprint: G } }) });
+    const s = run(target({ advertFp: F }), async () => ({ proven: F }));
+    await settle();
+    s.send("x");
+    expect(await s.done).toEqual({ status: "mismatch" });
+    expect(keyring.bearerFor(F)).toBeNull();
+    expect(keyring.has(F)).toBe(false);
+  });
+});
+
+describe("delivered routes after a knock approval (#X14, #X15)", () => {
+  const ROUTE_OK = "https://k3x9p2.share.zrok.io";
+  const ROUTE_OTHER = "https://other0.share.zrok.io";
+
+  function approveWith(routes: unknown, prove: Parameters<typeof startPairing>[1]["prove"], extra: Partial<PairingTarget> = {}) {
+    routeFetch({ polls: [{ status: "approved", token: BEARER, routes }] });
+    const s = run(target({ advertFp: F, source: "mdns", ...extra }), prove);
+    return settle().then(() => {
+      s.send("x");
+      return s.done;
+    });
+  }
+
+  it("#X15: the approving host is stored with its source; a delivered route that proves F is stored as https/pairing", async () => {
+    const prove = vi.fn(async (url: string) => ({ proven: F, publicKey: url.startsWith("https") ? undefined : "PUB" }));
+    expect(await approveWith([ROUTE_OK], prove as never)).toEqual({ status: "approved", fingerprint: F });
+    const hosts = keyring.get(F)!.lastHosts;
+    expect(hosts).toContainEqual({ scheme: "https", host: "k3x9p2.share.zrok.io", port: 443, source: "pairing" });
+    expect(hosts).toContainEqual({ ...ref, source: "mdns" });
+    expect(logs.some((l) => l.includes("delivered route proven") && l.includes("k3x9p2.share.zrok.io:443") && l.includes("sha256:AAAAAAAAAAAAAAAA"))).toBe(true);
+  });
+
+  it("#X15: a delivered route proving another identity is not stored and the mismatch is logged", async () => {
+    const prove = vi.fn(async (url: string) => (url === ROUTE_OTHER ? { proven: G } : { proven: F }));
+    await approveWith([ROUTE_OTHER, ROUTE_OK], prove as never);
+    const hosts = keyring.get(F)!.lastHosts.map((h) => h.host);
+    expect(hosts).not.toContain("other0.share.zrok.io");
+    expect(hosts).toContain("k3x9p2.share.zrok.io");
+    expect(logs.some((l) => l.includes("identity-mismatch") && l.includes("other0.share.zrok.io:443") && l.includes("proven=sha256:BBBBBBBBBBBBBBBB"))).toBe(true);
+  });
+
+  it("#X15: an unreachable delivered route is dropped, pairing still succeeds", async () => {
+    const prove = vi.fn(async (url: string) => {
+      if (url === ROUTE_OK) throw new Error("ECONNREFUSED");
+      return { proven: F };
+    });
+    expect(await approveWith([ROUTE_OK], prove as never)).toEqual({ status: "approved", fingerprint: F });
+    expect(keyring.get(F)!.lastHosts.map((h) => h.host)).not.toContain("k3x9p2.share.zrok.io");
+    expect(keyring.bearerFor(F)).toBe(BEARER);
+  });
+
+  it("#X15: eight valid routes that prove F ⇒ the first three stored, in delivery order, host cap holds", async () => {
+    const routes = Array.from({ length: 8 }, (_, i) => `https://r${i + 1}.share.zrok.io`);
+    await approveWith(routes, (async () => ({ proven: F })) as never);
+    const hosts = keyring.get(F)!.lastHosts;
+    expect(hosts.filter((h) => h.source === "pairing").map((h) => h.host)).toEqual(["r1.share.zrok.io", "r2.share.zrok.io", "r3.share.zrok.io"]);
+    expect(hosts.length).toBeLessThanOrEqual(5);
+  });
+
+  it("#X15: an approval with no routes stores none and proves nothing beyond the knock identity", async () => {
+    const prove = vi.fn(async () => ({ proven: F }));
+    await approveWith(undefined, prove as never);
+    expect(prove).toHaveBeenCalledTimes(1);
+    expect(keyring.get(F)!.lastHosts).toHaveLength(1);
+  });
+
+  it("#X15: a hostile route list (IP literal, userinfo, path) is never contacted and nothing is stored", async () => {
+    const { recordDeliveredRoutes } = await import("../delivered-routes.js");
+    keyring.savePaired({ fingerprint: F, label: "home-imac", host: ref, bearer: BEARER });
+    const prove = vi.fn(async () => ({ proven: F }));
+    const stored = await recordDeliveredRoutes(
+      F,
+      ["https://10.0.0.5", "https://user:pw@host.example", "https://host.example/path", "http://plain.example", "https://localhost", "https://x.local"],
+      { prove: prove as never, keyring, log: (l) => logs.push(l) },
+    );
+    expect(stored).toBe(0);
+    expect(prove).not.toHaveBeenCalled();
+    expect(keyring.get(F)!.lastHosts).toHaveLength(1);
+    expect(logs.filter((l) => l.includes("delivered route dropped") && l.includes("reason=invalid"))).toHaveLength(6);
+    expect(logs.join("\n")).not.toContain("pw@");
+  });
+
+  it("#X14: no log line or state contains the bearer or the device name; the confirm code stays in the waiting state only", async () => {
+    await approveWith([ROUTE_OK, ROUTE_OTHER], (async (url: string) => ({ proven: url === ROUTE_OTHER ? G : F })) as never);
+    const text = logs.join("\n");
+    expect(text).not.toContain(BEARER);
+    expect(text).not.toContain(CODE);
+    expect(text).not.toContain(`${"A".repeat(43)}`); // never the full fingerprint tail
+    const states2 = JSON.stringify(states.filter((s) => s.phase !== "waiting"));
+    expect(states2).not.toContain(BEARER);
+    expect(states2).not.toContain(CODE);
   });
 });

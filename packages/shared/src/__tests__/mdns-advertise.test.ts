@@ -375,3 +375,83 @@ describe("resolveAdvertisedAddresses (#E5)", () => {
     expect(await resolveAdvertisedAddresses(bindHost, { interfaces: ifaces, lookup })).toEqual(expected);
   });
 });
+
+// ── TXT is a hint: only `fp` identifies, no address of another route leaks ──
+// See change: group-servers-by-identity (test-plan #E13, task 4.5)
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
+import { fingerprintFromPublicKeyB64 } from "../server-pinning.js";
+
+describe("advertised TXT carries only fp for identity (#E13)", () => {
+  const TUNNEL = "https://k3x9p2.share.zrok.io";
+  const PUBLIC = "https://dash.example.org";
+  let home: string;
+  let origHome: string | undefined;
+
+  afterEach(() => {
+    stopAdvertising();
+    if (home) {
+      process.env.HOME = origHome;
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  /** An identity as the challenge route proves it: fingerprint recomputed from the public key. */
+  function identity() {
+    const { publicKey } = crypto.generateKeyPairSync("ed25519");
+    const b64 = (publicKey.export({ type: "spki", format: "der" }) as Buffer).toString("base64url");
+    return fingerprintFromPublicKeyB64(b64) as string;
+  }
+
+  /** A config that names a tunnel and a public base URL; the advert must not read it. */
+  function configureTunnelAndPublicUrl() {
+    origHome = process.env.HOME;
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mdns-txt-"));
+    process.env.HOME = home;
+    fs.mkdirSync(path.join(home, ".pi", "dashboard"), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, ".pi", "dashboard", "config.json"),
+      JSON.stringify({ publicBaseUrls: [PUBLIC], tunnel: { enabled: true, url: TUNNEL }, pairing: { publicBaseUrls: [TUNNEL] } }),
+    );
+  }
+
+  function txtFor(opts: Record<string, unknown>) {
+    const captured: AdvertisePublishConfig[] = [];
+    advertiseDashboard(8000, 9999, {
+      addresses: ["192.168.16.31"],
+      version: "0.9.0",
+      publish: (config: AdvertisePublishConfig) => {
+        captured.push(config);
+        return fakeService(config).svc;
+      },
+      ...quiet,
+      ...opts,
+    } as never);
+    return captured[0].txt;
+  }
+
+  it("with an identity: keys are exactly version, pid, piPort, name, fp — and fp is the challenge fingerprint", () => {
+    configureTunnelAndPublicUrl();
+    const fp = identity();
+    const txt = txtFor({ fingerprint: fp, name: "Studio", tunnelUrl: TUNNEL, publicBaseUrl: PUBLIC, publicBaseUrls: [PUBLIC, TUNNEL] });
+    expect(Object.keys(txt).sort()).toEqual(["fp", "name", "piPort", "pid", "version"].sort());
+    expect(txt.fp).toBe(fp);
+    expect(txt.version).not.toBe("0.0.0");
+  });
+
+  it("without an identity: no fp key at all", () => {
+    configureTunnelAndPublicUrl();
+    const txt = txtFor({ name: "Studio", tunnelUrl: TUNNEL });
+    expect(Object.keys(txt).sort()).toEqual(["name", "piPort", "pid", "version"].sort());
+    expect("fp" in txt).toBe(false);
+  });
+
+  it("no value contains a tunnel or public URL", () => {
+    configureTunnelAndPublicUrl();
+    const txt = txtFor({ fingerprint: identity(), name: "Studio", tunnelUrl: TUNNEL, publicBaseUrl: PUBLIC });
+    for (const value of Object.values(txt)) {
+      expect(value).not.toMatch(/zrok|https?:\/\/|example\.org/i);
+    }
+  });
+});

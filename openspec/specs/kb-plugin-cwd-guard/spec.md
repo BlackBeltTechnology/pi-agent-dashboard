@@ -8,7 +8,7 @@ Every kb-plugin operation that opens a KB store or touches disk is driven by an 
 
 ### Requirement: Known-folder admission
 
-The cwd guard SHALL admit a `cwd` only when it matches the host-provided known-folder set — the union of active session cwds and pinned directories — or is admitted by the git-repo-main rule below, and SHALL reject every other `cwd` whose admission it could decide. When a git probe needed to decide admission fails (timeout, spawn error, missing binary), the guard SHALL neither admit nor reject: the outcome is indeterminate (`plugin-cwd-admission`) and the route SHALL respond `503` with `error: "cwd-admission-unavailable"`. When the host does not provide the known-folder service, the guard SHALL fall back to admitting active session cwds alone.
+The cwd guard SHALL admit a `cwd` only when it matches the host-provided known-folder set — the union of active session cwds, pinned directories and workspace folders — or is admitted by the git-repo-main rule below, and SHALL reject every other `cwd` whose admission it could decide. When a git probe needed to decide admission fails (timeout, spawn error, missing binary), the guard SHALL neither admit nor reject: the outcome is indeterminate (`plugin-cwd-admission`) and the route SHALL respond `503` with `error: "cwd-admission-unavailable"`. When the host does not provide the known-folder service, the guard SHALL fall back to admitting active session cwds alone.
 
 #### Scenario: Known cwd admitted
 - **WHEN** a request carries a `cwd` that is present in the known-folder set

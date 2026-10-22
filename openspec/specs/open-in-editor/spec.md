@@ -2,7 +2,9 @@
 
 ## Purpose
 File-open entry points route exclusively to the internal Monaco editor pane. The external/native editor launcher is removed.
+
 ## Requirements
+
 ### Requirement: OpenFileButton SHALL open the internal pane only
 
 `OpenFileButton` SHALL render as a plain "Open" control. A click SHALL open the file in the internal Monaco editor pane — via `openInSplit(filePath, line?)` when a split-workspace context is present for the session, else via `buildEditorUrl(sessionId, filePath, line?)` route navigation. The native-editor caret dropdown is REMOVED; the button SHALL NOT reference detected editors and SHALL NOT invoke any external/native editor launch.
@@ -24,7 +26,7 @@ The button SHALL render whenever a resolvable `cwd` and a `filePath` are present
 
 ### Requirement: Absolute path containment on file endpoints
 
-`/api/file` SHALL accept absolute `path` values (including decoded `file://` payloads) but MUST continue to enforce that the resolved target lies under a known session cwd. An absolute path outside every session cwd MUST be rejected exactly as a traversal attempt is today. (The former `/api/open-editor` co-mention is REMOVED with the external editor endpoint.)
+`/api/file` SHALL accept absolute `path` values (including decoded `file://` payloads) but MUST continue to enforce that the resolved target lies inside the containment anchors of an admitted `cwd` (see `file-read-containment`). An absolute path outside them MUST be rejected exactly as a traversal attempt is today. (The former `/api/open-editor` co-mention is REMOVED with the external editor endpoint.)
 
 #### Scenario: absolute path inside session cwd allowed
 
@@ -34,6 +36,6 @@ The button SHALL render whenever a resolvable `cwd` and a `filePath` are present
 
 #### Scenario: absolute path outside any session cwd rejected
 
-- **GIVEN** session cwds that do not contain `/etc`
+- **GIVEN** an admitted cwd whose containment anchors do not contain `/etc`
 - **WHEN** `/api/file` is called with absolute `path=/etc/passwd`
 - **THEN** the request SHALL be rejected (no file content returned)

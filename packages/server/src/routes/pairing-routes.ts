@@ -15,6 +15,7 @@
  */
 
 import type { TLSSocket } from "node:tls";
+import type { PairPollData } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -38,6 +39,25 @@ import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairin
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
 import { localEndpoints } from "../tunnel/tunnel-endpoints.js";
 import type { NetworkGuard } from "./route-deps.js";
+
+/**
+ * The `https:` origins of the reachable list, de-duplicated, in order. `wss://`
+ * and the `PI_E2E_SEED` loopback `http` origin that `reachableUrls()` admits for
+ * the QR payload are NOT routes. See change: group-servers-by-identity (D7).
+ */
+function httpsOrigins(urls: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const raw of urls) {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (url.protocol === "https:" && !out.includes(url.origin)) out.push(url.origin);
+  }
+  return out;
+}
 
 /** Strip trailing slashes without a regex (avoids a polynomial-ReDoS shape). */
 function stripTrailingSlashes(u: string): string {
@@ -494,13 +514,19 @@ export function registerPairingRoutes(
   // ── Device: poll for approval + collect the bearer token (public) ──────
   fastify.post<{ Body: { pendingId?: string } }>(
     "/api/pair/poll",
-    async (request, reply): Promise<ApiResponse<{ status: string; token?: string }>> => {
+    async (request, reply): Promise<ApiResponse<PairPollData>> => {
       const pendingId = request.body?.pendingId;
       if (typeof pendingId !== "string") {
         reply.code(400);
         return { success: false, error: "pendingId required" };
       }
       const result = pairing.poll(pendingId);
+      // Route delegation (D7): the one approved answer that carries the token also
+      // names the server's https origins. Filtered here, not in PairingManager.poll,
+      // so knock and QR redemption both get it and the QR payload `urls` stay as minted.
+      if (result.status === "approved") {
+        return { success: true, data: { status: "approved", token: result.token, routes: httpsOrigins(pairing.reachableUrls()) } };
+      }
       return { success: true, data: result };
     },
   );

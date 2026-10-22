@@ -215,7 +215,7 @@ import {
 } from "./lib/client-dist.js";
 import { collectRuleSources } from "./lib/folder-project.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
-import { listKnownFolderCwds } from "./lib/route-admission.js";
+import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
 import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
@@ -400,6 +400,7 @@ import { createPluginVaultReader } from "./vault/vault-plugin-read.js";
 import { createVaultProjects } from "./vault/vault-projects.js";
 import { createVaultManageGuard, registerVaultRoutes } from "./vault/vault-routes.js";
 import { createVaultStore } from "./vault/vault-store.js";
+import { createWatchFilesHandler, type WatchFilesMessage } from "./watch-files-handler.js";
 
 export interface ServerConfig {
   port: number;
@@ -1460,21 +1461,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isViewed: (id) => browserGateway.viewedSessionTracker.isViewedByAnyone(id),
   });
 
-  // Editor-pane changed-on-disk watch: the browser declares its open files via
-  // `watch_files`; the server watches exactly those and pushes `file_changed`.
-  // Torn down on disconnect so no fd leaks. See change: split-editor-workspace.
-  const fileWatchManager = createFileWatchManager();
-  browserGateway.registerHandler("watch_files", (msg: { sessionId?: string; cwd?: string; paths?: unknown }, _ws) => {
-    if (!msg?.sessionId || !msg?.cwd) return;
-    // Gate: only watch under a known session cwd (mirrors /api/file).
-    if (!sessionManager.listAll().some((s) => s.cwd === msg.cwd)) return;
-    // Harden against a malformed client payload: keep only string rel-paths.
-    const paths = Array.isArray(msg.paths) ? msg.paths.filter((p): p is string => typeof p === "string") : [];
-    fileWatchManager.setWatched(_ws, msg.sessionId, msg.cwd, paths, (sessionId, path) =>
-      browserGateway.broadcast({ type: "file_changed", sessionId, path }),
-    );
-  });
-  browserGateway.registerDisconnectHandler((ws) => fileWatchManager.clearConnection(ws));
 
   // Resolve package version once at startup
   const __require = createRequire(import.meta.url);
@@ -1628,6 +1614,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: harden-plugin-cwd-admission (D7).
   const cwdAdmissionLogger = createIndeterminateLogger({ warn: (m) => console.warn(m) });
   pluginServiceRegistry.set("host.cwdAdmissionOnIndeterminate", cwdAdmissionLogger);
+  // Cwd admission of the file-family routes, live preview and `watch_files`: the same known set and
+  // indeterminate logger as the plugin / git / openspec routes. See change: core-file-cwd-admission.
+  const fileRouteAdmission: RouteAdmissionDeps = {
+    knownCwds: knownFolderCwds,
+    admitOptions: { onIndeterminate: cwdAdmissionLogger },
+  };
+  // Editor-pane changed-on-disk watch: the browser declares its open files via
+  // `watch_files`; the server watches exactly those and pushes `file_changed`.
+  // Torn down on disconnect so no fd leaks. See change: split-editor-workspace.
+  // The cwd is admitted through the shared guard (change: core-file-cwd-admission).
+  const watchFiles = createWatchFilesHandler({
+    routeAdmission: fileRouteAdmission,
+    manager: createFileWatchManager(),
+    onChange: (sessionId, path) => browserGateway.broadcast({ type: "file_changed", sessionId, path }),
+  });
+  browserGateway.registerHandler("watch_files", (msg: WatchFilesMessage, ws) => {
+    // The gateway does not await custom handlers: a rejection must not escape it.
+    watchFiles.handle(msg, ws).catch((err: unknown) => {
+      console.warn(`[watch_files] handler failed: ${(err as Error)?.message ?? err}`);
+    });
+  });
+  browserGateway.registerDisconnectHandler((ws) => watchFiles.onDisconnect(ws));
   // pi's project-trust rule as a SESSION applies it (recorded decision, else
   // `defaultProjectTrust`), consumed by mcp-client to decide whether a
   // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
@@ -2766,6 +2774,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionManager,
     preferencesStore,
     networkGuard,
+    routeAdmission: fileRouteAdmission,
     // Plugin file-handler seams for POST /api/file/write-binary: live claim registry
     // (read at request time: enabled + server entry loaded), registered validators,
     // bounded worker pool. See change: add-editor-pane-file-handlers (D4).
@@ -2791,7 +2800,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       validatorPool: getFileValidatorPool(),
     },
   });
-  registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  registerGrepRoutes(fastify, { sessionManager, networkGuard, routeAdmission: fileRouteAdmission });
   // Folder project identity (declared file + plugin marker rules). Rules come
   // only from plugins that are loaded + enabled + fixture-allowed, read per
   // request. See change: add-project-scoped-apps.
@@ -2893,6 +2902,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     preferencesStore,
     networkGuard,
     store: openspecGroupStore,
+    routeAdmission: fileRouteAdmission,
   });
 
 
@@ -3171,7 +3181,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return count;
   });
 
-  registerPackageRoutes(fastify, { packageManagerWrapper });
+  registerPackageRoutes(fastify, { packageManagerWrapper, routeAdmission: fileRouteAdmission });
   registerPackageHealthRoutes(fastify, { packageManagerWrapper });
   registerResourceActivationRoutes(fastify, {
     networkGuard,
@@ -3182,6 +3192,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       browserGateway.headlessPidRegistry
         .listSessions()
         .map((e) => ({ sessionId: e.sessionId, cwd: e.cwd })),
+    routeAdmission: fileRouteAdmission,
   });
   registerRecommendedRoutes(fastify, {
     packageManagerWrapper,
@@ -3310,8 +3321,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     channelOf: (request) => sourceChannel(request.ip),
     // `start-static`: the SAME gate as a raw file read; a refusal answers with that route's status and body.
     staticGate: async (cwd, relPath, opts) => {
-      const gate = await gateFilePath(cwd, relPath, sessionManager, { allowGrant: true, disclosure: opts.disclosure });
-      if ("code" in gate) return { ok: false, status: gate.code, body: denialBody(gate) };
+      const gate = await gateFilePath(cwd, relPath, fileRouteAdmission, { allowGrant: true, disclosure: opts.disclosure });
+      if ("code" in gate) {
+        return {
+          ok: false,
+          status: gate.code,
+          body: denialBody(gate),
+          // The 503 of an undecidable cwd admission carries `Retry-After` like every file route.
+          ...(gate.code === 503 ? { headers: { "Retry-After": "1" } } : {}),
+        };
+      }
       return { ok: true, resolved: gate.resolved };
     },
   });
@@ -3326,7 +3345,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // Re-run on EVERY static request, so a revoked grant or pin applies on the next one. Quiet:
     // a refusal here records no denial and raises no prompt.
     staticGate: async (cwd, absPath) =>
-      !("code" in (await gateFilePath(cwd, absPath, sessionManager, { allowGrant: true, quiet: true }))),
+      !("code" in (await gateFilePath(cwd, absPath, fileRouteAdmission, { allowGrant: true, quiet: true }))),
   });
 
   // ONE model runtime for the provider-auth flow listing AND the model proxy,
@@ -3475,7 +3494,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     definitions: () => customEventGroupsStore.definitions(),
   });
   // Canvas-type registry read/write (auto-canvas task 5.2).
-  registerCanvasTypesRoutes(fastify, { networkGuard });
+  registerCanvasTypesRoutes(fastify, { networkGuard, routeAdmission: fileRouteAdmission });
   // Opt-in worktree auto-init-on-spawn preference (auto-init-worktree-on-spawn).
   registerPreferencesWorktreeInitRoutes(fastify, { preferencesStore, networkGuard });
   // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts
@@ -3506,6 +3525,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     packageManagerWrapper,
     broadcast: (msg) => browserGateway.broadcast(msg),
     knownDirectories: () => directoryService.knownDirectories(),
+    // The shared known set (sessions ∪ pins ∪ workspace folders), like every admitted route.
+    knownCwds: knownFolderCwds,
     lookupNpm: (name) => fetchPackageMeta(name),
     setPluginsEnabled,
     // Fastify here runs with logger:false, so its log would drop every toggle line.

@@ -152,6 +152,55 @@ describe("preload-main: openServerWindow only on the local dashboard origin", ()
   });
 });
 
+// ── listServers / pairWithCode capability gating (group-servers-by-identity, D8, D9; task 8.1) ─────
+describe("preload-main: listServers and pairWithCode only on the local dashboard origin", () => {
+  const exposedApi: Array<Record<string, unknown>> = [];
+
+  async function loadWith(origin: string | undefined, locationOrigin: string) {
+    vi.resetModules();
+    exposedApi.length = 0;
+    vi.doMock("electron", () => ({
+      contextBridge: { exposeInMainWorld: (_k: string, api: Record<string, unknown>) => { exposedApi.push(api); } },
+      ipcRenderer: { invoke: vi.fn(async () => ({ ok: true })), send: vi.fn(), on: vi.fn(), removeListener: vi.fn() },
+    }));
+    const argv = process.argv;
+    process.argv = origin ? [...argv, `--pi-local-origin=${origin}`] : argv.filter((a) => !a.startsWith("--pi-local-origin="));
+    (globalThis as { location?: unknown }).location = { origin: locationOrigin };
+    try {
+      await import("../preload-main.js");
+    } finally {
+      process.argv = argv;
+    }
+    return exposedApi[0]!;
+  }
+
+  it("#X17: both are present when location.origin equals the passed local origin", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    expect(typeof api.listServers).toBe("function");
+    expect(typeof api.pairWithCode).toBe("function");
+  });
+
+  it("#X17: both are absent for a remote-origin document, a different origin, or no passed origin", async () => {
+    for (const api of [
+      await loadWith("http://localhost:8000", "http://192.168.16.204:8000"),
+      await loadWith("http://localhost:8000", "http://localhost:9000"),
+      await loadWith(undefined, "http://localhost:8000"),
+    ]) {
+      expect(api.listServers).toBeUndefined();
+      expect(api.pairWithCode).toBeUndefined();
+    }
+  });
+
+  it("listServers asks servers:list with no argument; pairWithCode sends only the fingerprint on servers:pair-with-code", async () => {
+    const api = await loadWith("http://localhost:8000", "http://localhost:8000");
+    const { ipcRenderer } = await import("electron");
+    await (api.listServers as () => Promise<unknown>)();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith("servers:list");
+    await (api.pairWithCode as (t: unknown) => Promise<unknown>)({ fingerprint: "sha256:abc", text: "pi:pair:v1.ZZ9", code: "PAIR-ZZ9", partition: "evil" });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith("servers:pair-with-code", { fingerprint: "sha256:abc" });
+  });
+});
+
 // ── browserHost capability gating (add-operator-browser-relay, D1/D9, test-plan #E35) ─────
 describe("preload-main: browserHost only on the local dashboard origin", () => {
   const exposedApi: Array<Record<string, unknown>> = [];

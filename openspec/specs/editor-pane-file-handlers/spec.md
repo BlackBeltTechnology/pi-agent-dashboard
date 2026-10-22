@@ -55,7 +55,7 @@ Core SHALL give a handler the file's bytes together with a content-based conflic
 ### Requirement: Handler saves are contained, authorized and conflict-checked
 A handler SHALL save only through core, as either an overwrite of the tab's file or a new copy. Core SHALL accept a save only when all of these hold; otherwise it SHALL reject it without changing any file:
 - the requester holds control authority;
-- the working directory is a known session's working directory;
+- the working directory is admitted by the shared cwd admission guard (`core-cwd-admission`: a known folder — session cwd, pinned directory or workspace folder — or a subdirectory / linked worktree whose main checkout is a known folder);
 - the target, after resolving symlinks and `..`, lies under that directory (for a copy: the directory it is created in);
 - the saving claim's plugin is enabled and the claim is an edit mode;
 - the extension of both the requested path and the resolved file is one the claim declares (for a sibling copy: the new file's extension is one of the claim's declared sibling extensions);
@@ -100,8 +100,16 @@ After a successful save a handler MAY ask core to open a workspace file in a new
 - **THEN** nothing is written and the conflict choices are shown
 
 #### Scenario: Unknown working directory
-- **WHEN** a save names a working directory that belongs to no session
-- **THEN** the save is rejected
+- **WHEN** a save names a working directory that is not admitted (not a known folder, nor a subdirectory or linked worktree whose main checkout is a known folder)
+- **THEN** the save is rejected with `403 "unknown session path"` and `code: "cwd_unknown"`
+
+#### Scenario: Save in a pinned folder
+- **WHEN** a save names a pinned directory that has no live session, and every other condition holds
+- **THEN** the save is accepted
+
+#### Scenario: Admission undecidable
+- **WHEN** admission of the working directory is indeterminate
+- **THEN** the save is answered `503` with code `cwd-admission-unavailable` and nothing is written
 
 #### Scenario: Symlink to an unclaimed extension
 - **WHEN** `<cwd>/report.docx` is a symlink to `<cwd>/notes.md` and a `.docx` handler saves it

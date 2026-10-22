@@ -12,6 +12,13 @@ vi.mock("../../lib/api/known-servers-api.js", () => ({
   acceptKnownServerMove: vi.fn(async () => true),
 }));
 
+// The identity proof is covered with real WebCrypto in lib/__tests__/server-route-check.test.ts;
+// here an address proves the identity scripted in `identityMock` over the test's own fetch mock.
+vi.mock("../../lib/pairing/pair-protocol.js", async (orig) =>
+  (await import("./selector-identity-mock.js")).pairProtocolMock(await orig<typeof import("../../lib/pairing/pair-protocol.js")>()),
+);
+
+
 describe("ServerSelector", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -67,17 +74,18 @@ describe("ServerSelector", () => {
     act(() => btn.click()); // open
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map((c) => c[0] as string);
-      expect(urls.some((u) => u.includes("localhost:8000/api/health"))).toBe(true);
+      // Every route is checked by the identity challenge (the health leg only follows a proof).
+      expect(urls.some((u) => u.includes("localhost:8000/api/pair/challenge"))).toBe(true);
     });
     const countAfterFirstOpen = fetchMock.mock.calls.filter((c) =>
-      String(c[0]).includes("/api/health"),
+      String(c[0]).includes("/api/pair/challenge"),
     ).length;
     // Close dropdown
     act(() => btn.click());
     // Flush microtasks — nothing should probe after the close.
     await act(async () => {});
     const countAfterClose = fetchMock.mock.calls.filter((c) =>
-      String(c[0]).includes("/api/health"),
+      String(c[0]).includes("/api/pair/challenge"),
     ).length;
     expect(countAfterClose).toBe(countAfterFirstOpen);
   });

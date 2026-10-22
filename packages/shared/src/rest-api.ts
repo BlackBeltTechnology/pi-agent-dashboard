@@ -1131,9 +1131,16 @@ export type PiCoreUpdateApiResponse = ApiResponse<PiCoreUpdateResponse>;
 // ── Known Servers ─────────────────────────────────────────────
 
 import type { KnownServer } from "./config.js";
+import type { RouteScheme } from "./server-routes.js";
 
-/** A known server as listed, with its verified move suggestion when one exists. */
-export interface KnownServerListEntry extends KnownServer {
+/**
+ * A known server as listed: one entry per identity with its `routes`, and its
+ * verified move suggestion (for the primary route) when one exists.
+ * A server older than `group-servers-by-identity` lists entries WITHOUT `routes`;
+ * clients treat that as "pre-routes" (no https add offered).
+ */
+export interface KnownServerListEntry extends Omit<KnownServer, "routes"> {
+  routes?: KnownServer["routes"];
   /** Verified new address of the same identity (never persisted). */
   movedTo?: { host: string; port: number };
 }
@@ -1146,19 +1153,24 @@ export type KnownServersListResponse = ApiResponse<KnownServerListEntry[]> & {
 export interface AddKnownServerRequest {
   host: string;
   port: number;
+  /** Route scheme; default `http`. Only `http` / `https` are accepted (`400 invalid_scheme` otherwise). */
+  scheme?: RouteScheme;
   label?: string;
   /** Hint only — persisted solely when the identity challenge proves it. */
   fingerprint?: string;
 }
 
-/** `POST /api/known-servers` success data when an existing entry was updated. */
+/**
+ * `POST /api/known-servers` success data. `updated` is true exactly when the add
+ * attached a route that was not stored before to an existing entry.
+ */
 export interface AddKnownServerResult {
   updated?: boolean;
 }
 
 /** `POST /api/known-servers/accept-move` body. */
 export interface AcceptKnownServerMoveRequest {
-  /** Current stored address of the entry. */
+  /** Current stored address of the entry (its primary route). */
   host: string;
   port: number;
 }
@@ -1166,14 +1178,37 @@ export interface AcceptKnownServerMoveRequest {
 /** Server-side reachability of a known server (operator-only probe). */
 export type KnownServerProbeStatus = "reachable" | "name-not-resolved" | "refused" | "timeout" | "error";
 
-export interface KnownServerProbeResult {
-  status: KnownServerProbeStatus;
-}
-
-export interface RemoveKnownServerRequest {
+export interface KnownServerProbeRequest {
   host: string;
   port: number;
+  /** Must still match a stored route; default `http`. */
+  scheme?: RouteScheme;
 }
+
+export interface KnownServerProbeResult {
+  status: KnownServerProbeStatus;
+  /** Scheme the probe used (that of the stored route). */
+  scheme?: RouteScheme;
+  /** Present when the dashboard server's own identity challenge proved a fingerprint at the route. */
+  fingerprint?: string;
+}
+
+/** `DELETE /api/known-servers`: one route (and the entry when it was the last), or a whole entry by fingerprint. */
+export type RemoveKnownServerRequest = { host: string; port: number; scheme?: RouteScheme } | { fingerprint: string };
+
+/**
+ * `data` of an `approved` `POST /api/pair/poll` answer (the one answer that
+ * carries the token). `routes` are the server's reachable `https` origins; a
+ * device validates them (`validateDeliveredRoutes`) before it stores any.
+ * Absent on pending / rejected / unknown answers and on servers that predate it.
+ */
+export interface PairPollApproved {
+  status: "approved";
+  token: string;
+  routes?: string[];
+}
+
+export type PairPollData = { status: "pending" | "rejected" | "unknown" } | PairPollApproved;
 
 export interface DiscoveredServerInfo {
   host: string;

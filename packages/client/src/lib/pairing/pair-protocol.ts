@@ -33,9 +33,36 @@ function bytesToB64url(bytes: Uint8Array): string {
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+/**
+ * The server ANSWERED, but not with a usable `{success: true}` envelope (non-JSON
+ * body, `success: false`, 404 …). Distinct from a transport failure (fetch rejects),
+ * so a caller can tell "an older server without this route" from "unreachable".
+ * Still an `Error` carrying the same message as before.
+ */
+export class HttpEnvelopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HttpEnvelopeError";
+  }
+}
+
+/**
+ * The challenge answered but proves nothing usable. `no-proof` = a response
+ * without key/signature (older server, 404); `invalid-key` = unparseable key
+ * material; `unsupported` = this browser has no WebCrypto Ed25519.
+ */
+export class IdentityChallengeError extends Error {
+  readonly reason: "no-proof" | "invalid-key" | "unsupported";
+  constructor(reason: "no-proof" | "invalid-key" | "unsupported", message?: string) {
+    super(message ?? reason);
+    this.name = "IdentityChallengeError";
+    this.reason = reason;
+  }
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: ac.signal });
   } finally {
@@ -48,14 +75,23 @@ function joinUrl(base: string, path: string): string {
 }
 
 /** POST JSON to `<base><path>` and unwrap the `{success,data,error}` envelope. */
-export async function postJson<T>(base: string, path: string, body: unknown): Promise<T> {
-  const res = await fetchWithTimeout(joinUrl(base, path), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json()) as ApiResponse<T>;
-  if (!json.success) throw new Error(json.error || `request failed (${res.status})`);
+export async function postJson<T>(base: string, path: string, body: unknown, timeoutMs?: number): Promise<T> {
+  const res = await fetchWithTimeout(
+    joinUrl(base, path),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    timeoutMs,
+  );
+  let json: ApiResponse<T>;
+  try {
+    json = (await res.json()) as ApiResponse<T>;
+  } catch {
+    throw new HttpEnvelopeError(`request failed (${res.status})`);
+  }
+  if (!json?.success) throw new HttpEnvelopeError(json?.error || `request failed (${res.status})`);
   return json.data as T;
 }
 
@@ -86,6 +122,11 @@ async function verifyNonce(publicKeyB64: string, signatureB64: string, nonce: st
   );
 }
 
+/** True when WebCrypto `subtle` exists (secure contexts only) — nothing can be proven without it. */
+export function canProveIdentity(): boolean {
+  return typeof crypto !== "undefined" && typeof crypto.subtle?.verify === "function";
+}
+
 export interface IdentityProof {
   fingerprint: string;
   publicKey: string;
@@ -98,9 +139,38 @@ export interface IdentityProof {
  * against the returned public key. The CALLER must compare `fingerprint`
  * against the pinned `payload.id` and refuse on mismatch.
  */
-export async function challengeIdentity(base: string): Promise<IdentityProof> {
+export async function challengeIdentity(base: string, timeoutMs?: number): Promise<IdentityProof> {
   const nonce = bytesToB64url(crypto.getRandomValues(new Uint8Array(32)));
-  const data = await postJson<ChallengeResponse>(base, "/api/pair/challenge", { nonce });
-  const verified = await verifyNonce(data.publicKey, data.signature, nonce);
-  return { fingerprint: data.fingerprint, publicKey: data.publicKey, verified };
+  let data: ChallengeResponse;
+  try {
+    data = await postJson<ChallengeResponse>(base, "/api/pair/challenge", { nonce }, timeoutMs);
+  } catch (e) {
+    if (e instanceof HttpEnvelopeError) throw new IdentityChallengeError("no-proof", e.message);
+    throw e;
+  }
+  if (typeof data?.publicKey !== "string" || typeof data.signature !== "string" || typeof data.fingerprint !== "string") {
+    throw new IdentityChallengeError("no-proof", "challenge answer has no key or signature");
+  }
+  let verified: boolean;
+  let fingerprint: string;
+  try {
+    // The fingerprint is RECOMPUTED from the presented key (as the server-side proof does):
+    // a server must not be able to claim a fingerprint it does not hold the key for.
+    fingerprint = await fingerprintOf(data.publicKey);
+    verified = await verifyNonce(data.publicKey, data.signature, nonce);
+  } catch (e) {
+    // Duck-typed: a DOMException is not always `instanceof Error` across realms (jsdom).
+    const err = e as { name?: unknown; message?: unknown } | null;
+    throw new IdentityChallengeError(
+      err?.name === "NotSupportedError" ? "unsupported" : "invalid-key",
+      typeof err?.message === "string" ? err.message : undefined,
+    );
+  }
+  return { fingerprint, publicKey: data.publicKey, verified };
+}
+
+/** `sha256:<base64url>` over the SPKI DER key bytes — the derivation the server publishes. */
+async function fingerprintOf(publicKeyB64: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", b64urlToBytes(publicKeyB64).buffer as ArrayBuffer);
+  return `sha256:${bytesToB64url(new Uint8Array(digest))}`;
 }
