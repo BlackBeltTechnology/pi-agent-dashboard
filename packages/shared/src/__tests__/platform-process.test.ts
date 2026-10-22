@@ -6,14 +6,14 @@
  * See change: consolidate-platform-handlers.
  */
 import { spawn } from "node:child_process";
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   findPortHolders,
-  parseNetstatListeners,
   isProcessAlive,
-  killProcess,
   killPidWithGroup,
+  killProcess,
   killProcessGroup,
+  parseNetstatListeners,
   processStartedAt,
 } from "../platform/process.js";
 
@@ -91,6 +91,24 @@ describe("isProcessAlive", () => {
       throw new Error("ESRCH");
     });
     expect(isProcessAlive(12345, { kill })).toBe(false);
+  });
+});
+
+describe("isProcessAlive epermAlive option (E24)", () => {
+  const errno = (code: string) => () => {
+    throw Object.assign(new Error(code), { code });
+  };
+
+  it("opt-in: ESRCH → false, EPERM → true, success → true", () => {
+    expect(isProcessAlive(1, { kill: errno("ESRCH"), epermAlive: true })).toBe(false);
+    expect(isProcessAlive(1, { kill: errno("EPERM"), epermAlive: true })).toBe(true);
+    expect(isProcessAlive(1, { kill: vi.fn(), epermAlive: true })).toBe(true);
+  });
+
+  it("default unchanged: ESRCH → false, EPERM → false, success → true", () => {
+    expect(isProcessAlive(1, { kill: errno("ESRCH") })).toBe(false);
+    expect(isProcessAlive(1, { kill: errno("EPERM") })).toBe(false);
+    expect(isProcessAlive(1, { kill: vi.fn() })).toBe(true);
   });
 });
 

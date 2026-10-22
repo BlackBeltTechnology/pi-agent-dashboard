@@ -663,6 +663,26 @@ export interface AttachedServerVersionDeps {
 }
 
 /**
+ * Launch-source-specific fix text for an attached server whose version differs
+ * from the app. Shared by the Doctor row and the Electron attach-time skew
+ * notice (`electron-attach-version-skew`, D6) so the wording cannot drift.
+ */
+export function attachedServerVersionSuggestion(ls: string | undefined, appVersion: string): string {
+  if (ls === "standalone") {
+    return `Run \`npm i -g @blackbelt-technology/pi-dashboard@${appVersion}\` and restart your terminal session.`;
+  }
+  if (ls === "bridge" || ls === "bridge-orphaned") {
+    return "Stop the pi session that started this server (or run `pi-dashboard stop`) and relaunch the app.";
+  }
+  if (ls === "electron") {
+    return "Quit the other Electron instance or use the zombie-adoption prompt to take ownership.";
+  }
+  // Unknown / missing launchSource (older server, unenumerated launch mode):
+  // don't misattribute it to the electron case — give a source-agnostic hint.
+  return "The attached server's version differs from this app bundle. Determine how that server was started (npm, a pi session, or another app) and update it from there.";
+}
+
+/**
  * Compare the shell's bundled version against the attached server's
  * `/api/health.version`. Electron-arm only — a server comparing its own pkg
  * version to its own self-fetch is a loopback tautology. Suggestion text is
@@ -701,22 +721,7 @@ export async function checkAttachedServerVersion(
     };
   }
   const ls = health.launchSource;
-  let suggestion: string;
-  if (ls === "standalone") {
-    suggestion =
-      `Run \`npm i -g @blackbelt-technology/pi-dashboard@${deps.appVersion}\` and restart your terminal session.`;
-  } else if (ls === "bridge" || ls === "bridge-orphaned") {
-    suggestion =
-      "Stop the pi session that started this server (or run `pi-dashboard stop`) and relaunch the app.";
-  } else if (ls === "electron") {
-    suggestion =
-      "Quit the other Electron instance or use the zombie-adoption prompt to take ownership.";
-  } else {
-    // Unknown / missing launchSource (older server, unenumerated launch mode):
-    // don't misattribute it to the electron case — give a source-agnostic hint.
-    suggestion =
-      "The attached server's version differs from this app bundle. Determine how that server was started (npm, a pi session, or another app) and update it from there.";
-  }
+  const suggestion = attachedServerVersionSuggestion(ls, deps.appVersion);
   return {
     name: "Attached server version",
     section: "setup",

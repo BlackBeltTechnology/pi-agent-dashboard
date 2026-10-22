@@ -4,10 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  addDismissedVersionSkew,
   addRecentRemote,
   isApiKeyConfigured,
   isFirstRun,
   listRecentRemotes,
+  readDismissedVersionSkews,
   readModeFile,
   removeRecentRemote,
   writeModeFile,
@@ -139,6 +141,42 @@ describe("wizard-state", () => {
       addRecentRemote("http://a:8000");
       writeModeFile("standalone");
       expect(listRecentRemotes().map((r) => r.url)).toEqual(["http://a:8000"]);
+    });
+  });
+
+  describe("version-skew dismissals (E19, E20)", () => {
+    const file = () => path.join(testDir, ".pi-dashboard", "version-skew-dismissals.json");
+    const pair = (n: number) => ({ server: `0.${n}.0`, expected: "1.0.0", launchSource: "standalone" });
+
+    it("E19: absent or corrupt file → []", () => {
+      expect(readDismissedVersionSkews()).toEqual([]);
+      fs.writeFileSync(file(), "{not json");
+      expect(readDismissedVersionSkews()).toEqual([]);
+    });
+
+    it("E19: 19 and 20 pairs kept; the 21st evicts the oldest", () => {
+      for (let i = 0; i < 19; i++) addDismissedVersionSkew(pair(i));
+      expect(readDismissedVersionSkews()).toHaveLength(19);
+      addDismissedVersionSkew(pair(19));
+      expect(readDismissedVersionSkews()).toHaveLength(20);
+      addDismissedVersionSkew(pair(20));
+      const all = readDismissedVersionSkews();
+      expect(all).toHaveLength(20);
+      expect(all[0].server).toBe("0.1.0");
+      expect(all[19].server).toBe("0.20.0");
+    });
+
+    it("E19: a duplicate is not re-added; no tmp file left (tmp + rename)", () => {
+      addDismissedVersionSkew(pair(1));
+      addDismissedVersionSkew(pair(1));
+      expect(readDismissedVersionSkews()).toHaveLength(1);
+      expect(fs.readdirSync(path.join(testDir, ".pi-dashboard")).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+    });
+
+    it("E20: dismissal does not create settings or end first-run", () => {
+      addDismissedVersionSkew(pair(1));
+      expect(fs.existsSync(path.join(testDir, ".pi-dashboard", "dashboard-settings.json"))).toBe(false);
+      expect(isFirstRun()).toBe(true);
     });
   });
 });

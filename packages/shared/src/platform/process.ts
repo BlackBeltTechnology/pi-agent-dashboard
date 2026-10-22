@@ -85,14 +85,20 @@ export function findPortHolders(port: number, opts: ProcessOpts = {}): number[] 
 
 /**
  * Check whether a PID is alive. Cross-platform via `process.kill(pid, 0)`.
+ *
+ * Default: any throw (incl. `EPERM`) means "not alive" — unchanged for existing
+ * callers. With `epermAlive: true`, `EPERM` (process exists, signal not
+ * permitted) counts as ALIVE; only `ESRCH`/other errors mean gone. Use the
+ * opt-in when a false "gone" would be unsafe (e.g. before spawning a
+ * replacement server). See change: electron-attach-version-skew (D4b).
  */
-export function isProcessAlive(pid: number, opts: { kill?: KillFn } = {}): boolean {
+export function isProcessAlive(pid: number, opts: { kill?: KillFn; epermAlive?: boolean } = {}): boolean {
   const kill = opts.kill ?? defaultKill;
   try {
     kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    return opts.epermAlive === true && (err as NodeJS.ErrnoException)?.code === "EPERM";
   }
 }
 

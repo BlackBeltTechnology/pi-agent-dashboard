@@ -2,7 +2,7 @@
  * Unit tests for the zombie-adoption modal + stop sequence.
  * See change: electron-attach-ownership-fixes.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const showMessageBox = vi.fn();
 
@@ -10,7 +10,14 @@ vi.mock("electron", () => ({
   dialog: { showMessageBox: (...args: unknown[]) => showMessageBox(...args) },
 }));
 
-import { promptZombieAdoption, stopZombieServer } from "../zombie-adoption-dialog.js";
+import {
+  buildVersionSkewInfoDetail,
+  promptMergedZombieSkew,
+  promptVersionSkewInfo,
+  promptVersionSkewRestart,
+  promptZombieAdoption,
+  stopZombieServer,
+} from "../zombie-adoption-dialog.js";
 
 describe("promptZombieAdoption", () => {
   beforeEach(() => showMessageBox.mockReset());
@@ -40,34 +47,104 @@ describe("promptZombieAdoption", () => {
   });
 });
 
-describe("stopZombieServer", () => {
-  it("SIGTERM then stops after poll sees server gone (no SIGKILL)", async () => {
-    const kill = vi.fn();
-    let alive = true;
-    const isRunning = vi.fn(async () => alive);
-    const sleep = vi.fn(async () => { alive = false; }); // dies after first poll
-    const ok = await stopZombieServer(1234, { kill, isRunning, sleep, timeoutMs: 5000, pollMs: 10 });
-    expect(ok).toBe(true);
-    expect(kill).toHaveBeenCalledWith(1234, "SIGTERM");
-    expect(kill).not.toHaveBeenCalledWith(1234, "SIGKILL");
+describe("stopZombieServer (confirms death by PID)", () => {
+  /** Virtual clock: the process dies `diesAtMs` after `t0`, `sleep` advances time. */
+  function rig(opts: { diesAfterSigtermMs?: number; diesAfterSigkillMs?: number; ignoreTerm?: boolean; eperm?: boolean }) {
+    let now = 0;
+    let termAt: number | null = null;
+    let killAt: number | null = null;
+    const kill = vi.fn((_pid: number, sig: NodeJS.Signals) => {
+      if (sig === "SIGTERM") termAt = now;
+      else killAt = now;
+    });
+    const isAlive = vi.fn(() => {
+      if (opts.eperm) return true;
+      if (killAt !== null && opts.diesAfterSigkillMs !== undefined && now >= killAt + opts.diesAfterSigkillMs) return false;
+      if (termAt !== null && !opts.ignoreTerm && opts.diesAfterSigtermMs !== undefined && now >= termAt + opts.diesAfterSigtermMs) return false;
+      return true;
+    });
+    const sleep = vi.fn(async (ms: number) => {
+      now += ms;
+    });
+    return { kill, isAlive, sleep, signals: () => kill.mock.calls.map((c) => c[1]) };
+  }
+
+  it("SIGTERM only when the process exits within the poll window", async () => {
+    const r = rig({ diesAfterSigtermMs: 400 });
+    expect(await stopZombieServer(1234, r)).toBe(true);
+    expect(r.signals()).toEqual(["SIGTERM"]);
   });
 
-  it("SIGKILL after timeout when server stays alive", async () => {
-    const kill = vi.fn();
-    const isRunning = vi.fn(async () => true); // never dies
-    const sleep = vi.fn(async () => {});
-    const ok = await stopZombieServer(1234, { kill, isRunning, sleep, timeoutMs: 20, pollMs: 5 });
-    expect(ok).toBe(true);
-    expect(kill).toHaveBeenCalledWith(1234, "SIGTERM");
-    expect(kill).toHaveBeenCalledWith(1234, "SIGKILL");
+  it("X4: dies 1.8 s after SIGKILL → true; 2.2 s → false", async () => {
+    const a = rig({ ignoreTerm: true, diesAfterSigkillMs: 1800 });
+    expect(await stopZombieServer(1234, a)).toBe(true);
+    expect(a.signals()).toEqual(["SIGTERM", "SIGKILL"]);
+    const b = rig({ ignoreTerm: true, diesAfterSigkillMs: 2200 });
+    expect(await stopZombieServer(1234, b)).toBe(false);
   });
 
-  it("returns true immediately when SIGTERM throws (already dead)", async () => {
-    const kill = vi.fn(() => { throw new Error("ESRCH"); });
-    const isRunning = vi.fn(async () => false);
+  it("X5: EPERM (alive) escalates then reports failure", async () => {
+    const r = rig({ eperm: true });
+    expect(await stopZombieServer(1234, r)).toBe(false);
+    expect(r.signals()).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  it("returns true immediately when SIGTERM throws and the PID is gone", async () => {
+    const kill = vi.fn(() => {
+      throw new Error("ESRCH");
+    });
     const sleep = vi.fn(async () => {});
-    const ok = await stopZombieServer(1234, { kill, isRunning, sleep });
-    expect(ok).toBe(true);
-    expect(isRunning).not.toHaveBeenCalled();
+    expect(await stopZombieServer(1234, { kill, isAlive: () => false, sleep })).toBe(true);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+});
+
+describe("version-skew dialogs (E23, E22)", () => {
+  beforeEach(() => showMessageBox.mockReset());
+  const call = () => showMessageBox.mock.calls[0][0];
+
+  it("restart modal: default follows restartIsDefault, Leave running is cancel", async () => {
+    showMessageBox.mockResolvedValue({ response: 0 });
+    expect(await promptVersionSkewRestart({ server: "0.9.0", expected: "0.10.0", restartIsDefault: true })).toBe("restart");
+    expect(call().buttons).toEqual(["Restart with v0.10.0", "Leave running"]);
+    expect(call().defaultId).toBe(0);
+    expect(call().cancelId).toBe(1);
+    expect(call().message).toContain("0.9.0");
+    expect(call().message).toContain("0.10.0");
+    showMessageBox.mockReset();
+    showMessageBox.mockResolvedValue({ response: 1 });
+    expect(await promptVersionSkewRestart({ server: "0.9.0", expected: "0.10.0", restartIsDefault: false })).toBe("leave");
+    expect(call().defaultId).toBe(1);
+  });
+
+  it("merged modal: three buttons, Restart default, Leave running cancel", async () => {
+    showMessageBox.mockResolvedValue({ response: 1 });
+    expect(await promptMergedZombieSkew({ pid: 7, server: "0.9.0", expected: "0.10.0" })).toBe("adopt");
+    expect(call().buttons).toEqual(["Restart with v0.10.0", "Take ownership", "Leave running"]);
+    expect(call().defaultId).toBe(0);
+    expect(call().cancelId).toBe(2);
+    expect(call().message).toContain("0.9.0");
+    expect(call().message).toContain("0.10.0");
+  });
+
+  it("info modal: OK default; dismissal button maps to 'dismiss'", async () => {
+    showMessageBox.mockResolvedValue({ response: 1 });
+    const params = { server: "0.9.0", expected: "0.10.0", shellVersion: "0.10.0", launchSource: "standalone" };
+    expect(await promptVersionSkewInfo(params)).toBe("dismiss");
+    expect(call().buttons).toEqual(["OK", "Don't show again for this version pair"]);
+    expect(call().defaultId).toBe(0);
+    expect(call().message).toContain("0.9.0");
+    expect(call().message).toContain("0.10.0");
+    showMessageBox.mockResolvedValue({ response: 0 });
+    expect(await promptVersionSkewInfo(params)).toBe("ok");
+  });
+
+  it("E22: disclosure line only when expected differs from the shell version", () => {
+    const withSkew = buildVersionSkewInfoDetail({ server: "0.9.0", expected: "0.10.1", shellVersion: "0.10.0", launchSource: "standalone" });
+    expect(withSkew).toContain("installs v0.10.0");
+    expect(withSkew).toContain("v0.10.1");
+    expect(withSkew).toContain("npm i -g @blackbelt-technology/pi-dashboard@0.10.0");
+    const same = buildVersionSkewInfoDetail({ server: "0.9.0", expected: "0.10.0", shellVersion: "0.10.0", launchSource: "standalone" });
+    expect(same).not.toContain("installs v");
   });
 });

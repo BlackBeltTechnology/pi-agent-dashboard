@@ -8,7 +8,7 @@
  * to the new name on first read. Function names `readModeFile`/`writeModeFile`
  * are retained for call-site stability.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hasAnyProviderCredential } from "@blackbelt-technology/pi-dashboard-shared/credential-detect.js";
@@ -184,4 +184,50 @@ export function writeRecommendedWizardState(state: RecommendedWizardState): void
 /** True when the wizard has already run its recommended-extensions step. */
 export function isRecommendedWizardCompleted(): boolean {
   return existsSync(getRecommendedStateFile());
+}
+
+// ── Version-skew dismissals ─────────────────────────────────────────────────
+// Separate file (never `dashboard-settings.json`) so `isFirstRun()` and
+// `writeModeFile()` are unaffected. See change: electron-attach-version-skew (D7).
+
+/** FIFO cap of remembered "Don't show again" pairs. */
+const VERSION_SKEW_DISMISSALS_CAP = 20;
+
+export interface DismissedVersionSkew {
+  server: string;
+  expected: string;
+  launchSource: string;
+  at: string;
+}
+
+function getVersionSkewFile() { return path.join(getManagedDir(), "version-skew-dismissals.json"); }
+
+/** Dismissed pairs, oldest first. Missing / corrupt file → []. */
+export function readDismissedVersionSkews(): DismissedVersionSkew[] {
+  try {
+    const parsed = JSON.parse(readFileSync(getVersionSkewFile(), "utf-8")) as { pairs?: unknown };
+    if (!Array.isArray(parsed?.pairs)) return [];
+    return parsed.pairs.filter(
+      (p): p is DismissedVersionSkew =>
+        !!p && typeof p.server === "string" && typeof p.expected === "string" && typeof p.launchSource === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Remember a pair: deduped, FIFO-capped at 20, written atomically (tmp + rename). Best-effort. */
+export function addDismissedVersionSkew(pair: { server: string; expected: string; launchSource: string }): void {
+  const pairs = readDismissedVersionSkews();
+  if (pairs.some((p) => p.server === pair.server && p.expected === pair.expected && p.launchSource === pair.launchSource)) return;
+  pairs.push({ ...pair, at: new Date().toISOString() });
+  const file = getVersionSkewFile();
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    mkdirSync(getManagedDir(), { recursive: true });
+    writeFileSync(tmp, JSON.stringify({ pairs: pairs.slice(-VERSION_SKEW_DISMISSALS_CAP) }, null, 2));
+    renameSync(tmp, file);
+  } catch {
+    rmSync(tmp, { force: true });
+  }
 }

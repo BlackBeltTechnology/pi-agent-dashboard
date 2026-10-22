@@ -81,7 +81,7 @@ The launch-source resolver SHALL support two additional kinds: `localLink` (a us
 #### Scenario: Overlay incompatible
 
 - **WHEN** the overlay fails the compatibility gate
-- **THEN** the resolver SHALL fall through to `bundled` AND SHALL record the failure reason
+- **THEN** the resolver SHALL fall through to `bundled` AND SHALL record the failure reason (a cold launch only; the read-only expected-runtime resolution SHALL NOT record it, see "Expected-runtime resolution is side-effect free")
 
 #### Scenario: Remote source chosen after local
 
@@ -189,3 +189,42 @@ The `pi-dashboard` CLI wrapper (`packages/server/bin/pi-dashboard.mjs`) SHALL an
 - **WHEN** `pi-dashboard --version` is invoked AND the wrapper's sibling `package.json` cannot be read or parsed
 - **THEN** the wrapper SHALL fall through to the native loader resolution path (which, when the register module is absent, prints the corrupted-install hint)
 - **AND** SHALL NOT silently exit 0 with an empty version
+
+### Requirement: Expected runtime version without spawning
+
+The app SHALL determine, without spawning a server, which runtime it would launch on a cold start and that runtime's version. Resolution SHALL use the cold-launch priority chain with the attach probe skipped, honouring a pinned override and the same compatibility gates. The expected version SHALL be the `version` in the resolved `overlay` or `bundled` runtime's `runtime-manifest.json`; it SHALL be unknown for `devMonorepo`, `localLink`, or an unreadable manifest.
+
+#### Scenario: Bundle is the expected runtime
+
+- **GIVEN** a packaged app with no usable overlay and a bundle whose `runtime-manifest.json` declares `version: "0.10.0"`
+- **WHEN** the expected runtime version is resolved
+- **THEN** the result SHALL be source `bundled` with version `0.10.0`
+
+#### Scenario: Active overlay is the expected runtime
+
+- **GIVEN** a packaged app whose bundle declares `0.10.0` and a compatible staged overlay declaring `0.10.1`
+- **WHEN** the expected runtime version is resolved
+- **THEN** the result SHALL be source `overlay` with version `0.10.1`
+
+#### Scenario: Non-release source yields unknown
+
+- **WHEN** the resolved source is `devMonorepo` or `localLink`
+- **THEN** the expected version SHALL be unknown
+
+### Requirement: Expected-runtime resolution is side-effect free
+
+Resolving the expected runtime version SHALL NOT write any runtime-overlay file (state or request), SHALL NOT record failures or attempts, and SHALL NOT register or re-point the bridge extension. Decisions a cold launch would persist (consuming an explicit update request, marking an exhausted pending runtime bad) SHALL be applied in memory only, so the result matches the next cold launch.
+
+#### Scenario: Incompatible overlay is skipped without recording a failure
+
+- **GIVEN** a staged overlay that fails the compatibility gate
+- **WHEN** the expected runtime version is resolved
+- **THEN** the result SHALL fall through to the next source as a cold launch would
+- **AND** the runtime state SHALL NOT gain a `lastFailure` or an attempt count for that overlay
+
+#### Scenario: Exhausted pending runtime is resolved but not persisted
+
+- **GIVEN** a pending overlay that has used all its activation attempts without committing
+- **WHEN** the expected runtime version is resolved
+- **THEN** the result SHALL skip that overlay as a cold launch would
+- **AND** the runtime-overlay state and request files SHALL be byte-identical before and after
