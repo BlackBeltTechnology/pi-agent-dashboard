@@ -19,6 +19,7 @@ import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/p
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import { LOCAL_PROOF_REQUIRED } from "@blackbelt-technology/pi-dashboard-shared/local-proof-signal.js";
 import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
@@ -29,7 +30,8 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
+import type { LocalTrustContext } from "../auth/local-proof.js";
+import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries, needsLocalProof } from "../auth/localhost-guard.js";
 import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { effectiveTrustMode } from "../auth/trust-mode.js";
@@ -230,6 +232,8 @@ export function registerSystemRoutes(
     metaPersistence: MetaPersistence;
     config: ServerConfig;
     networkGuard: NetworkGuard;
+    /** Strict-proof context: `/api/health` adds `localProof: "required"` for a bare-loopback caller that lacks proof. See change: close-container-loopback-impersonation (D3). */
+    localTrust?: LocalTrustContext;
     version?: string;
     directoryService?: DirectoryService;
     /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
@@ -1221,6 +1225,10 @@ export function registerSystemRoutes(
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
       piTrustMirror,
+      // A bare-loopback caller the strict default refuses for want of proof is told so (the
+      // remedy is `pi-dashboard open`). Absent for every other caller. See change:
+      // close-container-loopback-impersonation (D3).
+      ...(needsLocalProof(request, deps.localTrust) ? { localProof: LOCAL_PROOF_REQUIRED } : {}),
       ...(tlsStatus ? { tls: tlsStatus } : {}),
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).

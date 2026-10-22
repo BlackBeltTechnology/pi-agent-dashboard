@@ -33,6 +33,11 @@ DEB_ROOT="/usr/lib/pi-dashboard"
 RESOURCES="$DEB_ROOT/resources"
 SERVER_BUNDLE="$RESOURCES/server"
 BUNDLED_NODE="$RESOURCES/node/bin/node"
+
+# The strict `requireLocalProof` default refuses a bare curl on non-observe routes, so use the CLI
+# bundled with the server (it mints local proof from this HOME's token). See change:
+# close-container-loopback-impersonation (D5).
+pd_api() { "$BUNDLED_NODE" "$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-server/bin/pi-dashboard.mjs" api "$@"; }
 SERVER_CLI="$SERVER_BUNDLE/packages/server/src/cli.ts"
 START_SH="$SERVER_BUNDLE/start-server.sh"
 PI_PKG_JSON="$SERVER_BUNDLE/node_modules/@earendil-works/pi-coding-agent/package.json"
@@ -136,9 +141,7 @@ if [ "$SERVER_UP" = true ]; then
   # Test session creation via REST API
   echo "  → Testing session spawn..."
   SPAWN_DIR=$(mktemp -d)
-  SPAWN_RESP=$(curl -sf -X POST "http://localhost:$PORT/api/session/spawn" \
-    -H "Content-Type: application/json" \
-    -d "{\"cwd\": \"$SPAWN_DIR\"}" 2>&1 || echo '{"success":false}')
+  SPAWN_RESP=$(pd_api POST /api/session/spawn --port "$PORT" --data "{\"cwd\": \"$SPAWN_DIR\"}" 2>&1 || echo '{"success":false}')
   if echo "$SPAWN_RESP" | grep -q '"success":true'; then
     pass "Session spawn API returned success"
     sleep 3
@@ -182,7 +185,7 @@ fi
 # Check that server also stopped (or stop it)
 sleep 2
 if curl -sf "http://localhost:$PORT/api/health" > /dev/null 2>&1; then
-  curl -sf -X POST "http://localhost:$PORT/api/shutdown" > /dev/null 2>&1 || true
+  pd_api POST /api/shutdown --port "$PORT" > /dev/null 2>&1 || true
   sleep 2
   if curl -sf "http://localhost:$PORT/api/health" > /dev/null 2>&1; then
     fail "Server shutdown" "server still running after Electron exit"

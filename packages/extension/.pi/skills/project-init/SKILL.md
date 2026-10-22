@@ -404,9 +404,8 @@ when `ENABLE_SCHEMA` was true in Step 3b and disclosed in the Step 3c preview,
 request the dashboard's enable flow, `POST /api/openspec/workflow-schema`:
 
 ```bash
-curl -sS -X POST "http://localhost:${PORT:-8000}/api/openspec/workflow-schema" \
-  -H 'Content-Type: application/json' \
-  -d '{"cwd": "<TARGET>", "action": "enable"}'
+pi-dashboard api POST /api/openspec/workflow-schema --port "${PORT:-8000}" \
+  --data '{"cwd": "<TARGET>", "action": "enable"}'
 ```
 
 `PORT` is `port` from `~/.pi/dashboard/config.json` (default `8000`). A

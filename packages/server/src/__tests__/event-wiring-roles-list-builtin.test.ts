@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -56,7 +57,7 @@ describe("roles_list — server relay preserves builtinRoleNames", () => {
 
   it("forwards builtinRoleNames from the bridge roles_list to browser clients", async () => {
     const piWs = await connectSession(piPort, "r1");
-    const browserWs = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    const browserWs = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     const browserMessages: any[] = [];
     await new Promise<void>((resolve) => browserWs.on("open", () => resolve()));
     browserWs.on("message", (raw) => {

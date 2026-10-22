@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 let server: DashboardServer;
 let base = "";
@@ -41,10 +42,10 @@ afterAll(async () => {
 
 describe("team-plugin on the host", () => {
   it("/apps/team redirects to /apps/team/ and the app route is the team app (or its 503 page), never the dashboard shell", async () => {
-    const redirect = await fetch(`${base}/apps/team`, { redirect: "manual" });
+    const redirect = await proofFetch(`${base}/apps/team`, { redirect: "manual" });
     expect(redirect.status).toBe(308);
     expect(redirect.headers.get("location")).toBe("/apps/team/");
-    const page = await fetch(`${base}/apps/team/`);
+    const page = await proofFetch(`${base}/apps/team/`);
     const body = await page.text();
     if (page.status === 200) expect(body).toContain("<title>AI Team</title>");
     else {
@@ -54,21 +55,21 @@ describe("team-plugin on the host", () => {
   });
 
   it("dashboard deep links are not claimed by the team routes", async () => {
-    const res = await fetch(`${base}/session/abc`);
+    const res = await proofFetch(`${base}/session/abc`);
     const body = await res.text();
     expect(body).not.toContain("team app build missing");
     expect(body).not.toContain("<title>AI Team</title>");
   });
 
   it("with identity inactive the API serves the local operator (single-user mode)", async () => {
-    const res = await fetch(`${base}/api/plugins/team/me`);
+    const res = await proofFetch(`${base}/api/plugins/team/me`);
     expect(res.status).toBe(200);
     const me = (await res.json()) as { mode: string; admin: boolean; uk: string };
     expect(me).toMatchObject({ mode: "single", admin: true, uk: "local" });
   });
 
   it("the plugin is loaded", async () => {
-    const res = await fetch(`${base}/api/plugins`);
+    const res = await proofFetch(`${base}/api/plugins`);
     const text = await res.text();
     expect(text).toContain('"team"');
   });

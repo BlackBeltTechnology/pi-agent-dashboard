@@ -11,6 +11,7 @@ import WebSocket from "ws";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 import { CA_PEM, FakeSource, fixtureFor } from "../tls/__tests__/helpers.js";
 import { registerCertSourceType, unregisterCertSourceType } from "../tls/source-registry.js";
+import { proofFetch, withLocalProof } from "../test-support/local-credential-stamp.js";
 
 /**
  * Real DashboardServer with the optional TLS listener enabled and a fake
@@ -65,7 +66,9 @@ function get(url: string, opts: { servername?: string; headers?: Record<string, 
         port: u.port,
         path: u.pathname + u.search,
         method: opts.method ?? "GET",
-        headers: opts.headers,
+        // A loopback dial is a real local caller: it carries proof (the strict default). A LAN dial is a
+        // remote caller and must not.
+        headers: u.hostname === "127.0.0.1" ? withLocalProof(url, opts.headers) : opts.headers,
         ...(u.protocol === "https:" ? { servername: opts.servername ?? NAME, ca: CA_PEM, checkServerIdentity: () => undefined } : {}),
       },
       (res) => {
@@ -229,7 +232,7 @@ describe("#X6 wss parity", () => {
   it("a minted browser ticket opens over wss; a bogus ticket is refused exactly as on the main listener", async () => {
     const { main, tlsPort } = await bootWithCert();
     const ticket = async (): Promise<string> => {
-      const res = await fetch(`${main}/api/ws-ticket`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "browser" }) });
+      const res = await proofFetch(`${main}/api/ws-ticket`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope: "browser" }) });
       return ((await res.json()) as { data: { ticket: string } }).data.ticket;
     };
     const viaTls = await wsOutcome(`wss://127.0.0.1:${tlsPort}/ws?ticket=${await ticket()}`, { servername: NAME });

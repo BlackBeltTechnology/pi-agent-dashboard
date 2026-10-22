@@ -61,7 +61,7 @@ trap cleanup EXIT
 cd "$REPO_ROOT"
 FIXTURE="$FIXTURE" node -e '
 const WebSocket = require("ws");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -80,7 +80,17 @@ const done = (code, msg) => {
 };
 const fail = (m) => done(1, "FAIL: " + m);
 
-const ws = new WebSocket("ws://localhost:8000/ws");
+// `pi-dashboard api` mints local proof (the strict `requireLocalProof` default refuses a bare loopback
+// upgrade and a bare POST). See change: close-container-loopback-impersonation (D5).
+const api = (method, p, data) =>
+  execFileSync("pi-dashboard", ["api", method, p, ...(data ? ["--data", JSON.stringify(data)] : [])], { encoding: "utf8" });
+let ticket;
+try {
+  ticket = JSON.parse(api("POST", "/api/ws-ticket", { scope: "browser" })).data.ticket;
+} catch (e) {
+  fail("ws-ticket mint failed: " + e.message);
+}
+const ws = new WebSocket("ws://localhost:8000/ws?ticket=" + encodeURIComponent(ticket));
 ws.on("error", (e) => fail("ws error: " + e.message));
 
 ws.on("open", () => {
@@ -105,15 +115,11 @@ ws.on("message", (raw) => {
   if (!sessionId && msg.type === "session_added" && msg.session && msg.session.id && !preExisting.has(msg.session.id)) {
     sessionId = msg.session.id;
     ws.send(JSON.stringify({ type: "subscribe", sessionId, lastSeq: 0 }));
-    fetch("http://localhost:8000/api/session/" + sessionId + "/prompt", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "hello faux" }),
-    })
-      .then((r) => {
-        if (r.status !== 200) fail("prompt POST status " + r.status);
-      })
-      .catch((e) => fail("prompt POST failed: " + e.message));
+    try {
+      api("POST", "/api/session/" + sessionId + "/prompt", { text: "hello faux" });
+    } catch (e) {
+      fail("prompt POST failed: " + e.message);
+    }
   }
   if (JSON.stringify(messages).includes(MARKER)) {
     done(0, "OK: faux assistant text reached the browser WS");

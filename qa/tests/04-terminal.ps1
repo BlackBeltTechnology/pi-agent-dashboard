@@ -16,13 +16,14 @@ try {
 }
 
 # Try to create a terminal session via the API
-$body = @{ cwd = $env:TEMP } | ConvertTo-Json
+# `pi-dashboard api` mints local proof; a bare request is refused by the strict `requireLocalProof` default.
+$body = (@{ cwd = $env:TEMP } | ConvertTo-Json -Compress)
 try {
-    $response = Invoke-WebRequest -Uri "http://localhost:8000/api/terminals" `
-        -Method POST -Body $body -ContentType "application/json" `
-        -UseBasicParsing -TimeoutSec 10
-    if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
-        Write-Host "Terminal API responded HTTP $($response.StatusCode)"
+    $null = & pi-dashboard api POST /api/terminals --data ($body -replace '"','\"') 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Terminal API responded OK"
+    } else {
+        throw "terminal API exit $LASTEXITCODE"
     }
 } catch {
     Write-Host "NOTE: Terminal API call failed, falling back to node-pty load check"

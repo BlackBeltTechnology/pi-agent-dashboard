@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 /**
  * Integration tests for the replace-proposal race-handling change.
@@ -59,7 +60,7 @@ function sendAgentEnd(ws: WebSocket, sessionId: string) {
 
 /** Open a browser ws, send one message, close. */
 async function sendBrowser(browserPort: number, msg: unknown): Promise<void> {
-  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify(msg));
@@ -71,7 +72,7 @@ async function sendBrowser(browserPort: number, msg: unknown): Promise<void> {
 /** Collect session_updated broadcasts for a session. */
 function collectUpdates(browserPort: number): Promise<{ ws: WebSocket; updates: any[] }> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     const updates: any[] = [];
     ws.on("message", (raw) => {
       try {

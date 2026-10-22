@@ -37,6 +37,7 @@ import {
   parseFlagsQuery,
 } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
+import { DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import {
   BROWSE_OUTSIDE_ROOTS_ERROR,
   type BrowseRootSources,
@@ -692,7 +693,7 @@ export function registerFileRoutes(
         // a FIFO in the gap. Layer ①/② reads keep the pre-existing open.
         const fh = gate.viaGrant
           ? await openVerifiedRegularFile(resolved)
-          : await fs.open(resolved, "r");
+          : await openStateChecked(resolved, "r");
         let kindResult;
         let content: string | undefined;
         try {
@@ -727,9 +728,10 @@ export function registerFileRoutes(
           },
         } satisfies ApiResponse;
       } catch (err) {
-        if (err instanceof VerifiedReadRefused) {
+        if (err instanceof VerifiedReadRefused || err instanceof DashboardStateRefused) {
           // A granted path whose file is not a regular file, or was swapped
-          // between the check and the open. Refused in the site's existing
+          // between the check and the open (or a swap onto a dashboard secret).
+          // Refused in the site's existing
           // containment shape — deliberately no new user-facing string.
           reply.code(403);
           return { success: false, error: "path outside working directory" } satisfies ApiResponse;
@@ -1037,7 +1039,7 @@ export function registerFileRoutes(
       }
       try {
         const stat = await fs.stat(resolved);
-        const content = await fs.readFile(resolved, "utf-8");
+        const content = await readFileStateChecked(resolved, "utf-8");
         // Full-precision mtime token (matches the write-side conflict check).
         return {
           success: true,
@@ -1318,19 +1320,31 @@ export function registerFileRoutes(
         }
       }
 
+      // Non-grant reads open here so the handle can be checked against the always-refused dashboard
+      // files before a single byte is streamed (the path check and the open are two syscalls).
+      let rawHandle: Awaited<ReturnType<typeof openStateChecked>> | undefined;
+      if (!grantedHandle) {
+        try {
+          rawHandle = await openStateChecked(resolved, "r");
+        } catch (err) {
+          reply.code(err instanceof DashboardStateRefused ? 403 : 404);
+          return {
+            success: false,
+            error: err instanceof DashboardStateRefused ? "path outside working directory" : "not found",
+          } satisfies ApiResponse;
+        }
+      }
+      const servedHandle = grantedHandle ?? rawHandle!;
+
       if (range) {
         reply.code(206);
         reply.header("Content-Range", `bytes ${range.start}-${range.end}/${size}`);
         reply.header("Content-Length", String(range.end - range.start + 1));
-        return reply.send(
-          grantedHandle
-            ? grantedHandle.createReadStream({ start: range.start, end: range.end })
-            : createReadStream(resolved, { start: range.start, end: range.end }),
-        );
+        return reply.send(servedHandle.createReadStream({ start: range.start, end: range.end }));
       }
 
       reply.header("Content-Length", String(size));
-      return reply.send(grantedHandle ? grantedHandle.createReadStream() : createReadStream(resolved));
+      return reply.send(servedHandle.createReadStream());
     },
   );
 
@@ -1461,7 +1475,7 @@ export function registerFileRoutes(
         }
       } else {
         try {
-          source = await fs.readFile(resolved, "utf-8");
+          source = await readFileStateChecked(resolved, "utf-8");
         } catch {
           reply.code(404);
           return { success: false, error: "not found" } satisfies ApiResponse;
@@ -1567,7 +1581,7 @@ export function registerFileRoutes(
         }
       } else {
         try {
-          buffer = await fs.readFile(gate.resolved);
+          buffer = await readFileStateChecked(gate.resolved);
         } catch {
           reply.code(404);
           return { success: false, error: "not found" } satisfies ApiResponse;

@@ -23,6 +23,14 @@ describe("buildConnectUrl (E18)", () => {
     expect(JSON.parse(url.searchParams.get("client") ?? "{}")).toEqual({ name: "pi-dashboard" });
   });
 
+  it("appends the single-use relay ticket INSIDE the mcpRelayUrl value (not as a connect.html param)", () => {
+    const url = new URL(buildConnectUrl({ port: 8000, guid: GUID, ticket: "TICKET_value-123" }));
+    expect(url.searchParams.get("mcpRelayUrl")).toBe(`ws://127.0.0.1:8000/ws/browser-ext/${GUID}?ticket=TICKET_value-123`);
+    expect(url.searchParams.get("ticket")).toBeNull();
+    // The extension validates only the relay URL's host; the query rides in the opaque value.
+    expect(new URL(url.searchParams.get("mcpRelayUrl")!).hostname).toBe("127.0.0.1");
+  });
+
   it("omits `token` by default so the extension shows its Allow dialog", () => {
     const url = new URL(buildConnectUrl({ port: 8000, guid: GUID, profileToken: "T" }));
     expect(url.searchParams.get("token")).toBeNull();

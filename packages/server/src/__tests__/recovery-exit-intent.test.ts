@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const DASH_DIR = path.join(os.homedir(), ".pi", "dashboard");
 const BOOT_STATE_PATH = path.join(DASH_DIR, "boot-state.json");
@@ -58,7 +59,7 @@ function seedCandidate(sessionsDir: string, id: string): void {
 
 /** Connect a browser client and collect frames for `ms`. */
 async function collect(port: number, ms: number): Promise<Record<string, unknown>[]> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
   const msgs: Record<string, unknown>[] = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
@@ -197,7 +198,7 @@ describe("recovery is gated by the previous boot's exit intent", () => {
     writeFileSync(path.join(keeperDir, `${ID}.rpc.sock.pid`), String(process.pid));
     const port = await boot();
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
     const msgs: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
       ws.on("open", () => {

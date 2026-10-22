@@ -64,8 +64,8 @@ start_dashboard
 SRV_PID="$(curl -s "http://localhost:$PORT/api/health" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(String(JSON.parse(s).pid||'')))")"
 
 # Spawn a headless session (marked: loopback literal + REQUIRE_SERVER_PROOF).
-curl -sf -X POST "http://localhost:$PORT/api/session/spawn" -H 'content-type: application/json' \
-  -d "{\"cwd\":\"$CWD\"}" >/dev/null || { echo "FAIL: spawn request failed"; exit 1; }
+# `pi-dashboard api` mints local proof (the strict `requireLocalProof` default refuses a bare curl); HOME is the server's.
+HOME="$DEEP_HOME" pi-dashboard api POST /api/session/spawn --port "$PORT" --data "{\"cwd\":\"$CWD\"}" >/dev/null || { echo "FAIL: spawn request failed"; exit 1; }
 sessions() { curl -s "http://localhost:$PORT/api/sessions" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const a=(JSON.parse(s).data||[]).filter(x=>x.status&&x.status!=='ended');process.stdout.write(String(a.length))}catch{process.stdout.write('0')}})"; }
 for _ in $(seq 1 45); do [ "$(sessions)" -ge 1 ] && break; sleep 2; done
 [ "$(sessions)" -ge 1 ] || { echo "FAIL: spawned session never registered"; exit 1; }

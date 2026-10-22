@@ -31,6 +31,8 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   // signal — freezes (SIGSTOP) a real dashboard and runs `start` / `status` / a second server against it.
   // See change: harden-dashboard-start-detection.
   "src/__tests__/cli-start-real.test.ts",
+  // wrapper — unknown subcommand word exits 2; `--port N api …` reaches `api`. See change: close-container-loopback-impersonation.
+  "src/__tests__/cli-unknown-subcommand.test.ts",
   // wrapper — spawns the real `bin/pi-dashboard.mjs` in isolated tmp trees.
   "src/__tests__/cli-version.test.ts",
   // full-server — real `pi` subprocess + bridge extension + live /ws gateway.
@@ -55,6 +57,9 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   "src/rpc-keeper/__tests__/keeper-shutdown-kills-pi.test.ts",
   // keeper — real keeper + mock-pi; E5 polls the rotated child log file.
   "src/rpc-keeper/__tests__/keeper.test.ts",
+  // exec — two node children race `rotateSecretsOnce` on one HOME.
+  // See change: close-container-loopback-impersonation.
+  "src/__tests__/secret-rotation-concurrent.test.ts",
   // exec — E54 spawns a real node child and reads its env through a file.
   "src/services/__tests__/secrets.test.ts",
 ];

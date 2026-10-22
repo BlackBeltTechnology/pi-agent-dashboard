@@ -184,7 +184,7 @@ Script: `sh "${CLAUDE_SKILL_DIR}/scripts/ensure-dashboard.sh" [--install | --che
 | `not-installed` | 4 | No `pi-dashboard`. Needs `--install` consent. |
 | `port-conflict` | 5 | Foreign program on port. Free it or set `DASHBOARD_PORT`. |
 
-Strict mode (`requireLocalProof` on). Control calls get 401, or 403 `local_proof_required`.
+Default (`requireLocalProof` on). Control calls get 401, or 403 `local_proof_required`.
 1. `pi-dashboard token create --label claude-code --tier control`.
 2. Save `Authorization: Bearer <token>` in a header file, `chmod 600`. Agent never creates it.
 3. Agent chains verify before every credentialed call:
@@ -258,7 +258,7 @@ pi-dashboard restart --dev      # restart in dev mode
 - `--force` kills every listener on the resolved ports. DANGEROUS: can kill another HOME's/user's dashboard, the Electron app's server, or an unrelated service. Use only to recover an orphaned listener nothing else can attribute. `restart` ignores `--force`.
 - Logs append to `~/.pi/dashboard/server.log` with timestamped headers per start.
 - `restart` delegates to `POST /api/restart` when dashboard already up.
-- Graceful restart via API: `curl -X POST http://localhost:8000/api/restart`. Body `{"dev":true|false}` switches mode.
+- Graceful restart via API: `pi-dashboard api POST /api/restart`. Body `{"dev":true|false}` switches mode (`--data '{"dev":true}'`). Bare `curl` is refused (`local_proof_required`); see [How do I call the dashboard API from a script now that `curl` is refused?](#how-do-i-call-the-dashboard-api-from-a-script-now-that-curl-is-refused).
 
 Cross-refs:
 - README.md:269
@@ -749,9 +749,9 @@ Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `
 
 See change: fix-trusted-network-tunnel-bypass.
 
-## Why do control routes 403 `local_proof_required` after enabling `requireLocalProof`?
+## Why do control routes 403 `local_proof_required`?
 
-`requireLocalProof` on. Bare loopback (loopback peer, no `X-Forwarded-*`) no longer admits everything.
+`requireLocalProof` defaults to `true`. Bare loopback (loopback peer, no `X-Forwarded-*`) admits only observe-tier REST and `/v1/*`.
 
 Without proof:
 - `observe`-tier `GET /api/*` reads.
@@ -765,20 +765,103 @@ Needs proof:
 - Route-tier exemption.
 - Pairing approval (`POST /api/pair/approve`, `/approve-pending`).
 
-Proof = `pi_dash_local` cookie (httpOnly, `SameSite=Strict`, 30 d), `X-Pi-Local-Token`, or a logged-in principal.
+Proof = `pi_dash_local` cookie (httpOnly, `SameSite=Strict`, 12 h idle, 30 d cap), `X-Pi-Local-Proof` (CLI, bridge), desktop app, or a signed-in/paired principal.
 
-Fix an interactive browser: run `pi-dashboard open`. Electron does this itself.
-Fix a script / `curl -X POST` on this host: send the local token. Value at `~/.pi/dashboard/local/token`, header `X-Pi-Local-Token`. `npm run reload` and CLI `restart` already send it.
+Fix an interactive browser: run `pi-dashboard open`. Electron does this itself. Forwarded loopback: see [My browser tab is refused over `ssh -L`, VS Code, or WSL](#my-browser-tab-is-refused-over-ssh--l-vs-code-or-wsl-how-do-i-authorize-it).
+Fix a script on this host: `pi-dashboard api <METHOD> <path> [--data <json>]`. Raw `curl` without proof is refused. `npm run reload` and CLI `restart` already send proof.
 
-When to enable: only header-injecting tunnels (zrok) are safe without it. Marker-less relays (`ssh -R`, `socat`) terminate on `127.0.0.1` with no forwarding header, look like bare loopback, and get full code-exec access. Enable `requireLocalProof` when such a relay is used.
+Keep the default. Header-injecting tunnels (zrok) stay safe either way. Marker-less relays (`ssh -R`, `socat`, Docker Desktop `host.docker.internal`) terminate on `127.0.0.1` with no forwarding header, look like bare loopback, and get full code-exec access. Opt-out only where no container or relay reaches host `127.0.0.1`: see [Should I set `requireLocalProof` to `false`?](#should-i-set-requirelocalproof-to-false-what-does-opting-out-expose).
 
 `127.0.0.1` in `trustedNetworks` does NOT re-admit a relay under strict.
-Pairing approval never honors bare loopback in ANY mode — even default-off. Hand-typed `http://localhost:8000` on an auth-off install: use `pi-dashboard open` or Electron.
+Pairing approval never honors bare loopback in ANY mode, including opt-out. Hand-typed `http://localhost:8000` on an auth-off install: use `pi-dashboard open` or Electron.
 Rotating `~/.pi/dashboard/local/token` invalidates every proof cookie — re-run `pi-dashboard open`.
 `/v1/*` model proxy stays bare-loopback-trusted (local pi processes call it; no code exec).
 Toggle applies live — no restart.
 
 See change: harden-trust-and-credential-boundaries.
+
+## How do I call the dashboard API from a script now that `curl` is refused?
+
+Use the `pi-dashboard api` CLI. It mints a fresh proof per request and dials the loopback address literal. No redirect follow.
+
+```bash
+pi-dashboard api GET /api/config
+pi-dashboard api POST /api/restart --data '{"dev":true}'
+pi-dashboard api GET /api/health --port 9000
+```
+
+- Path: single leading `/`, no `#`, no control chars.
+- Exit `0` on 2xx (body → stdout). Exit `1` on other status (body → stderr). Exit `2` on usage error or server not running.
+- Slash-command exec templates get `PI_DASHBOARD_CLI` (absolute, shell-quoted). Use `eval "$PI_DASHBOARD_CLI" api GET /api/config`.
+- Subcommand word = first positional that is not a flag value. `--port 9000 api GET /x` works.
+- Minimum version: see [Which `pi-dashboard` version ships `api`?](#which-pi-dashboard-version-ships-api).
+
+## My browser tab is refused over `ssh -L`, VS Code, or WSL. How do I authorize it?
+
+Port-forwarded loopback arrives as bare loopback. Forwarded tabs get the same refusal.
+
+1. On the server host: `pi-dashboard open --print`. Prints the one-time URL. Does not launch a browser.
+2. Open the printed URL through a forward on the SAME port as the server (`ssh -L 8000:localhost:8000`, VS Code port forward on 8000, WSL localhost). Cookie `pi_dash_local` is port-bound: a different local port does not authorize.
+3. Local tabs: `pi-dashboard open` authorizes directly.
+
+`/auth/login` shows this remedy instead of redirecting to an OAuth provider. `pi-dashboard login --local` (break-glass) prints a link that authorizes a plain tab first.
+
+## Should I set `requireLocalProof` to `false`? What does opting out expose?
+
+No, unless every container and relay on the host is trusted. `"requireLocalProof": false` (explicit boolean only) re-exposes the control plane to every caller that reaches host `127.0.0.1`.
+
+- Docker Desktop `host.docker.internal`, `docker run --network host`, `ssh -R`, `socat` all present as bare loopback.
+- Container then gets: device token mint, bridge ticket mint, `/api/config` read, restart or shutdown of the server.
+- Opt-out is live (`config.json`, no restart). A missing or non-boolean value means `true`; the server logs one warning per distinct raw value.
+- Not undone by opt-out: dashboard state dir guard (`~/.pi/dashboard/local/**`, `identity.key`).
+
+See change: close-container-loopback-impersonation.
+
+## Why was everyone signed out after upgrading? What is the one-time rotation?
+
+First start of the new build rotates the local token and `auth.secret` once. Reason: a container may already have read them through the `~/.pi` file anchor.
+
+- Effect: everyone signs in again once. Every `pi_dash_local` cookie reissued.
+- Before upgrading: stop every dashboard instance on the same HOME. An older instance keeps the old token until it restarts.
+- Failure: rotation fails CLOSED. Server exits `1` before listening and logs one line naming the failed step plus the lock and epoch paths (`~/.pi/dashboard/local/rotation.lock`, `~/.pi/dashboard/local/rotation-epoch`).
+- Rollback: none needed. Delete `local/rotation-epoch` only to force another rotation.
+
+See change: close-container-loopback-impersonation.
+
+## Does the `pi_dash_local` cookie leak to other `localhost` sites?
+
+Browsers send the cookie to every `localhost:<port>` site. Residual, accepted.
+
+- A local web app can capture the cookie and replay it to the same port within the 12 h idle window.
+- Cookie bound to issuing listener `port`: other ports reject it.
+- Rotating the local token invalidates every cookie.
+- Follow-up: serve the dashboard on a dedicated loopback host.
+
+## Why must I never mount `~/.pi/dashboard` into a container?
+
+The token and secrets live there.
+
+- `~/.pi/dashboard/local/token` mints proof for every local caller.
+- `~/.pi/dashboard/config.json` holds the `auth.secret` HMAC key.
+- A container that MOUNTS `~/.pi` or `$HOME` can read the token and drive the dashboard.
+- Refused by the state guard for path-taking routes, but a mount bypasses the route check.
+
+## Which `pi-dashboard` version ships `api`?
+
+The next release (see `Unreleased` in `CHANGELOG.md`). Current `package.json` version `0.10.0` lacks `api`.
+
+- Older binary: an unknown or flag-only word falls through to foreground start. `pi-dashboard api GET /x` on `0.10.0` starts a foreground server. Do not run it there.
+- New binary: unknown subcommand → exit `2` + usage.
+
+## What are the accepted residuals of the loopback hardening?
+
+Known, accepted. Not fixed by this change.
+
+- Observe-tier reads open to containers: transcripts, session lists, files inside session cwds, files under `~/.pi` outside the dashboard dir (e.g. `~/.pi/agent/auth.json`). A `$HOME`-cwd session also exposes `~/.ssh`.
+- `/v1/*` model proxy spend stays open to bare loopback.
+- Live capability URLs (`/live/<token>/…`) judged without proof (Electron "Open in browser" needs it). A capability URL leaked into a transcript lets a container open that preview.
+- Browser cookie reaches other `localhost` sites (see above).
+- Bridge gateway loopback grace and recovery server unchanged (out of scope).
 
 ## Why is my project `mcp.json` server ignored (inactive) in a folder?
 
@@ -1198,8 +1281,8 @@ Commands:
 Open `http://localhost:8000` (server proxies SPA routes + assets to Vite) or `http://localhost:3000` (Vite directly, proxies API/WS to `:8000`).
 
 Deploy after changes:
-- Client (production): `npm run build` then `curl -X POST http://localhost:8000/api/restart`
-- Server: `curl -X POST http://localhost:8000/api/restart` (TS runs directly via native strip-only loader, no build)
+- Client (production): `npm run build` then `pi-dashboard api POST /api/restart`
+- Server: `pi-dashboard api POST /api/restart` (TS runs directly via native strip-only loader, no build)
 - Bridge extension: `npm run reload`
 - Full rebuild: `npm run build` + `/api/restart` + `npm run reload`
 
@@ -1676,7 +1759,7 @@ Steps:
 Gotchas:
 - `--scope local` install (`<cwd>/.pi/settings.json`): row `local-detected`, never loaded. Install with `--scope global`. Session end prunes local-detected rows (no active session with that cwd left).
 - Rebuilt bundle → `pin-mismatch` → click **Trust this version**. Reload browser for changed/removed code ("Plugin changes need a reload").
-- Update or remove of a loaded plugin → `restartRequired`. Restart dashboard: `curl -X POST http://localhost:8000/api/restart`.
+- Update or remove of a loaded plugin → `restartRequired`. Restart dashboard: `pi-dashboard api POST /api/restart`.
 - Same id as a first-party plugin: build's own copy wins. Installed copy shows under `shadowed`.
 - `refused` reason `host-api`: plugin `hostApi` range excludes host `PLUGIN_HOST_API_VERSION`. Update plugin or dashboard.
 - `build-undeclared`: served client build predates `bundledPluginIds`. Rebuild + restart client.
@@ -4012,7 +4095,7 @@ Server: `GET /api/sessions/:id/tool-result/:toolCallId` skips `session_ended` pl
 
 Server: `findOpenToolCalls` walks past `agent_start{synthetic:true}` -> real death still heals the open call.
 
-Remedy on old build: `npm run reload` (bridge) + `curl -X POST http://localhost:8000/api/restart` + client build.
+Remedy on old build: `npm run reload` (bridge) + `pi-dashboard api POST /api/restart` + client build.
 
 See change: fix-replay-fabricates-orphan-end-for-live-calls.
 
@@ -4113,7 +4196,7 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - `lsof -nP -iTCP:<port> -sTCP:LISTEN` → unexpected owner = squatter.
 - Recover:
   - Squatter: stop it.
-  - Pre-proof server: `curl -X POST http://localhost:8000/api/restart` with new build, then `npm run reload`.
+  - Pre-proof server: `pi-dashboard api POST /api/restart` with new build (or `pi-dashboard restart`), then `npm run reload`.
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
 

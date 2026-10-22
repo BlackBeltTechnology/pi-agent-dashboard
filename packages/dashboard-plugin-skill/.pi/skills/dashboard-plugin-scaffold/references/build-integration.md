@@ -55,7 +55,7 @@ After scaffolding (or augmenting):
 # At the dashboard repo root:
 npm install
 npm run build                       # if you changed client code
-curl -X POST http://localhost:8000/api/restart   # restart server
+pi-dashboard restart                # restart server (a bare curl to /api/restart is refused)
 npm run reload                      # reload connected pi sessions (only if you have a bridge entry)
 ```
 

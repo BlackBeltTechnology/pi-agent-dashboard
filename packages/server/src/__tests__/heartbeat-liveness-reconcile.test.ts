@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 /**
  * Wiring tests for the heartbeat-carried agent-liveness reconcile.
@@ -37,7 +38,7 @@ async function connectBrowser(browserPort: number, sessionId: string): Promise<{
   ws: WebSocket;
   broadcasts: Array<Record<string, unknown>>;
 }> {
-  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   const broadcasts: Array<Record<string, unknown>> = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {

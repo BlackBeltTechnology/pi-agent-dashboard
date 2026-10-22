@@ -10,6 +10,43 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Security
+
+- **BREAKING (security): a container can no longer drive the dashboard through the host loopback.** A container
+  that reaches the host's `127.0.0.1` (Docker Desktop's `host.docker.internal`, `--network host`, a relay) used to be
+  indistinguishable from a local tool, so it could mint device tokens and bridge tickets, read `/api/config` and
+  restart or shut the server down. `requireLocalProof` now defaults to **`true`**: a bare-loopback caller can read
+  observe-tier routes and nothing else; every other REST route and WebSocket needs local proof (`pi-dashboard open`,
+  the desktop app, the CLI, the bridge, or a signed-in/paired principal). Only an explicit boolean `false` opts out
+  (live, no restart); a missing or non-boolean value is `true` and the server logs a warning once. **Opting out
+  re-exposes the control plane to every container on the host.**
+  - **Before upgrading, stop every dashboard instance.** The first start rotates the local token and `auth.secret`
+    once (a container may already have read them through the `~/.pi` file anchor), so **everyone signs in again once**
+    and every local proof cookie is reissued. A still-running older instance on the same HOME keeps its old token until
+    it restarts. If rotation cannot complete (lock held, disk error) the server exits 1 before listening and names the
+    failed step and the lock and epoch paths.
+  - **Forwarded-loopback users** (`ssh -L`, VS Code port forwarding, WSL) arrive as bare loopback and now see a banner:
+    run `pi-dashboard open` on the server (use `--print` and a same-port forward from another machine) to authorize the
+    browser. `/auth/login` no longer bounces such a tab to an OAuth provider; it shows the same remedy.
+  - **New `pi-dashboard api <METHOD> <path> [--data <json>]`** calls the running dashboard with a freshly minted proof
+    (exit 0 on 2xx, 1 on any other status, 2 on a usage error or when the server is not running); it replaces
+    `curl http://localhost:8000/api/...` for non-observe routes. **An unknown subcommand word now exits 2 with a usage
+    line** instead of silently starting a foreground server (an older binary still falls through, so the minimum
+    version is the one that ships `api`). Slash-command templates get `PI_DASHBOARD_CLI` (use
+    `eval "$PI_DASHBOARD_CLI" api GET /api/config`).
+  - **The dashboard state directory is out of reach of every path-taking route.** `~/.pi/dashboard/local/**` and
+    `identity.key` are refused for every caller in every mode (this is not undone by `requireLocalProof: false`);
+    `config.json` and the rest are refused unless the caller is locally trusted or signed in. `/api/grep` skips the
+    directory. An unauthorized local caller's containment miss no longer raises an operator access prompt.
+  - **The `pi_dash_local` proof cookie is bound to the port that issued it** and expires after 12 h idle (re-signed on
+    use after 1 h; 30-day absolute cap). Browsers send it to every `localhost:<port>` site, so a local web app could
+    capture it; a dedicated loopback host is the planned follow-up.
+  - **Browser relay:** `cdpUrl` and the extension's relay URL now carry a single-use ticket (`?ticket=`, 60 s, bound to
+    the guid and role). Pass the whole `cdpUrl` to `agent-browser connect` unchanged; a client that drops needs a fresh
+    `connect`. Plugin WS scopes may declare `peerCredential: "plugin"` to authenticate their peer themselves.
+  - **A container that mounts `~/.pi` or `$HOME` can still mint proofs**: possession of the token is the credential.
+    Never mount the dashboard directory into a container.
+
 ### Added
 
 - **OBS: unfreeze screen captures after sleep.** On macOS, OBS 31 screen captures stop when the Mac sleeps

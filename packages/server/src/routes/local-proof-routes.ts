@@ -7,6 +7,10 @@
  *                              proof cookie, redirects to `sanitizeReturnUrl(next)`
  *                              (same-origin path, else `/`).
  *
+ * A request that presents a still-valid proof cookie more than 1 h after its last refresh gets a
+ * re-signed `Set-Cookie` (sliding 12 h idle expiry; absolute 30-day cap). See change:
+ * close-container-loopback-impersonation (D12).
+ *
  * Used by `pi-dashboard open` and Electron so the same-desktop browser can prove
  * it is local under `requireLocalProof` and can approve pairings (D6).
  * See change: harden-trust-and-credential-boundaries (D2/D6); fix-pairing-approval-credential (D6).
@@ -15,10 +19,12 @@ import type { FastifyInstance } from "fastify";
 import { sanitizeReturnUrl } from "../auth/auth-plugin.js";
 import { hasLocalCredential } from "../auth/local-credential.js";
 import {
+  inspectLocalProofCookie,
   LOCAL_PROOF_COOKIE,
   LOCAL_PROOF_MAX_AGE_S,
   type LocalProofCodeStore,
   type LocalTrustContext,
+  readCookie,
   signLocalProof,
 } from "../auth/local-proof.js";
 
@@ -26,6 +32,14 @@ export function registerLocalProofRoutes(
   fastify: FastifyInstance,
   deps: { codes: LocalProofCodeStore; ctx: LocalTrustContext },
 ): void {
+  // Sliding refresh. Registered here, before the universal guard hook (registered last), so a refusal
+  // later in the chain does not skip it for a cookie that is in fact still valid.
+  fastify.addHook("onRequest", async (request, reply) => {
+    const info = inspectLocalProofCookie(readCookie(request.headers as Record<string, unknown>, LOCAL_PROOF_COOKIE), deps.ctx);
+    if (!info?.needsRefresh) return;
+    reply.setCookie(LOCAL_PROOF_COOKIE, info.refreshed, { path: "/", httpOnly: true, sameSite: "strict", maxAge: info.maxAgeS });
+  });
+
   fastify.post("/api/local-proof", async (request, reply) => {
     if (!hasLocalCredential(request.headers)) {
       reply.code(401);

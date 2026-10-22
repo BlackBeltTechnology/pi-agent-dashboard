@@ -3,7 +3,7 @@
  */
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { imageBlockData, imageBlockMime } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
@@ -23,6 +23,7 @@ import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate, readTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { filterByEnabledModels } from "./session-sync.js";
+import { resolveServerCliPath } from "./server-launcher.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 
 const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".cache", "__pycache__", ".venv"]);
@@ -1354,14 +1355,36 @@ function resolveDashboardPort(): number {
 }
 
 /**
- * Build the env vars exec-mode slash templates rely on: `PI_DASHBOARD_PORT` and
- * `PI_DASHBOARD_BASE`. See change: add-dashboard-slash-commands.
+ * A word safe to paste into a bash command line: left bare when it has nothing the shell would
+ * interpret, else POSIX single-quoted (a path with a space, a `'`, a `$`).
+ */
+function posixWord(word: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Absolute, shell-quoted command that runs the `pi-dashboard` CLI shipped with THIS bridge
+ * (`<node> <server>/bin/pi-dashboard.mjs`), so a template can call a non-observe route with
+ * `eval "$PI_DASHBOARD_CLI" api <METHOD> <path>` (which sends local proof) with no `pi-dashboard` on PATH.
+ * `eval` is what makes the quoting take effect for an install path with a space; a bare
+ * `$PI_DASHBOARD_CLI` expansion also works whenever the path needs no quoting.
+ */
+function dashboardCliCommand(): string {
+  const wrapper = resolve(dirname(resolveServerCliPath()), "..", "bin", "pi-dashboard.mjs");
+  return `${posixWord(process.execPath)} ${posixWord(wrapper)}`;
+}
+
+/**
+ * Build the env vars exec-mode slash templates rely on: `PI_DASHBOARD_PORT`,
+ * `PI_DASHBOARD_BASE` and `PI_DASHBOARD_CLI`. See changes: add-dashboard-slash-commands,
+ * close-container-loopback-impersonation (D5).
  */
 export function buildDashboardExecEnv(): Record<string, string> {
   const port = resolveDashboardPort();
   return {
     PI_DASHBOARD_PORT: String(port),
     PI_DASHBOARD_BASE: `http://localhost:${port}`,
+    PI_DASHBOARD_CLI: dashboardCliCommand(),
   };
 }
 

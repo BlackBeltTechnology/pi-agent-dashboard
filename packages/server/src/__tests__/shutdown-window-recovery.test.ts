@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const spawnPiSession = vi.fn(async (_cwd: string, _opts: Record<string, unknown>) => ({ success: false, message: "spawn disabled in test" }));
 vi.mock("../spawn-process/process-manager.js", async (importOriginal) => {
@@ -57,7 +58,7 @@ function seedEnded(sessionsDir: string, id: string, meta: Record<string, unknown
 const EVIDENCE = { live: false, status: "ended", closedReason: "unknown", liveEpoch: B, endedAt: T };
 
 async function collect(port: number, ms: number): Promise<Record<string, unknown>[]> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
   const msgs: Record<string, unknown>[] = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {

@@ -13,6 +13,7 @@ import path from "node:path";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 /**
  * The `ask` offer is broadcast only AFTER the reattach grace window closes, so
@@ -41,7 +42,7 @@ function writeConfig(mode: string): void {
 }
 
 async function connectAndCollect(port: number, ms: number = OFFER_WAIT_MS): Promise<Record<string, unknown>[]> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
   const msgs: Record<string, unknown>[] = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
@@ -60,7 +61,7 @@ async function connectAndCollect(port: number, ms: number = OFFER_WAIT_MS): Prom
  * See change: fix-recovery-offer-dismiss-and-phantom-reopen.
  */
 async function connectAndDismiss(port: number, sessionIds: string[]): Promise<Record<string, unknown>[]> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
   const msgs: Record<string, unknown>[] = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
@@ -211,7 +212,7 @@ describe("cold-start recovery offer", () => {
 
     // First client: reopen immediately — inside the window, before any offer
     // has even been broadcast.
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
     const msgs: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
       ws.on("open", () => {

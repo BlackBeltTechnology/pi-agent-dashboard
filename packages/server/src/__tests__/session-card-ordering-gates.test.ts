@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -43,7 +44,7 @@ async function connectSession(piPort: number, sessionId: string, cwd = "/tmp"): 
 /** Connect a browser WS and collect every `sessions_reordered` message. */
 async function connectBrowser(browserPort: number): Promise<{ ws: WebSocket; reorders: any[] }> {
   const reorders: any[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   ws.on("message", (raw) => {
     try {
       const m = JSON.parse(String(raw));
@@ -199,7 +200,7 @@ describe("prompt_request is a trigger-complete writer", () => {
   }> {
     const reorders: any[] = [];
     const unreads: any[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     ws.on("message", (raw) => {
       try {
         const m = JSON.parse(String(raw));
@@ -284,7 +285,7 @@ describe("prompt_request is a trigger-complete writer", () => {
     await wait(300);
 
     // Convergence is preserved — the state is correct either way.
-    const res = await fetch(`http://127.0.0.1:${browserPort}/api/sessions`);
+    const res = await proofFetch(`http://127.0.0.1:${browserPort}/api/sessions`);
     const body = (await res.json()) as { data: any[] };
     expect(body.data.find((s) => s.id === "s1")!.currentTool).toBe("ask_user");
 
