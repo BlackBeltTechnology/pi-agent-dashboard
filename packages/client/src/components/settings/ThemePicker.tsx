@@ -52,8 +52,13 @@ export function ThemePicker() {
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
             e.preventDefault();
-            pendingFocus.current = true;
-            setOpen(true);
+            if (open) {
+              // Already open (mouse): the focus effect won't re-run, so move focus now.
+              ref.current?.querySelector<HTMLElement>('[data-testid="theme-toggle"] [aria-pressed="true"]')?.focus();
+            } else {
+              pendingFocus.current = true;
+              setOpen(true);
+            }
           } else if (e.key === "Escape" && open) {
             e.preventDefault();
             closeToTrigger();

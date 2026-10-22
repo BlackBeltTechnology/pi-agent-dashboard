@@ -136,4 +136,13 @@ describe("ThemePicker", () => {
     act(() => { fireEvent.click(trigger); });
     expect(getByTestId("theme-picker-dropdown").className).toContain("left-0");
   });
+
+  it("ArrowDown on the trigger of an already-open dropdown moves focus to the pressed mode button", () => {
+    const { getByTestId } = renderPicker();
+    const trigger = getByTestId("theme-picker-trigger");
+    fireEvent.click(trigger);
+    expect(document.activeElement).not.toBe(getByTestId("theme-system"));
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(getByTestId("theme-system"));
+  });
 });

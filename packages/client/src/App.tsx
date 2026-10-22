@@ -2167,7 +2167,9 @@ export default function App() {
             label: i18nT("packages.installApp", undefined, "Install app"),
             icon: mdiDownload,
             testId: "install-btn",
-            onSelect: () => installPrompt.prompt(),
+            onSelect: () => {
+              void installPrompt.prompt().catch(logRejection("App.installPrompt"));
+            },
           },
         ]
       : []),
