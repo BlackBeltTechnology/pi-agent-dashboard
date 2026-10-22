@@ -250,6 +250,7 @@ export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}
 # to the container (compose.test.yml). Exported explicitly: compose substitutes from the SHELL environment.
 export PI_E2E_CANARY="${PI_E2E_CANARY:-}"
 export PI_DASHBOARD_CSP="${PI_DASHBOARD_CSP:-}"
+export PI_DASHBOARD_TRUSTED_TYPES="${PI_DASHBOARD_TRUSTED_TYPES:-}"
 CANARY_STAGE_DIR="${HOST_CWD}/.pi-test-canary"
 rm -rf "$CANARY_STAGE_DIR"
 if [ "${PI_E2E_SEED:-}" = "1" ] && [ "${PI_E2E_CANARY:-trusted}" != "off" ]; then

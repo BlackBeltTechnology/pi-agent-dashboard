@@ -10,6 +10,8 @@
  * See issue #13 and change: harden-external-link-handling.
  */
 
+import { classifyUrl } from "@blackbelt-technology/pi-dashboard-shared/url-policy.js";
+
 /**
  * Returns true when `href` resolves to the same origin as `serverOrigin`.
  *
@@ -115,16 +117,15 @@ export function decideWillNavigate(
  *
  * See change: harden-electron-renderer-boundary (VD4).
  */
-const EXTERNAL_SCHEME_ALLOWLIST: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
-
-/** True only when `url` parses and its scheme is `http`, `https` or `mailto`. */
+/**
+ * True only when the shared classifier (`classifyUrl(url, null)`) puts `url` in
+ * `external`, `loopback` or `mailto` — i.e. an absolute `http`, `https` or
+ * `mailto` URL with no embedded control character or backslash. Same verdict
+ * as the web client for every absolute URL. See change: harden-client-sinks (D3).
+ */
 export function isAllowedExternalUrl(url: unknown): url is string {
-	if (typeof url !== "string") return false;
-	try {
-		return EXTERNAL_SCHEME_ALLOWLIST.has(new URL(url).protocol);
-	} catch {
-		return false;
-	}
+	const cls = classifyUrl(url, null);
+	return cls === "external" || cls === "loopback" || cls === "mailto";
 }
 
 /**

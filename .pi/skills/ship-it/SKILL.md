@@ -203,6 +203,7 @@ rule; this step only *invokes* them:
 ```bash
 node scripts/check-conventions.mjs --base origin/develop
 node scripts/check-plugin-boundary.mjs  # core/plugin import ratchet: NEW edge or STALE allowlist row fails
+node scripts/check-client-sinks.mjs     # raw navigation / HTML / script sinks outside the chokepoints
 node scripts/dox-byte-gate.mjs
 node scripts/i18n-lint.mjs --strict     # --strict, else it exits 0 regardless
 node scripts/i18n-parity.mjs

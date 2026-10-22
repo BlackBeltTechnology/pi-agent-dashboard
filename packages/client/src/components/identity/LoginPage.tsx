@@ -18,6 +18,7 @@
  * Core still ships no provider UI (D18): buttons only redirect; a COMPONENT
  * provider (optional D16 adapter) is mounted via `LoginGate`.
  */
+
 import { mdiAlert, mdiCheckCircle, mdiClockOutline, mdiLock, mdiLogin } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -26,6 +27,7 @@ import { LAST_PROVIDER_KEY, silentProviderFor, startSignIn } from "../../lib/ide
 import { providerRedirect, safeReturnTo } from "../../lib/identity/gate.js";
 import { fetchLoginConfig, type LoginConfig, type LoginProvider } from "../../lib/identity/login-config.js";
 import { type LoginSessionState, useLoginSession } from "../../lib/identity/login-session.js";
+import { assignLocation } from "../../lib/nav/safe-navigation.js";
 import { PiLogo } from "../primitives/PiLogo.js";
 import { LoginGate } from "./LoginGate.js";
 
@@ -58,7 +60,7 @@ export function LoginPage(): React.JSX.Element | null {
         setComponentStart(true);
         return;
       }
-      void startSignIn(provider, { origin, returnTo, silent, storage: window.sessionStorage, assign: (url) => window.location.assign(url) });
+      void startSignIn(provider, { origin, returnTo, silent, storage: window.sessionStorage, assign: (url) => { assignLocation(url); } });
     },
     [origin, returnTo],
   );

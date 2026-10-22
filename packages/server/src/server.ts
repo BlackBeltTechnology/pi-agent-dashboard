@@ -94,7 +94,7 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
-import { registerCsp, resolveCspMode } from "./auth/csp.js";
+import { registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
 import {
   createHostGate,
   evaluateHostGate,
@@ -119,6 +119,7 @@ import {
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
+import { NavIntents } from "./auth/nav-intent.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
 import { resolveRpContext } from "./auth/passkey/rp-context.js";
 import { UserDirectory } from "./auth/passkey/user-directory.js";
@@ -280,6 +281,7 @@ import { registerAcpRoutes } from "./routes/acp-routes.js";
 import { registerAddonsRoutes } from "./routes/addons-routes.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
 import { registerCanvasTypesRoutes } from "./routes/canvas-types-routes.js";
+import { registerCspViolationRoutes } from "./routes/csp-violations-routes.js";
 import { registerCustomEventGroupsRoutes } from "./routes/custom-event-groups-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { denialBody, gateFilePath, registerFileRoutes } from "./routes/file-routes.js";
@@ -297,6 +299,7 @@ import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagno
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
+import { registerNavIntentRoutes } from "./routes/nav-intent-routes.js";
 import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
@@ -2245,7 +2248,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `PI_DASHBOARD_CSP=enforce` flips to enforcing once report-only is clean.
   // Skips proxied prefixes (/editor, /live) so their own policies stand.
   // See change: improve-content-editor (§7).
-  registerCsp(fastify, resolveCspMode(process.env.PI_DASHBOARD_CSP));
+  // Trusted Types rides the same hook under its own `PI_DASHBOARD_TRUSTED_TYPES`
+  // mode (also stamped into index.html as a meta). See change: harden-client-sinks (D7).
+  const cspMode = resolveCspMode(process.env.PI_DASHBOARD_CSP);
+  const trustedTypesMode = resolveTrustedTypesMode(process.env.PI_DASHBOARD_TRUSTED_TYPES, cspMode);
+  registerCsp(fastify, cspMode, trustedTypesMode);
 
   // Register auth plugin if configured (must be before routes)
   // Decorate isAuthenticated once, up front, so both the bearer branch and the
@@ -2641,6 +2648,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return ids.length;
   };
   registerPiRetryRoutes(fastify, { networkGuard, reloadConnectedSessions });
+  // Trusted Types / CSP violation counters (authenticated, rate-limited, counters
+  // only). See change: harden-client-sinks (D8).
+  registerCspViolationRoutes(fastify, { networkGuard, log: { warn: (m) => fastify.log.warn(m) } });
+  // Signed navigation intents for operator-opened route-backed overlays
+  // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).
+  registerNavIntentRoutes(fastify, { networkGuard, intents: new NavIntents() });
   // On-demand AI mermaid repair (opt-in via `mermaidRepair` config; 404 when off).
   // See change: add-mermaid-ai-repair.
   registerMermaidRepairRoutes(fastify, {
@@ -3598,7 +3611,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return reply.code(404).send({ success: false, error: "not_found", message: `No API route for ${request.method} ${rawPath}` });
   };
 
-  const indexHtml = createIndexHtmlSender(clientDir);
+  const indexHtml = createIndexHtmlSender(clientDir, { trustedTypesMode });
 
   if (config.dev) {
     // Dev mode: proxy to Vite dev server, fall back to production build

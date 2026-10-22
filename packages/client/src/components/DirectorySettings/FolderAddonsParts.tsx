@@ -7,9 +7,11 @@
  *
  * See change: addons-hub-folder-view (spec: addons-folder-view › folder page).
  */
+
 import type { AddonFeature, AddonLooseCounts } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { type FolderFilter, type FolderStrip, looseTotal } from "../../lib/addons/folder-addons-helpers.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 
 function Seg({ value, label, testId, className = "" }: { value: string; label: string; testId: string; className?: string }) {
 	return (
@@ -248,7 +250,7 @@ function OwnFilesRow({ counts, resourcesHref, onOpen }: { counts: AddonLooseCoun
 						{summary}
 					</div>
 				</div>
-				<a
+				<SafeLink
 					href={resourcesHref}
 					onClick={(e) => {
 						e.preventDefault();
@@ -258,7 +260,7 @@ function OwnFilesRow({ counts, resourcesHref, onOpen }: { counts: AddonLooseCoun
 					data-testid="folder-own-files-link"
 				>
 					{i18nT("addons.folder.openResources", undefined, "Open in Resources →")}
-				</a>
+				</SafeLink>
 			</div>
 		</div>
 	);

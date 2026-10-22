@@ -12,6 +12,7 @@
  *
  * See change: add-zrok-custom-reserved-name (D6/D7/D11).
  */
+
 import type { ProviderReadiness } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import type { GatewayConfigShape } from "../../lib/gateway/gateway-action.js";
@@ -19,6 +20,7 @@ import { getConfig } from "../../lib/gateway/gateway-api.js";
 import { safeApprovalUrl } from "../../lib/gateway/gateway-connection.js";
 import { READINESS_LABEL, readinessSeverity } from "../../lib/gateway/readiness-poll.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import { type ReadinessPoll, useReadinessPoll } from "../../lib/remote-access/use-readiness-poll.js";
 import { GatewayProviderActions } from "./GatewayProviderActions.js";
 
@@ -195,7 +197,7 @@ function ReadinessRow({
       {approvalUrl && (
         <p className="mt-1 px-3 text-[11px] text-[var(--text-secondary)]" data-testid={`gateway-readiness-${readiness.provider}-approval-note`}>
           {t("gateway.readiness.approvalNeeded", undefined, "Not enabled on your tailnet yet — ")}
-          <a
+          <SafeLink
             data-testid={`gateway-readiness-${readiness.provider}-approval`}
             href={approvalUrl}
             target="_blank"
@@ -203,7 +205,7 @@ function ReadinessRow({
             className="text-[var(--accent)] underline"
           >
             {t("gateway.readiness.approve", undefined, "approve in Tailscale admin ↗")}
-          </a>
+          </SafeLink>
         </p>
       )}
       {/* OUTSIDE the row button: a nested <button> is invalid HTML and the

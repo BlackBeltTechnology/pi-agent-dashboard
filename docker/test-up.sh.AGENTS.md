@@ -13,3 +13,5 @@ Runtime canary (decouple-plugins-from-core 7.5/8.2/8.3): stages `.pi-test-canary
 - Exports `PI_E2E_TERMINALS_MAX_CONCURRENT` (terminal-cap e2e faucet; needs `PI_E2E_SEED=1`). See change: harden-server-capability-bounds.
 
 - Exports `PI_E2E_BROWSE_CONFINEMENT` (variant boot keeping remote browse confinement on). See change: harden-server-capability-bounds.
+
+Exports `PI_DASHBOARD_TRUSTED_TYPES` (off|report|enforce) to the container like `PI_DASHBOARD_CSP`. See change: harden-client-sinks.

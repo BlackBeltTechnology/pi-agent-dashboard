@@ -4,9 +4,11 @@
  *
  * See OpenSpec change: diagram-rendering (design D3, D4, D5).
  */
+
 import { createHash } from "node:crypto";
 import zlib from "node:zlib";
-import { resolveKrokiEndpoint, type KrokiConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { type KrokiConfig, resolveKrokiEndpoint } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { DIAGRAM_SVG_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { loadPurify } from "./purify.js";
 
@@ -31,11 +33,7 @@ const MAX_DIAGRAM_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB response cap
 
 async function sanitizeSvg(svg: string): Promise<string> {
   const purify = await loadPurify();
-  return purify.sanitize(svg, {
-    USE_PROFILES: { svg: true, svgFilters: true },
-    FORBID_TAGS: ["foreignObject", "script", "style"],
-    FORBID_ATTR: ["onclick", "onload", "onerror", "onmouseover", "onmouseout"],
-  });
+  return purify.sanitize(svg, DIAGRAM_SVG_PROFILE);
 }
 
 // ── In-memory LRU cache ─────────────────────────────────────────────────────

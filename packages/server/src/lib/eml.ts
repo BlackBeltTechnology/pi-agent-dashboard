@@ -9,8 +9,10 @@
  * NEVER fetches remote URLs — the browser does, inside the opaque-origin iframe.
  * See change: add-eml-preview.
  */
+
 import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
+import { EML_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import { type ParsedMail, simpleParser } from "mailparser";
 import { loadPurify } from "./purify.js";
 
@@ -184,14 +186,7 @@ export async function sanitizeBody(
 ): Promise<{ html: string; hasRemote: boolean }> {
   if (!rawHtml) return { html: "", hasRemote: false };
   const DOMPurify = await loadPurify();
-  const bodyEl = DOMPurify.sanitize(rawHtml, {
-    RETURN_DOM: true,
-    WHOLE_DOCUMENT: false,
-    // FORCE_BODY keeps a leading `<style>` from being hoisted to <head> + dropped.
-    FORCE_BODY: true,
-    ADD_TAGS: ["style"],
-    ADD_ATTR: ["target"],
-  }) as unknown as DomEl;
+  const bodyEl = DOMPurify.sanitize(rawHtml, { ...EML_PROFILE, RETURN_DOM: true }) as unknown as DomEl;
 
   let hasRemote = false;
   const elements: DomEl[] = [bodyEl, ...Array.from(bodyEl.querySelectorAll("*"))];

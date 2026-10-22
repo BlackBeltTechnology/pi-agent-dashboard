@@ -214,6 +214,7 @@ export function SkillForm({ name }: { name?: string }) {
           {Object.entries(errors).map(([k, key]) => (
             <li key={k}>
               <a
+                // client-sinks: allow — in-page fragment anchor
                 href={`#f-${k}`}
                 onClick={(e) => {
                   e.preventDefault();

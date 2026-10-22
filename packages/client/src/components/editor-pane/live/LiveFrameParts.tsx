@@ -3,10 +3,12 @@
  * improve-canvas-html-and-url-ux; mockup S2). Split out of `LiveFrame` so the
  * frame keeps to its policy/state logic.
  */
+
 import { mdiCheck, mdiEyeOffOutline, mdiInformationOutline, mdiOpenInNew, mdiScriptTextOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type { ReactNode } from "react";
 import { useI18n } from "../../../lib/i18n/i18n.js";
+import { SafeLink } from "../../../lib/nav/safe-navigation.js";
 
 const BTN =
   "inline-flex min-h-[28px] items-center gap-1 rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-2 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50";
@@ -61,9 +63,9 @@ export function OpenControl({ href, onOpen }: { href: string | null; onOpen: () 
     </>
   );
   return href ? (
-    <a data-testid="live-open" href={href} target="_blank" rel="noreferrer" className={GHOST}>
+    <SafeLink data-testid="live-open" href={href} target="_blank" rel="noreferrer" className={GHOST}>
       {inner}
-    </a>
+    </SafeLink>
   ) : (
     <button type="button" data-testid="live-open" onClick={onOpen} className={GHOST}>
       {inner}

@@ -123,11 +123,11 @@ describe("Ask that machine for access", () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     await atAsk(known({ host: "192.168.16.204" }));
     fireEvent.click(await screen.findByTestId("remote-access-ask-open"));
-    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith("http://192.168.16.204:8000/pair?request", "_blank", "noopener,noreferrer");
     expect((await screen.findByTestId("remote-access-ask-unverified")).textContent).toMatch(/cannot verify/);
     fireEvent.click(screen.getByTestId("remote-access-ask-approved"));
     fireEvent.click(await screen.findByTestId("remote-access-finish-open"));
-    expect(open).toHaveBeenLastCalledWith("http://192.168.16.204:8000", "_blank", "noopener");
+    expect(open).toHaveBeenLastCalledWith("http://192.168.16.204:8000", "_blank", "noopener,noreferrer");
   });
 
   describe("desktop app", () => {

@@ -1,0 +1,3 @@
+# sanitize-profiles.ts — index
+
+DOMPurify configurations shared by the server sanitizers and the client `pi-sanitized-html` Trusted Types policy (one definition, so the client re-sanitizes server HTML with the server's own config). Exports `SanitizeProfile` (`mermaid|asciidoc|katex|eml|docx|diagram-svg`), `PurifyProfileConfig`, `MERMAID_SVG_PROFILE`, `ASCIIDOC_PROFILE` + `keepColWidthStyleOnly` hook, `EML_PROFILE` (server adds `RETURN_DOM`), `DOCX_PROFILE`, `DIAGRAM_SVG_PROFILE`, `KATEX_PROFILE`, `DEFAULT_HTML_PROFILE` (enforce-mode `default` catch-all), `SANITIZE_PROFILES`. Plain data, no DOMPurify import. See change: harden-client-sinks.

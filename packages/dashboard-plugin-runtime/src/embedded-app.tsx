@@ -6,6 +6,7 @@
 // Exposed via the `./embedded-app` subpath (NOT the runtime root) so only the
 // lazily-loaded route modules that render an app pull in app-kit.
 // See change: add-plugin-app-host (D3, D4, D5, D7, D9).
+
 import {
   type AppAction,
   type AppHost,
@@ -27,6 +28,7 @@ import { Router, useLocation } from "wouter";
 import { type EmbeddedAppShell, isSafeDashboardPath, useEmbeddedAppShell } from "./embedded-app-shell.js";
 import { type FolderProjectEntry, useFolderProject } from "./folder-project.js";
 import { useLanguage, useRuntimeT } from "./plugin-context.js";
+import { openExternalUrl } from "./safe-navigation.js";
 
 export interface EmbeddedAppProps {
   app: DashboardAppDefinition;
@@ -190,7 +192,7 @@ function createEmbeddedHost(o: {
       const base = suffix.startsWith("#") || standaloneUrl.endsWith("/") ? standaloneUrl : `${standaloneUrl}/`;
       // One named window per app ⇒ a repeated call reuses it. In Electron every
       // window.open is handed to the system browser (no BrowserWindow).
-      window.open(`${base}${suffix}`, `pi-app-${app.id}`);
+      openExternalUrl(`${base}${suffix}`, { target: `pi-app-${app.id}`, keepOpener: true });
     },
     requestFullscreen(el) {
       const target = (el ?? rt.appRoot) as HTMLElement | null;
@@ -545,6 +547,7 @@ function EmbeddedAppHosted({
   const language = useLanguage();
   const signals = useMemo(() => ({ title: signal(), actions: signal(), lang: signal() }), []);
   const rt = useRef<HostRuntime>({ location, navigate, title: null, actions: [], language, appRoot: null }).current;
+  // client-sinks: allow — not a navigation: copies the wouter location into the runtime ref
   rt.location = location;
   rt.navigate = navigate;
   const folderKey = folder?.cwd;

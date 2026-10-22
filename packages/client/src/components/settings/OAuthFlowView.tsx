@@ -16,6 +16,7 @@ import { mdiContentCopy, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { openExternalUrl, SafeLink } from "../../lib/nav/safe-navigation.js";
 import { copyText } from "../../lib/util/clipboard.js";
 
 /** mm:ss rendering of a remaining duration. */
@@ -124,7 +125,7 @@ export function OAuthFlowView({ flow, onSendInput, onCancel }: UiOAuthFlowViewPr
       {status?.authUrl && (
         <div className="text-xs text-[var(--text-secondary)] break-all">
           {i18nT("providers.authUrlFallback", undefined, "If the browser did not open, use this link:")}{" "}
-          <a href={status.authUrl} target="_blank" rel="noopener" className="underline break-all">{status.authUrl}</a>
+          <SafeLink href={status.authUrl} target="_blank" rel="noopener" className="underline break-all">{status.authUrl}</SafeLink>
         </div>
       )}
       {pending?.kind === "device_code" && (
@@ -138,9 +139,9 @@ export function OAuthFlowView({ flow, onSendInput, onCancel }: UiOAuthFlowViewPr
               <Icon path={mdiContentCopy} size={0.5} />
             </button>
           </div>
-          <a href={pending.verificationUri} target="_blank" rel="noopener" className="block mt-1 text-xs underline break-all">{pending.verificationUri}</a>
+          <SafeLink href={pending.verificationUri} target="_blank" rel="noopener" className="block mt-1 text-xs underline break-all">{pending.verificationUri}</SafeLink>
           {/* The user must click — the verification URL is never opened automatically. */}
-          <button type="button" onClick={() => window.open(pending.verificationUri, "_blank")}
+          <button type="button" onClick={() => openExternalUrl(pending.verificationUri)}
             className="mt-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium">
             {i18nT("common.openRegistrationPage", undefined, "Open Registration Page")}
           </button>

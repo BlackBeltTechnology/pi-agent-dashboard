@@ -145,6 +145,7 @@ export function YoloBarLink({ store }: { store?: YoloStatusStore }) {
   if (!session) return null;
   return (
     <a
+      // client-sinks: allow — compile-time constant ACCESS_PAGE route
       href={ACCESS_PAGE}
       onClick={open}
       data-testid="yolo-bar-link"
@@ -165,6 +166,7 @@ function YoloStripContent({ session, now }: { session: YoloSessionView; now: num
   const ms = remainingMs(session, now);
   return (
     <>
+      {/* client-sinks: allow — compile-time constant ACCESS_PAGE route */}
       <a href={ACCESS_PAGE} onClick={open} title={sentence} className="flex items-center gap-1.5 flex-1 min-w-0 focus-ring">
         <Icon path={mdiShieldAlertOutline} size={0.5} className="shrink-0" aria-hidden="true" />
         <span className="truncate min-w-0">{sentence}</span>

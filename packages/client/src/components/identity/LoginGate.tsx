@@ -18,6 +18,7 @@ import { PLUGIN_REGISTRY } from "../../generated/plugin-registry.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { resolveGateRedirect, safeReturnTo, selectLoginProvider } from "../../lib/identity/gate.js";
 import { fetchLoginConfig, type LoginConfig } from "../../lib/identity/login-config.js";
+import { assignLocation } from "../../lib/nav/safe-navigation.js";
 
 type Phase = "start" | "callback" | "logout";
 type LoginProviderComponent = React.ComponentType<SlotPropsMap["login-provider"]>;
@@ -61,7 +62,7 @@ export function LoginGate({ phase, fallback }: { phase: Phase; fallback?: React.
   // the plugin's view is a separate site on the same origin, so there is nothing
   // in this document to preserve.
   React.useEffect(() => {
-    if (redirectTo) window.location.assign(redirectTo);
+    if (redirectTo) assignLocation(redirectTo);
   }, [redirectTo]);
 
   if (config === undefined) {

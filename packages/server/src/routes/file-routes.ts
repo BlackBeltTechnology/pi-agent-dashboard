@@ -12,6 +12,7 @@ import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js"
 import { DIGEST_CEILING_BYTES, fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { repairAsciiDoc } from "@blackbelt-technology/pi-dashboard-shared/markup-repair/asciidoc.js";
 import { realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { ASCIIDOC_PROFILE, keepColWidthStyleOnly } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
@@ -316,17 +317,8 @@ function convertAdocCapturingWarnings(source: string): { html: string; warnings:
 // asciidoctor `safe:"secure"` still passes raw HTML through (`+++…+++`,
 // `pass:[…]`), so the converted HTML is sanitized with DOMPurify before it is
 // returned. `style` survives only as asciidoctor's own `<col style="width: N%;">`
-// column widths. A module-scope hook function so `removeHook` matches by
-// identity. See change: sanitize-untrusted-rendered-content.
-const COL_WIDTH_STYLE_RE = /^\s*width:\s*[\d.]+%?;?\s*$/;
-function keepColWidthStyleOnly(
-  node: { nodeName: string },
-  data: { attrName: string; attrValue: string; keepAttr: boolean },
-): void {
-  if (data.attrName !== "style") return;
-  const tag = node.nodeName.toLowerCase();
-  if ((tag !== "col" && tag !== "colgroup") || !COL_WIDTH_STYLE_RE.test(data.attrValue)) data.keepAttr = false;
-}
+// column widths (`keepColWidthStyleOnly`, shared with the client policy in
+// sanitize-profiles.ts). See change: sanitize-untrusted-rendered-content.
 
 async function sanitizeAdocHtml(html: string): Promise<string> {
   const purify = await loadPurify();
@@ -337,10 +329,7 @@ async function sanitizeAdocHtml(html: string): Promise<string> {
   // no `await`, so it cannot interleave with another sanitize call.
   purify.addHook("uponSanitizeAttribute", keepColWidthStyleOnly);
   try {
-    return purify.sanitize(html, {
-      USE_PROFILES: { html: true },
-      FORBID_TAGS: ["style", "form", "input", "button", "textarea", "select"],
-    });
+    return purify.sanitize(html, ASCIIDOC_PROFILE);
   } finally {
     purify.removeHook("uponSanitizeAttribute", keepColWidthStyleOnly);
   }

@@ -7,7 +7,7 @@ import path from "node:path";
 import { AppMountRegistry, mountApp } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCsp, registerCsp, resolveCspMode } from "../auth/csp.js";
+import { buildCsp, type CspMode, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "../auth/csp.js";
 import { createIndexHtmlSender } from "../lib/index-html.js";
 
 describe("buildCsp", () => {
@@ -167,5 +167,129 @@ describe("sendIndexWithImportMap under a nonce-based script-src (E94)", () => {
     const res = await app.inject("/");
     expect(res.body).toContain('<script type="importmap" nonce="n1">');
     await app.close();
+  });
+});
+
+// ── harden-client-sinks (D7): independent PI_DASHBOARD_TRUSTED_TYPES mode ──
+const TT = "require-trusted-types-for 'script'";
+
+describe("resolveTrustedTypesMode (#E17)", () => {
+  const CSP_RAW = [undefined, "off", "report", "enforce"] as const;
+  it.each(CSP_RAW)("TT unset / junk follows CSP %s: off iff CSP off, else report", (cspRaw) => {
+    const csp = resolveCspMode(cspRaw);
+    for (const tt of [undefined, "junk", ""]) {
+      expect(resolveTrustedTypesMode(tt, csp)).toBe(csp === "off" ? "off" : "report");
+    }
+  });
+  it.each(CSP_RAW)("explicit TT values win over CSP %s", (cspRaw) => {
+    const csp = resolveCspMode(cspRaw);
+    for (const tt of ["off", "report", "enforce"] as const) expect(resolveTrustedTypesMode(tt, csp)).toBe(tt);
+  });
+  it("CSP enforce + TT unset → report (existing enforce users get no TT enforcement)", () => {
+    expect(resolveTrustedTypesMode(undefined, "enforce")).toBe("report");
+  });
+});
+
+describe("Trusted Types directive emission (#E18)", () => {
+  async function appWith(csp: CspMode, tt: CspMode) {
+    const app = Fastify({ logger: false });
+    registerCsp(app, csp, tt);
+    app.get("/", async () => "ok");
+    app.get("/live/x", async () => "live");
+    await app.ready();
+    return app;
+  }
+  const RO = "content-security-policy-report-only";
+  const EN = "content-security-policy";
+
+  it.each([
+    ["report", "report", { [RO]: "baseline+tt", [EN]: undefined }],
+    ["enforce", "enforce", { [EN]: "baseline+tt", [RO]: undefined }],
+    ["report", "enforce", { [RO]: "baseline", [EN]: "tt-only" }],
+    ["enforce", "report", { [EN]: "baseline", [RO]: "tt-only" }],
+  ] as const)("CSP %s + TT %s → directive only in the right header kind", async (csp, tt, want) => {
+    const app = await appWith(csp, tt);
+    const res = await app.inject({ method: "GET", url: "/" });
+    for (const [header, shape] of Object.entries(want)) {
+      const v = res.headers[header] as string | undefined;
+      if (shape === undefined) expect(v, header).toBeUndefined();
+      else if (shape === "tt-only") expect(v, header).toBe(TT);
+      else if (shape === "baseline") {
+        expect(v, header).toBe(buildCsp());
+        expect(v).not.toContain("trusted-types");
+      } else expect(v, header).toBe(`${buildCsp()}; ${TT}`);
+    }
+    await app.close();
+  });
+
+  it("off + off registers no hook", async () => {
+    const app = Fastify({ logger: false });
+    let hooks = 0;
+    const orig = app.addHook.bind(app);
+    (app as unknown as { addHook: typeof app.addHook }).addHook = ((...a: Parameters<typeof app.addHook>) => {
+      hooks++;
+      return orig(...a);
+    }) as typeof app.addHook;
+    registerCsp(app, "off", "off");
+    expect(hooks).toBe(0);
+    await app.close();
+  });
+
+  it("TT on with CSP off still emits only the TT directive", async () => {
+    const app = await appWith("off", "report");
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(res.headers[RO]).toBe(TT);
+    expect(res.headers[EN]).toBeUndefined();
+    await app.close();
+  });
+
+  it("/live/ carries no directive", async () => {
+    const app = await appWith("report", "enforce");
+    const res = await app.inject({ method: "GET", url: "/live/x" });
+    expect(res.headers[RO]).toBeUndefined();
+    expect(res.headers[EN]).toBeUndefined();
+    await app.close();
+  });
+
+  it("the baseline directive list is unchanged", () => {
+    expect(buildCsp()).not.toContain("trusted-types");
+  });
+
+  it("a serveApp mount's own enforcing CSP stays byte-identical under TT enforce", async () => {
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "csp-tt-")));
+    try {
+      fs.mkdirSync(path.join(tmp, "dist"), { recursive: true });
+      fs.writeFileSync(path.join(tmp, "dist", "index.html"), "<p>x</p>");
+      const app = Fastify({ logger: false });
+      registerCsp(app, "report", "enforce");
+      mountApp(
+        { fastify: app, pluginId: "wall", packageRoot: tmp, dataDir: path.join(tmp, "data"), logger: { info() {}, warn() {}, error() {} }, registry: new AppMountRegistry() },
+        { dir: path.join(tmp, "dist"), csp: "default-src 'self'" },
+      );
+      await app.ready();
+      const res = await app.inject({ method: "GET", url: "/apps/wall/" });
+      expect(res.headers[EN]).toBe("default-src 'self'");
+      await app.close();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("index.html carries the mode meta", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "csp-tt-index-"));
+    try {
+      fs.writeFileSync(path.join(dir, "index.html"), '<html><head><script type="module" src="/assets/i.js"></script></head></html>');
+      for (const mode of ["off", "report", "enforce"] as const) {
+        const app = Fastify();
+        const sender = createIndexHtmlSender(dir, { trustedTypesMode: mode });
+        app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply));
+        const res = await app.inject("/");
+        expect(res.body).toContain(`<meta name="pi-trusted-types" content="${mode}">`);
+        expect(res.body.indexOf("pi-trusted-types")).toBeLessThan(res.body.indexOf('type="module"'));
+        await app.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -267,3 +267,64 @@ describe("beginLogout (D18)", () => {
     expect(getIdToken()).toBe("idtok.new");
   });
 });
+
+// ── harden-client-sinks Phase 0: discovery endpoint scheme check (D11) ──────
+describe("discovery endpoint scheme validation (harden-client-sinks)", () => {
+  it("javascript: authorization_endpoint rejects discovery-failed, no navigation (test-plan #E1)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetchJson(LOGIN_CONFIG, { ...DISCOVERY, authorization_endpoint: "javascript:alert(document.domain)//" }),
+    );
+    await expect(beginLogin("/x")).rejects.toMatchObject({ name: "LoginFlowError", reason: "discovery-failed" });
+    expect(assignSpy).toHaveBeenCalledTimes(0);
+    expect(sessionStorage.getItem(STASH_KEY)).toBeNull();
+  });
+
+  it("javascript: end_session_endpoint rejects discovery-failed on sign-out, no navigation (test-plan #E2)", async () => {
+    setAccessToken("at", 300);
+    vi.stubGlobal(
+      "fetch",
+      mockFetchJson(LOGIN_CONFIG, { ...DISCOVERY, end_session_endpoint: "javascript:alert(1)//" }),
+    );
+    await expect(beginLogout()).rejects.toMatchObject({ name: "LoginFlowError", reason: "discovery-failed" });
+    expect(assignSpy).toHaveBeenCalledTimes(0);
+  });
+
+  describe("endpoint decision table (test-plan #E3)", () => {
+    const disc = (base: string) => ({
+      authorization_endpoint: `${base}/auth`,
+      token_endpoint: `${base}/token`,
+      end_session_endpoint: `${base}/logout`,
+    });
+
+    it("public http → discovery-failed, no token fetch, no navigation", async () => {
+      const fetchSpy = mockFetchJson(LOGIN_CONFIG, disc("http://idp.example.com"));
+      vi.stubGlobal("fetch", fetchSpy);
+      await expect(beginLogin("/x")).rejects.toMatchObject({ reason: "discovery-failed" });
+      expect(fetchSpy).toHaveBeenCalledTimes(2); // login-config + discovery only
+      expect(assignSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it("public http token_endpoint alone → discovery-failed", async () => {
+      const fetchSpy = mockFetchJson(LOGIN_CONFIG, { ...DISCOVERY, token_endpoint: "http://idp.example.com/token" });
+      vi.stubGlobal("fetch", fetchSpy);
+      await expect(beginLogin("/x")).rejects.toMatchObject({ reason: "discovery-failed" });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(assignSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it.each(["https://idp.example.com", "https://dash.example", "http://127.0.0.1:8080"])(
+      "%s → authorize assign called once; sign-out proceeds",
+      async (base) => {
+        vi.stubGlobal("fetch", mockFetchJson(LOGIN_CONFIG, disc(base)));
+        await beginLogin("/x");
+        expect(assignSpy).toHaveBeenCalledTimes(1);
+        expect(new URL(assignSpy.mock.calls[0][0] as string).origin).toBe(new URL(base).origin);
+
+        vi.stubGlobal("fetch", mockFetchJson(LOGIN_CONFIG, disc(base)));
+        await beginLogout();
+        expect(assignSpy).toHaveBeenCalledTimes(2);
+      },
+    );
+  });
+});

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; require-trusted-types-for 'script'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Connect to Remote Dashboard — PI Dashboard</title>
   <style>
@@ -154,6 +154,12 @@
   </div>
 
   <script>
+    // Trusted Types (enforced by this page's meta CSP): one page-local policy for
+    // the server rows this page builds from esc()-escaped data, registered before
+    // any sink runs. See change: harden-client-sinks (9.2).
+    const pagePolicy = window.trustedTypes
+      ? window.trustedTypes.createPolicy("pi-remote-connect-page", { createHTML: (s) => s })
+      : { createHTML: (s) => s };
     // Talks to the main process via window.remoteConnect (remote-connect-preload.ts):
     //   probe(url)        → fetch(`${url}/api/health`) in main
     //   connect(url)      → writeModeFile("remote", url) + addRecentRemote + relaunch ("Use as remote dashboard")
@@ -203,8 +209,9 @@
     }
     function setStatus(kind, text, spinner) {
       status.className = "status " + (kind || "");
-      status.innerHTML = (spinner ? '<span class="spinner"></span>' : "") + `<span></span>`;
-      status.querySelector("span:last-child").textContent = text || "";
+      status.replaceChildren();
+      if (spinner) status.append(el("span", "spinner"));
+      status.append(el("span", undefined, text || ""));
     }
     function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
@@ -285,7 +292,7 @@
           `</li>`,
         );
       }
-      serverList.innerHTML = rows.join("");
+      serverList.innerHTML = pagePolicy.createHTML(rows.join(""));
     }
 
     function renderAll() { renderMode(); renderPaired(); renderDiscovered(); renderServers(); }

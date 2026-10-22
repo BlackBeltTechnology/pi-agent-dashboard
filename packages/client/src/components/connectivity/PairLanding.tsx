@@ -124,6 +124,7 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
   // authenticates) and the user is told instead of being navigated away.
   const openDashboard = useCallback((token: string) => {
     if (onPaired) onPaired(token);
+    // client-sinks: allow — constant same-origin root, full reload intended
     else window.location.href = "/";
   }, [onPaired]);
 

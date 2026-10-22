@@ -11,6 +11,7 @@
  *
  * See change: add-remote-access-wizard.
  */
+
 import type { DiscoveredServerInfo, KnownServerListEntry, KnownServerProbeStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -21,6 +22,7 @@ import {
 } from "../../lib/api/known-servers-api.js";
 import { getOpenServerWindow } from "../../lib/electron-server-windows.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { openExternalUrl } from "../../lib/nav/safe-navigation.js";
 import { knockServer } from "../../lib/pairing/knock.js";
 import { challengeIdentity } from "../../lib/pairing/pair-protocol.js";
 import {
@@ -292,7 +294,7 @@ export function AskBody({ ctx, cm }: { ctx: StepCtx; cm: ConnectMachine }) {
         <PrimaryButton
           testId="remote-access-ask-open"
           onClick={() => {
-            window.open(remoteRequestUrl(target), "_blank", "noopener");
+            openExternalUrl(remoteRequestUrl(target));
             setAsk({ status: "opened" });
           }}
         >
@@ -400,7 +402,7 @@ export function FinishBody({ ctx, cm }: { ctx: StepCtx; cm: ConnectMachine }) {
           testId="remote-access-finish-open"
           onClick={() => {
             if (openWindow) void openWindow({ host: target.host, port: target.port });
-            else window.open(remoteOrigin(target), "_blank", "noopener");
+            else openExternalUrl(remoteOrigin(target));
             ctx.finishTask();
           }}
         >
