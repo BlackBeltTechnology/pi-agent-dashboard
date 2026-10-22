@@ -92,7 +92,7 @@ export function buildServerEntries(
 
 /**
  * Kind of the CURRENT server for the chip glyph: the resolved entry's `isLocal`,
- * else a loopback host (covers the `127.0.0.1` / `[::1]` origin whose entry key
+ * or a loopback host (covers the `127.0.0.1` / `[::1]` origin whose entry key
  * does not match the seeded `localhost` row). `new URL().hostname` yields
  * `[::1]`, so IPv6 brackets are stripped first.
  * See change: polish-sidebar-header-controls (D5).
@@ -102,7 +102,9 @@ export function currentServerKind(
   currentHost: string,
 ): "local" | "remote" {
   const host = currentHost.replace(/^\[(.*)\]$/, "$1");
-  return (currentEntry?.isLocal ?? isLoopbackOrigin(host)) ? "local" : "remote";
+  // `||`, not `??`: a bracketed `[::1]` current host is appended by `buildServerEntries` as `isLocal: false`
+  // (its own loopback check does not strip brackets), so the entry flag alone would call the local dashboard remote.
+  return currentEntry?.isLocal || isLoopbackOrigin(host) ? "local" : "remote";
 }
 
 /**

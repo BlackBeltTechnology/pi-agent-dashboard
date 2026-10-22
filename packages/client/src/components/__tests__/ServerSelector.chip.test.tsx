@@ -104,7 +104,9 @@ describe("connection chip", () => {
 
   it("E9: currentServerKind decision table", () => {
     expect(currentServerKind({ isLocal: true }, "anything")).toBe("local");
-    expect(currentServerKind({ isLocal: false }, "localhost")).toBe("remote");
+    expect(currentServerKind({ isLocal: false }, "my-pc")).toBe("remote");
+    // `buildServerEntries` appends a bracketed `[::1]` current host as isLocal:false; the loopback host still wins.
+    expect(currentServerKind({ isLocal: false }, "[::1]")).toBe("local");
     expect(currentServerKind(undefined, "127.0.0.1")).toBe("local");
     expect(currentServerKind(undefined, "[::1]")).toBe("local");
     expect(currentServerKind(undefined, "192.168.1.5")).toBe("remote");
@@ -128,6 +130,11 @@ describe("connection chip", () => {
       expect(glyph.querySelector('span[aria-hidden="true"]')).toBeTruthy();
       unmount();
     }
+  });
+
+  it("E9b: a bracketed [::1] current host renders the local glyph through the real entry list", () => {
+    render(<ServerSelector currentHost="[::1]" currentPort={8000} connected onSwitch={() => {}} />);
+    expect(screen.getByTestId("connection-chip-glyph").getAttribute("data-kind")).toBe("local");
   });
 
   it("E11: a 127.0.0.1 current host keeps its address as the visible name and reads as local", () => {
