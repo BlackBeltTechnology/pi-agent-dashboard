@@ -26,9 +26,9 @@
 import { resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 
 /** Env var naming the dashboard's HTTP origin explicitly. */
-export const DASHBOARD_HTTP_URL_ENV = "PI_DASHBOARD_HTTP_URL";
+const DASHBOARD_HTTP_URL_ENV = "PI_DASHBOARD_HTTP_URL";
 
-export type HttpOriginSource = "PI_DASHBOARD_HTTP_URL" | "endpoint-host+http-port" | "endpoint-origin";
+type HttpOriginSource = "PI_DASHBOARD_HTTP_URL" | "endpoint-host+http-port" | "endpoint-origin";
 
 export type HttpOriginResult =
   | { ok: true; origin: string; source: HttpOriginSource }
