@@ -131,3 +131,23 @@ describe("handleIsAlwaysRefused / openStateChecked", () => {
     }
   });
 });
+
+describe("isWritableMdTarget refuses the dashboard state dir", () => {
+  it("an always-tier markdown file is never a target; a gated-tier one follows the request's caller; symlinks are judged on the real path", async () => {
+    const { isWritableMdTarget } = await import("../lib/writable-md-target.js");
+    fs.writeFileSync(path.join(dash(), "local", "x.md"), "# secret");
+    fs.writeFileSync(path.join(dash(), "notes.md"), "# n");
+    fs.writeFileSync(path.join(home, "ok.md"), "# ok");
+    fs.symlinkSync(path.join(dash(), "local", "x.md"), path.join(home, "alias.md"));
+
+    expect(await isWritableMdTarget(path.join(home, "ok.md"), { cwd: home })).toBe(true);
+    expect(await isWritableMdTarget(path.join(dash(), "local", "x.md"), { cwd: home })).toBe(false);
+    expect(await isWritableMdTarget(path.join(home, "alias.md"), { cwd: home })).toBe(false);
+
+    const denied = { gatedAdmitted: () => false, unproven: () => true };
+    await runWithStateCaller(denied, async () => {
+      expect(await isWritableMdTarget(path.join(dash(), "notes.md"), { cwd: home })).toBe(false);
+      expect(await isWritableMdTarget(path.join(home, "ok.md"), { cwd: home })).toBe(true);
+    });
+  });
+});

@@ -1039,7 +1039,7 @@ export function registerFileRoutes(
       }
       try {
         const stat = await fs.stat(resolved);
-        const content = await readFileStateChecked(resolved, "utf-8");
+        const content = await fs.readFile(resolved, "utf-8");
         // Full-precision mtime token (matches the write-side conflict check).
         return {
           success: true,
