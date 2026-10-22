@@ -5,11 +5,17 @@ Pull-only condensed map. Source: packages/extension/.pi/skills/pi-dashboard/refe
 ## WebSocket bus verbs
 - Session/flow COMMAND verbs — prefer WS bus over REST; client `@blackbelt-technology/pi-dashboard-bus-client` (`scripts/dashboard-bus.ts`). Verbs = `BrowserToServerMessage` union; `plugin_config_write` excluded → stays REST. `spawn`/`resume` replies exact-correlated; other waits structural (session-id + status).
 
+## UI routes (browser)
+- Prefix with `BASE`. Sessions: `/session/:id`, `/session/:id/diff`, `/session/:id/editor`. Folders: `/folder/:encodedCwd`, `.../openspec`, `.../openspec/specs`, `.../openspec/:changeName/:artifactId`, `.../openspec/archive[/:entry[/:artifact]]`.
+- Session id: full id from `GET /api/sessions`; unique prefix >= 8 chars (case-insensitive) converges to the full id; shorter/unknown → inline "Session not found" (no redirect), ambiguous → candidate links. Archived: `/session/<full id>?archived=1` only (no prefix).
+- `?embed=1` → no session list (sticky per tab until `?embed=0`). `uiUrl` / `diffUrl` per session row; base = matching configured origin/tunnel, else admitted `Host`, else `http://localhost:<port>` (https proxy not in `publicBaseUrls` → `http://`).
+- `:encodedCwd` = base64url UTF-8 path, no `=`: `printf %s "$CWD" | base64 | tr '+/' '-_' | tr -d '=\n'`. Other params `encodeURIComponent`. No credentials in UI URLs.
+
 ## Health & Status
 - `GET /api/health` — liveness `{ ok, pid, uptime }`. `GET /auth/status` — `{ authenticated, authEnabled }`.
 
 ## Sessions
-- `GET /api/sessions` — list all. Fields: `id, cwd, name?, source (tui|zed|tmux|dashboard|terminal|unknown), status (active|idle|streaming|ended), model?, thinkingLevel?, startedAt, endedAt?, tokensIn?, tokensOut?, cost?, currentTool?, gitBranch?, attachedProposal?, hidden?, activeFlowName?, flowStatus? (running|success|error|aborted), sessionFile?`.
+- `GET /api/sessions` — list all; optional `?id=` (single value; exact or >= 8-char prefix, case-insensitive; repeated → 400). Fields: `uiUrl, diffUrl` (absolute browser links, never stored), `id, cwd, name?, source (tui|zed|tmux|dashboard|terminal|unknown), status (active|idle|streaming|ended), model?, thinkingLevel?, startedAt, endedAt?, tokensIn?, tokensOut?, cost?, currentTool?, gitBranch?, attachedProposal?, hidden?, activeFlowName?, flowStatus? (running|success|error|aborted), sessionFile?`.
 
 ## Session Control
 - `POST /api/session/:id/prompt` — `{ text (required), images? [{ type:"image", data, mimeType }] }`. 400 no text, 404, 502 no bridge.

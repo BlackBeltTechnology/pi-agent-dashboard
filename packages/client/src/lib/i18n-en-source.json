@@ -1391,5 +1391,13 @@
   "sessionList.clearFolderFilter": "Clear folder filter",
   "sessionList.clearSessionSearch": "Clear session search",
   "connection.offlineWord": "Offline",
-  "nav.linkBlocked": "Link blocked: this address is not allowed to open."
+  "nav.linkBlocked": "Link blocked: this address is not allowed to open.",
+  "session.notFound.title": "Session not found",
+  "session.notFound.hint": "Full session ids come from GET /api/sessions. Archived sessions open with the full id and ?archived=1.",
+  "session.notFound.back": "Back to sessions",
+  "session.notFound.candidates": "Matching sessions:",
+  "session.notFound.retry": "Retry",
+  "session.resolving": "Loading session…",
+  "embed.exit": "Open full dashboard",
+  "embed.noSession": "No session selected"
 }

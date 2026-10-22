@@ -48,6 +48,45 @@ describe("derived api-reference (E35)", () => {
   });
 });
 
+/**
+ * Test-plan #E9 — the "UI routes (browser)" section sits OUTSIDE the bus-verbs
+ * section, so it survives the derivation into the plugin copy.
+ * See change: add-session-ui-deep-links-for-agents.
+ */
+describe("derived reference carries UI routes (E9)", () => {
+  const UI_HEADING = "## UI routes (browser)";
+  const ROUTES = [
+    "/session/:id",
+    "/session/:id/diff",
+    "/session/:id/editor",
+    "/folder/:encodedCwd",
+    "/folder/:encodedCwd/openspec",
+    "/folder/:encodedCwd/openspec/specs",
+    "/folder/:encodedCwd/openspec/:changeName/:artifactId",
+    "/folder/:encodedCwd/openspec/archive",
+  ];
+
+  it("the source has the section after the bus-verbs closing rule", () => {
+    const src = fs.readFileSync(SOURCE, "utf8");
+    const verbs = src.indexOf(`${SECTION_HEADING}\n`);
+    const closing = src.indexOf("\n---\n", verbs);
+    const ui = src.indexOf(`${UI_HEADING}\n`);
+    expect(ui, "section present in the source").toBeGreaterThan(closing);
+  });
+
+  it("the derived text keeps the section and every route, without the bus-verbs heading", () => {
+    const derived = transformApiReference(fs.readFileSync(SOURCE, "utf8"));
+    expect(derived).toContain(UI_HEADING);
+    expect(derived).not.toContain(SECTION_HEADING);
+    for (const route of ROUTES) expect(derived, route).toContain(route);
+    expect(derived).toContain("/folder/:encodedCwd/openspec/archive[/:entry[/:artifact]]");
+  });
+
+  it("is byte-equal to the committed plugin copy", () => {
+    expect(fs.readFileSync(SHIPPED, "utf8")).toBe(transformApiReference(fs.readFileSync(SOURCE, "utf8")));
+  });
+});
+
 describe("missing heading (E36)", () => {
   it("exits non-zero naming the heading", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-plugin-sync-"));
