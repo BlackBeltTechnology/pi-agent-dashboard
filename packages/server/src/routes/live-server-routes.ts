@@ -47,7 +47,11 @@ type StaticStartGate = (
   cwd: string | undefined,
   relPath: string | undefined,
   opts: { disclosure: boolean },
-) => Promise<{ ok: true; resolved: string } | { ok: false; status: number; body: unknown }>;
+) => Promise<
+  | { ok: true; resolved: string }
+  // `headers`: extra response headers (the 503 of an undecidable cwd admission carries `Retry-After`).
+  | { ok: false; status: number; body: unknown; headers?: Record<string, string> }
+>;
 
 /**
  * Who is minting? Read from what the admission hooks already settled on the
@@ -232,6 +236,7 @@ export function registerLiveServerRoutes(
         const gate = await staticGate(cwd, rel, { disclosure: canDiscloseAccessPosture(request) });
         if (!gate.ok) {
           reply.code(gate.status);
+          for (const [name, value] of Object.entries(gate.headers ?? {})) reply.header(name, value);
           return gate.body;
         }
         const reg = await registerStatic(cwd as string, gate.resolved);

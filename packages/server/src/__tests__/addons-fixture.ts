@@ -34,6 +34,8 @@ export interface PluginSpec {
 
 export interface AppOptions {
   knownDirs?: string[];
+  /** The shared known-folder set (sessions ∪ pins ∪ workspace folders); preferred over `knownDirs` when set. */
+  knownCwds?: string[];
   setPluginsEnabled?: typeof setPluginsEnabled;
   writeSettingsText?: (file: string, text: string) => void;
   lookupNpm?: (name: string) => Promise<{ version?: string } | null>;
@@ -192,6 +194,7 @@ export class AddonsEnv {
       broadcast: (m) => this.broadcasts.push(m),
       repoRoot: this.repoRoot,
       knownDirectories: () => [...(opts.knownDirs ?? []), ...this.folders],
+      ...(opts.knownCwds ? { knownCwds: () => opts.knownCwds as string[] } : {}),
       lookupNpm: opts.lookupNpm ?? (async () => null),
       agentDir: () => this.agentDir,
       setPluginsEnabled: opts.setPluginsEnabled ?? setPluginsEnabled,

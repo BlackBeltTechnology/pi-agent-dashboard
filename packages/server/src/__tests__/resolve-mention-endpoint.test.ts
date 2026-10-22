@@ -83,7 +83,7 @@ describe("POST /api/file/resolve-mention", () => {
       payload: { cwd: "/etc", mention: "passwd" },
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "unknown session path" });
+    expect(res.json()).toEqual({ success: false, error: "unknown session path", code: "cwd_unknown" });
     expect(statSpy).not.toHaveBeenCalled();
   });
 

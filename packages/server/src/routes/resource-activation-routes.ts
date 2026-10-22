@@ -28,6 +28,8 @@
 
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { admitOptionalCwd, sendCwdFailure } from "../lib/file-cwd-admission.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { AGENT_DIR } from "../pi/pi-resource-activation.js";
 import {
@@ -114,9 +116,15 @@ export function registerResourceActivationRoutes(
     dispatchReload: (sessionId: string) => Promise<string>;
     /** Sessions the headless PID registry knows are alive, with their cwd. */
     registrySessions: () => ReadonlyArray<{ sessionId: string; cwd: string }>;
+    /**
+     * Shared cwd admission (change: core-file-cwd-admission): a supplied toggle `cwd` must be
+     * admitted; no `cwd` keeps the global scope. Absent → fail-closed (nothing is known).
+     */
+    routeAdmission?: RouteAdmissionDeps;
   },
 ) {
   const { networkGuard, piGateway, sessionManager } = deps;
+  const routeAdmission: RouteAdmissionDeps = deps.routeAdmission ?? {};
 
   // ── Toggle a resource's activation ──────────────────────────────
   fastify.post<{
@@ -136,11 +144,17 @@ export function registerResourceActivationRoutes(
       return { success: false, error: "scope must be 'local' or 'global'" } satisfies ApiResponse;
     }
 
-    const key = settingsPathForScope(scope, body.cwd);
+    // A supplied cwd is admitted for BOTH scopes before the settings path is computed, so every trust
+    // challenge this route registers is for an admitted cwd. No cwd → the constant `undefined`.
+    const admitted = await admitOptionalCwd(body.cwd, routeAdmission, reply);
+    if (!admitted.ok) return sendCwdFailure(reply, admitted.failure);
+    const cwd = admitted.cwd;
+
+    const key = settingsPathForScope(scope, cwd);
     const result = await withSettingsWriteLock(key, () =>
       applyResourceToggle({
         scope,
-        cwd: body.cwd,
+        cwd,
         type: body.type as ToggleType,
         filePath: body.filePath as string,
         enabled: body.enabled as boolean,
@@ -151,7 +165,7 @@ export function registerResourceActivationRoutes(
     if (!result.ok) {
       reply.code(result.status);
       if (result.trustRequired) {
-        if (body.cwd) registerTrustChallenge(body.cwd);
+        if (cwd) registerTrustChallenge(cwd);
         return {
           success: false,
           error: result.error,
@@ -171,7 +185,7 @@ export function registerResourceActivationRoutes(
       piGateway,
       sessionManager,
       scope,
-      body.cwd,
+      cwd,
       deps.registrySessions(),
     );
     return { success: true, data: { affectedSessions } } satisfies ApiResponse;

@@ -597,3 +597,21 @@ describe("catalog GC vs the hub lock", () => {
     expect(env.readRestore()?.records.stale).toBeUndefined();
   });
 });
+
+describe("folder catalog: shared known set (core-file-cwd-admission, test-plan E18)", () => {
+  it("a workspace-only folder is admitted when the shared known set is wired; without it the folder is refused", async () => {
+    env = new AddonsEnv("e18");
+    env.addPackage(WEB, { name: "pi-web-access" });
+    env.writeSettings({ packages: [WEB] });
+    const ws = path.join(env.home, "workspace-only");
+    fs.mkdirSync(ws, { recursive: true });
+    await env.makeApp({ knownCwds: [ws] });
+    const admitted = await env.folderCatalog(ws);
+    expect(admitted.status).toBe(200);
+    expect(feat(admitted.body.features, WEB_ID)?.folderState).toBeDefined();
+
+    await env.app?.close();
+    await env.makeApp({});
+    expect((await env.folderCatalog(ws)).status).toBe(403);
+  });
+});

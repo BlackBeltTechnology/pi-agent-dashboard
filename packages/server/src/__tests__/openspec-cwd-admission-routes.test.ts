@@ -46,6 +46,7 @@ const REFUSAL = {
 
 interface Setup {
   pinned?: string[];
+  workspaces?: string[][];
   sessions?: string[];
   config?: { enabled?: boolean; optOutDirectories?: string[] };
   admitOptions?: Parameters<typeof registerOpenSpecRoutes>[1]["admitOptions"];
@@ -70,6 +71,7 @@ describe("openspec routes — core cwd admission", () => {
       sessionManager: { listAll: () => (o.sessions ?? []).map((cwd, i) => ({ id: `s${i}`, cwd })) } as never,
       preferencesStore: {
         getPinnedDirectories: () => o.pinned ?? [],
+        getWorkspaces: () => (o.workspaces ?? []).map((folders) => ({ folders })),
         setOpenSpecUpdateSignature: prefs.setOpenSpecUpdateSignature,
         getOpenSpecUpdateSignature: () => undefined,
       } as never,
@@ -160,6 +162,17 @@ describe("openspec routes — core cwd admission", () => {
       expect(init.statusCode).toBe(400);
       expect(init.json().error).toBe("cwd is not a known session or pinned directory");
       expect(runAction).not.toHaveBeenCalled();
+      expect(cli.initAsync).not.toHaveBeenCalled();
+    });
+
+    it("E17: a workspace-only folder is admitted on ungated sites but init keeps its exact-membership refusal", async () => {
+      const ws = tmpDir("os-ws-");
+      await boot({ workspaces: [[ws]] });
+      const cfg = await get(`/api/openspec/config?cwd=${q(ws)}`);
+      expect(cfg.statusCode).not.toBe(403);
+      const init = await post("/api/openspec/init", { cwd: ws });
+      expect(init.statusCode).toBe(400);
+      expect(init.json().error).toBe("cwd is not a known session or pinned directory");
       expect(cli.initAsync).not.toHaveBeenCalled();
     });
 

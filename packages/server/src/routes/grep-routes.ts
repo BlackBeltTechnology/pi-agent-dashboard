@@ -2,20 +2,25 @@
  * Content-search REST route (localhost-only): `GET /api/grep`.
  *
  * Prefers `ripgrep`, falls back to a bounded in-process scan. Applies the same
- * security gates as `/api/file`: `cwd` must be a known session path; every
- * returned match path must resolve within `cwd` (traversal excluded).
+ * security gates as `/api/file`: `cwd` must be admitted by the shared cwd guard
+ * (session, pinned or workspace folder, or a worktree / main checkout of a known
+ * repository); every returned match path must resolve within `cwd` (and its
+ * canonical form; traversal excluded).
  *
- * See change: split-editor-workspace.
+ * See change: split-editor-workspace, core-file-cwd-admission.
  */
 
 import path from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { grantedSubjects } from "../access/access-grants.js";
+import { admitFileCwd, cwdAnchors } from "../lib/file-cwd-admission.js";
 import { runGrep } from "../lib/grep.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
+import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import { detectRipgrep } from "../ripgrep-detection.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { sendGateFailure } from "./file-routes.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Minimum query length (mirrors the client min-3-char guard). */
@@ -26,9 +31,14 @@ export function registerGrepRoutes(
   deps: {
     sessionManager: SessionManager;
     networkGuard: NetworkGuard;
+    /** Shared cwd admission. Absent → the known set is the `sessionManager`'s session cwds only. */
+    routeAdmission?: RouteAdmissionDeps;
   },
 ) {
   const { sessionManager, networkGuard } = deps;
+  const routeAdmission: RouteAdmissionDeps = deps.routeAdmission ?? {
+    knownCwds: () => sessionManager.listAll().map((s) => s.cwd),
+  };
 
   fastify.get<{ Querystring: { cwd?: string; q?: string; regex?: string } }>(
     "/api/grep",
@@ -47,13 +57,12 @@ export function registerGrepRoutes(
         return { success: false, error: `q must be at least ${MIN_QUERY_LEN} characters` } satisfies ApiResponse;
       }
 
-      // Gate 1 — cwd must be a known session path (mirrors /api/file).
-      if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
-        reply.code(403);
-        return { success: false, error: "unknown session path" } satisfies ApiResponse;
-      }
+      // Gate 1 — cwd must be admitted by the shared guard (mirrors /api/file).
+      const admitted = await admitFileCwd(cwd, routeAdmission, { reply });
+      if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
+      const anchors = cwdAnchors(admitted);
 
-      let matches = await runGrep(cwd, q, { regex, rgPath: detectRipgrep() });
+      let matches = await runGrep(admitted.cwd, q, { regex, rgPath: detectRipgrep() });
 
       // Gate 2 — containment: drop any match that resolves outside cwd. rg/JS
       // scan already stay under cwd, so this is a defensive backstop.
@@ -64,8 +73,8 @@ export function registerGrepRoutes(
       const grantSubjects = grantedSubjects();
       const contained = await Promise.all(
         matches.map(async (m) => {
-          const resolvedMatch = path.resolve(cwd, m.path);
-          if (await isAllowed(resolvedMatch, { anchors: [cwd] })) return m;
+          const resolvedMatch = path.resolve(admitted.cwd, m.path);
+          if (await isAllowed(resolvedMatch, { anchors })) return m;
           return (await isGrantAdmitted(resolvedMatch, grantSubjects)) ? m : null;
         }),
       );

@@ -2,8 +2,12 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, renameSync, rmSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isAdmissionLive } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import type { RealpathOutcome } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { createFileWatchManager } from "../file-watch-manager.js";
+import { createWatchFilesHandler } from "../watch-files-handler.js";
+import { captureAdmissions, failingRunner } from "./helpers/admission-test-kit.js";
 
 const cleanup: string[] = [];
 afterAll(() => {
@@ -303,5 +307,107 @@ describe("FileWatchManager — no churn on in-place writes (X7)", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalled();
     mgr.clearConnection(wsA);
+  });
+});
+
+describe("watch_files handler — core cwd admission (core-file-cwd-admission, test-plan E16 / F3 / X5)", () => {
+  /** `realpath` seam: the FIRST call (the cwd of the first message) waits for `release()`. */
+  function gatedRealpath() {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const realpath = async (p: string): Promise<RealpathOutcome> => {
+      calls++;
+      if (calls === 1) await gate;
+      try {
+        return { kind: "ok", path: (await import("node:fs")).realpathSync(p) };
+      } catch {
+        return { kind: "missing" };
+      }
+    };
+    return { realpath, release };
+  }
+
+  function make(known: string[], admitOptions?: Parameters<typeof createWatchFilesHandler>[0]["routeAdmission"]["admitOptions"]) {
+    const manager = createFileWatchManager();
+    const onChange = vi.fn();
+    const handler = createWatchFilesHandler({ routeAdmission: { knownCwds: () => known, admitOptions }, manager, onChange });
+    return { manager, onChange, handler };
+  }
+
+  it("E16: an admitted (pinned, sessionless) cwd is watched; an unknown cwd is a silent no-op", async () => {
+    const P = tmp();
+    const U = tmp();
+    writeFileSync(join(P, "a.txt"), "a");
+    writeFileSync(join(U, "a.txt"), "a");
+    const { manager, handler } = make([P]);
+    const ws = {};
+    await handler.handle({ sessionId: "s1", cwd: P, paths: ["a.txt"] }, ws);
+    expect(manager.activeWatchCount()).toBe(1);
+    const ws2 = {};
+    await handler.handle({ sessionId: "s1", cwd: U, paths: ["a.txt"] }, ws2);
+    expect(manager.activeWatchCount()).toBe(1);
+    handler.onDisconnect(ws);
+    expect(manager.activeWatchCount()).toBe(0);
+  });
+
+  it("F3a: a socket that disconnects while admission runs leaves no watcher behind", async () => {
+    const P = tmp();
+    writeFileSync(join(P, "a.txt"), "a");
+    const g = gatedRealpath();
+    const { manager, handler } = make([P], { realpath: g.realpath });
+    const ws = {};
+    const pending = handler.handle({ sessionId: "s1", cwd: P, paths: ["a.txt"] }, ws);
+    handler.onDisconnect(ws);
+    g.release();
+    await pending;
+    expect(manager.activeWatchCount()).toBe(0);
+  });
+
+  it("F3b: a stale slow message never overwrites a newer one for the same (ws, sessionId)", async () => {
+    const P = tmp();
+    writeFileSync(join(P, "a.txt"), "a");
+    writeFileSync(join(P, "b.txt"), "b");
+    const g = gatedRealpath();
+    const { manager, onChange, handler } = make([P], { realpath: g.realpath });
+    const ws = {};
+    const slow = handler.handle({ sessionId: "s1", cwd: P, paths: ["a.txt"] }, ws);
+    await handler.handle({ sessionId: "s1", cwd: P, paths: ["b.txt"] }, ws);
+    g.release();
+    await slow;
+    expect(manager.activeWatchCount()).toBe(1);
+    await wait(50);
+    writeFileSync(join(P, "a.txt"), "a2");
+    writeFileSync(join(P, "b.txt"), "b2");
+    await wait(200);
+    expect(onChange).toHaveBeenCalledWith("s1", "b.txt");
+    expect(onChange).not.toHaveBeenCalledWith("s1", "a.txt");
+    handler.onDisconnect(ws);
+  });
+
+  it("E20: the admission token is released after the watch is set and after a refusal", async () => {
+    const P = tmp();
+    const U = tmp();
+    writeFileSync(join(P, "a.txt"), "a");
+    const cap = captureAdmissions();
+    const { handler } = make([P]);
+    const ws = {};
+    await handler.handle({ sessionId: "s1", cwd: P, paths: ["a.txt"] }, ws);
+    await handler.handle({ sessionId: "s2", cwd: U, paths: ["a.txt"] }, ws);
+    expect(cap.tokens.length).toBe(1);
+    expect(cap.tokens.filter((t) => isAdmissionLive(t))).toEqual([]);
+    handler.onDisconnect(ws);
+    cap.restore();
+  });
+
+  it("X5: an undecidable admission watches nothing", async () => {
+    const repo = tmp();
+    const U = tmp();
+    writeFileSync(join(U, "a.txt"), "a");
+    const { manager, handler } = make([repo], { runner: failingRunner });
+    await handler.handle({ sessionId: "s1", cwd: U, paths: ["a.txt"] }, {});
+    expect(manager.activeWatchCount()).toBe(0);
   });
 });

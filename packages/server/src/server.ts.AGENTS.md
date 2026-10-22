@@ -108,3 +108,5 @@ Access provisioning: `installProvisioning({gateway: browserGateway, deps})` (`ac
 `knownFolderCwds` = `listKnownFolderCwds({sessionManager,preferencesStore})` (lib/route-admission.ts): the ONE known set behind `host.knownFolderCwds`, folder-project, git and openspec route admission; git + openspec routes also get `admitOptions: {onIndeterminate: cwdAdmissionLogger}`. See change: core-cwd-admission.
 
 Resolves `PI_DASHBOARD_TRUSTED_TYPES` with the CSP mode, passes it to `registerCsp` and the index sender; registers `/api/csp-violations` and `/api/nav-intent` routes. See change: harden-client-sinks.
+
+Builds `fileRouteAdmission` (`knownFolderCwds` + `cwdAdmissionLogger`): passed to file, grep, package, canvas-types, resource-activation, openspec-group routes, `gateFilePath` (live preview `start-static` + per-asset proxy gate; a 503 adds `Retry-After`) and `createWatchFilesHandler` (`watch_files`). Addons routes get `knownCwds: knownFolderCwds`. See change: core-file-cwd-admission.

@@ -11,21 +11,29 @@
  */
 import { type Admission, type AdmitCwdOptions, admitCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 
-/** Sources of the known-folder set: session cwds ∪ pinned directories. */
+/** Sources of the known-folder set: session cwds ∪ pinned directories ∪ workspace folders. */
 export interface KnownFolderSources {
   sessionManager: { listAll(): ReadonlyArray<{ cwd?: string }> };
-  preferencesStore: { getPinnedDirectories(): readonly string[] };
+  preferencesStore: {
+    getPinnedDirectories(): readonly string[];
+    /** Optional so a minimal store (tests, a store without workspaces) contributes no workspace folders. */
+    getWorkspaces?(): ReadonlyArray<{ folders: readonly string[] }>;
+  };
 }
 
 /**
- * The known-folder set: every session cwd ∪ every pinned directory, unfiltered
- * (no `hasOpenSpecRoot` / opt-out filtering). The single implementation behind
- * `host.knownFolderCwds` (plugin routes) and the core route admission.
+ * The known-folder set: every session cwd ∪ every pinned directory ∪ every
+ * workspace folder, unfiltered (no `hasOpenSpecRoot` / opt-out filtering). The
+ * single implementation behind `host.knownFolderCwds` (plugin routes) and the
+ * core route admission. Workspace folders joined the set in
+ * core-file-cwd-admission (D8): a workspace-only folder already reaches the
+ * package / canvas / resources routes.
  */
 export function listKnownFolderCwds(src: KnownFolderSources): string[] {
   const set = new Set<string>();
   for (const s of src.sessionManager.listAll()) if (s.cwd) set.add(s.cwd);
   for (const d of src.preferencesStore.getPinnedDirectories()) set.add(d);
+  for (const w of src.preferencesStore.getWorkspaces?.() ?? []) for (const f of w.folders) if (f) set.add(f);
   return [...set];
 }
 

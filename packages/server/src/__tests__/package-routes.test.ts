@@ -66,7 +66,11 @@ describe("package-routes", () => {
     registry.ownership.mockReset().mockReturnValue({});
     wrapper = createMockWrapper();
     app = Fastify();
-    registerPackageRoutes(app, { packageManagerWrapper: wrapper });
+    registerPackageRoutes(app, {
+      packageManagerWrapper: wrapper,
+      // The cwds these tests send are known folders (core-file-cwd-admission).
+      routeAdmission: { knownCwds: () => ["/x", "/tmp", "/proj", "/p"] },
+    });
     await app.ready();
   });
 
@@ -441,7 +445,7 @@ describe("package-routes", () => {
       const res = await app.inject({
         method: "POST",
         url: "/api/packages/move",
-        payload: { entry: "..", fromScope: "local", toScope: "global" },
+        payload: { entry: "..", fromScope: "local", fromCwd: "/proj", toScope: "global" },
       });
       expect(res.statusCode).toBe(400);
       expect(JSON.parse(res.body).code).toBe("unsupported_source_for_destination");

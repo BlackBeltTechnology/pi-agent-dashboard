@@ -9,10 +9,13 @@
  * `PI_BENCH_LIST_ALL=<n>` sets the live `sessionManager.listAll()` size to size the known set.
  * See change: core-cwd-admission (test-plan P1–P3, design D5).
  */
+
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { gateFilePath, registerFileRoutes } from "../routes/file-routes.js";
 import { registerGitRoutes } from "../routes/git-routes.js";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 import { addLinkedWorktree, cleanupAdmissionDirs, makeGitRepo, realpathFailingFor, tmpDir } from "./helpers/admission-test-kit.js";
@@ -117,4 +120,158 @@ describe.skipIf(process.env.PI_BENCH !== "1")("core cwd admission latency", () =
     expect(u.codes.get(503)).toBe(50);
     expect(k.codes.get(200)).toBe(50);
   }, 120_000);
+});
+
+// ── File-family routes + live preview (change: core-file-cwd-admission, test-plan P1–P5, design D6) ──
+
+/** stderr, not `console.log`: the suite stubs console output. */
+const emit = (line: string): void => void process.stderr.write(`${line}\n`);
+
+async function fileAppWith(known: string[]): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false });
+  registerFileRoutes(app, {
+    sessionManager: { listAll: () => [] } as never,
+    preferencesStore: { getPinnedDirectories: () => [], getWorkspaces: () => [] } as never,
+    networkGuard: async () => {},
+    routeAdmission: { knownCwds: () => known },
+  });
+  registerGitRoutes(app, { networkGuard: async () => {}, knownCwds: () => known });
+  await app.ready();
+  return app;
+}
+
+describe.skipIf(process.env.PI_BENCH !== "1")("file-route cwd admission latency (core-file-cwd-admission D6)", () => {
+  afterAll(() => cleanupAdmissionDirs());
+  const FILE_KNOWN = Math.max(100, KNOWN_SIZE);
+
+  it(`P1: GET /api/file direct match adds <= 2 ms p50 / <= 15 ms p99 at ${FILE_KNOWN} known folders vs 1`, async () => {
+    const dir = tmpDir("bench-file-");
+    writeFileSync(join(dir, "a.txt"), "x");
+    const others = Array.from({ length: FILE_KNOWN - 1 }, () => tmpDir("bench-known-"));
+    const small = await fileAppWith([dir]);
+    const large = await fileAppWith([dir, ...others]);
+    const url = `/api/file?cwd=${q(dir)}&path=a.txt`;
+    const a = await sample(small, url);
+    const b = await sample(large, url);
+    emit(row("P1 GET /api/file known=1", a.ms));
+    emit(row(`P1 GET /api/file known=${FILE_KNOWN}`, b.ms));
+    expect(pct(b.ms, 0.5) - pct(a.ms, 0.5)).toBeLessThanOrEqual(2);
+    expect(pct(b.ms, 0.99) - pct(a.ms, 0.99)).toBeLessThanOrEqual(15);
+  }, 120_000);
+
+  it("P2: GET /api/file on a sessionless worktree of a pinned repo is never indeterminate", async () => {
+    const repo = makeGitRepo();
+    const wt = addLinkedWorktree(repo, "bench-file-p2");
+    writeFileSync(join(wt, "a.txt"), "x");
+    const app = await fileAppWith([repo]);
+    const { ms, codes } = await sample(app, `/api/file?cwd=${q(wt)}&path=a.txt`);
+    emit(row("P2 GET /api/file derivation path", ms, ` statuses=${JSON.stringify([...codes])}`));
+    expect(codes.get(503) ?? 0).toBe(0);
+    expect(codes.get(200)).toBe(N);
+  }, 120_000);
+
+  it("P3: the per-asset live-preview re-check on a direct-match target costs <= 10 ms p95", async () => {
+    const dir = tmpDir("bench-asset-");
+    writeFileSync(join(dir, "a.css"), "a".repeat(20 * 1024));
+    const routeAdmission = { knownCwds: () => [dir] };
+    for (let i = 0; i < WARMUP; i++) await gateFilePath(dir, "a.css", routeAdmission, { allowGrant: true, quiet: true });
+    const ms: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const t0 = performance.now();
+      const gate = await gateFilePath(dir, "a.css", routeAdmission, { allowGrant: true, quiet: true });
+      ms.push(performance.now() - t0);
+      expect("code" in gate).toBe(false);
+    }
+    emit(row("P3 per-asset re-check (direct match)", ms, ` p95=${pct(ms, 0.95).toFixed(2)}ms`));
+    expect(pct(ms, 0.95)).toBeLessThanOrEqual(10);
+  }, 120_000);
+
+  it("P4a: recorded baseline — the same 20 concurrent git routes on distinct worktrees WITHOUT a preview", async () => {
+    const repos = Array.from({ length: 20 }, () => makeGitRepo());
+    const worktrees = repos.map((r, i) => addLinkedWorktree(r, `bench-p4a-${i}`));
+    const app = await fileAppWith(repos);
+    const gitMs: number[] = [];
+    let s503 = 0;
+    await Promise.all(
+      worktrees.map(async (wt) => {
+        const t0 = performance.now();
+        const res = await app.inject({ method: "GET", url: `/api/git/status?cwd=${q(wt)}` });
+        gitMs.push(performance.now() - t0);
+        if (res.statusCode === 503) s503++;
+      }),
+    );
+    emit(row("P4a git status x20 distinct worktrees, no preview", gitMs, ` 503s=${s503}/${gitMs.length}`));
+  }, 300_000);
+
+  it("P4: a 50-asset derived-worktree preview does not starve 20 concurrent git routes on distinct worktrees", async () => {
+    const previewRepo = makeGitRepo();
+    const previewWt = addLinkedWorktree(previewRepo, "bench-p4-preview");
+    writeFileSync(join(previewWt, "a.css"), "x");
+    const repos = Array.from({ length: 20 }, () => makeGitRepo());
+    const worktrees = repos.map((r, i) => addLinkedWorktree(r, `bench-p4-${i}`));
+    const known = [previewRepo, ...repos];
+    const app = await fileAppWith(known);
+    const routeAdmission = { knownCwds: () => known };
+    const gitMs: number[] = [];
+    let gitIndeterminate = 0;
+    let previewIndeterminate = 0;
+    const gitWave = Promise.all(
+      worktrees.map(async (wt) => {
+        const t0 = performance.now();
+        const res = await app.inject({ method: "GET", url: `/api/git/status?cwd=${q(wt)}` });
+        gitMs.push(performance.now() - t0);
+        if (res.statusCode === 503) gitIndeterminate++;
+      }),
+    );
+    const assetMs: number[] = [];
+    let nextAsset = 0;
+    // 6 concurrent fetch workers share the 50 assets; each worker checks its asset before the next.
+    const worker = async () => {
+      while (nextAsset++ < 50) {
+        const t0 = performance.now();
+        const gate = await gateFilePath(previewWt, "a.css", routeAdmission, { allowGrant: true, quiet: true });
+        assetMs.push(performance.now() - t0);
+        if ("code" in gate && gate.code === 503) previewIndeterminate++;
+      }
+    };
+    await Promise.all([gitWave, ...Array.from({ length: 6 }, worker)]);
+    emit(row("P4 git status under preview load", gitMs, ` 503s=${gitIndeterminate}/${gitMs.length}`));
+    emit(row("P4 per-asset re-check (derived)", assetMs, ` 503s=${previewIndeterminate}/${assetMs.length}`));
+    expect(gitIndeterminate).toBe(0);
+    expect(previewIndeterminate).toBe(0);
+    expect(pct(gitMs, 0.99)).toBeLessThanOrEqual(3000);
+  }, 300_000);
+
+  it("P5: recorded — per-asset re-check on a derived worktree and 16 concurrent GET /api/file/raw", async () => {
+    const repo = makeGitRepo();
+    const wt = addLinkedWorktree(repo, "bench-p5");
+    writeFileSync(join(wt, "a.png"), "x");
+    const routeAdmission = { knownCwds: () => [repo] };
+    const first = performance.now();
+    await gateFilePath(wt, "a.png", routeAdmission, { allowGrant: true, quiet: true });
+    const firstMs = performance.now() - first;
+    const ms: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const t0 = performance.now();
+      await gateFilePath(wt, "a.png", routeAdmission, { allowGrant: true, quiet: true });
+      ms.push(performance.now() - t0);
+    }
+    emit(row("P5 per-asset re-check (derived)", ms, ` p95=${pct(ms, 0.95).toFixed(2)}ms first=${firstMs.toFixed(0)}ms`));
+    expect(firstMs).toBeLessThanOrEqual(3000);
+
+    const dir = tmpDir("bench-raw-");
+    writeFileSync(join(dir, "a.png"), "x");
+    const app = await fileAppWith([dir]);
+    const raw: number[] = [];
+    for (let r = 0; r < 25; r++) {
+      await Promise.all(
+        Array.from({ length: 16 }, async () => {
+          const t0 = performance.now();
+          await app.inject({ method: "GET", url: `/api/file/raw?cwd=${q(dir)}&path=a.png` });
+          raw.push(performance.now() - t0);
+        }),
+      );
+    }
+    emit(row("P5 16 concurrent GET /api/file/raw (direct match)", raw));
+  }, 300_000);
 });

@@ -7,3 +7,5 @@ See change: surface-denial-remedy-in-previews — `provenance` prop (default ope
 `imageBase` memoised on cwd/path. See change: fix-markdown-remount-storm.
 
 Apply fix to file: `reloadNonce` + `reload`, `useMermaidSource({kind:"md"})` → `MarkdownContent mermaidSource`. See change: add-preview-apply-fix-to-file.
+
+Core cwd admission of `friendlyReadError`: `cwd-admission-unavailable` (the 503 of an undecidable folder admission) maps to the `err.cwd_admission_unavailable` text. See change: core-file-cwd-admission.

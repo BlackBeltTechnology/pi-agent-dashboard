@@ -23,6 +23,7 @@ vi.mock("../pi/resource-activation-toggle.js", async () => {
   };
 });
 
+import { hasTrustChallenge } from "../pi/trust-challenges.js";
 import {
   __resetTrustChallenges,
   registerResourceActivationRoutes,
@@ -98,6 +99,7 @@ describe("resource-activation-routes", () => {
       networkGuard: passGuard,
       piGateway: gw,
       sessionManager: makeSessions({ a: { cwd: "/proj/x" }, b: { cwd: "/proj/x/sub" }, c: { cwd: "/other" } }),
+      routeAdmission: { knownCwds: () => ["/proj/x"] },
     });
     await app.ready();
 
@@ -236,6 +238,8 @@ describe("resource-activation-routes", () => {
 describe("resource-activation-routes \u2014 guard and trust gate (real write)", () => {
   let app: FastifyInstance;
   let cwd: string;
+  // The known-folder set the routes admit against (core-file-cwd-admission); tests add the dirs they use.
+  let known: string[] = [];
   const HOME = os.homedir();
   const agentDir = path.join(HOME, ".pi", "agent");
   const trustFile = path.join(agentDir, "trust.json");
@@ -272,6 +276,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
       networkGuard: passGuard,
       piGateway: gw,
       sessionManager: makeSessions({}),
+      routeAdmission: { knownCwds: () => known },
     });
     await app.ready();
   }
@@ -287,6 +292,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
     );
     applyResourceToggleMock.mockImplementation(actual.applyResourceToggle);
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-routes-cwd-"));
+    known = [cwd];
     fs.rmSync(agentDir, { recursive: true, force: true });
     fs.mkdirSync(agentDir, { recursive: true });
     fs.rmSync(path.join(HOME, ".pi", "dashboard", "resource-entry-ownership.json"), { force: true });
@@ -302,6 +308,32 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
     const { ProjectTrustStore } = await piCore();
     new ProjectTrustStore(agentDir).set(dir, decision);
   }
+
+  it("refuses a toggle for an unknown cwd (either scope) with 403 cwd_unknown: no settings write, no trust challenge [core-file-cwd-admission E14]", async () => {
+    const U = fs.mkdtempSync(path.join(os.tmpdir(), "pi-routes-unknown-"));
+    const skill = writeDirSkill(path.join(U, ".pi"), "u-demo");
+    for (const scope of ["local", "global"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/resources/toggle",
+        payload: { scope, cwd: U, type: "skill", filePath: skill, enabled: false },
+      });
+      expect({ scope, status: res.statusCode, body: JSON.parse(res.body) }).toEqual({
+        scope,
+        status: 403,
+        body: {
+          success: false,
+          code: "cwd_unknown",
+          error: "cwd not allowed",
+          reason: "cwd is not a known session or pinned directory.",
+          hint: "Pin this directory to allow it, or open a session rooted in it.",
+        },
+      });
+    }
+    expect(fs.existsSync(localSettings(U))).toBe(false);
+    expect(hasTrustChallenge(U)).toBe(false);
+    fs.rmSync(U, { recursive: true, force: true });
+  });
 
   it("rejects a global-scope toggle of a project resource with 400, not 404 [E32]", async () => {
     const skill = writeDirSkill(path.join(cwd, ".pi"), "local-demo");
@@ -350,6 +382,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
     const skill = writeDirSkill(agentDir, "gskill");
     const nested = path.join(cwd, "nested");
     fs.mkdirSync(nested, { recursive: true });
+    known.push(nested);
     await recordTrust(cwd, false);
 
     const res = await app.inject({
@@ -367,6 +400,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
     const skill = writeDirSkill(agentDir, "gskill");
     const nested = path.join(cwd, "nested");
     fs.mkdirSync(nested, { recursive: true });
+    known.push(nested);
     await recordTrust(cwd, false);
     setDefaultProjectTrust("always");
 
@@ -396,6 +430,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
 
     // never → refused, no prompt.
     const cwd2 = fs.mkdtempSync(path.join(os.tmpdir(), "pi-routes-never-"));
+    known.push(cwd2);
     setDefaultProjectTrust("never");
     res = await app.inject({
       method: "POST",
@@ -408,6 +443,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
 
     // ask → trust_required with the offered options.
     const cwd3 = fs.mkdtempSync(path.join(os.tmpdir(), "pi-routes-ask-"));
+    known.push(cwd3);
     setDefaultProjectTrust("ask");
     res = await app.inject({
       method: "POST",
