@@ -39,7 +39,8 @@ TDD throughout: write each test task first, watch it fail, then implement. Rebui
     - (b) `http://[::1]:8000`;
     - (c) `http://localhost:1`;
     - (d) `http://localhost:65535`;
-    - (e) and (f) `http://localhost`.
+    - (e) `http://localhost`;
+    - (f) `http://localhost:8000` (malformed port, not admitted, fallback).
   - (test-plan #E4)
 - [ ] 2.5 L1 test, exemplar `packages/server/src/__tests__/auth-redirect-base.test.ts` (same file).
   - Setup: port 8000, tunnel live, host gate in `report` mode.

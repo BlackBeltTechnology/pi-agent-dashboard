@@ -8,6 +8,28 @@ import { ChatView, useSessionState } from "@blackbelt-technology/pi-dashboard-we
 
 See change: add-embeddable-chat-view.
 
+## Two meanings of "embed"
+
+Unrelated mechanisms. Do not conflate.
+
+### URL embed mode `?embed=1`
+
+Dashboard app itself, session list removed. For agent browser panes (Claude desktop pane opens `uiUrl?embed=1`).
+
+- Hook `useEmbedMode` (`packages/client/src/hooks/useEmbedMode.ts`).
+- Flag `sessionStorage["pi-dash-embed"]`. Sticky per tab until `?embed=0`.
+- Desktop: sidebar, hamburger, mobile overlay omitted.
+- Mobile shell: list panel shows `EmbedHome` ("No session selected" + `embed-exit` control).
+- `embed-exit` navigates with `replace` to current path + query with `embed=0`. Other params kept.
+- Same `ChatView` + WebSocket. No second provider tree.
+- No credentials in URL. Sign-in happens in pane. Flag survives same-tab OAuth round trip via sessionStorage + `returnTo`.
+
+### `chat-embed` import barrel
+
+Source-import contract for sibling workspace bundles. Everything below this section. Independent of the URL flag.
+
+See change: add-session-ui-deep-links-for-agents.
+
 ## What chat-embed exports
 
 Curated subpath surface. Larger than `ChatView` alone. Barrel: `packages/client/src/chat-embed/index.ts`.

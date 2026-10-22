@@ -33,6 +33,7 @@ import { Redirect, useRoute, useSearchParams } from "wouter";
 import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
 import { useArchiveRoute } from "../../lib/nav/useArchiveRoute.js";
 import { decodeFolderPath } from "../../lib/util/folder-encoding.js";
+import { SessionResolving } from "../session/SessionNotFound.js";
 
 /** Folder-settings pages the shell will honour; anything else falls back. */
 const VALID_FOLDER_SETTINGS_PAGES = [
@@ -69,6 +70,22 @@ export interface ShellContentRenderers {
    *  the renderer must not consult live route matches. */
   renderSession: (sessionId: string, frozen: boolean) => ReactNode;
   renderLanding: () => ReactNode;
+  /** The not-found / ambiguous state of an unresolved `/session/:id` URL.
+   *  See change: add-session-ui-deep-links-for-agents. */
+  renderSessionNotFound?: (info: { id: string; candidates?: string[]; lookupFailed?: boolean; onRetry: () => void }) => ReactNode;
+}
+
+/**
+ * The resolved state of the live `/session/:id[/diff|/editor]` route, computed
+ * by App's `useSessionRouteResolution`. `ok` carries the canonical held id;
+ * every other status replaces the session surface. Ignored by a frozen underlay.
+ */
+export interface SessionRouteView {
+  status: "none" | "pending" | "ok" | "ambiguous" | "notFound" | "vanished";
+  canonicalId?: string;
+  candidates?: string[];
+  lookupFailed?: boolean;
+  onRetry: () => void;
 }
 
 interface Props extends ShellContentRenderers {
@@ -83,13 +100,15 @@ interface Props extends ShellContentRenderers {
    * be told to skip it. See change: add-route-backed-overlay-dialogs.
    */
   frozen?: boolean;
+  /** Live-route resolution of the session id (see `SessionRouteView`). */
+  sessionRoute?: SessionRouteView;
 }
 
 /**
  * Resolves the shell's content branch from the AMBIENT wouter location — live
  * in the normal tree, frozen when rendered as a `RouteBackedOverlay` underlay.
  */
-export function ShellContent({ variant, frozen = false, ...render }: Props) {
+export function ShellContent({ variant, frozen = false, sessionRoute, ...render }: Props) {
   const [openspecPreviewMatch, openspecPreviewParams] = useRoute(
     "/folder/:encodedCwd/openspec/:changeName/:artifactId",
   );
@@ -140,13 +159,33 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
   // Desktop guards a run of branches with `!selectedId`; mobile does not.
   const free = variant === "mobile" || !selectedId;
 
+  // Session surfaces: the resolved route replaces the raw id. A frozen underlay
+  // keeps the raw id (its URL was canonicalized before the overlay opened).
+  const gate = !frozen && sessionRoute && selectedId ? sessionRoute : null;
+  const sessionId = gate?.status === "ok" && gate.canonicalId ? gate.canonicalId : selectedId;
+
   if (openspecBoardMatch && openspecBoardCwd) return <>{render.renderOpenSpecBoard(openspecBoardCwd)}</>;
   if (archiveRoute)
     return <>{render.renderArchive(archiveRoute.cwd, archiveRoute.entry ? { entry: archiveRoute.entry, artifact: archiveRoute.artifact } : undefined)}</>;
   if (specsMatch && specsCwd) return <>{render.renderSpecs(specsCwd)}</>;
   // Desktop reaches diff through `selectedId` -> session chat, so it has no
   // diff branch of its own here.
-  if (variant === "mobile" && diffMatch && diffParams?.id) return <>{render.renderDiff(diffParams.id)}</>;
+  if (gate && gate.status !== "ok" && gate.status !== "none") {
+    if (gate.status === "notFound" || gate.status === "ambiguous") {
+      return (
+        <>
+          {render.renderSessionNotFound?.({
+            id: selectedId as string,
+            candidates: gate.candidates,
+            lookupFailed: gate.lookupFailed,
+            onRetry: gate.onRetry,
+          }) ?? null}
+        </>
+      );
+    }
+    return <SessionResolving />;
+  }
+  if (variant === "mobile" && diffMatch && diffParams?.id) return <>{render.renderDiff(sessionId ?? diffParams.id)}</>;
   if (piResourceFileMatch && piResourceFilePath)
     return <>{render.renderPiResourceFile(piResourceFilePath, piResourceFileTitle)}</>;
   if (piResourcesMatch && piResourcesCwd && free) return <>{render.renderPiResourcesRedirect(piResourcesCwd)}</>;
@@ -172,6 +211,6 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
   if (variant === "mobile" && folderEditorCwd) return <>{render.renderFolderEditor(folderEditorCwd)}</>;
   if (folderHomeCwd && free) return <>{render.renderFolderHome(folderHomeCwd)}</>;
 
-  const session = selectedId ? render.renderSession(selectedId, frozen) : null;
+  const session = sessionId ? render.renderSession(sessionId, frozen) : null;
   return <>{session ?? render.renderLanding()}</>;
 }

@@ -52,7 +52,7 @@ import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay
 import { MobileShell } from "./components/shell/MobileShell.js";
 import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
 import { SessionContentGate } from "./components/shell/SessionContentGate.js";
-import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
+import { ShellContent, type SessionRouteView, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
@@ -233,6 +233,11 @@ import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
+import { addLookupOnly, mergeLookupRows as mergeLookupRowsIntoMap } from "./lib/session/lookup-merge.js";
+import { useCanonicalRouteUrl, useSessionRouteResolution, useVanishedRedirect } from "./hooks/useSessionRouteResolution.js";
+import { useEmbedMode } from "./hooks/useEmbedMode.js";
+import { EmbedExit, EmbedHome } from "./components/shell/EmbedExit.js";
+import { SessionNotFound } from "./components/session/SessionNotFound.js";
 import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { type CardSectionsContextValue, CardSectionsProvider } from "./lib/state/CardSectionsContext.js";
 import { DisplayPrefsProvider, resolveSessionOverride } from "./lib/state/DisplayPrefsContext.js";
@@ -621,8 +626,6 @@ export default function App() {
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
       ? (folderSettingsPageRaw as DirectorySettingsPage)
       : "add-ons";
-  const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
-  const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
   const editorFile = editorMatch ? fileViewSearch.get("file") : null;
   // `/view <url>` deep-link param (mutually exclusive with `file`; `file` wins).
   // See change: open-view-command-in-editor-pane (D1/D6).
@@ -676,11 +679,12 @@ export default function App() {
     hasPiResourceRouteFlag ||
     !!(fileViewMatch && fileViewCwd && fileViewPath) ||
     !!(urlViewMatch && urlViewUrl);
-  const selectedId =
+  // The RAW id of the session / diff / editor route. It is resolved to a canonical
+  // held id by `useSessionRouteResolution` below (`selectedId`); nothing past that
+  // point reads the raw param. See change: add-session-ui-deep-links-for-agents (D3).
+  const routeSessionId =
     deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams) ??
     (editorMatch ? editorParams?.id : undefined);
-  const selectedSessionIdRef = useRef<string | undefined>(selectedId);
-  selectedSessionIdRef.current = selectedId;
 
   // Seek-to-card reveal request. A one-shot `{ sessionId, nonce }`: the Seek
   // button in SessionHeader bumps `nonce` so re-seeking the SAME session (its
@@ -698,15 +702,7 @@ export default function App() {
   // (fetched in the effect beside `archivedSummaryById`) only seeds the
   // header; the composer is hidden (readOnly).
   const archivedReadOnlyId =
-    match && fileViewSearch.get("archived") === "1" ? selectedId : undefined;
-
-  // Drives the server-side viewed-session tracker for unread state.
-  // See change: session-card-unread-stripes.
-  useViewDispatcher({
-    viewedSessionId: selectViewedSessionId(match, params ?? undefined),
-    connectionStatus: status,
-    send,
-  });
+    match && fileViewSearch.get("archived") === "1" ? routeSessionId : undefined;
   const folderHomeCwd = folderHomeMatch ? decodeFolderPath(folderHomeParams?.encodedCwd ?? "") : null;
   const folderEditorCwd = folderEditorMatch ? decodeFolderPath(folderEditorParams?.encodedCwd ?? "") : null;
   // One-shot terminal-focused entry: `?focus=terminal` on the folder editor
@@ -716,6 +712,9 @@ export default function App() {
   const sidebar = useSidebarState();
   const chatViewRef = useRef<ChatViewHandle>(null);
   const isMobile = useMobile();
+  // `?embed=1`: this tab shows the session without the session-list chrome.
+  // See change: add-session-ui-deep-links-for-agents (D5).
+  const embed = useEmbedMode();
   const installPrompt = useInstallPrompt();
   const remoteAccess = useRemoteAccessIndicator();
   const launchSource = useLaunchSource();
@@ -842,6 +841,38 @@ export default function App() {
     };
   }, [archivedReadOnlyId, sessions, archivedSummaryById]);
   const [snapshotGeneration, setSnapshotGeneration] = useState(0);
+  // ── Session route resolution (add-session-ui-deep-links-for-agents D3) ──
+  // `/session/:id` → canonical held id, with a server lookup for ids outside the
+  // windowed snapshot. `selectedId` is the CANONICAL id (undefined while pending /
+  // not found), computed synchronously, so subscription, history, drafts, mark-read,
+  // the viewed tracker and the diff fetch never see a prefix or a mis-cased id.
+  const [lookupOnlyIds, setLookupOnlyIds] = useState<Set<string>>(() => new Set());
+  const mergeLookupRows = useCallback((rows: DashboardSession[]) => {
+    setSessions((prev) => mergeLookupRowsIntoMap(prev, rows));
+    setLookupOnlyIds((prev) => addLookupOnly(prev, rows.map((r) => r.id)));
+  }, []);
+  const sessionRoute = useSessionRouteResolution({
+    routeId: routeSessionId,
+    sessions,
+    snapshotGeneration,
+    archivedReadOnlyId,
+    mergeLookupRows,
+    onAuthRequired: () => {
+      const to = loginRedirectFor("auth_required", window.location.pathname, window.location.search);
+      if (to) rawNavigate(to, { replace: true });
+    },
+  });
+  const selectedId = sessionRoute.canonicalId;
+  const selectedSessionIdRef = useRef<string | undefined>(selectedId);
+  selectedSessionIdRef.current = selectedId;
+  const diffSessionId = diffMatch ? (selectedId ?? null) : null;
+  // Drives the server-side viewed-session tracker for unread state.
+  // See change: session-card-unread-stripes.
+  useViewDispatcher({
+    viewedSessionId: selectViewedSessionId(match, selectedId ? { id: selectedId } : undefined),
+    connectionStatus: status,
+    send,
+  });
   // Terminal snapshot applied ON THE CURRENT CONNECTION — the readiness gate
   // for the one-shot `?focus=terminal` entry (design D2a). Gated on
   // `status === "connected"` so a focus entry during an offline/connecting
@@ -1197,7 +1228,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration, setLookupOnlyIds },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
@@ -1473,12 +1504,19 @@ export default function App() {
   // An archived read-only deep link (`?archived=1`) is INTENTIONALLY absent from
   // the live `sessions` Map, so it must not be bounced. See change:
   // archive-sessions-lazy-load.
-  const sessionsLoaded = sessions.size > 0;
-  useEffect(() => {
-    if (selectedId && sessionsLoaded && !sessions.has(selectedId) && !archivedReadOnlyId) {
-      navigate("/", { replace: true });
-    }
-  }, [selectedId, sessionsLoaded, sessions, navigate, archivedReadOnlyId]);
+  // Replaced by `useSessionRouteResolution`: an id that never existed now shows
+  // `SessionNotFound` in place; only a session that was HELD and vanished (archived
+  // while viewed, or a server switch) still redirects home — once, after the lookup.
+  useVanishedRedirect(sessionRoute.status, navigate);
+  // A prefix / mis-cased id converges to the canonical URL (replace: no extra history entry).
+  useCanonicalRouteUrl({
+    status: sessionRoute.status,
+    canonicalId: sessionRoute.canonicalId,
+    routeId: routeSessionId,
+    view: diffMatch ? "diff" : editorMatch ? "editor" : undefined,
+    search: overlaySearch,
+    navigate,
+  });
 
   // Request global roles once on connect, using any available session id
   // as a routing target (the bridge handler doesn't actually scope by it).
@@ -2197,6 +2235,7 @@ export default function App() {
       sessionOrderMap={sessionOrderMap}
       endedTotalsMap={endedTotalsMap}
       pagedCount={pagedCount}
+      lookupOnlyIds={lookupOnlyIds}
       pageReplyGen={pageReplyGen}
       pageExhausted={pageExhausted}
       connected={status === "connected"}
@@ -2470,6 +2509,11 @@ export default function App() {
     return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
       {connectionBanner}
+      {embed && !frozen && (
+        <div className="flex justify-end border-b border-[var(--border-primary)] px-2 py-1">
+          <EmbedExit navigate={navigate} />
+        </div>
+      )}
       <SessionHeader
         session={sessions.get(selectedId)}
         state={selectedState}
@@ -2977,6 +3021,13 @@ export default function App() {
   // `sessionDetail`) is the next step, and is required before an overlay
   // launched from `/session/:id` can show that session behind the scrim.
   // See change: add-route-backed-overlay-dialogs.
+  const sessionRouteView: SessionRouteView = {
+    status: sessionRoute.status,
+    canonicalId: sessionRoute.canonicalId,
+    candidates: sessionRoute.candidates,
+    lookupFailed: sessionRoute.lookupFailed,
+    onRetry: sessionRoute.retry,
+  };
   const shellRenderers: Omit<ShellContentRenderers, "renderSession"> = {
     renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
     renderArchive: (cwd, deepLink) => <ArchiveBrowserView cwd={cwd} onBack={goBack} sessions={archiveSessionList} deepLink={deepLink} />,
@@ -3021,7 +3072,10 @@ export default function App() {
       />
     ),
     renderFolderHome: (cwd) => renderDirectoryHome(cwd),
-    renderLanding: () => (
+    renderSessionNotFound: ({ id, candidates, lookupFailed, onRetry }) => (
+      <SessionNotFound id={id} candidates={candidates} lookupFailed={lookupFailed} onRetry={onRetry} />
+    ),
+    renderLanding: () => embed ? <EmbedHome navigate={navigate} /> : (
       <LandingPage
         providersReady={providersReady.ready}
         anthropicAuthenticated={providersReady.anthropicAuthenticated}
@@ -3242,7 +3296,7 @@ export default function App() {
       );
     }
     const mobileDepth = getMobileDepth({
-      hasSessionRoute: !!selectedId,
+      hasSessionRoute: !!routeSessionId,
       hasFolderRoute: !!folderEditorCwd || !!folderHomeCwd,
       hasSettingsRoute: !!settingsMatch,
       hasFolderSettingsRoute: !!folderSettingsMatch,
@@ -3286,10 +3340,19 @@ export default function App() {
           }}
           listPanel={
             <div className="flex flex-col h-full">
-              <InstallBanner canInstall={installPrompt.canInstall} isIOS={installPrompt.isIOS} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
-              <MissingRequiredBanner />
-              {connectionBanner}
-              {sessionList}
+              {embed ? (
+                <>
+                  {connectionBanner}
+                  <EmbedHome navigate={navigate} />
+                </>
+              ) : (
+                <>
+                  <InstallBanner canInstall={installPrompt.canInstall} isIOS={installPrompt.isIOS} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
+                  <MissingRequiredBanner />
+                  {connectionBanner}
+                  {sessionList}
+                </>
+              )}
             </div>
           }
           detailPanel={
@@ -3309,6 +3372,7 @@ export default function App() {
               // fix-terminal-half-height-dual-mount.
               <ShellContent
                 variant="mobile"
+                sessionRoute={sessionRouteView}
                 {...shellRenderers}
                 renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
@@ -3332,16 +3396,20 @@ export default function App() {
           (mobile branch above) so desktop also surfaces it. See change:
           friendlier-worktree-init. */}
       <WorktreeInitStack />
-      <div className="hidden md:flex">
-        <ResizableSidebar sidebar={sidebar}>
-          {sessionList}
-        </ResizableSidebar>
-      </div>
+      {!embed && (
+        <>
+          <div className="hidden md:flex">
+            <ResizableSidebar sidebar={sidebar}>
+              {sessionList}
+            </ResizableSidebar>
+          </div>
 
-      <HamburgerButton onClick={() => setMobileOpen(true)} />
-      <MobileOverlay open={mobileOpen} onClose={() => setMobileOpen(false)}>
-        {sessionList}
-      </MobileOverlay>
+          <HamburgerButton onClick={() => setMobileOpen(true)} />
+          <MobileOverlay open={mobileOpen} onClose={() => setMobileOpen(false)}>
+            {sessionList}
+          </MobileOverlay>
+        </>
+      )}
 
       {/* `relative` is load-bearing: a route-backed overlay's frozen underlay is
           `absolute inset-0`, and without a positioned containing block here it
@@ -3384,6 +3452,7 @@ export default function App() {
           ) : (
             <ShellContent
               variant="desktop"
+              sessionRoute={sessionRouteView}
               {...shellRenderers}
               renderSession={(id) => {
                 /* Plugin slot: content-view — only render when at least one

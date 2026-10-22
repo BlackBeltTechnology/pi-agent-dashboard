@@ -104,6 +104,7 @@ import {
   hostGateEnvWarning,
   resolveHostGateMode,
 } from "./auth/host-gate.js";
+import { isHostAdmitted } from "./auth/host-admission.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
@@ -2617,6 +2618,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionArchive,
     remoteTranscriptStore,
     isResolverActive: identityEnforced,
+    // `uiUrl` / `diffUrl` origin inputs (read live per request).
+    // See change: add-session-ui-deep-links-for-agents (D1).
+    uiLinks: {
+      configuredOrigins: () =>
+        [
+          ...livePublicBaseUrls(),
+          ...[getTunnelUrl(), ...liveTunnelOrigins()].filter((u): u is string => !!u),
+          config.authConfig?.redirectBaseUrl,
+        ].filter((u): u is string => !!u),
+      isAdmitted: (hostHeader) => isHostAdmitted(hostHeader, getHostGateCtx().admission),
+      port: () => config.port,
+    },
     // Transcript-sourced session diffs dispatch through the same pool the
     // hydration path owns; `maxStringSize` is the store's cap so projected
     // tool payloads match store-sourced ones. See change:

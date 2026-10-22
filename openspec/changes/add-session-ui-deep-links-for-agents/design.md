@@ -101,6 +101,8 @@ The result never has a trailing slash.
 
 **Gate (task 2.1)** — zrok's Host / `X-Forwarded-Host` behaviour has not been verified. If a live share carries the share host in neither header, branch 1 cannot select the tunnel and tunnel callers get a localhost link. In that case `ship-it` hands back (`SHIP_IT_BLOCKED.md`) for a design revision. There is no silent fallback.
 
+**Gate result (task 2.1, passed)** — a live `zrok share public` (v2, `shares.zrok.io` frontend) to a header-echo listener showed `Host: <share>.shares.zrok.io` (the share host, no port), no `X-Forwarded-Host`, and `X-Forwarded-Proto: https`. Branch 1 therefore matches on `Host`; the `X-Forwarded-Host` candidate stays as a harmless extra for other proxies. The spike share and listener were torn down afterwards.
+
 ### D2 — Shared `sessionUiPath(id, view?)`
 
 `packages/shared/src/session-ui-path.ts` exports `sessionUiPath(id, view?: "diff" | "editor")`, which returns `/session/${encodeURIComponent(id)}` plus `/${view}`. It is pure and has no base.

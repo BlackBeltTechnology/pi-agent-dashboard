@@ -3,6 +3,8 @@
  */
 import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
+import type { SessionListItem } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { evaluateContainment } from "../access/containment-gate.js";
@@ -21,6 +23,7 @@ import { findSessionCustomEntry, findSessionToolCallPayload } from "../session/s
 import type { SessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
+import { resolveRequestUiBase } from "./ui-link-base.js";
 
 /**
  * Cumulative answers of the tool-result route that distinguished a still-running
@@ -31,6 +34,9 @@ export interface ToolResultStats {
   pending: number;
   gone: number;
 }
+
+const headerString = (v: string | string[] | undefined): string | undefined =>
+  Array.isArray(v) ? v[0] : v;
 
 export function registerSessionRoutes(
   fastify: FastifyInstance,
@@ -63,6 +69,14 @@ export function registerSessionRoutes(
      *  SAME value so transcript- and store-sourced payloads match.
      *  See change: fix-session-diff-durable-source. */
     maxStringSize?: number;
+    /** Inputs for `uiUrl` / `diffUrl` (D1). Read per request so tunnel / config
+     *  changes are seen live. Absent (unit tests) → localhost fallback on `port` 8000.
+     *  See change: add-session-ui-deep-links-for-agents. */
+    uiLinks?: {
+      configuredOrigins: () => string[];
+      isAdmitted: (hostHeader: string | undefined) => boolean;
+      port: () => number;
+    };
   },
 ) {
   const {
@@ -104,9 +118,39 @@ export function registerSessionRoutes(
     sizeOf: sessionDiffResultSize,
   });
 
-  fastify.get("/api/sessions", async (request) => {
+  // `?id=` (single string): case-insensitive exact id, or a prefix of >= 8
+  // characters — the same floor as the client's `resolveSessionRouteId`.
+  // Applied after `filterOwned`. See change: add-session-ui-deep-links-for-agents.
+  fastify.get<{ Querystring: { id?: string | string[] } }>("/api/sessions", async (request, reply) => {
+    const rawId = request.query.id;
+    if (rawId !== undefined && typeof rawId !== "string") {
+      reply.code(400);
+      return { success: false, error: "id must be a single string" } satisfies ApiResponse;
+    }
+    const idQuery = rawId?.toLowerCase();
     // §8.1/§8.2: per-item owner filter — never disclose the full registry.
-    return { success: true, data: filterOwned(request, sessionManager.listAll()) } satisfies ApiResponse;
+    let owned = filterOwned(request, sessionManager.listAll());
+    if (idQuery !== undefined) {
+      owned = owned.filter((s) => {
+        const id = s.id.toLowerCase();
+        return id === idQuery || (idQuery.length >= 8 && id.startsWith(idQuery));
+      });
+    }
+    const links = deps.uiLinks;
+    const base = resolveRequestUiBase({
+      host: headerString(request.headers.host),
+      forwardedHost: headerString(request.headers["x-forwarded-host"]),
+      protocol: request.protocol,
+      configuredOrigins: links?.configuredOrigins() ?? [],
+      isAdmitted: links?.isAdmitted ?? (() => false),
+      port: links?.port() ?? 8000,
+    });
+    const data: SessionListItem[] = owned.map((s) => ({
+      ...s,
+      uiUrl: base + sessionUiPath(s.id),
+      diffUrl: base + sessionUiPath(s.id, "diff"),
+    }));
+    return { success: true, data } satisfies ApiResponse;
   });
 
   // On-demand listing of archived sessions, served from the in-memory index

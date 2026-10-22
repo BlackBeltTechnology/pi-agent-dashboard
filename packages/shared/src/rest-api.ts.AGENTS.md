@@ -7,3 +7,5 @@ Add-ons catalog types: `AddonFeature`, `AddonFeatureKind`, `AddonOrigin`, `Addon
 `CatalogueReadyResponse { ready: boolean; fallback?: boolean }` — `GET /api/provider-auth/catalogue-ready`. See change: fix-provider-catalogue-first-run (D4).
 
 - `BrowseResult.confined?` (true for a confined remote listing). See change: harden-server-capability-bounds.
+
+`SessionListItem = DashboardSession & {uiUrl, diffUrl}`; `ListSessionsResponse` retyped (REST-only, never on the WebSocket). See change: add-session-ui-deep-links-for-agents.

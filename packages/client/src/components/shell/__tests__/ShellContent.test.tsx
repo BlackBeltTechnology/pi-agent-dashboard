@@ -234,3 +234,77 @@ describe("ShellContent archive routes (resolve-archived-attached-proposal)", () 
     expect(screen.getByText(`preview:${CWD}:my-change:proposal`)).toBeTruthy();
   });
 });
+
+/**
+ * Test-plan #F9 — the `sessionRoute` arms: `ok` hands the CANONICAL id to every
+ * session surface, `notFound` / `ambiguous` render the not-found state on all
+ * three routes, `pending` the resolving placeholder.
+ * See change: add-session-ui-deep-links-for-agents.
+ */
+describe("ShellContent sessionRoute arms", () => {
+  const withRoute = (
+    location: string,
+    sessionRoute: React.ComponentProps<typeof ShellContent>["sessionRoute"],
+    variant: "desktop" | "mobile" = "desktop",
+    extra: Partial<ShellContentRenderers> = {},
+  ) => {
+    const { hook, searchHook } = memoryLocation({ path: location.split("?")[0], searchPath: location.split("?")[1] ?? "" });
+    return render(
+      <Router hook={hook} searchHook={searchHook}>
+        <ShellContent
+          variant={variant}
+          sessionRoute={sessionRoute}
+          {...renderers()}
+          renderSession={(id) => <div>session:{id}</div>}
+          renderSessionNotFound={(info) => <div>notfound:{info.id}:{info.candidates?.length ?? 0}</div>}
+          {...extra}
+        />
+      </Router>,
+    );
+  };
+  const ok = { status: "ok", canonicalId: "full-1", onRetry: () => {} } as const;
+
+  it("F9: ok → canonical id on session, mobile diff; never the raw route id", () => {
+    withRoute("/session/01a16086", ok);
+    expect(screen.getByText("session:full-1")).toBeTruthy();
+    expect(screen.queryByText("session:01a16086")).toBeNull();
+    cleanup();
+    withRoute("/session/x/diff", ok, "mobile");
+    expect(screen.getByText("diff:full-1")).toBeTruthy();
+    expect(screen.queryByText("diff:x")).toBeNull();
+  });
+
+  it("F9: notFound / ambiguous → not-found state on session, mobile diff and editor routes", () => {
+    for (const [loc, variant] of [
+      ["/session/x", "desktop"],
+      ["/session/x/diff", "mobile"],
+      ["/session/x/editor", "desktop"],
+    ] as const) {
+      withRoute(loc, { status: "notFound", onRetry: () => {} }, variant);
+      expect(screen.getByText("notfound:x:0")).toBeTruthy();
+      cleanup();
+      withRoute(loc, { status: "ambiguous", candidates: ["a", "b"], onRetry: () => {} }, variant);
+      expect(screen.getByText("notfound:x:2")).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("F9: pending / vanished → the resolving placeholder, never landing or not-found", () => {
+    withRoute("/session/x", { status: "pending", onRetry: () => {} });
+    expect(screen.getByTestId("session-resolving")).toBeTruthy();
+    expect(screen.queryByText("landing")).toBeNull();
+    cleanup();
+    withRoute("/session/x", { status: "vanished", onRetry: () => {} });
+    expect(screen.getByTestId("session-resolving")).toBeTruthy();
+  });
+
+  it("a frozen underlay ignores sessionRoute and keeps the raw id", () => {
+    const { hook, searchHook } = memoryLocation({ path: "/session/known", searchPath: "" });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <ShellContent variant="desktop" frozen sessionRoute={{ status: "pending", onRetry: () => {} }} {...renderers()} />
+      </Router>,
+    );
+    expect(screen.getByText("session:known")).toBeTruthy();
+  });
+});

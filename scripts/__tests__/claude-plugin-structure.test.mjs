@@ -139,3 +139,24 @@ describe("skill content contract (E39)", () => {
     expect(text).not.toMatch(/curl[^\n]*\s(-v|--verbose|--trace|--trace-ascii)\b/);
   });
 });
+
+/**
+ * Test-plan #E14 — the control skill teaches showing a session in the browser
+ * and never puts a credential in a UI URL.
+ * See change: add-session-ui-deep-links-for-agents.
+ */
+describe("control skill: view a session in the browser (E14)", () => {
+  const skill = fs.readFileSync(path.join(PLUGIN_DIR, "skills", "pi-dashboard-control", "SKILL.md"), "utf8");
+
+  it("has the section and the key strings", () => {
+    expect(skill).toContain("View a session in the browser");
+    for (const needle of ["uiUrl", "?embed=1", "/api/sessions/archived", "?archived=1"]) {
+      expect(skill, needle).toContain(needle);
+    }
+  });
+
+  it("cross-references the refusal rules and forbids tokens in URLs", () => {
+    expect(skill).toContain("When a call is refused");
+    expect(skill).toMatch(/never[^.\n]*(token|credential)[^.\n]*URL/i);
+  });
+});

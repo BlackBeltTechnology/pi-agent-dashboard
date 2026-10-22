@@ -20,6 +20,41 @@ no-WS-twin endpoints.
 
 ---
 
+## UI routes (browser)
+
+Open these in a browser (an agent's browser pane) to show the dashboard UI. Prefix every route with `BASE` (for example `http://localhost:8000`). Prefer the ready-made `uiUrl` / `diffUrl` from `GET /api/sessions` for sessions.
+
+| Route | Shows |
+|-------|-------|
+| `/session/:id` | Session chat |
+| `/session/:id/diff` | Session changed-files diff |
+| `/session/:id/editor` | Session editor pane |
+| `/folder/:encodedCwd` | Folder home |
+| `/folder/:encodedCwd/openspec` | OpenSpec board |
+| `/folder/:encodedCwd/openspec/specs` | OpenSpec specs browser |
+| `/folder/:encodedCwd/openspec/:changeName/:artifactId` | One OpenSpec change artifact |
+| `/folder/:encodedCwd/openspec/archive[/:entry[/:artifact]]` | OpenSpec archive list, one entry, one artifact |
+
+**Session ids.** Use the full `id` from `GET /api/sessions`. A prefix of at least 8 characters (case-insensitive) is accepted when it matches exactly one session, and the URL converges to the full id. A shorter or unknown id shows "Session not found" (the page is not redirected), and an ambiguous prefix lists the candidates. `GET /api/sessions?id=<id>` returns only the matching rows (same rules).
+
+**Archived sessions.** Open `/session/<full id>?archived=1`. The full id is required, a prefix is not resolved for archived sessions. Get ids from `GET /api/sessions/archived`.
+
+**Embed.** Append `?embed=1` to show the session without the session list (for a narrow pane). It sticks for that browser tab until `?embed=0`. The "Open full dashboard" control leaves embed mode.
+
+**`uiUrl` / `diffUrl`.** Each `GET /api/sessions` row carries absolute links built from the origin you called: a configured public base URL or live tunnel whose host matches, else an admitted `Host` as given, else `http://localhost:<port>`. A reverse proxy that terminates https but is not listed in `publicBaseUrls` therefore yields `http://` links: add its origin to `publicBaseUrls`.
+
+**`:encodedCwd`.** base64url of the UTF-8 absolute path, with no `=` padding. In a POSIX shell:
+
+```bash
+printf %s "$CWD" | base64 | tr '+/' '-_' | tr -d '=\n'
+```
+
+`:changeName`, `:artifactId`, `:entry` and `:artifact` are `encodeURIComponent`-encoded.
+
+**No credentials in UI URLs.** Never put a token, header value or password in a UI URL. When the page asks to sign in, the user signs in inside the browser.
+
+---
+
 ## Health & Status
 
 ### `GET /api/health`
@@ -43,7 +78,7 @@ Check authentication status.
 ## Sessions
 
 ### `GET /api/sessions`
-List all sessions.
+List all sessions. Optional `?id=<id>` (single value) returns only the matching session(s): case-insensitive exact id, or a prefix of 8+ characters. A repeated `id` returns 400.
 
 **Response:**
 ```json
@@ -63,7 +98,9 @@ List all sessions.
       "cost": 0.05,
       "currentTool": "Edit",
       "gitBranch": "main",
-      "hidden": false
+      "hidden": false,
+      "uiUrl": "http://localhost:8000/session/abc123",
+      "diffUrl": "http://localhost:8000/session/abc123/diff"
     }
   ]
 }
@@ -91,6 +128,8 @@ List all sessions.
 | `activeFlowName` | string? | Running flow name |
 | `flowStatus` | string? | `running`, `success`, `error`, `aborted` |
 | `sessionFile` | string? | Path to session JSONL file |
+| `uiUrl` | string | Absolute browser link to the session chat, built from the origin of this request. Append `?embed=1` for a narrow pane. Never stored |
+| `diffUrl` | string | Absolute browser link to the session diff (`uiUrl` + `/diff`) |
 
 ---
 

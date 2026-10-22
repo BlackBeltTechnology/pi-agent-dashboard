@@ -217,10 +217,12 @@ One row per file.
 | `services-settings.spec.ts` | → `services-settings.spec.ts.AGENTS.md` |
 | `session-actions-menu.spec.ts` | → `session-actions-menu.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | → `session-context-injection.spec.ts.AGENTS.md` |
+| `session-deep-link-embed.spec.ts` | L3 #F10-#F13, #F17, #F20: `?embed=1` hides the sidebar (desktop + narrow), persists in-app, prefix URL converges, `embed-exit`, independent tab unaffected. See change: add-session-ui-deep-links-for-agents. |
 | `session-ended-orphan-heal.spec.ts` | → `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | → `session-heap-settings.spec.ts.AGENTS.md` |
 | `session-history-load-state.spec.ts` | → `session-history-load-state.spec.ts.AGENTS.md` |
 | `session-list-group-by.spec.ts` | → `session-list-group-by.spec.ts.AGENTS.md` |
+| `session-not-found.spec.ts` | L3 #F14-#F16, #F18, #F19: inline not-found, ended-outside-window via `?id=` lookup, no diff fetch for unknown id, reconnect keeps session, archive converges to `/`. See change: add-session-ui-deep-links-for-agents. |
 | `session-reap.spec.ts` | → `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | → `session-spawn.spec.ts.AGENTS.md` |
 | `session-state-honesty.spec.ts` | → `session-state-honesty.spec.ts.AGENTS.md` |

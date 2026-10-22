@@ -18,6 +18,21 @@ curl -s -X POST BASE/api/session/spawn -H 'Content-Type: application/json' -d '{
 
 Take `ID` from `GET /api/sessions`. Replace `BASE` with the literal URL every time.
 
+## View a session in the browser
+
+To show a session to the user, list sessions and open that row's `uiUrl` (or `diffUrl` for the changes view) in your browser pane:
+
+```bash
+curl -s BASE/api/sessions
+```
+
+1. Use the full `id`, or the row's `uiUrl` / `diffUrl`, exactly as listed. Never shorten the id: build `BASE/session/<full id>` only when you have no `uiUrl`. When auth is on, this listing follows the token rules in "When a call is refused" below. The sign-in in the pane is separate and gives you no token.
+2. Add `?embed=1` for a narrow pane: the page then shows the session without the session list.
+3. If the page asks to sign in, ask the user to sign in inside the pane. Never put a token or any credential in a URL.
+4. "Session not found" means a wrong, shortened or archived id: list again and use a full id. A session that is no longer listed is in `GET /api/sessions/archived`: open `BASE/session/<full id>?archived=1`.
+
+Other pages (folders, OpenSpec board and archive) are listed in the "UI routes (browser)" section of [references/api-reference.md](references/api-reference.md).
+
 ## When a call is refused
 
 A `401`, or a `403` with `"reason":"local_proof_required"`, means the dashboard needs a token.
