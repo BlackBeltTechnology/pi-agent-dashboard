@@ -5,8 +5,8 @@
  *
  * Whole-server removal drops each SAVED route of the card (the entry goes with its last route): it
  * works against a dashboard server older than routes and never touches another entry that shares
- * the identity on another instance port. `http` is the server's default scheme, so only an https
- * route names its scheme in a `DELETE`.
+ * the identity on another instance port. Every route names its scheme in a `DELETE`: without one the
+ * server's pre-routes wildcard would also remove the sibling route at the same host:port.
  *
  * See change: group-servers-by-identity (D6; tasks 7.1, 7.2).
  */
