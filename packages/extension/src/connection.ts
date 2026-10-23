@@ -3,6 +3,7 @@
  * and message buffering during disconnection.
  */
 
+import { normalizeQuiesceMs } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { WebSocket as WsWebSocket } from "ws";
 
 import { isLoopbackEndpoint as defaultLoopbackClassifier } from "./endpoint-resolution.js";
@@ -410,7 +411,7 @@ export class ConnectionManager {
    * are NOT suppressed.
    * See change: fix-restart-bridge-auto-start-race.
    */
-  private suppressUntil = 0;
+  private suppressUntil = -Infinity;
 
   /** Upgrade headers presented on every (re)connect. */
   private headers?: Record<string, string>;
@@ -745,10 +746,15 @@ export class ConnectionManager {
    * the suppression window, never shortens it. See change:
    * fix-restart-bridge-auto-start-race.
    */
-  pauseAutoStart(ms: number): void {
-    if (!Number.isFinite(ms) || ms <= 0) return;
-    const next = Date.now() + ms;
+  pauseAutoStart(ms: number): number {
+    // Every caller is bounded here: invalid -> ignored, fractional -> rounded
+    // up, > MAX_QUIESCE_MS (incl. Infinity) -> clamped. Returns the applied
+    // pause (0 = ignored). See change: harden-bridge-inbound-and-discovery (D17).
+    const applied = normalizeQuiesceMs(ms);
+    if (applied === undefined) return 0;
+    const next = Date.now() + applied;
     if (next > this.suppressUntil) this.suppressUntil = next;
+    return applied;
   }
 
   /**
@@ -756,7 +762,8 @@ export class ConnectionManager {
    * See change: fix-restart-bridge-auto-start-race.
    */
   shouldSuppressAutoStart(): boolean {
-    return Date.now() < this.suppressUntil;
+    // `<=`: the pause is "at least quiesceMs" (inclusive deadline).
+    return Date.now() <= this.suppressUntil;
   }
 
   /**
@@ -858,7 +865,7 @@ export class ConnectionManager {
       reachable = false;
     }
     if (!reachable) {
-      return record(false, "refused: candidate health check did not return ok");
+      return record(false, "refused: candidate health or identity check did not pass");
     }
 
     // Localhost preference as an invariant on the connection (D3) — keyed on

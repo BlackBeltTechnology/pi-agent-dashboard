@@ -45,5 +45,4 @@ TS loader §: single native strip-only loader;tiers 1-3 (registerHooks/register+
 - `#### Plugin Discovery, Trust and Runtime Delivery`: 4 sources, shadowing, `plugins_changed`, `auth.trustedPlugins`, runtime delivery. See change: decouple-plugins-from-core.
 - `### Core cwd admission (git / openspec routes)`: git + caller-cwd openspec routes admit via `admitRouteCwd` → `admitCwd`; known set `listKnownFolderCwds`; codes `cwd_unknown` / 503 `cwd-admission-unavailable` / `invalid_name`; `remove-batch` 10 s admission budget. See change: core-cwd-admission.
 - `### Session route resolution + deep links`: raw `/session/:id` → canonical id via `useSessionRouteResolution`. Prefix ≥8 chars, case-insensitive. Ids outside snapshot window: `GET /api/sessions?id=` lookup, `lookupOnlyIds`. Vanished → redirect; else inline `SessionNotFound`. `uiUrl`/`diffUrl` base: `resolveRequestUiBase`. See change: add-session-ui-deep-links-for-agents.
-
 Gains S3b CSP + CORS zrok opt-in. See change: harden-cors-and-csp-reporting.

@@ -77,6 +77,7 @@ One row per file.
 | `blackhole-settings.spec.ts` | → `blackhole-settings.spec.ts.AGENTS.md` |
 | `blackhole-session-pipeline.spec.ts` | → `blackhole-session-pipeline.spec.ts.AGENTS.md` |
 | `bridge-contention-health.spec.ts` | → `bridge-contention-health.spec.ts.AGENTS.md` |
+| `bridge-inbound-bounds.spec.ts` | → `bridge-inbound-bounds.spec.ts.AGENTS.md` |
 | `browser-relay.spec.ts` | → `browser-relay.spec.ts.AGENTS.md` |
 | `bus-client-goal-plugin-action.spec.ts` | → `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | → `chat-attachment-two-phase.spec.ts.AGENTS.md` |

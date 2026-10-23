@@ -2,6 +2,8 @@
  * Git link builder — parses remote URLs and builds platform-specific links.
  */
 
+import { stripRemoteCredentials } from "@blackbelt-technology/pi-dashboard-shared/remote-credentials.js";
+
 export interface GitLinks {
   branchUrl?: string;
   prUrl?: string;
@@ -24,8 +26,15 @@ const HOST_TO_PLATFORM: Record<string, Platform> = {
   "sr.ht": "sourcehut",
 };
 
-/** Parse an SSH or HTTPS remote URL into host/user/repo. */
-export function parseRemoteUrl(url: string): ParsedRemote | undefined {
+/** Parse an SSH or HTTPS remote URL into host/user/repo. Credentials never reach a link. */
+export function parseRemoteUrl(rawUrl: string): ParsedRemote | undefined {
+  // Strip userinfo FIRST so `user:token@host` can never be captured as the host
+  // (and so leak into a built link). Unparseable-with-userinfo → no parse, no link.
+  // See change: harden-bridge-inbound-and-discovery (D18).
+  const stripped = stripRemoteCredentials(rawUrl);
+  if (stripped === undefined) return undefined;
+  // A query / fragment (`?access_token=…`) is never part of the repository path.
+  const url = stripped.replace(/[?#].*$/s, "");
   // SSH: git@host:user/repo.git
   const sshMatch = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
   if (sshMatch) {

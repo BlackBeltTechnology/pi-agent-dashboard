@@ -1,0 +1,3 @@
+# bridge-inbound-bounds.spec.ts — index
+
+Browser E2E (#BF2, re-scoped regression guard): fire more `!!` commands than the per-session bash limit (default `PI_DASHBOARD_BRIDGE_MAX_BASH` 4) back to back; all run in order and render, none refused ("bash concurrency limit reached" absent), no stuck pending bubble, a late command still runs. One connection's inbound is drained serially (`ConnectionManager.drainInbound`), so the refusal is unreachable from one UI session — it is covered at L1/L2 (BE10-BE12) + BF1. `!!` never reaches the LLM, so no credential needed. See change: harden-bridge-inbound-and-discovery.

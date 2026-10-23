@@ -19,7 +19,7 @@ import { ToolResolver, whichSync } from "@blackbelt-technology/pi-dashboard-shar
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import { RESTART_QUIESCE_MS, SHUTDOWN_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
@@ -350,7 +350,6 @@ export function registerSystemRoutes(
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
   // suppress only the spawn step in `server-auto-start.ts` for `quiesceMs`;
   // discovery + reconnection still run.
-  const SHUTDOWN_QUIESCE_MS = 60000;
   const announceRestart = (
     reason: "restart" | "shutdown",
     quiesceMs: number,

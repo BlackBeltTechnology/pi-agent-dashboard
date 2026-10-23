@@ -414,6 +414,8 @@ Details: [How do I expose the dashboard on my LAN?](docs/faq.md#how-do-i-expose-
 
 The dashboard auto-connects a [zrok](https://zrok.io/) tunnel on start when `tunnel.enabled` is `true`. Install with `brew install zrok` (macOS) and run `zrok enable <token>` to enrol — the dashboard reads zrok's own config (`~/.zrok2/environment.json`), no keys are stored in the dashboard. Reserved shares provide persistent URLs across restarts.
 
+Shell output (`!`, `!!`, exec templates) reaches every tunnel viewer; only credential-vault values are masked. Do not print secrets in shell commands on a tunneled session — see [FAQ](docs/faq.md#can-tunnel-viewers-see-shell-command-output).
+
 ### OpenSpec background polling
 
 Tune how often the server polls known directories for OpenSpec updates (`openspec` block):

@@ -20,10 +20,62 @@ import { handleUiManagement } from "../ui-modules.js";
 import type { BridgeInstance } from "./instance.js";
 
 /** Handle one inbound server message. Called by the connection's `onMessage` (wrapped in `safe`). */
+/**
+ * Name of the turn-starting inbound command carried by `msg`, or `undefined`.
+ * Every entry here spends one token of the per-PROCESS prompt bucket;
+ * the list is exhaustive for commands that can start a turn or fan out into
+ * one (D17). Keep in step with the `Inbound command bounds` spec.
+ */
+export function turnStartingCommand(msg: { type?: unknown; action?: unknown }): string | undefined {
+  switch (msg.type) {
+    case "send_prompt":
+    case "retry_session":
+    case "git_commit_draft":
+    case "plugin_emit_event":
+    case "promote_followup_entry":
+      return msg.type;
+    case "flow_management":
+      return msg.action === "run" ? "flow_management" : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/** Refuse an over-rate command visibly: route a `command_feedback` error to the sender. */
+function refuseOverRate(inst: BridgeInstance, command: string): void {
+  const { promptBurst, promptRefillPerSec } = inst.inboundLimits;
+  const message = `${command} refused: inbound command rate limit reached (burst ${promptBurst}, refill ${promptRefillPerSec}/s) — retry shortly`;
+  // A refused send_prompt must settle its optimistic bubble first, exactly like
+  // the other non-turn refusals in command-handler.
+  if (command === "send_prompt") {
+    inst.connection.send({ type: "prompt_received", sessionId: inst.sessionId, fresh: false } as never);
+  }
+  inst.connection.send({
+    type: "event_forward",
+    sessionId: inst.sessionId,
+    event: {
+      eventType: "command_feedback",
+      timestamp: Date.now(),
+      data: { command, status: "error", message },
+    },
+  } as never);
+}
+
 export async function handleInboundMessage(inst: BridgeInstance, data: unknown): Promise<void> {
   const pi = inst.pi;
   if (!inst.isActive()) return; // Stale listener guard
   const msg = data as ServerToExtensionMessage;
+  // Prompt-rate bound (B21): ONE bucket per bridge PROCESS across every
+  // turn-starting command, spent before the command does any work. Keyed by the
+  // process-global `shared` state, not the `ConnectionManager`: `/reload` builds a
+  // new manager, so a connection key would hand the server a fresh allowance by
+  // sending `/reload` itself.
+  // See change: harden-bridge-inbound-and-discovery (D17).
+  const gated = turnStartingCommand(msg as { type?: unknown; action?: unknown });
+  if (gated && !inst.inboundLimits.takePrompt(inst.shared)) {
+    refuseOverRate(inst, gated);
+    return;
+  }
   // D12: the dashboard asking for a slice of THIS session's transcript.
   // Guarded before any filesystem touch — a request naming a path, or
   // another session, never reaches the reader. See change:
@@ -80,9 +132,11 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
   if ((msg as any).type === "server_restarting") {
     const reason = (msg as any).reason;
     const quiesceMs = (msg as any).quiesceMs;
-    if (typeof quiesceMs === "number" && quiesceMs > 0) {
-      inst.connection.pauseAutoStart(quiesceMs);
-      console.log(`[dashboard] server announced restart (reason=${reason} quiesceMs=${quiesceMs})`);
+    // `pauseAutoStart` normalizes + bounds (invalid -> 0 = ignored).
+    // See change: harden-bridge-inbound-and-discovery (D17).
+    const applied = inst.connection.pauseAutoStart(quiesceMs);
+    if (applied > 0) {
+      console.log(`[dashboard] server announced restart (reason=${reason} quiesceMs=${applied})`);
     }
     return;
   }

@@ -23,6 +23,33 @@
 export const RESTART_QUIESCE_MS = 5000;
 
 /**
+ * Shutdown quiesce window announced by the shutdown route (host going down;
+ * the orchestrator may take longer to bring a server back than a restart).
+ */
+export const SHUTDOWN_QUIESCE_MS = 60_000;
+
+/**
+ * Hard upper bound on any auto-start pause a bridge honours, whoever asked
+ * (`server_restarting` frame, direct `pauseAutoStart` call). A rogue or buggy
+ * server cannot hold a bridge's spawn step off indefinitely. Must stay >= 2x
+ * the largest value the server itself sends. See change:
+ * harden-bridge-inbound-and-discovery (D17).
+ */
+export const MAX_QUIESCE_MS = 120_000;
+
+/**
+ * Normalize an untrusted quiesce duration into the pause a bridge applies.
+ * Returns `undefined` (ignore, no pause) for non-numbers, `NaN` and values
+ * <= 0. Otherwise rounds a non-integer UP (the window is "at least"
+ * `quiesceMs`), then clamps to `MAX_QUIESCE_MS` (`Infinity` included).
+ */
+export function normalizeQuiesceMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) return undefined;
+  if (value === Infinity) return MAX_QUIESCE_MS;
+  return Math.min(Math.ceil(value), MAX_QUIESCE_MS);
+}
+
+/**
  * Slack added on top of the quiesce window to cover mDNS re-discovery plus
  * WebSocket reconnect latency once a bridge is allowed to come back.
  */

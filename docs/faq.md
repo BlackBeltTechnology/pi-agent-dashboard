@@ -403,6 +403,30 @@ Cross-refs:
 - packages/shared/src/config.ts (`resolveBridgeEnabled`, `bridgeEnvOverride`)
 - Issue #818
 
+## Why was my command refused with 'concurrency limit reached' / 'rate limit reached'?
+
+Cause: bridge inbound bounds (`packages/extension/src/inbound-limits.ts`).
+- `bash concurrency limit reached (N in flight per session)` → `PI_DASHBOARD_BRIDGE_MAX_BASH` exceeded (default `4`). `!` / `!!` / exec-template commands in flight. Wait for running command to finish.
+- `inbound command rate limit reached (burst B, refill R/s)` → token bucket empty. Bucket `PI_DASHBOARD_BRIDGE_PROMPT_RATE` (default `30/10`, `<burst>/<refillPerSec>`). Retry after refill.
+- Refusal shown inline as `command_feedback` error in chat. Never silent.
+- Invalid env value (`0`, negative, non-integer, empty) → default + one log line per process. `0` is not unlimited.
+- Bucket survives reconnect and `/reload`.
+
+See change: harden-bridge-inbound-and-discovery.
+
+## Why does the bridge refuse the local server with `server_proof_missing` / `server_proof_invalid`?
+
+Cause: bridge holds local token (`~/.pi/dashboard/local/token`) → requires server counter-proof on every loopback dial (`ws:` / `wss:`). No valid proof → no register, no session data, then backoff.
+- `server_proof_missing`: server sent no proof. Typical: same-host server older than 0.10.0.
+- `server_proof_invalid`: bad MAC or proof timeout.
+- Preferred fix: run server ≥ 0.10.0.
+- Opt-out for same-host older server: `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1` (exactly `1`). Logged each dial.
+- Independent of `PI_DASHBOARD_REQUIRE_SERVER_PROOF`.
+- Same-user rogue process out of scope (can read token).
+- Discovered mDNS host not pinned → log `bridge ticket unpinned_discovered_host`. No device bearer sent.
+
+See change: harden-bridge-inbound-and-discovery.
+
 ## How do I retry the dashboard server launch from the Electron app?
 
 Initial `ensureServer()` attempts run during Electron startup. Failure shows loading page with "Cannot connect to dashboard server".
@@ -748,6 +772,15 @@ Remedy:
 Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `127.0.0.1`. Forwarded client IP deliberately not trusted (`trustProxy` false).
 
 See change: fix-trusted-network-tunnel-bypass.
+
+## Can tunnel viewers see shell command output?
+
+Yes. `!` / `!!` / exec-template bash output (`bash_output`, `packages/extension/src/command-handler.ts`) reaches every tunnel viewer by design.
+- Only credential-vault values masked (`packages/extension/src/vault-redaction.ts`).
+- No pattern redaction. Secret printed by a shell command → visible to every viewer.
+- Rule: do not print secrets in shell commands on a tunneled session.
+
+See change: harden-bridge-inbound-and-discovery.
 
 ## Why do control routes 403 `local_proof_required`?
 
