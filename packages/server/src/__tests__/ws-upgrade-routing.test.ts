@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { WsRouteScope } from "../auth/ws-ticket.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofFetch, withLocalProof } from "../test-support/local-credential-stamp.js";
 
 // A loopback source IP carrying a proxy-forwarding header is NOT genuine-local
 // (D10, narrowed) — the same shape a zrok/tunnel-relayed device presents.
@@ -35,7 +36,7 @@ async function mintTicket(
   scope: WsRouteScope,
   headers: Record<string, string> = {},
 ): Promise<string> {
-  const res = await fetch(`http://127.0.0.1:${httpPort}/api/ws-ticket`, {
+  const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/ws-ticket`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify({ scope }),
@@ -53,7 +54,7 @@ function tryConnect(
   headers: Record<string, string> = {},
 ): Promise<"open" | "refused"> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url, { headers });
+    const ws = new WebSocket(url, { headers: withLocalProof(url, headers) });
     const done = (r: "open" | "refused") => {
       try {
         ws.close();

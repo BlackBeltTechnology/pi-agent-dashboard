@@ -496,7 +496,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       unset PI_DASHBOARD_HOST
       exit 1
     fi
-    UNREACHABLE=$(curl -fsS http://localhost:8000/api/config 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}const r=j.data&&j.data.reachability;process.stdout.write(r?JSON.stringify(r.unreachable):'MISSING')})")
+    UNREACHABLE=$(pi-dashboard api GET /api/config 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}const r=j.data&&j.data.reachability;process.stdout.write(r?JSON.stringify(r.unreachable):'MISSING')})")
     unset PI_DASHBOARD_HOST
     if [ "$UNREACHABLE" != "[]" ]; then
       echo "FAIL (#S3): reachability.unreachable was '$UNREACHABLE', expected []"
@@ -589,7 +589,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     printf '%s' '{"port":8000,"serverHeap":{"maxOldSpaceMb":3072}}' > "$CONFIG_PATH"
     # The handler spawns the replacement and then exits, so curl's own status is
     # meaningless here — a closed connection is the SUCCESS path.
-    curl -fsS -X POST http://localhost:8000/api/restart >/dev/null 2>&1 || true
+    pi-dashboard api POST /api/restart >/dev/null 2>&1 || true
     sleep 6
     waited=0
     while [ $waited -lt 20 ]; do

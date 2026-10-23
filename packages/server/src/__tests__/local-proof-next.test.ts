@@ -5,8 +5,16 @@
  */
 import fastifyCookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createLocalTrustContext, LocalProofCodeStore } from "../auth/local-proof.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createLocalTrustContext,
+  inspectLocalProofCookie,
+  LOCAL_PROOF_COOKIE,
+  LocalProofCodeStore,
+  signLocalProof,
+  verifyLocalProofCookie,
+} from "../auth/local-proof.js";
+import { createNetworkGuardHook } from "../auth/localhost-guard.js";
 import { registerLocalProofRoutes } from "../routes/local-proof-routes.js";
 import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 
@@ -102,5 +110,86 @@ describe("E27 — code TTL boundary is unchanged by next", () => {
     expect(proofCookies(res)).toHaveLength(ok ? 1 : 0);
     expect(res.statusCode).toBe(ok ? 302 : 403);
     if (!ok) expect(res.headers.location).toBeUndefined();
+  });
+});
+
+// ─── close-container-loopback-impersonation (D12): port-bound, short-lived proof cookie ────────────────────────────
+const H = 3_600_000;
+const MIN = 60_000;
+
+describe("E10 — the proof cookie is bound to the port that issued it", () => {
+  it("a cookie issued on port A is not proof on port B (same HOME and token); operate answers 403 local_proof_required", async () => {
+    const a = createLocalTrustContext(TOKEN, () => true, () => 7001);
+    const b = createLocalTrustContext(TOKEN, () => true, () => 7002);
+    const cookie = signLocalProof(a);
+    expect(verifyLocalProofCookie(cookie, a)).toBe(true);
+    expect(verifyLocalProofCookie(cookie, b)).toBe(false);
+
+    const guarded = Fastify();
+    stampLegacyHook(guarded, TOKEN);
+    await guarded.register(fastifyCookie);
+    guarded.addHook("onRequest", createNetworkGuardHook({ trustedNetworks: [], localToken: TOKEN, localTrust: b }));
+    guarded.post("/api/restart", async () => ({ ok: true }));
+    await guarded.ready();
+    const res = await guarded.inject({ method: "POST", url: "/api/restart", remoteAddress: "127.0.0.1", headers: { cookie: `${LOCAL_PROOF_COOKIE}=${cookie}` } });
+    await guarded.close();
+    expect(res.statusCode).toBe(403);
+    expect(res.json().reason).toBe("local_proof_required");
+  });
+});
+
+describe("E11 — idle expiry (12 h, sliding via 1 h re-sign) and the 30-day cap", () => {
+  afterEach(() => vi.useRealTimers());
+  const strictCtx = createLocalTrustContext(TOKEN, () => true);
+  const t0 = 2_000_000_000_000;
+
+  it("59 min: admitted, no re-sign; 61 min: admitted and re-signed; 11h59m59s idle: admitted; 12h0m1s idle: not proof", () => {
+    const cookie = signLocalProof(strictCtx, t0);
+    expect(inspectLocalProofCookie(cookie, strictCtx, t0 + 59 * MIN)).toMatchObject({ needsRefresh: false });
+    expect(inspectLocalProofCookie(cookie, strictCtx, t0 + 61 * MIN)).toMatchObject({ needsRefresh: true });
+    expect(inspectLocalProofCookie(cookie, strictCtx, t0 + 12 * H - 1000)).not.toBeNull();
+    expect(inspectLocalProofCookie(cookie, strictCtx, t0 + 12 * H + 1000)).toBeNull();
+  });
+
+  it("a re-signed cookie carries the new lastUse (idle window restarts) and keeps issuedAt", () => {
+    const cookie = signLocalProof(strictCtx, t0);
+    const refreshed = inspectLocalProofCookie(cookie, strictCtx, t0 + 61 * MIN)!.refreshed;
+    expect(refreshed).not.toBe(cookie);
+    expect(refreshed.split(".")[1]).toBe(cookie.split(".")[1]); // issuedAt unchanged
+    expect(inspectLocalProofCookie(refreshed, strictCtx, t0 + 61 * MIN + 12 * H - 1000)).not.toBeNull();
+    expect(inspectLocalProofCookie(refreshed, strictCtx, t0 + 61 * MIN + 12 * H + 1000)).toBeNull();
+  });
+
+  it("the 30-day absolute cap holds even with a fresh lastUse", () => {
+    let cookie = signLocalProof(strictCtx, t0);
+    for (let t = t0 + 11 * H; t < t0 + 30 * 24 * H; t += 11 * H) cookie = inspectLocalProofCookie(cookie, strictCtx, t)!.refreshed;
+    const capEnd = t0 + 30 * 24 * H;
+    // fresh lastUse, still inside the cap
+    const fresh = inspectLocalProofCookie(cookie, strictCtx, capEnd - 2000)!.refreshed;
+    expect(inspectLocalProofCookie(fresh, strictCtx, capEnd - 1000)).not.toBeNull();
+    expect(inspectLocalProofCookie(fresh, strictCtx, capEnd + 1000)).toBeNull();
+  });
+
+  it("through the real hook: no Set-Cookie at +59 min, a re-signed Set-Cookie at +61 min, and nothing for an expired cookie", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(t0);
+    const ctx2 = createLocalTrustContext(TOKEN, () => true);
+    const cookie = signLocalProof(ctx2, t0);
+    const hooked = Fastify();
+    await hooked.register(fastifyCookie);
+    registerLocalProofRoutes(hooked, { codes: new LocalProofCodeStore(() => clock), ctx: ctx2 });
+    hooked.get("/x", async () => ({ ok: true }));
+    await hooked.ready();
+    const at = async (ms: number) => {
+      vi.setSystemTime(ms);
+      return hooked.inject({ method: "GET", url: "/x", headers: { cookie: `${LOCAL_PROOF_COOKIE}=${cookie}` } });
+    };
+    expect(proofCookies(await at(t0 + 59 * MIN))).toEqual([]);
+    const resigned = proofCookies(await at(t0 + 61 * MIN));
+    expect(resigned).toHaveLength(1);
+    expect(resigned[0]).toMatch(/HttpOnly/i);
+    expect(resigned[0]).toMatch(/SameSite=Strict/i);
+    expect(proofCookies(await at(t0 + 13 * H))).toEqual([]); // idle past 12 h: not proof, so never refreshed
+    await hooked.close();
   });
 });

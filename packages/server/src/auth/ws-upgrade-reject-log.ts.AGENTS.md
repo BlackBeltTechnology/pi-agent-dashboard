@@ -1,0 +1,3 @@
+# ws-upgrade-reject-log.ts — index
+
+`createWsUpgradeRejectLogger({windowMs=60_000,maxKeys=256,now,log})` → `{log(rejection), trackedKeys()}`. Line `[ws-upgrade] rejected status= scope= peer= fwd=<names\|none> ticket=<present\|absent>[ suppressed=N]`. Never reads header values, cookies, ticket strings. One line per `status\|scope\|peer` per window; first line after the window carries `suppressed=`; state capped (prune expired, then evict oldest). One instance per server; called only from the silent bridge-400 / auth-401 / no-auth-403 upgrade branches in `server.ts`. See change: harden-ios-safari-memory-and-ws-diagnostics. Line gains `reason=<token>` (e.g. `local_proof_required`). See change: close-container-loopback-impersonation (D6).

@@ -1,6 +1,7 @@
 import { isWidgetBarPrompt, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
+import { useMediaQuery } from "@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery";
 import {
   isNotifyRowVisible,
   toolCallPrefKey,
@@ -8,7 +9,8 @@ import {
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLanDisconnect, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { useChatMotion } from "../../hooks/useChatMotion.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
@@ -17,8 +19,8 @@ import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { ChatMotionContext, type ChatMotionValue } from "../../lib/chat/chat-motion-context.js";
-import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
-import { buildToolCallToRowIndex, buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
+import { assembleClipboardParts, buildOutsideClipboardText, buildSelectionClipboardText, splitRangeAroundContainer } from "../../lib/chat/chat-selection-copy.js";
+import { buildRowKeyToIndex, buildToolCallToRowIndex, buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, isBurst, isGroup, liveSelectionRowSpan, mergeCopySpan, rangeRowSpanInContainer, rangeToRowIndexSpan, retainedSelectionRows, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
 import { collapseRepeatedNotifies } from "../../lib/chat/collapse-repeated-notifies.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../../lib/chat/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
@@ -61,6 +63,7 @@ import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { Toast, useToast } from "../primitives/Toast.js";
 import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { ChatEnter } from "./ChatEnter.js";
@@ -439,15 +442,30 @@ function isPinnedBottomClamp(
   );
 }
 
-// Retained-row ceiling for an active selection (change:
-// preserve-chat-selection-during-churn, D3). The `rangeExtractor` keeps up to
-// this many selection-intersecting rows mounted; past it the view actively
-// clears the selection rather than force-mounting the span. Device-aware: rows
+// Retained-row ceilings for an active selection (changes:
+// preserve-chat-selection-during-churn D3, keep-oversized-chat-selection D1/D5).
+// Within the ceiling the `rangeExtractor` keeps EVERY selection-intersecting row
+// mounted; past it only the endpoint rows stay mounted and the selection is
+// NEVER cleared (copy fidelity comes from the copy handler's transient full-span
+// mount, not from retention). Keyed on POINTER modality, not viewport size: rows
 // carry heavy subtrees (Prism/xterm/mermaid/SubagentDetailView) + one
-// ResizeObserver each, so mobile drag stays bounded lower. Coarse interim
-// units pending a measured pixel/node budget.
-const SELECTION_RETAIN_CAP_DESKTOP = 100;
-const SELECTION_RETAIN_CAP_MOBILE = 40;
+// ResizeObserver each, so a touch drag stays bounded lower.
+const SELECTION_RETAIN_CAP_FINE = 100;
+const SELECTION_RETAIN_CAP_COARSE = 40;
+// Copy ceilings (D3): the transcript part of a copy larger than this is
+// declined with a toast instead of freezing the tab mounting hundreds of rows.
+// Calibrated end-to-end on the product build (design D3).
+const SELECTION_COPY_CAP_FINE = 500;
+const SELECTION_COPY_CAP_COARSE = 150;
+
+/** Test-only copy timing sink: `window.__piCopyTimingEnabled = true` turns it on. */
+function recordCopyTiming(ms: number) {
+  const w = window as unknown as { __piCopyTimingEnabled?: boolean; __piCopyTiming?: number[] };
+  if (!w.__piCopyTimingEnabled) return;
+  (w.__piCopyTiming ??= []).push(ms);
+}
+
+const EDITABLE_SELECTOR = 'input, textarea, [contenteditable]:not([contenteditable="false"])';
 
 // Per-session scroll state, persisted across session switches
 const scrollStateMap = new Map<string, { anchorRowId: string | null; offset: number; nearBottom: boolean }>();
@@ -1179,22 +1197,39 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // latest values without re-subscribing.
   const rowCountRef = useRef(0);
   rowCountRef.current = displayRows.length;
-  const selectionCapRef = useRef(SELECTION_RETAIN_CAP_DESKTOP);
-  selectionCapRef.current = isMobile ? SELECTION_RETAIN_CAP_MOBILE : SELECTION_RETAIN_CAP_DESKTOP;
+  // Ceilings follow the primary POINTER (D5), never the viewport: a short
+  // desktop window is still a fine pointer. `useMobile()` stays for layout only.
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
+  const selectionCapRef = useRef(SELECTION_RETAIN_CAP_FINE);
+  selectionCapRef.current = coarsePointer ? SELECTION_RETAIN_CAP_COARSE : SELECTION_RETAIN_CAP_FINE;
+  const copyCapRef = useRef(SELECTION_COPY_CAP_FINE);
+  copyCapRef.current = coarsePointer ? SELECTION_COPY_CAP_COARSE : SELECTION_COPY_CAP_FINE;
+  // displayRows key → index, so a live Range endpoint resolves by stable row
+  // identity (the DOM `data-index` still holds pre-splice numbers right after a
+  // splice). Memoized: rebuilt only when the transcript changes (D4).
+  const keyToIndex = useMemo(() => buildRowKeyToIndex(displayRows), [displayRows]);
+  const keyToIndexRef = useRef(keyToIndex);
+  keyToIndexRef.current = keyToIndex;
+  // Transient COPY span (D2): set only inside the copy handler, while the rows
+  // of a past-the-working-set selection are force-mounted to be serialized.
+  // `copyOnlyRef` is the subset mounted ONLY for that copy — the row render loop
+  // leaves them unmeasured so the virtualizer size cache and scrollTop are
+  // untouched. `bumpCopyGen` is the render trigger (the extractor is an inline
+  // closure, so every render recomputes the range).
+  const copySpanRef = useRef<SelectionRowSpan | null>(null);
+  const copyOnlyRef = useRef<ReadonlySet<number>>(new Set());
+  const [, bumpCopyGen] = useReducer((n: number) => n + 1, 0);
+  const { messages: copyToasts, showToast: showCopyToast, dismissToast: dismissCopyToast } = useToast();
+  const showCopyToastRef = useRef(showCopyToast);
+  showCopyToastRef.current = showCopyToast;
 
+  // The span is only RECORDED here. Past the retained-row ceiling the selection
+  // is never cleared (change: keep-oversized-chat-selection, D1): the extractor
+  // keeps the endpoint rows mounted, so neither Range boundary moves.
   const mapChatRange = useCallback((range: Range): SelectionRowSpan | null => {
     const el = scrollRef.current;
     if (!el) return null;
-    const span = rangeToRowIndexSpan(range, el, rowCountRef.current);
-    if (span && span.max - span.min + 1 > selectionCapRef.current) {
-      // Past the retained-row ceiling (notably Select-All): ACTIVELY clear the
-      // selection so the outcome is visible, NOT a silently-truncated copy.
-      // Passive non-extension does not collapse a Range whose endpoints sit in
-      // two different removed rows — it persists with garbage offsets. See D3.
-      window.getSelection()?.removeAllRanges();
-      return null;
-    }
-    return span;
+    return rangeToRowIndexSpan(range, el, rowCountRef.current);
   }, []);
 
   const { isSelecting, isSelectingRef, selectionSpanRef, selectionAnchorRef } = useActiveChatSelection(
@@ -1278,23 +1313,89 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     }
   }, [isSelecting]);
 
-  // Rebuild clipboard text from the active selection (change:
-  // chat-copy-fidelity-intercept). Intercept the container `copy` so partial
-  // rows copy exactly the selected characters and capping renderers that opt in
-  // via `data-copy-text` copy their full text — never what happens to be
-  // mounted. Skip selections that don't touch the transcript so the browser's
-  // native copy still owns cross-boundary drags.
-  const handleCopy = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
-    const container = scrollRef.current;
-    const sel = window.getSelection();
-    if (!container || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-    const range = sel.getRangeAt(0);
-    if (!container.contains(range.commonAncestorContainer)) return;
-    const text = buildSelectionClipboardText(range, container);
-    if (!text) return;
-    e.clipboardData.setData("text/plain", text);
-    e.preventDefault();
-  }, []);
+  // Rebuild clipboard text for ANY copy whose selection intersects the
+  // transcript (changes: chat-copy-fidelity-intercept, keep-oversized-chat-
+  // selection D2/D3/D7). A `document` listener — a range that STARTS outside the
+  // transcript never reaches a container `onCopy`. It acts only when (a) the copy
+  // does not originate in an editable field, (b) the range intersects this
+  // container and (c) this container is the FIRST transcript the range
+  // intersects (document-order arbitration between ChatView instances; a range
+  // intersecting several transcripts is declined with a toast).
+  //
+  // The transcript part is serialized after force-mounting its full row span in
+  // one synchronous task (copy-only rows are unmeasured and never painted); the
+  // parts before/after the transcript are plain DOM reads. A transcript part
+  // above the copy ceiling is DECLINED (preventDefault, no setData — the prior
+  // clipboard survives) with a toast; the selection is never touched.
+  useEffect(() => {
+    const onCopy = (e: ClipboardEvent) => {
+      const container = scrollRef.current;
+      const sel = window.getSelection();
+      if (!container || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const target = e.target instanceof Element ? e.target : ((e.target as Node | null)?.parentElement ?? null);
+      if (target?.closest(EDITABLE_SELECTOR)) return;
+      const range = sel.getRangeAt(0);
+      if (!range.intersectsNode(container)) return;
+      const hit = Array.from(document.querySelectorAll('[data-testid="chat-scroll-container"]')).filter((c) =>
+        range.intersectsNode(c),
+      );
+      if (hit[0] !== container) return;
+      const decline = (key: string, text: string) => {
+        e.preventDefault();
+        showCopyToastRef.current(text, "warning", { key });
+      };
+      if (hit.length > 1) {
+        decline(
+          "chat-copy-multi",
+          i18nT("chat.copyMultiTranscript", undefined, "The selection spans several transcripts. Copy each transcript separately."),
+        );
+        return;
+      }
+      const parts = splitRangeAroundContainer(range, container);
+      if (!parts?.mid) return;
+      const span = rangeRowSpanInContainer(range, container, keyToIndexRef.current, rowCountRef.current, selectionSpanRef.current);
+      if (!span) return;
+      if (span.max - span.min + 1 > copyCapRef.current) {
+        decline(
+          "chat-copy-too-large",
+          i18nT("chat.copyTooLarge", undefined, "Selection too large to copy at once. Copy it in parts."),
+        );
+        return;
+      }
+      const started = performance.now();
+      let midText: string;
+      try {
+        try {
+          copySpanRef.current = span;
+          flushSync(bumpCopyGen);
+          midText = buildSelectionClipboardText(parts.mid, container);
+        } finally {
+          copySpanRef.current = null;
+          try {
+            flushSync(bumpCopyGen);
+          } catch {
+            bumpCopyGen();
+          }
+        }
+        const text = assembleClipboardParts([
+          parts.pre && buildOutsideClipboardText(parts.pre, document.body),
+          midText,
+          parts.post && buildOutsideClipboardText(parts.post, document.body),
+        ]);
+        if (!text) return;
+        e.clipboardData?.setData("text/plain", text);
+        e.preventDefault();
+      } catch (err) {
+        // Serialization failed: leave the browser's native copy in charge (it
+        // copies what is mounted) and surface the cause instead of swallowing it.
+        console.error("[ChatView] transcript copy serialization failed", err);
+      } finally {
+        recordCopyTiming(performance.now() - started);
+      }
+    };
+    document.addEventListener("copy", onCopy);
+    return () => document.removeEventListener("copy", onCopy);
+  }, [selectionSpanRef]);
   // Anchor-shift compensation state (change:
   // anchor-chat-selection-against-row-growth). `isSelectingRef` now comes from
   // the hook, published synchronously inside the `selectionchange` listener
@@ -1390,21 +1491,27 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     estimateSize: (i) => estimateVirtualRowSize(displayRows[i], rowTextChars[i]),
     getItemKey: (i) => virtualRowKey(displayRows[i], i),
     overscan: 6,
-    // Union any active selection's row span into the mounted range (D3), so
-    // rows the selection intersects stay mounted, positioned, and measured by
-    // the virtualizer itself. Runs on EVERY recompute before the unmount
-    // decision; reading the proactively-tracked span ref here keeps selected
-    // rows from ever unmounting (avoids the synchronous Range-mutation race).
-    // `getTotalSize()` may change as a retained row measures — accepted normal
-    // virtualizer behavior. Past the device-aware ceiling the span ref is null
-    // (mapChatRange cleared the selection) so the default range is returned.
-    rangeExtractor: (range) =>
-      extendRangeWithSelection(
-        defaultRangeExtractor(range),
-        selectionSpanRef.current,
-        selectionCapRef.current,
-        range.count,
-      ),
+    // Union the retained selection rows into the mounted range (D3/D4), so rows
+    // the selection intersects stay mounted, positioned and measured by the
+    // virtualizer itself. Runs on EVERY recompute before the unmount decision.
+    // Two sources, one union: the event-time stored span (covers churn between
+    // `selectionchange` events) and a READ-ONLY live read of the Selection
+    // (covers a late/swallowed event), resolved by row key. Within the retained
+    // ceiling every row of the hull is kept; past it only the endpoint rows, so
+    // the Range boundaries never move and the selection is never cleared. A
+    // transient copy span (D2) is unioned on top; its rows are published in
+    // `copyOnlyRef` so the render loop leaves them unmeasured. The closure is
+    // new every render, so every ChatView render recomputes the range — key any
+    // future `useCallback` on all of: stored span, live selection, copy span.
+    rangeExtractor: (range) => {
+      const container = scrollRef.current;
+      const stored = selectionSpanRef.current;
+      const live = container ? liveSelectionRowSpan(container, keyToIndexRef.current, range.count, stored) : null;
+      const retained = retainedSelectionRows(stored, live, selectionCapRef.current, range.count);
+      const { rows, copyOnly } = mergeCopySpan(defaultRangeExtractor(range), retained, copySpanRef.current, range.count);
+      copyOnlyRef.current = copyOnly;
+      return rows;
+    },
     // Re-pin the bottom on measurement-driven size changes while following.
     // Bottom-pin stays DOM-measured (CR-1): getTotalSize() excludes the live
     // tail siblings, so pin to the real scrollHeight, not the virtual total.
@@ -1424,7 +1531,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // is NOT cleared — follow resumes on collapse.
       // A backfill splice grows the content from ABOVE the reading position, so
       // any user inside the near-bottom band would be yanked to the bottom (D6).
-      if (grew && stickToBottomRef.current && !isSelectingRef.current && (!spliceSuppressRef.current || glideRef.current?.isActive())) {
+      if (grew && stickToBottomRef.current && !isSelectingRef.current && !copySpanRef.current && (!spliceSuppressRef.current || glideRef.current?.isActive())) {
         pinBottom("measure", { guardsPass: !spliceSuppressRef.current });
       }
       // Ascending: re-target index 0 whenever a measurement grows the total
@@ -1584,11 +1691,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     (from: HTMLElement | null) => {
       const row = from?.closest?.("[data-index]") as HTMLElement | null;
       if (!row) return;
-      pendingRowMeasure.current.set(Number(row.getAttribute("data-index")), row);
+      const index = Number(row.getAttribute("data-index"));
+      // A copy-only row is mounted for one synchronous copy and is deliberately
+      // unmeasured: feeding it to the size cache would shift the scroll position.
+      if (copyOnlyRef.current.has(index)) return;
+      pendingRowMeasure.current.set(index, row);
       if (rowMeasureRaf.current != null) return;
       rowMeasureRaf.current = requestAnimationFrame(() => {
         rowMeasureRaf.current = null;
-        for (const node of pendingRowMeasure.current.values()) virtualizer.measureElement(node);
+        // Skip nodes that unmounted (or were replaced) while queued — e.g. an
+        // `<img onLoad>` firing after a copy released its transient rows would
+        // otherwise measure a DETACHED node into the size cache.
+        const live = new Set(virtualizer.getVirtualItems().map((vi) => vi.index));
+        for (const [i, node] of pendingRowMeasure.current) {
+          if (node.isConnected && live.has(i) && !copyOnlyRef.current.has(i)) virtualizer.measureElement(node);
+        }
         pendingRowMeasure.current.clear();
       });
     },
@@ -1926,8 +2043,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const anchorEl = selectionAnchorRef.current;
-    // A detached anchor (rangeExtractor bug, or a selection past the retain cap)
-    // must STOP compensation, never correct against a stale rect.
+    // A detached anchor (a rangeExtractor bug; the drag-origin row is an endpoint
+    // row, retained even past the retained-row ceiling) must STOP compensation, never correct against a stale rect.
     if (!el || !isSelectingRef.current || !anchorEl?.isConnected) {
       anchorPrevTopRef.current = null;
       return;
@@ -2075,13 +2192,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       }}
       className="relative overflow-hidden flex flex-col"
     >
+    {/* Keyed "selection too large / several transcripts" copy-decline toast. Local
+        to ChatView so embedders (plugin chat primitive) get it without App's host. */}
+    <Toast messages={copyToasts} onDismiss={dismissCopyToast} />
     {/* overflowAnchor:"none" is load-bearing: TanStack's built-in above-viewport
         correction (resizeItem) drives scroll compensation itself, so browser
         scroll-anchoring must stay OFF (it would double-move). Do NOT add
         `scroll-behavior: smooth` here or on an ancestor — smooth would animate
         each synchronous measurement correction and race the next, reintroducing
         the scroll-to-top drift. See change: fix-chat-scroll-to-top-estimate-drift. */}
-    <div ref={scrollRef} onScroll={handleScroll} onCopy={handleCopy} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" data-chat-motion-busy={motionBusy ? "" : undefined} className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
+    <div ref={scrollRef} onScroll={handleScroll} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" data-selection-retain-cap={selectionCapRef.current} data-selection-copy-cap={copyCapRef.current} data-chat-motion-busy={motionBusy ? "" : undefined} className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
       {/* Windowed historical rows (TanStack Virtual): only viewport + overscan
           are mounted. The spacer reserves getTotalSize(); each row is absolutely
           positioned + re-measured on mount. chat-cv-skip keeps Step A's
@@ -2103,7 +2223,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                  because the same index denotes a DIFFERENT row post-splice.
                  See change: add-tail-only-replay-window (D7a). */
               data-row-key={vi.key}
-              ref={virtualizer.measureElement}
+              ref={copyOnlyRef.current.has(vi.index) ? undefined : virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
             >
               {((): React.ReactNode => {

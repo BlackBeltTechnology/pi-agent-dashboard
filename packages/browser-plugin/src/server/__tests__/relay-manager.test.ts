@@ -14,6 +14,9 @@ import { isValidGuid, type RelayConfig, RelayManager } from "../relay/relay-mana
 
 const silentLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
+/** The guid is the last PATH segment of a relay URL; `?ticket=` follows it. */
+const guidOfRelayUrl = (url: string): string => new URL(url).pathname.split("/").pop()!;
+
 interface HarnessOpts {
   config?: RelayConfig;
   installed?: boolean;
@@ -48,8 +51,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     audit,
     urls,
     config,
-    guidAt: (index) =>
-      new URL(urls[index]).searchParams.get("mcpRelayUrl")!.split("/").pop()!,
+    guidAt: (index) => guidOfRelayUrl(new URL(urls[index]).searchParams.get("mcpRelayUrl")!),
   };
 
   harness.manager = new RelayManager({
@@ -70,7 +72,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       if (!opts.dialOnOpen) return;
       // The extension dials back with the guid carried in the connect URL —
       // exactly what the real Chrome extension does.
-      const guid = new URL(url).searchParams.get("mcpRelayUrl")!.split("/").pop()!;
+      const guid = guidOfRelayUrl(new URL(url).searchParams.get("mcpRelayUrl")!);
       const [relayExt, extSide] = socketPair();
       harness.manager.attachExtension(guid, relayExt);
       new FakeExtension(extSide, [{ id: 7, title: "A", url: "https://a.test/" }]).initialize();
@@ -111,7 +113,8 @@ describe("connect lifecycle", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const guid = h.guidAt(0);
-    expect(result.cdpUrl).toBe(`ws://127.0.0.1:8123/ws/browser-cdp/${guid}`);
+    // The URL carries the guid and a single-use ticket (32 random bytes, base64url).
+    expect(result.cdpUrl).toMatch(new RegExp(`^ws://127\\.0\\.0\\.1:8123/ws/browser-cdp/${guid}\\?ticket=[A-Za-z0-9_-]{43}$`));
     expect(result.instanceId).toMatch(/^inst-/);
     // instanceId must not be the guid, or the status broadcast would leak the credential.
     expect(result.instanceId).not.toContain(guid);
@@ -321,5 +324,51 @@ describe("instance churn soak (P4)", () => {
     await flush();
     expect(h.manager.instances()).toHaveLength(0);
     expect(h.manager.instances("Default")).toHaveLength(0);
+  });
+});
+
+
+describe("relay URLs carry single-use tickets (D10)", () => {
+  it("the extension's mcpRelayUrl carries an ext ticket that opens ONLY the ext role, once", async () => {
+    const h = makeHarness({ dialOnOpen: true });
+    await h.manager.connect("Default");
+    const relay = new URL(new URL(h.urls[0]).searchParams.get("mcpRelayUrl")!);
+    const guid = guidOfRelayUrl(relay.toString());
+    expect(relay.protocol).toBe("ws:");
+    expect(relay.pathname).toBe(`/ws/browser-ext/${guid}`);
+    const ticket = relay.searchParams.get("ticket")!;
+    expect(ticket).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(h.manager.consumeTicket(guid, "cdp", ticket)).toBe(false); // wrong role
+    expect(h.manager.consumeTicket(guid, "ext", ticket)).toBe(true);
+    expect(h.manager.consumeTicket(guid, "ext", ticket)).toBe(false); // single use
+  });
+
+  it("the cdpUrl returned by connect carries a cdp ticket that opens ONLY the cdp role, once; a fresh connect mints a new one", async () => {
+    const h = makeHarness({ dialOnOpen: true, config: { enabled: true, allowMultipleInstancesPerProfile: true, browsers: { Default: {} } } as RelayConfig });
+    const first = await h.manager.connect("Default");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const u1 = new URL(first.cdpUrl);
+    const guid1 = u1.pathname.split("/").pop()!;
+    const t1 = u1.searchParams.get("ticket")!;
+    expect(h.manager.consumeTicket(guid1, "ext", t1)).toBe(false);
+    expect(h.manager.consumeTicket(guid1, "cdp", t1)).toBe(true);
+    expect(h.manager.consumeTicket(guid1, "cdp", t1)).toBe(false);
+
+    const second = await h.manager.connect("Default");
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(new URL(second.cdpUrl).searchParams.get("ticket")).not.toBe(t1);
+  });
+
+  it("closing the instance revokes its tickets", async () => {
+    const h = makeHarness({ dialOnOpen: true });
+    const res = await h.manager.connect("Default");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const u = new URL(res.cdpUrl);
+    const guid = u.pathname.split("/").pop()!;
+    expect(h.manager.disconnect(res.instanceId)).toBe(true);
+    expect(h.manager.consumeTicket(guid, "cdp", u.searchParams.get("ticket")!)).toBe(false);
   });
 });

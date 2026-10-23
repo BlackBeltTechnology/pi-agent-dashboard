@@ -41,6 +41,7 @@ import path from "node:path";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 /** The offer lands only after the grace window closes. See change: fix-recovery-exit-intent (D6). */
 const OFFER_WAIT_MS = RECOVERY_REATTACH_GRACE_MS + 800;
@@ -140,7 +141,7 @@ describe("recovery offer is gated by process liveness (keeper + bridge)", () => 
     });
 
     // A browser connecting now should be offered to reopen ONLY the dead one.
-    const browser = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     const msgs: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
       browser.on("open", () => {

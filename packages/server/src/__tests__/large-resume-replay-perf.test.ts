@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,7 +38,7 @@ describe("replay-exit flush at issue scale (test-plan #P1)", () => {
     const N = 15_213;
     const text = "x".repeat(5_300);
     const bridge = new WebSocket(`ws://127.0.0.1:${server.piPort()}`);
-    const browser = new WebSocket(`ws://127.0.0.1:${server.httpPort()}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${server.httpPort()}/ws`);
     sockets.push(bridge, browser);
     const frames: number[] = [];
     let done = false;

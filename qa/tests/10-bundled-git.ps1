@@ -33,9 +33,9 @@ $origSetting = $h.gitSource.setting
 
 try {
     # 3. Force bundled
-    Invoke-RestMethod -Uri "http://localhost:8000/api/config" -Method Post `
-        -ContentType "application/json" `
-        -Body (@{ windowsGitSource = "bundled" } | ConvertTo-Json) | Out-Null
+    # `pi-dashboard api` mints local proof (a bare POST is refused by the strict `requireLocalProof` default).
+    $null = & pi-dashboard api POST /api/config --data ((@{ windowsGitSource = "bundled" } | ConvertTo-Json -Compress) -replace '"','\"')
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: POST /api/config exited $LASTEXITCODE"; exit 1 }
     Start-Sleep -Seconds 1
 
     $h2 = Get-Health
@@ -91,7 +91,5 @@ try {
     Write-Host "PASS: bundled git + sh present and runnable"
 } finally {
     # Restore original setting
-    Invoke-RestMethod -Uri "http://localhost:8000/api/config" -Method Post `
-        -ContentType "application/json" `
-        -Body (@{ windowsGitSource = $origSetting } | ConvertTo-Json) | Out-Null
+    $null = & pi-dashboard api POST /api/config --data ((@{ windowsGitSource = $origSetting } | ConvertTo-Json -Compress) -replace '"','\"')
 }

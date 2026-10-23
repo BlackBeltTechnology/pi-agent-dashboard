@@ -40,6 +40,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+    # The client's vite build (run by `packages/client` prepare on install)
+    # outgrew Node 22's default heap: OOM (exit 134) on macos-latest, run
+    # 39965852941. Same ceiling as _electron-build.yml (26d3ec6ce).
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

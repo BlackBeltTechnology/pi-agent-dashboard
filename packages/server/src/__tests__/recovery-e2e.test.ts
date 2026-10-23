@@ -13,6 +13,7 @@ import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-s
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -122,7 +123,7 @@ describe("recovery end-to-end", () => {
     expect(restored?.status).toBe("ended");
 
     // Connect a browser to B and capture the recovery offer.
-    const browser = new WebSocket(`ws://127.0.0.1:${browserPortB}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${browserPortB}/ws`);
     const msgs: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
       browser.on("open", () => {
@@ -158,7 +159,7 @@ describe("recovery end-to-end", () => {
     await serverB.start();
     const portB = serverB.httpPort();
 
-    const browser = new WebSocket(`ws://127.0.0.1:${portB}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${portB}/ws`);
     const msgsB: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
       browser.on("open", () => {
@@ -185,7 +186,7 @@ describe("recovery end-to-end", () => {
     const portC = serverA.httpPort();
     expect(serverA.sessionManager.get(SID)?.recoveryCandidate).toBeFalsy();
 
-    const browser2 = new WebSocket(`ws://127.0.0.1:${portC}/ws`);
+    const browser2 = proofWebSocket(`ws://127.0.0.1:${portC}/ws`);
     const msgsC: Record<string, unknown>[] = [];
     await new Promise<void>((resolve) => {
       browser2.on("open", () => {

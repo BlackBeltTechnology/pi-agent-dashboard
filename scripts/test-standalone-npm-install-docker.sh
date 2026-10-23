@@ -235,7 +235,10 @@ echo "[smoke] step 9/10: spawn a pi session and confirm it registers"
 # fine — pi just needs an existing directory to root the session).
 docker cp "$REPO_ROOT/scripts/lib/smoke-spawn-session.mjs" "$CONTAINER_NAME":/smoke-spawn-session.mjs
 SESSION_OUT=$(mktemp)
-if indocker 'mkdir -p /tmp/smoke-cwd && node /smoke-spawn-session.mjs --url ws://localhost:18000/ws --cwd /tmp/smoke-cwd --timeout 90' >"$SESSION_OUT" 2>&1; then
+# The strict `requireLocalProof` default refuses a bare loopback `/ws` upgrade, so mint a single-use ticket
+# through the installed CLI (which proves local possession) and present it. See change:
+# close-container-loopback-impersonation (D5).
+if indocker 'mkdir -p /tmp/smoke-cwd && T=$(PI_DASHBOARD_PORT=18000 /test/node_modules/.bin/pi-dashboard api POST /api/ws-ticket --data "{\"scope\":\"browser\"}" | node -e "let s=\"\";process.stdin.on(\"data\",c=>s+=c).on(\"end\",()=>process.stdout.write(JSON.parse(s).data.ticket))") && node /smoke-spawn-session.mjs --url "ws://localhost:18000/ws?ticket=$T" --cwd /tmp/smoke-cwd --timeout 90' >"$SESSION_OUT" 2>&1; then
   # Re-emit the spawn helper's [spawn] lines under our [smoke] prefix.
   while IFS= read -r line; do
     [[ "$line" == \[spawn\]* ]] && echo "[smoke]   ${line}"

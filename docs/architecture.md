@@ -3146,7 +3146,7 @@ New folders can be created from two entry points — a footer **＋ New folder**
 - Remote sockets cannot widen roots. `pin_directory`, `add_folder_to_workspace`, `move_folder_to_workspace` outside roots dropped. Server sends `folder_refused {path, reason: outside_allowed_roots}`. Client toast: "Ask the host to pin it".
 - Locality bit stamped per socket once at `/ws` upgrade. Unstamped = remote.
 - Docker: host browser hits container via port mapping = non-loopback peer. Confined to container `$HOME` + auto-pinned `PI_WORKSPACES`. Recovery actions refused there; use `docker compose restart` / `docker exec`. Set `browse.confineRemote: false` to lift it.
-- Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof` on.
+- Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof: false` (opt-out). Default on: refused without proof.
 - Operator opt-out: `config.json` `browse.confineRemote` (default `true`). Only explicit `false` disables. Read at server start (restart to apply). Off → remote callers browse / mkdir / pin like local callers. Used by the Docker e2e harness (browser = remote peer via port mapping; specs pin per-test dirs outside `$HOME`); harness env `PI_E2E_BROWSE_CONFINEMENT=1` keeps it on. Shipping installs stay confined.
 - Threat model: guards observe-tier remote viewer. Caller that may spawn session/terminal already has FS reach.
 
@@ -3621,25 +3621,53 @@ Both honor same matching logic. Both work independently of whether `auth.provide
 
 Hardens five residual trust / credential-boundary weaknesses from audit. Each mitigates a confirmed finding; none is a standalone RCE.
 
-**Strict local proof (`requireLocalProof`).** Top-level config key, default `false`, read live per request — toggling needs no restart. Off = bare loopback (loopback peer, no forwarding header) stays trusted exactly as today. On = the network guard admits a bare-loopback request only on `observe`-tier `/api/*` REST reads (the `isObserveApiRequest` exception in `localhost-guard.ts`). Everything else needs PROOF, one of:
-- `pi_dash_local` httpOnly `SameSite=Strict` cookie, 30 d, value `HMAC(localToken, "pi-dashboard/local-proof/v1")` — rotating the local token invalidates every proof cookie;
-- `X-Pi-Local-Token` header;
-- authenticated principal (`request.isAuthenticated`).
+**Strict local proof (`requireLocalProof`).** Top-level config key, default `true` (change `close-container-loopback-impersonation`). Missing or non-boolean value → `true`; server logs one warning per distinct raw value (`liveRequireLocalProof`, `packages/server/src/config-snapshot.ts`). Only explicit boolean `false` opts out. Read live from `config.json` per request — toggling needs no restart. Default on = the network guard admits a bare-loopback request (loopback peer, no forwarding header) only on `observe`-tier REST reads (`isObserveApiRequest` in `localhost-guard.ts`) and `/v1/*` (`packages/shared/src/route-tiers.ts`). Everything else needs PROOF, one of:
+- `pi_dash_local` httpOnly `SameSite=Strict` cookie (format below);
+- `X-Pi-Local-Proof` header (CLI, bridge);
+- desktop app (Electron loads `/auth/local-proof`);
+- signed-in or paired principal (`request.isAuthenticated`).
 
 Gated surfaces: `control` / `operate` REST routes, browser WS (`/ws`, `/ws/terminal/*`, `/live/*`), plugin-registered WS scopes (`isPluginScopePeerLocal`), bridge-ticket mint (`decideBridgeTicketMint`), and the route-tier exemption (`tierRefusalFor`). A `127.0.0.1` entry in `trustedNetworks` / `auth.bypassHosts` no longer re-admits a relay under strict — `isTrustedSource` refuses a loopback-range peer without proof.
 
-**Why it exists.** A header-injecting tunnel (zrok) presents as loopback but carries `X-Forwarded-*`, so it already fails `isGenuinelyLocal`. A marker-less relay (`ssh -R`, `socat`) terminates on `127.0.0.1` and injects NO forwarding header — indistinguishable from a same-host browser, so it inherits full unauthenticated access to code-exec routes. Enable `requireLocalProof` when such a relay is used; only zrok-class tunnels are safe without it.
+```mermaid
+flowchart TD
+  R["Bare-loopback request<br/>(loopback peer, no X-Forwarded-*)"] --> O{"requireLocalProof<br/>explicit false?"}
+  O -- yes --> T["Trusted (opt-out, legacy)"]
+  O -- no --> V{"observe-tier REST<br/>or /v1/*?"}
+  V -- yes --> A["Admit"]
+  V -- no --> P{"Proof present?<br/>cookie / X-Pi-Local-Proof /<br/>principal"}
+  P -- yes --> A
+  P -- no --> D["403 network_not_allowed<br/>reason local_proof_required"]
+```
 
-**Denial.** Under strict, a proof-less bare-loopback denial is `403 { success: false, error: "network_not_allowed", reason: "local_proof_required", hint: … }` — same `error` literal as every other network denial, so clients keep branching on `error`; `reason` carries the strict-mode signal and `hint` names `pi-dashboard open`.
+**Why it exists.** A header-injecting tunnel (zrok) presents as loopback but carries `X-Forwarded-*`, so it already fails `isGenuinelyLocal`. A marker-less relay (`ssh -R`, `socat`) terminates on `127.0.0.1` and injects NO forwarding header — indistinguishable from a same-host browser, so it inherits full unauthenticated access to code-exec routes. Default on closes this. Opt-out (`false`) re-opens it; only zrok-class tunnels stay safe under opt-out.
 
-**Bootstrap.** `pi-dashboard open [--print]` mints a one-time code (`POST /api/local-proof`, `X-Pi-Local-Token` only, 60 s TTL, single use via `LocalProofCodeStore`) and opens `/auth/local-proof?code=…`, which redeems it, sets the `pi_dash_local` cookie, and redirects `/`. Electron always loads that URL. Server not running → `open` exits `1` ("server not running"). Bootstrap routes register regardless of the flag, so `open` works before strict is toggled.
+**Denial.** Under strict, a proof-less bare-loopback denial is `403 { success: false, error: "network_not_allowed", reason: "local_proof_required", hint: … }` — same `error` literal as every other network denial, so clients keep branching on `error`; `reason` carries the strict-mode signal and `hint` names `pi-dashboard open`. `GET /api/health` adds `localProof: "required"` only for a bare-loopback caller without proof. Client `useNetworkDenied` probes on `offline` + `auth_required` and shows a banner with copyable `pi-dashboard open`. `/auth/login` shows the same remedy instead of single-provider auto-redirect. Signed-in loopback tab admitted on observe routes: session cookie tagged before the strict observe return (`packages/server/src/auth/auth-plugin.ts`).
+
+**Bootstrap.** `pi-dashboard open [--print]` mints a one-time code (`POST /api/local-proof`, `X-Pi-Local-Token` only, 60 s TTL, single use via `LocalProofCodeStore`) and opens `/auth/local-proof?code=…`, which redeems it, sets the `pi_dash_local` cookie, and redirects `/`. Electron always loads that URL. Server not running → `open` exits `1` ("server not running"). Bootstrap routes register regardless of the flag. `pi-dashboard login --local` (break-glass) prints a link through `/auth/local-proof?code=…&next=/?pi_local=<code>` so a plain tab authorizes first.
+
+**Forwarded loopback.** `ssh -L`, VS Code port forward, WSL arrive as bare loopback. Run `pi-dashboard open --print` on the server; open the printed URL through a SAME-PORT forward (cookie is port-bound).
+
+**`pi_dash_local` cookie.** Format `id.issuedAt.lastUse.port.HMAC`, `HMAC` keyed `k_local = HMAC(localToken, "pi-dashboard/local-proof/v1")`. Bound to issuing listener `port` (`packages/server/src/auth/local-proof.ts`). Idle expiry 12 h. Re-signed on use when last refresh > 1 h old. Absolute cap 30 d. Rotating local token invalidates all cookies. Accepted residual: browsers send the cookie to every `localhost:<port>` site, so a local web app can capture and replay it to the same port within the idle window. Follow-up: dedicated loopback host.
+
+**Opt-out.** `requireLocalProof: false` re-exposes the control plane to every container on the host: a container reaching host `127.0.0.1` (Docker Desktop `host.docker.internal`, `--network host`, `ssh -R`, `socat`) looks like bare loopback. See change: close-container-loopback-impersonation.
+
+**One-time secret rotation.** `rotateSecretsOnce()` (`packages/server/src/auth/secret-rotation.ts`) runs at start of `createServer`. Claims `~/.pi/dashboard/local/rotation.lock` (exclusive link; stale after 30 s or dead pid; wait cap 35 s). If `local/rotation-epoch` < `REQUIRED_ROTATION_EPOCH` (=1): writes new 0600 `local/token` and new `auth.secret` (`writeConfigFileSecure`), then epoch file last. Effect: everyone signs in once; proof cookies reissued. Failure fails CLOSED: exit 1 before listening, one log line naming step + lock + epoch paths. Upgrade: stop every dashboard instance first (older instance on same HOME keeps old token until restart). No rollback needed; delete `local/rotation-epoch` only to force another rotation.
+
+**Dashboard state guard** (`packages/server/src/lib/dashboard-state-guard.ts`). Always refused, every caller, every mode, not undone by opt-out: `~/.pi/dashboard/local/**` and `identity.key` (post-open fstat dev/ino recheck defeats symlink swap). Trust-gated: rest of `~/.pi/dashboard/` (`config.json` holds auth HMAC secret), refused unless caller locally trusted now or logged in (paired-device bearer not enough). Covers `/api/file*`, `/api/session-file`, `/api/file/write*`, `/api/grep`, mention resolve, open-in-system, reveal, live static gates. Unproven local caller's containment miss is prompt-ineligible (no operator access prompt).
+
+**`pi-dashboard api <METHOD> <path> [--data <json>] [--port n]`** (`cmdApi`, `packages/server/src/cli.ts`). Mints fresh proof per request; dials loopback address literal; no redirect follow. Path: single leading `/`, no `#`, no control chars. Exit `0` on 2xx (body → stdout), `1` other status (body → stderr), `2` usage error or server not running. Unknown subcommand → exit 2 + usage. Older binaries without `api` fall through to foreground start: require the first release shipping `api`. Slash-command exec templates get env `PI_DASHBOARD_CLI` (absolute, shell-quoted): `eval "$PI_DASHBOARD_CLI" api GET /api/config`.
+
+**Browser relay tickets.** `cdpUrl` and extension `mcpRelayUrl` carry single-use `?ticket=` (32 random bytes base64url, 60 s TTL, bound to guid + role `ext`|`cdp`, consumed by first presenting dial, in-memory, digest-only, never logged). Pass whole `cdpUrl` to `agent-browser connect`; dropped client needs fresh `browser_connect`. Plugin WS scopes may set `peerCredential: "plugin"` (skips only strict proof; host/origin/locality still enforced). Spike: `openspec/changes/close-container-loopback-impersonation/relay-ticket-spike.md`.
+
+**Accepted residuals.** Observe-tier reads open to containers: transcripts, session lists, files inside session cwds and under `~/.pi` outside the dashboard dir (e.g. `~/.pi/agent/auth.json`); `$HOME`-cwd session also exposes `~/.ssh`. `/v1/*` spend. Live capability URLs (`/live/<token>/…`) judged without proof (Electron "Open in browser" needs it): a capability URL leaked into a transcript lets a container open that preview. A container that MOUNTS `~/.pi` or `$HOME` can read the token: NEVER mount `~/.pi/dashboard` into a container. Bridge gateway loopback grace + recovery server unchanged (out of scope).
 
 **Trade-offs (stated, not implied).**
 - `/v1/*` model proxy keeps bare-loopback admission even under strict: local pi processes call it, and a marker-less relay can spend model credentials but cannot execute code.
 - `/api/health` posture disclosure unchanged.
-- A raw `curl -X POST` to `control` / `operate` routes from this host needs `X-Pi-Local-Token` (token at `~/.pi/dashboard/local/token`). `npm run reload` and the CLI `restart` already send it.
+- Raw `curl` to `control` / `operate` routes from this host is refused (`403 local_proof_required`). Use `pi-dashboard api <METHOD> <path>`. `npm run reload` and the CLI `restart` already send proof.
 
-**Pairing approval never honors bare loopback (any mode).** `createApprovalGuard` on `POST /api/pair/approve` and `/api/pair/approve-pending` admits only a login session, a valid proof cookie, or `X-Pi-Local-Token`; a device bearer is refused first, and Host admission still applies. Default-off strict does not exempt it. A hand-typed `http://localhost:8000` on an auth-off install must use `pi-dashboard open` or Electron to approve; the dialog shows the hint.
+**Pairing approval never honors bare loopback (any mode).** `createApprovalGuard` on `POST /api/pair/approve` and `/api/pair/approve-pending` admits only a login session, a valid proof cookie, or `X-Pi-Local-Token`; a device bearer is refused first, and Host admission still applies. Applies in every `requireLocalProof` mode, including opt-out. A hand-typed `http://localhost:8000` on an auth-off install must use `pi-dashboard open` or Electron to approve; the dialog shows the hint.
 
 **Credential + trust hardening in the same change.**
 - Login OAuth state carried in a signed `pi_dash_oauth_state` cookie, verified before code exchange; `returnUrl` restricted to same-origin relative paths (closes CSRF + open redirect).
@@ -8328,7 +8356,7 @@ Residuals:
 - NAT / published-port callers (docker): `binding-mismatch`. BREAKING for `pi-dashboard login --local|open|token create` through a published port. Run inside container or log in.
 
 Deploy + rollback:
-- Order: restart server FIRST (`curl -X POST http://localhost:8000/api/restart`), THEN `npm run reload`.
+- Order: restart server FIRST (`pi-dashboard api POST /api/restart`; dev checkout: `npx tsx .pi/skills/implement/scripts/restart-server.ts`), THEN `npm run reload`.
 - Reverse order: proof-only bridges hit pre-proof server → refused / quarantined.
 - Rollback: revert server. Marked sessions quarantine (`server-proof-missing`) → restart those sessions.
 

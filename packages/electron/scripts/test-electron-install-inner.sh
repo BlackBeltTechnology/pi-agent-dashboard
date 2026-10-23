@@ -28,6 +28,11 @@ set -euo pipefail
 APP_RESOURCES="${APP_RESOURCES:-/opt/pi-dashboard/resources}"
 NODE_BIN="$APP_RESOURCES/node/bin/node"
 SERVER_BUNDLE="$APP_RESOURCES/server"
+
+# The strict `requireLocalProof` default refuses a bare curl on non-observe routes, so use the CLI
+# bundled with the server (it mints local proof from this HOME's token). See change:
+# close-container-loopback-impersonation (D5).
+pd_api() { "$NODE_BIN" --import "file://$NATIVE_REGISTER" "$SERVER_BUNDLE/$CLI_REL" api "$@"; }
 START_SH="$SERVER_BUNDLE/start-server.sh"
 CLI_REL="node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
 NATIVE_REGISTER="$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs"
@@ -154,9 +159,7 @@ echo ""; hr; echo "  Stage 5 — Session spawn (POST /api/session/spawn)"; hr
 
 if [ "$SERVER_UP" = "true" ]; then
   SPAWN_DIR=$(mktemp -d)
-  SPAWN_RESP=$(curl -sf -X POST "http://localhost:$PORT/api/session/spawn" \
-    -H "Content-Type: application/json" \
-    -d "{\"cwd\": \"$SPAWN_DIR\"}" 2>&1 || echo '{"success":false}')
+  SPAWN_RESP=$(pd_api POST /api/session/spawn --port "$PORT" --data "{\"cwd\": \"$SPAWN_DIR\"}" 2>&1 || echo '{"success":false}')
   if echo "$SPAWN_RESP" | grep -q '"success":true'; then
     pass "Spawn API returned success"
     # Informational only: in this bare bundled-server smoke (no Electron
@@ -185,7 +188,7 @@ fi
 echo ""; hr; echo "  Stage 6 — Clean shutdown"; hr
 
 if [ "$SERVER_UP" = "true" ]; then
-  curl -sf -X POST "http://localhost:$PORT/api/shutdown" > /dev/null 2>&1 || true
+  pd_api POST /api/shutdown --port "$PORT" > /dev/null 2>&1 || true
   for i in $(seq 1 10); do
     if ! kill -0 "$SERVER_PID" 2>/dev/null; then break; fi
     sleep 1

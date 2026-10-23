@@ -19,3 +19,5 @@ Forwards `session_register.usageSeed` to `register` via `normalizeUsageSeed` (fi
 Explicit `session_unregister` handler passes `{ endSource: "bridge_unregister" }` — the one seam a graceful pi exit reaches (quit, OS signal, reload, session replacement). See change: fix-recovery-pi-signal-unregister.
 
 `bridgeAuth.verifyCredential` (the `local-credential` verifier) replaces `verifyLocalToken`: `verifyClient` stamps the verdict (TCP only, never unix), takes `boundAt` before the bind, records a `WeakMap<req,{binding,nonce,mac}>` for a proof admission, and `wss.on('headers')` appends `X-Pi-Local-Proof-Server` iff recorded and not a unix upgrade. See change: loopback-credential-proof (D5).
+
+`stop()` stays synchronous; the socket teardown it hands off (`unbindGatewaySocket`) is tracked and exposed via `stopped(): Promise<void>` (never rejects). `server.stop()` awaits it right after `piGateway.stop()` — so `stop()` never resolves while teardown can still touch HOME (nightly flake: post-teardown `[gateway] could not lock` warn → vitest `EnvironmentTeardownError`).

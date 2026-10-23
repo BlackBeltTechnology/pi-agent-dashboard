@@ -30,6 +30,7 @@
  */
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { dialHost, proofHeaders } from "./local-proof.ts";
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -62,7 +63,8 @@ async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   if (!cmd) die("usage: dashboard-bus.ts <command> … (see file header)");
 
-  const client = new BusClient();
+  // Dial the loopback literal and prove locality for the ticket mint (the strict default refuses a bare caller).
+  const client = new BusClient({ host: dialHost(), proofHeaders });
   await client.connect();
 
   const resolveId = (prefix: string): string => {

@@ -58,7 +58,7 @@ pi-dashboard start
 **Reproduce + isolate:**
 ```bash
 # 1. Spawn and poll activeSessions for ~40s
-curl -s -o /tmp/sp.json -X POST http://localhost:8000/api/session/spawn -d '{"cwd":"<repo>"}'
+pi-dashboard api POST /api/session/spawn --data '{"cwd":"<repo>"}' > /tmp/sp.json   # a bare curl is refused (strict requireLocalProof default)
 watch -n2 'curl -s http://localhost:8000/api/health | jq .server.activeSessions'
 
 # 2. Read the keeper log for that spawn (transport id from /tmp/sp.json)

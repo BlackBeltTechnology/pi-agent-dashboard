@@ -25,7 +25,7 @@ afterEach(() => {
   for (const r of rigs.splice(0)) r.cleanup();
 });
 
-const GUID_URL = /^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}$/;
+const GUID_URL = /^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}\?ticket=[A-Za-z0-9_-]{43}$/;
 
 async function connected(r: DedicatedRig, opts: Parameters<DedicatedRig["manager"]["connectDedicated"]>[0] = {}) {
   const res = await r.manager.connectDedicated(opts);
@@ -54,7 +54,7 @@ describe("#R1 dedicated connect decision table", () => {
     expect(r.manager.find(res.instanceId)?.profileDirectory).toBe("@dedicated");
     expect(r.manager.instancesOn("dashboard", "@dedicated")).toHaveLength(1);
     expect(r.chrome.state()).toBe("running");
-    expect(r.manager.resolve(res.cdpUrl.split("/").pop() as string)).toMatchObject({ dedicated: true, operator: false });
+    expect(r.manager.resolve(new URL(res.cdpUrl).pathname.split("/").pop() as string)).toMatchObject({ dedicated: true, operator: false });
   });
 
   it("(y,y,y) live instance → 409 {busy, instanceId, holder} (REST client label)", async () => {

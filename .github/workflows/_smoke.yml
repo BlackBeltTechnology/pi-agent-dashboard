@@ -286,7 +286,9 @@ jobs:
           # POST /api/restart, then wait for a NEW process (pid@startedAt changes).
           restart_and_wait() {
             local before; before=$(ident)
-            curl -fsS -X POST "http://localhost:$PORT/api/restart" >/dev/null 2>&1 || true
+            # The CLI's `restart` delegates to POST /api/restart WITH local proof (a bare curl is refused by the
+            # strict requireLocalProof default on the upgraded server) and exists in the previous release too.
+            "$BIN" restart >/dev/null 2>&1 || true
             for _ in $(seq 1 45); do
               sleep 2
               local after; after=$(ident 2>/dev/null || true)

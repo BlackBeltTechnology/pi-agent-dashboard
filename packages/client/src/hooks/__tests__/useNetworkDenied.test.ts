@@ -65,3 +65,65 @@ describe("useNetworkDenied", () => {
     expect(result.current).toBeNull();
   });
 });
+
+/**
+ * The strict default: a bare-loopback tab is told by `/api/health` (200 +
+ * `localProof: "required"`) that it needs `pi-dashboard open`.
+ * See change: close-container-loopback-impersonation (test-plan #F1–#F3).
+ */
+describe("useNetworkDenied — local proof required", () => {
+  const needsProof = () => json(200, { ok: true, localProof: "required" });
+
+  it("F1 offline: converges to local_proof_required with the command in the hint and stays across re-probes", async () => {
+    const fetchImpl = vi.fn(needsProof);
+    const { result } = renderHook(() => useNetworkDenied("offline", "", { fetchImpl: fetchImpl as never, intervalMs: 1000 }));
+    await act(async () => {});
+    expect(result.current).toMatchObject({ reason: "local_proof_required" });
+    expect(result.current?.hint).toContain("pi-dashboard open");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(result.current).toMatchObject({ reason: "local_proof_required" });
+  });
+
+  it("F2 auth_required (OAuth configured): converges to the same denial, not null", async () => {
+    const fetchImpl = vi.fn(needsProof);
+    const { result } = renderHook(() => useNetworkDenied("auth_required", "", { fetchImpl: fetchImpl as never }));
+    await act(async () => {});
+    expect(fetchImpl).toHaveBeenCalledWith("/api/health", expect.anything());
+    expect(result.current).toMatchObject({ reason: "local_proof_required" });
+    expect(result.current?.hint).toContain("pi-dashboard open");
+  });
+
+  it("F3 a proofed tab sees no banner: the field disappearing clears the denial", async () => {
+    let required = true;
+    const fetchImpl = vi.fn(() => (required ? needsProof() : json(200, { ok: true })));
+    const { result } = renderHook(() => useNetworkDenied("offline", "", { fetchImpl: fetchImpl as never, intervalMs: 1000 }));
+    await act(async () => {});
+    expect(result.current).not.toBeNull();
+    required = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(result.current).toBeNull();
+  });
+
+  it("a 403 refusal that names local_proof_required carries the reason", async () => {
+    const fetchImpl = vi.fn(() => json(403, { error: "network_not_allowed", reason: "local_proof_required", hint: "run pi-dashboard open" }));
+    const { result } = renderHook(() => useNetworkDenied("offline", "", { fetchImpl: fetchImpl as never }));
+    await act(async () => {});
+    expect(result.current).toEqual({ reason: "local_proof_required", hint: "run pi-dashboard open" });
+  });
+
+  it("a plain 200 health (no field) is not a denial, and `connecting` does not probe", async () => {
+    const fetchImpl = vi.fn(() => json(200, { ok: true }));
+    const a = renderHook(() => useNetworkDenied("offline", "", { fetchImpl: fetchImpl as never }));
+    await act(async () => {});
+    expect(a.result.current).toBeNull();
+    const connecting = vi.fn(needsProof);
+    renderHook(() => useNetworkDenied("connecting", "", { fetchImpl: connecting as never }));
+    await act(async () => {});
+    expect(connecting).not.toHaveBeenCalled();
+  });
+});

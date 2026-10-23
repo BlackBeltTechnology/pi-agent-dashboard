@@ -498,7 +498,7 @@ pnpm install                                       # deps — pnpm ONLY
 npm test                                           # vitest, whole repo
 npm run build                                      # web client (Vite)
 npm run reload                                     # after packages/extension/ changes
-curl -X POST http://localhost:8000/api/restart     # after server/shared changes
+npx tsx .pi/skills/implement/scripts/restart-server.ts     # after server/shared changes (a bare curl is refused under the strict default)
 npm run test:e2e                                   # Playwright, opt-in, needs the docker harness
 npm run quality:changed                            # Biome on changed files
 ```

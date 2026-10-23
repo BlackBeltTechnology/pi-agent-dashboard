@@ -1272,12 +1272,14 @@ export interface DashboardConfig {
    */
   network?: NetworkConfig;
   /**
-   * Strict local proof. When true, bare loopback admits only `observe`-tier REST
-   * routes; control/operate routes and WebSockets need the local-proof cookie
-   * (`pi-dashboard open` / Electron), the local token, or an authenticated
-   * principal. Default false (unchanged). Only header-injecting tunnels (zrok)
-   * are safe without it; marker-less relays (`ssh -R`, `socat`) are not.
-   * See change: harden-trust-and-credential-boundaries (D2).
+   * Strict local proof. When true (the DEFAULT), bare loopback admits only
+   * `observe`-tier REST routes; control/operate routes and WebSockets need the
+   * local-proof cookie (`pi-dashboard open` / Electron), the local token, or an
+   * authenticated principal. Only an explicit boolean `false` opts out; a
+   * missing or non-boolean value is `true`. Opting out re-exposes the control
+   * plane to any container that relays to the host loopback.
+   * See change: harden-trust-and-credential-boundaries (D2),
+   * close-container-loopback-impersonation (D1).
    */
   requireLocalProof: boolean;
   /**
@@ -1827,7 +1829,7 @@ const DEFAULTS: DashboardConfig = {
   allowedHosts: [],
   hostGate: { mode: "enforce" },
   trustedNetworks: [],
-  requireLocalProof: false,
+  requireLocalProof: true,
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
   pairing: { publicBaseUrls: [], acceptLanRequests: false },
@@ -2802,7 +2804,7 @@ export function loadConfig(): DashboardConfig {
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
-      requireLocalProof: parsed.requireLocalProof === true,
+      requireLocalProof: typeof parsed.requireLocalProof === "boolean" ? parsed.requireLocalProof : true,
       ...(parsed.liveServer?.previewExposure === "exposed" ? { liveServer: { previewExposure: "exposed" as const } } : {}),
       resolvedTrustedNetworks: [],
       cors: {
