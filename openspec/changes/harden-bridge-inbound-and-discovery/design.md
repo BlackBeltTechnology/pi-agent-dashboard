@@ -113,6 +113,7 @@ flowchart TD
 - **[Risk]** R4 refuses a same-host server older than 0.10.0. → named cause; `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1`.
 - **[Residual] R4 same-user rogue process.** A process running as the same user can read the local token and answer counter-proof. Counter-proof only stops other users' listeners; same-user compromise is out of scope.
 - **[Trade-off] B22 unparseable remotes.** A remote that carries userinfo but cannot be parsed sends no origin and builds no links, rather than risk leaking it.
+- **[Finding, harness run] The bash bound is a backstop, not a UI-reachable limit.** `ConnectionManager.drainInbound` awaits each inbound handler, so one connection runs `!`/`!!` strictly serially; the per-session counter only trips when work overlaps (an in-flight command of a previous incarnation across `/reload`, exec templates racing a bash). Consistent with the measured peak of 1 concurrent command. Consequence: BF2 (L3) is a "never refuses legitimate traffic" guard; refusal is proven at L1/L2 (BE10–BE12) and BF1.
 - **[Risk]** Overlapping changes conflict. → Sequencing above.
 
 ## Migration Plan

@@ -1,45 +1,49 @@
 import { expect, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
-// Browser E2E — bridge inbound bash bound (B21), rendered end to end.
+// Browser E2E — the bridge's bash-concurrency bound (B21) must never get in the
+// way of legitimate traffic, rendered end to end.
 //
-// The real bridge allows `PI_DASHBOARD_BRIDGE_MAX_BASH` (default 4) concurrent
-// `!`/`!!` commands per session. Fill every slot with a slow `!!` command, send
-// one more: it must be REFUSED VISIBLY (inline error naming the concurrency
-// limit, optimistic bubble settled) instead of spawning or vanishing. After the
-// slow commands finish, a new command runs and renders its output.
+// Why this is a regression guard and not a refusal scenario: the bridge drains
+// one connection's inbound messages strictly in order (`ConnectionManager
+// .drainInbound` awaits each handler), so `!`/`!!` commands from ONE UI session
+// run one at a time — the per-session limit (`PI_DASHBOARD_BRIDGE_MAX_BASH`,
+// default 4) is a backstop for overlapping work (an in-flight command of a
+// previous incarnation across `/reload`), which a browser cannot arrange
+// deterministically. The refusal itself (message, no spawn, slot release, bubble
+// settled) is covered at L1/L2 (BE10–BE12) and by the reducer test (BF1).
 //
-// `!!` (silent bash) is used throughout: it never sends to the LLM, so the spec
-// needs no model credential and the session stays idle.
+// Here: fire MORE commands than the limit back to back. Every one must run and
+// render its output — none refused, no stuck pending bubble — and a late command
+// still runs. `!!` never reaches the LLM, so no model credential is needed.
 //
-// Covers test-plan #BF2 (with the default limit rather than a harness override:
-// the limit is an env on the bridge process, and the default needs no compose
-// change). See change: harden-bridge-inbound-and-discovery.
+// Covers test-plan #BF2 (re-scoped; see tasks.md 2.24).
+// See change: harden-bridge-inbound-and-discovery.
 
 const DEFAULT_MAX_BASH = 4;
-const SLOW_SECONDS = 9;
+const COMMANDS = DEFAULT_MAX_BASH + 2;
 
 test.describe("bridge inbound bash bound", () => {
-  test("#BF2 a command over the concurrency limit is refused inline; the next one runs after a slot frees", async ({ page }) => {
+  test("#BF2 more back-to-back commands than the limit all run; none is refused", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
 
-    // Fill every slot.
-    for (let i = 0; i < DEFAULT_MAX_BASH; i++) {
-      await sendPrompt(page, `!!sleep ${SLOW_SECONDS}; echo slot-${i}-done`);
+    for (let i = 0; i < COMMANDS; i++) {
+      await sendPrompt(page, `!!sleep 1; echo burst-${i}-done`);
     }
 
-    // One more while all slots are busy.
-    await sendPrompt(page, "!!echo refused-over-limit");
+    // Every command ran, in order, and rendered.
+    for (let i = 0; i < COMMANDS; i++) {
+      await expect(page.getByText(`burst-${i}-done`).first()).toBeVisible({ timeout: 60_000 });
+    }
 
-    // The refusal is visible inline and names the limit.
-    await expect(page.getByText(/bash concurrency limit reached/i).first()).toBeVisible({ timeout: 15_000 });
+    // Never refused.
+    await expect(page.getByText(/bash concurrency limit reached/i)).toHaveCount(0);
 
-    // Settled, not stuck: no pending bubble remains.
+    // Settled, not stuck.
     await expect(byTestId(page, "pendingPromptCard")).toHaveCount(0, { timeout: 15_000 });
 
-    // After the slow commands finish a slot is free again and the command runs.
-    await expect(page.getByText(/slot-0-done/).first()).toBeVisible({ timeout: (SLOW_SECONDS + 20) * 1000 });
+    // A late command still runs.
     await sendPrompt(page, "!!printf 'after-%s' limit");
     await expect(page.getByText(/after-limit/).first()).toBeVisible({ timeout: 30_000 });
   });
