@@ -222,6 +222,62 @@ describe("refused event dispatch fails the run (X12)", () => {
   });
 });
 
+// test-plan #SX8: a `buildEvent` that returns an eventType outside the action's
+// declared `emits` (or a reserved one) is refused by the engine before
+// dispatch — nothing is spawned/emitted, a warning is logged and the run ends
+// in an error result (never left pending); a `null` return emits nothing and
+// does not fail. See change: harden-git-terminal-plugin-boundaries (D16).
+describe("buildEvent undeclared/reserved event refusal (SX8)", () => {
+  function run(buildEvent: () => { eventType: string } | null) {
+    const calls: any[] = [];
+    const warnings: string[] = [];
+    const reg = new ActionRegistry();
+    reg.register({ id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent });
+    const engine = createEngine({
+      spawnSession: async (opts: unknown) => { calls.push(opts); return { success: true, spawnToken: "t" }; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "anthropic/claude-sonnet-4-5", scanFolder: true, scanGlobal: false, maxRunAgeMs: 1800000 }),
+      readRoles: () => ({ fast: "anthropic/claude-haiku-4-5" }),
+      resolveRegistry: () => reg,
+      warn: (m: string) => warnings.push(m),
+    } as any);
+    const a: DiscoveredAutomation = {
+      name: "sx8", scope: "folder", dir: path.join(repo, ".pi/automation/sx8"), valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "flows.run", payload: {} },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency: "skip",
+      },
+    };
+    engine.startRunFor(a);
+    return { calls, warnings, runs: () => listRuns(repo, "sx8") };
+  }
+
+  it.each(["roles:set", "custom:thing"])("refuses %s: nothing spawned, warning logged, run ends in error", async (eventType) => {
+    const { calls, warnings, runs } = run(() => ({ eventType }));
+    expect(calls).toHaveLength(0);
+    await Promise.resolve();
+    const recorded = runs();
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]!.status).toBe("error");
+    expect(warnings.join("\n")).toContain(eventType);
+  });
+
+  it("a null buildEvent emits nothing and does not fail the dispatch", () => {
+    const reg = new ActionRegistry();
+    reg.register({ id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: () => null });
+    const automation: DiscoveredAutomation = {
+      name: "sx8-null", scope: "folder", dir: path.join(repo, ".pi/automation/sx8-null"), valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "flows.run", payload: {} },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency: "skip",
+      },
+    };
+    expect(buildRunDispatch(automation, reg)).toEqual({ kind: "prompt", text: "" });
+  });
+});
+
 describe("effectiveVisibility", () => {
   it("uses the per-automation override when present", () => {
     expect(effectiveVisibility(skillAutomation("s"), "hidden")).toBe("shown");

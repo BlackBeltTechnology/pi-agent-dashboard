@@ -117,7 +117,12 @@ function createTerminal(httpPort: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const ws = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     const fail = setTimeout(() => reject(new Error("create_terminal timed out")), 10000);
-    ws.on("open", () => ws.send(JSON.stringify({ type: "create_terminal", cwd: process.cwd() })));
+    // The terminal cwd must be a known folder (change: harden-git-terminal-plugin-boundaries):
+    // pin it first on the same (ordered) socket.
+    ws.on("open", () => {
+      ws.send(JSON.stringify({ type: "pin_directory", path: process.cwd() }));
+      ws.send(JSON.stringify({ type: "create_terminal", cwd: process.cwd() }));
+    });
     ws.on("message", (data) => {
       let msg: { type?: string; terminal?: { id?: string }; id?: string };
       try {

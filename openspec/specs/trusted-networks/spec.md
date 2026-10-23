@@ -69,6 +69,8 @@ Route files SHALL continue to receive the guard via their `RouteDeps`
 `networkGuard` field (created once at startup over the live admission-list thunk);
 that threading remains valid but is no longer the protection boundary.
 
+No route SHALL be reachable through the sensitive namespaces without the network guard because it was registered late (for example by a plugin hot-load). Registering a route after the server has started SHALL fail, and the route SHALL NOT be served; that refusal is the enforcement. The server SHALL NOT work around it by serving sensitive-namespace routes from a second server instance or other after-start mechanism without the guard installed, and a regression test SHALL fail if post-start route registration stops being refused. A failed post-start registration SHALL be logged and the registering plugin marked failed; the server SHALL keep running. Any future facility that adds routes after start SHALL install the network guard on them.
+
 Jurisdiction and in-namespace exception matching SHALL operate on the parsed
 request **pathname** (query string and fragment stripped), with prefix matches
 anchored on a trailing slash, so neither a query string (`/api/health?x=1`) nor a
@@ -120,6 +122,16 @@ required for a route to be protected.
 #### Scenario: File route uses network guard
 - **WHEN** a request to `GET /api/browse` arrives from an untrusted IP
 - **THEN** the route SHALL return 403
+
+#### Scenario: Late-registered route is not left unguarded
+- **WHEN** code attempts to register a route under a sensitive namespace after the server has started
+- **THEN** the registration SHALL fail and the route SHALL NOT be served
+- **AND** where a future mechanism permits post-start routes, a request to such a route from an untrusted, unauthenticated IP SHALL be denied by the network guard
+
+#### Scenario: Failed post-start registration does not stop the server
+- **WHEN** a plugin's route registration fails after the server has started
+- **THEN** the failure SHALL be logged and the plugin marked failed
+- **AND** the server SHALL keep serving all other routes
 
 ### Requirement: WebSocket upgrade respects trusted networks
 The WebSocket upgrade handler in `server.ts` SHALL check genuine-local, local-IPC token, ticket and auth, and — **only when the effective trust mode is `"legacy"`** — trusted networks. When the identity floor requires a principal-bearing ticket for the upgrade's scope, that rule SHALL take precedence over every allowance in this requirement, in both modes. In `"legacy"` mode a connection SHALL be allowed without authentication when `isTrustedSource(remoteAddress, headers, trustedNetworks)` is `true`; credential checks (ticket, cookie) SHALL be evaluated before this network match. The `validateWsUpgrade` function SHALL accept the admission list and the upgrade headers and SHALL use `isTrustedSource`.

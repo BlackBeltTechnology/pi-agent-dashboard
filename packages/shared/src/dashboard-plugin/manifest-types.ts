@@ -386,6 +386,13 @@ export interface PluginManifest {
    */
   eventTypes?: string[];
   /**
+   * Event types this plugin may emit into sessions via `ctx.emitEventToSession`
+   * (exact names, no reserved host prefix). Absent / empty = emits nothing.
+   * Distinct from the inbound `eventTypes`. Enforced at the server seam.
+   * See change: harden-git-terminal-plugin-boundaries (D16).
+   */
+  emits?: string[];
+  /**
    * Host API range this plugin was built against: `^MAJOR.MINOR[.PATCH]` or an
    * exact `MAJOR.MINOR.PATCH`. Evaluated at discovery against
    * `PLUGIN_HOST_API_VERSION`; one range covers the server and client halves.

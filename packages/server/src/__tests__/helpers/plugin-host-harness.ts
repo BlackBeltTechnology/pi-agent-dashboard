@@ -46,6 +46,8 @@ export function installFakePlugin(opts: {
   id: string;
   priority: number;
   displayName?: string;
+  /** Manifest `emits` (event types the plugin may emit into sessions). */
+  emits?: string[];
 }): void {
   const pluginsDir = path.join(os.homedir(), ".pi", "dashboard", "plugins");
   const pkgDir = path.join(pluginsDir, opts.id);
@@ -58,6 +60,7 @@ export function installFakePlugin(opts: {
         id: opts.id,
         displayName: opts.displayName ?? opts.id,
         priority: opts.priority,
+        ...(opts.emits ? { emits: opts.emits } : {}),
         claims: [],
         server: "./server.mjs",
       },

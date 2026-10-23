@@ -98,9 +98,17 @@ async function boot(
     abortSession: async () => true,
     abortSpawnedRun: async () => true,
     provide: (k: string, v: unknown) => provided.set(k, v),
-    consume: (k: string) => provided.get(k),
+    // Host lookup the registry's subset check uses: flows' real manifest emits.
+    // See change: harden-git-terminal-plugin-boundaries (D16).
+    consume: (k: string) =>
+      k === "host.pluginManifestEmits"
+        ? (id: string) => (id === "flows" ? ["flow:run", "dashboard-flows:report-files"] : [])
+        : provided.get(k),
+    // The host records the provider per key: the test publishes on flows' behalf.
     consumeAll: (prefix: string) =>
-      [...provided.entries()].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value })),
+      [...provided.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([key, value]) => ({ key, value, provider: key.slice("automation.action.".length) })),
     getPluginConfig: () => ({ scanGlobalScope: false, scanFolderScope: true }),
     updatePluginConfig: async () => {},
     logger: {

@@ -222,6 +222,17 @@ function schemaForRow(
     base = tjs(t, checker);
   }
 
+  // Manifest-declared required args (e.g. `cwd` on the folder-scope automation tools).
+  if (row.requiredArgs?.length) {
+    const properties = { ...(base.properties ?? {}) };
+    const required = new Set(base.required ?? []);
+    for (const arg of row.requiredArgs) {
+      properties[arg] ??= { type: "string", description: `Required argument \`${arg}\`.` };
+      required.add(arg);
+    }
+    base = { ...base, properties, required: [...required] };
+  }
+
   if (row.bind.kind !== "rest") return base;
   const params = pathParams(row.bind.path);
   if (params.length === 0) return base;

@@ -14,6 +14,7 @@ import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
+import { isValidRefArg } from "../git-worktree/ref-arg.js";
 import {
   type DispatchReloadContext,
   dispatchReload,
@@ -823,8 +824,15 @@ export async function handleSpawnSession(
   // write `.meta.json#gitWorktreeBase` so the WORKSPACE-subcard pill
   // can render `created from <base>` on later renders.
   // See change: add-worktree-spawn-dialog.
+  // B1r: the hint is a client-supplied git ref — an option-like / control-character value is NOT
+  // stored (one log line, no client error: it is only a hint) and is re-validated where used.
+  // See change: harden-git-terminal-plugin-boundaries.
   if (typeof msg.gitWorktreeBase === "string" && msg.gitWorktreeBase.length > 0) {
-    pendingWorktreeBaseRegistry?.enqueue(msg.cwd, msg.gitWorktreeBase);
+    if (isValidRefArg(msg.gitWorktreeBase)) {
+      pendingWorktreeBaseRegistry?.enqueue(msg.cwd, msg.gitWorktreeBase);
+    } else {
+      console.warn(`[dashboard] spawn_session: ignoring invalid gitWorktreeBase hint (${JSON.stringify(msg.gitWorktreeBase).slice(0, 80)})`);
+    }
   }
 
   // Initial-prompt intent — same race-safe FIFO enqueue pattern. Consumed by

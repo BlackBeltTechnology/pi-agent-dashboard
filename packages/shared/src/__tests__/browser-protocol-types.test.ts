@@ -617,3 +617,14 @@ describe("terminal_limit_reached / folder_refused / BrowseResult.confined types"
     expect(bad).toBeDefined();
   });
 });
+
+// ─── harden-git-terminal-plugin-boundaries (D14) ─────────────────────────────
+describe("terminal_error type", () => {
+  it("is a member of ServerToBrowserMessage with a closed code set", () => {
+    const a: ServerToBrowserMessage = { type: "terminal_error", code: "cwd_not_admitted", cwd: "/w", inline: false, message: "no" };
+    const b: ServerToBrowserMessage = { type: "terminal_error", code: "session_not_found", cwd: "", inline: true, message: "gone" };
+    // @ts-expect-error code must be one of the three refusal codes
+    const bad: ServerToBrowserMessage = { type: "terminal_error", code: "nope", cwd: "/w", inline: false, message: "x" };
+    expect([a.type, b.type, bad.type]).toEqual(["terminal_error", "terminal_error", "terminal_error"]);
+  });
+});

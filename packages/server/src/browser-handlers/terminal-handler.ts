@@ -1,8 +1,11 @@
 /**
  * Terminal message handlers: create, kill, rename.
  */
-import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { isAbsolute } from "node:path";
+import type { BrowserToServerMessage, TerminalErrorMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { admissionAllows, releaseAdmission } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { canAccessSession } from "../identity/session-access.js";
+import { admitRouteCwd } from "../lib/route-admission.js";
 import { TerminalLimitError } from "../terminal/terminal-manager.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
@@ -55,21 +58,80 @@ function refuseAtCap(err: unknown, cwd: string, inline: boolean, ctx: BrowserHan
   ctx.sendTo(ctx.ws, { type: "terminal_limit_reached", scope: err.scope, limit: err.limit, cwd, inline });
 }
 
-export function handleCreateTerminal(
+const REFUSAL_TEXT: Record<TerminalErrorMessage["code"], string> = {
+  cwd_not_admitted:
+    "A terminal was not opened: this folder is not one the dashboard knows about. Open a session in it or pin it first.",
+  cwd_admission_unavailable:
+    "A terminal was not opened: the folder could not be verified right now. Try again in a moment.",
+  session_not_found: "A terminal was not opened: the session for it no longer exists.",
+};
+const NO_SESSION_CWD_TEXT = "A terminal was not opened: this session has no recorded folder.";
+
+/** `terminal_error` goes to the requesting socket ONLY; a failing send never escapes. */
+function sendTerminalError(
+  ctx: BrowserHandlerContext,
+  code: TerminalErrorMessage["code"],
+  cwd: unknown,
+  inline: boolean,
+  message: string = REFUSAL_TEXT[code],
+): void {
+  try {
+    ctx.sendTo(ctx.ws, { type: "terminal_error", code, cwd: typeof cwd === "string" ? cwd : "", inline, message });
+  } catch (err) {
+    console.error(`[terminal] could not deliver terminal_error (${code}): ${errText(err)}`);
+  }
+}
+
+const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** The requesting socket is closing/closed (`ws` readyState CLOSING=2 / CLOSED=3). Absent ⇒ open. */
+function requesterClosed(ctx: BrowserHandlerContext): boolean {
+  const state = (ctx.ws as { readyState?: number } | undefined)?.readyState;
+  return state === 2 || state === 3;
+}
+
+/**
+ * Standalone terminal. The cwd is admitted (shared tri-state `admitCwd`: known
+ * folders = session cwds ∪ pinned dirs ∪ workspace folders, plus a worktree of one)
+ * BEFORE any spawn; the cap is checked by `spawn` AFTER the await, in the same tick
+ * as the spawn, so concurrent requests cannot exceed it. Never rejects: every
+ * failure becomes `terminal_error{cwd_admission_unavailable}` and one log line.
+ * See change: harden-git-terminal-plugin-boundaries (D14).
+ */
+export async function handleCreateTerminal(
   msg: Extract<BrowserToServerMessage, { type: "create_terminal" }>,
   ctx: BrowserHandlerContext,
-): void {
+): Promise<void> {
   const { terminalManager, sessionOrderManager, broadcast } = ctx;
-  if (terminalManager && sessionOrderManager) {
-    let terminal: ReturnType<typeof terminalManager.spawn>;
+  if (!terminalManager || !sessionOrderManager) return;
+  const cwd: unknown = msg.cwd;
+  if (typeof cwd !== "string" || cwd === "" || !isAbsolute(cwd)) {
+    return sendTerminalError(ctx, "cwd_not_admitted", cwd, false);
+  }
+  try {
+    const admission = await admitRouteCwd(cwd, ctx.terminalAdmission);
     try {
-      terminal = terminalManager.spawn(msg.cwd, { owner: ownerForSpawn(ctx) });
-    } catch (err) {
-      return refuseAtCap(err, msg.cwd, false, ctx);
+      if (admission.kind === "indeterminate") {
+        console.warn(`[terminal] cwd admission undecidable for new terminal (${admission.failedProbes.join(",")})`);
+        return sendTerminalError(ctx, "cwd_admission_unavailable", cwd, false);
+      }
+      if (!admissionAllows(admission, cwd)) return sendTerminalError(ctx, "cwd_not_admitted", cwd, false);
+      if (requesterClosed(ctx)) return; // requester went away while admission was pending
+      let terminal: ReturnType<typeof terminalManager.spawn>;
+      try {
+        terminal = terminalManager.spawn(cwd, { owner: ownerForSpawn(ctx) });
+      } catch (err) {
+        return refuseAtCap(err, cwd, false, ctx);
+      }
+      sessionOrderManager.insert(cwd, terminal.id);
+      broadcast({ type: "terminal_added", terminal });
+      broadcast({ type: "sessions_reordered", cwd, sessionIds: sessionOrderManager.getOrder(cwd) });
+    } finally {
+      if (admission.kind === "admit") releaseAdmission(admission.token);
     }
-    sessionOrderManager.insert(msg.cwd, terminal.id);
-    broadcast({ type: "terminal_added", terminal });
-    broadcast({ type: "sessions_reordered", cwd: msg.cwd, sessionIds: sessionOrderManager.getOrder(msg.cwd) });
+  } catch (err) {
+    console.error(`[terminal] create_terminal failed: ${errText(err)}`);
+    sendTerminalError(ctx, "cwd_admission_unavailable", cwd, false);
   }
 }
 
@@ -78,7 +140,9 @@ export function handleCreateTerminal(
  * terminal_added (TerminalsView filters ephemeral from tabs), then insert and
  * broadcast an `inline_terminal_open` event into the session's chat stream so
  * the card is event-sourced and replays on reload.
- * See change: add-inline-terminal-card.
+ * The PTY spawns at the SESSION's own recorded cwd; `msg.cwd` (kept in the
+ * protocol for old clients) is ignored. Unknown session → `session_not_found`.
+ * See change: add-inline-terminal-card, harden-git-terminal-plugin-boundaries (D14).
  */
 export function handleOpenInlineTerminal(
   msg: Extract<BrowserToServerMessage, { type: "open_inline_terminal" }>,
@@ -89,9 +153,21 @@ export function handleOpenInlineTerminal(
   if (!mayWriteSession(ctx, msg.sessionId)) return;
   let terminal: ReturnType<typeof terminalManager.spawn>;
   try {
-    terminal = terminalManager.spawn(msg.cwd, { ephemeral: true, owner: ownerForSpawn(ctx) });
+    const sessionId: unknown = msg.sessionId;
+    const session = typeof sessionId === "string" && sessionId !== "" ? ctx.sessionManager.get(sessionId) : undefined;
+    if (!session) return sendTerminalError(ctx, "session_not_found", msg.cwd, true);
+    const cwd: unknown = session.cwd;
+    if (typeof cwd !== "string" || cwd === "") {
+      return sendTerminalError(ctx, "cwd_not_admitted", msg.cwd, true, NO_SESSION_CWD_TEXT);
+    }
+    try {
+      terminal = terminalManager.spawn(cwd, { ephemeral: true, owner: ownerForSpawn(ctx) });
+    } catch (err) {
+      return refuseAtCap(err, cwd, true, ctx);
+    }
   } catch (err) {
-    return refuseAtCap(err, msg.cwd, true, ctx);
+    console.error(`[terminal] open_inline_terminal failed: ${errText(err)}`);
+    return sendTerminalError(ctx, "cwd_admission_unavailable", msg.cwd, true);
   }
   broadcast({ type: "terminal_added", terminal });
   const seq = eventStore.insertEvent(msg.sessionId, {

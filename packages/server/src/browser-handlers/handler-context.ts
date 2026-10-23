@@ -80,6 +80,13 @@ export interface BrowserHandlerContext {
   replayState?: import("../session/hydration-state.js").ReplayState;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
+  /**
+   * Cwd admission seam for standalone terminals (`handleCreateTerminal`): the live
+   * known-folder set + `admitCwd` options/test seams. Absent ⇒ nothing is known, so every
+   * standalone create is refused (fail closed).
+   * See change: harden-git-terminal-plugin-boundaries (D14).
+   */
+  terminalAdmission?: import("../lib/route-admission.js").RouteAdmissionDeps;
   headlessPidRegistry: HeadlessPidRegistry;
   pendingResumeRegistry: PendingResumeRegistry;
   pendingDashboardSpawns?: Map<string, number>;

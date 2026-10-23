@@ -773,8 +773,11 @@ export type AbortSpawnedRunFn = (args: {
 
 /**
  * Publish a value under `name` into the host-owned cross-plugin service
- * registry (last write wins). In-process only — values never cross the
- * bridge. See change: register-plugin-automation-events.
+ * registry (last write wins), recording the calling plugin as its provider.
+ * For `automation.action.<source>` keys the caller MUST be plugin `<source>`;
+ * a violation is refused with a logged warning (returns normally, stores
+ * nothing). In-process only — values never cross the bridge.
+ * See change: register-plugin-automation-events; harden-git-terminal-plugin-boundaries.
  */
 export type ProvideFn = (name: string, value: unknown) => void;
 
@@ -789,13 +792,15 @@ export type ConsumeFn = <T = unknown>(name: string) => T | undefined;
 
 /**
  * Enumerate every value published via `provide(name, …)` whose `name` starts
- * with `prefix`, paired with its key. Enables publish/collect: producers
+ * with `prefix`, paired with its key and, additively, the `provider` plugin id
+ * the host recorded for it (`"host"` for host-set entries). Enables publish/collect: producers
  * `provide` under a namespaced key, a consumer collects the namespace lazily,
  * independent of plugin load order. In-process only (never crosses the
  * bridge). Returns `[]` when nothing matches (never throws). Result order is
- * unspecified. See change: decouple-automation-action-registry.
+ * unspecified. See change: decouple-automation-action-registry;
+ * harden-git-terminal-plugin-boundaries (provider).
  */
-export type ConsumeAllFn = <T = unknown>(prefix: string) => Array<{ key: string; value: T }>;
+export type ConsumeAllFn = <T = unknown>(prefix: string) => Array<{ key: string; value: T; provider: string }>;
 
 /**
  * OAuth/api_key-aware model resolver a plugin server entry can use through

@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -1597,7 +1597,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // loader's topological order guarantees a provider's registerPlugin runs
   // before a dependent's consume. In-process only.
   // See change: register-plugin-automation-events.
-  const pluginServiceRegistry = new Map<string, unknown>();
+  // Records the PROVIDER plugin per key and enforces `automation.action.<source>`
+  // key ownership (provider id MUST equal <source>). Host-set entries
+  // (`.set`) carry provider "host". See change: harden-git-terminal-plugin-boundaries (D16).
+  const pluginServiceRegistry = createPluginServiceRegistry();
+  // Manifest `emits` per plugin, recorded at context creation. A plugin's types
+  // count only while it is LOADED (status store, live), so an unloaded or
+  // disabled provider's types leave every allowlist at once.
+  const pluginManifestEmits = new Map<string, readonly string[]>();
+  const loadedManifestEmits = (pluginId: string): readonly string[] | undefined =>
+    getPluginStatusStore().getStatus(pluginId)?.loaded === true ? pluginManifestEmits.get(pluginId) : undefined;
+  // Read-only lookup for the automation action registry's subset check.
+  pluginServiceRegistry.set("host.pluginManifestEmits", loadedManifestEmits);
   // Host-provided known-folder set for plugin cwd validation: session cwds ∪
   // pinned directories, as a LIVE getter (not a boot-time snapshot) so plugins
   // see folders added later. kb-plugin consumes this to guard its /api/kb/*
@@ -3599,8 +3610,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // hooks to routes at `preReady` (verified against fastify@5.12.1 — `addHook`
   // defers through `this.after` and then recurses `_addHook` over `kChildren`),
   // including the encapsulated child scopes plugin routes register into. It does
-  // NOT cover a route registered after `ready()`; plugin activation is
-  // restart-effective today, so a future hot-load feature would reopen this.
+  // NOT cover a route registered after `ready()` — and none can be: Fastify refuses
+  // it (`route()` → `throwIfAlreadyStarted('Cannot add route!')`, fastify@5.12.1
+  // `lib/route.js:205`), so a plugin hot-load whose entry registers a route fails that
+  // plugin (logged, status row `loaded:false`) and the route is never served. That
+  // refusal IS the enforcement: never serve sensitive-namespace routes from a second
+  // instance / after-start mechanism without this hook, and install the guard on any
+  // future facility that adds routes after start. Pinned by
+  // `__tests__/post-start-route-registration.test.ts`; re-verify after a fastify bump.
+  // See change: harden-git-terminal-plugin-boundaries (S1r).
   fastify.addHook(
     "onRequest",
     createNetworkGuardHook({
@@ -3987,7 +4005,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
           // Bracket this plugin's activation for route-owner attribution (D24): the
           // next plugin's createContext re-begins; the finally below ends.
-          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), createServerPluginContext(
+          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), pluginManifestEmits.set(plugin.manifest.id, plugin.manifest.emits ?? []), createServerPluginContext(
             {
               fastify,
               isPiExtensionInstalled,
@@ -4387,11 +4405,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
               // See change: automation-emit-configured-event.
+              // Only event types in the plugin's manifest `emits` (live; automation also
+              // gets its accepted action providers' emits) pass.
+              // See change: harden-git-terminal-plugin-boundaries (D16).
               emitEventToSession: (sessionId, eventType, data) =>
                 pluginEventSeam.emitEventToSession(
                   (plugin.manifest.priority ?? 1000) <= 100,
                   (sid, m) => piGateway.sendToSession(sid, m),
                   sessionId, eventType, data,
+                  {
+                    pluginId: plugin.manifest.id,
+                    allowed: () =>
+                      pluginEventSeam.computeEmitAllowlist(plugin.manifest.id, {
+                        manifestEmits: loadedManifestEmits,
+                        actionEntries: () => pluginServiceRegistry.entries("automation.action."),
+                      }),
+                  },
                 ),
               // Raw server→extension control message to one session's bridge
               // socket — the `credentials_updated` lane, WITHOUT the
@@ -4405,18 +4434,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   (sid, m) => piGateway.sendToSession(sid, m as Parameters<typeof piGateway.sendToSession>[1]),
                   sessionId, msg,
                 ),
-              provide: (name, value) => { pluginServiceRegistry.set(name, value); },
+              // Attributed to this plugin; `automation.action.<source>` keys are
+              // refused unless `<source>` is this plugin's id (logged, no throw).
+              provide: (name, value) => { pluginServiceRegistry.provide(plugin.manifest.id, name, value); },
               consume: <T = unknown>(name: string) =>
-                pluginServiceRegistry.get(name) as T | undefined,
+                pluginServiceRegistry.get<T>(name),
               // Prefix enumeration for publish/collect (in-process only).
               // See change: decouple-automation-action-registry.
-              consumeAll: <T = unknown>(prefix: string) => {
-                const out: Array<{ key: string; value: T }> = [];
-                for (const [key, value] of pluginServiceRegistry) {
-                  if (key.startsWith(prefix)) out.push({ key, value: value as T });
-                }
-                return out;
-              },
+              consumeAll: <T = unknown>(prefix: string) => pluginServiceRegistry.entries<T>(prefix),
               // plugin_action fans out by pluginId (manifest-authoritative, not
               // self-declared) so multiple plugins coexist; other custom types
               // stay single-owner. See change: fix-plugin-action-fanout-and-handlers.
