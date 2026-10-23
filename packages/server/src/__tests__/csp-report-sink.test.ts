@@ -1,6 +1,6 @@
 /**
  * Baseline CSP report sink + persisted counter + operator reset (L1, `fastify.inject`).
- * Test ids refer to openspec/changes/harden-cors-and-csp-reporting/test-plan.md.
+ * Test ids refer to openspec/changes/archive/2026-10-23-harden-cors-and-csp-reporting/test-plan.md.
  * Real-socket cases (WE25, WP3, WX1, WX7) live in `csp-report-sink-socket.test.ts`.
  *
  * See change: harden-cors-and-csp-reporting (D8).

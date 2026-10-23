@@ -1,7 +1,7 @@
 /**
  * Baseline CSP report sink over a REAL socket: chunked bodies, a body read that must stop at
  * the cap, an aborted body, and a trickling (slow) body. `fastify.inject` cannot express these.
- * Test ids refer to openspec/changes/harden-cors-and-csp-reporting/test-plan.md.
+ * Test ids refer to openspec/changes/archive/2026-10-23-harden-cors-and-csp-reporting/test-plan.md.
  *
  * See change: harden-cors-and-csp-reporting (D8).
  */

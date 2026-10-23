@@ -32,7 +32,7 @@ const ADVISORY_BASE = "https://github.com/advisories/";
 const GHSA_RE = /GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}/gi;
 const NO_OWNER = new Set(["", "n/a", "na", "none", "-", "—", "tbd"]);
 
-const CHANGE_DIR = "openspec/changes/harden-cors-and-csp-reporting";
+const CHANGE_DIR = "openspec/changes/archive/2026-10-23-harden-cors-and-csp-reporting";
 export const DEFAULT_SNAPSHOT = `${CHANGE_DIR}/advisory-audit-snapshot.json`;
 export const DEFAULT_TRIAGE = `${CHANGE_DIR}/advisory-triage.md`;
 const SERVER_PKG = "packages/server/package.json";
