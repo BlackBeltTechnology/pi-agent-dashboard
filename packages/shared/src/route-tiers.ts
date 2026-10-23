@@ -314,6 +314,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/config/plugins/:id", tier: "operate" },
   // harden-client-sinks (D8): any admitted viewer may report the violations its own page saw.
   { method: "POST", path: "/api/csp-violations", tier: "observe" },
+  // harden-cors-and-csp-reporting (D8): resets the persisted baseline report counters — operator-only.
+  { method: "POST", path: "/api/csp-reports/reset", tier: "operate" },
   { method: "POST", path: "/api/device-session", tier: "observe" },
   { method: "POST", path: "/api/diagram/render", tier: "control" },
   // add-mermaid-ai-repair: on-demand model call (spend), same tier as answering/summarizing.

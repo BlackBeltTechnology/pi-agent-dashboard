@@ -26,9 +26,19 @@
  * directive to the baseline header; differing modes set the OTHER header kind
  * with the directive alone (never comma-joined). See change: harden-client-sinks (D7).
  *
+ * Strict policy (S3b): identical to the baseline except `script-src 'self' 'nonce-<n>'` (no
+ * `'unsafe-inline'`/`'unsafe-eval'`). `report` mode emits baseline + strict as two Report-Only headers;
+ * `enforce` emits strict enforcing only. Each carries `report-uri`/`report-to` for its own label (the TT-only
+ * header: `trusted-types`) plus a `Reporting-Endpoints` header. The nonce is minted per HTML response by
+ * `cspNonceFor(reply)` (memoized; non-HTML responses carry none). A response proxied to Vite
+ * (`markViteProxied`) is a dev response: baseline only (legacy `script-src`), no strict, no nonce, no report
+ * destination. Default mode stays `report`. See change: harden-cors-and-csp-reporting (D9, D10).
+ *
  * See change: improve-content-editor (baseline CSP §7).
  */
-import type { FastifyInstance } from "fastify";
+import { randomBytes } from "node:crypto";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import { type CspReportPolicy, cspReportEndpointName, cspReportPath } from "./csp-report-paths.js";
 
 export type CspMode = "off" | "report" | "enforce";
 
@@ -43,10 +53,10 @@ const SKIP_PREFIXES = ["/live/"];
  * `worker-src 'self' blob:` keeps Monaco/pdfjs workers alive. `connect-src`
  * allows same-origin + WebSocket (dashboard `/ws`, Vite HMR, zrok wss).
  */
-export function buildCsp(): string {
+function directives(scriptSrc: string): string {
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
@@ -57,6 +67,16 @@ export function buildCsp(): string {
     "base-uri 'self'",
     "frame-ancestors 'self'",
   ].join("; ");
+}
+
+/** The `baseline` policy (legacy `script-src`). */
+export function buildCsp(): string {
+  return directives("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+}
+
+/** The `strict` policy: `script-src 'self'` plus the response nonce when there is one (HTML only). */
+export function buildStrictCsp(nonce?: string): string {
+  return directives(nonce ? `script-src 'self' 'nonce-${nonce}'` : "script-src 'self'");
 }
 
 export function resolveCspMode(raw: string | undefined): CspMode {
@@ -72,7 +92,50 @@ export function resolveTrustedTypesMode(raw: string | undefined, cspMode: CspMod
   return cspMode === "off" ? "off" : "report";
 }
 
-const headerFor = (mode: CspMode) => (mode === "enforce" ? "content-security-policy" : "content-security-policy-report-only");
+const nonces = new WeakMap<FastifyReply, string>();
+const viteProxied = new WeakSet<FastifyReply>();
+
+/** Per-response script nonce (16 random bytes, base64), memoized per reply: the header and the import map share it. */
+export function cspNonceFor(reply: FastifyReply): string {
+  let n = nonces.get(reply);
+  if (!n) {
+    n = randomBytes(16).toString("base64");
+    nonces.set(reply, n);
+  }
+  return n;
+}
+
+/** Mark a reply as proxied to the Vite dev server: it gets the dev header shape (baseline only, no destinations). */
+export function markViteProxied(reply: FastifyReply): void {
+  viteProxied.add(reply);
+}
+
+const RO = "content-security-policy-report-only";
+const EN = "content-security-policy";
+const headerFor = (mode: CspMode) => (mode === "enforce" ? EN : RO);
+
+type Plan = Map<string, Array<{ value: string; label?: CspReportPolicy }>>;
+
+/** Header kind → policy values for one response. `label` = report destination (absent in dev / for nothing). */
+function plan(mode: CspMode, ttMode: CspMode, dev: boolean, nonce: string | undefined): Plan {
+  const out: Plan = new Map();
+  const add = (kind: string, value: string, label?: CspReportPolicy) => {
+    const list = out.get(kind) ?? [];
+    list.push({ value, label: dev ? undefined : label });
+    out.set(kind, list);
+  };
+  const tt = (on: boolean) => (on ? `; ${TRUSTED_TYPES_DIRECTIVE}` : "");
+  if (mode === "report") {
+    add(RO, buildCsp() + tt(ttMode === mode), "baseline");
+    if (!dev) add(RO, buildStrictCsp(nonce), "strict");
+  } else if (mode === "enforce") {
+    // dev: the baseline policy enforcing (legacy dev `script-src`); production: the strict policy.
+    if (dev) add(EN, buildCsp() + tt(ttMode === mode), "baseline");
+    else add(EN, buildStrictCsp(nonce) + tt(ttMode === mode), "strict");
+  }
+  if (ttMode !== "off" && ttMode !== mode) add(headerFor(ttMode), TRUSTED_TYPES_DIRECTIVE, "trusted-types");
+  return out;
+}
 
 /**
  * Register the CSP hook. No-op when both the baseline and Trusted Types are
@@ -80,15 +143,25 @@ const headerFor = (mode: CspMode) => (mode === "enforce" ? "content-security-pol
  * resolved `PI_DASHBOARD_TRUSTED_TYPES` mode).
  */
 export function registerCsp(fastify: FastifyInstance, mode: CspMode, ttMode: CspMode = "off"): void {
-  // header kind → value; each kind is added only when absent (a route-level policy stands).
-  const headers = new Map<string, string>();
-  if (mode !== "off") headers.set(headerFor(mode), ttMode === mode ? `${buildCsp()}; ${TRUSTED_TYPES_DIRECTIVE}` : buildCsp());
-  if (ttMode !== "off" && ttMode !== mode) headers.set(headerFor(ttMode), TRUSTED_TYPES_DIRECTIVE);
-  if (headers.size === 0) return;
+  if (mode === "off" && ttMode === "off") return;
   fastify.addHook("onSend", async (request, reply, payload) => {
     const url = request.url;
     if (SKIP_PREFIXES.some((p) => url.startsWith(p))) return payload;
-    for (const [header, value] of headers) if (!reply.getHeader(header)) reply.header(header, value);
+    const dev = viteProxied.has(reply);
+    const used = new Set<CspReportPolicy>();
+    // Each header kind is added only when absent (a route-level policy stands).
+    for (const [kind, entries] of plan(mode, ttMode, dev, nonces.get(reply))) {
+      if (reply.getHeader(kind)) continue;
+      const values = entries.map(({ value, label }) => {
+        if (!label) return value;
+        used.add(label);
+        return `${value}; report-uri ${cspReportPath(label)}; report-to ${cspReportEndpointName(label)}`;
+      });
+      reply.header(kind, values.length === 1 ? values[0] : values);
+    }
+    if (used.size > 0 && !reply.getHeader("reporting-endpoints")) {
+      reply.header("reporting-endpoints", [...used].map((l) => `${cspReportEndpointName(l)}="${cspReportPath(l)}"`).join(", "));
+    }
     return payload;
   });
 }

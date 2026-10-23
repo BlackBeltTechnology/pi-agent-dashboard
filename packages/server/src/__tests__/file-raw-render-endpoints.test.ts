@@ -13,7 +13,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import iconv from "iconv-lite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
-import { buildCsp, type CspMode, registerCsp } from "../auth/csp.js";
+import { buildCsp, buildStrictCsp, type CspMode, registerCsp } from "../auth/csp.js";
 import { clearEmlCache, sanitizeBody } from "../lib/eml.js";
 import { extToContentType } from "../lib/mime-types.js";
 import type { DocxPdfEngine, OfficeCaps } from "../lib/office-preview.js";
@@ -385,6 +385,23 @@ describe("GET /api/file/raw — scriptable media types are sandboxed", () => {
   });
 });
 
+/** The route's sandbox policy stands in every mode; the mode adds only the OTHER header kind
+ *  (report: baseline + strict Report-Only; enforce: strict enforcing, absent where the route already set its own).
+ *  See change: harden-cors-and-csp-reporting (D10). */
+function expectRawModeHeaders(svg: Record<string, unknown>, pdf: Record<string, unknown>, mode: CspMode): void {
+  const kinds = (h: Record<string, unknown>, name: string) => [h[name]].flat().filter((v): v is string => typeof v === "string");
+  const starts = (vals: string[], policy: string) => vals.filter((v) => v.startsWith(`${policy};`)).length;
+  const report = mode === "report";
+  expect(svg["content-security-policy"]).toBe(SANDBOX);
+  const svgRo = kinds(svg, "content-security-policy-report-only");
+  expect(svgRo).toHaveLength(report ? 2 : 0);
+  expect(pdf["content-security-policy"] === undefined).toBe(mode !== "enforce");
+  const pdfRo = kinds(pdf, "content-security-policy-report-only");
+  expect(pdfRo).toHaveLength(report ? 2 : 0);
+  for (const ro of report ? [svgRo, pdfRo] : []) expect([starts(ro, buildCsp()), starts(ro, buildStrictCsp())]).toEqual([1, 1]);
+  if (mode === "enforce") expect(starts(kinds(pdf, "content-security-policy"), buildStrictCsp())).toBe(1);
+}
+
 describe("GET /api/file/raw — sandbox × dashboard CSP mode (E8)", () => {
   let tmp: string;
   beforeEach(async () => {
@@ -403,11 +420,7 @@ describe("GET /api/file/raw — sandbox × dashboard CSP mode (E8)", () => {
       const get = (n: string) =>
         app.inject({ method: "GET", url: `/api/file/raw?cwd=${encodeURIComponent(tmp)}&path=${n}` });
       const svg = await get("logo.svg");
-      expect(svg.headers["content-security-policy"]).toBe(SANDBOX);
-      expect(svg.headers["content-security-policy-report-only"]).toBe(mode === "report" ? buildCsp() : undefined);
-      const pdf = await get("foo.pdf");
-      expect(pdf.headers["content-security-policy"]).toBe(mode === "enforce" ? buildCsp() : undefined);
-      expect(pdf.headers["content-security-policy-report-only"]).toBe(mode === "report" ? buildCsp() : undefined);
+      expectRawModeHeaders(svg.headers, (await get("foo.pdf")).headers, mode);
       await app.close();
     });
   }

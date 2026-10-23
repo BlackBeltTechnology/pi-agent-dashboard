@@ -14,7 +14,10 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
+import { registerCspReportSink } from "../auth/csp-report-sink.js";
+import { CspReportStore } from "../auth/csp-report-store.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
+import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
@@ -39,6 +42,7 @@ interface App {
   restartCalls: () => number;
   promptCalls: () => number;
   refusals: TierRefusal[];
+  cspStore: CspReportStore;
 }
 
 async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Promise<App> {
@@ -79,8 +83,13 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
       logRefusal: (d) => refusals.push(d),
     }),
   );
+  // Covers only `/api/*` mutations: the cross-origin row of the CSP counter reset (WE32).
+  app.addHook("onRequest", createMutationOriginGate(() => ({ configuredOrigins: [], trustedNetworks: [] })));
   const networkGuard = createNetworkGuard(readTrusted);
   app.addHook("preHandler", networkGuard);
+  // The REAL reset route (`POST /api/csp-reports/reset`, tier operate).
+  const cspStore = new CspReportStore({ filePath: path.join(tmpDir, "csp-reports.json"), warn: () => {} });
+  registerCspReportSink(app, { store: cspStore, networkGuard, log: () => {} });
 
   app.get("/api/sessions", async () => ({ success: true }));
   app.post("/api/session/:id/prompt", async () => {
@@ -100,7 +109,7 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
   registerPluginRuntimeClientRoutes(app, { networkGuard, broadcast: () => {}, log: { info: () => {} } });
   await app.ready();
 
-  return { app, tokens, restartCalls: () => restart, promptCalls: () => prompt, refusals };
+  return { app, tokens, restartCalls: () => restart, promptCalls: () => prompt, refusals, cspStore };
 }
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
@@ -449,5 +458,45 @@ describe("E9/E10 — tier exemption follows the trust mode", () => {
     expect((await restart(app, tokens.observe)).statusCode).toBe(403);
     th.setTrustConfig({ trustMode: "legacy", trustedNetworks: LIST });
     expect((await restart(app, tokens.observe)).statusCode).toBe(200);
+  });
+});
+
+
+describe("WE32 — POST /api/csp-reports/reset is an operate-tier route", () => {
+  const REMOTE = "203.0.113.5";
+  const reset = (app: FastifyInstance, headers: Record<string, string>) =>
+    app.inject({ method: "POST", url: "/api/csp-reports/reset", remoteAddress: REMOTE, headers });
+
+  it("only an operate caller resets; every refusal leaves the counters unchanged", async () => {
+    const { app, tokens, cspStore } = await mkApp();
+    cspStore.record("strict", "script-src-elem");
+    cspStore.recordDropped();
+    const before = cspStore.snapshot();
+
+    // No credential: refused by the network guard (403 here; 401 when the OAuth gate fronts it).
+    const anon = await reset(app, {});
+    expect([401, 403]).toContain(anon.statusCode);
+    for (const tier of ["observe", "control"] as const) {
+      const res = await reset(app, bearer(tokens[tier]));
+      expect(res.statusCode, tier).toBe(403);
+      expect(res.json()).toMatchObject({ error: "insufficient_scope", scope: "operate" });
+    }
+    const crossOrigin = await reset(app, { ...bearer(tokens.operate), origin: "https://evil.example" });
+    expect(crossOrigin.statusCode).toBe(403);
+    expect(cspStore.snapshot()).toEqual(before);
+
+    const ok = await reset(app, bearer(tokens.operate));
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ success: true });
+    expect(cspStore.snapshot().dropped).toBe(0);
+    expect(cspStore.snapshot().counts.strict).toEqual({});
+  });
+
+  it("a session caller below operate is refused too", async () => {
+    const { app, cspStore } = await mkApp();
+    cspStore.recordDropped();
+    const res = await reset(app, { "x-test-cookie": "1", "x-test-tier": "control" });
+    expect(res.statusCode).toBe(403);
+    expect(cspStore.snapshot().dropped).toBe(1);
   });
 });

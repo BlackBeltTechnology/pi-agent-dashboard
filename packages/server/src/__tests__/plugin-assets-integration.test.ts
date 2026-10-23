@@ -10,7 +10,7 @@ import path from "node:path";
 import { clearDiscoveryCache, clearStatusStore, getPluginStatusStore, registerPluginAssetsRoute } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCsp, registerCsp } from "../auth/csp.js";
+import { buildCsp, buildStrictCsp, registerCsp } from "../auth/csp.js";
 import { grantClientTrust } from "../auth/plugin-trust-store.js";
 import { getRuntimeClientRegistry, installRuntimeClientRegistry, resetRuntimeClientRegistry } from "../plugin-runtime-clients.js";
 import { registerPluginActivationRoutes } from "../routes/plugin-activation-routes.js";
@@ -65,8 +65,11 @@ describe("E83: the host baseline CSP stamps /plugin-assets; there is no per-app 
     const res = await app.inject({ method: "GET", url: `/plugin-assets/ext/${sha}/index.js` });
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
-    expect(res.headers["content-security-policy-report-only"]).toBe(mode === "report" ? buildCsp() : undefined);
-    expect(res.headers["content-security-policy"]).toBe(mode === "enforce" ? buildCsp() : undefined);
+    // `report`: baseline + strict Report-Only; `enforce`: strict enforcing. A non-HTML asset carries no nonce.
+    const ro = [res.headers["content-security-policy-report-only"]].flat().filter((v): v is string => typeof v === "string");
+    const en = [res.headers["content-security-policy"]].flat().filter((v): v is string => typeof v === "string");
+    expect(ro.map((v) => v.split("; report-uri")[0])).toEqual(mode === "report" ? [buildCsp(), buildStrictCsp()] : []);
+    expect(en.map((v) => v.split("; report-uri")[0])).toEqual(mode === "enforce" ? [buildStrictCsp()] : []);
   });
 });
 

@@ -103,6 +103,10 @@ const STATIC_PUBLIC: ReadonlySet<string> = new Set([
   "/apps/obs",
   "/apps/obs/",
   "/apps/obs/app.js",
+  // The baseline CSP report sink (design D8): a write-only, size/type/rate-capped telemetry endpoint that
+  // signed-out pages must reach, so it is deliberately outside the guard and public to the OAuth gate
+  // (exactly POST on the three policy paths). It serves no data. See change: harden-cors-and-csp-reporting.
+  "/__pi/csp-report/:policy",
 ]);
 
 /**

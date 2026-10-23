@@ -117,6 +117,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/diagram/render", reason: "UI-only" },
   { pattern: "/api/mermaid/repair", reason: "UI-only; one-click AI repair of a rendered diagram. See change: add-mermaid-ai-repair" },
   { pattern: "/api/csp-violations", reason: "browser telemetry channel (Trusted Types / CSP violation counters); not an agent tool. See change: harden-client-sinks" },
+  { pattern: "/api/csp-reports/reset", reason: "operator-only reset of the persisted baseline CSP report counters; the soak signal an agent must not zero. See change: harden-cors-and-csp-reporting" },
   { pattern: "/api/nav-intent", reason: "browser navigation-intent capability for operator-opened overlays; not an agent tool. See change: harden-client-sinks" },
   { pattern: "/api/nav-intent/verify", reason: "browser navigation-intent verification for route-backed overlays; not an agent tool. See change: harden-client-sinks" },
   { pattern: "/api/host-gate", reason: "host admission internals" },

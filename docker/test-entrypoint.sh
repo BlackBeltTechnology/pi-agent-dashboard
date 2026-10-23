@@ -398,24 +398,31 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
   # every URL, so the gate denies nothing while still registering the routes
   # this spec needs.
   #
+  # PI_E2E_OAUTH_NO_BYPASS=1 seeds `bypassUrls:[]` instead, so the gate really
+  # gates: a spec asserting an EXEMPTION (the CSP report sink, WF5) would pass
+  # vacuously under the blanket "/" bypass. That lane locks the Playwright host
+  # out of everything else, so only the specs written for it may run there (they
+  # skip when the gate is not armed for the client). See change:
+  # harden-cors-and-csp-reporting.
+  #
   # Opt-in only: unset (the default) leaves the harness exactly as it was.
   # See change: config-override-oauth-redirect-base.
   if [ "${PI_E2E_OAUTH:-}" = "1" ]; then
     node -e '
       const fs = require("node:fs");
-      const [out, base] = process.argv.slice(1);
+      const [out, base, noBypass] = process.argv.slice(1);
       let cfg = {};
       try { cfg = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
       cfg.auth = {
         ...(cfg.auth ?? {}),
         secret: "e2e-auth-secret-32-chars-longxxxx",
         providers: { github: { clientId: "e2e-client-id", clientSecret: "e2e-client-secret" } },
-        bypassUrls: ["/"],
+        bypassUrls: noBypass === "1" ? [] : ["/"],
         redirectBaseUrl: base,
       };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
-    ' "${PI_DIR}/dashboard/config.json" "${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com}"
-    echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:[/] + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
+    ' "${PI_DIR}/dashboard/config.json" "${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com}" "${PI_E2E_OAUTH_NO_BYPASS:-}"
+    echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:$([ "${PI_E2E_OAUTH_NO_BYPASS:-}" = "1" ] && echo "[]" || echo "[/]") + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
   fi
 
   # --- Browse-root seed: the add-folder dialog browses `/fixtures/sample-git`, outside $HOME ---

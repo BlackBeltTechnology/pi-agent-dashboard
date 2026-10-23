@@ -20,6 +20,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import QRCode from "qrcode";
+import { PASSKEY_ASSETS } from "./passkey-assets.js";
 import { renderInvitePage, renderPhonePage } from "./passkey-pages.js";
 import { PasskeyError, type PasskeyService } from "./passkey-service.js";
 import { describeRequester, rateKeyOf } from "./requester.js";
@@ -107,6 +108,13 @@ export function registerPasskeyRoutes(fastify: FastifyInstance, deps: PasskeyRou
   fastify.get("/auth/passkey/webauthn.js", async (_request, reply) =>
     reply.type("application/javascript; charset=utf-8").header("cache-control", "public, max-age=3600").send(loadWebauthnBundle()),
   );
+
+  // Static page scripts/styles (same-origin, so the strict CSP `script-src 'self'` covers them).
+  for (const [name, asset] of Object.entries(PASSKEY_ASSETS)) {
+    fastify.get(`/auth/passkey/${name}`, async (_request, reply) =>
+      reply.type(asset.type).header("cache-control", "public, max-age=3600").send(asset.body),
+    );
+  }
 
   fastify.get("/auth/invite", async (_request, reply) => reply.type("text/html").header("cache-control", "no-store").send(renderInvitePage()));
   fastify.get("/auth/phone", async (_request, reply) => reply.type("text/html").header("cache-control", "no-store").send(renderPhonePage()));

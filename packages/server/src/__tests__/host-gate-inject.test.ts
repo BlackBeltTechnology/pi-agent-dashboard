@@ -6,12 +6,18 @@
  * See change: expand-mcp-tiered-surface (D4).
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { McpCaller } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/dispatch";
 import { dispatchRpc } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/dispatch";
 import type { GeneratedTool } from "@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
+import { registerCspReportSink } from "../auth/csp-report-sink.js";
+import { CspReportStore } from "../auth/csp-report-store.js";
 import { isHostAdmitted } from "../auth/host-admission.js";
+import { createHostGate, HostGateState } from "../auth/host-gate.js";
 
 const V = "2026-07-28";
 const MODERN = { era: "modern" as const, version: V };
@@ -99,5 +105,57 @@ describe("X11 — the host gate sees the forwarded host", () => {
     const body = res.body as unknown as { result: { isError?: boolean; content: Array<{ text: string }> } };
     expect(body.result.isError).toBe(true);
     expect(body.result.content[0].text).toContain("host_not_admitted");
+  });
+});
+
+describe("WE35 — the host gate covers the CSP report sink", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  async function sinkApp(mode: "report" | "enforce") {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "csp-host-gate-"));
+    dirs.push(dir);
+    const store = new CspReportStore({ filePath: path.join(dir, "csp-reports.json"), warn: () => {} });
+    const app = Fastify({ logger: false });
+    open.push(app);
+    const state = new HostGateState();
+    app.addHook(
+      "onRequest",
+      createHostGate(() => ({ admission: { publicBaseUrls: [], allowedHosts: ["dash.local"], bindHost: "0.0.0.0" }, mode, envOverridden: false }), state, () => 8000),
+    );
+    app.get("/api/health", async () => ({ ok: true }));
+    registerCspReportSink(app, { store, networkGuard: async () => {}, log: () => {} });
+    await app.ready();
+    return { app, store };
+  }
+  const report = JSON.stringify({ "csp-report": { "effective-directive": "script-src-elem" } });
+  const postReport = (app: FastifyInstance, host: string) =>
+    app.inject({
+      method: "POST",
+      url: "/__pi/csp-report/strict",
+      remoteAddress: "203.0.113.9",
+      headers: { host, "content-type": "application/csp-report" },
+      payload: report,
+    });
+
+  it("report mode: an unadmitted Host still reaches the sink and is counted", async () => {
+    const { app, store } = await sinkApp("report");
+    const res = await postReport(app, "evil.example");
+    expect(res.statusCode).toBe(204);
+    expect(store.snapshot().counts.strict["script-src-elem"]).toBe(1);
+  });
+
+  it("enforce mode: an unadmitted Host is refused exactly like GET /api/health; nothing is counted", async () => {
+    const { app, store } = await sinkApp("enforce");
+    const health = await app.inject({ method: "GET", url: "/api/health", remoteAddress: "203.0.113.9", headers: { host: "evil.example" } });
+    expect(health.statusCode).toBe(403);
+    const res = await postReport(app, "evil.example");
+    expect(res.statusCode).toBe(health.statusCode);
+    expect(store.snapshot().counts.strict).toEqual({});
+    expect(store.snapshot().dropped).toBe(0);
+    // an admitted Host is unaffected
+    expect((await postReport(app, "dash.local")).statusCode).toBe(204);
   });
 });

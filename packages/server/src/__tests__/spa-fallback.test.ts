@@ -271,7 +271,9 @@ describe("import map on every HTML path", () => {
         const blocks = mapBlocks(res.body);
         expect(blocks, label).toHaveLength(1);
         expect(res.body.indexOf(blocks[0]), label).toBeLessThan(res.body.indexOf('type="module"'));
-        maps.add(blocks[0]);
+        // The per-response CSP nonce (strict policy, D9) is the only thing allowed to differ between responses.
+        expect(blocks[0], label).toMatch(/^<script type="importmap" nonce="[A-Za-z0-9+/=_-]+">/);
+        maps.add(blocks[0].replace(/ nonce="[^"]*"/, ""));
       }
     }
     expect(maps.size).toBe(1);
