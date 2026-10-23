@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockExecSync, mockExistsSync, mockReadFileSync, mockNpmRootGlobalOr, mockResolve, mockHas, mockWhich } = vi.hoisted(() => ({
+const { mockExecSync, mockExecFileSync, mockExistsSync, mockReadFileSync, mockNpmRootGlobalOr, mockResolve, mockHas, mockWhich } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
+  mockExecFileSync: vi.fn(),
   mockExistsSync: vi.fn(),
   mockReadFileSync: vi.fn(),
   mockNpmRootGlobalOr: vi.fn(),
@@ -12,6 +13,7 @@ const { mockExecSync, mockExistsSync, mockReadFileSync, mockNpmRootGlobalOr, moc
 
 vi.mock("node:child_process", () => ({
   execSync: mockExecSync,
+  execFileSync: mockExecFileSync,
 }));
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/npm.js", () => ({
@@ -134,10 +136,10 @@ describe("dependency-detector", () => {
         tried: [],
         resolvedAt: Date.now(),
       });
-      // detectSystemNode then calls execSync("<path> --version") via platform/exec
+      // detectSystemNode then calls execFileSync("<path>", ["--version"]) via platform/exec
       // (chained through node:child_process which IS mocked).
       // v22.19.0 is the engines floor — usable per isUsableNodeVersion.
-      mockExecSync.mockReturnValue("v22.19.0\n");
+      mockExecFileSync.mockReturnValue("v22.19.0\n");
       const result = detectSystemNode();
       expect(result).toMatchObject({ found: true, path: "/usr/local/bin/node", source: "system" });
     });
@@ -155,9 +157,68 @@ describe("dependency-detector", () => {
       // Version is below the engines floor (>=22.19) so detectSystemNode
       // rejects and falls through to scanForUsableNodeOnDisk. mockExistsSync
       // is false by default so the on-disk scan finds no candidates → {found:false}.
-      mockExecSync.mockReturnValue("v18.0.0\n");
+      mockExecFileSync.mockReturnValue("v18.0.0\n");
       const result = detectSystemNode();
       expect(result).toMatchObject({ found: false });
+    });
+  });
+
+  describe("detectSystemNode version probe is argv-only (BE36/BX9)", () => {
+    const resolveTo = (p: string) => {
+      mockHas.mockReturnValue(true);
+      mockResolve.mockReturnValue({
+        name: "node",
+        ok: true,
+        path: p,
+        source: "system",
+        tried: [],
+        resolvedAt: Date.now(),
+      });
+    };
+
+    it.each([
+      "/usr/bin/node",
+      "C:\\Program Files\\node\\node.exe",
+      "/tmp/a b/node",
+      '/tmp/q"x/node',
+      "/tmp/a&b/node",
+    ])("BE36 %s is one program argument, never a shell string", (p) => {
+      resolveTo(p);
+      mockExecFileSync.mockReturnValue("v22.19.0\n");
+      const result = detectSystemNode();
+      expect(result).toMatchObject({ found: true, path: p });
+      expect(mockExecFileSync).toHaveBeenCalledWith(p, ["--version"], expect.any(Object));
+      expect(mockExecSync).not.toHaveBeenCalled();
+    });
+
+    it.each(["C:\\tools\\node.cmd", "C:\\tools\\node.ps1"])(
+      "BE36 shim override %s: probe fails, no shell fallback, reported not usable",
+      (p) => {
+        resolveTo(p);
+        mockExecFileSync.mockImplementation(() => {
+          throw Object.assign(new Error("spawn EINVAL"), { code: "EINVAL" });
+        });
+        const result = detectSystemNode();
+        expect(result).toMatchObject({ found: false });
+        expect(mockExecSync).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ["ENOENT", () => { throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); }],
+      ["EACCES", () => { throw Object.assign(new Error("EACCES"), { code: "EACCES" }); }],
+      ["non-zero exit", () => { throw Object.assign(new Error("Command failed"), { status: 1 }); }],
+      ["garbage output", () => "not a version\n"],
+      ["timeout", () => { throw Object.assign(new Error("spawnSync ETIMEDOUT"), { code: "ETIMEDOUT" }); }],
+    ])("BX9 %s is reported not usable, not thrown", (_n, impl) => {
+      resolveTo("/usr/local/bin/node");
+      mockExecFileSync.mockImplementation(impl as () => string);
+      let result: ReturnType<typeof detectSystemNode> | undefined;
+      expect(() => {
+        result = detectSystemNode();
+      }).not.toThrow();
+      expect(result).toMatchObject({ found: false });
+      expect(mockExecSync).not.toHaveBeenCalled();
     });
   });
 

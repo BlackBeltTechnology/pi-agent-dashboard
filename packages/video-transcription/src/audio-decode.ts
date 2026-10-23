@@ -57,7 +57,7 @@ export async function decodeAudio(
   const sampleRate = opts.sampleRate ?? TARGET_SAMPLE_RATE;
   const ffmpeg = resolve("ffmpeg");
   if (!ffmpeg) throw new Error("ffmpeg is required to decode audio but was not found");
-  const out = opts.output ?? defaultTempPath();
+  const out = path.resolve(opts.output ?? defaultTempPath());
 
   const closed = { done: false };
   const close = () => {
@@ -77,7 +77,7 @@ export async function decodeAudio(
       "-nostdin",
       "-y",
       "-i",
-      mediaPath,
+      path.resolve(mediaPath),
       "-f",
       "f32le",
       "-acodec",

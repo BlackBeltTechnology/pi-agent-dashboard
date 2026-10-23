@@ -4,6 +4,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
@@ -40,6 +41,14 @@ const defaultRunner: Runner = async (file, args) => {
   return { stdout: String(stdout), stderr: String(stderr) };
 };
 
+/**
+ * Resolve a media path to absolute (against the spawn cwd = `process.cwd()`) so it is
+ * never parsed as an ffmpeg/ffprobe option, even when its name starts with `-`.
+ */
+export function absMediaPath(p: string): string {
+  return path.resolve(p);
+}
+
 /** Return the sibling `.mp3` path for a media file. */
 export function extractedAudioPath(mediaPath: string): string {
   return `${mediaPath.replace(/\.[^./\\]+$/, "")}.mp3`;
@@ -74,8 +83,8 @@ export async function extractAudio(
   if (!ffmpeg) {
     throw new Error("FFmpeg extraction failed: ffmpeg not available (see registry installHints)");
   }
-  const output = opts.output ?? extractedAudioPath(src);
-  const args = ["-i", src, "-vn", "-acodec", "libmp3lame", "-q:a", "2"];
+  const output = absMediaPath(opts.output ?? extractedAudioPath(src));
+  const args = ["-i", absMediaPath(src), "-vn", "-acodec", "libmp3lame", "-q:a", "2"];
   if (opts.maxDurationSeconds && opts.maxDurationSeconds > 0) {
     args.push("-t", String(opts.maxDurationSeconds));
   }
@@ -111,7 +120,7 @@ export async function getDurationSeconds(
       "format=duration",
       "-of",
       "csv=p=0",
-      mediaPath,
+      absMediaPath(mediaPath),
     ]);
     const n = Number.parseFloat(stdout.trim());
     return Number.isFinite(n) ? n : 0;
@@ -140,12 +149,12 @@ export async function extractChunk(
     "-t",
     String(lengthS),
     "-i",
-    src,
+    absMediaPath(src),
     "-vn",
     "-acodec",
     "libmp3lame",
     "-q:a",
     "2",
-    dest,
+    absMediaPath(dest),
   ]);
 }

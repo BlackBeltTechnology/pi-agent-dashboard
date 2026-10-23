@@ -95,6 +95,18 @@
       .replace(/"/g, "&quot;");
   }
 
+  // True only for an href that starts with http(s):// AND parses as a URL whose protocol
+  // is http: or https: (so `http://`, `javascript:`, relative and padded hrefs stay text).
+  function isWebHref(u) {
+    if (!/^https?:\/\//i.test(u)) return false;
+    try {
+      const p = new URL(u).protocol;
+      return p === "http:" || p === "https:";
+    } catch {
+      return false;
+    }
+  }
+
   function renderSuggestion(s) {
     if (!s) return "";
     // Render the small Markdown subset: **bold**, single-backtick code, [text](url)
@@ -102,7 +114,7 @@
     // links
     // Only http(s) links become anchors; anything else stays text.
     out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) =>
-      /^https?:\/\//i.test(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : t);
+      isWebHref(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : t);
     // bold
     out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     // code (single backtick)

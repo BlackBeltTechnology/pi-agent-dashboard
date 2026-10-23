@@ -39,6 +39,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () =
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/exec.js", () => ({
   execSync: mockExecSync,
+  execFileSync: mockExecFileSync,
 }));
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/npm.js", () => ({
