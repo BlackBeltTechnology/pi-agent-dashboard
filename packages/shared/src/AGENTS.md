@@ -47,7 +47,7 @@ Files in this directory. One row per source file.
 | `canonical-subject.ts` | Access-subject canonical form + containment (moved from server). → see `canonical-subject.ts.AGENTS.md` |
 | `card-sections.ts` | Session-card section visibility model: `CARD_SECTION_IDS`, `CardSectionPrefs`, per-plugin block ids, focus-mode profile, `resolveCardSectionVisible`. → see `card-sections.ts.AGENTS.md` |
 | `changelog-types.ts` | `ChangelogBullet` / `Release` / `Response` types for parsed CHANGELOG.md responses. See change: pi-update-whats-new-panel. |
-| `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` |
+| `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` `requireLocalProof` defaults TRUE; parse is boolean-strict (missing/non-boolean → true). See change: close-container-loopback-impersonation (D1). |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
 | `cwd-guard.ts` | Plugin cwd guard: `isAllowedCwd`, async `admitCwd`. → see `cwd-guard.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
@@ -77,6 +77,7 @@ Files in this directory. One row per source file.
 | `launch-source-types.ts` | `LaunchSource` discriminated union for Electron server layout. → see `launch-source-types.ts.AGENTS.md` |
 | `legacy-managed-dir.ts` | `detectLegacyManagedDir({ homedir? })`. Returns `{present:false}` or `{present:true, path, pkgCount,… → see `legacy-managed-dir.ts.AGENTS.md` |
 | `local-credential-proof.ts` | Pure local credential proof primitive: `mintProof`/`parseProof`/`canonicalBinding`/counter-proof/`localDialHost`. → see `local-credential-proof.ts.AGENTS.md` |
+| `local-proof-signal.ts` | `LOCAL_PROOF_REQUIRED = "required"` + `HealthLocalProofField`: the additive `/api/health` field. Own dependency-free module (client bundles must not value-import node-only `rest-api.ts`). See change: close-container-loopback-impersonation (D3). |
 | `loopback-host.ts` | `isLoopbackHost(host)`, `isLoopbackEndpoint(url)`. One loopback predicate (localhost, 127/8, ::1,… → see `loopback-host.ts.AGENTS.md` |
 | `md-table-cell.ts` | GFM cell escape. → see `md-table-cell.ts.AGENTS.md` |
 | `memory-limits.ts` | BROWSER-SAFE memory-limit types + defaults: `MemoryLimitsConfig`, `MIN_REPLAY_WINDOW` (100), `DEFAULT_MEMORY_L. → see `memory-limits.ts.AGENTS.md` |
@@ -122,6 +123,7 @@ Files in this directory. One row per source file.
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |
 | `role-schema.ts` | Pure, `node:fs`-free role-schema core shared by every role read surface (bridge `role-manager.ts`, roles-plugin `/api/roles` route, roles-plugin client). → see `role-schema.ts.AGENTS.md` |
 | `rendezvous.ts` | HOME-derived rendezvous record reader; resolves the local endpoint + instance identity without discovery. → see `rendezvous.ts.AGENTS.md` |
+| `safe-local-path.ts` | `isSafeLocalPath(raw)`: the ONE same-origin request-path predicate (single leading `/`, no `//`/`\`, no control chars, stays on origin). Used by `sanitizeReturnUrl` and `pi-dashboard api`. Dependency-free. See change: close-container-loopback-impersonation (D4). |
 | `sanitize-profiles.ts` | DOMPurify profiles shared by server sanitizers + client `pi-sanitized-html`. → see `sanitize-profiles.ts.AGENTS.md` See change: harden-client-sinks. |
 | `semaphore.ts` | Tiny FIFO throttling semaphore. `createSemaphore(max)` → `Semaphore` with `run(fn)` (queue when at cap,… → see `semaphore.ts.AGENTS.md` |
 | `server-identity.ts` | Identity-verified dashboard detection over GET /api/health. → see `server-identity.ts.AGENTS.md` |

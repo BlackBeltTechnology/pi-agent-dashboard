@@ -14,6 +14,7 @@ import { WebSocket } from "ws";
 import { getAuthStatus } from "../auth/provider-auth-storage.js";
 import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -98,7 +99,7 @@ describe("providers_list — server wiring", () => {
   // for dropdown contents.
   it("never broadcasts models_refreshed on providers_list arrival (any flavour)", async () => {
     const piWs = await connectSession(piPort, "p1");
-    const browserWs = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    const browserWs = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     const browserMessages: any[] = [];
     await new Promise<void>((resolve) => {
       browserWs.on("open", () => resolve());

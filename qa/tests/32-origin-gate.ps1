@@ -58,11 +58,12 @@ try {
 
   $body = '{"scope":"browser"}'
 
-  # 1. Header-less local client — the shape every non-browser caller has.
-  $ok = Invoke-WebRequest -Uri "http://localhost:$port/api/ws-ticket" -Method POST `
-    -ContentType "application/json" -Body $body -TimeoutSec 5 -UseBasicParsing
-  if ($ok.StatusCode -ne 200) {
-    throw "FAIL: header-less POST /api/ws-ticket returned $($ok.StatusCode) (expected 200)"
+  # 1. Header-less local client — the shape every non-browser caller has. Under the strict
+  # `requireLocalProof` default a bare request is refused, so the local tool is the CLI, which mints
+  # local proof (HOME/USERPROFILE above are the server's). See change: close-container-loopback-impersonation (D5).
+  $null = & pi-dashboard api POST /api/ws-ticket --port $port --data ($body -replace '"','\"') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "FAIL: header-less POST /api/ws-ticket via the CLI exited $LASTEXITCODE (expected 0)"
   }
 
   # 2. The same call from a hostile page.

@@ -1,0 +1,3 @@
+# pi-settings-routes.ts — index
+
+pi global `settings.json` editor: `GET/PUT /api/pi-settings` (typed leaf patch), `PUT /api/pi-settings/raw` (256 KiB cap → 413 envelope), `POST /api/pi-settings/sync-defaults` (drift repair, no reload), `POST /api/pi-settings/legacy-credentials` (move/remove plain-text API keys; paths in, masked list out). Read adds `themes` + `legacyCredentials`; every response's parsed `settings` omits legacy key values. `registerPiSettingsRoutes(fastify,{networkGuard,reloadConnectedSessions,readDashboardConfig,fsDeps?,scanThemes?})`. 200/400/409(stale+current state)/503(busy); reload only on typed/raw/legacy-credentials success; logs outcome only. See change: edit-pi-agent-settings; pi-settings-full-coverage.

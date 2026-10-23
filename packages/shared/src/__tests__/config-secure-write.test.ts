@@ -88,9 +88,21 @@ describe("loadConfig tightening", () => {
   });
 });
 
-describe("requireLocalProof config field (E16)", () => {
-  it.each([[undefined, false], [true, true], [false, false], ["yes", false]])("%j → %j", (raw, want) => {
+describe("requireLocalProof config field (E16; close-container-loopback-impersonation E1)", () => {
+  it.each([
+    [undefined, true],
+    [true, true],
+    [false, false],
+    ["false", true],
+    ["yes", true],
+    [null, true],
+  ])("%j → %j", (raw, want) => {
     seed(0o600, raw === undefined ? {} : { requireLocalProof: raw });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
     expect(loadConfig().requireLocalProof).toBe(want);
+    // loadConfig runs in every bridge process: it must stay silent about the field.
+    expect([...warn.mock.calls, ...err.mock.calls, ...log.mock.calls].flat().join(" ")).not.toMatch(/requireLocalProof/);
   });
 });

@@ -1,5 +1,7 @@
 # Archived Proposals — QA / Smoke Test Inventory
 
+> **Historical.** Bare `curl … localhost:8000/api/restart` calls below (non-observe routes) predate the strict `requireLocalProof` default and are refused now (`403 local_proof_required`). Use `pi-dashboard api POST /api/restart` or `pi-dashboard restart`.
+
 > Extended from the original **Electron QA / Smoke Test Inventory** to cover **every** archived OpenSpec proposal.
 > Electron/platform proposals (35) extracted by parallel `google/gemma-4-31b-it` workers; all remaining (539) by parallel `deepseek/deepseek-v4-flash` workers — one worker process per proposal.
 > Source: `openspec/changes/archive/`. Purpose: reference list of QA/smoke coverage to find and build **missing** tests.

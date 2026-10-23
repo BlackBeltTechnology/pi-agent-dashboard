@@ -49,8 +49,9 @@ describe("isLocallyTrusted / hasLocalProof decision table (E5)", () => {
     ["bare", {}, false],
     ["proof cookie", { cookie: "" }, true],
     ["local token", { "x-pi-local-token": TOKEN }, true],
-    ["forged cookie", { cookie: `${LOCAL_PROOF_COOKIE}=a.${Date.now() + 1e6}.AAAA` }, false],
-    ["expired cookie", { cookie: `${LOCAL_PROOF_COOKIE}=${signLocalProof(ctx, Date.now() - 10_000_000, 1)}` }, false],
+    ["forged cookie", { cookie: `${LOCAL_PROOF_COOKIE}=a.${Date.now()}.${Date.now()}.0.AAAA` }, false],
+    // Idle past 12 h (close-container-loopback-impersonation D12).
+    ["expired cookie", { cookie: `${LOCAL_PROOF_COOKIE}=${signLocalProof(ctx, Date.now() - 13 * 3_600_000)}` }, false],
     ["old-key cookie", { cookie: `${LOCAL_PROOF_COOKIE}=${signLocalProof(createLocalTrustContext("old-token", () => true))}` }, false],
   ];
   for (const [name, h, wantOn] of cases) {

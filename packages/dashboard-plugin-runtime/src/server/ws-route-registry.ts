@@ -54,6 +54,16 @@ export interface WsRouteRegistration {
    * policy unchanged.
    */
   admitOrigins: readonly string[];
+  /**
+   * `"plugin"`: the plugin authenticates the PEER itself inside `handleUpgrade` with a credential
+   * its own clients carry (e.g. a single-use ticket in the URL), because those clients send neither
+   * headers nor cookies and so can never present the dashboard's local proof. The core gate then
+   * skips ONLY the strict local-proof requirement for this scope; host, origin and genuinely-local
+   * (loopback peer, loopback Host, no forwarding header) are still enforced. Absent: under the strict
+   * `requireLocalProof` default the peer must present local proof like any other plugin scope.
+   * See change: close-container-loopback-impersonation (D10).
+   */
+  peerCredential?: "plugin";
   /** Receives the raw upgrade once every core gate has passed. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, meta: WsRouteMeta): void;
 }
@@ -63,6 +73,7 @@ interface ActiveRegistration {
   scope: string;
   pathPrefix: string;
   admitOrigins: readonly string[];
+  peerCredential?: "plugin";
   handleUpgrade: WsRouteRegistration["handleUpgrade"];
 }
 
@@ -170,6 +181,9 @@ export class WsRouteRegistry {
     if (!Array.isArray(opts?.admitOrigins)) {
       throw new Error(`registerWsRoute(${scope}): admitOrigins must be an array of strings`);
     }
+    if (opts.peerCredential !== undefined && opts.peerCredential !== "plugin") {
+      throw new Error(`registerWsRoute(${scope}): peerCredential must be "plugin" when given`);
+    }
     const reserved = reservedCollision(pathPrefix);
     if (reserved) {
       throw new Error(
@@ -190,6 +204,7 @@ export class WsRouteRegistry {
       scope,
       pathPrefix,
       admitOrigins: [...opts.admitOrigins],
+      ...(opts.peerCredential ? { peerCredential: opts.peerCredential } : {}),
       handleUpgrade: opts.handleUpgrade,
     });
     this.tombstonedPrefixes.delete(pathPrefix);

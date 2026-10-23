@@ -9,6 +9,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { DashboardServer } from "../server.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -48,7 +49,7 @@ describe("session file deduplication", () => {
     const sharedFile = "/tmp/sessions/test.jsonl";
 
     // Bridge registers session A with a sessionFile
-    const bridge = new WebSocket(`ws://localhost:${piPort}`);
+    const bridge = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await waitForOpen(bridge);
     bridge.send(JSON.stringify({
       type: "session_register",
@@ -68,7 +69,7 @@ describe("session file deduplication", () => {
     await delay(100);
 
     // Browser connects to observe updates
-    const browser = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     const msgs = collectMsgs(browser, 500);
     await delay(50);

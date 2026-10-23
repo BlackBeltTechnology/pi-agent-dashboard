@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { resetConfigSnapshot } from "../config-snapshot.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofFetch, withLocalProof } from "../test-support/local-credential-stamp.js";
 
 const GATE_ENV = "PI_DASHBOARD_HOST_GATE";
 
@@ -49,7 +50,7 @@ type DialResult = { kind: "open" } | { kind: "status"; status: number } | { kind
 
 function dial(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url, { headers });
+    const ws = new WebSocket(url, { headers: withLocalProof(url, headers) });
     let settled = false;
     const done = (r: DialResult) => {
       if (settled) return;
@@ -69,7 +70,7 @@ function dial(url: string, headers: Record<string, string> = {}): Promise<DialRe
 }
 
 async function mintTicket(httpPort: number): Promise<string> {
-  const res = await fetch(`http://127.0.0.1:${httpPort}/api/ws-ticket`, {
+  const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/ws-ticket`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scope: "browser" }),

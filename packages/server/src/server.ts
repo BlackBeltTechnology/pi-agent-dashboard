@@ -109,16 +109,22 @@ import { ensureServerIdentity } from "./auth/identity.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { ensureLocalToken } from "./auth/local-token.js";
+import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
 import {
   createLanInterfaceProvider,
   createNetworkGuard,
   createNetworkGuardHook,
   isLocallyTrusted,
   isPluginScopePeerLocal,
+  needsLocalProof,
   noteTrustedList,
   parseGuardTarget,
+  setLocalProofRefusalObserver,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
+import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
+import { stateCallerFor } from "./auth/dashboard-state-caller.js";
+import { createLocalProofRefusalLogger } from "./auth/local-proof-refusal-log.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { NavIntents } from "./auth/nav-intent.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
@@ -618,6 +624,23 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // the server listens (so no operator write can race it). Never re-derived
   // from the list afterwards. See change: retire-trusted-networks-bypass (D2).
   decideBootTrustMode();
+  // One-shot rotation of the local token + auth secret that a bare-loopback caller
+  // may already have read through the `~/.pi` anchor. Must precede every read of
+  // either value (the token below, `config.authConfig.secret`). Failure is closed:
+  // exit 1 before listening. See change: close-container-loopback-impersonation (D11).
+  try {
+    const rotation = await rotateSecretsOnce();
+    if (rotation.rotated) {
+      console.log("[rotation] local token and auth secret rotated once; existing sessions and proof cookies are invalidated");
+      if (rotation.newSecret && config.authConfig) config.authConfig.secret = rotation.newSecret;
+    }
+  } catch (err) {
+    if (err instanceof RotationError) {
+      console.error(err.describe());
+      process.exit(1);
+    }
+    throw err;
+  }
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //
@@ -747,7 +770,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   let tlsBoundAt = 0;
   // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
   // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
-  const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
+  // The proof cookie is bound to the listener's port; `0` until `listen` runs (inject() in tests).
+  let httpListenPort = 0;
+  const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof, () => httpListenPort);
   const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
     registry: pairedDeviceRegistry,
@@ -2184,6 +2209,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   browserGateway.registerHandler("provision_response", provisioning.onResponse);
+  // REST refusals whose only fault is missing local proof: one bounded line per (route, reason) per window.
+  // See change: close-container-loopback-impersonation (D6).
+  const localProofRefusalLog = createLocalProofRefusalLogger();
+  setLocalProofRefusalObserver((request) =>
+    localProofRefusalLog.log({
+      peer: request.ip,
+      host: request.headers.host,
+      method: request.method,
+      route: request.routeOptions?.url,
+      reason: "local_proof_required",
+    }),
+  );
   setNetworkDenialObserver((request) => {
     // `pair`: a network match grants nothing, so a denial is not a trust request
     // — the block event is still recorded (by the guard), but no network prompt
@@ -2956,7 +2993,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     live: () => piTrustMirror.live,
     readSnapshot: () => piTrustMirror.readSnapshot(),
   });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3576,6 +3613,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
     }),
   );
+  // Puts the request's caller in scope for every containment decision made while serving it, so the
+  // dashboard-state guard (token, identity key, config out of reach of path-taking routes) and the
+  // prompt-ineligible rule for an unproven local caller need no per-site plumbing. Callback style on
+  // purpose: `run(store, done)` is what keeps the rest of the lifecycle inside the store.
+  // See change: close-container-loopback-impersonation (D8).
+  fastify.addHook("onRequest", (request, _reply, done) => {
+    runWithStateCaller(stateCallerFor(request, localTrust), done);
+  });
   // Boot-time inert-entry warning (loopback entry in trustedNetworks /
   // bypassHosts). Memoized; the guard re-notes on each reparse.
   // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -4625,7 +4670,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               registration.admitOrigins,
               corsOpts(),
             ) ||
-            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders, localTrust)
+            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders, localTrust, {
+              pluginAuthenticatesPeer: registration.peerCredential === "plugin",
+            })
           ) {
             console.error(
               `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
@@ -4752,7 +4799,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // 401 when an auth secret is configured (cookie realm), else 403 for
           // the no-auth allowances — preserving the prior status semantics.
           const status = config.authConfig?.secret ? "401 Unauthorized" : "403 Forbidden";
-          wsUpgradeRejectLog.log({ status: config.authConfig?.secret ? 401 : 403, scope: scope ?? "none", remoteAddress, headers: wsHeaders, ticketPresent: ticket !== null });
+          wsUpgradeRejectLog.log({
+            status: config.authConfig?.secret ? 401 : 403,
+            scope: scope ?? "none",
+            remoteAddress,
+            headers: wsHeaders,
+            ticketPresent: ticket !== null,
+            // A bare-loopback dial refused only for want of proof: say so (fixed token, no caller input).
+            ...(needsLocalProof({ ip: remoteAddress ?? "", headers: wsHeaders }, localTrust) ? { reason: "local_proof_required" } : {}),
+          });
           socket.write(`HTTP/1.1 ${status}\r\n\r\n`);
           socket.destroy();
           return;
@@ -4905,6 +4960,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       // The proof floor is taken after readiness, immediately before the bind.
       await listenWithProofFloor(fastify, (at) => (httpBoundAt = at), { port: config.port, host: config.host });
+      const bound = fastify.server.address();
+      if (bound && typeof bound === "object") httpListenPort = bound.port;
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
       // Optional TLS listener: only after Fastify is ready and the main listen resolved.
@@ -5292,6 +5349,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // See change: add-access-grant-dialog.
       installGrantCoordinator(null);
       setNetworkDenialObserver(null);
+      setLocalProofRefusalObserver(null);
       // Stop the event-loop-delay monitor so the libuv timer doesn't linger
       // after teardown. See change: instrument-session-hydration-timing.
       try { eventLoopDelayHistogram.disable(); } catch { /* ignore */ }

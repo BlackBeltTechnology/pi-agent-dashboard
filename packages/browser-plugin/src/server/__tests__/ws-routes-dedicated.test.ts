@@ -51,7 +51,7 @@ async function host(): Promise<Host> {
 
   const conn = await rig.manager.connectDedicated({ client: "t" });
   if (!conn.ok) throw new Error("connect failed");
-  const state: Host = { rig, port: 0, routes, tracked: [], gateRefusals: 0, cdpUrl: conn.cdpUrl, guid: conn.cdpUrl.split("/").pop() as string, peer: { address: undefined } };
+  const state: Host = { rig, port: 0, routes, tracked: [], gateRefusals: 0, cdpUrl: conn.cdpUrl, guid: new URL(conn.cdpUrl).pathname.split("/").pop() as string, peer: { address: undefined } };
 
   const server = createServer();
   servers.push(server);
@@ -123,7 +123,8 @@ describe("#R12 the dedicated cdpUrl is loopback-only, as for the relay", () => {
 
   it("a loopback, Origin-less client upgrades and is attached to the DedicatedInstance", async () => {
     const h = await host();
-    const r = await dial(urlOf(h, "/ws/browser-cdp/"));
+    // The issued `cdpUrl`'s single-use ticket (the manager's own port is not this harness's listener).
+    const r = await dial(`${urlOf(h, "/ws/browser-cdp/")}?ticket=${new URL(h.cdpUrl).searchParams.get("ticket")}`);
     expect(r).toEqual({ kind: "open" });
     await new Promise((res) => setTimeout(res, 50));
     expect(h.tracked).toHaveLength(1);
@@ -138,9 +139,13 @@ describe("#R12 the dedicated cdpUrl is loopback-only, as for the relay", () => {
     expect(h.rig.manager.liveDedicated()?.hasCdpClient).toBe(false);
   });
 
-  it("the dedicated guid is 404 on the extension scope (nothing ever dials it)", async () => {
+  it("the dedicated guid is refused on the extension scope (nothing ever dials it: no extension ticket is ever minted for it)", async () => {
     const h = await host();
     const r = await dial(urlOf(h, "/ws/browser-ext/"), { origin: "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm" });
-    expect(r).toEqual({ kind: "status", status: 404 });
+    expect(r).toEqual({ kind: "status", status: 403 });
+    // Even with the cdp ticket (wrong role) it never opens the extension scope.
+    const ticket = new URL(h.cdpUrl).searchParams.get("ticket");
+    const again = await dial(`${urlOf(h, "/ws/browser-ext/")}?ticket=${ticket}`, { origin: "chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm" });
+    expect(again).toEqual({ kind: "status", status: 403 });
   });
 });

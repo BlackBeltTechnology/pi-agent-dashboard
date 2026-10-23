@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { localFetch } from './local-proof-fetch.ts';
 
 function getDashboardPort(): number {
   try {
@@ -30,7 +31,7 @@ function getDashboardPort(): number {
 
 async function healthPid(port: number): Promise<number | null> {
   try {
-    const r = await fetch(`http://localhost:${port}/api/health`, {
+    const r = await localFetch(port, '/api/health', {
       signal: AbortSignal.timeout(1000),
     });
     if (!r.ok) return null;
@@ -59,7 +60,8 @@ runNpm(['run', 'build']);
 console.log('→ 2/3: restart server');
 const oldPid = await healthPid(port);
 try {
-  const resp = await fetch(`http://localhost:${port}/api/restart`, {
+  // A proof-carrying POST to the loopback literal: a bare localhost fetch is refused under the strict default.
+  const resp = await localFetch(port, '/api/restart', {
     method: 'POST',
     signal: AbortSignal.timeout(5000),
   });

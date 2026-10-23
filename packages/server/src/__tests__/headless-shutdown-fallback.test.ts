@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -75,7 +76,7 @@ describe("Headless shutdown fallback", () => {
     await delay(200);
 
     // Browser sends shutdown — bridge is disconnected, should fallback to kill
-    const browser = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     await delay(100);
 
@@ -96,7 +97,7 @@ describe("Headless shutdown fallback", () => {
   }, 15000);
 
   it("should not crash when no PID is linked for shutdown", async () => {
-    const browser = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     await delay(100);
 

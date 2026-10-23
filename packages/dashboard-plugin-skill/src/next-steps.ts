@@ -29,7 +29,7 @@ export function nextSteps(answers: Answers): string {
     return numbered([
       "cd <dashboard-repo> && npm install",
       "npm run build                 # build the client + plugin",
-      "curl -X POST http://localhost:8000/api/restart   # restart the dashboard server (or: pi-dashboard restart)",
+      "pi-dashboard restart          # restart the dashboard server (sends local proof; a bare curl to /api/restart is refused)",
       "npm run reload                # reload all connected pi sessions",
       "Open the dashboard, navigate to your slot, see the scaffold render.",
       HOST_STYLE_STEP,

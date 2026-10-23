@@ -24,9 +24,9 @@ if [ "$HTTP_CODE" != "200" ]; then
   exit 1
 fi
 
-# 1. Mint a browser-scope ticket. Bounded by --max-time so a hang FAILS the test.
-MINT=$(curl -s --max-time 10 -X POST "$BASE/api/ws-ticket" \
-  -H "Content-Type: application/json" -d '{"scope":"browser"}' 2>/dev/null || echo "")
+# 1. Mint a browser-scope ticket through the CLI, which proves local possession (a bare curl is refused
+# by the strict `requireLocalProof` default). The CLI bounds the request itself (30 s), so a hang FAILS the test.
+MINT=$(pi-dashboard api POST /api/ws-ticket --data '{"scope":"browser"}' 2>/dev/null || echo "")
 if [ -z "$MINT" ]; then
   echo "FAIL: ws-ticket mint did not respond within the bound (hang or error)"
   exit 1

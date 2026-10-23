@@ -121,6 +121,23 @@ describe("ConnectionStatusBanner", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  it("local_proof_required renders the copyable `pi-dashboard open` remedy, not Network not allowed (F4 support)", () => {
+    render(
+      <ConnectionStatusBanner
+        status="offline"
+        currentServerHost="my-pc"
+        inFlightSwitch={false}
+        networkDenied={{ reason: "local_proof_required", hint: "Run `pi-dashboard open`" }}
+      />,
+    );
+    expect(screen.getByTestId("local-proof-required-banner")).toBeTruthy();
+    expect(screen.getByTestId("local-proof-command").textContent).toBe("pi-dashboard open");
+    expect(screen.getByTestId("local-proof-copy")).toBeTruthy();
+    // Not the knock / request-access surface: this is not a network denial.
+    expect(screen.queryByTestId("network-denied-request-access")).toBeNull();
+    expect(screen.queryByText(/Network not allowed/)).toBeNull();
+  });
+
   it("transport drop (no networkDenied) still shows the Disconnected/Retrying banner", () => {
     render(
       <ConnectionStatusBanner

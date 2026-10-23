@@ -23,7 +23,7 @@ protocol versions, its capabilities, and its identity.
 The endpoint SHALL require a valid token on every request, presented as
 `Authorization: Bearer <token>`. `/mcp` SHALL NOT honour the loopback allowance
 that exempts genuinely-local requests from authentication on other routes. That
-allowance SHALL remain unchanged for all other routes. The endpoint SHALL NOT
+allowance SHALL remain as defined for all other routes by `trust-and-credential-boundaries` "Opt-in local proof for loopback trust" (under the default it needs local proof except on `observe`-tier routes). The endpoint SHALL NOT
 introduce an OAuth flow and SHALL NOT bind an OAuth callback port.
 
 #### Scenario: Missing or invalid credential is refused
@@ -36,7 +36,7 @@ introduce an OAuth flow and SHALL NOT bind an OAuth callback port.
 - **THEN** the server SHALL reject the request
 
 #### Scenario: Other routes retain the loopback allowance
-- **WHEN** a genuinely-local request with no credential is made to a non-`/mcp` route that previously allowed it
+- **WHEN** a genuinely-local request is made to a non-`/mcp` route that the local-trust rule admits (an `observe`-tier route, or any route with local proof, or any route with `requireLocalProof` explicitly `false`)
 - **THEN** that request SHALL continue to be allowed
 
 #### Scenario: Revoked credential loses access immediately

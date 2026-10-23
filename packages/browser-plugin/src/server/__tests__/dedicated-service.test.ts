@@ -16,7 +16,7 @@ afterEach(() => {
   for (const r of rigs.splice(0)) r.cleanup();
 });
 
-const GUID_URL = /^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}$/;
+const GUID_URL = /^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}\?ticket=[A-Za-z0-9_-]{43}$/;
 const SIGN_IN = "https://accounts.google.com/x?y";
 
 describe("#E12 connect decision table", () => {

@@ -61,7 +61,7 @@ Pull-only condensed map. Source: tests/e2e/README.md. Run command → lifecycle 
 - `no-am` — pi-flows only, peer absent → `waiting_peers`.
 - `legacy` — peer under `@pi/anthropic-messages` name only → `active` via legacy fallback.
 - `bad-registration` — `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` → not loaded from `packages[]` ("no sessions reporting").
-- Opt-in variants — `PI_E2E_SEED=1 PI_TEST_PEERS=no-am docker/test-up.sh -d --build`; verify `curl -s http://localhost:<port>/api/flows-anthropic-bridge/status | jq`; or `PW_E2E_USE_RUNNING=1 PI_TEST_PEERS=no-am npm run test:e2e -- anthropic-bridge-activation`.
+- Opt-in variants — `PI_E2E_SEED=1 PI_TEST_PEERS=no-am docker/test-up.sh -d --build`; verify `pi-dashboard api GET /api/flows-anthropic-bridge/status --port <port> | jq` (HTTP from inside the container; a bare loopback curl is refused under the strict default); or `PW_E2E_USE_RUNNING=1 PI_TEST_PEERS=no-am npm run test:e2e -- anthropic-bridge-activation`.
 - Engine + peer BAKED into image — Dockerfile `npm install -g @blackbelt-technology/pi-flows @blackbelt-technology/pi-anthropic-messages`; `PI_TEST_PEERS` only selects wiring. Faux role-preset `qa/fixtures/faux-roles.json` seeded so `model: @role` → `faux/faux-1`.
 
 ## L1/L2 vs L3

@@ -25,6 +25,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { readLocalTokenIfPresent } from "../auth/local-token.js";
+import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,7 +85,7 @@ async function startFauxSession(
   opts: { scenario: string; tps?: number },
 ): Promise<FauxSession> {
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "faux-home-"));
-  const browser = new WebSocket(`ws://localhost:${handle.httpPort}/ws`);
+  const browser = proofWebSocket(`ws://127.0.0.1:${handle.httpPort}/ws`);
   await waitForOpen(browser);
 
   const messages: any[] = [];
@@ -102,6 +104,15 @@ async function startFauxSession(
   await delay(300);
   for (const m of messages) {
     if (m.type === "session_added" && m.session?.id) preExisting.add(m.session.id);
+  }
+
+  // The bridge mints its WS ticket with a proof from ITS HOME's local token; under the strict
+  // `requireLocalProof` default that must be the token of the server under test.
+  const serverToken = readLocalTokenIfPresent();
+  if (serverToken) {
+    const tokenDir = path.join(tmpHome, ".pi", "dashboard", "local");
+    fs.mkdirSync(tokenDir, { recursive: true });
+    fs.writeFileSync(path.join(tokenDir, "token"), serverToken, { mode: 0o600 });
   }
 
   const child = spawn(
@@ -163,7 +174,7 @@ async function startFauxSession(
 }
 
 async function postPrompt(handle: TestServerHandle, sessionId: string, text: string) {
-  return fetch(`http://localhost:${handle.httpPort}/api/session/${sessionId}/prompt`, {
+  return proofFetch(`http://127.0.0.1:${handle.httpPort}/api/session/${sessionId}/prompt`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text }),
@@ -171,7 +182,7 @@ async function postPrompt(handle: TestServerHandle, sessionId: string, text: str
 }
 
 async function postAbort(handle: TestServerHandle, sessionId: string) {
-  return fetch(`http://localhost:${handle.httpPort}/api/session/${sessionId}/abort`, {
+  return proofFetch(`http://127.0.0.1:${handle.httpPort}/api/session/${sessionId}/abort`, {
     method: "POST",
   });
 }

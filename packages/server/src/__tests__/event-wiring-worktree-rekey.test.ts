@@ -15,6 +15,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -46,7 +47,7 @@ async function connectSession(
 async function connectBrowser(browserPort: number): Promise<{ ws: WebSocket; reorders: any[]; updates: any[] }> {
   const reorders: any[] = [];
   const updates: any[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   ws.on("message", (raw) => {
     try {
       const m = JSON.parse(String(raw));

@@ -35,10 +35,13 @@ ws.on('close', () => { process.exit(0); });
   fi
 }
 
-# Test browser WebSocket (port 8000, /ws path)
+# Test browser WebSocket (port 8000, /ws path). Under the strict `requireLocalProof` default a bare
+# loopback upgrade is refused, so mint a single-use ticket through the CLI (which proves local possession).
+# See change: close-container-loopback-impersonation (D5).
+BWS_TICKET=$(pi-dashboard api POST /api/ws-ticket --data '{"scope":"browser"}' 2>/dev/null | grep -o '"ticket":"[^"]*"' | head -1 | sed 's/.*"ticket":"//;s/"//' || true)
 node -e "
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://localhost:8000/ws');
+const ws = new WebSocket('ws://localhost:8000/ws?ticket=${BWS_TICKET}');
 const timeout = setTimeout(() => { console.error('Browser WS timeout'); process.exit(1); }, 5000);
 ws.on('open', () => { clearTimeout(timeout); console.log('Browser WS: connected'); ws.close(); });
 ws.on('error', (e) => { clearTimeout(timeout); console.error('Browser WS error:', e.message); process.exit(1); });

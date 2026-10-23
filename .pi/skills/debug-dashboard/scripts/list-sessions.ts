@@ -16,6 +16,7 @@
  */
 import { BusClient } from '@blackbelt-technology/pi-dashboard-bus-client';
 import type { DashboardSession } from '@blackbelt-technology/pi-dashboard-shared/types.js';
+import { dialHost, localProofHeaders } from '../../implement/scripts/local-proof-fetch.ts';
 
 function formatTable(rows: string[][]): string {
   if (rows.length === 0) return '(empty)';
@@ -30,7 +31,8 @@ function formatTable(rows: string[][]): string {
 const mode = process.argv[2];
 const includeEnded = mode === '--all' || mode === '--json';
 
-const client = new BusClient();
+// Dial the loopback literal and prove locality for the ticket mint (the strict default refuses a bare caller).
+const client = new BusClient({ host: dialHost(), proofHeaders: localProofHeaders });
 let allSessions: DashboardSession[];
 try {
   await client.connect();

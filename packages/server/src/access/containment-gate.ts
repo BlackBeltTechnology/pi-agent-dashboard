@@ -23,6 +23,7 @@
  */
 
 import { lstat } from "node:fs/promises";
+import { currentCallerUnproven, dashboardStateRefuses } from "../lib/dashboard-state-guard.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { recordPathDenial } from "./access-denials.js";
 import { grantedSubjects } from "./access-grants.js";
@@ -231,6 +232,11 @@ export async function evaluateContainment(
     quiet?: boolean;
   },
 ): Promise<ContainmentDecision & { remedy?: ContainmentRemedy }> {
+  // Dashboard secrets (token, identity key, config) are refused before anything else, with the
+  // plain refusal and NO remedy: nothing is recorded, so there is no `denialId` to turn into a
+  // grant, and no operator is asked. See change: close-container-loopback-impersonation (D8).
+  if (await dashboardStateRefuses(resolved)) return { allowed: false, viaGrant: false };
+
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
   let decision: ContainmentDecision;
@@ -302,10 +308,14 @@ export async function evaluateContainment(
 
   // Ask the operator, if this denial may be asked about (add-access-grant-dialog).
   // Any outcome other than an allow verdict leaves the denial exactly as above.
-  const resolution = await holdDenial(
-    { plane: "filesystem", rawSubject: entry.subject, ancestors, origin: opts.session ?? "unknown" },
-    opts.hold,
-  );
+  // A bare-loopback caller that only lacks proof is prompt-ineligible: refused at once, nothing
+  // queued, nobody asked (MODIFIED file-read-containment). See change: close-container-loopback-impersonation (D8).
+  const resolution: Resolution = currentCallerUnproven()
+    ? { kind: "deny", reason: "ineligible" }
+    : await holdDenial(
+        { plane: "filesystem", rawSubject: entry.subject, ancestors, origin: opts.session ?? "unknown" },
+        opts.hold,
+      );
   const reEvaluated = resolution.kind === "allow" && (await reEvaluate(resolved, anchors, resolution));
   if (reEvaluated) return { allowed: true, viaGrant: true };
   if (opts.disclosure) remedy.promptOutcome = outcomeFor(resolution, opts.hold !== undefined);

@@ -14,6 +14,7 @@ import { registerSessionRoutes } from "../routes/session-routes.js";
 import { createServer, type DashboardServer } from "../server.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createSessionArchive } from "../session/session-archive.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 let httpPort: number;
 let piPort: number;
@@ -46,7 +47,7 @@ function url(path: string) {
 }
 
 async function postJson(path: string, body?: Record<string, unknown>) {
-  return fetch(url(path), {
+  return proofFetch(url(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
@@ -224,7 +225,7 @@ describe("Session Control REST API", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ success: true });
-    const list = (await (await fetch(url("/api/sessions"))).json()) as { data: Array<{ id: string }> };
+    const list = (await (await proofFetch(url("/api/sessions"))).json()) as { data: Array<{ id: string }> };
     expect(list.data.map((s) => s.id)).not.toContain("archive-fileless");
   });
 
@@ -232,7 +233,7 @@ describe("Session Control REST API", () => {
     seedArchivableEnded("list-resident");
     seedArchivableEnded("list-archived");
     await postJson("/api/session/list-archived/archive");
-    const res = await fetch(url("/api/sessions"));
+    const res = await proofFetch(url("/api/sessions"));
     const body = (await res.json()) as { data: Array<{ id: string }> };
     const ids = body.data.map((s) => s.id);
     expect(ids).toContain("list-resident");
@@ -242,9 +243,9 @@ describe("Session Control REST API", () => {
   it("GET /api/sessions/archived/:id — returns the row or 404 (E27)", async () => {
     seedArchivableEnded("byid-archived");
     await postJson("/api/session/byid-archived/archive");
-    const hit = await fetch(url("/api/sessions/archived/byid-archived"));
+    const hit = await proofFetch(url("/api/sessions/archived/byid-archived"));
     expect(hit.status).toBe(200);
-    const miss = await fetch(url("/api/sessions/archived/byid-unknown"));
+    const miss = await proofFetch(url("/api/sessions/archived/byid-unknown"));
     expect(miss.status).toBe(404);
   });
 
