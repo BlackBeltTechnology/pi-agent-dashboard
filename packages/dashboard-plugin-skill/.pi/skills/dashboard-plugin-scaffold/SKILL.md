@@ -139,7 +139,7 @@ It prints one JSON result line. It creates `<folder>/.pi/dashboard/project.json`
 Next steps:
   1. cd $ROOT && npm install
   2. npm run build                 # build the client + plugin
-  3. curl -X POST http://localhost:8000/api/restart   # restart dashboard server
+  3. pi-dashboard restart                # restart dashboard server (a bare curl to /api/restart is refused)
   4. npm run reload                # reload all connected pi sessions
   5. Open the dashboard, navigate to your slot, see the scaffold render.
   6. Style plugin UI with host tokens only: read references/host-design.md

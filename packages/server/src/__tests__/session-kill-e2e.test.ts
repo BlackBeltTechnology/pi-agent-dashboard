@@ -23,6 +23,7 @@ import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platfo
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const KEEPER_PATH = path.resolve(__dirname, "..", "rpc-keeper", "keeper.cjs");
 const FIXTURES_DIR = path.resolve(__dirname, "..", "rpc-keeper", "__tests__", "fixtures");
@@ -184,7 +185,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
     expect(isProcessAlive(session.piPid)).toBe(true);
 
     // Drive Shutdown via browser WS (same message handleShutdown receives in prod).
-    const browser = new WebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
     await waitForOpen(browser);
     browser.send(JSON.stringify({ type: "shutdown", sessionId: session.sessionId }));
 
@@ -228,7 +229,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
 
     expect(isProcessAlive(session.piPid)).toBe(true);
 
-    const browser = new WebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
     await waitForOpen(browser);
     browser.send(JSON.stringify({
       type: "force_kill",

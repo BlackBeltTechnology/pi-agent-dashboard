@@ -39,6 +39,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { checkoutRootsAsync, isBoundCheckoutAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { dashboardStateRefuses } from "./dashboard-state-guard.js";
 
 /** Per-probe budget for the async resolver and for each binding re-resolution. */
 const PROBE_TIMEOUT_MS = 2_000;
@@ -132,6 +133,8 @@ export async function isGrantAdmitted(
   subjects: readonly string[],
 ): Promise<boolean> {
   if (subjects.length === 0) return false;
+  // Dashboard secrets are never granted away. See change: close-container-loopback-impersonation (D8).
+  if (await dashboardStateRefuses(resolved)) return false;
   let real: string;
   try {
     real = await fs.realpath(resolved);
@@ -150,6 +153,10 @@ export async function isAllowed(
   resolved: string,
   { anchors }: { anchors: string[] },
 ): Promise<boolean> {
+  // The dashboard state dir (token, identity key, config) is outside every anchor, whatever the
+  // anchor: a `$HOME` cwd or the `~/.pi` anchor would otherwise contain it. Decided on REAL paths.
+  // See change: close-container-loopback-impersonation (D8).
+  if (await dashboardStateRefuses(resolved)) return false;
   // Layer ① — logical, no spawn. Catches ~every real read.
   for (const anchor of anchors) {
     if (within(resolved, anchor)) return true;

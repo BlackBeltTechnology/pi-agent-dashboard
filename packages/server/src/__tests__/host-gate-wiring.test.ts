@@ -27,6 +27,7 @@ import {
 } from "../auth/host-gate.js";
 import { resetConfigSnapshot } from "../config-snapshot.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 const GATE_ENV = "PI_DASHBOARD_HOST_GATE";
 
@@ -476,7 +477,7 @@ describe("REST host gate — real server wiring", () => {
     setGateEnv("report"); // env overrides config
     handle = await createTestServer();
 
-    const res = await fetch(`http://127.0.0.1:${handle.httpPort}/api/host-gate`);
+    const res = await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/host-gate`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -493,7 +494,7 @@ describe("REST host gate — real server wiring", () => {
     fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
     handle = await createTestServer();
     const recent = async () =>
-      (await (await fetch(`http://127.0.0.1:${handle!.httpPort}/api/host-gate`)).json()).recent;
+      (await (await proofFetch(`http://127.0.0.1:${handle!.httpPort}/api/host-gate`)).json()).recent;
 
     for (let i = 0; i < 3; i++) await get("rebind.example:8000");
     await get("proxy-int.corp");
@@ -524,7 +525,7 @@ describe("REST host gate — real server wiring", () => {
     fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
     handle = await createTestServer();
     const recent = async () =>
-      (await (await fetch(`http://127.0.0.1:${handle!.httpPort}/api/host-gate`)).json()).recent;
+      (await (await proofFetch(`http://127.0.0.1:${handle!.httpPort}/api/host-gate`)).json()).recent;
     // HTTP/1.0 so the Host-less request reaches the handler at all (see #E13).
     const noHost = "GET /api/health HTTP/1.0\r\nConnection: close\r\n\r\n";
 
@@ -552,6 +553,7 @@ describe("REST host gate — real server wiring", () => {
     });
     const headers = { "x-forwarded-for": "203.0.113.7" };
 
+    // A simulated REMOTE caller (forwarding header): deliberately no local proof.
     const gate = await fetch(`http://127.0.0.1:${handle.httpPort}/api/host-gate`, { headers });
     const config = await fetch(`http://127.0.0.1:${handle.httpPort}/api/config`, { headers });
     expect(gate.status).toBe(config.status);
@@ -572,7 +574,9 @@ describe("REST host gate — real server wiring", () => {
       );
     const authConfig = { secret: "test-secret-abc", providers: { github: { clientId: "x", clientSecret: "y" } } };
 
-    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
+    // Explicit opt-out: this scenario is about a BARE loopback peer. Under the strict default the
+    // universal guard answers it first, so the pairing route's own refusal body would never be reached.
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" }, requireLocalProof: false }));
     handle = await createTestServer({ authConfig });
     const reported = await approve(handle.httpPort);
     expect(reported.status).toBe(401);
@@ -583,7 +587,7 @@ describe("REST host gate — real server wiring", () => {
     handle = undefined;
 
     resetConfigSnapshot();
-    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "enforce" } }));
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "enforce" }, requireLocalProof: false })); // explicit opt-out, as above
     handle = await createTestServer({ authConfig });
     const enforced = await approve(handle.httpPort);
     expect(enforced.status).toBe(403);

@@ -13,6 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -28,7 +29,7 @@ interface BrowserHandle { ws: WebSocket; msgs: any[] }
 
 function openBrowser(port: number): Promise<BrowserHandle> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
     const msgs: any[] = [];
     ws.on("message", (raw) => {
       try { msgs.push(JSON.parse(raw.toString())); } catch { /* ignore */ }

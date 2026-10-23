@@ -13,6 +13,7 @@ import { createServer, type DashboardServer, type ServerConfig } from "../server
 import { createBinding } from "../vault/vault-bindings.js";
 import { createGrant, dirSubject } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 const baseConfig: ServerConfig = {
   port: 0, piPort: 0, host: "127.0.0.1", gatewayTcp: true, dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
@@ -55,7 +56,7 @@ describe("vault delivery wiring", () => {
 
     // Rotate through the management route (loopback = locally trusted): the
     // server's own store fires the push.
-    const res = await fetch(`http://127.0.0.1:${server.httpPort()}/api/vault/accounts/${acc.id}/value`, {
+    const res = await proofFetch(`http://127.0.0.1:${server.httpPort()}/api/vault/accounts/${acc.id}/value`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ value: "rotated-key-0001" }),

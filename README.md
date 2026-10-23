@@ -384,6 +384,17 @@ pi-dashboard open [--url <origin>]          # or authorize this browser tab, the
 
 Docker: `docker exec <container> pi-dashboard pair approve`. The CLI must run as the same OS user as the server. Per-setup table: "How do I approve a pending device pairing request?" in [docs/faq.md](docs/faq.md).
 
+### Local access (`requireLocalProof`)
+
+Default `requireLocalProof: true`. A caller on the loopback address with no forwarding header (bare loopback) reads observe-tier REST and `/v1/*` only. Every other REST route and WebSocket needs local proof: a `pi_dash_local` cookie, the `X-Pi-Local-Proof` header from the CLI or bridge, the desktop app, or a signed-in/paired principal. Refusal: `403 network_not_allowed` with `reason: "local_proof_required"`.
+
+- Browser tab refused: run `pi-dashboard open` (opens the dashboard already authorized). Forwarded loopback (`ssh -L`, VS Code port forward, WSL): run `pi-dashboard open --print` on the server, then open the URL through a forward on the same port (the cookie is bound to the port).
+- Scripts on this host: `pi-dashboard api <METHOD> <path> [--data <json>]` (mints proof per request). Raw `curl` to control routes is refused.
+- Opt-out: `"requireLocalProof": false` in `config.json` (live, no restart). **Opting out re-exposes the control plane to every container on the host** (Docker Desktop `host.docker.internal`, `--network host`, `ssh -R`, `socat` all look like bare loopback). Keep it on unless the host is single-user and no container or relay reaches `127.0.0.1`.
+- Upgrade: the first start rotates the local token and `auth.secret` once, so everyone signs in again. Stop every dashboard instance before upgrading.
+
+See [docs/architecture.md](docs/architecture.md) (Trust and Credential Boundaries) and [docs/faq.md](docs/faq.md).
+
 ### LAN access
 
 Bind wide first: `bindHost` or `PI_DASHBOARD_HOST=0.0.0.0` (restart required). Then `network.trustMode` decides who admits LAN peers:
@@ -502,13 +513,16 @@ npx tsx packages/server/src/cli.ts --dev   # proxy to Vite dev server
 
 ### Graceful restart via API
 
+A bare `curl` to a control or operate route is refused (`403 local_proof_required`): `requireLocalProof` is on by
+default, so a local caller must prove it is on this machine. `pi-dashboard api` mints that proof for each request.
+
 ```bash
 # Restart in the same mode
-curl -X POST http://localhost:8000/api/restart
+pi-dashboard api POST /api/restart
 
 # Switch to dev / production
-curl -X POST http://localhost:8000/api/restart -H 'Content-Type: application/json' -d '{"dev":true}'
-curl -X POST http://localhost:8000/api/restart -H 'Content-Type: application/json' -d '{"dev":false}'
+pi-dashboard api POST /api/restart --data '{"dev":true}'
+pi-dashboard api POST /api/restart --data '{"dev":false}'
 
 # Check current mode
 curl -s http://localhost:8000/api/health | jq .mode
@@ -826,12 +840,12 @@ pi -e packages/extension/src/bridge.ts   # or just `pi` if installed
 # Chained with && so a refused sync aborts before the restart.
 pnpm run build \
   && node scripts/sync-served-client.mjs \
-  && curl -X POST http://localhost:8000/api/restart
+  && pi-dashboard restart
 # Full verified rebuild script (build + sync + restart + reload)
 ./scripts/rebuild-restart.sh
 
 # After server changes (runs TypeScript directly, no build needed)
-curl -X POST http://localhost:8000/api/restart
+pi-dashboard restart   # in a dev checkout: npx tsx packages/server/src/cli.ts restart
 
 # After bridge extension changes
 pnpm run reload

@@ -69,8 +69,8 @@ grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log
 Quick reference:
 ```bash
 npm run reload                              # after packages/extension/ changes
-curl -X POST http://localhost:8000/api/restart   # after packages/server|packages/shared changes (jiti — no build)
-npm run build && curl -X POST .../api/restart    # after packages/client changes (production)
+npx tsx .pi/skills/implement/scripts/restart-server.ts   # after packages/server|packages/shared changes (jiti — no build; mints local proof)
+npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts   # after packages/client changes (production)
 curl -s http://localhost:8000/api/health | jq .mode   # dev | production
 ```
 `/api/restart` is the single restart source of truth (CLI `restart` delegates to it when the dashboard is up). `--dev` proxies to Vite with automatic production fallback. `full-rebuild.ts` = deploy checked-out dev to the local instance; NOT a feature step.

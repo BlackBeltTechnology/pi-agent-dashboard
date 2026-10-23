@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 let httpPort: number;
 let piPort: number;
@@ -56,7 +57,7 @@ function url(path: string) {
 }
 
 async function postJson(path: string, body?: Record<string, unknown>) {
-  return fetch(url(path), {
+  return proofFetch(url(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body ?? {}),
@@ -93,7 +94,7 @@ async function connectBridge(sessionId: string, extra: Record<string, unknown> =
 
 /** Live bridge count, read through the same surface an operator would use. */
 async function bridgeCount(): Promise<number> {
-  const res = await fetch(url("/api/health"));
+  const res = await proofFetch(url("/api/health"));
   return ((await res.json()) as any).activeBridgeCount as number;
 }
 
@@ -272,7 +273,7 @@ describe("session-file resume guard (REST)", () => {
 
   // ── F7 ────────────────────────────────────────────────────────────────────
   it("F7: /api/health carries the cumulative count and the contended id list", async () => {
-    const res = await fetch(url("/api/health"));
+    const res = await proofFetch(url("/api/health"));
     const body = (await res.json()) as any;
 
     expect(body.bridgeContentionCount).toBeGreaterThanOrEqual(1);
@@ -363,7 +364,7 @@ describe("/api/session-file refuses a remote-origin session", () => {
     });
     server.sessionManager.register({ id: "local-sess", cwd: dir, source: "tui" });
 
-    const remote = await fetch(url("/api/session-file?sessionId=remote-sess&path=README.md"));
+    const remote = await proofFetch(url("/api/session-file?sessionId=remote-sess&path=README.md"));
     expect(remote.status).toBe(403);
     const body = (await remote.json()) as { success: boolean; error: string };
     expect(body.success).toBe(false);
@@ -373,7 +374,7 @@ describe("/api/session-file refuses a remote-origin session", () => {
 
     // The discriminating control: an identical read for a LOCAL session is
     // served, so the refusal is about ORIGIN and not about the path.
-    const local = await fetch(url("/api/session-file?sessionId=local-sess&path=README.md"));
+    const local = await proofFetch(url("/api/session-file?sessionId=local-sess&path=README.md"));
     expect(local.status).toBe(200);
     const okBody = (await local.json()) as { data: { content: string } };
     expect(okBody.data.content).toBe("local-secret");

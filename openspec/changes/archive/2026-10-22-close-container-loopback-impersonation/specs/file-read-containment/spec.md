@@ -171,6 +171,13 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 - **THEN** the grant layer SHALL admit it at that site as at the others
 - **AND** when no grant covers it, the refusal string SHALL be unchanged
 
+#### Scenario: symlinked cwd accepts both spellings
+
+- **GIVEN** an admitted request `cwd` `/tmp/link` that is a symlink to `/real/proj` (not a git repository)
+- **WHEN** `GET /api/file` requests the absolute path `/real/proj/a.txt`, and separately the absolute path `/tmp/link/a.txt`, and separately the relative path `a.txt`
+- **THEN** each read SHALL be allowed
+- **AND** a relative path `../outside.txt` SHALL be rejected with HTTP 403 `"path outside working directory"`
+
 ### Requirement: the git-root widening is unconditional and per-site anchors and error strings are preserved
 
 The bound checkout roots of each containment anchor SHALL be the containment trust boundary for every caller; the layer-2 widening SHALL NOT depend on the request source (loopback, trusted-network, and authenticated requests are treated identically). The only caller-dependent decision on these sites is the dashboard-state check of the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries`, which runs before containment and never widens it. The shared helper SHALL be parameterized by the calling route's anchor set and rejection string so each route preserves its existing behavior: `GET /api/file`, `GET /api/file/raw`, and `GET /api/file/render` SHALL anchor on `cwd` plus `~/.pi` and reject with `"path outside working directory"`; `GET /api/file/tree` and the office/EML gate helpers SHALL anchor on `cwd` alone with the same rejection string; `GET /api/file/exists` SHALL anchor on `cwd` plus the pinned directories and reject with `"unknown cwd"` / `"path outside cwd"`. There is no containment site in `system-routes`. This change SHALL NOT extend the pinned-directory anchor to the read, raw, or render routes.

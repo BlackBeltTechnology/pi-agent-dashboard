@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 const CWD = "/repo-a";
 const MAIN = "/repo-main";
@@ -178,7 +179,7 @@ describe("manual attach is not gated", () => {
     stubCache({ [CWD]: ["c-a"] });
     markResolved("s1");
 
-    const res = await fetch(`http://127.0.0.1:${server.httpPort()!}/api/session/s1/attach-proposal`, {
+    const res = await proofFetch(`http://127.0.0.1:${server.httpPort()!}/api/session/s1/attach-proposal`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ changeName: "c-b" }),

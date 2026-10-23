@@ -13,6 +13,7 @@ import { clearDiscoveryCache } from "@blackbelt-technology/dashboard-plugin-runt
 import { vi } from "vitest";
 import { WebSocket } from "ws";
 import { resetConfigSnapshot } from "../../config-snapshot.js";
+import { withLocalProof } from "../../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../../test-support/test-server.js";
 
 export interface BootHarness {
@@ -92,7 +93,9 @@ export function createBootHarness(): BootHarness {
     dial(ticket) {
       return new Promise((resolve) => {
         const qs = ticket ? `?ticket=${encodeURIComponent(ticket)}` : "";
-        const ws = new WebSocket(`ws://127.0.0.1:${h.handle().httpPort}/ws${qs}`);
+        // A local dial carries proof (the strict default); `ticket` is what the identity road is judged on.
+        const url = `ws://127.0.0.1:${h.handle().httpPort}/ws${qs}`;
+        const ws = new WebSocket(url, { headers: withLocalProof(url) });
         let settled = false;
         const done = (v: WebSocket | null) => {
           if (settled) return;

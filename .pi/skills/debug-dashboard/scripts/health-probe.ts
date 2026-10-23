@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { BusClient } from '@blackbelt-technology/pi-dashboard-bus-client';
+import { dialHost, localProofHeaders } from '../../implement/scripts/local-proof-fetch.ts';
 
 function getDashboardPort(): number {
   try {
@@ -66,7 +67,7 @@ if (json) {
 // Live active-session count from the WS subscription snapshot (bus-consistent).
 let snapshotActive: number | undefined;
 {
-  const bus = new BusClient();
+  const bus = new BusClient({ host: dialHost(), proofHeaders: localProofHeaders });
   try {
     await bus.connect();
     snapshotActive = bus.read.sessions().filter((s) => s.status !== 'ended').length;

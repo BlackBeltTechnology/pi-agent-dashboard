@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { WsRouteScope } from "../auth/ws-ticket.js";
 import { resetConfigSnapshot } from "../config-snapshot.js";
+import { proofFetch, withLocalProof } from "../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 const GATE_ENV = "PI_DASHBOARD_HOST_GATE";
@@ -53,7 +54,7 @@ type DialResult =
  * that 403s and one that 400s are different bugs. */
 function dial(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url, { headers });
+    const ws = new WebSocket(url, { headers: withLocalProof(url, headers) });
     let settled = false;
     const done = (r: DialResult) => {
       if (settled) return;
@@ -87,7 +88,7 @@ function dial(url: string, headers: Record<string, string> = {}): Promise<DialRe
 function dialUntilSnapshot(url: string, headers: Record<string, string> = {}): Promise<string[] | null> {
   return new Promise((resolve) => {
     const frames: string[] = [];
-    const ws = new WebSocket(url, { headers });
+    const ws = new WebSocket(url, { headers: withLocalProof(url, headers) });
     let settled = false;
     const done = (out: string[] | null) => {
       if (settled) return;
@@ -118,7 +119,7 @@ function dialUntilSnapshot(url: string, headers: Record<string, string> = {}): P
 const isStatus = (r: DialResult, code: number) => r.kind === "status" && r.status === code;
 
 async function mintTicket(httpPort: number, scope: WsRouteScope): Promise<string> {
-  const res = await fetch(`http://127.0.0.1:${httpPort}/api/ws-ticket`, {
+  const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/ws-ticket`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ scope }),

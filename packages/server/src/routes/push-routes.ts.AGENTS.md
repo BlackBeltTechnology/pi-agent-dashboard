@@ -1,0 +1,3 @@
+# push-routes.ts — index
+
+`registerPushRoutes(fastify, {getPush})`. `/api/push/vapid-public-key` (observe), `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` (operate). Always registered; 404 while `getPush()` null; auth chain first. Validation → 400: transport enum, web-push PushSubscription JSON (https endpoint + keys, canonicalised), fcm non-empty, webhook `validateWebhookUrl`; webhook URL + web-push endpoint both `vetDestination` (SSRF), label ≤ 64, sessionFilter ≤ 100 non-empty strings. 51st token → 409. List renders `displayPushToken` only; test results opaque `{tokenId, ok, gone?}`. See change: add-server-push-notifications.

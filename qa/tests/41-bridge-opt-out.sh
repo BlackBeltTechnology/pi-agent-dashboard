@@ -64,13 +64,17 @@ command -v tmux >/dev/null 2>&1 && HAS_TMUX=1
 cd "$REPO_ROOT"
 PORT="$PORT" CONFIG="$CONFIG" HAS_TMUX="$HAS_TMUX" node -e '
 const WebSocket = require("ws");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
 const CONFIG = process.env.CONFIG;
-const BASE = `http://localhost:${process.env.PORT}`;
+// `pi-dashboard api` mints local proof; the strict `requireLocalProof` default refuses a bare loopback
+// upgrade and bare POSTs. See change: close-container-loopback-impersonation (D5).
+const api = (method, p, data) =>
+  execFileSync("pi-dashboard", ["api", method, p, "--port", String(process.env.PORT), ...(data ? ["--data", JSON.stringify(data)] : [])], { encoding: "utf8" });
+const wsUrl = () => `ws://localhost:${process.env.PORT}/ws?ticket=${encodeURIComponent(JSON.parse(api("POST", "/api/ws-ticket", { scope: "browser" })).data.ticket)}`;
 const children = [];
 
 const readCfg = () => { try { return JSON.parse(fs.readFileSync(CONFIG, "utf8")); } catch { return {}; } };
@@ -87,7 +91,7 @@ function observe(cwd, action, timeoutMs) {
   return new Promise((resolve, reject) => {
     const pre = new Set();
     let armed = false;
-    const ws = new WebSocket(`ws://localhost:${process.env.PORT}/ws`);
+    const ws = new WebSocket(wsUrl());
     const finish = (v) => { clearTimeout(t); try { ws.close(); } catch {} resolve(v); };
     const t = setTimeout(() => finish(null), timeoutMs);
     ws.on("error", (e) => { clearTimeout(t); reject(new Error("ws error: " + e.message)); });
@@ -116,16 +120,11 @@ function userPi(cwd, envPatch) {
 
 async function shutdown(id) {
   if (!id) return;
-  await fetch(`${BASE}/api/session/${id}/shutdown`, { method: "POST" }).catch(() => {});
+  try { api("POST", `/api/session/${id}/shutdown`); } catch {}
 }
 
 async function restSpawn(cwd) {
-  const r = await fetch(`${BASE}/api/session/spawn`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ cwd }),
-  });
-  if (r.status !== 200) throw new Error("spawn POST status " + r.status);
+  try { api("POST", "/api/session/spawn", { cwd }); } catch (e) { throw new Error("spawn POST failed: " + e.message); }
 }
 
 const killAll = () => { for (const c of children.splice(0)) { try { c.kill("SIGKILL"); } catch {} } };

@@ -27,6 +27,10 @@ let cached: DashboardConfig | null = null;
 /** `${mtimeMs}:${size}` of the file behind `cached`; `""` = never loaded. */
 let cachedStamp = "";
 let parseCount = 0;
+/** Raw `requireLocalProof` as found in the file behind `cached`; `undefined` = absent or a valid boolean. */
+let cachedRlpInvalid: { raw: unknown } | undefined;
+/** Last non-boolean value already warned about (JSON-keyed), so the log never repeats. */
+let lastWarnedRlp: string | undefined;
 
 /** Resolved per call — `os.homedir()` follows `$HOME`, which tests reassign. */
 function configFile(): string {
@@ -69,6 +73,24 @@ function parsesCleanly(): boolean {
 }
 
 /**
+ * A PRESENT, non-boolean `requireLocalProof` in the file (e.g. a quoted
+ * `"false"` rollback attempt). It parses as strict, so the operator must be told.
+ * Read here, not in `loadConfig`, which every bridge process also runs.
+ * See change: close-container-loopback-impersonation (D1).
+ */
+function readInvalidRequireLocalProof(): { raw: unknown } | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configFile(), "utf-8")) as Record<string, unknown> | null;
+    if (parsed && typeof parsed === "object" && "requireLocalProof" in parsed && typeof parsed.requireLocalProof !== "boolean") {
+      return { raw: parsed.requireLocalProof };
+    }
+  } catch {
+    /* absent / unparseable → nothing to report */
+  }
+  return undefined;
+}
+
+/**
  * The current config, reparsed only when the file changed since the last call.
  * Callers MUST NOT mutate the returned object — it is shared. When the file
  * exists but no longer parses, the LAST GOOD snapshot stays in force (with a
@@ -91,6 +113,7 @@ export function getConfigSnapshot(): DashboardConfig {
   }
   cached = loadConfig();
   cachedStamp = current;
+  cachedRlpInvalid = readInvalidRequireLocalProof();
   parseCount++;
   return cached;
 }
@@ -111,7 +134,19 @@ export function liveTrustedNetworks(fallback: string[] = []): string[] {
 
 /** `requireLocalProof` as of this request (live, no restart). */
 export function liveRequireLocalProof(): boolean {
-  return getConfigSnapshot().requireLocalProof === true;
+  const effective = getConfigSnapshot().requireLocalProof !== false;
+  if (cachedRlpInvalid) {
+    const key = JSON.stringify(cachedRlpInvalid.raw) ?? "undefined";
+    if (key !== lastWarnedRlp) {
+      lastWarnedRlp = key;
+      console.warn(
+        `[config] requireLocalProof=${key} is not a boolean; treating it as true (strict). Use an explicit \`false\` to opt out.`,
+      );
+    }
+  } else {
+    lastWarnedRlp = undefined;
+  }
+  return effective;
 }
 
 /** `liveServer.previewExposure` as of this request (`"exposed"` forces exposed; otherwise `undefined`). See change: improve-canvas-html-and-url-ux. */
@@ -157,6 +192,8 @@ export function resetConfigSnapshot(): void {
   cached = null;
   cachedStamp = "";
   parseCount = 0;
+  cachedRlpInvalid = undefined;
+  lastWarnedRlp = undefined;
 }
 
 /** How many full read+parse cycles happened. Test-only observability (P3/P4). */

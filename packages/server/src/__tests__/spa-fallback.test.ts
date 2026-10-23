@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch, proofHeadersRaw } from "../test-support/local-credential-stamp.js";
 
 // A switch for the "no client build" mode; everything else sees the real resolver.
 const clientDist = vi.hoisted(() => ({ noBuild: false, dir: null as string | null }));
@@ -27,7 +28,10 @@ vi.mock("../lib/client-dist.js", async (importOriginal) => {
 /** A raw GET: the path reaches the server exactly as written (no client-side normalisation). */
 function rawGet(port: number, rawPath: string): Promise<{ status: number; type: string; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, path: rawPath, method: "GET" }, (res) => {
+    // A real local caller carries proof (the strict default). The proof binds the request-target as the
+    // request-target byte-for-byte, so a spelling the WHATWG URL parser would rewrite (dot-segments) still verifies.
+    const headers = proofHeadersRaw(port, rawPath);
+    const req = http.request({ host: "127.0.0.1", port, path: rawPath, method: "GET", headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () => resolve({ status: res.statusCode ?? 0, type: String(res.headers["content-type"] ?? ""), body: Buffer.concat(chunks).toString("utf-8") }));
@@ -103,21 +107,21 @@ describe("SPA fallback", () => {
   });
 
   it("returns index.html for /session/:id route", async () => {
-    const res = await fetch(`http://127.0.0.1:${httpPort}/session/abc-123`);
+    const res = await proofFetch(`http://127.0.0.1:${httpPort}/session/abc-123`);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("html");
   });
 
   it("returns index.html for unknown client routes", async () => {
-    const res = await fetch(`http://127.0.0.1:${httpPort}/some/unknown/path`);
+    const res = await proofFetch(`http://127.0.0.1:${httpPort}/some/unknown/path`);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("html");
   });
 
   it("still serves API routes normally", async () => {
-    const res = await fetch(`http://127.0.0.1:${httpPort}/api/sessions`);
+    const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/sessions`);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
@@ -140,7 +144,7 @@ describe("SPA fallback", () => {
   });
 
   it("an unmatched /api path is a JSON 404 for every method, and names the path (≤ 200 chars, no query)", async () => {
-    const res = await fetch(`http://127.0.0.1:${httpPort}/api/nope?token=secret-abc`, { method: "POST" });
+    const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/nope?token=secret-abc`, { method: "POST" });
     expect(res.status).toBe(404);
     const json = await res.json() as { message: string };
     expect(json.message).toBe("No API route for POST /api/nope");
@@ -218,7 +222,7 @@ const NO_STORE = "no-cache, no-store, must-revalidate";
 /** A GET that keeps the gzip header honest: node `fetch` would transparently inflate, raw http does not. */
 function rawGetWith(port: number, rawPath: string, headers: Record<string, string>): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, path: rawPath, method: "GET", headers }, (res) => {
+    const req = http.request({ host: "127.0.0.1", port, path: rawPath, method: "GET", headers: { ...proofHeadersRaw(port, rawPath), ...headers } }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf-8") }));

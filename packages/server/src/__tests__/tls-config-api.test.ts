@@ -7,6 +7,10 @@ import { createTestServer, type TestServerHandle } from "../test-support/test-se
 import { FakeSource } from "../tls/__tests__/helpers.js";
 import { registerCertSourceType, unregisterCertSourceType } from "../tls/source-registry.js";
 import { validateTlsConfigWrite } from "../tls/tls-config-validation.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
+
+/** Loopback callers prove locality (the strict default); a LAN caller is remote and sends none. */
+const call = (url: string, init: RequestInit) => (url.startsWith("http://127.0.0.1") ? proofFetch(url, init) : fetch(url, init));
 
 /**
  * `tls` config writes + the operator issue route over a real server:
@@ -45,12 +49,12 @@ async function waitFor(pred: () => boolean, ms = 8000): Promise<void> {
 }
 
 async function put(body: unknown, url = base): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${url}/api/config`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const res = await call(`${url}/api/config`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   return { status: res.status, json: await res.json().catch(() => ({})) };
 }
 
 async function issue(body: unknown, url = base): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${url}/api/tls/issue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const res = await call(`${url}/api/tls/issue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   return { status: res.status, json: await res.json().catch(() => ({})) };
 }
 
@@ -173,9 +177,9 @@ describe("#X2 reconcile failure after the write", () => {
     const r = await put({ tls: { port: held } });
     expect(r.status).toBe(200);
     expect(readCfg().tls.port).toBe(held);
-    const h = await (await fetch(`${base}/api/health`)).json();
+    const h = await (await proofFetch(`${base}/api/health`)).json();
     expect(h.tls).toMatchObject({ enabled: true, bound: false, bindError: expect.stringContaining("EADDRINUSE") });
-    expect((await fetch(`${base}/api/health`)).status).toBe(200);
+    expect((await proofFetch(`${base}/api/health`)).status).toBe(200);
     await new Promise<void>((r2) => blocker.close(() => r2()));
   });
 });

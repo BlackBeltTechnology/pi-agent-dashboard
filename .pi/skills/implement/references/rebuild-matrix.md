@@ -33,16 +33,18 @@ npm run reload:check    # type-check first, then reload
 Server runs TS directly via the native strip-only loader. No build step. Just restart:
 
 ```bash
-# Graceful restart via API (preserves current dev/prod mode)
-curl -X POST http://localhost:8000/api/restart
-
-# Or via CLI
-pi-dashboard restart              # production
-pi-dashboard restart --dev        # dev
+# Graceful restart via API (preserves current dev/prod mode). A bare `curl -X POST .../api/restart` is
+# refused (403 local_proof_required) under the strict default; this script mints local proof.
+npx tsx .pi/skills/implement/scripts/restart-server.ts
 
 # Force a mode
-curl -X POST -H 'Content-Type: application/json' \
-  -d '{"dev": true}' http://localhost:8000/api/restart
+npx tsx .pi/skills/implement/scripts/restart-server.ts --dev
+npx tsx .pi/skills/implement/scripts/restart-server.ts --prod
+
+# Or via the CLI (also sends proof). In a dev checkout `pi-dashboard` on PATH may be an INSTALLED bundle;
+# use the checked-out CLI instead: npx tsx packages/server/src/cli.ts restart
+pi-dashboard restart              # production
+pi-dashboard restart --dev        # dev
 
 # Manual stop + start (fallback if API is broken)
 pi-dashboard stop && pi-dashboard start
@@ -54,13 +56,13 @@ pi-dashboard stop && pi-dashboard start --dev
 | Mode | Action |
 |------|--------|
 | Dev (`npm run dev` or `pi-dashboard start --dev`) | Nothing — Vite HMR auto-reloads |
-| Prod | `npm run build && curl -X POST http://localhost:8000/api/restart` |
+| Prod | `npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts` |
 
 ### After `openspec-apply` finishes — full rebuild
 
 ```bash
 npm run build
-curl -X POST http://localhost:8000/api/restart
+npx tsx .pi/skills/implement/scripts/restart-server.ts
 npm run reload
 ```
 
@@ -101,7 +103,7 @@ If client changes don't appear in dev mode → check that Vite is actually runni
 
 | Mistake | Fix |
 |---------|-----|
-| Edited `src/server/` → ran `npm run build` | Server doesn't need build. Just `curl -X POST .../api/restart`. |
+| Edited `src/server/` → ran `npm run build` | Server doesn't need build. Just `npx tsx .pi/skills/implement/scripts/restart-server.ts`. |
 | Edited `src/extension/` → restarted server | Bridge code lives in pi sessions, not server. Need `npm run reload`. |
 | Edited `src/client/` in dev mode → ran `npm run build && restart` | Vite HMR was already reloading it. The build was wasted. |
 | Edited `src/shared/` → only restarted server | Shared types may also be imported by extension and client. Reload + rebuild if those import paths are affected. |

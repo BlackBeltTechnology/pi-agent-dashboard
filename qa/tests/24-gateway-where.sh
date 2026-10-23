@@ -70,8 +70,9 @@ SRV_PID="$(health_field pid)"
 INSTANCE_ID="$(health_field instanceId)"
 [ -n "$INSTANCE_ID" ] || { echo "FAIL: the dashboard published no instanceId"; exit 1; }
 
-curl -s -X POST "http://localhost:$PORT/api/session/spawn" \
-  -H 'Content-Type: application/json' -d "{\"cwd\":\"$QA_HOME/work\"}" -o "$QA_HOME/spawn.json" > /dev/null
+# `pi-dashboard api` mints local proof (a bare curl is refused by the strict `requireLocalProof` default);
+# HOME must be the server's, since that is where the local token lives.
+HOME="$QA_HOME" pi-dashboard api POST /api/session/spawn --port "$PORT" --data "{\"cwd\":\"$QA_HOME/work\"}" > "$QA_HOME/spawn.json" 2>&1 || true
 grep -q '"success":true' "$QA_HOME/spawn.json" || {
   echo "FAIL: session spawn refused"; cat "$QA_HOME/spawn.json"; exit 1
 }
@@ -87,8 +88,7 @@ while [ "$WAITED" -lt 120 ]; do
 done
 [ -n "$SESSION_ID" ] || { echo "FAIL: the spawned pi session never registered"; exit 1; }
 
-curl -s -X POST "http://localhost:$PORT/api/session/$SESSION_ID/prompt" \
-  -H 'Content-Type: application/json' -d '{"text":"/dashboard-where"}' -o "$QA_HOME/prompt.json" > /dev/null
+HOME="$QA_HOME" pi-dashboard api POST "/api/session/$SESSION_ID/prompt" --port "$PORT" --data '{"text":"/dashboard-where"}' > "$QA_HOME/prompt.json" 2>&1 || true
 grep -q '"success":true' "$QA_HOME/prompt.json" || {
   echo "FAIL: the command was not transmitted"; cat "$QA_HOME/prompt.json"; exit 1
 }

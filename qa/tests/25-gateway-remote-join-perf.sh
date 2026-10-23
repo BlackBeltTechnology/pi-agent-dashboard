@@ -55,6 +55,11 @@ if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://localhost:$P
 fi
 
 QA_HOME="$(mktemp -d "${TMPDIR:-/tmp}/qa-joinperf-XXXXXX")"
+# Explicit opt-out of the strict `requireLocalProof` default: this arm times server ingestion against
+# a prompt POST polled every 10 ms; admission is not its subject and a CLI call per poll would dominate
+# the measurement. See change: close-container-loopback-impersonation (D9).
+mkdir -p "$QA_HOME/.pi/dashboard"
+printf '{"requireLocalProof":false}' > "$QA_HOME/.pi/dashboard/config.json"
 HOME="$QA_HOME" pi-dashboard start --port "$PORT" --pi-port "$GATEWAY" --no-tunnel \
   > "$QA_HOME/start.log" 2>&1 &
 

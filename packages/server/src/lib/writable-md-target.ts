@@ -23,6 +23,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { dashboardStateRefuses } from "./dashboard-state-guard.js";
 import { safeRealpath, within } from "./path-containment.js";
 
 /**
@@ -98,6 +99,9 @@ export async function isWritableMdTarget(
     const root = await allowedRoot(opts);
     if (!root) return false;
     const real = await safeRealpath(path.resolve(absPath));
+    // The dashboard state dir (token, identity key, config) is never an editable or readable "markdown target",
+    // whatever root admits it. See change: close-container-loopback-impersonation (D8).
+    if (await dashboardStateRefuses(real)) return false;
     // Extension is checked on the *resolved* target so a same-dir symlink to a
     // non-markdown file (e.g. notes.md → secret.txt) is rejected.
     const ext = extOf(real);

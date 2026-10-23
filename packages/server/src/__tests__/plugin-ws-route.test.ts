@@ -21,6 +21,7 @@ import type { WebSocket as WsClient } from "ws";
 import { WebSocket, WebSocketServer } from "ws";
 import { routeScopeForUrl, WsTicketStore } from "../auth/ws-ticket.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofFetch, withLocalProof } from "../test-support/local-credential-stamp.js";
 
 let handle: TestServerHandle | undefined;
 const wssInstances: WebSocketServer[] = [];
@@ -40,7 +41,7 @@ type DialResult =
 /** Dial and report HOW it ended: 101, a refusal status, or a transport error. */
 function dial(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url, { headers });
+    const ws = new WebSocket(url, { headers: withLocalProof(url, headers) });
     let settled = false;
     const done = (r: DialResult) => {
       if (settled) return;
@@ -65,7 +66,7 @@ const isOpen = (r: DialResult) => r.kind === "open";
 /** Open a socket and keep it open (for teardown assertions). */
 function openSocket(url: string, headers: Record<string, string> = {}): Promise<WsClient> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url, { headers });
+    const ws = new WebSocket(url, { headers: withLocalProof(url, headers) });
     ws.on("open", () => resolve(ws));
     ws.on("unexpected-response", (_req, res) =>
       reject(new Error(`upgrade refused: HTTP ${res.statusCode}`)),
@@ -89,7 +90,7 @@ function registerPluginScope(
   scope: string,
   pathPrefix: string,
   admitOrigins: string[],
-  opts: { requirePluginToken?: boolean } = {},
+  opts: { requirePluginToken?: boolean; peerCredential?: "plugin"; onUpgrade?: () => void } = {},
 ): void {
   const registry = getWsRouteRegistry();
   const wss = new WebSocketServer({ noServer: true });
@@ -98,7 +99,9 @@ function registerPluginScope(
   registry.register(pluginId, scope, {
     pathPrefix,
     admitOrigins,
+    ...(opts.peerCredential ? { peerCredential: opts.peerCredential } : {}),
     handleUpgrade: (request, socket, head, meta) => {
+      opts.onUpgrade?.();
       // Optional fake per-connection credential: `?token=good` (the plugin's
       // own secret — the ONLY credential core never evaluates).
       if (opts.requirePluginToken && !(request.url ?? "").includes("token=good")) {
@@ -182,7 +185,7 @@ describe("#E6 ticket refusal on plugin scopes", () => {
     handle = await createTestServer();
     registerPluginScope("demo", "test-ext", "/ws/test-ext/", ["chrome-extension://abc"]);
 
-    const res = await fetch(`http://127.0.0.1:${handle.httpPort}/api/ws-ticket`, {
+    const res = await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/ws-ticket`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scope: "test-ext" }),
@@ -316,7 +319,7 @@ describe("#X11 plugin toggled off", () => {
     const cdpClosed = closeCode(cdp);
 
     const startedAt = Date.now();
-    const res = await fetch(`http://127.0.0.1:${handle.httpPort}/api/plugins/${TOGGLE_PLUGIN_ID}/toggle`, {
+    const res = await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/plugins/${TOGGLE_PLUGIN_ID}/toggle`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ enabled: false }),
@@ -332,10 +335,76 @@ describe("#X11 plugin toggled off", () => {
     expect(isStatus(await dial(`${base}/ws/x11-cdp/a`), 404)).toBe(true);
 
     // Restore the fixture plugin's config for the rest of this file's HOME.
-    await fetch(`http://127.0.0.1:${handle.httpPort}/api/plugins/${TOGGLE_PLUGIN_ID}/toggle`, {
+    await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/plugins/${TOGGLE_PLUGIN_ID}/toggle`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ enabled: true }),
     });
   }, 30000);
+});
+
+
+// ─── #E20 — `peerCredential: "plugin"` skips ONLY the strict proof requirement ───
+// See change: close-container-loopback-impersonation (D10; test-plan #E20).
+describe("#E20 peerCredential 'plugin' under the strict default", () => {
+  /** A BARE dial: no proof header, no cookie — what a CDP client or the pinned extension sends. */
+  function dialBare(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(url, { headers });
+      let settled = false;
+      const done = (r: DialResult) => {
+        if (settled) return;
+        settled = true;
+        try {
+          ws.close();
+        } catch {
+          /* best-effort */
+        }
+        resolve(r);
+      };
+      ws.on("open", () => done({ kind: "open" }));
+      ws.on("unexpected-response", (_req, res) => done({ kind: "status", status: res.statusCode ?? 0 }));
+      ws.on("error", () => done({ kind: "error" }));
+      setTimeout(() => done({ kind: "error" }), 5000);
+    });
+  }
+
+  it("scope A (peerCredential:plugin) reaches handleUpgrade with no proof; scope B (ordinary) is 403 before delegation; A with a tunnel Host is still 403", async () => {
+    handle = await createTestServer();
+    const reachedA = vi.fn();
+    const reachedB = vi.fn();
+    registerPluginScope("demo", "test-cred", "/ws/test-cred/", [], { peerCredential: "plugin", onUpgrade: reachedA });
+    registerPluginScope("demo", "test-plain", "/ws/test-plain/", [], { onUpgrade: reachedB });
+    const base = `ws://127.0.0.1:${handle.httpPort}`;
+
+    expect(isOpen(await dialBare(`${base}/ws/test-cred/abc`))).toBe(true);
+    expect(reachedA).toHaveBeenCalledTimes(1);
+
+    expect(isStatus(await dialBare(`${base}/ws/test-plain/abc`), 403)).toBe(true);
+    expect(reachedB).not.toHaveBeenCalled();
+
+    // Host, origin and locality are still enforced for a peerCredential scope.
+    reachedA.mockClear();
+    expect(isStatus(await dialBare(`${base}/ws/test-cred/abc`, { host: "tunnel.example:443" }), 403)).toBe(true);
+    expect(isStatus(await dialBare(`${base}/ws/test-cred/abc`, { "x-forwarded-for": "203.0.113.9" }), 403)).toBe(true);
+    expect(reachedA).not.toHaveBeenCalled();
+
+    // And the ordinary scope IS reachable once the caller proves local possession.
+    expect(isOpen(await dial(`${base}/ws/test-plain/abc`))).toBe(true);
+    expect(reachedB).toHaveBeenCalledTimes(1);
+  }, 40000);
+
+  it("registerWsRoute rejects an unknown peerCredential value", () => {
+    const registry = getWsRouteRegistry();
+    registry.beginActivation("demo");
+    expect(() =>
+      registry.register("demo", "bad-cred", {
+        pathPrefix: "/ws/bad-cred/",
+        admitOrigins: [],
+        peerCredential: "other" as never,
+        handleUpgrade: () => {},
+      }),
+    ).toThrow(/peerCredential must be "plugin"/);
+    registry.endActivation("demo");
+  });
 });
