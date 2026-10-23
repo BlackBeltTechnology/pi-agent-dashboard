@@ -39,7 +39,7 @@ const isDotSegment = (s: string): boolean => s === "." || s === "..";
  * For the `<ns>:<name>` form each segment is checked, since `..:x` would climb.
  * See change: harden-git-terminal-plugin-boundaries (S1r).
  */
-export function isTraversalFlowId(flowId: string): boolean {
+function isTraversalFlowId(flowId: string): boolean {
   if (flowId.includes("/") || flowId.includes("\\")) return true;
   return flowId.split(":").some(isDotSegment);
 }

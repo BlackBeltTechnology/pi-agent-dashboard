@@ -14,11 +14,11 @@ import { isReservedEventType, RESERVED_EVENT_PREFIXES } from "@blackbelt-technol
 type Send = (sessionId: string, msg: any) => boolean;
 
 /** Plugin whose allowlist is widened by its collected action providers. */
-export const AUTOMATION_PLUGIN_ID = "automation";
+const AUTOMATION_PLUGIN_ID = "automation";
 const AUTOMATION_ACTION_PREFIX = "automation.action.";
 
 /** Max distinct (plugin, eventType) pairs warned about per process; then one summary. */
-export const MAX_WARNED_PAIRS = 1000;
+const MAX_WARNED_PAIRS = 1000;
 /** Event types are truncated to this length in the dedupe key and log lines. */
 const MAX_LOGGED_TYPE_CHARS = 128;
 

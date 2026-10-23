@@ -162,6 +162,15 @@ One landing: every row below ships in one ship-it pass, then the change archives
 - Old client, new server: `msg.cwd` on inline terminals ignored; `terminal_error` ignored.
 - MCP agents and out-of-tree plugins: see proposal Compatibility (CHANGELOG notes).
 
+## Implementation notes
+
+- **D16 inventory (task 6.22).** In-tree `emitEventToSession` callers: `flows` (`flows-plugin/src/server/index.ts:147` → `flow:run`; `flow-files.ts:202` via `index.ts:82` → `dashboard-flows:report-files`), manifest `emits: ["flow:run","dashboard-flows:report-files"]`; `automation` (`automation-plugin/src/server/index.ts`, dynamic via accepted action registrations), manifest `emits: []`; `mcp-server-plugin/src/server/tools.ts:29,76` mentions the seam in denylists only — not an emitter. A source-scan test (`plugin-emits-inventory.test.ts`) pins exactly `automation` + `flows`.
+- **`automation.action.core`.** Because the provider id must equal `<source>`, automation no longer `provide`s this key; its built-ins merge into collection as a `provider:"host"` entry.
+- **Checkout `feature/--x`.** Checkout treats any ref containing `/` as remote-prefixed, so `feature/--x` derives local name `--x` and is refused with `invalid_ref` (D13: derived names are validated, zero spawns). It stays creatable through worktree create.
+- **Worktree-remove.** The remove routes have no `path` field; the validator guards `cwd` there.
+- **MCP and `scope:"global"`.** MCP dispatch enforces schema `required`, so a global-scope MCP call to a folder-scope tool also passes `cwd` (any admitted folder).
+- **Terminal cap race.** `spawn()` checks the cap and registers the PTY in one synchronous tick, so the "re-check after the await" option of D14 suffices; no slot reservation was added.
+
 ## Open Questions
 
 - None. Scenario-level gaps are answered in `scenario-gap-decisions.md`.

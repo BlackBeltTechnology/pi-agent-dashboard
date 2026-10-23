@@ -13,9 +13,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateManifest } from "../../../dashboard-plugin-runtime/src/manifest-validator.js";
 import { createPluginServiceRegistry } from "../../../dashboard-plugin-runtime/src/server/plugin-service-registry.js";
-import { collectActionRegistry } from "../../../automation-plugin/src/server/action-registry.js";
-import { FLOW_FILES_REQUEST_EVENT } from "../../../flows-plugin/src/flow-files-contract.js";
-import { provideFlowsActions } from "../../../flows-plugin/src/server/automation-actions.js";
 import { computeEmitAllowlist, emitEventToSession, resetEmitWarnings } from "../plugin-event-seam.js";
 
 const PACKAGES = path.resolve(__dirname, "../../..");
@@ -75,31 +72,27 @@ describe("emitEventToSession caller inventory (task 6.22)", () => {
 });
 
 describe("real flows + automation manifests under enforcement (SE26)", () => {
+  // Plugin code is deliberately not imported (core/plugin boundary ratchet): the flows contribution is
+  // restated structurally. The collector itself is covered in automation-plugin's own tests.
+  const FLOW_FILES_REQUEST_EVENT = "dashboard-flows:report-files";
+
   it("flow:run via the automation flows.run action and report-files via flows ctx are dispatched, no refusal warnings", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const manifests = loadManifests();
     const live = new Set(["flows", "automation"]);
     const manifestEmits = (id: string) => (live.has(id) ? manifests.get(id)?.manifest.emits ?? [] : undefined);
 
-    // flows publishes its real contribution through the real attribution registry.
     const registry = createPluginServiceRegistry();
-    provideFlowsActions((name, value) => registry.provide("flows", name, value), () => {}, () => ["test:x"]);
-
-    // automation collects it with the real subset check.
-    const reg = collectActionRegistry(registry.entries("automation.action."), {
-      warn: (m) => warn(m),
-      providerEmits: manifestEmits,
-    });
-    expect(reg.has("flows.run")).toBe(true);
+    registry.provide("flows", "automation.action.flows", [
+      { id: "flows.run", source: "flows", emits: ["flow:run"], buildEvent: () => ({ eventType: "flow:run" }) },
+    ]);
 
     const send = vi.fn(() => true);
     const deps = { manifestEmits, actionEntries: () => registry.entries("automation.action.") };
     const emitAs = (pluginId: string, eventType: string) =>
       emitEventToSession(true, send, "s1", eventType, {}, { pluginId, allowed: () => computeEmitAllowlist(pluginId, deps) });
 
-    const action = reg.get("flows.run")!;
-    const ev = action.buildEvent!({ payload: { flow: "test:x", task: "go" }, automation: {} as never })!;
-    expect(emitAs("automation", ev.eventType)).toBe(true);
+    expect(emitAs("automation", "flow:run")).toBe(true);
     expect(emitAs("flows", FLOW_FILES_REQUEST_EVENT)).toBe(true);
     expect(send).toHaveBeenCalledTimes(2);
     expect(warn).not.toHaveBeenCalled();
