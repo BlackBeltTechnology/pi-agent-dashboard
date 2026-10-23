@@ -1,5 +1,9 @@
 # Tasks
 
+## 0. Coordination
+
+- [ ] 0.1 Rebase on `harden-peer-address-identity` (lands first) and amend this change's delta specs before implementing (`specs/server-identity-routes/spec.md` refused-route requirement, `specs/known-servers/spec.md` refused-route and changed-identity add scenarios): route proof states gain `self` (proven this machine's own fingerprint; never shown as "Different identity", never refused as an impostor, import its `classifyProof` from `packages/shared/src/server-pinning.ts`); the `known-servers` add delta keeps `409 self_address` precedence over `identity_changed`; Electron host selection keeps its literal binding, locality ordering and batch-of-12 discovered probing (at most 8 literals per hostname, 5 s deadline)
+
 ## 1. Shared route model (pure, no I/O)
 
 - [x] 1.1 Write unit tests in `packages/shared/src/__tests__/server-routes.test.ts` for `classifyRoute` (loopback, lan including the range edges `172.15/172.32/100.63/100.128`, mdns, tunnel under `zrok.io`, public, internal names), grouping (D1 rule: https joins the first entry in stored order, http joins same-port entry, other-port http starts a second entry, unpinned stays single), `rankRoutes` (50 ms https window; `credentialed` order stored https, stored http, discovered, latency ignored), `validateDeliveredRoutes` (https origin only, no IP literal/`localhost`/`.local`, no userinfo/path, max 8, host max 253) and `pairAction` for browser and Electron (browser: request landing for any on-link discovered or saved route, code otherwise, no fingerprint compare; Electron: verify / knock / code); run `npx vitest run packages/shared/src/__tests__/server-routes.test.ts` and confirm they fail
