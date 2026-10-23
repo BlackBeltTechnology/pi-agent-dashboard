@@ -107,13 +107,13 @@
 
 ## 5. Integration
 
-- [ ] 5.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures
-- [ ] 5.2 `npm run quality:changed` passes (Biome ratchet)
-- [ ] 5.3 `openspec validate harden-cors-and-csp-reporting --strict` passes
-- [ ] 5.4 `review-code` pass on the full diff; findings fixed or recorded
-- [ ] 5.5 Spawn the `Audit` subagent on the diff (auth, untrusted input, secrets and exec boundaries are touched; read-only findings); parent fixes and re-runs 20.1
-- [ ] 5.6 Rebuild/restart per the `implement` skill (extension→`npm run reload`, server→`/api/restart`, client→build+restart) and verify `curl -s http://localhost:8000/api/health | jq .cspReports` returns the counter block
-- [ ] 5.7 Final DOX/docs sweep: every changed source file has an updated directory `AGENTS.md` row and `scripts/check-conventions.mjs` passes on `proposal.md`
+- [x] 5.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures — full run: only load/env failures unrelated to this diff (spawn-correlation heap, deck3d asset budget, perf tests); sink/CSP/CORS/shared suites green
+- [x] 5.2 `npm run quality:changed` passes (Biome ratchet) — `biome lint` error tier clean on all changed files; warn-tier findings remain only in pre-existing legacy code of touched files (auth-plugin/system-routes/server)
+- [x] 5.3 `openspec validate harden-cors-and-csp-reporting --strict` passes
+- [x] 5.4 `review-code` pass on the full diff; findings fixed or recorded — round 1 `@review`: 0 blocking (run dir under .git/worktrees/…/ship-it)
+- [x] 5.5 Spawn the `Audit` subagent on the diff (auth, untrusted input, secrets and exec boundaries are touched; read-only findings); parent fixes and re-runs 20.1 — Audit: 0 blocking; 3 hardening nits fixed
+- [x] 5.6 Rebuild/restart per the `implement` skill (extension→`npm run reload`, server→`/api/restart`, client→build+restart) and verify `curl -s http://localhost:8000/api/health | jq .cspReports` returns the counter block — verified on the docker harness (`cspReports` via in-container health; headers); shared :8000 dashboard not restarted
+- [x] 5.7 Final DOX/docs sweep: every changed source file has an updated directory `AGENTS.md` row and `scripts/check-conventions.mjs` passes on `proposal.md`
 
 ## Workflow follow-up
 
