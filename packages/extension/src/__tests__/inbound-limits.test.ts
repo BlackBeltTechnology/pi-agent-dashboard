@@ -70,6 +70,15 @@ const feedbackOf = (sink: ReturnType<typeof vi.fn>) =>
 const send = (text: string, sessionId = "s1") => ({ type: "send_prompt" as const, sessionId, text });
 const tick = () => new Promise((r) => setImmediate(r));
 
+/** Start a handler call that is awaited later (or deliberately left in flight); a rejection is recorded, never swallowed. */
+const unhandled: unknown[] = [];
+function fire(p: Promise<unknown>): void {
+  p.catch((e: unknown) => unhandled.push(e));
+}
+afterEach(() => {
+  expect(unhandled.splice(0)).toEqual([]);
+});
+
 describe("bash concurrency bound", () => {
   beforeEach(() => { registryMock.bash = { ok: true, path: "/usr/bin/bash" }; });
 
@@ -80,13 +89,13 @@ describe("bash concurrency bound", () => {
     const limits = createInboundLimits({ env: { PI_DASHBOARD_BRIDGE_MAX_BASH: String(N) } });
     const handler = createCommandHandler(pi, "s1", { eventSink: sink, limits });
 
-    for (let i = 0; i < N; i++) void handler.handle(send(`!sleep ${i}`));
+    for (let i = 0; i < N; i++) fire(handler.handle(send(`!sleep ${i}`)));
     await tick();
     expect(exec).toHaveBeenCalledTimes(N);
     expect(feedbackOf(sink)).toEqual([]);
 
-    void handler.handle(send("!sleep 99"));
-    void handler.handle(send("!!sleep 99"));
+    fire(handler.handle(send("!sleep 99")));
+    fire(handler.handle(send("!!sleep 99")));
     await tick();
     expect(exec).toHaveBeenCalledTimes(N); // not spawned
     const fb = feedbackOf(sink);
@@ -113,14 +122,14 @@ describe("bash concurrency bound", () => {
       const limits = createInboundLimits({ env: { PI_DASHBOARD_BRIDGE_MAX_BASH: "2" } });
       const handler = createCommandHandler(pi, "s1", { eventSink: sink, limits });
 
-      void handler.handle(send("!sleep 1")); // 1 of 2
+      fire(handler.handle(send("!sleep 1"))); // 1 of 2
       await tick();
       const ranExec = tryExecSlashTemplate(pi, "/dash-run", tmpDir, "s1", sink, limits); // 2 of 2
       await tick();
       expect(exec).toHaveBeenCalledTimes(2);
 
       expect(await tryExecSlashTemplate(pi, "/dash-run", tmpDir, "s1", sink, limits)).toBe(true); // 3rd exec: refused
-      void handler.handle(send("!sleep 3")); // 3rd `!`: refused
+      fire(handler.handle(send("!sleep 3"))); // 3rd `!`: refused
       await tick();
       expect(exec).toHaveBeenCalledTimes(2);
       const fb = feedbackOf(sink);
@@ -156,17 +165,17 @@ describe("bash concurrency bound", () => {
 
     const first = h1.handle(send("!one"));
     await tick();
-    void h1.handle(send("!refused")); // s1 at its limit
+    fire(h1.handle(send("!refused"))); // s1 at its limit
     await tick();
     expect(feedbackOf(sink)).toHaveLength(1);
 
-    void h2.handle(send("!other", "s2")); // s2 unaffected
+    fire(h2.handle(send("!other", "s2"))); // s2 unaffected
     await tick();
     expect(exec).toHaveBeenCalledTimes(2);
 
     finish(0, 0);
     await first;
-    void h1.handle(send("!echo"));
+    fire(h1.handle(send("!echo")));
     await tick();
     expect(exec).toHaveBeenCalledTimes(3);
     expect(feedbackOf(sink)).toHaveLength(1); // no new refusal
@@ -190,7 +199,7 @@ describe("bash concurrency bound", () => {
       end(d);
       await running;
       expect(limits.bashInFlight("s1"), label).toBe(0);
-      void handler.handle(send("!echo"));
+      fire(handler.handle(send("!echo")));
       await tick();
       expect(d.exec, label).toHaveBeenCalledTimes(2);
       expect(feedbackOf(sink), label).toEqual([]);
@@ -273,9 +282,9 @@ describe("BE16: configuration", () => {
     const sink = vi.fn();
     const handler = createCommandHandler(pi, "s1", { eventSink: sink });
     vi.unstubAllEnvs();
-    void handler.handle(send("!a"));
+    fire(handler.handle(send("!a")));
     await tick();
-    void handler.handle(send("!b"));
+    fire(handler.handle(send("!b")));
     await tick();
     expect(exec).toHaveBeenCalledTimes(1);
     expect(feedbackOf(sink)).toHaveLength(1);
