@@ -156,6 +156,23 @@ describe("pi-gateway over a unix socket", () => {
     expect(fs.existsSync(`${sockPath}.lock`)).toBe(true);
     expect(() => gateway?.stop()).not.toThrow();
   });
+
+  it("stopped() resolves only after the socket teardown settles", async () => {
+    // server.stop() awaits this so a caller can remove HOME right after
+    // without the teardown logging ENOENT post-teardown (nightly flake:
+    // EnvironmentTeardownError "onUserConsoleLog was pending").
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    await gateway.startOnSocket(sockPath);
+
+    gateway.stop();
+    await gateway.stopped();
+    expect(fs.existsSync(sockPath)).toBe(false);
+    expect(fs.existsSync(`${sockPath}.pid`)).toBe(false);
+    // Never-started / already-stopped gateways resolve at once.
+    await expect(gateway.stopped()).resolves.toBeUndefined();
+    await expect(createPiGateway(sessionManager, { pingInterval: 0 }).stopped()).resolves.toBeUndefined();
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────────

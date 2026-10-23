@@ -5432,6 +5432,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       homeRendezvous = null;
       piGateway.stop();
+      // Await the socket teardown stop() hands off, so stop() never resolves
+      // while it can still touch HOME (and log after a test tore HOME down).
+      await piGateway.stopped();
       // Clears pending on-end archive timers + latches the sweeper; after the
       // gateway so sessions it ends cannot re-arm one.
       // See change: archive-service-sessions-on-end.
