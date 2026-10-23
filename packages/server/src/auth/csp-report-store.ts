@@ -172,7 +172,12 @@ export class CspReportStore {
 
   /** Bounded per-policy document-path breakdown (operator/soak review; not served over health). */
   documentBreakdown(): Record<CspReportPolicy, Record<string, number>> {
-    const out = { baseline: {}, strict: {}, "trusted-types": {} } as Record<CspReportPolicy, Record<string, number>>;
+    // Null-prototype maps: a path segment such as `__proto__` is attacker-controlled and must stay a plain key.
+    const out = {
+      baseline: Object.create(null),
+      strict: Object.create(null),
+      "trusted-types": Object.create(null),
+    } as Record<CspReportPolicy, Record<string, number>>;
     for (const policy of CSP_REPORT_POLICIES) {
       for (const [p, n] of this.documents[policy]) out[policy][p] = n;
     }
@@ -190,6 +195,8 @@ export class CspReportStore {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(this.serialize()), { mode: 0o600 });
+      // `mode` only applies at creation: a stale tmp from a killed process keeps its old mode.
+      fs.chmodSync(tmp, 0o600);
       fs.renameSync(tmp, this.file);
       this.dirty = false;
       this.warned = false;
@@ -303,7 +310,7 @@ function parseDocuments(v: unknown): PolicyMap<number> | null {
     if (!isCspReportPolicy(policy) || !isRecord(docs)) return null;
     for (const [p, c] of Object.entries(docs)) {
       if (!Number.isInteger(c) || (c as number) < 0) return null;
-      if (out[policy].size <= MAX_DOCUMENT_PATHS) out[policy].set(p.slice(0, MAX_PATH_CHARS), c as number);
+      if (out[policy].size < MAX_DOCUMENT_PATHS) out[policy].set(p.slice(0, MAX_PATH_CHARS), c as number);
     }
   }
   return out;
