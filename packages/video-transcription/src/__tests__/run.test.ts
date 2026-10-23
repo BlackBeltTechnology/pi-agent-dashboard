@@ -279,7 +279,6 @@ describe("extracted audio size limit (BE27/BE28/BP6/BX8)", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const L = 200 * MB;
   const setup = (maxAudioMb: number, bytes: number | Error, over: Partial<RunDeps> = {}) => {
     const video = path.join(dir, "v.mp4");
     fs.writeFileSync(video, "x");

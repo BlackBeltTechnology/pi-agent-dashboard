@@ -64,7 +64,6 @@ describe("buildArgs", () => {
 });
 
 describe("npx runner", () => {
-  const ok = async () => ({ stdout: "", stderr: "" });
   const execPath = "/opt/node/bin/node";
   const first = path.join("/opt/node/bin", "node_modules", "npm", "bin", "npx-cli.js");
   const second = path.join("/opt/node/bin", "..", "lib", "node_modules", "npm", "bin", "npx-cli.js");

@@ -6,10 +6,11 @@
  *
  * See change: doctor-rich-output (task 3.10).
  */
-import { beforeEach, describe, it, expect, vi } from "vitest";
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DOCTOR_IPC_CHANNELS } from "../lib/doctor-bridge-contract.js";
 
 const { created, openExternal } = vi.hoisted(() => ({
@@ -98,6 +99,7 @@ describe("Doctor window hardening (BE34/BE35/BF3/BF4)", () => {
     vi.resetModules();
     created.length = 0;
     openExternal.mockReset();
+    openExternal.mockResolvedValue(undefined);
     const mod = await import("../lib/doctor-window.js");
     mod.openDoctorWindow();
     const rec = created[0];

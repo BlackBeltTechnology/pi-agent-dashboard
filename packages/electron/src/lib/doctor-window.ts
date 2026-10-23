@@ -153,7 +153,11 @@ function withoutHash(url: string): string | null {
 function guardDoctorWindow(win: BrowserWindow, doctorFileUrl: string): void {
   const home = withoutHash(doctorFileUrl);
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isWebUrl(url)) void shell.openExternal(url);
+    if (isWebUrl(url)) {
+      void shell.openExternal(url).catch((err: unknown) => {
+        console.error(`[doctor-window] openExternal failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, url) => {
