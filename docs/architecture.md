@@ -3158,10 +3158,10 @@ New folders can be created from two entry points — a footer **＋ New folder**
 Bridge caps per-unit-time work that server or bridge-socket holder can trigger. Limiter: `packages/extension/src/inbound-limits.ts`.
 
 - `PI_DASHBOARD_BRIDGE_MAX_BASH` = max concurrent `!` / `!!` / exec-template bash per session. Default `4`.
-- `PI_DASHBOARD_BRIDGE_PROMPT_RATE` = `<burst>/<refillPerSec>`. Token bucket per bridge connection. Default `30/10`.
+- `PI_DASHBOARD_BRIDGE_PROMPT_RATE` = `<burst>/<refillPerSec>`. One token bucket per bridge process. Default `30/10`.
 - Prompt bucket shared by: `send_prompt`, `retry_session`, `git_commit_draft`, flow_management run, `plugin_emit_event`, `promote_followup_entry`.
 - Valid values: positive integers only. Invalid (`0`, negative, non-integer, empty) → default + one log line per process per variable. `0` ≠ unlimited.
-- Bucket survives WS reconnect and `/reload` (per bridge process). Keyed on connection object.
+- Bucket survives WS reconnect and `/reload` (per bridge process). Keyed on process-global shared state (`inst.shared`), not the connection: a per-connection key let the server refill it via `send_prompt /reload`.
 - Refusal visible: inline `command_feedback` error in chat. Never silent drop.
 - Bash refusal text: `bash concurrency limit reached (N in flight per session)`.
 - Prompt refusal text: `inbound command rate limit reached (burst B, refill R/s)`.

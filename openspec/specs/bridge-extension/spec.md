@@ -964,7 +964,7 @@ The bridge's patched `ctx.ui.select` and `ctx.ui.multiselect` SHALL accept an op
 
 ### Requirement: Inbound command bounds
 
-The bridge SHALL bound concurrent bash per session (`!`/`!!` and `exec` slash templates) and the combined rate, per server connection, of every turn-starting inbound command: `send_prompt`, `retry_session`, `git_commit_draft`, flow `run`, `plugin_emit_event`, follow-up promotion. Limits come from `PI_DASHBOARD_BRIDGE_MAX_BASH` and `PI_DASHBOARD_BRIDGE_PROMPT_RATE` (`"<burst>/<refillPerSec>"`), defaulting above normal use. Refusals SHALL emit a `command_feedback` error naming the limit.
+The bridge SHALL bound concurrent bash per session (`!`/`!!` and `exec` slash templates) and the combined rate, per bridge process (one allowance shared across reconnects and `/reload`), of every turn-starting inbound command: `send_prompt`, `retry_session`, `git_commit_draft`, flow `run`, `plugin_emit_event`, follow-up promotion. Limits come from `PI_DASHBOARD_BRIDGE_MAX_BASH` and `PI_DASHBOARD_BRIDGE_PROMPT_RATE` (`"<burst>/<refillPerSec>"`), defaulting above normal use. Refusals SHALL emit a `command_feedback` error naming the limit.
 
 #### Scenario: Bash command beyond the concurrency limit is refused
 

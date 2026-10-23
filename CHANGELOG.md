@@ -58,7 +58,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   any other host. Refusal logs `bridge ticket unpinned_discovered_host`.
 - **Bridge inbound bounds.** `server_restarting.quiesceMs` is normalized inside `pauseAutoStart` (invalid ignored,
   fractions rounded up, capped at 120000 ms). Concurrent `!`/`!!`/exec-template bash is bounded per session
-  (`PI_DASHBOARD_BRIDGE_MAX_BASH`, default 4) and turn-starting inbound commands share one token bucket per connection
+  (`PI_DASHBOARD_BRIDGE_MAX_BASH`, default 4) and turn-starting inbound commands share one token bucket per bridge process
   (`PI_DASHBOARD_BRIDGE_PROMPT_RATE=<burst>/<refillPerSec>`, default `30/10`); a refusal is shown inline as a
   `command_feedback` error, never dropped silently. Invalid values fall back to the default with one log line.
 - **Git remote credentials never leave the bridge.** `https://user:token@host/o/r` is stripped of all userinfo (and

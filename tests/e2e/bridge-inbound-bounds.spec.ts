@@ -29,7 +29,9 @@ test.describe("bridge inbound bash bound", () => {
     await card.click();
 
     for (let i = 0; i < COMMANDS; i++) {
-      await sendPrompt(page, `!!sleep 1; echo burst-${i}-done`);
+      // printf with a %s arg: the output `burst-N-done` is NOT a substring of the command text,
+      // so the assertion below can only be satisfied by the rendered bash_output.
+      await sendPrompt(page, `!!sleep 1; printf 'burst-%s-done' ${i}`);
     }
 
     // Every command ran, in order, and rendered.
