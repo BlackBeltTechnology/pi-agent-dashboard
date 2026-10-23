@@ -19,6 +19,8 @@ export const huCatalog: Record<string, string> = {
   "acp.unsupported": "ACP-munkamenetekhez nem támogatott",
   "piRuntime.outsideBundle": "Ez a telepítés az alkalmazáscsomagon kívül van. A csomagolt pi a tesztelt; másik választása megengedett, de nem támogatott.",
 
+  "chat.copyTooLarge": "A kijelölés túl nagy az egyszeri másoláshoz. Másolja részletekben.",
+  "chat.copyMultiTranscript": "A kijelölés több beszélgetésre terjed ki. Másolja külön-külön az egyes beszélgetéseket.",
   "chat.historyGap.announced": "{count} korábbi üzenet betöltve",
   "chat.historyGap.countMany": "{count} korábbi üzenet",
   "chat.historyGap.countOne": "1 korábbi üzenet",

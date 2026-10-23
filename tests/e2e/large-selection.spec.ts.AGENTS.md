@@ -1,0 +1,7 @@
+# large-selection.spec.ts — index
+
+Browser E2E gate for `keep-oversized-chat-selection`. Drives real drags over `[[faux:long-transcript]]` (~240 rows) with a scrolling `dragSelect` loop (pointer moves 1px/step, `scrollTop` advances under it). Ceilings read off the scroll container (`data-selection-retain-cap`, `data-selection-copy-cap`), never mirrored. Clipboard round-trip = prime a throwaway `textarea` with `PRIOR`, native copy, paste into another `textarea`. `window.__piCopyTiming` (enabled by `__piCopyTimingEnabled` via `addInitScript`) feeds the p90 budget.
+- chromium + firefox + webkit (the only spec the firefox/webkit projects in `playwright.config.ts` match): F1/F3/F4(chromium)/F5 in one test (drag past ceiling keeps anchor in row 0, bounded mounted set, interior `containsNode`; oversized copy complete + ordered via item markers; page-wide select-all copies leading page text + 120 turns + trailing text); F2 (`selectionchange` swallowed — anchor still row 0).
+- chromium desktop: F7 (held selection suspends bottom-pin during `slow-stream`), F8 (1280×560 still fine ceiling, 60 rows stay mounted), P2 (copy p90 ≤ 1500 ms).
+- chromium mobile (`hasTouch`+`isMobile` 390×844, coarse): F6 (select-all declines, toast inside viewport, clipboard keeps `PRIOR`, selection kept), F9 (CDP touch edge swipe with selection does not navigate back), P1 (copy p90 ≤ 1500 ms at CPU throttle 6).
+See change: keep-oversized-chat-selection.

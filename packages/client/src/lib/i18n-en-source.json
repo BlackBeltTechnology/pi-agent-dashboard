@@ -1482,5 +1482,7 @@
   "session.notFound.retry": "Retry",
   "session.resolving": "Loading session…",
   "embed.exit": "Open full dashboard",
-  "embed.noSession": "No session selected"
+  "embed.noSession": "No session selected",
+  "chat.copyTooLarge": "Selection too large to copy at once. Copy it in parts.",
+  "chat.copyMultiTranscript": "The selection spans several transcripts. Copy each transcript separately."
 }
