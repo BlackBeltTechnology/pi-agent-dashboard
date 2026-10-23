@@ -4662,7 +4662,7 @@ Windows credential ACLs now OBSERVED, not assumed. `chmod` no-op on Windows — 
 
 #### CORS default
 
-`https://pi-dashboard.dev` built-in allowed origin, beside `*.share.zrok.io`. CORS (origin-keyed) distinct from auth (bearer). Config `cors.allowedOrigins` extends.
+`https://pi-dashboard.dev` built-in allowed origin. CORS (origin-keyed) distinct from auth (bearer). Config `cors.allowedOrigins` extends. zrok wildcard NOT default — opt-in `cors.allowZrokWildcard`. See § CORS. See change: harden-cors-and-csp-reporting.
 
 #### Versioned protocol — D9
 
@@ -5595,7 +5595,7 @@ The client can connect/disconnect the tunnel via `POST /api/tunnel-connect` and 
 
 **Reserved/persistent URLs (v2 namespaces+names).** Config keys `tunnel.zrok.reservedName` + `tunnel.zrok.persistent` (default false). Mint name: `zrok2 create name -n public <name>` (reuse-on-exists for same account; taken-by-other → warn + ephemeral). Share: `zrok2 share public --headless -n public:<name> localhost:<port>` → stable `<name>.shares.zrok.io`. Release: `zrok2 delete name <name>` invoked only by explicit forget (see below). Reserved name SURVIVES disconnect/restart; released ONLY by `POST /api/tunnel-disconnect {forget:true}`. Ephemeral (no name, default persistent=false) yields rotating `*.shares.zrok.io` URL. Legacy v1 `tunnel.reservedToken` preserved on read (downgrade) but IGNORED by v2 provider — never promoted to reservedName.
 
-**URL format + CORS.** v2 emits bare `<t>.shares.zrok.io` (plural, no scheme); provider prepends `https://`. urlRegex anchored so `*.shares.zrok.io.attacker.com` NOT matched as zrok host. CORS allows `*.shares.zrok.io`.
+**URL format + CORS.** v2 emits bare `<t>.shares.zrok.io` (plural, no scheme); provider prepends `https://`. urlRegex anchored so `*.shares.zrok.io.attacker.com` NOT matched as zrok host. CORS allows the live dashboard tunnel origin always; `*.shares.zrok.io` wildcard only with opt-in `cors.allowZrokWildcard: true` (see § CORS).
 
 **Doctor + version check.** "zrok API reachable" probes `api-v2.zrok.io` (or enrolled env `api_endpoint`). NEW check "zrok version compatible" warns when major < 2 (v1 = 0.4.x) — real root-cause detector for field 500s.
 
@@ -5626,8 +5626,19 @@ The Fastify CORS callback in `server.ts` allows:
 - Same-origin navigations (no `Origin` header).
 - `localhost`, `127.0.0.1`, `[::1]` on any port.
 - The currently-active zrok tunnel URL (looked up dynamically via `getTunnelUrl()` so URL rotation picks up without a restart).
-- Any `*.share.zrok.io` host (covers stale tabs, new reservations, and the brief window before `activeTunnelUrl` is populated on startup).
+- Every live tunnel origin (`getLiveTunnelOrigins()`, any provider; includes the live zrok URL).
+- Any `*.share.zrok.io` / `*.shares.zrok.io` host — **opt-in only**, `cors.allowZrokWildcard: true`. Default `false`.
+- Neutral shell `https://pi-dashboard.dev`.
 - Explicitly-configured `corsAllowedOrigins` from config.
+- Origin host in a trusted network.
+
+**Zrok wildcard is opt-in.** `cors.allowZrokWildcard` — boolean, only literal `true` enables (parser: `=== true`; default `false`; `packages/shared/src/config.ts`). Read live via `liveCorsAllowZrokWildcard()` (`config-snapshot.ts`) through `corsOpts()`. Branch test in `classifyCorsOrigin` is `allowZrokWildcard === true`. Live dashboard tunnel always allowed via branches 4 / 4b, never via wildcard. Admission (WS + REST gate) never consults the wildcard. Reason: zrok shares free + self-service; stranger share is likely same-site to victim tunnel.
+
+**Canonical compare.** `canonicalOrigin(raw)` in `auth/cors-origin.ts`: lowercase scheme + host, default port elided, ONE trailing hostname dot stripped, path/query dropped. Returns `null` for padded input, control chars, non-http(s), bad port. Used on both sides of the tunnel branches (4, 4b) and in `isSameOriginByHost`. `https://X.share.zrok.io.` equals dotless form — matches host admission. Padded / control-char origins denied. Throwing `getTunnelUrl` / `getLiveTunnelOrigins` getters = no live tunnels (never a 500). Live reload parity: `cors.allowZrokWildcard` and `cors.allowedOrigins` both applied on edit, no restart.
+
+**Stale second zrok frontend.** Page on zrok A calling server on zrok B loses CORS after upgrade. Escape hatch: set `cors.allowZrokWildcard: true` in `~/.pi/dashboard/config.json`. Rollback = same key.
+
+See change: harden-cors-and-csp-reporting (D6, D7).
 
 On a mismatch the callback returns `cb(null, false)` — **not** `cb(new Error(…), false)`. The `Error` form causes `@fastify/cors` to surface the error as HTTP 500 on every asset response, which is exactly what caused the long-running “zrok returns 500 on assets” debugging saga: Vite emits `<script type="module" crossorigin>` entry tags, which per HTML spec browsers always fetch in CORS mode (even same-origin), so the tunnel URL appearing in `Origin` is unavoidable. Returning `cb(null, false)` simply omits CORS headers; the browser enforces same-origin policy on its own. CORS answers READ-authority only (may this origin see the response); ADMISSION — may this origin open a socket or mutate state — is decided by the next subsection.
 
@@ -5638,7 +5649,7 @@ Issue #625. CORS hides a response, never blocks the request. Gate blocks the act
 **Shared decision** — `packages/server/src/auth/cors-origin.ts`, `isOriginAdmitted(origin, hostHeader, opts)` = `isCorsOriginAllowed` plus 2 deltas.
 
 - Delta 1, Host match: Origin `host[:port]` equals request `Host` → admit. Both normalized with `new URL()`; origin scheme applied to Host so default ports elide. Covers mDNS `http://mac.local:8000` + plain-LAN pages. `isBypassedHost` matches IP literals only; without this rule hostname-addressed clients 403.
-- Delta 2, no zrok wildcard: `isCorsOriginAllowed` gains `allowZrokWildcard` — default `true` for CORS, `false` for admission. `*.share.zrok.io` / `*.shares.zrok.io` skipped for admission. Zrok shares are free + self-service, so a stranger share is likely same-site to the victim tunnel. Dashboard-run tunnels are live tunnel origins, still admitted.
+- Delta 2, no zrok wildcard: `isCorsOriginAllowed` gains `allowZrokWildcard` — default `false` for CORS (opt-in config `cors.allowZrokWildcard`) and always `false` for admission. `*.share.zrok.io` / `*.shares.zrok.io` skipped for admission. Zrok shares are free + self-service, so a stranger share is likely same-site to the victim tunnel. Dashboard-run tunnels are live tunnel origins, still admitted.
 - Absent `Origin` → admit. Bridge, `pi-dashboard` CLI, `curl`, skill send none. Browsers cannot omit it. Empty `""`, whitespace-padded, malformed → deny.
 
 **WebSocket gate** — `server.ts`, `fastify.server.on("upgrade")`, `isWsOriginTrusted(origin, host, scope, corsOpts())`.
@@ -5661,7 +5672,7 @@ Issue #625. CORS hides a response, never blocks the request. Gate blocks the act
 
 **Logs** — `[ws-gate] rejected upgrade origin=… scope=… peer=…`; `[csrf-gate] rejected <method> <path> origin=…`; `[pi-gateway] … browser-origin`. Fields are attacker-controlled; `sanitizeHeaderForLog` strips control chars, caps 256.
 
-**Escape hatch** — a hand-run `zrok share public` (not the dashboard tunnel feature) needs its origin in `cors.allowedOrigins` (`~/.pi/dashboard/config.json`).
+**Escape hatch** — a hand-run `zrok share public` (not the dashboard tunnel feature) needs its origin in `cors.allowedOrigins` (`~/.pi/dashboard/config.json`). `cors.allowZrokWildcard: true` widens CORS reads only; admission still refuses the wildcard.
 
 ### Host Admission Gate
 
@@ -8865,3 +8876,80 @@ flowchart LR
 - Meta CSP `require-trusted-types-for 'script'` from day one. Not governed by env knob.
 
 See change: harden-client-sinks.
+
+## Baseline CSP: strict policy + report sink (S3b)
+
+Two policies, one sink, persisted counter. Default mode stays `report`; nothing breaks by default. Code: `packages/server/src/auth/{csp,csp-report-paths,csp-report-sink,csp-report-store}.ts`.
+
+### Modes (`PI_DASHBOARD_CSP`)
+
+| Mode | Headers |
+|---|---|
+| `report` (default) | `baseline` Report-Only → `/__pi/csp-report/baseline` AND `strict` Report-Only → `/__pi/csp-report/strict` |
+| `enforce` (explicit opt-in) | `strict` ENFORCED → `/__pi/csp-report/strict`. `baseline` NOT emitted. |
+| `off` | no baseline or strict header |
+| any, Vite `--dev` (per proxied response) | baseline only (legacy `script-src`), enforcing under `enforce`. No strict header. No report destination. Dev never feeds strict counter. |
+
+- Strict = baseline with `script-src 'self' 'nonce-<n>'`. No `'unsafe-inline'`, no `'unsafe-eval'`. Enforced only under explicit `enforce`.
+- Every emitted policy carries `report-uri /__pi/csp-report/<label>` + `report-to csp-<label>`; `Reporting-Endpoints` header declares them.
+- Route-level per-response policies (`/api/file/raw` sandbox, `ctx.serveApp` mounts, `/live/`) untouched by mode.
+- Release note: explicit `enforce` now enforces the STRICT policy (before: baseline). Existing `enforce` deployments see it.
+
+### Trusted Types interaction
+
+- TT follows `PI_DASHBOARD_TRUSTED_TYPES`, independent of CSP mode (see § Client sink hardening).
+- Matching modes append `require-trusted-types-for 'script'`: `report` → baseline Report-Only header; `enforce` → strict enforcing header. Reports go to that header's label.
+- Differing modes → other header kind carries TT directive alone, labelled `trusted-types` → `/__pi/csp-report/trusted-types`.
+- TT violations count in `require-trusted-types-for` bucket. Never in strict `script-src*` measure.
+- Client counters `/api/csp-violations` (in-memory, harden-client-sinks) untouched. Distinct namespace.
+
+### Nonce lifecycle
+
+- `cspNonceFor(reply)`: 16 random bytes base64, minted per HTML response, memoized per reply. `onSend` hook reads it.
+- Import map `<script type="importmap">` gets same nonce (`injectImportMap`, `sendIndexWithImportMap` in `server.ts`).
+- Non-HTML responses: strict header without nonce.
+- Passkey pages (`auth/passkey/passkey-pages.ts`): no inline script. Static same-origin assets `/auth/passkey/*.js|css`. Per-request data in non-executable `<script type="application/json" id="pk-data">` island. No nonce needed.
+- Plugin bundles load via same-origin `import()` → covered by `'self'`. `blob:` / `data:` stay forbidden.
+- pdf.js: client sets `isEvalSupported:false` → no `new Function` probe report.
+
+### Report sink
+
+`POST /__pi/csp-report/:policy`, `:policy` ∈ `baseline|strict|trusted-types`.
+
+- Mounted at root, OUTSIDE guard jurisdiction (`/api`, `/v1`, `/editor`, `/live`). Mutation-origin gate does not apply.
+- Public to OAuth gate (`auth-plugin.ts` skip beside `/api/health`). Signed-out pages (login, passkey) can report.
+- Host admission gate still applies.
+- Live sink `/live/<id>/__pi/csp-report` separate, unchanged.
+- Refusal precedence: 404 (bad label) → 405 (`Allow: POST`) → 429 → 415 → 413 / 408 / 400.
+- Content-Type `application/csp-report` | `application/reports+json`, else 415.
+- Own byte-counting body read. Cap 8 KiB, chunked included → 413. Independent of `content-length`, `bodyLimit`, parser order.
+- Body read deadline 5 s → 408.
+- Empty / malformed / non-report / content-encoded body → 400, uncounted.
+- Limiter: per socket peer, token bucket capacity 20, refill 1 token/s. Every request consumes one token (Reporting API batch too). Loopback NOT exempt (global `@fastify/rate-limit` allow-lists loopback → would exempt all tunnel traffic). Excess → 429.
+- Accepted → 204, empty body. No response reflects input. Raw reports never logged or stored.
+- Log: throttled `[csp] violation policy=<label> directive=<x>`.
+- Limiter / size cap / deadline refusals bump persisted `dropped`.
+- Tunnel users share peer `127.0.0.1` → flood can push real reports into `dropped`. Sink = signal, not access control.
+
+### Counter store
+
+- File `~/.pi/dashboard/csp-reports.json`, mode 0600, tmp-file + rename.
+- Debounced write 5 s (`FLUSH_DEBOUNCE_MS`). Flush on server close. Write failure never throws.
+- Key `policy × effective-directive`. Fixed directive allow-set, else `other`.
+- Bounded document-path breakdown (path only, top 20 per policy, rest `other`). Persisted, never in health.
+- Fields: counts, `dropped`, `since`, `firstSeen`/`lastSeen`.
+- Corrupt at boot → moved to `csp-reports.json.corrupt`, counting restarts at zero, new `since`.
+- Reset: `POST /api/csp-reports/reset` (operate tier, `packages/shared/src/route-tiers.ts`) or delete file while server stopped. Both set new `since`, zero `dropped`.
+- Health: `GET /api/health` carries `cspReports` `{since, dropped, counts}` ONLY when `canDiscloseAccessPosture(request)` passes (same predicate as `accessGrants`). Else block omitted. Health never refuses.
+- Predicate ignores `requireLocalProof`: bare loopback caller sees block. Accepted — counts only.
+- Counter inflation fails safe: forged reports can only delay flip, never hide real violation.
+
+### Rollout / rollback
+
+- Default `report`. Release adds sink + dual Report-Only. No page breaks.
+- `enforce` = strict, opt-in.
+- Rollback: `PI_DASHBOARD_CSP=report` or `off` + server restart.
+- Follow-up `enforce-strict-csp-default` owns soak + default flip. Exit gate: ≥ 14 d window, zero strict `script-src*` violations, `dropped == 0`, ≥ 1 release shipped, enforce-lane E2E green. Inspect directive / document breakdown before flip.
+- E2E lanes: see `docs/faq.md` § "CSP enforce + OAuth real-gate E2E lanes".
+
+See change: harden-cors-and-csp-reporting (D8, D9, D10).

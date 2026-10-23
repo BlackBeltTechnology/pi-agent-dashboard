@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -94,7 +94,10 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
-import { registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
+import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
+import { registerCspReportSink } from "./auth/csp-report-sink.js";
+import { CspReportStore } from "./auth/csp-report-store.js";
+import { stateCallerFor } from "./auth/dashboard-state-caller.js";
 import { isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
@@ -108,8 +111,8 @@ import {
 import { ensureServerIdentity } from "./auth/identity.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
+import { createLocalProofRefusalLogger } from "./auth/local-proof-refusal-log.js";
 import { ensureLocalToken } from "./auth/local-token.js";
-import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
 import {
   createLanInterfaceProvider,
   createNetworkGuard,
@@ -122,9 +125,6 @@ import {
   setLocalProofRefusalObserver,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
-import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
-import { stateCallerFor } from "./auth/dashboard-state-caller.js";
-import { createLocalProofRefusalLogger } from "./auth/local-proof-refusal-log.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { NavIntents } from "./auth/nav-intent.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
@@ -137,6 +137,7 @@ import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js"
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
 import { createHostServeApp } from "./auth/serve-app-host.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { admissionTrustedNetworks, effectiveTrustMode } from "./auth/trust-mode.js";
@@ -164,6 +165,7 @@ import {
   liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
+  liveCorsAllowZrokWildcard,
   liveHostGateMode,
   livePreviewExposureOverride,
   livePublicBaseUrls,
@@ -213,6 +215,7 @@ import {
   readServedBundledPluginIds,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
+import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
@@ -1597,7 +1600,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // loader's topological order guarantees a provider's registerPlugin runs
   // before a dependent's consume. In-process only.
   // See change: register-plugin-automation-events.
-  const pluginServiceRegistry = new Map<string, unknown>();
+  // Records the PROVIDER plugin per key and enforces `automation.action.<source>`
+  // key ownership (provider id MUST equal <source>). Host-set entries
+  // (`.set`) carry provider "host". See change: harden-git-terminal-plugin-boundaries (D16).
+  const pluginServiceRegistry = createPluginServiceRegistry();
+  // Manifest `emits` per plugin, recorded at context creation. A plugin's types
+  // count only while it is LOADED (status store, live), so an unloaded or
+  // disabled provider's types leave every allowlist at once.
+  const pluginManifestEmits = new Map<string, readonly string[]>();
+  const loadedManifestEmits = (pluginId: string): readonly string[] | undefined =>
+    getPluginStatusStore().getStatus(pluginId)?.loaded === true ? pluginManifestEmits.get(pluginId) : undefined;
+  // Read-only lookup for the automation action registry's subset check.
+  pluginServiceRegistry.set("host.pluginManifestEmits", loadedManifestEmits);
   // Host-provided known-folder set for plugin cwd validation: session cwds ∪
   // pinned directories, as a LIVE getter (not a boot-time snapshot) so plugins
   // see folders added later. kb-plugin consumes this to guard its /api/kb/*
@@ -2101,6 +2115,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // which single origin we mint OAuth URIs and set cookies for.
     // See change: add-zrok-custom-reserved-name (D4).
     getLiveTunnelOrigins: liveTunnelOrigins,
+    // Opt-in zrok wildcard for CORS READS only (B19); admission forces it off.
+    allowZrokWildcard: liveCorsAllowZrokWildcard(),
     allowedHosts: liveAllowedHosts(),
     publicBaseUrls: livePublicBaseUrls(),
     bindHost: config.host,
@@ -2709,6 +2725,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Trusted Types / CSP violation counters (authenticated, rate-limited, counters
   // only). See change: harden-client-sinks (D8).
   registerCspViolationRoutes(fastify, { networkGuard, log: { warn: (m) => fastify.log.warn(m) } });
+  // Baseline CSP report sink (`POST /__pi/csp-report/:policy`, public to the OAuth gate), its
+  // persisted counter (`~/.pi/dashboard/csp-reports.json`) and the operator reset
+  // (`POST /api/csp-reports/reset`, operate). See change: harden-cors-and-csp-reporting (D8).
+  const cspReportStore = new CspReportStore();
+  registerCspReportSink(fastify, { store: cspReportStore, networkGuard });
   // Signed navigation intents for operator-opened route-backed overlays
   // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).
   registerNavIntentRoutes(fastify, { networkGuard, intents: new NavIntents() });
@@ -2993,7 +3014,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     live: () => piTrustMirror.live,
     readSnapshot: () => piTrustMirror.readSnapshot(),
   });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3599,8 +3620,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // hooks to routes at `preReady` (verified against fastify@5.12.1 — `addHook`
   // defers through `this.after` and then recurses `_addHook` over `kChildren`),
   // including the encapsulated child scopes plugin routes register into. It does
-  // NOT cover a route registered after `ready()`; plugin activation is
-  // restart-effective today, so a future hot-load feature would reopen this.
+  // NOT cover a route registered after `ready()` — and none can be: Fastify refuses
+  // it (`route()` → `throwIfAlreadyStarted('Cannot add route!')`, fastify@5.12.1
+  // `lib/route.js:205`), so a plugin hot-load whose entry registers a route fails that
+  // plugin (logged, status row `loaded:false`) and the route is never served. That
+  // refusal IS the enforcement: never serve sensitive-namespace routes from a second
+  // instance / after-start mechanism without this hook, and install the guard on any
+  // future facility that adds routes after start. Pinned by
+  // `__tests__/post-start-route-registration.test.ts`; re-verify after a fastify bump.
+  // See change: harden-git-terminal-plugin-boundaries (S1r).
   fastify.addHook(
     "onRequest",
     createNetworkGuardHook({
@@ -3690,7 +3718,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return reply.code(404).send({ success: false, error: "not_found", message: `No API route for ${request.method} ${rawPath}` });
   };
 
-  const indexHtml = createIndexHtmlSender(clientDir, { trustedTypesMode });
+  const indexSender = createIndexHtmlSender(clientDir, { trustedTypesMode });
+  // Every HTML shell response carries a per-response nonce on its import map; `registerCsp`'s onSend hook
+  // reads the same memoized nonce for the strict policy header. Off mode emits no strict policy → no nonce.
+  // See change: harden-cors-and-csp-reporting (D9).
+  const indexHtml = {
+    sendIndexWithImportMap: (reply: FastifyReply) =>
+      indexSender.sendIndexWithImportMap(reply, cspMode === "off" ? undefined : { nonce: cspNonceFor(reply) }),
+  };
 
   if (config.dev) {
     // Dev mode: proxy to Vite dev server, fall back to production build
@@ -3719,6 +3754,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const contentType = res.headers.get("content-type");
         if (contentType) reply.header("Content-Type", contentType);
         reply.code(res.status);
+        markViteProxied(reply); // dev response: baseline CSP only, no strict/nonce/report destination (D10)
         return reply.send(Buffer.from(await res.arrayBuffer()));
       } catch {
         vitePort = 0; // Vite stopped — re-probe next time
@@ -3987,7 +4023,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
           // Bracket this plugin's activation for route-owner attribution (D24): the
           // next plugin's createContext re-begins; the finally below ends.
-          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), createServerPluginContext(
+          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), pluginManifestEmits.set(plugin.manifest.id, plugin.manifest.emits ?? []), createServerPluginContext(
             {
               fastify,
               isPiExtensionInstalled,
@@ -4387,11 +4423,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
               // See change: automation-emit-configured-event.
+              // Only event types in the plugin's manifest `emits` (live; automation also
+              // gets its accepted action providers' emits) pass.
+              // See change: harden-git-terminal-plugin-boundaries (D16).
               emitEventToSession: (sessionId, eventType, data) =>
                 pluginEventSeam.emitEventToSession(
                   (plugin.manifest.priority ?? 1000) <= 100,
                   (sid, m) => piGateway.sendToSession(sid, m),
                   sessionId, eventType, data,
+                  {
+                    pluginId: plugin.manifest.id,
+                    allowed: () =>
+                      pluginEventSeam.computeEmitAllowlist(plugin.manifest.id, {
+                        manifestEmits: loadedManifestEmits,
+                        actionEntries: () => pluginServiceRegistry.entries("automation.action."),
+                      }),
+                  },
                 ),
               // Raw server→extension control message to one session's bridge
               // socket — the `credentials_updated` lane, WITHOUT the
@@ -4405,18 +4452,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   (sid, m) => piGateway.sendToSession(sid, m as Parameters<typeof piGateway.sendToSession>[1]),
                   sessionId, msg,
                 ),
-              provide: (name, value) => { pluginServiceRegistry.set(name, value); },
+              // Attributed to this plugin; `automation.action.<source>` keys are
+              // refused unless `<source>` is this plugin's id (logged, no throw).
+              provide: (name, value) => { pluginServiceRegistry.provide(plugin.manifest.id, name, value); },
               consume: <T = unknown>(name: string) =>
-                pluginServiceRegistry.get(name) as T | undefined,
+                pluginServiceRegistry.get<T>(name),
               // Prefix enumeration for publish/collect (in-process only).
               // See change: decouple-automation-action-registry.
-              consumeAll: <T = unknown>(prefix: string) => {
-                const out: Array<{ key: string; value: T }> = [];
-                for (const [key, value] of pluginServiceRegistry) {
-                  if (key.startsWith(prefix)) out.push({ key, value: value as T });
-                }
-                return out;
-              },
+              consumeAll: <T = unknown>(prefix: string) => pluginServiceRegistry.entries<T>(prefix),
               // plugin_action fans out by pluginId (manifest-authoritative, not
               // self-declared) so multiple plugins coexist; other custom types
               // stay single-owner. See change: fix-plugin-action-fanout-and-handlers.

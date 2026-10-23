@@ -11,6 +11,9 @@ import { type AccessGrantHealth, snapshotAccessGrantHealth } from "../access/acc
 import { AccessPlaneRegistry } from "../access/access-plane.js";
 import { GrantCoordinator } from "../access/grant-coordinator.js";
 import { createFilesystemPlane } from "../access/planes.js";
+import { CspReportStore, type CspReportsSnapshot } from "../auth/csp-report-store.js";
+import { createLocalTrustContext } from "../auth/local-proof.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { noteNetworkOnlyAdmission, resetNetworkTrustTelemetryForTests } from "../auth/network-trust-telemetry.js";
 import { resetTrustModeForTests } from "../auth/trust-mode.js";
 import { resetConfigSnapshot } from "../config-snapshot.js";
@@ -331,5 +334,113 @@ describe("E14/E17 /api/health trustPosture disclosure", () => {
     const app = await trustApp([]);
     const body = (await app.inject({ method: "GET", url: "/api/health", ...callers.genuineLocal })).json();
     expect(body.trustPosture).toMatchObject({ trustMode: "pair", trustModeOrigin: null });
+  });
+});
+
+
+describe("cspReports health block (WE33, WE54, WX6)", () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-health-csp-"));
+  });
+
+  async function cspApp(opts: {
+    read?: () => CspReportsSnapshot;
+    strictProof?: boolean;
+  }): Promise<FastifyInstance> {
+    const app = Fastify({ logger: false });
+    apps.push(app);
+    app.addHook("onRequest", async (request) => {
+      if (request.headers["x-test-auth"]) (request as any).isAuthenticated = true;
+    });
+    registerSystemRoutes(app, {
+      sessionManager: { listActive: () => [], listAll: () => [] },
+      preferencesStore: { flush: () => {} },
+      metaPersistence: { flushAll: () => {} },
+      config: { port: 8000, piPort: 9999, dev: false },
+      networkGuard: async () => {},
+      version: "test",
+      clientDir: null,
+      // The existing disclosure-gated block: its presence is the oracle for `canDiscloseAccessPosture`.
+      readAccessGrants: () => ({ marker: true }) as never,
+      readCspReports: opts.read,
+      localTrust: opts.strictProof ? createLocalTrustContext("tok", () => true) : undefined,
+    } as never);
+    await app.ready();
+    return app;
+  }
+
+  const populated = () => {
+    const store = new CspReportStore({ filePath: path.join(tmp, "csp-reports.json"), warn: () => {} });
+    store.record("strict", "script-src-elem", "/settings/security");
+    store.record("baseline", "img-src", "/secret/path");
+    store.record("trusted-types", "require-trusted-types-for");
+    store.recordDropped();
+    return store;
+  };
+
+  const callers: Array<[string, { remoteAddress: string; headers?: Record<string, string> }, boolean]> = [
+    ["genuine loopback", { remoteAddress: "127.0.0.1" }, false],
+    ["tunnel-forwarded loopback peer", { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.9" } }, false],
+    ["remote trusted-network peer", { remoteAddress: "192.168.16.40" }, false],
+    ["remote authenticated (bearer/session)", { remoteAddress: "198.51.100.7", headers: { "x-test-auth": "1" } }, false],
+    ["bare loopback, requireLocalProof on, no proof", { remoteAddress: "127.0.0.1" }, true],
+  ];
+
+  it("WE33: present iff canDiscloseAccessPosture passes (differential oracle); otherwise absent, not null, nothing leaks", async () => {
+    const store = populated();
+    for (const [name, init, strictProof] of callers) {
+      const withBlock = await cspApp({ read: () => store.snapshot(), strictProof });
+      const without = await cspApp({ strictProof });
+      const a = await withBlock.inject({ method: "GET", url: "/api/health", ...init });
+      const b = await without.inject({ method: "GET", url: "/api/health", ...init });
+      expect(a.statusCode, name).toBe(200);
+      const oracle = canDiscloseAccessPosture({
+        ip: init.remoteAddress,
+        headers: init.headers ?? {},
+        ...(init.headers?.["x-test-auth"] ? { isAuthenticated: true } : {}),
+      } as never);
+      const body = a.json() as Record<string, unknown>;
+      // The pre-existing disclosure outcome for the same caller agrees with the predicate.
+      expect(body.accessGrants !== null, name).toBe(oracle);
+      expect("cspReports" in body, name).toBe(oracle);
+      if (!oracle) {
+        expect(a.body, name).not.toContain("cspReports");
+        expect(a.body, name).not.toContain("script-src-elem");
+        expect(body.cspReports, name).toBeUndefined();
+      }
+      // the rest of the body is the pre-change shape (process-volatile numbers aside)
+      const VOLATILE = ["startedAt", "server", "socketBufferOccupancy", "storeRetention", "keeperLogs", "droppedFrames", "pollCost", "ppid", "bootParentPid", "pid", "cspReports"];
+      const stable = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([k]) => !VOLATILE.includes(k)));
+      expect(stable(body), name).toEqual(stable(b.json() as Record<string, unknown>));
+    }
+  });
+
+  it("WE54: the block is exactly { since, dropped, counts } with counts only — no URL, path or report content", async () => {
+    const store = populated();
+    const app = await cspApp({ read: () => store.snapshot() });
+    const body = (await app.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1" })).json();
+    const block = body.cspReports as Record<string, unknown>;
+    expect(Object.keys(block).sort()).toEqual(["counts", "dropped", "since"]);
+    expect(new Date(block.since as string).toISOString()).toBe(block.since);
+    expect(block.dropped).toBe(1);
+    expect(block.counts).toEqual({
+      baseline: { "img-src": 1 },
+      strict: { "script-src-elem": 1 },
+      "trusted-types": { "require-trusted-types-for": 1 },
+    });
+    const text = JSON.stringify(block);
+    for (const frag of ["/secret/path", "/settings/security", "http", "://"]) expect(text).not.toContain(frag);
+  });
+
+  it("WX6: a throwing counter read omits the block (absent, not null) and health still answers 200", async () => {
+    const throwing = await cspApp({ read: () => { throw new Error("boom"); } });
+    const plain = await cspApp({});
+    const res = await throwing.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>;
+    expect("cspReports" in body).toBe(false);
+    const ref = (await plain.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1" })).json() as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(Object.keys(ref).sort());
   });
 });

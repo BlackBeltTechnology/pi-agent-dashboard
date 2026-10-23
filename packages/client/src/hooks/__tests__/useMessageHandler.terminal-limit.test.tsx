@@ -9,7 +9,7 @@ import { TerminalLimitNotice } from "../../components/terminal/TerminalLimitNoti
 import { __resetTerminalLimitNoticeForTests } from "../../lib/state/terminal-limit-notice-store.js";
 import { useMessageHandler } from "../useMessageHandler.js";
 
-function setup() {
+function setup(pendingCwd: string | null = null) {
   const showToast = vi.fn();
   const setters: any = {
     setSessions: vi.fn(), setSessionStates: vi.fn(), setSessionCommands: vi.fn(),
@@ -22,13 +22,13 @@ function setup() {
   const deps: any = {
     send: vi.fn(), navigate: vi.fn(), clearSpawningCwd: vi.fn(),
     spawningCwdsRef: { current: new Set() }, subscribedRef: { current: new Set() },
-    pendingTerminalCwdRef: { current: null }, lastCreatedTerminalIdRef: { current: null },
+    pendingTerminalCwdRef: { current: pendingCwd }, lastCreatedTerminalIdRef: { current: null },
     maxSeqMapRef: { current: new Map() }, selectedSessionIdRef: { current: undefined },
     pendingSpawnsRef: { current: new Map() }, loadingHistoryTimersRef: { current: new Map() },
     showToast,
   };
   const { result } = renderHook(() => useMessageHandler(setters, deps));
-  return { dispatch: (m: ServerToBrowserMessage) => act(() => result.current(m)), showToast };
+  return { dispatch: (m: ServerToBrowserMessage) => act(() => result.current(m)), showToast, setters, deps };
 }
 
 const limit = (over: Partial<Extract<ServerToBrowserMessage, { type: "terminal_limit_reached" }>> = {}): ServerToBrowserMessage => ({
@@ -89,6 +89,66 @@ describe("terminal limit notice", () => {
     dispatch(limit({ inline: true }));
     expect(screen.getByTestId("chat").querySelector('[role="status"]')).toBeTruthy();
     expect(screen.getByTestId("tab").querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+const terr = (over: Partial<Extract<ServerToBrowserMessage, { type: "terminal_error" }>> = {}): ServerToBrowserMessage => ({
+  type: "terminal_error", code: "cwd_not_admitted", cwd: "/w", inline: false, message: "Refused: not a known folder.", ...over,
+});
+
+describe("terminal_error notice (change: harden-git-terminal-plugin-boundaries, #SF1)", () => {
+  it.each([
+    ["cwd_not_admitted", false],
+    ["cwd_admission_unavailable", false],
+    ["session_not_found", true],
+    ["cwd_not_admitted", true],
+  ] as const)("SF1 %s inline=%s renders the server message, adds no terminal, clears the pending cwd", (code, inline) => {
+    const { dispatch, setters, deps } = setup("/w");
+    render(<><TerminalLimitNotice cwd="/w" inline={false} /><TerminalLimitNotice cwd="/w" inline /></>);
+    dispatch(terr({ code, inline, message: `msg for ${code}` }));
+    const status = screen.getAllByRole("status");
+    expect(status).toHaveLength(1);
+    expect(status[0].textContent).toContain(`msg for ${code}`);
+    expect(setters.setTerminals).not.toHaveBeenCalled();
+    expect(deps.pendingTerminalCwdRef.current).toBeNull();
+    act(() => screen.getByRole("button", { name: /dismiss/i }).click());
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("SF1 shows for a cwd with no pane of its own (an unknown folder has none)", () => {
+    const { dispatch } = setup();
+    render(<TerminalLimitNotice cwd="/pane/cwd" inline={false} />);
+    dispatch(terr({ cwd: "/somewhere/else" }));
+    expect(screen.getByRole("status").textContent).toContain("Refused");
+  });
+
+  it("SF1 a newer terminal notice replaces the older one, in both orders: exactly one at any time", () => {
+    const { dispatch } = setup();
+    render(<TerminalLimitNotice cwd="/w" inline={false} />);
+    dispatch(terr());
+    dispatch(limit());
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toContain("32 terminals are open");
+    dispatch(terr({ message: "second refusal" }));
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toContain("second refusal");
+    expect(screen.getByRole("status").textContent).not.toContain("32 terminals");
+  });
+
+  it("SF1 a terminal_limit_reached also clears the pending cwd and adds no terminal", () => {
+    const { dispatch, setters, deps } = setup("/w");
+    dispatch(limit());
+    expect(setters.setTerminals).not.toHaveBeenCalled();
+    expect(deps.pendingTerminalCwdRef.current).toBeNull();
+  });
+
+  it("SF1 a terminal_added clears a terminal_error notice (a later create in a known folder)", () => {
+    const { dispatch } = setup();
+    render(<TerminalLimitNotice cwd="/known" inline={false} />);
+    dispatch(terr({ cwd: "/unknown" }));
+    expect(screen.getByRole("status")).toBeTruthy();
+    dispatch({ type: "terminal_added", terminal: { id: "t9", cwd: "/known", shell: "sh", status: "active", createdAt: 1 } } as ServerToBrowserMessage);
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
 

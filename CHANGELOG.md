@@ -124,6 +124,31 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Plugins must declare the event types they emit (migration).** `ctx.emitEventToSession` now refuses any event
+  type that is not listed in the calling plugin's manifest `emits` (`"emits": ["flow:run"]`: exact names, at most
+  64 entries of at most 128 characters, no whitespace, no reserved `roles:` / `role:` / `model:` / `prompt:` /
+  `dashboard:` / `ui:` prefix, checked case-insensitively; an invalid list rejects the manifest). A plugin without
+  `emits` emits nothing: the call returns `false`, sends nothing and logs one warning per (plugin, event type)
+  naming the missing `emits` field. The automation plugin may additionally emit the types of the actions it
+  accepted, and an action is accepted only when its `emits` is within the manifest `emits` of the plugin that
+  published it. Publishing under `automation.action.<source>` is now refused unless the publishing plugin's id is
+  `<source>` (`automation.action.core` is host-owned; automation merges its built-ins directly), and
+  `consumeAll` entries gain a `provider` field. In-tree plugins (`flows`, `automation`) are updated; out-of-tree
+  plugins that emit events must add `emits` to their manifest. **`pi-dashboard-shared` minor:** additive
+  `PluginManifest.emits`. **`dashboard-plugin-runtime` minor:** additive `ConsumeAllFn` `provider` field.
+- **Automation and flow-inputs routes need a `cwd` (migration for agents and API callers).** The server's own
+  working directory is no longer a fallback folder. Every `cwd` an automation route or `GET
+  /api/plugins/flows/flow-inputs` receives must be a known folder (a session cwd, a pinned folder, or one an
+  `automation.folderscope.*` plugin contributes): otherwise `403`, or `503 cwd-admission-unavailable` with
+  `Retry-After` when that cannot be decided right now. Folder-scope `create`, `update`, `DELETE`, `definition`,
+  `runs` and `result` (and `/flow-inputs`) answer `400 cwd_required` without one; `scope: "global"` needs none
+  and uses the home directory; `GET /list` without `cwd` lists global automations only and `GET /result?sessionId=`
+  without `cwd` searches global only. A `cwd` that is not a single string is `400 invalid_cwd`, and a flow id of
+  `.`, `..` or one with a path separator is `400 invalid_flow_id`. The MCP tools `plugins_automation_create`,
+  `plugins_automation_update`, `plugins_automation`, `getplugins_automation_definition`, `list_automation_runs` and
+  `getplugins_automation_result` now list `cwd` as a required argument (even for `scope: "global"`, where any
+  known folder will do); agents that relied on the server-cwd fallback must pass `cwd`. `DELETE
+  /api/plugins/automation` also accepts `name`/`scope`/`cwd` in a JSON body, which is what the MCP tool sends.
 - **File, package, canvas and resource routes admit the folder the same way (widening and tightening).** The file
   routes (`/api/file*`, `/api/grep`, open-in-system, reveal, editor-pane saves, live preview) used to accept only
   a `cwd` that matched a live session, so a pinned folder or a worktree without a session got "unknown session

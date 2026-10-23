@@ -27,6 +27,7 @@ export * from "./loopback-callback.js";
 export * from "./plugin-assets-route.js";
 export * from "./plugin-enabled.js";
 export * from "./plugin-refresh.js";
+export * from "./plugin-service-registry.js";
 export * from "./plugin-status-store.js";
 export * from "./requirement-probes.js";
 export * from "./runtime-client-listing.js";

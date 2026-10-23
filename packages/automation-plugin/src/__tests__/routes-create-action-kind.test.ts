@@ -28,7 +28,9 @@ function configWith(kind: string): AutomationConfig {
 
 async function appWith() {
   const app = Fastify();
-  mountAutomationRoutes(app, { actionIds });
+  // Every supplied cwd is admitted (S1r): the fixture dir and the nonexistent `/repo` are known.
+  // See change: harden-git-terminal-plugin-boundaries.
+  mountAutomationRoutes(app, { actionIds, knownCwds: () => [...(tmp ? [tmp] : []), "/repo"] });
   await app.ready();
   return app;
 }

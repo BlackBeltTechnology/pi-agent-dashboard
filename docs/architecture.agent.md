@@ -77,7 +77,7 @@ Web dashboard monitors + interacts with pi sessions. Three components + shared t
   - Bearer device auth — D5/D7. Registry `~/.pi/dashboard/paired-devices.json` (0600), SHA-256 hash only. Revoke=row delete.
   - WS single-use ticket — D11/F4/F6. `POST /api/ws-ticket {scope}` mints ~15s ticket.
   - Genuine-local trust — D10. `isGenuinelyLocal(ip,headers)` loopback AND no proxy header.
-  - CORS default — `https://pi-dashboard.dev` + `*.share.zrok.io`. `cors.allowedOrigins`.
+  - CORS default — `https://pi-dashboard.dev` + live tunnel origins. zrok wildcard `*.share(s).zrok.io` opt-in only: `cors.allowZrokWildcard: true` (default false). `cors.allowedOrigins` extends. `canonicalOrigin()` compare. See change: harden-cors-and-csp-reporting.
   - Versioned protocol — D9. `PAIRING_PROTOCOL_VERSION`, `SUPPORTED_PAIRING_VERSIONS`.
   - Operator pairing view (client) — `GatewayPairQR.tsx`. Gateway page + Remote access dialog (`components/remote-access/`). `GET /api/pair/payload`. `qrcode` dep. Sole pairing surface; Settings→Security links to it. See change: collapse-pairing-into-gateway.
 - Settings Panel — gear icon → `/settings`. `GET /api/config` (secrets `***`).

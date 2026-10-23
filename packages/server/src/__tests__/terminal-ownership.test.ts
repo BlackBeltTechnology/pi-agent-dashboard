@@ -20,17 +20,19 @@ const anna = { iss: "https://idp", sub: "anna" };
 const bela = { iss: "https://idp", sub: "bela" };
 
 // ── handlers ────────────────────────────────────────────────────────────────
-function handlerCtx(over: { principal?: object | null; active: boolean; terminals?: Record<string, { principalOwner?: typeof anna }> }) {
+function handlerCtx(over: { principal?: object | null; active: boolean; terminals?: Record<string, { principalOwner?: typeof anna }>; admitOptions?: object; ws?: object }) {
   const spawn = vi.fn((cwd: string, o?: { owner?: unknown; ephemeral?: boolean }) => ({ id: "t1", cwd, shell: "sh", status: "active" as const, createdAt: 0, ...(o?.owner ? { principalOwner: o.owner } : {}) }));
   const kill = vi.fn();
   const updateTitle = vi.fn();
   const broadcast = vi.fn();
   const ctx = {
-    ws: over.principal === null ? {} : { principal: over.principal },
+    ws: over.ws ?? (over.principal === null ? {} : { principal: over.principal }),
+    sendTo: vi.fn(),
     isResolverActive: () => over.active,
     terminalManager: { spawn, kill, updateTitle, get: (id: string) => over.terminals?.[id] && { id, ...over.terminals[id] } },
     // Session "s" belongs to anna (the inline-terminal commands owner-gate the session they write into).
-    sessionManager: { get: (id: string) => (id === "s" ? { principalOwner: anna } : undefined) },
+    sessionManager: { get: (id: string) => (id === "s" ? { principalOwner: anna, cwd: "/w" } : undefined) },
+    terminalAdmission: { knownCwds: () => ["/w"], admitOptions: over.admitOptions },
     sessionOrderManager: { insert: vi.fn(), getOrder: () => [] },
     broadcast,
     eventStore: { insertEvent: () => 1, getEvent: () => ({}), getEvents: () => [] },
@@ -39,14 +41,44 @@ function handlerCtx(over: { principal?: object | null; active: boolean; terminal
 }
 
 describe("terminal handlers (18.13)", () => {
-  it("create/open-inline stamp the creating principal while enforced; never in the inert era", () => {
+  it("SX3 requester closed while admission is pending → no PTY, nothing written, no unhandled rejection", async () => {
+    // change: harden-git-terminal-plugin-boundaries (#SX3)
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      const seen = new Set<string>();
+      // Hold only the request's own (first) realpath call.
+      const realpath = async (p: string) => {
+        if (!seen.has(p)) { seen.add(p); await gate; }
+        return { kind: "ok" as const, path: p };
+      };
+      const ws = { principal: anna, readyState: 1 };
+      const e = handlerCtx({ principal: anna, active: false, ws, admitOptions: { realpath } });
+      const pending = handleCreateTerminal({ type: "create_terminal", cwd: "/w" } as never, e.ctx);
+      ws.readyState = 3; // CLOSED while admission is still pending
+      release();
+      await pending;
+      await new Promise((r) => setImmediate(r));
+      expect(e.spawn).not.toHaveBeenCalled();
+      expect(e.broadcast).not.toHaveBeenCalled();
+      expect((e.ctx.sendTo as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("create/open-inline stamp the creating principal while enforced; never in the inert era", async () => {
     const e = handlerCtx({ principal: anna, active: true });
-    handleCreateTerminal({ type: "create_terminal", cwd: "/w" } as never, e.ctx);
+    await handleCreateTerminal({ type: "create_terminal", cwd: "/w" } as never, e.ctx);
     expect(e.spawn).toHaveBeenLastCalledWith("/w", { owner: anna });
     handleOpenInlineTerminal({ type: "open_inline_terminal", cwd: "/w", sessionId: "s" } as never, e.ctx);
     expect(e.spawn).toHaveBeenLastCalledWith("/w", { ephemeral: true, owner: anna });
     const inert = handlerCtx({ principal: anna, active: false });
-    handleCreateTerminal({ type: "create_terminal", cwd: "/w" } as never, inert.ctx);
+    await handleCreateTerminal({ type: "create_terminal", cwd: "/w" } as never, inert.ctx);
     expect(inert.spawn).toHaveBeenLastCalledWith("/w", { owner: undefined });
   });
 

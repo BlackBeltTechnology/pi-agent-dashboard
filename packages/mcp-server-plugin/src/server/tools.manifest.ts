@@ -26,6 +26,13 @@ export interface ToolRow {
   /** Exported type name in packages/shared — the schema source. */
   input: string;
   sessionTargeting?: true;
+  /**
+   * Arguments the generated schema marks REQUIRED on top of the `input` type (and the path params).
+   * Used for the permissive `ToolJsonBody` rows whose route needs a folder: the schema then lists
+   * the arg as a required string and dispatch refuses a call without it before any REST request.
+   * See change: harden-git-terminal-plugin-boundaries (S1r).
+   */
+  requiredArgs?: readonly string[];
   bind:
     | { kind: "rest"; method: RestMethod; path: string; fixed?: Record<string, unknown> }
     | { kind: "session"; message: string }
@@ -86,7 +93,7 @@ export const MANIFEST: readonly ToolRow[] = [
   { name: "delete_goal", description: "DELETE /api/folders/goals/:id", annotations: { readOnlyHint: false, destructiveHint: true }, input: "ToolJsonBody", bind: { kind: "rest", method: "DELETE", path: "/api/folders/goals/:id" } },
   { name: "attach_goal_session", description: "POST /api/folders/goals/:id/sessions", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/folders/goals/:id/sessions" } },
   { name: "detach_goal_session", description: "DELETE /api/folders/goals/:id/sessions/:sid", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "DELETE", path: "/api/folders/goals/:id/sessions/:sid" } },
-  { name: "list_automation_runs", description: "GET /api/plugins/automation/runs", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/runs" } },
+  { name: "list_automation_runs", description: "GET /api/plugins/automation/runs", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", requiredArgs: ["cwd"], bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/runs" } },
   { name: "list_automation", description: "GET /api/plugins/automation/list", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/list" } },
   { name: "run_automation", description: "POST /api/plugins/automation/run", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/plugins/automation/run" } },
   { name: "stop_automation", description: "POST /api/plugins/automation/stop", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/plugins/automation/stop" } },
@@ -127,7 +134,7 @@ export const MANIFEST: readonly ToolRow[] = [
   { name: "history_backfill", description: "Bridge verb: history_backfill", tier: "observe", annotations: { readOnlyHint: true, destructiveHint: false }, input: "SessionToolArgs", sessionTargeting: true, bind: { kind: "session", message: "history_backfill" } },
   { name: "config_auth_providers_id", description: "DELETE /api/config/auth/providers/:id", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "DELETE", path: "/api/config/auth/providers/:id" } },
   { name: "openspec_groups_id", description: "DELETE /api/openspec/groups/:id", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "DELETE", path: "/api/openspec/groups/:id" } },
-  { name: "plugins_automation", description: "DELETE /api/plugins/automation", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "DELETE", path: "/api/plugins/automation" } },
+  { name: "plugins_automation", description: "DELETE /api/plugins/automation", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", requiredArgs: ["cwd"], bind: { kind: "rest", method: "DELETE", path: "/api/plugins/automation" } },
   { name: "sessions_archived_id", description: "DELETE /api/sessions/archived/:id", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "DELETE", path: "/api/sessions/archived/:id" } },
   { name: "getapple_tools_status", description: "GET /api/apple-tools/status", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/apple-tools/status" } },
   { name: "getbrowse", description: "GET /api/browse", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/browse" } },
@@ -159,9 +166,9 @@ export const MANIFEST: readonly ToolRow[] = [
   { name: "getpi_retry", description: "GET /api/pi-retry", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/pi-retry" } },
   { name: "getpi_installs", description: "GET /api/pi/installs", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/pi/installs" } },
   { name: "getplugins_automation_actions", description: "GET /api/plugins/automation/actions", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/actions" } },
-  { name: "getplugins_automation_definition", description: "GET /api/plugins/automation/definition", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/definition" } },
+  { name: "getplugins_automation_definition", description: "GET /api/plugins/automation/definition", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", requiredArgs: ["cwd"], bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/definition" } },
   { name: "getplugins_automation_git_capable", description: "GET /api/plugins/automation/git-capable", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/git-capable" } },
-  { name: "getplugins_automation_result", description: "GET /api/plugins/automation/result", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/result" } },
+  { name: "getplugins_automation_result", description: "GET /api/plugins/automation/result", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", requiredArgs: ["cwd"], bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/result" } },
   { name: "getplugins_automation_trigger_kinds", description: "GET /api/plugins/automation/trigger-kinds", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/plugins/automation/trigger-kinds" } },
   { name: "gettunnel_readiness", description: "GET /api/tunnel-readiness", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/tunnel-readiness" } },
   { name: "gettunnel_status_detail", description: "GET /api/tunnel-status-detail", annotations: { readOnlyHint: true, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "GET", path: "/api/tunnel-status-detail" } },
@@ -183,8 +190,8 @@ export const MANIFEST: readonly ToolRow[] = [
   { name: "packages_check_updates", description: "POST /api/packages/check-updates", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/packages/check-updates" } },
   { name: "packages_move", description: "POST /api/packages/move", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/packages/move" } },
   { name: "packages_reset_to_npm", description: "POST /api/packages/reset-to-npm", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/packages/reset-to-npm" } },
-  { name: "plugins_automation_create", description: "POST /api/plugins/automation/create", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/plugins/automation/create" } },
-  { name: "plugins_automation_update", description: "POST /api/plugins/automation/update", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/plugins/automation/update" } },
+  { name: "plugins_automation_create", description: "POST /api/plugins/automation/create", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", requiredArgs: ["cwd"], bind: { kind: "rest", method: "POST", path: "/api/plugins/automation/create" } },
+  { name: "plugins_automation_update", description: "POST /api/plugins/automation/update", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", requiredArgs: ["cwd"], bind: { kind: "rest", method: "POST", path: "/api/plugins/automation/update" } },
   { name: "providers_test", description: "POST /api/providers/test", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/providers/test" } },
   { name: "resources_trust", description: "POST /api/resources/trust", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/resources/trust" } },
   { name: "tunnel_reserved_name", description: "POST /api/tunnel-reserved-name", annotations: { readOnlyHint: false, destructiveHint: false }, input: "ToolJsonBody", bind: { kind: "rest", method: "POST", path: "/api/tunnel-reserved-name" } },

@@ -30,6 +30,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
+import type { CspReportsSnapshot } from "../auth/csp-report-store.js";
 import type { LocalTrustContext } from "../auth/local-proof.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries, needsLocalProof } from "../auth/localhost-guard.js";
 import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
@@ -275,6 +276,9 @@ export function registerSystemRoutes(
     // Live pi-trust query counters (`piTrustMirror.live`), same disclosure gate as
     // `accessGrants`. See change: mirror-dashboard-trust-live-remote (D6).
     readPiTrustLive?: () => PiTrustLiveCounters;
+    // Persisted baseline CSP report counters (`cspReports`), same disclosure gate as `accessGrants`;
+    // counts only. See change: harden-cors-and-csp-reporting (D8).
+    readCspReports?: () => CspReportsSnapshot;
     // Live trusted-network list (top-level ∪ auth.bypassHosts) for the additive
     // `trustPosture` health field. Falls back to the boot list when unwired.
     // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -318,7 +322,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readPiTrustLive, readTrustedNetworks, readPushErrors } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readPiTrustLive, readCspReports, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -1170,6 +1174,12 @@ export function registerSystemRoutes(
     if (readPiTrustLive && canDiscloseAccessPosture(request)) {
       try { piTrustMirror = { live: readPiTrustLive() }; } catch { /* keep null */ }
     }
+    // Baseline CSP report counters: counts only, same disclosure gate as `accessGrants`. Omitted
+    // (absent, not null) for any other caller or when the read throws. See change: harden-cors-and-csp-reporting (D8).
+    let cspReports: CspReportsSnapshot | null = null;
+    if (readCspReports && canDiscloseAccessPosture(request)) {
+      try { cspReports = readCspReports(); } catch { /* omit */ }
+    }
     // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
     // admits tunnel traffic. Same disclosure gate as `accessGrants`.
     // See change: fix-trusted-network-tunnel-bypass (D3).
@@ -1224,6 +1234,7 @@ export function registerSystemRoutes(
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
       piTrustMirror,
+      ...(cspReports ? { cspReports } : {}),
       // A bare-loopback caller the strict default refuses for want of proof is told so (the
       // remedy is `pi-dashboard open`). Absent for every other caller. See change:
       // close-container-loopback-impersonation (D3).

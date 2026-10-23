@@ -44,6 +44,8 @@ import {
   worktreeDiffStat,
 } from "../git-worktree/git-operations.js";
 import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
+import { gitErrorText, redactGitText } from "../git-worktree/redact-git-text.js";
+import { INVALID_REF_CODE, InvalidRefError, isMissingArg, isValidRefArg } from "../git-worktree/ref-arg.js";
 import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
 import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
@@ -95,6 +97,23 @@ export interface GitRoutesDeps {
 type GitCwdCheck =
   | { ok: true; cwd: string; token: AdmissionToken }
   | { ok: false; body: ApiResponse; code: string };
+
+/**
+ * B20: redact git-derived text against the root the operation ran in. `root` is captured by the
+ * caller at operation time (a `const`), never read at broadcast time.
+ * See change: harden-git-terminal-plugin-boundaries.
+ */
+const redact = (text: unknown, root?: string): string => redactGitText(text, { root });
+/** Redacted `err.message` (or a thrown string), falling back to `fallback`. */
+const redactErr = (err: unknown, fallback: string, root?: string): string => redact(gitErrorText(err) || fallback, root);
+
+/** B1r: the 400 `invalid_ref` envelope (no git process has started). */
+function invalidRef(reply: FastifyReply, what: string): ApiResponse {
+  reply.code(400);
+  return { success: false, code: INVALID_REF_CODE, error: `invalid ${what}` };
+}
+/** A PRESENT optional ref/path field (absent/null/"" = not supplied) that fails validation. */
+const presentInvalid = (v: unknown): boolean => !isMissingArg(v) && !isValidRefArg(v);
 
 /** Whole-batch admission budget for `remove-batch` (design D1). */
 const REMOVE_BATCH_ADMISSION_BUDGET_MS = 10_000;
@@ -282,20 +301,23 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         const data = listBranches(admitted.cwd);
         return { success: true, data } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "list_branches_failed", error: err.message ?? "failed to list branches" } satisfies ApiResponse;
+        return { success: false, code: "list_branches_failed", error: redactErr(err, "failed to list branches", admitted.cwd) } satisfies ApiResponse;
       }
     },
   );
 
-  fastify.post<{ Body: { cwd?: string; branch?: string; stash?: boolean } }>(
+  fastify.post<{ Body: { cwd?: string; branch?: unknown; stash?: boolean } }>(
     "/api/git/checkout",
     { preHandler: networkGuard },
     async (request, reply) => {
       const { cwd, branch, stash } = request.body ?? {};
-      if (!cwd || !branch) {
+      // Missing (absent / null / "") keeps the existing code; a PRESENT invalid ref is `invalid_ref`
+      // (B1r) — checked before admission so nothing (not even a probe) runs for it.
+      if (!cwd || isMissingArg(branch)) {
         reply.code(400);
         return { success: false, code: "cwd_and_branch_required", error: "cwd and branch required" } satisfies ApiResponse;
       }
+      if (!isValidRefArg(branch)) return invalidRef(reply, "branch");
       const admitted = await admitGitCwd(cwd, reply);
       if (!admitted.ok) return admitted.body;
       try {
@@ -306,7 +328,8 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         }
         return { success: true, data: { stashed: result.stashed } } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "checkout_failed", error: err.message ?? "checkout failed" } satisfies ApiResponse;
+        if (err instanceof InvalidRefError) return invalidRef(reply, "branch");
+        return { success: false, code: "checkout_failed", error: redactErr(err, "checkout failed", admitted.cwd) } satisfies ApiResponse;
       }
     },
   );
@@ -326,7 +349,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         gitInit(admitted.cwd);
         return { success: true } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "git_init_failed", error: err.message ?? "init failed" } satisfies ApiResponse;
+        return { success: false, code: "git_init_failed", error: redactErr(err, "init failed", admitted.cwd) } satisfies ApiResponse;
       }
     },
   );
@@ -366,7 +389,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         const files = await getChangedFiles(validated.cwd);
         return { success: true, data: files } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "git_failed", error: err?.message ?? "failed to list changed files" } satisfies ApiResponse;
+        return { success: false, code: "git_failed", error: redactErr(err, "failed to list changed files", validated.cwd) } satisfies ApiResponse;
       }
     },
   );
@@ -403,9 +426,9 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       } catch (err: any) {
         if (err instanceof GitCommitError) {
           reply.code(err.code === "path-escape" || err.code === "no-files" || err.code === "empty-message" ? 400 : 409);
-          return { success: false, code: err.code, error: err.message } satisfies ApiResponse;
+          return { success: false, code: err.code, error: redact(err.message, validated.cwd) } satisfies ApiResponse;
         }
-        return { success: false, code: "commit-failed", error: err?.message ?? "commit failed" } satisfies ApiResponse;
+        return { success: false, code: "commit-failed", error: redactErr(err, "commit failed", validated.cwd) } satisfies ApiResponse;
       }
     },
   );
@@ -469,7 +492,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         const head = readHead(validated.cwd);
         return { success: true, data: head } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "git_failed", error: err?.message ?? "failed to read HEAD" } satisfies ApiResponse;
+        return { success: false, code: "git_failed", error: redactErr(err, "failed to read HEAD", validated.cwd) } satisfies ApiResponse;
       }
     },
   );
@@ -487,7 +510,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         const worktrees = listWorktrees(validated.cwd);
         return { success: true, data: { worktrees } } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "git_failed", error: err?.message ?? "failed to list worktrees" } satisfies ApiResponse;
+        return { success: false, code: "git_failed", error: redactErr(err, "failed to list worktrees", validated.cwd) } satisfies ApiResponse;
       }
     },
   );
@@ -606,7 +629,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
             );
           } catch (err) {
             reply.code(500);
-            return { success: false, code: "trust_not_recorded", error: `trust not recorded: ${(err as Error)?.message ?? String(err)}` } satisfies ApiResponse;
+            return { success: false, code: "trust_not_recorded", error: `trust not recorded: ${redactErr(err, String(err), configRoot)}` } satisfies ApiResponse;
           }
         } else {
           // "Until the dashboard restarts": the "also trust in pi" choice is held in
@@ -654,8 +677,11 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         sendIf({ type: "worktree_init_done", requestId: requestId ?? "", cwd, durationMs: runResult.durationMs });
         return { success: true, data: { ran: true, durationMs: runResult.durationMs } } satisfies ApiResponse;
       }
-      const stderr = runResult.stderr ?? "";
-      const hint = mapInitStderrToHint(stderr) ?? `init failed (${runResult.code ?? "unknown"})`;
+      // B20: the mapper sees the RAW stderr (so it can match paths); BOTH the mapped hint and the
+      // stderr are redacted AFTER mapping, against the checkout the hook ran in (`cwd`, captured above).
+      const rawStderr = runResult.stderr ?? "";
+      const hint = redact(mapInitStderrToHint(rawStderr) ?? `init failed (${runResult.code ?? "unknown"})`, cwd);
+      const stderr = redact(rawStderr, cwd);
       worktreeInitRegistry?.finishRun(cwd, "failed", runResult.code ?? "init_failed");
       sendIf({ type: "worktree_init_failed", requestId: requestId ?? "", cwd, code: runResult.code ?? "init_failed", message: hint, stderr });
       reply.code(500);
@@ -664,7 +690,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   );
 
   fastify.post<{
-    Body: { cwd?: string; base?: string; newBranch?: string; path?: string; force?: boolean };
+    Body: { cwd?: string; base?: unknown; newBranch?: unknown; path?: unknown; force?: boolean };
   }>(
     "/api/git/worktree",
     { preHandler: networkGuard },
@@ -674,39 +700,41 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       // worktree-init hook (GET /init-status + POST /init). See change:
       // generalize-worktree-init-hook.
       const body = request.body ?? {};
+      // B1r: every PRESENT ref / branch / path is validated before admission or git. `base` absent /
+      // null / "" keeps the existing `cwd_invalid` envelope below; `newBranch` absent = checkout mode
+      // (a present `null` / "" / non-string is invalid); `path` absent / null / "" = default path.
+      // See change: harden-git-terminal-plugin-boundaries.
+      if (presentInvalid(body.base)) return invalidRef(reply, "base");
+      if (body.newBranch !== undefined && !isValidRefArg(body.newBranch)) return invalidRef(reply, "newBranch");
+      if (presentInvalid(body.path)) return invalidRef(reply, "path");
       const validated = await validateCwd(body.cwd, reply);
       if (!validated.ok) return validated.body;
-      if (!body.base || typeof body.base !== "string") {
+      if (!isValidRefArg(body.base)) {
         reply.code(400);
         return { success: false, code: "cwd_invalid", error: "base required" } satisfies ApiResponse;
       }
-      // `newBranch` is optional. When present it must be a string (fork
-      // mode); when absent the server checks out the existing `base` ref
-      // (checkout mode). See change: worktree-checkout-existing-branch.
-      if (body.newBranch !== undefined && typeof body.newBranch !== "string") {
-        reply.code(400);
-        return { success: false, code: "cwd_invalid", error: "newBranch must be a string" } satisfies ApiResponse;
-      }
+      // `newBranch` is optional: present → fork mode; absent → the server checks out the existing
+      // `base` ref (checkout mode). See change: worktree-checkout-existing-branch.
       const result = addWorktree({
         cwd: validated.cwd,
         base: body.base,
-        ...(body.newBranch !== undefined ? { newBranch: body.newBranch } : {}),
-        path: body.path,
+        ...(body.newBranch !== undefined ? { newBranch: body.newBranch as string } : {}),
+        path: typeof body.path === "string" && body.path.length > 0 ? body.path : undefined,
         force: body.force === true,
       });
       if (!result.ok) {
         const httpStatus =
           result.error === "branch_in_use" || result.error === "branch_exists" || result.error === "path_exists"
             ? 409
-            : result.error === "not_a_repo" || result.error === "base_not_found"
+            : result.error === "not_a_repo" || result.error === "base_not_found" || result.error === "invalid_ref"
               ? 400
               : 500;
         reply.code(httpStatus);
         return {
           success: false,
           code: result.error,
-          error: result.message,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          error: redact(result.message, validated.cwd),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
           ...(typeof result.orphanLikely === "boolean" ? { orphanLikely: result.orphanLikely } : {}),
         } satisfies ApiResponse;
       }
@@ -723,14 +751,16 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   // Unblocks the worktree-spawn dialog when a previous failed attempt
   // left an orphan directory at the target path. Conservative refuse
   // rules — see `orphanCleanup` in `git-operations.ts`.
-  fastify.post<{ Body: { cwd?: string; path?: string } }>(
+  fastify.post<{ Body: { cwd?: string; path?: unknown } }>(
     "/api/git/worktree/orphan-cleanup",
     { preHandler: networkGuard },
     async (request, reply) => {
       const body = request.body ?? {};
+      // B1r: a present option-like / control-character path is refused before admission or any fs/git work.
+      if (presentInvalid(body.path)) return invalidRef(reply, "path");
       const validated = await validateCwd(body.cwd, reply);
       if (!validated.ok) return validated.body;
-      if (!body.path || typeof body.path !== "string") {
+      if (!isValidRefArg(body.path)) {
         reply.code(400);
         return { success: false, code: "cwd_invalid", error: "path required" } satisfies ApiResponse;
       }
@@ -746,14 +776,14 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           result.error === "too_many_files" ||
           result.error === "file_too_large"
             ? 409
-            : result.error === "outside_repo" || result.error === "not_a_directory"
+            : result.error === "outside_repo" || result.error === "not_a_directory" || result.error === "invalid_ref"
               ? 400
               : 500;
         reply.code(httpStatus);
         return {
           success: false,
           code: result.error,
-          error: result.message,
+          error: redact(result.message, validated.cwd),
         } satisfies ApiResponse;
       }
       return { success: true } satisfies ApiResponse;
@@ -796,6 +826,9 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     { preHandler: networkGuard },
     async (request, reply) => {
       const body = request.body ?? {};
+      // B1r: the worktree path being removed (`cwd`) is a caller-supplied git argument — an
+      // option-like / control-character value is refused before admission or git.
+      if (typeof body.cwd === "string" && presentInvalid(body.cwd)) return invalidRef(reply, "path");
       const validated = await validateCwd(body.cwd, reply);
       if (!validated.ok) return validated.body;
       // Removing the main worktree — or one whose main checkout cannot be
@@ -843,7 +876,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           success: false,
           code: result.code,
           error: result.code,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
         } satisfies ApiResponse;
       }
       stampCwdMissing(validated.cwd);
@@ -918,6 +951,10 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       try {
         for (const item of items) {
           const rawCwd = item?.cwd;
+          if (typeof rawCwd === "string" && presentInvalid(rawCwd)) {
+            results.push({ cwd: "", ok: false, code: INVALID_REF_CODE });
+            continue;
+          }
           const validated: GitCwdCheck =
             !rawCwd || typeof rawCwd !== "string"
               ? { ok: false, code: "cwd_invalid", body: { success: false, code: "cwd_invalid", error: "cwd required" } }
@@ -955,7 +992,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
             mainPath,
           });
           if (!result.ok) {
-            results.push({ cwd: validated.cwd, ok: false, code: result.code, ...(result.stderr ? { stderr: result.stderr } : {}) });
+            results.push({ cwd: validated.cwd, ok: false, code: result.code, ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}) });
             continue;
           }
           stampCwdMissing(validated.cwd);
@@ -1009,7 +1046,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           success: false,
           code: result.code,
           error: result.code,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
         } satisfies ApiResponse;
       }
       return { success: true, data: result.data } satisfies ApiResponse;
@@ -1037,7 +1074,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           success: false,
           code: result.code,
           error: result.code,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
         } satisfies ApiResponse;
       }
       requestPrRefresh(validated.cwd, "push");
@@ -1082,7 +1119,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           success: false,
           code: result.code,
           error: result.code,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
         } satisfies ApiResponse;
       }
       requestPrRefresh(validated.cwd, "pr");
@@ -1113,7 +1150,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           success: false,
           code: result.code,
           error: result.code,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
         } satisfies ApiResponse;
       }
       return { success: true, data: result.data } satisfies ApiResponse;
@@ -1121,18 +1158,20 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   );
 
   // ── Create worktree from PR (change: add-worktree-from-pull-request) ────
-  fastify.post<{ Body: { cwd?: string; prNumber?: number; path?: string } }>(
+  fastify.post<{ Body: { cwd?: string; prNumber?: number; path?: unknown } }>(
     "/api/git/worktree/from-pr",
     { preHandler: networkGuard },
     async (request, reply) => {
       const body = request.body ?? {};
+      // B1r: a present option-like / control-character path is refused before admission or git.
+      if (presentInvalid(body.path)) return invalidRef(reply, "path");
       const validated = await validateCwd(body.cwd, reply);
       if (!validated.ok) return validated.body;
       if (typeof body.prNumber !== "number" || !Number.isInteger(body.prNumber) || body.prNumber <= 0) {
         reply.code(400);
         return { success: false, code: "cwd_invalid", error: "prNumber required (positive integer)" } satisfies ApiResponse;
       }
-      const pathArg = typeof body.path === "string" && body.path.length > 0 ? body.path : undefined;
+      const pathArg = isValidRefArg(body.path) ? body.path : undefined;
       const result = addWorktreeFromPr({
         cwd: validated.cwd,
         prNumber: body.prNumber,
@@ -1143,14 +1182,14 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           result.error === "pr_not_found" ? 404
           : result.error === "gh_not_authed" ? 401
           : result.error === "branch_in_use" || result.error === "branch_exists" || result.error === "path_exists" ? 409
-          : result.error === "not_a_repo" || result.error === "base_not_found" ? 400
+          : result.error === "not_a_repo" || result.error === "base_not_found" || result.error === "invalid_ref" ? 400
           : 500;
         reply.code(httpStatus);
         return {
           success: false,
           code: result.error,
-          error: result.message,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          error: redact(result.message, validated.cwd),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
           ...(typeof result.orphanLikely === "boolean" ? { orphanLikely: result.orphanLikely } : {}),
         } satisfies ApiResponse;
       }
@@ -1178,7 +1217,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           success: false,
           code: result.code,
           error: result.code,
-          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(result.stderr ? { stderr: redact(result.stderr, validated.cwd) } : {}),
         } satisfies ApiResponse;
       }
       return { success: true, data: result.data } satisfies ApiResponse;
@@ -1200,7 +1239,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         const result = stashPop(admitted.cwd);
         return { success: true, data: result } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, code: "stash_pop_failed", error: err.message ?? "stash pop failed" } satisfies ApiResponse;
+        return { success: false, code: "stash_pop_failed", error: redactErr(err, "stash pop failed", admitted.cwd) } satisfies ApiResponse;
       }
     },
   );

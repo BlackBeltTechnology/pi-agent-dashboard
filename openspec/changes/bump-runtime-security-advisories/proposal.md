@@ -37,6 +37,17 @@ implementation.
   - undici via `@fastify/http-proxy`
   - node-forge and follow-redirects via `acme-client`
   - fast-uri via fastify's ajv
+  - undici also via the server's direct `undici` dependency and discord.js
+    (chat-gateway), not only `@fastify/http-proxy`
+  - deepmerge-ts via `mailparser` > `html-to-text` (covered by the mailparser
+    bump)
+  - dompurify and katex in the client runtime (dompurify via `mermaid` and
+    `isomorphic-dompurify`; katex via `rehype-katex`, `remark-math` and
+    `mermaid`)
+  - handlebars and brace-expansion via the server's `asciidoctor`
+  - brace-expansion via `minimatch` (`packages/shared`, `packages/extension`)
+    and `@fastify/static`
+  - ip-address via `@fastify/rate-limit` (server and plugins)
 
 ## Capabilities
 

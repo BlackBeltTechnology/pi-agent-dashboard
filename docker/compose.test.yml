@@ -154,6 +154,10 @@ services:
       # unchanged. See change: config-override-oauth-redirect-base.
       PI_E2E_OAUTH: "${PI_E2E_OAUTH:-}"
       PI_E2E_OAUTH_BASE: "${PI_E2E_OAUTH_BASE:-}"
+      # PI_E2E_OAUTH_NO_BYPASS=1 seeds `bypassUrls:[]` (a REAL gate) for the CSP report sink
+      # exemption spec (csp-report-sink-oauth.spec.ts). Locks the Playwright host out of every
+      # other route; run only that spec there. See change: harden-cors-and-csp-reporting.
+      PI_E2E_OAUTH_NO_BYPASS: "${PI_E2E_OAUTH_NO_BYPASS:-}"
       # Throttle-cadence arm (change: reduce-bridge-tick-bandwidth). When "1",
       # test-entrypoint stages the SYNTHETIC Agent-tick producer
       # (qa/fixtures/faux-agent-ticks.ext.ts) and SKIPS the real subagents

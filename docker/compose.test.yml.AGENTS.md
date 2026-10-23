@@ -11,3 +11,5 @@ Passes `PI_E2E_CANARY` + `PI_DASHBOARD_CSP` to the container (the entrypoint rea
 - Passes `PI_E2E_TERMINALS_MAX_CONCURRENT` (seeds `terminals.maxConcurrent`; empty = default 32). See change: harden-server-capability-bounds.
 
 - Passes `PI_E2E_BROWSE_CONFINEMENT` (empty = confinement seeded off). See change: harden-server-capability-bounds.
+
+Passes `PI_E2E_OAUTH_NO_BYPASS` through to the container. See change: harden-cors-and-csp-reporting.

@@ -1428,6 +1428,13 @@ export interface DashboardConfig {
 export interface CorsConfig {
   /** Additional origins allowed for cross-origin requests */
   allowedOrigins: string[];
+  /**
+   * Opt-in: let ANY `*.share.zrok.io` / `*.shares.zrok.io` origin READ
+   * responses (CORS). Default `false`; only the boolean `true` enables it.
+   * The live zrok tunnel is always allowed regardless. Admission never
+   * consults it. See change: harden-cors-and-csp-reporting (B19).
+   */
+  allowZrokWildcard: boolean;
 }
 
 /** How a gateway URL is allowed to be reached. At least one is mandatory. */
@@ -1831,7 +1838,7 @@ const DEFAULTS: DashboardConfig = {
   trustedNetworks: [],
   requireLocalProof: true,
   resolvedTrustedNetworks: [],
-  cors: { allowedOrigins: [] },
+  cors: { allowedOrigins: [], allowZrokWildcard: false },
   pairing: { publicBaseUrls: [], acceptLanRequests: false },
   electronMode: false,
   knownServers: [],
@@ -2811,6 +2818,7 @@ export function loadConfig(): DashboardConfig {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)
           ? parsed.cors.allowedOrigins.filter((o: unknown) => typeof o === "string")
           : defaults.cors.allowedOrigins,
+        allowZrokWildcard: parsed.cors?.allowZrokWildcard === true,
       },
       pairing: {
         publicBaseUrls: Array.isArray(parsed.pairing?.publicBaseUrls)

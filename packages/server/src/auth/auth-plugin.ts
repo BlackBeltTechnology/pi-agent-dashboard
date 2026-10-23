@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import { getAppMountRegistry } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import { isSafeLocalPath } from "@blackbelt-technology/pi-dashboard-shared/safe-local-path.js";
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -30,8 +31,8 @@ import {
   verifyToken,
   warnOnInvalidRedirectBase,
 } from "./auth.js";
-import { isSafeLocalPath } from "@blackbelt-technology/pi-dashboard-shared/safe-local-path.js";
 import { isBypassed } from "./bypass-urls.js";
+import { CSP_REPORT_POLICIES, cspReportPath } from "./csp-report-paths.js";
 import { hasLocalCredential } from "./local-credential.js";
 import type { LocalTrustContext } from "./local-proof.js";
 import { isLocallyTrusted, isObserveApiRequest, isTrustedSource, needsLocalProof } from "./localhost-guard.js";
@@ -120,6 +121,9 @@ export function sanitizeReturnUrl(raw: unknown): string {
 }
 
 const STATE_COOKIE = "pi_dash_oauth_state";
+
+/** The only sink paths that skip the OAuth gate (exact match; see the `onRequest` hook). */
+const CSP_SINK_PATHS: ReadonlySet<string> = new Set(CSP_REPORT_POLICIES.map(cspReportPath));
 
 /** Domain-separated key for the OAuth state cookie (never the JWT key). */
 function stateKey(secret: string): Buffer {
@@ -528,6 +532,11 @@ export async function registerAuthPlugin(
 
     // Skip auth routes
     if (request.url.startsWith("/auth/")) return;
+
+    // Skip the baseline CSP report sink: signed-out pages (login, passkey) must be able to report.
+    // Exactly `POST` on the three policy paths (query ignored) — no prefix match, nothing else widens.
+    // See change: harden-cors-and-csp-reporting (D8).
+    if (request.method === "POST" && CSP_SINK_PATHS.has(request.url.split("?", 1)[0] ?? "")) return;
 
     // Skip PUBLIC device-facing pairing routes (a pairing device has no
     // credential yet; these are gated by the one-time code + approval).

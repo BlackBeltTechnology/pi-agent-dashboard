@@ -110,6 +110,7 @@ Files in this directory. One row per source file.
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |
 | `pi-trust-resource-digest.ts` | Remote folder proof, Node-only. `trustResourceManifest(cwd,{home,signal})` async walk of pi's trust-requiring… → see `pi-trust-resource-digest.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
+| `plugin-route-cwd.ts` | `admitRouteCwdParam(raw, {required, knownCwds, admitOptions})`: plugin-route cwd boundary — shape (non-string → 400 `invalid_cwd`), presence (400 `cwd_required`), tri-state `admitCwd` (403 `not-allowed` / 503 `cwd-admission-unavailable` + `Retry-After: 1`); returns `release()` for the handler `finally`. `sendRouteCwdRefusal`. Used by automation + flows routes. See change: harden-git-terminal-plugin-boundaries. |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
 | `project-root.ts` | `hasProjectRootMarker(dir)`: the ONE `.git`/`.pi` project-root test (`.git` dir or worktree file, or `.pi`);… → see `project-root.ts.AGENTS.md` |
 | `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |

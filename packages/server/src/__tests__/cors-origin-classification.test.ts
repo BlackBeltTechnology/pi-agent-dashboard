@@ -82,7 +82,7 @@ describe("5.2 — configured vs structural CORS allowances", () => {
     {
       label: "the zrok wildcard",
       origin: "https://stranger.share.zrok.io",
-      o: opts(),
+      o: opts({ allowZrokWildcard: true }),
       kind: "zrok-wildcard",
       allowed: true,
       revocable: false,

@@ -29,6 +29,7 @@ const RESCAN_DEBOUNCE_MS = 15_000;
 import os from "node:os";
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import type { AutomationScope, Visibility } from "../shared/automation-types.js";
 import {
   ACTION_CONTRIBUTION_PREFIX,
@@ -45,8 +46,26 @@ import { scanAutomations } from "./scanner.js";
 
 const PLUGIN_ID = "automation";
 
-/** Key under which automation publishes its own built-in contributions. */
+/** Key of automation's own built-in contributions (collected host-attributed, never `provide`d). */
 export const CORE_ACTION_KEY = "automation.action.core";
+
+/** Host service: live `(pluginId) => manifest emits | undefined` (undefined = not loaded). */
+const PLUGIN_MANIFEST_EMITS_SERVICE = "host.pluginManifestEmits";
+
+/**
+ * Collect the live action set: built-ins (host-attributed) plus every
+ * published contribution, each checked against its provider's manifest `emits`.
+ */
+function collectLiveRegistry(ctx: ServerPluginContext): ActionRegistry {
+  const providerEmits = ctx.consume<(id: string) => readonly string[] | undefined>(PLUGIN_MANIFEST_EMITS_SERVICE);
+  return collectActionRegistry(
+    [
+      { key: CORE_ACTION_KEY, value: coreActionContributions(), provider: "host" },
+      ...ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX),
+    ],
+    { warn: (m) => ctx.logger.warn(m), ...(providerEmits ? { providerEmits } : {}) },
+  );
+}
 
 interface AutomationPluginConfig {
   defaultVisibility?: Visibility;
@@ -91,9 +110,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // collection — built-ins are peers, not privileged. Any plugin publishes
   // under `automation.action.<source>`; automation collects lazily on read,
   // so load order is irrelevant. See change: decouple-automation-action-registry.
-  ctx.provide(CORE_ACTION_KEY, coreActionContributions());
-  collectRegistry = () =>
-    collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) });
+  // The `automation.action.<source>` key is owned by plugin `<source>`, so
+  // automation cannot `provide` `automation.action.core`; it merges its
+  // built-ins straight into collection as a host-attributed entry instead.
+  // See change: harden-git-terminal-plugin-boundaries (D16).
+  collectRegistry = () => collectLiveRegistry(ctx);
   const actionRegistry = { descriptorsForCwd: (cwd: string) => collectRegistry!().descriptorsForCwd(cwd) };
   // Per-cwd descriptor cache: descriptorsForCwd() runs each action's
   // available(cwd) + enum options(cwd), which hit the filesystem (e.g. flows
@@ -110,9 +131,25 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     descriptorCache.set(cwd, { ts: now, value });
     return value;
   }
+  // Admit set for a request cwd: host known folders (sessions, pins) ∪ `automation.folderscope.*`
+  // contributions, read on EVERY request (no cache) so a disabled contributor stops being
+  // admitted at once. See change: harden-git-terminal-plugin-boundaries (S1r).
+  const hostKnownFolders = ctx.consume<() => string[]>("host.knownFolderCwds") ?? (() => []);
+  const admitWarnedKeys = new Set<string>();
+  const contributedFolders = (): string[] =>
+    collectFolderScopeBases(ctx.consumeAll(FOLDER_SCOPE_CONTRIBUTION_PREFIX), {
+      warn: (m) => ctx.logger.warn(m),
+      homeDir: os.homedir(),
+      warnedKeys: admitWarnedKeys,
+    });
+  const admitOnIndeterminate = ctx.consume<NonNullable<AdmitCwdOptions["onIndeterminate"]>>(
+    "host.cwdAdmissionOnIndeterminate",
+  );
   // Mount REST routes synchronously (must register before fastify.listen).
   // Handler bodies lazy-import heavy modules so this stays cheap.
   mountAutomationRoutes(ctx.fastify, {
+    knownCwds: () => [...hostKnownFolders(), ...contributedFolders()],
+    ...(admitOnIndeterminate ? { admitOptions: { onIndeterminate: admitOnIndeterminate } } : {}),
     runNow: ({ scope, cwd, name }) => runNowViaEngine(scope, cwd, name),
     stopRun: ({ runId }) => stopRunViaEngine(runId),
     listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
@@ -329,7 +366,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   const engine = createEngine({
     spawnSession: (opts) => ctx.spawnSession(opts),
     abortSpawnedRun: (args) => ctx.abortSpawnedRun(args),
-    resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
+    resolveRegistry: () => collectLiveRegistry(ctx),
     listScopes,
     workSources,
     config: pluginConfig,

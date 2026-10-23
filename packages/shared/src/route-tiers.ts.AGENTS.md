@@ -65,3 +65,5 @@ improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` 
 `POST /api/pi-trust/query` at `operate` (same tier as `POST /api/ws-ticket`). See change: mirror-dashboard-trust-live-remote.
 
 `POST /api/csp-violations` observe, `GET /api/csp-violations` operate, `POST /api/nav-intent` + `/verify` observe. See change: harden-client-sinks.
+
+`POST /api/csp-reports/reset` at tier `operate`. See change: harden-cors-and-csp-reporting.

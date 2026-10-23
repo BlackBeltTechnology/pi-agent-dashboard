@@ -127,6 +127,8 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   // Trusted Types / CSP violation counters + signed navigation intents
   // (change: harden-client-sinks).
   "csp-violations": "system",
+  // Operator reset of the persisted baseline CSP report counters (change: harden-cors-and-csp-reporting).
+  "csp-reports": "system",
   "nav-intent": "system",
 };
 
