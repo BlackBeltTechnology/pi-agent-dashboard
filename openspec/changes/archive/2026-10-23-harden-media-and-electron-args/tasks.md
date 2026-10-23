@@ -35,7 +35,7 @@
 
 ## 3. Integration
 
-- [x] 3.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures (scoped run of electron + changed packages green; remaining failures pre-existing/unrelated; full suite via PR CI)
+- [x] 3.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures (local: scoped run of electron + changed packages green, full local `npm test` did not complete; full suite run by PR CI — green on PR #1041)
 - [x] 3.2 `npm run quality:changed` passes (Biome ratchet)
 - [x] 3.3 `openspec validate harden-media-and-electron-args --strict` passes
 - [x] 3.4 `review-code` pass on the full diff; findings fixed or recorded

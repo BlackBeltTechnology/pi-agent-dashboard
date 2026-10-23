@@ -178,7 +178,7 @@ describe("BE29 dash-leading media paths are absolute at every ffmpeg.ts spawn si
     }
   };
 
-  const expected = (n: string) => (path.isAbsolute(n) ? n : path.join(SPAWN_CWD, n));
+  const expected = (n: string) => path.resolve(SPAWN_CWD, n);
 
   it.each(names)("extractAudio input and output for %s", async (name) => {
     await withCwd(async () => {
