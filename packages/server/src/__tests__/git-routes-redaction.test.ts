@@ -112,9 +112,9 @@ describe("SE15 — worktree init failure: hint and stderr redacted after mapping
   }
 
   it.each([
-    ["path-only", () => `error writing ${outside("x.ts")}`, "<path>"],
-    ["credential-only", () => "clone https://u:p@h/x failed", "https://h/x"],
-    ["neither", () => "plain failure output", "plain failure output"],
+    ["path-only", (): string => `error writing ${outside("x.ts")}`, "<path>"],
+    ["credential-only", (): string => "clone https://u:p@h/x failed", "https://h/x"],
+    ["neither", (): string => "plain failure output", "plain failure output"],
   ] as const)("stderr %s × hint with/without an absolute path", async (_label, mkStderr, redactedFragment) => {
     initRepo();
     const rawStderr = mkStderr();

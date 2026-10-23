@@ -53,7 +53,7 @@ describe("handleSpawnSession — gitWorktreeBase hint validation (SE8)", () => {
     const { ctx, enqueue, sent } = makeCtx();
     await handleSpawnSession({ type: "spawn_session", cwd: "/proj", gitWorktreeBase: hint } as any, ctx);
     expect(enqueue).not.toHaveBeenCalled();
-    const hintLogs = warn.mock.calls.filter((c) => String(c[0]).includes("gitWorktreeBase"));
+    const hintLogs = warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes("gitWorktreeBase"));
     expect(hintLogs).toHaveLength(1);
     expect(sent.filter((m) => (m as { type?: string }).type?.includes("error"))).toEqual([]);
   });
@@ -62,6 +62,6 @@ describe("handleSpawnSession — gitWorktreeBase hint validation (SE8)", () => {
     const { ctx, enqueue } = makeCtx();
     await handleSpawnSession({ type: "spawn_session", cwd: "/proj", gitWorktreeBase: "main" } as any, ctx);
     expect(enqueue).toHaveBeenCalledWith("/proj", "main");
-    expect(warn.mock.calls.filter((c) => String(c[0]).includes("gitWorktreeBase"))).toHaveLength(0);
+    expect(warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes("gitWorktreeBase"))).toHaveLength(0);
   });
 });

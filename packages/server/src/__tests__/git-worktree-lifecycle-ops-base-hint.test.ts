@@ -63,7 +63,7 @@ describe("stored base hint is re-validated at use (SE9)", () => {
     const result = worktreeDiffStat({ cwd: wt.path, baseHint: hint });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.data.base).toBe("main");
+    expect(result.data?.base).toBe("main");
     expect(everyArgv()).not.toContain(hint);
     expect(argvs.some((a) => a[0] === "rev-parse" && a.includes("--verify") && a.includes(hint))).toBe(false);
   });
