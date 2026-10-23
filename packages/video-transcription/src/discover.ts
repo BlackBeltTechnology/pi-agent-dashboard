@@ -48,7 +48,7 @@ function sortByMtime(files: string[]): string[] {
 export function discoverFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir);
   const files = entries
-    .map((name) => path.join(dir, name))
+    .map((name) => path.resolve(dir, name))
     .filter((full) => {
       try {
         return fs.statSync(full).isFile() && ALL_EXTENSIONS.has(path.extname(full).toLowerCase());

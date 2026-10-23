@@ -108,3 +108,21 @@ describe("srtPath suffix", () => {
     }
   });
 });
+
+describe("BE30 discoverFiles returns absolute paths for a relative dir", () => {
+  it("a dash-leading file in a relative directory is absolute", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "disc-dash-"));
+    const prev = process.cwd();
+    process.chdir(base);
+    try {
+      fs.mkdirSync(path.join(base, "-dir"));
+      fs.writeFileSync(path.join(base, "-dir", "-a.mp4"), "x");
+      const files = discoverFiles("-dir");
+      expect(files).toEqual([path.join(fs.realpathSync(base), "-dir", "-a.mp4")]);
+      expect(files.every((f) => path.isAbsolute(f))).toBe(true);
+    } finally {
+      process.chdir(prev);
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+});

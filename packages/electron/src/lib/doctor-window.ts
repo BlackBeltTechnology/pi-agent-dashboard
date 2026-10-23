@@ -13,7 +13,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DoctorReport } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
 import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import { runDoctor } from "./doctor.js";
@@ -123,6 +123,48 @@ function asStructuredError(err: unknown, label: string): { kind: string; message
   };
 }
 
+/** True for an `http:`/`https:` URL (string must start with the scheme, then parse). */
+function isWebUrl(url: string): boolean {
+  if (!/^https?:\/\//i.test(url)) return false;
+  try {
+    const protocol = new URL(url).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** The Doctor page's own URL with the hash stripped (reload / `#hash` compare equal). */
+function withoutHash(url: string): string | null {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bundled content only: deny every new window (opening http(s) targets in the system
+ * browser) and block any in-window navigation that is not the Doctor page itself.
+ * Mirrors `connecting-window.ts`. See change: harden-media-and-electron-args (D22).
+ */
+function guardDoctorWindow(win: BrowserWindow, doctorFileUrl: string): void {
+  const home = withoutHash(doctorFileUrl);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isWebUrl(url)) {
+      void shell.openExternal(url).catch((err: unknown) => {
+        console.error(`[doctor-window] openExternal failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (home === null || withoutHash(url) !== home) event.preventDefault();
+  });
+}
+
 /** Open (or focus) the Doctor window. Idempotent; closing-and-reopening yields a fresh window. */
 export function openDoctorWindow(): BrowserWindow {
   registerHandlersOnce();
@@ -141,11 +183,14 @@ export function openDoctorWindow(): BrowserWindow {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: getPreloadPath(),
     },
   });
 
-  doctorWindow.loadFile(getDoctorHtmlPath());
+  const doctorHtmlPath = getDoctorHtmlPath();
+  guardDoctorWindow(doctorWindow, pathToFileURL(doctorHtmlPath).href);
+  doctorWindow.loadFile(doctorHtmlPath);
 
   doctorWindow.on("closed", () => {
     // Risk #3 mitigation: clear the reference so a re-open creates a fresh

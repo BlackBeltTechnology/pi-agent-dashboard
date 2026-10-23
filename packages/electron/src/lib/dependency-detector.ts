@@ -88,7 +88,11 @@ export function detectSystemNode(): DetectionResult {
   const base = detect("node");
   if (base.found && base.path) {
     try {
-      const version = execSync(`"${base.path}" --version`, { encoding: "utf-8" }).trim();
+      // argv, never a shell string: the path is one program argument, so spaces, quotes
+      // and `&` in it cannot reach a shell. A `.cmd`/`.ps1` shim override fails here
+      // (not executable without a shell) and is reported not usable. See change:
+      // harden-media-and-electron-args (D22).
+      const version = execFileSync(base.path, ["--version"], { encoding: "utf-8", timeout: 5000 }).trim();
       // Usable iff the dashboard server would actually run on it: within
       // engines range AND not nodejs/node#58515-affected. See change:
       // unify-node-version-gate.
