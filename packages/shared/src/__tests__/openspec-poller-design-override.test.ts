@@ -132,6 +132,26 @@ describe("buildOpenSpecData design override", () => {
     expect(data.changes[0].isComplete).toBe(true);
   });
 
+  it("re-derives isComplete=true when the rest is done or skipped (skip_specs) after the design override", () => {
+    const statusResults = new Map<string, any>([
+      [
+        "x",
+        {
+          artifacts: [
+            { id: "proposal", status: "done" },
+            { id: "specs", status: "skipped" },
+            { id: "design", status: "ready" },
+            { id: "tasks", status: "done" },
+          ],
+          isComplete: false,
+        },
+      ],
+    ]);
+    const data = buildOpenSpecData(listResult, statusResults, () => probe(true));
+    // `skipped` satisfies planning completeness, exactly as in deriveArtifactStatus (poller/CLI parity).
+    expect(data.changes[0].isComplete).toBe(true);
+  });
+
   it("does NOT promote isComplete when any non-design artifact is not done", () => {
     const statusResults = new Map<string, any>([
       [
