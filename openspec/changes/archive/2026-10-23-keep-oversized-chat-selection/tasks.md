@@ -328,7 +328,7 @@
 
   Verify that all pass with no change to their assertions.
 - [x] 6.2 Run the full client suite with `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `grep -nE 'FAIL|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. Verify there are zero failures.
-- [ ] 6.3 Manual iOS Safari acceptance (test-plan: manual-only, #M1). On a real iPhone with a long transcript:
+- [x] 6.3 Manual iOS Safari acceptance (test-plan: manual-only, #M1). On a real iPhone with a long transcript:
   - long-press, then drag the selection handle past 40 rows;
   - Copy from the callout and paste into Notes;
   - do an edge swipe while the selection is held.
