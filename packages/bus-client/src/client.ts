@@ -84,6 +84,14 @@ export interface BusClientOptions {
   fetchImpl?: typeof fetch;
   /** Injectable WebSocket ctor (default `ws`). */
   WebSocketCtor?: new (url: string) => AnyWebSocket;
+  /**
+   * Local-proof header provider for the ticket mint (`POST /api/ws-ticket` is an operate route, which the
+   * strict `requireLocalProof` default refuses from a bare-loopback caller). Called once per request with
+   * the method and the full URL (the proof binds both, and the URL must name an address literal — dial
+   * `127.0.0.1`, not `localhost`). Injected rather than built in so this package stays free of token-file
+   * I/O; the dashboard skill scripts supply it. See change: close-container-loopback-impersonation (D5).
+   */
+  proofHeaders?: (method: string, url: string) => Record<string, string>;
 }
 
 export interface SpawnOptions {
@@ -120,12 +128,14 @@ export class BusClient {
   #consumed = new Set<string>();
   #sessions = new Map<string, DashboardSession>();
   #waiters = new Set<Waiter>();
+  #proofHeaders: ((method: string, url: string) => Record<string, string>) | undefined;
 
   constructor(opts: BusClientOptions = {}) {
     this.#host = discoverHost(opts.host);
     this.#port = discoverPort(opts.port);
     this.#clock = opts.clock ?? Date.now;
     this.#fetch = opts.fetchImpl ?? fetch;
+    this.#proofHeaders = opts.proofHeaders;
     this.#WebSocketCtor =
       opts.WebSocketCtor ?? (NodeWebSocket as unknown as new (url: string) => AnyWebSocket);
   }
@@ -143,9 +153,10 @@ export class BusClient {
   async mintTicket(scope: WsTicketScope = "browser"): Promise<Ticket> {
     let res: Response;
     try {
-      res = await this.#fetch(`${this.baseUrl}/api/ws-ticket`, {
+      const url = `${this.baseUrl}/api/ws-ticket`;
+      res = await this.#fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(this.#proofHeaders?.("POST", url) ?? {}) },
         body: JSON.stringify({ scope }),
       });
     } catch (err) {

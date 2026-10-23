@@ -31,7 +31,7 @@ The server plugin context SHALL expose `registerWsRoute(scope, opts)` where `sco
 
 ### Requirement: Core gates run before plugin delegation
 
-For a plugin-registered scope the upgrade handler SHALL apply, in order: host admission (unchanged); origin admission — when `admitOrigins` is non-empty the request Origin MUST exactly equal one entry (the dashboard origin policy is NOT consulted), when empty the dashboard origin policy applies unchanged; then the peer MUST be genuinely local: loopback remote address, request `Host` naming a loopback host (`127.0.0.1`, `[::1]`, `localhost`, any port), and no proxy-forwarding header present (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-forwarded-server`, `x-forwarded-port`, `x-real-ip`, `forwarded`, `via`). Session cookies, the local IPC token, single-use tickets, and trusted-CIDR bypass SHALL NOT be evaluated for plugin scopes — the plugin's `handleUpgrade` is responsible for its own per-connection credential.
+For a plugin-registered scope the upgrade handler SHALL apply, in order: host admission (unchanged); origin admission — when `admitOrigins` is non-empty the request Origin MUST exactly equal one entry (the dashboard origin policy is NOT consulted), when empty the dashboard origin policy applies unchanged; then the peer MUST be genuinely local: loopback remote address, request `Host` naming a loopback host (`127.0.0.1`, `[::1]`, `localhost`, any port), and no proxy-forwarding header present (`x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `x-forwarded-server`, `x-forwarded-port`, `x-real-ip`, `forwarded`, `via`). Session cookies, the local IPC token, single-use tickets, and trusted-CIDR bypass SHALL NOT be evaluated for plugin scopes — the plugin's `handleUpgrade` is responsible for its own per-connection credential. When `requireLocalProof` is in effect (the default), the genuinely-local peer check SHALL additionally require local proof, unless the registration declares `peerCredential: "plugin"`; such a registration asserts that its `handleUpgrade` verifies a single-use, short-lived per-connection credential, and the core gate then skips only the proof requirement (host, origin and genuinely-local checks still apply).
 
 #### Scenario: Pinned origin admitted
 
@@ -67,6 +67,14 @@ For a plugin-registered scope the upgrade handler SHALL apply, in order: host ad
 
 - **WHEN** an upgrade to a plugin scope presents a valid ticket minted for that scope name
 - **THEN** the ticket SHALL NOT be accepted and `POST /api/ws-ticket` SHALL refuse to mint tickets for plugin scopes
+
+#### Scenario: Plugin-credential scope skips only the proof requirement
+- **WHEN** `requireLocalProof` is unset and a bare loopback upgrade with no proof reaches a scope registered with `peerCredential: "plugin"`
+- **THEN** the core gate SHALL pass it to `handleUpgrade` after host, origin and genuinely-local checks, and `handleUpgrade` SHALL decide on its own credential
+
+#### Scenario: Ordinary plugin scope needs proof under the default
+- **WHEN** `requireLocalProof` is unset and a bare loopback upgrade with no proof reaches a plugin scope registered without `peerCredential`
+- **THEN** the core gate SHALL refuse it before delegation
 
 ### Requirement: Plugin disable tears down its routes
 

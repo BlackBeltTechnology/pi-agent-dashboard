@@ -31,10 +31,14 @@ function harnessContainer(): string {
   return out;
 }
 
-/** Mint a single-use bridge WS ticket from INSIDE the container (loopback). */
+/**
+ * Mint a single-use bridge WS ticket from INSIDE the container (loopback). `/api/ws-ticket` is an
+ * operate route, so a bare in-container `curl` is refused under the strict default: use the CLI, which
+ * mints local proof from the container's token. See change: close-container-loopback-impersonation (D5).
+ */
 function mintBridgeTicket(container: string): string {
   const raw = execSync(
-    `docker exec ${container} curl -s -X POST http://127.0.0.1:${DASHBOARD_PORT}/api/ws-ticket -H 'content-type: application/json' -d '{"scope":"bridge"}'`,
+    `docker exec ${container} pi-dashboard api POST /api/ws-ticket --port ${DASHBOARD_PORT} --data '{"scope":"bridge"}'`,
   ).toString();
   const parsed = JSON.parse(raw) as { success: boolean; data?: { ticket: string } };
   expect(parsed.success, raw).toBe(true);

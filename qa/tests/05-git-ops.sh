@@ -62,8 +62,8 @@ AUTH_PID=$!
 sleep 1
 git remote add origin "http://127.0.0.1:${AUTH_PORT}/x.git"
 START=$(date +%s)
-PUSH_RESP=$(curl -s -m 25 -X POST http://localhost:8000/api/git/worktree/push \
-  -H 'Content-Type: application/json' -d "{\"cwd\":\"$TEST_DIR\"}" 2>/dev/null || echo "")
+# `pi-dashboard api` mints local proof; a non-2xx answer (auth_failed) prints its body on stderr, so merge it.
+PUSH_RESP=$(pi-dashboard api POST /api/git/worktree/push --data "{\"cwd\":\"$TEST_DIR\"}" 2>&1 || echo "")
 ELAPSED=$(( $(date +%s) - START ))
 kill "$AUTH_PID" 2>/dev/null || true
 if [ "$ELAPSED" -ge 14 ]; then

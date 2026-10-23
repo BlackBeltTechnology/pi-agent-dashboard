@@ -34,6 +34,12 @@ const EXTENSION_PROTOCOL_VERSION = "2";
 export interface ConnectUrlOptions {
   port: number;
   guid: string;
+  /**
+   * Single-use relay ticket appended to the extension's `mcpRelayUrl` (`?ticket=`). The extension sends
+   * neither headers nor cookies, so this URL IS its credential on the relay scope. See change:
+   * close-container-loopback-impersonation (D10).
+   */
+  ticket?: string;
   profileToken?: string;
   /** Append `&token=` so Chrome skips its Allow dialog. */
   zeroDialog?: boolean;
@@ -48,7 +54,9 @@ export interface ConnectUrlOptions {
 export function buildConnectUrl(opts: ConnectUrlOptions): string {
   const id = opts.extensionId ?? PLAYWRIGHT_EXTENSION_ID;
   const url = new URL(`chrome-extension://${id}/connect.html`);
-  url.searchParams.set("mcpRelayUrl", `ws://127.0.0.1:${opts.port}/ws/browser-ext/${opts.guid}`);
+  const relay = new URL(`ws://127.0.0.1:${opts.port}/ws/browser-ext/${opts.guid}`);
+  if (opts.ticket) relay.searchParams.set("ticket", opts.ticket);
+  url.searchParams.set("mcpRelayUrl", relay.toString());
   url.searchParams.set("client", JSON.stringify({ name: "pi-dashboard" }));
   url.searchParams.set("protocolVersion", EXTENSION_PROTOCOL_VERSION);
   if (opts.zeroDialog && typeof opts.profileToken === "string" && opts.profileToken.length > 0) {

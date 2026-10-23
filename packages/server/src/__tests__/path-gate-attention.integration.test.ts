@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const baseConfig: ServerConfig = {
@@ -49,7 +50,7 @@ describe("awaitingFileAccess (integration)", () => {
       component: { type: "generic-dialog", props: {} }, placement: "inline",
     });
   async function session(id: string): Promise<Record<string, any> | undefined> {
-    const res = await fetch(`http://127.0.0.1:${browserPort}/api/sessions`);
+    const res = await proofFetch(`http://127.0.0.1:${browserPort}/api/sessions`);
     return ((await res.json()) as { data: any[] }).data.find((s) => s.id === id);
   }
 
@@ -102,7 +103,7 @@ describe("awaitingFileAccess (integration)", () => {
     await registerLive(bridge, "s1");
     send(bridge, { type: "event_forward", sessionId: "s1", event: { eventType: "tool_execution_start", timestamp: Date.now(), data: { type: "tool_execution_start", toolName: "read" } } });
     await wait(60);
-    const browser = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     sockets.push(browser);
     const frames: any[] = [];
     browser.on("message", (raw) => { try { frames.push(JSON.parse(String(raw))); } catch { /* ignore */ } });

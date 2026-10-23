@@ -16,9 +16,8 @@ if [ "$HTTP_CODE" != "200" ]; then
 fi
 
 # Create a terminal session via the API
-RESPONSE=$(curl -s -X POST http://localhost:8000/api/terminals \
-  -H "Content-Type: application/json" \
-  -d '{"cwd": "/tmp"}')
+# `pi-dashboard api` mints local proof; a bare curl is refused by the strict `requireLocalProof` default.
+RESPONSE=$(pi-dashboard api POST /api/terminals --data '{"cwd": "/tmp"}' 2>&1 || true)
 
 # Check we got a terminal ID back
 TERM_ID=$(echo "$RESPONSE" | node -e "

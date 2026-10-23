@@ -26,6 +26,7 @@ import type {
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { RelaySocket } from "../relay/extension-socket.js";
+import { RELAY_TICKET_TTL_MS, RelayTicketStore } from "../relay/relay-ticket.js";
 import {
   BROWSER_CDP_PATH,
   BROWSER_CDP_SCOPE,
@@ -45,7 +46,12 @@ afterEach(() => {
 });
 
 class FakeAttacher implements RelayAttacher {
+  /** The real ticket store, so the single-use / bound-to-(guid, role) behaviour under test is the real one. */
+  readonly tickets = new RelayTicketStore();
   readonly live = new Map<string, { claimed: boolean; operator?: boolean }>();
+  consumeTicket(guid: string, role: "ext" | "cdp", ticket: string | null | undefined): boolean {
+    return this.tickets.consume(guid, role, ticket);
+  }
   readonly attachedExt: string[] = [];
   readonly attachedCdp: string[] = [];
 
@@ -117,6 +123,12 @@ async function harness(): Promise<Harness> {
   return { attacher, tracked, port };
 }
 
+/** A relay URL carrying a fresh single-use ticket for (guid, role), as the manager issues it. */
+function relayUrl(h: Harness, role: "ext" | "cdp", guid: string): string {
+  const prefix = role === "ext" ? BROWSER_EXT_PATH : BROWSER_CDP_PATH;
+  return `ws://127.0.0.1:${h.port}${prefix}${guid}?ticket=${h.attacher.tickets.mint(guid, role)}`;
+}
+
 type DialResult = { kind: "open" } | { kind: "status"; status: number } | { kind: "error" };
 
 function dial(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
@@ -163,7 +175,7 @@ describe("registerBrowserWsRoutes", () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: false });
 
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${GUID}`, {
+    const r = await dial(relayUrl(h, "ext", GUID), {
       origin: CHROME_EXTENSION_ORIGIN,
     });
     expect(isOpen(r), JSON.stringify(r)).toBe(true);
@@ -174,7 +186,7 @@ describe("registerBrowserWsRoutes", () => {
 
   it("ext: an unknown guid 404s and never attaches", async () => {
     const h = await harness();
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${GUID}`, {
+    const r = await dial(relayUrl(h, "ext", GUID), {
       origin: CHROME_EXTENSION_ORIGIN,
     });
     expect(isStatus(r, 404), JSON.stringify(r)).toBe(true);
@@ -188,10 +200,15 @@ describe("registerBrowserWsRoutes", () => {
     ["nested path", `${GUID}/extra`],
   ])("ext: %s 404s", async (_label, suffix) => {
     const h = await harness();
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${suffix}`, {
+    // The segment is not a guid the manager could ever have minted a ticket for (the store is keyed by
+    // the PATH segment), so the ticket is minted for exactly what is dialled: the refusal is the guid rules'.
+    const seg = suffix.split("/")[0] ?? "";
+    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${suffix}?ticket=${h.attacher.tickets.mint(seg, "ext")}`, {
       origin: CHROME_EXTENSION_ORIGIN,
     });
-    expect(isStatus(r, 404), JSON.stringify(r)).toBe(true);
+    // No extractable guid (empty / nested) is refused at the ticket check (403); a well-formed segment that
+    // is not a live guid is the old 404.
+    expect(isStatus(r, suffix === "" || suffix.includes("/") ? 403 : 404), JSON.stringify(r)).toBe(true);
     expect(h.attacher.attachedExt).toEqual([]);
   });
 
@@ -199,7 +216,7 @@ describe("registerBrowserWsRoutes", () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: true });
 
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-cdp/${GUID}`, {
+    const r = await dial(relayUrl(h, "cdp", GUID), {
       origin: "http://localhost:8000",
     });
     expect(isStatus(r, 403), JSON.stringify(r)).toBe(true);
@@ -210,7 +227,7 @@ describe("registerBrowserWsRoutes", () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: true });
 
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-cdp/${GUID}`);
+    const r = await dial(relayUrl(h, "cdp", GUID));
     expect(isOpen(r), JSON.stringify(r)).toBe(true);
     await new Promise((res) => setImmediate(res));
     expect(h.attacher.attachedCdp).toEqual([GUID]);
@@ -220,7 +237,7 @@ describe("registerBrowserWsRoutes", () => {
   it("cdp: an unknown guid 404s", async () => {
     const h = await harness();
     h.attacher.live.set(OTHER_GUID, { claimed: true });
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-cdp/${GUID}`);
+    const r = await dial(relayUrl(h, "cdp", GUID));
     expect(isStatus(r, 404), JSON.stringify(r)).toBe(true);
     expect(h.attacher.attachedCdp).toEqual([]);
   });
@@ -229,7 +246,7 @@ describe("registerBrowserWsRoutes", () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: false });
 
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-cdp/${GUID}`);
+    const r = await dial(relayUrl(h, "cdp", GUID));
     expect(isOpen(r), JSON.stringify(r)).toBe(true);
     await new Promise((res) => setImmediate(res));
     expect(h.attacher.attachedCdp).toEqual([GUID]);
@@ -240,7 +257,7 @@ describe("registerBrowserWsRoutes", () => {
   it("ext: an operator-targeted guid 404s (looks like an unknown guid) and never attaches (E17)", async () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: false, operator: true });
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${GUID}`, {
+    const r = await dial(relayUrl(h, "ext", GUID), {
       origin: CHROME_EXTENSION_ORIGIN,
     });
     expect(isStatus(r, 404), JSON.stringify(r)).toBe(true);
@@ -250,7 +267,7 @@ describe("registerBrowserWsRoutes", () => {
   it("cdp: an operator-targeted guid still admits the agent's CDP client", async () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: false, operator: true });
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-cdp/${GUID}`);
+    const r = await dial(relayUrl(h, "cdp", GUID));
     expect(isOpen(r), JSON.stringify(r)).toBe(true);
     await new Promise((res) => setImmediate(res));
     expect(h.attacher.attachedCdp).toEqual([GUID]);
@@ -259,9 +276,112 @@ describe("registerBrowserWsRoutes", () => {
   it("ext: a dashboard guid (operator:false) still upgrades", async () => {
     const h = await harness();
     h.attacher.live.set(GUID, { claimed: false, operator: false });
-    const r = await dial(`ws://127.0.0.1:${h.port}/ws/browser-ext/${GUID}`, {
+    const r = await dial(relayUrl(h, "ext", GUID), {
       origin: CHROME_EXTENSION_ORIGIN,
     });
     expect(isOpen(r), JSON.stringify(r)).toBe(true);
+  });
+});
+
+
+// ─── change: close-container-loopback-impersonation (D10; test-plan #E19, #X6) ──────────────────────────────────
+describe("relay tickets (E19)", () => {
+  const dialRaw = (h: Harness, role: "ext" | "cdp", guid: string, ticket: string | null, headers: Record<string, string> = {}) => {
+    const prefix = role === "ext" ? BROWSER_EXT_PATH : BROWSER_CDP_PATH;
+    return dial(`ws://127.0.0.1:${h.port}${prefix}${guid}${ticket === null ? "" : `?ticket=${ticket}`}`, headers);
+  };
+  const extHeaders = { origin: CHROME_EXTENSION_ORIGIN };
+
+  it("a fresh cdp ticket is admitted once; a replay of the same URL is refused; a CDP attach happens only for the admitted dial", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: true });
+    const t = h.attacher.tickets.mint(GUID, "cdp");
+
+    expect(isOpen(await dialRaw(h, "cdp", GUID, t))).toBe(true);
+    await new Promise((res) => setImmediate(res));
+    expect(h.attacher.attachedCdp).toEqual([GUID]);
+
+    expect(isStatus(await dialRaw(h, "cdp", GUID, t), 403)).toBe(true);
+    expect(h.attacher.attachedCdp).toEqual([GUID]); // no second attach
+  });
+
+  it("a ticket unused past its 60 s lifetime is refused", async () => {
+    let now = 1_000_000;
+    const h = await harness();
+    // Swap in a clocked store for this attacher.
+    (h.attacher as { tickets: RelayTicketStore }).tickets = new RelayTicketStore({ now: () => now });
+    h.attacher.live.set(GUID, { claimed: true });
+    const t = h.attacher.tickets.mint(GUID, "cdp");
+    now += RELAY_TICKET_TTL_MS + 1;
+    expect(isStatus(await dialRaw(h, "cdp", GUID, t), 403)).toBe(true);
+    expect(h.attacher.attachedCdp).toEqual([]);
+  });
+
+  it("a cdp ticket never opens the extension scope (wrong role), and an ext ticket never opens the cdp scope", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: false });
+    const cdpTicket = h.attacher.tickets.mint(GUID, "cdp");
+    expect(isStatus(await dialRaw(h, "ext", GUID, cdpTicket, extHeaders), 403)).toBe(true);
+    const extTicket = h.attacher.tickets.mint(GUID, "ext");
+    expect(isStatus(await dialRaw(h, "cdp", GUID, extTicket), 403)).toBe(true);
+    // …and neither refusal burned the legitimate other ticket.
+    expect(isOpen(await dialRaw(h, "ext", GUID, extTicket, extHeaders))).toBe(true);
+    expect(isOpen(await dialRaw(h, "cdp", GUID, cdpTicket))).toBe(true);
+    await new Promise((res) => setImmediate(res));
+    expect(h.attacher.attachedExt).toEqual([GUID]);
+    expect(h.attacher.attachedCdp).toEqual([GUID]);
+  });
+
+  it("a ticket for another guid, a missing ticket and a garbage ticket are all refused with attach nowhere", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: true });
+    h.attacher.live.set(OTHER_GUID, { claimed: true });
+    const other = h.attacher.tickets.mint(OTHER_GUID, "cdp");
+    expect(isStatus(await dialRaw(h, "cdp", GUID, other), 403)).toBe(true);
+    expect(isStatus(await dialRaw(h, "cdp", GUID, null), 403)).toBe(true);
+    expect(isStatus(await dialRaw(h, "cdp", GUID, "not-a-ticket"), 403)).toBe(true);
+    expect(h.attacher.attachedCdp).toEqual([]);
+  });
+
+  it("an unknown guid and a bad ticket are the SAME refusal (neither is an oracle)", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: true });
+    const unknown = await dialRaw(h, "cdp", OTHER_GUID, "whatever");
+    const badTicket = await dialRaw(h, "cdp", GUID, "whatever");
+    expect(unknown).toEqual(badTicket);
+    expect(isStatus(unknown, 403)).toBe(true);
+  });
+
+  it("an Origin-bearing request cannot burn the ticket: the legitimate client still gets in afterwards", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: true });
+    const t = h.attacher.tickets.mint(GUID, "cdp");
+    expect(isStatus(await dialRaw(h, "cdp", GUID, t, { origin: "http://attacker.example" }), 403)).toBe(true);
+    expect(isOpen(await dialRaw(h, "cdp", GUID, t))).toBe(true);
+  });
+
+  it("both scopes register peerCredential:'plugin' (the core skips only the strict proof requirement)", () => {
+    const routes = new Map<string, WsRouteRegistration>();
+    const ctx = {
+      registerWsRoute: (scope: string, opts: WsRouteRegistration) => routes.set(scope, opts),
+      logger: { info() {}, warn() {}, error() {} },
+    } as unknown as ServerPluginContext;
+    registerBrowserWsRoutes(ctx, new FakeAttacher());
+    expect(routes.get(BROWSER_EXT_SCOPE)?.peerCredential).toBe("plugin");
+    expect(routes.get(BROWSER_CDP_SCOPE)?.peerCredential).toBe("plugin");
+  });
+});
+
+describe("a dropped CDP client cannot re-dial the same cdpUrl (X6)", () => {
+  it("the ticket is spent after the first attach, so the same URL is refused; a fresh one attaches", async () => {
+    const h = await harness();
+    h.attacher.live.set(GUID, { claimed: true });
+    const url = relayUrl(h, "cdp", GUID);
+    expect(isOpen(await dial(url))).toBe(true); // attaches, then the client disconnects
+    await new Promise((res) => setImmediate(res));
+    expect(isStatus(await dial(url), 403)).toBe(true); // re-dial of the same URL
+    expect(isOpen(await dial(relayUrl(h, "cdp", GUID)))).toBe(true); // a fresh `connect` URL attaches
+    await new Promise((res) => setImmediate(res));
+    expect(h.attacher.attachedCdp).toEqual([GUID, GUID]);
   });
 });

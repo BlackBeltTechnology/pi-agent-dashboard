@@ -139,8 +139,9 @@ describe("autoStartServer", () => {
     const result = await autoStartServer(baseConfig, deps);
 
     expect(deps.launchServer).toHaveBeenCalled();
+    // The strict default needs a plain browser tab to be authorized once: the notice names the remedy.
     expect(deps.notify).toHaveBeenCalledWith(
-      "🌐 Dashboard started at http://localhost:8000",
+      expect.stringMatching(/^🌐 Dashboard started at http:\/\/localhost:8000 — .*`pi-dashboard open`/),
       "info",
     );
     expect(result.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });

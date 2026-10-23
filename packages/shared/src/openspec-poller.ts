@@ -127,9 +127,10 @@ export function buildOpenSpecData(
       typeof statusResult?.isComplete === "boolean" ? statusResult.isComplete : undefined;
 
     // Re-derive isComplete from post-override artifacts. Promote false→true
-    // only when every artifact is done; never demote CLI true.
+    // only when every artifact is done or skipped (a declared absence, as in
+    // deriveArtifactStatus); never demote CLI true.
     let isComplete = cliIsComplete;
-    if (artifacts.length > 0 && artifacts.every((a) => a.status === "done")) {
+    if (artifacts.length > 0 && artifacts.every((a) => a.status === "done" || a.status === "skipped")) {
       isComplete = true;
     }
 

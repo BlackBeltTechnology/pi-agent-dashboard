@@ -16,6 +16,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -106,7 +107,7 @@ describe("prompt-derived currentTool (integration)", () => {
 
   /** Current server-side view of a session, read over the same REST API the browser uses. */
   async function getSession(sessionId: string): Promise<Record<string, any> | undefined> {
-    const res = await fetch(`http://127.0.0.1:${browserPort}/api/sessions`);
+    const res = await proofFetch(`http://127.0.0.1:${browserPort}/api/sessions`);
     const body = (await res.json()) as { success: boolean; data: any[] };
     return body.data.find((s) => s.id === sessionId);
   }
@@ -120,7 +121,7 @@ describe("prompt-derived currentTool (integration)", () => {
   /** Browser socket collecting every message, subscribed to `sessionId`. */
   async function connectBrowser(sessionId?: string): Promise<{ ws: WebSocket; messages: any[] }> {
     const messages: any[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     ws.on("message", (raw) => {
       try {
         messages.push(JSON.parse(String(raw)));

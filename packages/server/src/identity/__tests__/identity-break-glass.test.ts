@@ -16,6 +16,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { type FakeOidcIssuer, startFakeOidcIssuer } from "@blackbelt-technology/pi-dashboard-shared/test-support/fake-oidc-issuer.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { proofFetch } from "../../test-support/local-credential-stamp.js";
 import { type BootHarness, createBootHarness, loginPlugin } from "./boot-harness.js";
 
 let h: BootHarness;
@@ -40,8 +41,12 @@ afterEach(async () => {
 
 const base = () => `http://127.0.0.1:${h.handle().httpPort}`;
 const localToken = () => fs.readFileSync(path.join(h.home, ".pi", "dashboard", "local", "token"), "utf8").trim();
+// Bare loopback, no proof (the signed-out floor answers 401 for these routes).
 const post = (p: string, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`${base()}${p}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+// A real local caller (proof-carrying) — what `pi-dashboard login --local` and the opened tab are.
+const postLocal = (p: string, body: unknown, headers: Record<string, string> = {}) =>
+  proofFetch(`${base()}${p}`, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
 
 async function issueCode(): Promise<string> {
   const res = await post("/api/identity/local-code", {}, { "x-pi-local-token": localToken() });
@@ -92,14 +97,14 @@ describe("D23 break-glass (IdP down)", () => {
     idpClosed = true;
 
     const code = await issueCode();
-    const ex = await post("/api/identity/local-exchange", { code }); // pre-auth: no bearer
+    const ex = await postLocal("/api/identity/local-exchange", { code }); // pre-auth: no bearer
     expect(ex.status).toBe(200);
     const { access_token, expires_in } = (await ex.json()) as { access_token: string; expires_in: number };
     expect(access_token.startsWith("pi_op_")).toBe(true);
     expect(expires_in).toBeGreaterThan(0);
 
     // single-use
-    expect((await post("/api/identity/local-exchange", { code })).status).toBe(401);
+    expect((await postLocal("/api/identity/local-exchange", { code })).status).toBe(401);
 
     const auth = { Authorization: `Bearer ${access_token}` };
     expect((await fetch(`${base()}/api/sessions`, { headers: auth })).status).toBe(200);
@@ -109,7 +114,7 @@ describe("D23 break-glass (IdP down)", () => {
     });
     expect(await (await fetch(`${base()}/api/identity/me`, { headers: auth })).json()).toMatchObject({ localOperator: true });
 
-    const t = await post("/api/ws-ticket", { scope: "browser" }, auth);
+    const t = await postLocal("/api/ws-ticket", { scope: "browser" }, auth);
     expect(t.status).toBe(200);
     const ticket = ((await t.json()) as { data: { ticket: string } }).data.ticket;
     const ws = await h.dial(ticket);
@@ -120,8 +125,8 @@ describe("D23 break-glass (IdP down)", () => {
   }, 40000);
 
   it("a forged or unknown credential gets nothing", async () => {
-    expect((await post("/api/identity/local-exchange", { code: "forged" })).status).toBe(401);
-    expect((await post("/api/identity/local-exchange", {})).status).toBe(401);
+    expect((await postLocal("/api/identity/local-exchange", { code: "forged" })).status).toBe(401);
+    expect((await postLocal("/api/identity/local-exchange", {})).status).toBe(401);
     expect((await fetch(`${base()}/api/sessions`, { headers: { Authorization: "Bearer pi_op_forged" } })).status).toBe(401);
   });
 });

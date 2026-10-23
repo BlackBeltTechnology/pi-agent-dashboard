@@ -3,7 +3,7 @@
  * other gate logs (bridge-scope 400, auth 401, no-auth 403).
  *
  * Line: `[ws-upgrade] rejected status=<n> scope=<s> peer=<addr>
- * fwd=<comma-names|none> ticket=<present|absent>[ suppressed=<n>]`.
+ * fwd=<comma-names|none> ticket=<present|absent>[ reason=<token>][ suppressed=<n>]`.
  * Header VALUES, cookies and ticket strings are never read into the line.
  *
  * At most one line per `status|scope|peer` key per window; the first line
@@ -21,6 +21,8 @@ export interface WsUpgradeRejection {
   remoteAddress: string | undefined;
   headers: Record<string, unknown> | undefined;
   ticketPresent: boolean;
+  /** Machine reason when the rejection has one (e.g. `local_proof_required`); a fixed token, never caller input. */
+  reason?: string;
 }
 
 export interface WsUpgradeRejectLoggerOptions {
@@ -73,6 +75,7 @@ export function createWsUpgradeRejectLogger(opts: WsUpgradeRejectLoggerOptions =
       emit(
         `[ws-upgrade] rejected status=${r.status} scope=${r.scope} peer=${peer}` +
           ` fwd=${fwd.length > 0 ? fwd.join(",") : "none"} ticket=${r.ticketPresent ? "present" : "absent"}` +
+          (r.reason ? ` reason=${r.reason}` : "") +
           (suppressed > 0 ? ` suppressed=${suppressed}` : ""),
       );
     },

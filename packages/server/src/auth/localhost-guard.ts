@@ -100,6 +100,21 @@ export function isLocallyTrusted(
 }
 
 /**
+ * Is this a genuinely-local caller that the strict default refuses ONLY for want
+ * of proof — i.e. the remedy is `pi-dashboard open`? Built from the one shared
+ * predicate: the call without ctx means "genuinely local", the call with ctx
+ * means "trusted now". A signed-in or paired caller is not asked for proof.
+ * See change: close-container-loopback-impersonation (D3).
+ */
+export function needsLocalProof(
+  request: { ip: string; headers: unknown; isAuthenticated?: boolean },
+  ctx: LocalTrustContext | undefined,
+): boolean {
+  const input = { ip: request.ip, headers: request.headers as HeaderBag };
+  return isLocallyTrusted(input) && !isLocallyTrusted(input, ctx) && request.isAuthenticated !== true;
+}
+
+/**
  * May this request see the access-prompting posture (host-gate mode, whether
  * prompting is on, why a denial was not asked about)? Authenticated OR
  * genuinely local — stricter than the network guard, because a trusted-CIDR or
@@ -146,13 +161,20 @@ export function isPluginScopePeerLocal(
   hostHeader: string | undefined,
   headers: HeaderBag,
   ctx?: LocalTrustContext,
+  /**
+   * `peerCredential: "plugin"` scope: the plugin authenticates the peer itself (a ticket in the URL), so
+   * ONLY the strict local-proof requirement is skipped here; loopback peer, loopback Host and
+   * no-forwarding-header still hold. See change: close-container-loopback-impersonation (D10).
+   */
+  opts: { pluginAuthenticatesPeer?: boolean } = {},
 ): boolean {
   return (
     isLoopback(ip) &&
     isLoopbackHostHeader(hostHeader) &&
     !hasProxyForwardingHeaders(headers, { extended: true }) &&
-    // Strict: a marker-less relay is indistinguishable here; require proof.
-    (!ctx || !ctx.strict() || hasLocalProof(headers, ctx))
+    // Strict: a marker-less relay is indistinguishable here; require proof (unless the plugin
+    // authenticates the peer with its own credential).
+    (opts.pluginAuthenticatesPeer === true || !ctx || !ctx.strict() || hasLocalProof(headers, ctx))
   );
 }
 
@@ -325,6 +347,19 @@ function readRequestOrigin(headers: FastifyRequest["headers"]): string | undefin
  */
 let networkDenialObserver: ((request: FastifyRequest) => void) | null = null;
 
+/**
+ * Observer told about every REST refusal whose only fault is missing local proof
+ * (`local_proof_required`). The server installs its rate-limited logger here and
+ * clears it on stop. Best-effort: a throwing observer never alters the refusal.
+ * See change: close-container-loopback-impersonation (D6).
+ */
+let localProofRefusalObserver: ((request: FastifyRequest) => void) | null = null;
+
+/** Install (or clear, with `null`) the local-proof refusal observer. */
+export function setLocalProofRefusalObserver(observer: ((request: FastifyRequest) => void) | null): void {
+  localProofRefusalObserver = observer;
+}
+
 /** Install (or clear, with `null`) the network-denial observer. */
 export function setNetworkDenialObserver(observer: ((request: FastifyRequest) => void) | null): void {
   networkDenialObserver = observer;
@@ -344,17 +379,20 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply, localTr
   // No grant prompt for a relayed-loopback peer: "trust 127.0.0.1?" would name
   // the tunnel agent, and the resulting entry is inert under isTrustedSource
   // (grant->deny loop). See change: fix-trusted-network-tunnel-bypass (D4).
-  if (!isRelayedLoopback(request.ip, request.headers as Record<string, unknown>)) {
+  // Nor for a bare-loopback caller that merely lacks proof: the remedy is `pi-dashboard open`,
+  // and an unproven local caller must not be able to raise an operator prompt.
+  // See change: close-container-loopback-impersonation (D3, D8).
+  const proofNeeded = needsLocalProof(request as unknown as { ip: string; headers: unknown; isAuthenticated?: boolean }, localTrust);
+  if (!proofNeeded && !isRelayedLoopback(request.ip, request.headers as Record<string, unknown>)) {
     try {
       networkDenialObserver?.(request);
     } catch { /* observing is best-effort, never blocks the denial */ }
   }
   // Strict mode: a bare-loopback caller lacking proof gets an actionable denial.
-  if (
-    localTrust?.strict() &&
-    isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>) &&
-    !hasLocalProof(request.headers as Record<string, unknown>, localTrust)
-  ) {
+  if (proofNeeded) {
+    try {
+      localProofRefusalObserver?.(request);
+    } catch { /* logging is best-effort, never blocks the refusal */ }
     reply.code(403).send({
       success: false,
       error: "network_not_allowed",

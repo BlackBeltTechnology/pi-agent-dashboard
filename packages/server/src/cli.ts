@@ -28,6 +28,11 @@ import { fileURLToPath } from "node:url";
  *   pi-dashboard pair deny <pendingId>
  *                                   Approve/deny a pending device pairing from this host. The code is read from a
  *                                   prompt or stdin; --code is visible in `ps`.
+ *   pi-dashboard api <METHOD> <path> [--data <json>] [--port n]
+ *                                   Call the running dashboard's REST API with a freshly minted local proof
+ *                                   (what curl cannot do under the strict `requireLocalProof` default).
+ *                                   Exit 0 on 2xx, 1 on any other status (body on stderr), 2 on usage error
+ *                                   or server not running.
  *
  * Flags:
  *   --port <n>       HTTP port (default: 8000)
@@ -42,6 +47,7 @@ import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { isLauncherOrigin } from "@blackbelt-technology/pi-dashboard-shared/launcher-origin.js";
+import { isSafeLocalPath } from "@blackbelt-technology/pi-dashboard-shared/safe-local-path.js";
 import { httpProofHeaders, localDialHost } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import {
   findPortHolders as platformFindPortHolders,
@@ -100,6 +106,42 @@ import { servicesPaths } from "./services/paths.js";
 
 const SUBCOMMANDS = ["start", "stop", "restart", "status", "runtime", "open"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
+/** Words dispatched to their own command (before `parseArgs`), not to a daemon subcommand. */
+const COMMAND_WORDS = ["token", "service", "pair", "login", "api"] as const;
+type CommandWord = (typeof COMMAND_WORDS)[number];
+/** Flags whose NEXT token is their value, never the subcommand word. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set(["--port", "--host", "--pi-port", "--url", "--data", "--code", "--name", "--tier"]);
+
+/** The one-line usage printed for an unknown subcommand word (exit 2). */
+export const CLI_USAGE =
+  "usage: pi-dashboard [start|stop|restart|status|runtime|open|pair|token|service|login|api] [flags]  (no word: run in the foreground)";
+
+export type ArgvClass =
+  | { kind: "none" }
+  | { kind: "subcommand"; word: Subcommand; index: number }
+  | { kind: "command"; word: CommandWord; index: number }
+  | { kind: "unknown"; word: string; index: number };
+
+/**
+ * The subcommand word: the FIRST positional that is not a flag value. `--port 9000 api GET /x`
+ * resolves to `api` (9000 is `--port`'s value). One scan serves `api`, `token`, `service`,
+ * `pair`, `login` and the daemon subcommands, so none of them can be missed behind a flag.
+ * A flag-only invocation has no word and runs in the foreground.
+ */
+export function classifyArgv(args: readonly string[]): ArgvClass {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+    if (a === "--") break;
+    if (a.startsWith("-")) {
+      if (VALUE_FLAGS.has(a)) i++; // skip its value
+      continue;
+    }
+    if ((SUBCOMMANDS as readonly string[]).includes(a)) return { kind: "subcommand", word: a as Subcommand, index: i };
+    if ((COMMAND_WORDS as readonly string[]).includes(a)) return { kind: "command", word: a as CommandWord, index: i };
+    return { kind: "unknown", word: a, index: i };
+  }
+  return { kind: "none" };
+}
 
 export interface ParsedArgs {
   subcommand: Subcommand | null;
@@ -1043,13 +1085,128 @@ export async function cmdLogin(
       err(`[login] failed to issue a code: ${json.error ?? "unknown error"}`);
       return 1;
     }
-    out(`${base}/?pi_local=${encodeURIComponent(json.data.code)}`);
+    // The browser that opens the link is a plain tab: under the strict `requireLocalProof` default it
+    // cannot even redeem the code (`/api/identity/local-exchange` needs proof), so route it through the
+    // local-proof bootstrap first — same as `pi-dashboard open` — and land on the `pi_local` link.
+    // Falls back to the plain link when no proof code can be minted.
+    const plain = `/?pi_local=${encodeURIComponent(json.data.code)}`;
+    let link = `${base}${plain}`;
+    try {
+      const proofUrl = `${localBase(opts)}/api/local-proof`;
+      const pr = await fetchFn(proofUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...localCredentialHeaders("POST", proofUrl, localToken) },
+        body: "{}",
+        signal: AbortSignal.timeout(deps.timeoutMs ?? 5000),
+      });
+      if (pr.ok) {
+        const pj = (await pr.json()) as { success?: boolean; data?: { code?: string } };
+        if (pj.success && typeof pj.data?.code === "string") {
+          link = `${base}/auth/local-proof?code=${encodeURIComponent(pj.data.code)}&next=${encodeURIComponent(plain)}`;
+        }
+      }
+    } catch {
+      /* keep the plain link */
+    }
+    out(link);
     out(`Open this link on this machine within ${json.data.expiresInSeconds} s (single-use). You sign in as the local operator (break-glass).`);
     return 0;
   } catch (e) {
     err(`[login] dashboard not running at ${base} (${(e as Error).message ?? e})`);
     return 1;
   }
+}
+
+/** HTTP methods `pi-dashboard api` accepts. */
+const API_METHODS: ReadonlySet<string> = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+
+export interface CmdApiDeps {
+  fetchImpl?: typeof fetch;
+  out?: (text: string) => void;
+  err?: (line: string) => void;
+  /** Local token; defaults to the on-disk one (created if absent — the server owns it). */
+  localToken?: string | null;
+  timeoutMs?: number;
+}
+
+/**
+ * `pi-dashboard api <METHOD> <path> [--data <json>] [--port n]` — call the running dashboard's REST
+ * API from a shell with a freshly minted local proof, which a bare `curl` cannot do under the
+ * strict `requireLocalProof` default. It dials the address literal `restart` dials, sends ONE proof
+ * for this method + target, and never follows a redirect (a `Location` to another origin must not
+ * receive the proof's request). The path is checked by the same predicate the OAuth return-URL
+ * sanitiser uses, plus `#`; a rejected path sends nothing.
+ *
+ * Exit: 0 on 2xx (body on stdout) · 1 on any other status (body on stderr) · 2 on a usage error
+ * or when the server is not running.
+ * See change: close-container-loopback-impersonation (D4).
+ */
+export async function cmdApi(
+  argv: string[],
+  opts: { port: number; host?: string },
+  deps: CmdApiDeps = {},
+): Promise<number> {
+  const out = deps.out ?? ((t: string) => process.stdout.write(t.endsWith("\n") ? t : `${t}\n`));
+  const err = deps.err ?? ((l: string) => console.error(l));
+  const usage = (why: string): number => {
+    err(`[api] ${why}`);
+    err("usage: pi-dashboard api <GET|POST|PUT|PATCH|DELETE> </path> [--data <json>] [--port <n>]");
+    return 2;
+  };
+
+  const positionals: string[] = [];
+  let data: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] as string;
+    if (a === "--data") {
+      data = argv[++i];
+      if (data === undefined) return usage("--data needs a JSON value");
+    } else if (a.startsWith("-")) {
+      if (VALUE_FLAGS.has(a)) i++; // --port/--host value: already applied by buildConfig
+    } else {
+      positionals.push(a);
+    }
+  }
+  if (positionals.length !== 2) return usage("expected a method and a path");
+  const method = (positionals[0] as string).toUpperCase();
+  const target = positionals[1] as string;
+  if (!API_METHODS.has(method)) return usage(`unsupported method ${terminalSafe(positionals[0] as string, 20)}`);
+  if (!isSafeLocalPath(target) || target.includes("#")) return usage("path must be a same-origin path starting with a single '/' (no '#', no control characters)");
+  if (data !== undefined) {
+    try {
+      JSON.parse(data);
+    } catch {
+      return usage("--data must be valid JSON");
+    }
+  }
+
+  const url = `${localBase(opts)}${target}`;
+  const token = deps.localToken !== undefined ? deps.localToken : safeEnsureLocalToken();
+  const fetchFn = deps.fetchImpl ?? fetch;
+  let res: Response;
+  try {
+    res = await fetchFn(url, {
+      method,
+      redirect: "manual",
+      headers: {
+        ...(data !== undefined ? { "content-type": "application/json" } : {}),
+        ...localCredentialHeaders(method, url, token),
+      },
+      ...(data !== undefined ? { body: data } : {}),
+      signal: AbortSignal.timeout(deps.timeoutMs ?? 30_000),
+    });
+  } catch (e) {
+    err(`[api] dashboard server not running at ${localBase(opts)} (${(e as Error).message ?? e})`);
+    return 2;
+  }
+  const body = await res.text().catch(() => "");
+  if (res.status >= 200 && res.status < 300) {
+    if (body) out(body);
+    return 0;
+  }
+  if (body) err(body);
+  else err(`[api] HTTP ${res.status}`);
+  return 1;
 }
 
 /** The dial base for local calls: the address LITERAL the server's bind maps to, never `localhost`. */
@@ -1737,6 +1894,14 @@ function flagValue(args: string[], flag: string): string | undefined {
 
 async function main() {
   installCrashSafetyNet();
+  // Refuse an unknown subcommand word BEFORE anything is created or bound: an older binary fell
+  // through to the foreground server for it. Flag-only invocations still run in the foreground.
+  const early = classifyArgv(process.argv.slice(2));
+  if (early.kind === "unknown") {
+    console.error(`[cli] unknown subcommand '${terminalSafe(early.word, 40)}'`);
+    console.error(CLI_USAGE);
+    process.exit(2);
+  }
   ensureConfig();
   // One-shot: rewrite a pre-flip materialized `subagentTickThrottleMs: 0`.
   // Boot path only — `loadConfig` is a pure read called by every bridge
@@ -1744,45 +1909,51 @@ async function main() {
   migrateSubagentTickThrottle();
 
   const rawArgs = process.argv.slice(2);
-  if (rawArgs[0] === "token") {
-    const { flags } = parseArgs(rawArgs.slice(1));
-    const config = buildConfig(flags);
-    process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port, host: config.host }));
-  }
-
-  if (rawArgs[0] === "service") {
-    // Managed services consumer contract. See change: add-service-registry-core.
-    const { flags } = parseArgs(rawArgs.slice(1));
+  const cls = classifyArgv(rawArgs);
+  if (cls.kind === "command") {
+    // Everything but the command word: its own args plus any flags that came BEFORE it (`--port 9000 api …`).
+    const rest = [...rawArgs.slice(0, cls.index), ...rawArgs.slice(cls.index + 1)];
+    if (cls.word === "token") {
+      const { flags } = parseArgs(rest);
+      const config = buildConfig(flags);
+      process.exit(await cmdTokenCreate(rest, { port: config.port, host: config.host }));
+    }
+    if (cls.word === "service") {
+      // Managed services consumer contract. See change: add-service-registry-core.
+      const { flags } = parseArgs(rest);
+      const config = buildConfig(flags, () => {});
+      const resolveBinary = (name: string) => {
+        try {
+          const r = getDefaultRegistry().resolve(name);
+          return r.ok ? r.path : null;
+        } catch {
+          return null;
+        }
+      };
+      process.exit(
+        await cmdService(rest, {
+          port: config.port,
+          host: config.host,
+          authHeaders: (method, target) => localCredentialHeaders(method, `${localBase(config)}${target}`),
+          resolveExecSecrets: localExecSecretsResolver({ paths: servicesPaths(), run: defaultCommandRunner, resolveBinary }),
+        }),
+      );
+    }
+    if (cls.word === "pair") {
+      // Host-side approval of a pending device. See change: fix-pairing-approval-credential.
+      const { flags } = parseArgs(rest);
+      const config = buildConfig(flags, () => {});
+      process.exit(await cmdPair(rest, { port: config.port, host: config.host }));
+    }
+    if (cls.word === "login") {
+      const { flags } = parseArgs(rest);
+      const config = buildConfig(flags);
+      process.exit(await cmdLogin(rest, { port: config.port, host: config.host }));
+    }
+    // api
+    const { flags } = parseArgs(rest);
     const config = buildConfig(flags, () => {});
-    const resolveBinary = (name: string) => {
-      try {
-        const r = getDefaultRegistry().resolve(name);
-        return r.ok ? r.path : null;
-      } catch {
-        return null;
-      }
-    };
-    process.exit(
-      await cmdService(rawArgs.slice(1), {
-        port: config.port,
-        host: config.host,
-        authHeaders: (method, target) => localCredentialHeaders(method, `${localBase(config)}${target}`),
-        resolveExecSecrets: localExecSecretsResolver({ paths: servicesPaths(), run: defaultCommandRunner, resolveBinary }),
-      }),
-    );
-  }
-
-  if (rawArgs[0] === "pair") {
-    // Host-side approval of a pending device. See change: fix-pairing-approval-credential.
-    const { flags } = parseArgs(rawArgs.slice(1));
-    const config = buildConfig(flags, () => {});
-    process.exit(await cmdPair(rawArgs.slice(1), { port: config.port, host: config.host }));
-  }
-
-  if (rawArgs[0] === "login") {
-    const { flags } = parseArgs(rawArgs.slice(1));
-    const config = buildConfig(flags);
-    process.exit(await cmdLogin(rawArgs.slice(1), { port: config.port, host: config.host }));
+    process.exit(await cmdApi(rest, { port: config.port, host: config.host }));
   }
 
   const { subcommand, flags } = parseArgs(rawArgs);

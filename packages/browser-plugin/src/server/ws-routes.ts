@@ -26,9 +26,11 @@
  * gate and the `Origin` refusal below apply to its `cdpUrl` unchanged; its guid is
  * 404 on the ext scope.
  *
- * The guid is the ONLY credential on these routes — no cookie, local token,
- * ticket or trusted-CIDR bypass is evaluated for a plugin scope (spec
- * browser-relay "Both endpoints").
+ * The credential on these routes is the guid PLUS a single-use relay ticket in the
+ * URL (`?ticket=`, 60 s, bound to (guid, role), consumed by the first presenting
+ * attempt). Both scopes register `peerCredential: "plugin"`, so the core gate skips
+ * only the strict local-proof requirement for them; no cookie, local token, `/api/ws-ticket`
+ * ticket or trusted-CIDR bypass is evaluated. See change: close-container-loopback-impersonation (D10).
  */
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -49,6 +51,11 @@ export const CHROME_EXTENSION_ORIGIN = "chrome-extension://mmlmfjhmonkocbjadbfpl
  * tested without a live `RelayManager`; `RelayManager` satisfies it structurally.
  */
 export interface RelayAttacher {
+  /**
+   * Consume the single-use ticket for (guid, role): true exactly once for the value the manager issued
+   * with that URL. Absent only in narrow test doubles that predate tickets.
+   */
+  consumeTicket(guid: string, role: "ext" | "cdp", ticket: string | null | undefined): boolean;
   /** Live guid → its entry, or undefined (unknown / expired / malformed). */
   resolve(guid: string): { claimed: boolean; operator?: boolean; dedicated?: boolean } | undefined;
   /** Attach an accepted extension socket. Returns false only for an unknown guid. */
@@ -64,6 +71,13 @@ function guidFromPath(url: string | undefined, prefix: string): string | null {
   const rest = path.slice(prefix.length);
   if (rest.length === 0 || rest.includes("/")) return null;
   return rest;
+}
+
+/** The `ticket` query value of an upgrade request-target, or null. */
+function ticketFromUrl(url: string | undefined): string | null {
+  const q = (url ?? "").split("?")[1];
+  if (!q) return null;
+  return new URLSearchParams(q).get("ticket");
 }
 
 /** A deliberate HTTP refusal (not a bare TCP destroy) so a client can tell why. */
@@ -86,9 +100,17 @@ export function registerBrowserWsRoutes(ctx: ServerPluginContext, manager: Relay
   ctx.registerWsRoute(BROWSER_EXT_SCOPE, {
     pathPrefix: BROWSER_EXT_PATH,
     admitOrigins: [CHROME_EXTENSION_ORIGIN],
+    // The extension sends no headers or cookies, so it cannot present local proof; its URL carries a
+    // single-use ticket instead, checked below BEFORE the guid is looked up.
+    peerCredential: "plugin",
     handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer, meta) => {
       const guid = guidFromPath(request.url, BROWSER_EXT_PATH);
-      const live = guid ? manager.resolve(guid) : undefined;
+      // Ticket first: an unknown guid and a bad ticket are the same 403, so neither is an oracle.
+      if (!guid || !manager.consumeTicket(guid, "ext", ticketFromUrl(request.url))) {
+        refuse(socket, 403, "Forbidden");
+        return;
+      }
+      const live = manager.resolve(guid);
       // An operator-targeted guid is never dialled here: its extension arrives
       // as a link over the carrier. A 404 keeps it indistinguishable from an
       // unknown guid. See change: add-operator-browser-relay (D3).
@@ -110,15 +132,23 @@ export function registerBrowserWsRoutes(ctx: ServerPluginContext, manager: Relay
   ctx.registerWsRoute(BROWSER_CDP_SCOPE, {
     pathPrefix: BROWSER_CDP_PATH,
     admitOrigins: [],
+    // A CDP client (Playwright `connectOverCDP`, `agent-browser connect`) sends no headers or cookies:
+    // its `cdpUrl` carries a single-use ticket, checked below BEFORE the guid is looked up.
+    peerCredential: "plugin",
     handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer, meta) => {
       // Web content always attaches an Origin; a CDP client never does. Refuse
-      // the former before any guid work so a leaked cdpUrl is useless to a page.
+      // the former before any guid work so a leaked cdpUrl is useless to a page
+      // (and so a page cannot burn the ticket).
       if (request.headers.origin !== undefined) {
         refuse(socket, 403, "Forbidden");
         return;
       }
       const guid = guidFromPath(request.url, BROWSER_CDP_PATH);
-      if (!guid || !manager.resolve(guid)) {
+      if (!guid || !manager.consumeTicket(guid, "cdp", ticketFromUrl(request.url))) {
+        refuse(socket, 403, "Forbidden");
+        return;
+      }
+      if (!manager.resolve(guid)) {
         refuse(socket, 404, "Not Found");
         return;
       }

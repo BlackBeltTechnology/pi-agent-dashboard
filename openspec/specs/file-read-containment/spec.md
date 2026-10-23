@@ -7,7 +7,7 @@ Define how the localhost file routes contain resolved absolute paths: anchor at 
 
 ### Requirement: File-read containment anchors at the git common root with a layered cwd fast path
 
-The localhost file routes SHALL contain every resolved absolute path using a layered check evaluated in order, at each of the ten containment sites: seven in `file-routes.ts` (`GET /api/file` read, `GET /api/file/tree`, `GET /api/file/exists`, `GET /api/file/raw`, `GET /api/file/render`, and the two gate helpers `gateFilePath` / `gateOfficeFile` — `gateFilePath` gates the EML routes and the `POST /api/open-in-system` / `POST /api/reveal-in-file-manager` system-open endpoints, `gateOfficeFile` the office/render/sheet routes), the grep-result filter in `grep-routes.ts`, the file-mention resolver in `resolve-file-mention.ts`, and the session-directory check in `session-routes.ts` (which carries its own rejection string, `"path outside session directory"`). The local lexical cwd check in `openspec-routes.ts` is NOT a containment site and is out of scope. Each file-routes, grep and mention site passes its own set of **containment anchors** — the request `cwd` (admitted by the shared cwd admission guard (`core-cwd-admission`: a known folder — session cwd, pinned directory or workspace folder — or a subdirectory / linked worktree whose main checkout is a known folder)) and, when it differs from that spelling, the admitted cwd's canonical real path, plus any site-specific anchor. A relative request `path` SHALL resolve against the request spelling of `cwd`. The session-directory site in `session-routes.ts` keeps the server-owned session directory as its anchor. Site-specific anchors: `homePiAnchor()` (`~/.pi`) for the read, raw, render, and mention sites, and the pinned directories for `exists`. For each containment anchor:
+The localhost file routes SHALL contain every resolved absolute path using a layered check evaluated in order, at each of the ten containment sites: seven in `file-routes.ts` (`GET /api/file` read, `GET /api/file/tree`, `GET /api/file/exists`, `GET /api/file/raw`, `GET /api/file/render`, and the two gate helpers `gateFilePath` / `gateOfficeFile` — `gateFilePath` gates the EML routes and the `POST /api/open-in-system` / `POST /api/reveal-in-file-manager` system-open endpoints, `gateOfficeFile` the office/render/sheet routes), the grep-result filter in `grep-routes.ts`, the file-mention resolver in `resolve-file-mention.ts`, and the session-directory check in `session-routes.ts` (which carries its own rejection string, `"path outside session directory"`). The local lexical cwd check in `openspec-routes.ts` is NOT a containment site and is out of scope. Each site passes its own set of **containment anchors** — the session `cwd`, plus any site-specific anchor: `homePiAnchor()` (`~/.pi`) for the read, raw, render, and mention sites, and the pinned directories for `exists`. Per-site anchor sets are unchanged by this requirement, except that a path inside the dashboard state directory is first decided by the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries` (on the resolved real path, before containment): an always-refused path is refused for every caller, and a trust-gated path is refused for a caller that is not locally trusted and holds no login session; a path that passes falls through to these anchors unchanged. For each containment anchor:
 
 1. If the resolved path is the anchor or under `anchor + path.sep`, it SHALL
    be allowed without invoking git.
@@ -40,7 +40,7 @@ Layer 1 is a performance fast path and MUST NOT allow anything layer 2 would rej
 
 No checkout root SHALL reach beyond the checkouts the anchor's repository owns. In particular a submodule session SHALL NOT gain reach into its superproject, a worktree of a bare hub SHALL NOT gain reach into the directory holding the hub, and a `--separate-git-dir` session SHALL NOT gain reach into the directory holding its git dir.
 
-Layers 1 and 2 SHALL NOT be changed by the grant layer, and the per-site anchors SHALL include the `homePiAnchor()` (`~/.pi`) anchor on the read, raw, render, and mention sites and the pinned-directory anchor on `GET /api/file/exists`. With an empty grant store, the outcome of every check SHALL be identical to layers 1–2 alone.
+Layers 1 and 2 and their per-site anchor sets SHALL be unchanged by this change, including the `homePiAnchor()` (`~/.pi`) anchor on the read, raw, render, and mention sites and the pinned-directory anchor on `GET /api/file/exists`. With an empty grant store, the outcome of every check SHALL be identical to layers 1–2 alone.
 
 Two of the ten sites have no response body in which to carry remedy fields: `grep-routes.ts` filters non-contained matches out of its result set, and `resolve-file-mention.ts` returns no mention. They SHALL consume grants and SHALL NOT be changed to emit a denial body.
 
@@ -123,7 +123,7 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 
 - **GIVEN** the read, raw, render, and mention sites anchor on `cwd` plus `~/.pi`
 - **WHEN** a path under `~/.pi` is read through one of those sites
-- **THEN** it SHALL be allowed exactly as before this change
+- **THEN** it SHALL be allowed exactly as before this change, unless the path is inside the dashboard state directory (`~/.pi/dashboard/`) and that requirement refuses it
 
 #### Scenario: the denial names its remedy
 
@@ -165,10 +165,9 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 #### Scenario: gate sites keep their existing wire shape
 
 - **GIVEN** `gateFilePath` and `gateOfficeFile` return `{ code, error }` to their callers, and every caller converts it to `{ success: false, error }` before replying
-- **WHEN** a containment denial at one of those sites is refused
-- **THEN** the wire body SHALL remain `{ success, error }` (plus remedy fields) with the same status code
+- **WHEN** a denial at one of those sites is refused
+- **THEN** the wire body SHALL remain `{ success, error }` with the same status code
 - **AND** the internal `{ code, error }` return SHALL NOT be emitted on the wire, because doing so would change the response rather than extend it
-- **AND** a cwd-admission refusal or 503 at those sites SHALL add the string `code` (`cwd_unknown` / `cwd-admission-unavailable`) defined by `core-cwd-admission`
 
 #### Scenario: the session-directory site is covered
 
@@ -178,6 +177,7 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 - **AND** when no grant covers it, the refusal string SHALL be unchanged
 
 #### Scenario: symlinked cwd accepts both spellings
+
 - **GIVEN** an admitted request `cwd` `/tmp/link` that is a symlink to `/real/proj` (not a git repository)
 - **WHEN** `GET /api/file` requests the absolute path `/real/proj/a.txt`, and separately the absolute path `/tmp/link/a.txt`, and separately the relative path `a.txt`
 - **THEN** each read SHALL be allowed
@@ -240,7 +240,7 @@ contained.
 
 ### Requirement: the git-root widening is unconditional and per-site anchors and error strings are preserved
 
-The bound checkout roots of each containment anchor SHALL be the containment trust boundary for every caller; the layer-2 widening SHALL NOT depend on the request source (loopback, trusted-network, and authenticated requests are treated identically). The shared helper SHALL be parameterized by the calling route's anchor set and rejection string so each route preserves its existing behavior: `GET /api/file`, `GET /api/file/raw`, and `GET /api/file/render` SHALL anchor on the admitted `cwd` (both spellings, per the layered requirement) plus `~/.pi` and reject with `"path outside working directory"`; `GET /api/file/tree` and the office/EML gate helpers SHALL anchor on the admitted `cwd` alone (both spellings) with the same rejection string; `GET /api/file/exists` SHALL anchor on the admitted `cwd` (both spellings) plus the pinned directories and reject with `"unknown cwd"` / `"path outside cwd"`. There is no containment site in `system-routes`. This change SHALL NOT extend the pinned-directory anchor to the read, raw, or render routes.
+The bound checkout roots of each containment anchor SHALL be the containment trust boundary for every caller; the layer-2 widening SHALL NOT depend on the request source (loopback, trusted-network, and authenticated requests are treated identically). The only caller-dependent decision on these sites is the dashboard-state check of the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries`, which runs before containment and never widens it. The shared helper SHALL be parameterized by the calling route's anchor set and rejection string so each route preserves its existing behavior: `GET /api/file`, `GET /api/file/raw`, and `GET /api/file/render` SHALL anchor on `cwd` plus `~/.pi` and reject with `"path outside working directory"`; `GET /api/file/tree` and the office/EML gate helpers SHALL anchor on `cwd` alone with the same rejection string; `GET /api/file/exists` SHALL anchor on `cwd` plus the pinned directories and reject with `"unknown cwd"` / `"path outside cwd"`. There is no containment site in `system-routes`. This change SHALL NOT extend the pinned-directory anchor to the read, raw, or render routes.
 
 #### Scenario: authenticated remote request reads within the repo
 
@@ -256,14 +256,16 @@ The bound checkout roots of each containment anchor SHALL be the containment tru
 
 #### Scenario: read route does not inherit the pinned-directory anchor
 
-- **WHEN** `GET /api/file` names a session `cwd` and requests a path inside a different pinned directory that is outside that `cwd` and its bound checkout roots
+- **WHEN** `GET /api/file` requests a path inside a pinned directory that is outside every session `cwd` and its bound checkout roots
 - **THEN** the request SHALL be rejected with `"path outside working directory"`
 
 ### Requirement: A containment miss may suspend pending an operator verdict
 
 A containment miss that is prompt-eligible and occurs while suspension is
 permitted SHALL suspend the request pending an operator verdict instead of
-refusing immediately. On an allow verdict the original request SHALL proceed and
+refusing immediately. A miss by a caller that is genuinely local but neither
+locally trusted nor authenticated (under the default `requireLocalProof`, a
+bare loopback peer without proof) SHALL NOT be prompt-eligible. On an allow verdict the original request SHALL proceed and
 return its real result; on any other outcome it SHALL return the denial it
 returns today.
 
@@ -291,6 +293,10 @@ reordered, or widened.
 
 - **WHEN** a containment miss occurs at any of the containment sites
 - **THEN** its suspend-or-refuse behaviour SHALL follow the same rule
+
+#### Scenario: Unproven loopback miss is not suspended
+- **WHEN** `requireLocalProof` is unset and a bare loopback request with no proof and no session misses every containment anchor
+- **THEN** the request SHALL be refused immediately with today's denial and no operator prompt SHALL be raised
 
 ### Requirement: A suspended containment miss re-checks containment before proceeding
 

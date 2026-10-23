@@ -21,7 +21,7 @@ flowchart TD
   A --> E["src/client/ (prod mode)"]
   A --> F["Multi-component / openspec"]
   B --> B1["npm run reload"]
-  C --> C1["curl -X POST localhost:8000/api/restart<br/>(no build step: Node's native strip-only TS loader runs TS directly)"]
+  C --> C1["npx tsx .pi/skills/implement/scripts/restart-server.ts<br/>(no build step: Node's native strip-only TS loader runs TS directly)"]
   D --> D1["nothing, Vite HMR"]
   E --> E1["npm run build && restart"]
   F --> F1["npx tsx .pi/skills/implement/scripts/full-rebuild.ts"]

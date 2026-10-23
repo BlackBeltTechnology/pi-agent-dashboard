@@ -57,6 +57,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/session-meta.js", async (impo
 });
 
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const TRUSTED_ID = "fake-trusted-mutator";
 const UNTRUSTED_ID = "fake-untrusted-mutator";
@@ -111,7 +112,7 @@ async function setupHarness(): Promise<CtxHarness> {
   // Seed the sidecar path the routes/link paths would have derived from pi.
   (server as unknown as { sessionManager: { update(id: string, u: object): void } }).sessionManager.update("s1", { sessionFile });
 
-  const browser = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+  const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
   await waitForOpen(browser);
   const sessionUpdates: CtxHarness["sessionUpdates"] = [];
   browser.on("message", (raw) => {

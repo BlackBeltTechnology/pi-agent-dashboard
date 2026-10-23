@@ -28,6 +28,7 @@ import crypto from "node:crypto";
 import type { AuditRing } from "../audit.js";
 import type { DedicatedAvailability } from "../capability.js";
 import { buildConnectUrl, openChromeProfile } from "../connect.js";
+import { RelayTicketStore, type RelayTicketRole } from "./relay-ticket.js";
 import type { DedicatedChrome } from "../dedicated/chrome-process.js";
 import { DedicatedChromeError } from "../dedicated/chrome-process.js";
 import { checkOpenUrl } from "../dedicated/dedicated-deny.js";
@@ -141,6 +142,8 @@ export interface RelayManagerDeps {
   randomRequestId?(): string;
   /** Dedicated agent browser (change: add-dedicated-agent-browser). */
   dedicated?: DedicatedDeps;
+  /** Injectable ticket store (tests drive the clock). See change: close-container-loopback-impersonation. */
+  tickets?: RelayTicketStore;
 }
 
 /** Dedicated agent browser wiring (change: add-dedicated-agent-browser, D4). Absent ⇒ dedicated is unavailable. */
@@ -288,9 +291,16 @@ export class RelayManager {
   private readonly consentTimeoutMs: number;
   private readonly randomLinkId: () => string;
   private readonly randomRequestId: () => string;
+  /**
+   * Single-use tickets carried by every relay URL this manager issues (`cdpUrl`, the extension's
+   * `mcpRelayUrl`). The upgrade handler consumes one before it resolves a guid. In memory only.
+   * See change: close-container-loopback-impersonation (D10).
+   */
+  private readonly tickets: RelayTicketStore;
 
   constructor(deps: RelayManagerDeps) {
     this.deps = deps;
+    this.tickets = deps.tickets ?? new RelayTicketStore();
     this.timers = deps.timers ?? REAL_TIMERS;
     this.connectTimeoutMs = deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS;
     this.guidExpiryMs = deps.guidExpiryMs ?? GUID_EXPIRY_MS;
@@ -412,6 +422,7 @@ export class RelayManager {
     const url = buildConnectUrl({
       port: this.deps.getPort(),
       guid,
+      ticket: this.tickets.mint(guid, "ext"),
       profileToken: config.token,
       zeroDialog: config.zeroDialog === true,
     });
@@ -439,7 +450,7 @@ export class RelayManager {
     );
     return {
       ok: true,
-      cdpUrl: `ws://127.0.0.1:${this.deps.getPort()}/ws/browser-cdp/${guid}`,
+      cdpUrl: this._cdpUrl(guid),
       instanceId,
     };
   }
@@ -640,7 +651,7 @@ export class RelayManager {
     }, ded.noClientMs ?? DEDICATED_NO_CLIENT_MS);
     this.deps.onStatusChange();
     this.deps.logger.info(`[browser-relay] instance ${DEDICATED_PROFILE} open (dedicated connect)`);
-    return { ok: true, cdpUrl: `ws://127.0.0.1:${this.deps.getPort()}/ws/browser-cdp/${guid}`, instanceId };
+    return { ok: true, cdpUrl: this._cdpUrl(guid), instanceId };
   }
 
   /**
@@ -851,7 +862,22 @@ export class RelayManager {
     }
   }
 
+  /** `ws://…/ws/browser-cdp/<guid>?ticket=<single-use>`: the URL a CDP client dials exactly once. */
+  private _cdpUrl(guid: string): string {
+    return `ws://127.0.0.1:${this.deps.getPort()}/ws/browser-cdp/${guid}?ticket=${this.tickets.mint(guid, "cdp")}`;
+  }
+
+  /**
+   * Consume the single-use ticket for (guid, role). True exactly once for the value this manager issued;
+   * checked by the upgrade handler BEFORE it resolves the guid, so an unknown guid and a bad ticket are
+   * the same refusal. See change: close-container-loopback-impersonation (D10).
+   */
+  consumeTicket(guid: string, role: RelayTicketRole, ticket: string | null | undefined): boolean {
+    return this.tickets.consume(guid, role, ticket);
+  }
+
   private _remove(entry: Entry): void {
+    this.tickets.revoke(entry.guid);
     this._clearExpiry(entry);
     this.byGuid.delete(entry.guid);
     this.byInstanceId.delete(entry.instance.instanceId);
@@ -1058,7 +1084,7 @@ export class RelayManager {
     hl.connecting = false;
     return finish({
       ok: true,
-      cdpUrl: `ws://127.0.0.1:${this.deps.getPort()}/ws/browser-cdp/${guid}`,
+      cdpUrl: this._cdpUrl(guid),
       instanceId,
     });
   }
