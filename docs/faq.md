@@ -4560,9 +4560,10 @@ PW_E2E_USE_RUNNING=1 npx playwright test csp-strict-enforce
 
 OAuth real-gate lane — WF5, report sink public to OAuth gate:
 ```bash
-PI_E2E_SEED=1 PI_E2E_OAUTH=1 PI_E2E_OAUTH_NO_BYPASS=1 docker/test-up.sh -d --build
-PW_E2E_USE_RUNNING=1 npx playwright test csp-report-sink-oauth
+PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright test csp-report-sink-oauth
 ```
+- global-setup boots + tears down the harness itself.
+- `PI_E2E_TRUSTED_NETWORKS` narrows seeded `0.0.0.0/0`; else Playwright host is trusted source, gate never armed, spec skips.
 - Spec `tests/e2e/csp-report-sink-oauth.spec.ts`.
 - `PI_E2E_OAUTH_NO_BYPASS=1` seeds `bypassUrls:[]` → REAL gate. Plain `PI_E2E_OAUTH=1` seeds `bypassUrls:["/"]` → matches every path → exemption assertion passes vacuously.
 - Lane LOCKS Playwright host out of every other route. Run ONLY this spec there.

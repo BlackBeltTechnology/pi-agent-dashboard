@@ -65,6 +65,22 @@ test.describe("strict CSP, report mode", () => {
       if (r.url().includes(CSP_REPORT_PREFIX)) sinkStatuses.push(r.status());
     });
 
+    // Delivery path. With BOTH `report-uri` and `report-to` present, Chromium prefers the Reporting API, which
+    // (measured against this harness, headless shell and new headless) delivered nothing within 2 minutes. The
+    // headers are asserted above and in the L1 header tests; here the document response is rewritten to drop ONLY
+    // `report-to` + `Reporting-Endpoints`, so the browser falls back to `report-uri` and the report path
+    // (browser → sink → label → counter) is exercised for real and deterministically.
+    await page.route("**/apps/team/", async (route) => {
+      const res = await route.fetch();
+      const headers: Record<string, string> = {};
+      for (const { name, value } of res.headersArray()) {
+        const k = name.toLowerCase();
+        if (k === "reporting-endpoints") continue;
+        const v = k.startsWith("content-security-policy") ? value.replace(/;\s*report-to\s+[^;,]+/g, "") : value;
+        headers[k] = k in headers ? `${headers[k]}, ${v}` : v;
+      }
+      await route.fulfill({ response: res, headers });
+    });
     await page.goto("/apps/team/");
     await page.waitForTimeout(3_000);
 

@@ -9,8 +9,10 @@ import { expect, test } from "./fixtures.js";
  * `PI_E2E_OAUTH=1` seed `bypassUrls:["/"]` matches every path, so an exemption assertion would
  * pass vacuously. This spec therefore needs the real-gate lane:
  *
- *   PI_E2E_SEED=1 PI_E2E_OAUTH=1 PI_E2E_OAUTH_NO_BYPASS=1 docker/test-up.sh
- *   PW_E2E_USE_RUNNING=1 npx playwright test csp-report-sink-oauth
+ *   PI_E2E_TRUSTED_NETWORKS=203.0.113.0/24 PI_E2E_OAUTH_NO_BYPASS=1 npx playwright test csp-report-sink-oauth
+ *
+ * (`PI_E2E_TRUSTED_NETWORKS` narrows the seeded trust-any-peer `0.0.0.0/0`; without it the Playwright host is a
+ * trusted source, the gate is never armed for it, and the spec skips.)
  *
  * That lane locks the Playwright host out of every other route — run only this spec there. It
  * SKIPS when the gate is not armed for the client (blanket-bypass harness, or a trusted source).
@@ -42,9 +44,11 @@ test.describe("WF5: CSP report sink is public to the OAuth gate", () => {
     );
     const controlLocation = control.headers().location ?? "";
 
-    // (a) the login page itself is reachable signed-out.
-    const login = await request.get("/auth/login", { maxRedirects: 0 });
-    expect(login.status()).toBe(200);
+    // (a) the login page itself is reachable signed-out: 200, or (single configured provider) a redirect that is
+    //     not back to itself and not a 401.
+    const login = await request.get("/auth/login", { maxRedirects: 0, headers: { accept: "text/html" } });
+    expect([200, 302]).toContain(login.status());
+    if (login.status() === 302) expect(login.headers().location ?? "").not.toContain("/auth/login");
 
     // (b) a valid report, both media types, on every label → 204, never a login redirect or 401.
     for (const policy of ["baseline", "strict", "trusted-types"]) {
