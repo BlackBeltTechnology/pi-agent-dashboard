@@ -139,6 +139,13 @@ export interface PiGateway {
   attachLocalConnection(socket: LocalGatewaySocket): void;
   stop(): void;
   /**
+   * Resolves once the async socket teardown handed off by the last `stop()`
+   * settles (never rejects; resolves at once when nothing is pending). The
+   * async `server.stop()` awaits it so a caller removing HOME right after
+   * never races the teardown.
+   */
+  stopped(): Promise<void>;
+  /**
    * Resolved listening endpoint after start(): a port number for TCP, the
    * socket PATH for a UDS listener, or null when not started. A UDS
    * `address()` is a string, so the old number-only accessor blanked the
@@ -219,6 +226,8 @@ export function createPiGateway(
   /** The UDS listener, when this instance serves bridges over a socket (D1). */
   let socketServer: http.Server | null = null;
   let socketPath: string | null = null;
+  /** The socket teardown `stop()` hands off; never rejects (see `stopped()`). */
+  let pendingTeardown: Promise<void> = Promise.resolve();
   /** What the TCP `wss` is for (health, spawn pinning). See D7. */
   let tcpKind: "tcp" | "loopback" | "loopback-fallback" | null = null;
   let fallbackReason: "occupied" | "unsupported" | undefined;
@@ -1356,12 +1365,16 @@ export function createPiGateway(
         // would leave the socket path behind with no trace of why.
         const pending = unbindGatewaySocket(socketServer, socketPath);
         const path = socketPath;
-        pending.catch((err: unknown) => {
+        pendingTeardown = pending.catch((err: unknown) => {
           console.error(`[gateway] failed to remove socket ${path}: ${String(err)}`);
         });
         socketServer = null;
         socketPath = null;
       }
+    },
+
+    stopped(): Promise<void> {
+      return pendingTeardown;
     },
 
     sendToSession(sessionId: string, msg: ServerToExtensionMessage): boolean {
