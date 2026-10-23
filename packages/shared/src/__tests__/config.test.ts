@@ -22,6 +22,41 @@ describe("loadConfig", () => {
     if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
   });
 
+  // harden-cors-and-csp-reporting (B19, WE5): `cors.allowZrokWildcard` is boolean-true-only.
+  describe("cors.allowZrokWildcard (WE5)", () => {
+    it("default block carries false", () => {
+      expect(loadConfig().cors.allowZrokWildcard).toBe(false);
+    });
+    for (const [label, value, want] of [
+      ["absent", undefined, false],
+      ["true", true, true],
+      ["false", false, false],
+      ['"true"', "true", false],
+      ["1", 1, false],
+      ["0", 0, false],
+      ["null", null, false],
+      ['"yes"', "yes", false],
+      ["[]", [], false],
+    ] as const) {
+      it(`${label} → ${want}`, () => {
+        const cors: Record<string, unknown> = { allowedOrigins: ["https://keep.example"] };
+        if (value !== undefined) cors.allowZrokWildcard = value;
+        fs.writeFileSync(configFile, JSON.stringify({ cors }));
+        const c = loadConfig().cors;
+        expect(c.allowZrokWildcard).toBe(want);
+        expect(c.allowedOrigins).toEqual(["https://keep.example"]);
+      });
+    }
+    for (const [label, cors] of [["absent", undefined], ["true", true], ['"x"', "x"], ["[]", []], ["null", null]] as const) {
+      it(`non-object cors (${label}) does not throw and yields defaults`, () => {
+        fs.writeFileSync(configFile, JSON.stringify(cors === undefined ? {} : { cors }));
+        const c = loadConfig().cors;
+        expect(c.allowZrokWildcard).toBe(false);
+        expect(c.allowedOrigins).toEqual([]);
+      });
+    }
+  });
+
   it("should return all defaults when config file is missing", () => {
     const config = loadConfig();
     expect(config.port).toBe(8000);

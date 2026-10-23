@@ -16,6 +16,7 @@ import { createNetworkGuard, createNetworkGuardHook } from "../auth/localhost-gu
 import {
   configSnapshotParseCount,
   liveCorsAllowedOrigins,
+  liveCorsAllowZrokWildcard,
   liveTrustedNetworks,
   resetConfigSnapshot,
 } from "../config-snapshot.js";
@@ -28,12 +29,13 @@ import {
 
 function allowed(
   origin: string | undefined,
-  opts: { configured?: string[]; trusted?: string[]; tunnelUrl?: string | null } = {},
+  opts: { configured?: string[]; trusted?: string[]; tunnelUrl?: string | null; allowZrokWildcard?: boolean } = {},
 ): boolean {
   return isCorsOriginAllowed(origin, {
     configuredOrigins: opts.configured ?? [],
     trustedNetworks: opts.trusted ?? [],
     getTunnelUrl: () => opts.tunnelUrl ?? null,
+    ...(opts.allowZrokWildcard !== undefined ? { allowZrokWildcard: opts.allowZrokWildcard } : {}),
   });
 }
 
@@ -81,9 +83,12 @@ describe("CORS origin validation", () => {
       expect(allowed(tunnelUrl, { tunnelUrl })).toBe(true);
     });
 
-    it("allows any *.share.zrok.io origin (URL rotation, stale tabs)", () => {
-      expect(allowed("https://tgbdzzvlar6b.share.zrok.io")).toBe(true);
-      expect(allowed("https://anyothershare123.share.zrok.io")).toBe(true);
+    // harden-cors-and-csp-reporting (B19, WE6): the wildcard is opt-in.
+    it("denies a stranger *.share.zrok.io origin by default; opt-in allows it", () => {
+      expect(allowed("https://tgbdzzvlar6b.share.zrok.io")).toBe(false);
+      expect(allowed("https://anyothershare123.share.zrok.io")).toBe(false);
+      expect(allowed("https://tgbdzzvlar6b.share.zrok.io", { allowZrokWildcard: true })).toBe(true);
+      expect(allowed("https://anyothershare123.share.zrok.io", { allowZrokWildcard: true })).toBe(true);
     });
 
     it("does not allow non-zrok sibling hosts", () => {
@@ -92,8 +97,10 @@ describe("CORS origin validation", () => {
     });
 
     // support-zrok-v2 (E16/E17): plural v2 host allowed; spoof denied.
-    it("E16: allows a v2 *.shares.zrok.io origin", () => {
-      expect(allowed("https://x.shares.zrok.io")).toBe(true);
+    it("E16: a v2 *.shares.zrok.io origin is denied by default, allowed on opt-in or when live", () => {
+      expect(allowed("https://x.shares.zrok.io")).toBe(false);
+      expect(allowed("https://x.shares.zrok.io", { allowZrokWildcard: true })).toBe(true);
+      expect(allowed("https://x.shares.zrok.io", { tunnelUrl: "https://x.shares.zrok.io" })).toBe(true);
     });
 
     it("E17: denies a spoofed *.shares.zrok.io.attacker.com origin", () => {
@@ -320,24 +327,12 @@ describe("live tunnel origins (E25/E26)", () => {
     ).toBe(false);
   });
 
-  it("E26: the pre-existing zrok wildcard is UNCHANGED — a disconnected zrok origin stays allowed", () => {
-    // Deliberately asserting the carve-out: this is not an oversight, it is a
-    // shipped allowance this change declined to narrow.
-    expect(
-      isCorsOriginAllowed("https://abc.shares.zrok.io", {
-        configuredOrigins: [],
-        trustedNetworks: [],
-        getTunnelUrl: () => null,
-        getLiveTunnelOrigins: () => [],
-      }),
-    ).toBe(true);
-    expect(
-      isCorsOriginAllowed("https://abc.share.zrok.io", {
-        configuredOrigins: [],
-        trustedNetworks: [],
-        getLiveTunnelOrigins: () => [],
-      }),
-    ).toBe(true);
+  it("E26: a disconnected zrok origin is denied by default (B19) and allowed only on wildcard opt-in", () => {
+    const base = { configuredOrigins: [], trustedNetworks: [], getTunnelUrl: () => null, getLiveTunnelOrigins: () => [] };
+    for (const o of ["https://abc.shares.zrok.io", "https://abc.share.zrok.io"]) {
+      expect(isCorsOriginAllowed(o, base)).toBe(false);
+      expect(isCorsOriginAllowed(o, { ...base, allowZrokWildcard: true })).toBe(true);
+    }
   });
 
   it("adds allowances without removing any — every prior branch still decides the same way", () => {
@@ -468,9 +463,10 @@ describe("origin admission (fix-ws-origin-cswsh)", () => {
   describe("#E3 allowZrokWildcard", () => {
     const bare = { configuredOrigins: [], trustedNetworks: [] };
 
-    it("defaults to true — CORS behavior is unchanged", () => {
-      expect(isCorsOriginAllowed("https://xyz.share.zrok.io", bare)).toBe(true);
-      expect(isCorsOriginAllowed("https://xyz.shares.zrok.io", bare)).toBe(true);
+    it("defaults to off — a stranger share is denied until opted in (B19)", () => {
+      expect(isCorsOriginAllowed("https://xyz.share.zrok.io", bare)).toBe(false);
+      expect(isCorsOriginAllowed("https://xyz.shares.zrok.io", bare)).toBe(false);
+      expect(isCorsOriginAllowed("https://xyz.share.zrok.io", { ...bare, allowZrokWildcard: true })).toBe(true);
     });
 
     it("false denies a stranger share on both zrok host shapes", () => {
@@ -593,5 +589,69 @@ describe("preflight allows mutating methods", () => {
     });
     await app.close();
     expect(String(res.headers["access-control-allow-methods"]).split(/,\s*/)).toContain(method);
+  });
+});
+
+// harden-cors-and-csp-reporting — WE10 / WE56.
+describe("opaque Origin: null stays denied (WE10)", () => {
+  async function makeApp(o: Parameters<typeof isCorsOriginAllowed>[1]) {
+    const app = Fastify();
+    await app.register(cors, { origin: (origin, cb) => cb(null, isCorsOriginAllowed(origin ?? undefined, o)), credentials: true });
+    app.get("/api/x", async () => ({ ok: true }));
+    await app.ready();
+    return app;
+  }
+
+  it.each(["null", "NULL", " null"])("Origin %j gets no Access-Control-Allow-Origin", async (origin) => {
+    const app = await makeApp({
+      configuredOrigins: ["null"],
+      trustedNetworks: ["0.0.0.0/0"],
+      allowZrokWildcard: true,
+    });
+    const res = await app.inject({ method: "GET", url: "/api/x", headers: { origin } });
+    await app.close();
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("the neutral shell still receives ACAO with an empty allowedOrigins", async () => {
+    const app = await makeApp({ configuredOrigins: [], trustedNetworks: [] });
+    const res = await app.inject({ method: "GET", url: "/api/x", headers: { origin: "https://pi-dashboard.dev" } });
+    await app.close();
+    expect(res.headers["access-control-allow-origin"]).toBe("https://pi-dashboard.dev");
+  });
+});
+
+describe("live reload of both cors keys, same process (WE56)", () => {
+  let testDir: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cors-reload-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+    resetConfigSnapshot();
+  });
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(testDir, { recursive: true, force: true });
+    resetConfigSnapshot();
+  });
+
+  it("allowZrokWildcard and allowedOrigins flip together on the very next request", async () => {
+    const { writeConfigPartial } = await import("../config-api.js");
+    const decide = (origin: string) =>
+      isCorsOriginAllowed(origin, {
+        configuredOrigins: liveCorsAllowedOrigins(),
+        trustedNetworks: liveTrustedNetworks(),
+        allowZrokWildcard: liveCorsAllowZrokWildcard(),
+      });
+    const probe = () => [decide("https://other.share.zrok.io"), decide("https://app.example")];
+    writeConfigPartial({ cors: { allowedOrigins: [] } });
+    expect(probe()).toEqual([false, false]);
+    writeConfigPartial({ cors: { allowedOrigins: ["https://app.example"], allowZrokWildcard: true } });
+    expect(probe()).toEqual([true, true]);
+    writeConfigPartial({ cors: { allowedOrigins: [], allowZrokWildcard: false } });
+    expect(probe()).toEqual([false, false]);
   });
 });

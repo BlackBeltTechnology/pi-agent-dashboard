@@ -127,6 +127,11 @@ export function liveCorsAllowedOrigins(fallback: string[] = []): string[] {
   return getConfigSnapshot().cors?.allowedOrigins ?? fallback;
 }
 
+/** `cors.allowZrokWildcard` as of this request (live; boolean `true` only). */
+export function liveCorsAllowZrokWildcard(): boolean {
+  return getConfigSnapshot().cors?.allowZrokWildcard === true;
+}
+
 /** Trusted networks as of this request (top-level ∪ `auth.bypassHosts`). */
 export function liveTrustedNetworks(fallback: string[] = []): string[] {
   return getConfigSnapshot().resolvedTrustedNetworks ?? fallback;

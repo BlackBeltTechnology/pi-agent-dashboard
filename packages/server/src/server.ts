@@ -164,6 +164,7 @@ import {
   liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
+  liveCorsAllowZrokWildcard,
   liveHostGateMode,
   livePreviewExposureOverride,
   livePublicBaseUrls,
@@ -2101,6 +2102,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // which single origin we mint OAuth URIs and set cookies for.
     // See change: add-zrok-custom-reserved-name (D4).
     getLiveTunnelOrigins: liveTunnelOrigins,
+    // Opt-in zrok wildcard for CORS READS only (B19); admission forces it off.
+    allowZrokWildcard: liveCorsAllowZrokWildcard(),
     allowedHosts: liveAllowedHosts(),
     publicBaseUrls: livePublicBaseUrls(),
     bindHost: config.host,
