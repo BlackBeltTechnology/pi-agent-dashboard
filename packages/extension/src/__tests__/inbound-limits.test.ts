@@ -72,8 +72,8 @@ const tick = () => new Promise((r) => setImmediate(r));
 
 /** Start a handler call that is awaited later (or deliberately left in flight); a rejection is recorded, never swallowed. */
 const unhandled: unknown[] = [];
-function fire(p: Promise<unknown>): void {
-  p.catch((e: unknown) => unhandled.push(e));
+function fire(result: unknown): void {
+  Promise.resolve(result).catch((e: unknown) => unhandled.push(e));
 }
 afterEach(() => {
   expect(unhandled.splice(0)).toEqual([]);
