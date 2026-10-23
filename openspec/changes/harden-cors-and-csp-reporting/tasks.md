@@ -22,7 +22,7 @@
 - [x] 2.13 Test WX2 (test-plan #WX2, L1): `getLiveTunnelOrigins` returning (`""`, `"not a url"`, `"https://abc.shares.zrok.io:99999"`, valid `https://abc.shares.zrok.io`), and a getter that throws; Origins `https://`, ` https://abc.shares.zrok.io ` (padded), `https://abc.shares.zrok.io\u0000`, a 10 KB origin · `classifyCorsOrigin` / `isOriginAdmitted` · no throw; malformed live entries skipped and the valid one still honoured; each malformed Origin denied (`allowed=false`); throwing getter ⇒ treated as no live tunnels (denied), not a 500 — harness exemplar: packages/server/src/__tests__/cors-origin-classification.test.ts
 - [x] 2.14 Add the `cors.allowZrokWildcard` config key (default `false`) with parse/validation in `packages/shared/src/config.ts` (and `config.ts.AGENTS.md` sidecar); verify the config test for default and explicit values
 - [x] 2.15 Narrow `auth/cors-origin.ts:156` read path to the active tunnel host and normalize origins (case, default port, trailing dot) at the tunnel-URL comparison (R2); verify each variant has a test; also covers the `live-server-preview` delta
-- [ ] 2.16 DOX closeout (`auth/AGENTS.md`, `shared/src/AGENTS.md`); document the new config key where the design names docs via DocScribe; verify the documented key matches `config.ts`
+- [x] 2.16 DOX closeout (`auth/AGENTS.md`, `shared/src/AGENTS.md`); document the new config key where the design names docs via DocScribe; verify the documented key matches `config.ts`
 
 ## 3. S3b — Strict CSP instrumentation and policy
 
@@ -91,7 +91,7 @@
 - [x] 3.63 Implement the strict nonce policy as a second Report-Only header in `auth/csp.ts` (default `report` unchanged; `enforce` = strict enforced, opt-in); the existing TT-only header keeps topology and every baseline carve-out and gains `report-uri`/`report-to` with label `trusted-types`; Vite dev emits NO strict header; verify with header tests per mode
 - [x] 3.64 Implement the report sink route (public path in the `oauth-authentication` allowlist) with its own byte-counting read (abort at 8 KiB incl. chunked bodies, independent of content-length / bodyLimit / parser order); sink `:policy` ∈ {baseline, strict, trusted-types}; verify chunked oversize → 413
 - [x] 3.65 Persisted violation counter with `dropped` count, TT counted in its own bucket never in the strict `script-src*` measure; `POST /api/csp-reports/reset` (operate tier, route-tier entry); health block key `cspReports`; leave `/api/csp-violations` untouched; verify `csp-violations-route.test.ts` still passes and counters survive a restart in a test
-- [ ] 3.66 DOX closeout (`auth/AGENTS.md`, `routes/AGENTS.md`); DocScribe writes the CSP rollout/rollback notes (`PI_DASHBOARD_CSP`) in the docs the design names; verify docs commands run as written
+- [x] 3.66 DOX closeout (`auth/AGENTS.md`, `routes/AGENTS.md`); DocScribe writes the CSP rollout/rollback notes (`PI_DASHBOARD_CSP`) in the docs the design names; verify docs commands run as written
 
 ## 4. B26r — Residual advisory triage
 

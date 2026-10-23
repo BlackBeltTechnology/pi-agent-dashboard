@@ -24,13 +24,13 @@ import path from "node:path";
 import { CSP_REPORT_POLICIES, type CspReportPolicy, isCspReportPolicy } from "./csp-report-paths.js";
 
 /** Debounce for counter-file writes (a change is on disk within this window). */
-export const FLUSH_DEBOUNCE_MS = 5_000;
+const FLUSH_DEBOUNCE_MS = 5_000;
 /** Distinct document paths kept per policy; the rest count under {@link OTHER_KEY}. */
-export const MAX_DOCUMENT_PATHS = 20;
+const MAX_DOCUMENT_PATHS = 20;
 const MAX_PATH_CHARS = 128;
 
-export const OTHER_KEY = "other";
-export const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for";
+const OTHER_KEY = "other";
+const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for";
 
 /** Fixed directive allow-set: anything else is counted under {@link OTHER_KEY}. */
 export const CSP_DIRECTIVE_ALLOW_SET: readonly string[] = [
@@ -81,7 +81,7 @@ export function strictScriptSrcMeasure(s: CspReportsSnapshot): number {
   return n;
 }
 
-export function defaultCspReportsPath(): string {
+function defaultCspReportsPath(): string {
   return path.join(os.homedir(), ".pi", "dashboard", "csp-reports.json");
 }
 

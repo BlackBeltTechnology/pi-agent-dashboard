@@ -112,3 +112,5 @@ Resolves `PI_DASHBOARD_TRUSTED_TYPES` with the CSP mode, passes it to `registerC
 `registerSessionRoutes` gets `uiLinks` (live public bases + tunnel origins + `auth.redirectBaseUrl`, `isHostAdmitted` on the host-gate ctx, `config.port`). See change: add-session-ui-deep-links-for-agents.
 
 Builds `fileRouteAdmission` (`knownFolderCwds` + `cwdAdmissionLogger`): passed to file, grep, package, canvas-types, resource-activation, openspec-group routes, `gateFilePath` (live preview `start-static` + per-asset proxy gate; a 503 adds `Retry-After`) and `createWatchFilesHandler` (`watch_files`). Addons routes get `knownCwds: knownFolderCwds`. See change: core-file-cwd-admission.
+
+Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZrokWildcard: liveCorsAllowZrokWildcard()`; `indexHtml` passes `cspNonceFor(reply)` to `sendIndexWithImportMap`; `proxyToVite` calls `markViteProxied`; `readCspReports` dep to system routes. See change: harden-cors-and-csp-reporting.

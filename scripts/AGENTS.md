@@ -83,7 +83,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
 | `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
 | `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
-| `__tests__/site-drift-decision.test.mjs` | E21–E23/X7–X9: drift decision table, marker boundaries, LAST path set, fetch/`gh` faults (git fixture repos + stub `curl`/`gh`). See change: add-missing-ci-legs. |
+| `__tests__/site-drift-decision.test.mjs` | → `__tests__/site-drift-decision.test.mjs.AGENTS.md` |
 | `__tests__/test-down-recorder.test.mjs` | `test-down.sh` teardown marker, ≤10 s destroy wait, dead/absent recorder (stub docker). See change: add-missing-ci-legs. |
 | `__tests__/test-up-recorder.test.mjs` | `test-up.sh` lifecycle recorder: state fields, events path, ordering, re-up idempotence, best-effort faults. See change: add-missing-ci-legs. |
 | `__tests__/test-up-oversubscribe-guard.test.mjs` | Vitest tests for the co-resident harness oversubscription… → see `__tests__/test-up-oversubscribe-guard.test.mjs.AGENTS.md` |
@@ -105,6 +105,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/verify-plugin-install-load.test.mjs` | Tests for `verify-plugin-install-load.mjs` (E8 scope filter always; |
 | `__tests__/verify-docker-plugin-load.test.mjs` | Tests for `verify-docker-plugin-load.mjs` (X12): harness-s… → see `__tests__/verify-docker-plugin-load.test.mjs.AGENTS.md` |
 | `__tests__/vitest-workers.test.mjs` | Guard over the vitest worker consolidation (test-plan E15-… → see `__tests__/vitest-workers.test.mjs.AGENTS.md` |
+| `check-advisory-triage.mjs` | → `check-advisory-triage.mjs.AGENTS.md` |
 | `check-client-sinks.mjs` | Client sink guard. → see `check-client-sinks.mjs.AGENTS.md` |
 | `check-conventions.mjs` | Deterministic half of the ship gate, run by `ship-it` step 4.4. → see `check-conventions.mjs.AGENTS.md` |
 | `check-e2e-fixture-import.mjs` | Guard: every `tests/e2e/*.spec.ts` MUST import `test` from `./fixtures.js`, never `@playwright/test` directly… → see `check-e2e-fixture-import.mjs.AGENTS.md` |

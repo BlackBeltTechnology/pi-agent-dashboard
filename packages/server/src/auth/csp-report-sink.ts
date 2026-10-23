@@ -24,9 +24,9 @@ import type { NetworkGuard } from "../routes/route-deps.js";
 import { CSP_REPORT_PREFIX, type CspReportPolicy, isCspReportPolicy } from "./csp-report-paths.js";
 import { type CspReportStore, normalizeDirective } from "./csp-report-store.js";
 
-export const CSP_REPORT_MAX_BYTES = 8 * 1024;
-export const BODY_DEADLINE_MS = 5_000;
-export const LIMITER_CAPACITY = 20;
+const CSP_REPORT_MAX_BYTES = 8 * 1024;
+const BODY_DEADLINE_MS = 5_000;
+const LIMITER_CAPACITY = 20;
 /** Integer bucket arithmetic: one token = 1000 units, refilled 1 unit per ms (exact; no float drift). */
 const TOKEN = 1_000;
 const CAPACITY_UNITS = LIMITER_CAPACITY * TOKEN;
@@ -41,7 +41,7 @@ const REPORT_TYPES = new Set(["application/csp-report", "application/reports+jso
 const SINK_METHODS = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"] as const;
 
 /** Per-peer token bucket: capacity {@link LIMITER_CAPACITY}, refilled 1 token/s; full + idle entries are evicted. */
-export class PeerLimiter {
+class PeerLimiter {
   private readonly peers = new Map<string, { units: number; at: number }>();
   private lastSweep = 0;
   private readonly now: () => number;

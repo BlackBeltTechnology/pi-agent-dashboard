@@ -22,7 +22,23 @@ const spawnSpies = vi.hoisted(() => ({
 }));
 vi.mock("node:child_process", () => ({ ...spawnSpies, default: spawnSpies }));
 
-import { checkTriage, checkXlsxPin, runCli } from "../../../../scripts/check-advisory-triage.mjs";
+// @ts-expect-error TS7016: scripts/*.mjs is untyped (a sibling .d.mts would be a dead file for the knip ratchet).
+import * as triageScript from "../../../../scripts/check-advisory-triage.mjs";
+
+interface CliIo {
+  readFile?: (path: string) => string;
+  stdout?: (line: string) => void;
+  stderr?: (line: string) => void;
+  root?: string;
+}
+const { checkTriage, checkXlsxPin, runCli } = triageScript as unknown as {
+  checkTriage(input: { snapshotText: string; triageText: string }): {
+    errors: Array<{ id: string; rule: string; message: string }>;
+    warnings: string[];
+  };
+  checkXlsxPin(input: { packageJsonText: string; lockText: string }): { errors: string[]; url?: string; version?: string };
+  runCli(argv: string[], io?: CliIo): number;
+};
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..", "..");
