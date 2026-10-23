@@ -993,21 +993,21 @@ The bridge SHALL bound concurrent bash per session (`!`/`!!` and `exec` slash te
 
 #### Scenario: Prompt flood is refused visibly
 
-- **GIVEN** a server connection sending `send_prompt` messages at a sustained rate far above any interactive rate and above the configured limit
-- **WHEN** the bridge's prompt allowance for that connection is exhausted
+- **GIVEN** a server sending `send_prompt` messages at a sustained rate far above any interactive rate and above the configured limit
+- **WHEN** the bridge process's prompt allowance is exhausted
 - **THEN** each further `send_prompt` SHALL be refused with a `command_feedback` error reported to the sender, not discarded without notice
 - **AND** prompts within the allowance SHALL still be handled
 - **AND** the allowance SHALL replenish over time so that later prompts are accepted again
 
 #### Scenario: Retry and commit draft share the prompt allowance
 
-- **GIVEN** a connection whose prompt allowance is exhausted
+- **GIVEN** a bridge process whose prompt allowance is exhausted
 - **WHEN** a `retry_session` or `git_commit_draft` message arrives on it
 - **THEN** the bridge SHALL refuse it with a `command_feedback` error and SHALL NOT start a turn
 
 #### Scenario: Flow run, plugin event and follow-up promotion share the prompt allowance
 
-- **GIVEN** a connection whose prompt allowance is exhausted
+- **GIVEN** a bridge process whose prompt allowance is exhausted
 - **WHEN** a flow `run`, a `plugin_emit_event` or a follow-up promotion message arrives on it
 - **THEN** the bridge SHALL refuse it with a `command_feedback` error, SHALL NOT start a turn, and SHALL NOT emit the plugin event
 - **AND** a flood of any mix of these commands SHALL consume the same single allowance as `send_prompt`
@@ -1026,7 +1026,7 @@ The bridge SHALL bound concurrent bash per session (`!`/`!!` and `exec` slash te
 - **THEN** the bridge SHALL allow a burst of 30 turn-starting commands and replenish 10 per second
 
 #### Scenario: Reconnect does not refill the allowance
-- **GIVEN** a connection whose prompt allowance is exhausted
+- **GIVEN** a bridge process whose prompt allowance is exhausted
 - **WHEN** the connection to the server drops and is re-established
 - **THEN** the allowance SHALL remain exhausted until it replenishes with time
 

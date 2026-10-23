@@ -392,22 +392,35 @@ describe("prompt bucket", () => {
     expect(feedbacks(s.h.connection)).toEqual([]);
   });
 
-  it("BE15: connections are independent; a reconnect (same manager) never refills", async () => {
+  it("BE15: two connections of ONE bridge process share one bucket; a reconnect never refills", async () => {
     const limits = createInboundLimits({ env: { PI_DASHBOARD_BRIDGE_PROMPT_RATE: `${B}/${R}` }, now: () => 0 });
     const c1 = setup({ limits });
     const c2 = setup({ limits });
+    // Same process: same process-global state (the key the bucket is taken on).
+    (c2.h.inst as { shared: object }).shared = (c1.h.inst as { shared: object }).shared;
     for (let i = 0; i < B; i++) await run(c1.h as never, { type: "send_prompt", sessionId: "S1", text: "x" });
     await run(c1.h as never, { type: "send_prompt", sessionId: "S1", text: "refused" });
     expect(feedbacks(c1.h.connection)).toHaveLength(1);
 
-    await run(c2.h as never, { type: "send_prompt", sessionId: "S1", text: "ok" });
-    expect(c2.handle).toHaveBeenCalledTimes(1);
-    expect(feedbacks(c2.h.connection)).toEqual([]);
+    // C2 spends the SAME allowance: refused too, nothing handled.
+    await run(c2.h as never, { type: "send_prompt", sessionId: "S1", text: "also-refused" });
+    expect(c2.handle).not.toHaveBeenCalled();
+    expect(feedbacks(c2.h.connection)).toHaveLength(1);
 
-    // "drop and reconnect": the manager object is unchanged → still refused.
+    // "drop and reconnect": the connection object is irrelevant to the key → still refused.
     await run(c1.h as never, { type: "send_prompt", sessionId: "S1", text: "after-reconnect" });
     expect(c1.handle).toHaveBeenCalledTimes(B);
     expect(feedbacks(c1.h.connection)).toHaveLength(2);
+  });
+
+  it("BE15b: a separate bridge process (its own shared state) has its own full allowance", async () => {
+    const limits = createInboundLimits({ env: { PI_DASHBOARD_BRIDGE_PROMPT_RATE: `${B}/${R}` }, now: () => 0 });
+    const p1 = setup({ limits });
+    const p2 = setup({ limits }); // distinct makeStubInstance ⇒ distinct `shared`
+    for (let i = 0; i < B; i++) await run(p1.h as never, { type: "send_prompt", sessionId: "S1", text: "x" });
+    await run(p2.h as never, { type: "send_prompt", sessionId: "S1", text: "ok" });
+    expect(p2.handle).toHaveBeenCalledTimes(1);
+    expect(feedbacks(p2.h.connection)).toEqual([]);
   });
 
   it("a /reload (new ConnectionManager, same process state) does not refill the bucket", async () => {

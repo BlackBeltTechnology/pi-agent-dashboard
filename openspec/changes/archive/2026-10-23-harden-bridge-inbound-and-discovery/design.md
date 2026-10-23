@@ -38,12 +38,12 @@ Constraints that shape the approach:
 
 5000 and 60000 are honoured exactly. A test asserts `MAX ≥ 2 × max(sent)`. MODIFIES server-restart "Bridges pause auto-start during quiesce window".
 
-*Inbound limits* — the spec is qualitative with floors: bounded concurrent bash per session, bounded inbound prompt rate per connection, limits configurable, refusals visible (never silent), normal use not throttled. ADDS bridge-extension "Inbound command bounds".
+*Inbound limits* — the spec is qualitative with floors: bounded concurrent bash per session, bounded inbound prompt rate per bridge process, limits configurable, refusals visible (never silent), normal use not throttled. ADDS bridge-extension "Inbound command bounds".
 - *Bash bound* covers every `handleBashCommand` caller (`extension/src/command-handler.ts`): `!`/`!!` (`:718`) and exec slash templates (`:1392`). 30 s timeout `:434`.
 - *Prompt bucket* covers every turn-starting inbound command: `send_prompt` (`:661`), `retry_session` (`:965`), `git_commit_draft` (`:1039`); and in `bridge-handlers/dispatch.ts`: `flow_management` `run` (`:184-186`), `plugin_emit_event` (`:326-332`), `promote_followup_entry` (`:430-434`).
 - *Config:* `PI_DASHBOARD_BRIDGE_MAX_BASH`, `PI_DASHBOARD_BRIDGE_PROMPT_RATE`, with defaults.
 - *Refusal:* reuses the existing extension→server path for a refused `send_prompt`: `prompt_received` plus an `event_forward` of `command_feedback {command, status:"error", message}` (`command-handler.ts:674-685`), which settles the optimistic bubble and shows the user an inline error. No new message type.
-- **Provisional defaults** (design only): 4 bash in flight per session; prompt bucket burst 30, refill 10/s per connection. The follow-up cap is unchanged (`followup-buffer.ts:13,53`).
+- **Provisional defaults** (design only): 4 bash in flight per session; prompt bucket burst 30, refill 10/s per bridge process. The follow-up cap is unchanged (`followup-buffer.ts:13,53`).
 - *Measurement task* (performance-optimization) sets final defaults before landing: replay automation per run (`automation-plugin/src/server/index.ts:455`), the `/reload` fan-out (`session-action-handler.ts:95,185`), flows and chat-gateway; defaults ≥3× the observed peak.
 
 *Alternatives:* server-side limiter only (no protection against a rogue server, see R4); drop-oldest (silent loss).
@@ -75,7 +75,7 @@ MODIFIES mdns-discovery "Guarded migration away from an established bridge"; ADD
 
 Method: static trace of every producer of an inbound turn-starting command, then a fake-clock replay (test BP1) of each workload against the **default** limits. Production traffic cannot be sampled from a worktree, so the peaks below are the *upper bounds the code permits*, not telemetry. The bucket and the bash counter are **per bridge connection / per session**, so fan-out across sessions never concentrates on one bucket.
 
-| Producer | Code | Inbound prompts per bridge connection |
+| Producer | Code | Inbound prompts per bridge process |
 |---|---|---|
 | Interactive typing / paste | composer → `send_prompt` | human-bound; ≤ 3/s sustained, ≤ 8 back-to-back (paste + queued follow-up drain on `agent_settled`, `followup-buffer.ts` cap 20 drains one entry per settle) |
 | Automation run | `automation-plugin/src/server/index.ts:455` `sendToSession` | exactly 1 per spawned run session (per-session bridge) |
