@@ -32,7 +32,7 @@
 import { createHash } from "node:crypto";
 import { realpathAsync, remoteUrlOrAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { VaultReportMessage, VaultSnapshotMessage, VaultSyncRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import { stripRemoteCredentials } from "@blackbelt-technology/pi-dashboard-shared/remote-credentials.js";
+import { remoteForWire } from "@blackbelt-technology/pi-dashboard-shared/remote-credentials.js";
 import {
   clampVaultGraceHours,
   isDeliverableEnvName,
@@ -268,7 +268,7 @@ export function createVaultDelivery(deps: VaultDeliveryDeps): VaultDelivery {
     if (!supported) return;
     // Raw origin, userinfo-stripped, never normalized; unparseable-with-userinfo
     // → undefined → no origin sent. See change: harden-bridge-inbound-and-discovery (D18).
-    const origin = project?.origin ? stripRemoteCredentials(project.origin) : undefined;
+    const origin = project?.origin ? remoteForWire(project.origin) : undefined;
     try {
       deps.send({
         type: "vault_sync_request",

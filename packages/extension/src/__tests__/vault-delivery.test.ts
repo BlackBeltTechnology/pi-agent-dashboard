@@ -337,3 +337,14 @@ describe("BE18: vault_sync_request origin is raw, userinfo-stripped, never norma
     }
   });
 });
+
+describe("BE18: a query token never rides the origin", () => {
+  it("strips ?query and #fragment from the wire origin", async () => {
+    const d = mk({ resolveProject: async (cwd) => ({ dir: cwd, origin: "https://github.com/o/r?access_token=SECRET" }) });
+    identity(d);
+    await d.onSessionStart({ reason: "startup", getCwd: () => "/work/p" });
+    const req = sent.filter((m) => m.type === "vault_sync_request").at(-1) as { origin?: string };
+    expect(req.origin).toBe("https://github.com/o/r");
+    expect(JSON.stringify(sent)).not.toContain("SECRET");
+  });
+});

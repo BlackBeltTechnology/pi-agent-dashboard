@@ -78,3 +78,14 @@ describe("stripRemoteCredentials hardening", () => {
     expect(stripRemoteCredentials("https://host/o/r?next=a@b")).toBe("https://host/o/r?next=a@b"); // `@` only after the first `/`
   });
 });
+
+describe("remoteForWire", () => {
+  it("drops credentials AND a query/fragment from URL forms; leaves scp and plain URLs alone", async () => {
+    const { remoteForWire } = await import("../remote-credentials.js");
+    expect(remoteForWire("https://u:p@github.com/o/r?access_token=SECRET#f")).toBe("https://github.com/o/r");
+    expect(remoteForWire("https://github.com/o/r?token=SECRET")).toBe("https://github.com/o/r");
+    expect(remoteForWire("https://github.com/o/r")).toBe("https://github.com/o/r");
+    expect(remoteForWire("git@github.com:o/r.git")).toBe("git@github.com:o/r.git");
+    expect(remoteForWire("https://user:pass@")).toBeUndefined();
+  });
+});

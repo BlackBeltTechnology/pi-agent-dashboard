@@ -22,7 +22,7 @@ import type { BridgeInstance } from "./instance.js";
 /** Handle one inbound server message. Called by the connection's `onMessage` (wrapped in `safe`). */
 /**
  * Name of the turn-starting inbound command carried by `msg`, or `undefined`.
- * Every entry here spends one token of the per-connection prompt bucket;
+ * Every entry here spends one token of the per-PROCESS prompt bucket;
  * the list is exhaustive for commands that can start a turn or fan out into
  * one (D17). Keep in step with the `Inbound command bounds` spec.
  */

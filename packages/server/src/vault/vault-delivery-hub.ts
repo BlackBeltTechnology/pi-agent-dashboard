@@ -21,7 +21,7 @@
  */
 
 import type { VaultReportMessage, VaultSnapshotMessage, VaultSyncRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import { stripRemoteCredentials } from "@blackbelt-technology/pi-dashboard-shared/remote-credentials.js";
+import { remoteForWire } from "@blackbelt-technology/pi-dashboard-shared/remote-credentials.js";
 import { clampVaultGraceHours, type VaultDeliveryOutcome } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { normalizeOrigin, type SessionProject } from "@blackbelt-technology/pi-dashboard-shared/vault-project-key.js";
 import { type SessionOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
@@ -254,7 +254,7 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
       // and all. The stored origin (and so the persisted project record and the
       // derived repoKey) never carries a credential.
       // See change: harden-bridge-inbound-and-discovery (D18).
-      rec.origin = typeof msg.origin === "string" ? stripRemoteCredentials(msg.origin) : undefined;
+      rec.origin = typeof msg.origin === "string" ? remoteForWire(msg.origin) : undefined;
       rec.tracked = new Set(Array.isArray(msg.tracked) ? msg.tracked.filter((n) => typeof n === "string") : []);
       rec.reported = new Map();
       sessions.set(sessionId, rec);

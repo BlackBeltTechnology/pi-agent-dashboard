@@ -49,3 +49,15 @@ export function stripRemoteCredentials(raw: string): string | undefined {
   const user = colon === -1 ? userinfo : userinfo.slice(0, colon);
   return user ? `${scheme}://${user}@${hostPort}${rest}` : `${scheme}://${hostPort}${rest}`;
 }
+
+/**
+ * The remote as it may LEAVE the bridge (or be stored by the hub): credentials
+ * stripped, and for a URL form also any `?query` / `#fragment` (a token riding
+ * in `?access_token=…` is as much a secret as userinfo, and is never part of the
+ * repository path). scp and other non-URL forms pass through untouched.
+ */
+export function remoteForWire(raw: string): string | undefined {
+  const stripped = stripRemoteCredentials(raw);
+  if (stripped === undefined || !SCHEMED.test(stripped)) return stripped;
+  return stripped.replace(/[?#].*$/s, "");
+}
