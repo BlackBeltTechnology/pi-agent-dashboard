@@ -164,3 +164,77 @@ describe("registry routing (tool-registry resolve seam)", () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+describe("BE29 dash-leading media paths are absolute at every ffmpeg.ts spawn site", () => {
+  const names = ["-i.mp4", "--help.mp4", "-", "--", "-x y.mp4", "./-i.mp4", "/abs/in.mp4"];
+  const SPAWN_CWD = "/spawn/cwd";
+
+  const withCwd = async (fn: () => Promise<void>) => {
+    const spy = vi.spyOn(process, "cwd").mockReturnValue(SPAWN_CWD);
+    try {
+      await fn();
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  const expected = (n: string) => (path.isAbsolute(n) ? n : path.join(SPAWN_CWD, n));
+
+  it.each(names)("extractAudio input and output for %s", async (name) => {
+    await withCwd(async () => {
+      const calls: string[][] = [];
+      const run: Runner = async (_f, args) => {
+        calls.push(args);
+        return { stdout: "", stderr: "" };
+      };
+      await extractAudio(name, { output: name === "/abs/in.mp4" ? "/abs/out.mp3" : name }, run, bareName);
+      const args = calls[0];
+      expect(args[args.indexOf("-i") + 1]).toBe(expected(name));
+      const out = args[args.length - 1];
+      expect(path.isAbsolute(out)).toBe(true);
+      expect(out.startsWith("-")).toBe(false);
+      if (name === "/abs/in.mp4") expect(out).toBe("/abs/out.mp3");
+    });
+  });
+
+  it.each(names)("getDurationSeconds ffprobe input for %s", async (name) => {
+    await withCwd(async () => {
+      const calls: string[][] = [];
+      const run: Runner = async (_f, args) => {
+        calls.push(args);
+        return { stdout: "1", stderr: "" };
+      };
+      await getDurationSeconds(name, run, bareName);
+      expect(calls[0][calls[0].length - 1]).toBe(expected(name));
+    });
+  });
+
+  it.each(names)("extractChunk input and destination for %s", async (name) => {
+    await withCwd(async () => {
+      const calls: string[][] = [];
+      const run: Runner = async (_f, args) => {
+        calls.push(args);
+        return { stdout: "", stderr: "" };
+      };
+      await extractChunk(name, 0, 10, name, run, bareName);
+      const args = calls[0];
+      expect(args[args.indexOf("-i") + 1]).toBe(expected(name));
+      expect(args[args.length - 1]).toBe(expected(name));
+      expect(args.filter((a) => a.startsWith("-") && a.length > 1 && !["-y", "-ss", "-t", "-i", "-vn", "-acodec", "-q:a"].includes(a))).toEqual([]);
+    });
+  });
+
+  it("the file named -i.mp4 is the one opened (absolute path is passed, not the bare name)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ff-dash-"));
+    try {
+      fs.writeFileSync(path.join(dir, "-i.mp4"), "x");
+      const spy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+      const calls: string[][] = [];
+      await getDurationSeconds("-i.mp4", async (_f, a) => (calls.push(a), { stdout: "1", stderr: "" }), bareName);
+      spy.mockRestore();
+      expect(fs.existsSync(calls[0][calls[0].length - 1])).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

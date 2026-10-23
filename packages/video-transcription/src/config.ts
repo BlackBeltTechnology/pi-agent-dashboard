@@ -64,6 +64,8 @@ export interface LoadConfigOptions {
   cwd?: string;
   /** Directory to search for a fallback `.env` after cwd. Defaults to the package dir. */
   skillDir?: string;
+  /** Receives one line per ignored invalid setting. Defaults to `console.warn`. */
+  warn?: (msg: string) => void;
 }
 
 /** Parse a `.env` file body into a flat map. Ignores comments and blank lines. */
@@ -102,10 +104,25 @@ function parsePositiveFloat(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function parseNonNegativeFloat(raw: string | undefined, fallback: number): number {
-  if (raw === undefined) return fallback;
-  const n = Number.parseFloat(raw);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
+/**
+ * Parse a limit in whole megabytes (1 MB = 1024² bytes): a non-negative integer
+ * (`0` = disabled), else `fallback` with one `warn` line. Strict: `1.5`, `-1`,
+ * `NaN`, `abc` and trailing garbage are all invalid.
+ */
+function parseWholeMb(
+  name: string,
+  raw: string | undefined,
+  fallback: number,
+  warn: (msg: string) => void,
+): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const n = Number(trimmed);
+    if (Number.isSafeInteger(n)) return n;
+  }
+  warn(`Invalid ${name} "${raw}": expected a whole number of MB >= 0; using ${fallback}.`);
+  return fallback;
 }
 
 /**
@@ -181,7 +198,12 @@ export function loadConfig(opts: LoadConfigOptions = {}): Config {
     };
   });
 
-  const maxAudioMb = parseNonNegativeFloat(env.MAX_AUDIO_MB, DEFAULT_MAX_AUDIO_MB);
+  const maxAudioMb = parseWholeMb(
+    "MAX_AUDIO_MB",
+    env.MAX_AUDIO_MB,
+    DEFAULT_MAX_AUDIO_MB,
+    opts.warn ?? ((m) => console.warn(m)),
+  );
   const concurrency = parseConcurrency(env.TRANSCRIBE_CONCURRENCY, DEFAULT_CONCURRENCY);
   const maxSpeakers = Number.parseInt(env.TRANSCRIBE_MAX_SPEAKERS ?? "", 10);
 

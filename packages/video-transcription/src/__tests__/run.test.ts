@@ -268,3 +268,123 @@ describe("run with both backends", () => {
     expect(fs.readFileSync(path.join(dir, "a.diarize.srt"), "utf8")).toBe("srt-from-assemblyai");
   });
 });
+
+describe("extracted audio size limit (BE27/BE28/BP6/BX8)", () => {
+  const MB = 1024 * 1024;
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-limit-"));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const L = 200 * MB;
+  const setup = (maxAudioMb: number, bytes: number | Error, over: Partial<RunDeps> = {}) => {
+    const video = path.join(dir, "v.mp4");
+    fs.writeFileSync(video, "x");
+    const errors: string[] = [];
+    const statAudioBytes = vi.fn(async () => {
+      if (bytes instanceof Error) throw bytes;
+      return bytes;
+    });
+    const deps = makeDeps({
+      loadConfig: () => ({ ...cfg, maxAudioMb }),
+      statAudioBytes,
+      error: (m) => errors.push(m),
+      ...over,
+    });
+    return { deps, errors, statAudioBytes };
+  };
+
+  it.each([
+    [209_715_199, true],
+    [209_715_200, true],
+    [209_715_201, false],
+    [367_001_600, false],
+    [0, true],
+  ])("BE27 %i bytes at limit 200 MB → proceeds=%s", async (bytes, proceeds) => {
+    const { deps, errors } = setup(200, bytes);
+    const summary = await run([dir], deps);
+    expect(summary.newlyTranscribed).toBe(proceeds ? 1 : 0);
+    expect(summary.failed).toBe(proceeds ? 0 : 1);
+    expect(deps.transcribe).toHaveBeenCalledTimes(proceeds ? 1 : 0);
+    if (!proceeds) {
+      expect(errors.join("\n")).toContain("200.0");
+      expect(errors.join("\n")).toContain(`${(bytes / MB).toFixed(1)}`);
+    }
+  });
+
+  it("BE27 350 MB error names 200.0 and 350.0 and calls no upload/transcription", async () => {
+    const { deps, errors } = setup(200, 367_001_600);
+    await run([dir], deps);
+    expect(errors.join("\n")).toMatch(/350\.0 MB.*200\.0 MB/);
+    expect(deps.transcribe).not.toHaveBeenCalled();
+    expect(deps.makeService).toBeDefined();
+  });
+
+  it("BE27 limit 0 disables the check (350 MB proceeds, stat not required)", async () => {
+    const { deps } = setup(0, 367_001_600);
+    const summary = await run([dir], deps);
+    expect(summary.newlyTranscribed).toBe(1);
+  });
+
+  it("BE28 1 MB = 1024² bytes: 1048576 accepted, 1048577 refused", async () => {
+    expect((await run([dir], setup(1, 1_048_576).deps)).newlyTranscribed).toBe(1);
+    fs.rmSync(path.join(dir, "v.srt"), { force: true });
+    expect((await run([dir], setup(1, 1_048_577).deps)).failed).toBe(1);
+  });
+
+  it("BE28 limit applies to the extracted audio, not the source video size", async () => {
+    const big = setup(200, 10 * MB);
+    fs.writeFileSync(path.join(dir, "v.mp4"), Buffer.alloc(2 * MB));
+    expect((await run([dir], big.deps)).newlyTranscribed).toBe(1);
+    expect(big.statAudioBytes).toHaveBeenCalledWith(extractedAudioPath(path.join(dir, "v.mp4")));
+  });
+
+  it("BE28 5 MB source with 350 MB extracted audio at MAX_AUDIO_MB=50 is refused naming 50 and 350", async () => {
+    const { deps, errors } = setup(50, 350 * MB);
+    await run([dir], deps);
+    expect(errors.join("\n")).toMatch(/350\.0 MB.*50\.0 MB/);
+  });
+
+  it("BP6 default stat reads metadata only and runs before any transcribe call", async () => {
+    const video = path.join(dir, "v.mp4");
+    fs.writeFileSync(video, "x");
+    const order: string[] = [];
+    const deps = makeDeps({
+      loadConfig: () => ({ ...cfg, maxAudioMb: 1 }),
+      extractAudio: vi.fn(async (src: string) => {
+        const out = extractedAudioPath(src);
+        fs.closeSync(fs.openSync(out, "w"));
+        fs.truncateSync(out, 350 * MB); // sparse: no bytes are written
+        return out;
+      }),
+      transcribe: vi.fn(async () => {
+        order.push("transcribe");
+        return fakeSrt;
+      }),
+    });
+    const statSpy = vi.spyOn(fs.promises, "stat");
+    const readSpy = vi.spyOn(fs.promises, "readFile");
+    const summary = await run([dir], deps);
+    expect(summary.failed).toBe(1);
+    expect(statSpy).toHaveBeenCalled();
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+    statSpy.mockRestore();
+    readSpy.mockRestore();
+  });
+
+  it.each([
+    ["ENOENT", "ENOENT"],
+    ["EACCES", "EACCES"],
+  ])("BX8 stat failure (%s) fails the run closed, nothing uploaded", async (_n, code) => {
+    const err = Object.assign(new Error(`${code}: stat failed`), { code });
+    const { deps, errors } = setup(200, err);
+    const summary = await run([dir], deps);
+    expect(summary.failed).toBe(1);
+    expect(errors.join("\n")).toContain(code);
+    expect(deps.transcribe).not.toHaveBeenCalled();
+  });
+});

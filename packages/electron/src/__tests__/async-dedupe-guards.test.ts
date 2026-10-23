@@ -80,6 +80,7 @@ describe("E4: doctor:run dedupes concurrent runs (inFlightRun !== null)", () => 
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
   class FakeBrowserWindow {
+    webContents = { setWindowOpenHandler: (): void => {}, on: (): void => {} };
     isDestroyed(): boolean {
       return false;
     }

@@ -27,8 +27,8 @@ import {
 export type Backend = "gemini" | "pi";
 export const isBackend = (value: unknown): value is Backend => value === "gemini" || value === "pi";
 
-/** Underlying CLI package spawned via `npx`. */
-export const NANO_BANANA_PKG = "@the-focus-ai/nano-banana";
+/** Underlying CLI package spawned via `npx`, pinned to an exact version (never `@latest`). */
+export const NANO_BANANA_PKG = "@the-focus-ai/nano-banana@1.0.10";
 
 export interface GenerateImageOptions extends ResolveKeyOptions, PiSeams {
   /** Text prompt (or edit instruction when `file` is set). */
@@ -74,24 +74,77 @@ export type NanoBananaRunner = (
   env: NodeJS.ProcessEnv,
 ) => Promise<{ code: number; stderr: string }>;
 
-/** Default runner: `npx -y @the-focus-ai/nano-banana <args>` with GEMINI_API_KEY in env. */
-export const npxRunner: NanoBananaRunner = async (args, env) => {
-  const { argv, spawnOptions } = buildSafeArgv("npx", ["-y", NANO_BANANA_PKG, ...args]);
-  try {
-    await execFileAsync(argv[0], argv.slice(1), { env, ...spawnOptions });
-    return { code: 0, stderr: "" };
-  } catch (err) {
-    const e = err as { code?: number; stderr?: string | Buffer };
-    return {
-      code: typeof e.code === "number" ? e.code : 1,
-      stderr: (e.stderr ?? "").toString(),
-    };
-  }
-};
+/** Seams for `createNpxRunner` (tests inject fakes; defaults are the real platform). */
+export interface NpxRunnerDeps {
+  platform?: NodeJS.Platform;
+  execPath?: string;
+  exists?: (p: string) => boolean;
+  exec?: typeof execFileAsync;
+}
 
-/** Build the CLI argument vector for a single generation. */
+/**
+ * win32 only: npm's `npx-cli.js` next to the node binary (`<dir>/node_modules/...`,
+ * else `<dir>/../lib/node_modules/...`). Running it under node directly keeps every
+ * argument out of `cmd.exe`. Returns `undefined` when neither exists.
+ */
+export function resolveNpxCli(execPath: string, exists: (p: string) => boolean = fs.existsSync): string | undefined {
+  const dir = path.dirname(execPath);
+  const candidates = [
+    path.join(dir, "node_modules", "npm", "bin", "npx-cli.js"),
+    path.join(dir, "..", "lib", "node_modules", "npm", "bin", "npx-cli.js"),
+  ];
+  return candidates.find((c) => exists(c));
+}
+
+/**
+ * Build the default runner: `npx -y @the-focus-ai/nano-banana@<pinned> <args>` with
+ * GEMINI_API_KEY in env. On win32 there is NO cmd.exe path: npx's JS entry runs under
+ * `process.execPath`; when it is not resolvable the run is refused (nothing spawned).
+ */
+export function createNpxRunner(deps: NpxRunnerDeps = {}): NanoBananaRunner {
+  return async (args, env) => {
+    const platform = deps.platform ?? process.platform;
+    const exec = deps.exec ?? execFileAsync;
+    let file: string;
+    let fileArgs: string[];
+    let spawnOptions: { shell: false; windowsHide: true };
+    if (platform === "win32") {
+      const execPath = deps.execPath ?? process.execPath;
+      const cli = resolveNpxCli(execPath, deps.exists);
+      if (!cli) {
+        return {
+          code: 1,
+          stderr:
+            "npx's entry (npm/bin/npx-cli.js) was not found next to node; " +
+            "image generation cannot run safely on Windows without it.",
+        };
+      }
+      file = execPath;
+      fileArgs = [cli, "-y", NANO_BANANA_PKG, ...args];
+      spawnOptions = { shell: false, windowsHide: true };
+    } else {
+      const safe = buildSafeArgv("npx", ["-y", NANO_BANANA_PKG, ...args], platform);
+      [file, ...fileArgs] = safe.argv;
+      spawnOptions = safe.spawnOptions;
+    }
+    try {
+      await exec(file, fileArgs, { env, ...spawnOptions });
+      return { code: 0, stderr: "" };
+    } catch (err) {
+      const e = err as { code?: number; stderr?: string | Buffer };
+      return {
+        code: typeof e.code === "number" ? e.code : 1,
+        stderr: (e.stderr ?? "").toString(),
+      };
+    }
+  };
+}
+
+export const npxRunner: NanoBananaRunner = createNpxRunner();
+
+/** Build the CLI argument vector for a single generation. The prompt is a `--prompt` value, never positional. */
 export function buildArgs(opts: GenerateImageOptions): string[] {
-  const args = [opts.prompt];
+  const args = ["--prompt", opts.prompt];
   if (opts.file) args.push("--file", opts.file);
   if (opts.output) args.push("--output", opts.output);
   if (opts.model) args.push("--model", opts.model);

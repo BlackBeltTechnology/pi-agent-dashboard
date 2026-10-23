@@ -92,3 +92,51 @@ describe("makeEmbedWindow", () => {
     source.close();
   });
 });
+
+describe("BE30 dash-leading paths in decode / discover / voice sample", () => {
+  it("decodeAudio passes an absolute input and an absolute output even for `-out.wav`", async () => {
+    const dir = tmp();
+    const spy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+    try {
+      const seen: string[][] = [];
+      const run: Runner = async (_f, args) => {
+        seen.push(args);
+        fs.writeFileSync(args[args.length - 1], Buffer.alloc(8));
+        return { stdout: "", stderr: "" };
+      };
+      const source = await decodeAudio("-voice.wav", run, () => "ffmpeg", { output: "-out.wav" });
+      const args = seen[0];
+      expect(args[args.indexOf("-i") + 1]).toBe(path.join(dir, "-voice.wav"));
+      expect(args[args.length - 1]).toBe(path.join(dir, "-out.wav"));
+      source.close();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("an absolute input is passed byte-identical", async () => {
+    const out = path.join(tmp(), "a.f32");
+    const seen: string[][] = [];
+    const run: Runner = async (_f, args) => {
+      seen.push(args);
+      fs.writeFileSync(args[args.length - 1], Buffer.alloc(8));
+      return { stdout: "", stderr: "" };
+    };
+    const source = await decodeAudio("/abs/in.mp4", run, () => "ffmpeg", { output: out });
+    expect(seen[0][seen[0].indexOf("-i") + 1]).toBe("/abs/in.mp4");
+    source.close();
+  });
+
+  it("voice sample `-voice.wav`: getDurationSeconds receives an absolute path", async () => {
+    const { getDurationSeconds } = await import("../ffmpeg.js");
+    const dir = tmp();
+    const spy = vi.spyOn(process, "cwd").mockReturnValue(dir);
+    try {
+      const seen: string[][] = [];
+      await getDurationSeconds("-voice.wav", async (_f, a) => (seen.push(a), { stdout: "2", stderr: "" }), () => "ffprobe");
+      expect(seen[0][seen[0].length - 1]).toBe(path.join(dir, "-voice.wav"));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

@@ -43,6 +43,8 @@ export interface RunDeps {
   isFfmpegAvailable: () => Promise<boolean>;
   makeService: (target: BackendTarget, cfg: Config) => TranscribeService;
   extractAudio: (src: string) => Promise<string>;
+  /** Size in bytes of the extracted audio. Defaults to `fs.promises.stat`. Rejects → the run fails closed. */
+  statAudioBytes?: (audioPath: string) => Promise<number>;
   transcribe: (service: TranscribeService, audioPath: string, chunkSeconds: number) => Promise<string>;
   log: (msg: string) => void;
   warn: (msg: string) => void;
@@ -80,6 +82,25 @@ async function runPool(
   await Promise.all(Array.from({ length: Math.min(width, size) }, () => worker()));
 }
 
+const BYTES_PER_MB = 1024 * 1024;
+const formatMb = (mb: number): string => mb.toFixed(1);
+
+/**
+ * Refuse extracted audio larger than `maxAudioMb` (1 MB = 1024² bytes; `0` disables)
+ * BEFORE any upload. Metadata only (`stat`); a failing `stat` fails the run closed.
+ */
+async function assertAudioWithinLimit(audioPath: string, cfg: Config, deps: RunDeps): Promise<void> {
+  if (cfg.maxAudioMb === 0) return;
+  const stat = deps.statAudioBytes ?? (async (p: string) => (await fs.promises.stat(p)).size);
+  const bytes = await stat(audioPath);
+  if (bytes > cfg.maxAudioMb * BYTES_PER_MB) {
+    throw new Error(
+      `Extracted audio is ${formatMb(bytes / BYTES_PER_MB)} MB, over the ${formatMb(cfg.maxAudioMb)} MB limit ` +
+        `(MAX_AUDIO_MB=${cfg.maxAudioMb}); nothing was uploaded. Raise MAX_AUDIO_MB or set it to 0 to disable.`,
+    );
+  }
+}
+
 /**
  * Resolve the audio to transcribe: the file itself, or its extracted sibling
  * `.mp3` for a video. Extraction happens once per file even when several
@@ -89,6 +110,7 @@ async function runPool(
 async function resolveAudio(
   filepath: string,
   ffmpegOk: boolean,
+  cfg: Config,
   deps: RunDeps,
 ): Promise<string | undefined> {
   if (!isVideo(filepath)) return filepath;
@@ -105,6 +127,7 @@ async function resolveAudio(
     deps.log("  Extracting audio...");
     await deps.extractAudio(filepath);
   }
+  await assertAudioWithinLimit(mp3Path, cfg, deps);
   return mp3Path;
 }
 
@@ -152,7 +175,7 @@ async function processFile(
   ffmpegOk: boolean,
   deps: RunDeps,
 ): Promise<FileOutcome> {
-  const audioPath = await resolveAudio(filepath, ffmpegOk, deps);
+  const audioPath = await resolveAudio(filepath, ffmpegOk, cfg, deps);
   if (audioPath === undefined) return "failed";
 
   const outcomes: FileOutcome[] = [];
