@@ -67,7 +67,7 @@ NOT depend on viewport dimensions.
 
 #### Scenario: Multi-card selection spanning rows near the window edge
 - **WHEN** the user selects text spanning multiple cards AND transcript churn would otherwise unmount one endpoint row
-- **THEN** every row the selection intersects SHALL stay mounted and the selection SHALL remain intact
+- **THEN** the selection SHALL remain intact AND, when its row span is within the retained-row ceiling, every row it intersects SHALL stay mounted (past the ceiling, only the endpoint rows)
 
 #### Scenario: Drag past the retained-row ceiling keeps the selection
 - **WHEN** the user drag-selects (mouse or touch, with auto-scroll or wheel scrolling) across more rows than the retained-row ceiling

@@ -72,9 +72,9 @@ vi.mock("../../lib/chat/chat-selection-copy.js", async (importActual) => {
     },
   };
 });
-vi.mock("../terminal/InlineTerminalCard.js", () => ({
-  InlineTerminalCard: () => <div>terminal ready</div>,
-}));
+// The lazy terminal chunk never resolves, so an `inlineTerminal` row stays on its
+// Suspense fallback — exactly what a copy-only row shows before its chunk has loaded.
+vi.mock("../terminal/InlineTerminalCard.js", () => new Promise(() => {}));
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
@@ -429,7 +429,13 @@ describe("ChatView full-span copy (D2/D3/D7)", () => {
       60: { role: "inlineTerminal", content: "", args: { terminalId: "t1" } } as never,
     });
     const view = await mountSelected(state, 3, 130, [3, 130]);
+    // At copy time the terminal row must be rendering its Suspense fallback.
+    let fallbackDuringCopy = false;
+    hooks.onSerialize = () => {
+      fallbackDuringCopy = !!view.scrollEl.querySelector('[data-index="60"] [aria-label="Loading terminal"]');
+    };
     const { text, prevented } = dispatchCopy(view.scrollEl);
+    expect(fallbackDuringCopy).toBe(true);
     expect(prevented).toBe(true);
     for (const i of [3, 59, 61, 130]) expect(text).toContain(marker(i));
   });

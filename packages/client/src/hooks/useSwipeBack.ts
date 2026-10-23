@@ -128,6 +128,13 @@ export function useSwipeBack({ enabled, onBack, edgeZone = 40, threshold = 0.4 }
       }
       trackingRef.current = false;
 
+      // A selection that formed after the last touchmove must not navigate away.
+      if (hasPageTextSelection()) {
+        currentOffsetRef.current = 0;
+        setSwipeState({ offset: 0, swiping: false });
+        return;
+      }
+
       const screenWidth = window.innerWidth;
       const triggered = currentOffsetRef.current > screenWidth * threshold;
 

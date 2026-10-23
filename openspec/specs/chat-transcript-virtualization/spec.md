@@ -51,7 +51,7 @@ Skipping off-screen rendering SHALL NOT change user-visible scrolling behavior: 
 
 #### Scenario: Only endpoint rows retained past the ceiling
 - **WHEN** the user holds a selection whose row span exceeds the retained-row ceiling
-- **THEN** the mounted working set SHALL be the viewport + overscan window plus the anchor and focus endpoint rows
+- **THEN** the mounted working set SHALL be the viewport + overscan window plus the anchor and focus endpoint rows (normally two rows; while the stored span and the live selection disagree, e.g. a `selectionchange` is pending, the tracked and live endpoints may add up to four rows)
 - **AND** interior selected rows outside that set SHALL NOT be mounted
 
 #### Scenario: Copy-time span mount is transient and unmeasured

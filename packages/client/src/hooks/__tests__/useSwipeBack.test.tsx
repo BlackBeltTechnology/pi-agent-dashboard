@@ -105,4 +105,14 @@ describe("useSwipeBack selection guard", () => {
     expect(result.current.swipeState).toEqual({ offset: 0, swiping: false });
     expect(onBack).not.toHaveBeenCalled();
   });
+
+  it("a selection appearing after the last touchmove still cancels the navigation on touchend", () => {
+    const { result, onBack } = mount();
+    touch("touchstart", 10);
+    for (const x of [200, 400, 600]) touch("touchmove", x);
+    selectPageText();
+    touch("touchend", 600);
+    expect(onBack).not.toHaveBeenCalled();
+    expect(result.current.swipeState).toEqual({ offset: 0, swiping: false });
+  });
 });
