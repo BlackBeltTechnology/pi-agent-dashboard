@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { DashboardServer } from "../server.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -42,7 +43,7 @@ describe("Smoke integration", () => {
     piPort = handle.piPort;
 
     // Bridge connects and registers
-    const bridge = new WebSocket(`ws://localhost:${piPort}`);
+    const bridge = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await waitForOpen(bridge);
     bridge.send(JSON.stringify({
       type: "session_register", sessionId: "s1", cwd: "/tmp", source: "tui", name: "Test",
@@ -51,7 +52,7 @@ describe("Smoke integration", () => {
     await delay(150);
 
     // Browser connects, subscribes, receives event
-    const b1 = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const b1 = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(b1);
     await delay(100); // drain session_added
     b1.send(JSON.stringify({ type: "subscribe", sessionId: "s1", lastSeq: 0 }));
@@ -71,7 +72,7 @@ describe("Smoke integration", () => {
     b1.close();
     await delay(100);
 
-    const b2 = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const b2 = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(b2);
     await delay(100); // drain session_added
     b2.send(JSON.stringify({ type: "subscribe", sessionId: "s1", lastSeq: 0 }));
@@ -88,14 +89,14 @@ describe("Smoke integration", () => {
   }, 15000);
 
   it("9.3 — legacy hide_session no longer hides (archive replaced it)", async () => {
-    const bridge = new WebSocket(`ws://localhost:${piPort}`);
+    const bridge = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await waitForOpen(bridge);
     bridge.send(JSON.stringify({
       type: "session_register", sessionId: "s3", cwd: "/tmp", source: "tui",
     }));
     await delay(150);
 
-    const browser = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     await delay(100); // drain session_added
 
@@ -116,7 +117,7 @@ describe("Smoke integration", () => {
 
   it.skip("9.5 — old session with no bridge shows dataUnavailable", async () => {
     // Use a unique cwd that won't match other sessions
-    const bridge = new WebSocket(`ws://localhost:${piPort}`);
+    const bridge = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await waitForOpen(bridge);
     bridge.send(JSON.stringify({
       type: "session_register", sessionId: "s5", cwd: "/unique/isolated/path",
@@ -137,7 +138,7 @@ describe("Smoke integration", () => {
     server.eventStore.deleteEventsForSession("s5");
 
     // Browser subscribes — should get dataUnavailable
-    const browser = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const browser = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     await delay(200); // drain session_added
 

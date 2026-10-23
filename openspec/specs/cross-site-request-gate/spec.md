@@ -14,11 +14,11 @@ Every WebSocket upgrade on the dashboard listener SHALL be rejected with `HTTP/1
 
 #### Scenario: Loopback peer with loopback Origin is admitted
 - **WHEN** a WebSocket upgrade for `/ws` arrives from a loopback peer with `Origin: http://localhost:8000` (or any loopback host on any port)
-- **THEN** the server SHALL proceed with the existing admission logic and complete the upgrade
+- **THEN** this gate SHALL NOT reject it, and the existing admission logic SHALL decide the upgrade (under the default `requireLocalProof`, a bare loopback peer needs local proof to complete it)
 
 #### Scenario: Header-less local client is admitted
 - **WHEN** a WebSocket upgrade for `/ws` arrives from a loopback peer with no `Origin` header
-- **THEN** the server SHALL proceed with the existing admission logic and complete the upgrade
+- **THEN** this gate SHALL NOT reject it, and the existing admission logic SHALL decide the upgrade (under the default `requireLocalProof`, a bare loopback peer needs local proof to complete it)
 
 #### Scenario: Terminal upgrade with attacker Origin is rejected even for a live terminal id
 - **WHEN** a terminal exists with id `T` and a WebSocket upgrade for `/ws/terminal/T` arrives from a loopback peer with `Origin: http://attacker.example`

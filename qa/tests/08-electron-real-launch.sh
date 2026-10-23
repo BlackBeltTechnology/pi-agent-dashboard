@@ -191,6 +191,20 @@ if grep -q "FATAL" "$ELECTRON_LOG"; then
 fi
 echo "  ✓ no FATAL in Electron parent stdout"
 
+# Strict `requireLocalProof` default (test-plan #X8): the app's own requests carry local proof, so the
+# launch must not be refused anywhere. See change: close-container-loopback-impersonation (D5).
+if grep -q "local_proof_required" "$ELECTRON_LOG"; then
+  echo "FAIL: a local_proof_required refusal reached the Electron log (the app's own request lacked proof):"
+  grep -n "local_proof_required" "$ELECTRON_LOG" | head -5
+  exit 1
+fi
+if grep -q "\[local-proof\] refused" "$SERVER_LOG"; then
+  echo "FAIL: the server refused a request for want of local proof during the app launch:"
+  grep -n "\[local-proof\] refused" "$SERVER_LOG" | head -5
+  exit 1
+fi
+echo "  ✓ no local_proof_required refusal during launch (app requests carry proof)"
+
 # ── OpenSpec config-read assertion (fix-openspec-config-read-bundled-node) ──
 # curl -sf returns non-zero on the 502 the stripped-PATH bug produces, so an
 # empty body IS the pre-fix failure signal. Post-fix: 200 + the seeded profile.

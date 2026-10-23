@@ -548,6 +548,20 @@
     },
     {
       "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/dashboard-state-guard.ts",
+      "lineHash": "2e052cf210d8c1d1:1",
+      "count": 1,
+      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login. openStateChecked is reached only for paths the route containment gate already admitted, and refuses a handle that is a dashboard secret file."
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/server/src/lib/dashboard-state-guard.ts",
+      "lineHash": "a99281b862dd2912:1",
+      "count": 1,
+      "reason": "false-positive: realpathLoose only RESOLVES a path to decide whether it lies inside the dashboard state dir; it never reads content and its result is compared, not opened (the guard exists to refuse, on REAL paths, exactly the paths a request names)"
+    },
+    {
+      "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/eml.ts",
       "lineHash": "25cb726ab15a22be:1",
       "count": 1,
@@ -619,27 +633,6 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "3cc9700d6f2a8f0c:1",
-      "count": 1,
-      "reason": "github-dismissed (#336, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "4a7133e045b26b25:1",
-      "count": 1,
-      "reason": "github-dismissed (#338, false positive): test"
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "5c1ff2c3272273c4:1",
-      "count": 1,
-      "reason": "github-dismissed (#335, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "69b54f123f7121bc:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
@@ -650,13 +643,6 @@
       "lineHash": "70a561a4b4af9489:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "753c64e63ff40815:1",
-      "count": 1,
-      "reason": "github-dismissed (#334, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
     },
     {
       "ruleId": "js/path-injection",
@@ -720,13 +706,6 @@
       "lineHash": "c784a9244ee84cab:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "c7c1af1572fff99b:1",
-      "count": 1,
-      "reason": "github-dismissed (#337, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (13 sites, one class) during ship of add-access-grants-and-review."
     },
     {
       "ruleId": "js/path-injection",

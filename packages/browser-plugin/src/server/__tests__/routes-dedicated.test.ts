@@ -164,7 +164,7 @@ describe("#R1 POST /dedicated/connect", () => {
     const first = await post(h, "/api/browser/dedicated/connect");
     expect(first.statusCode).toBe(200);
     const ok = body<{ cdpUrl: string; instanceId: string }>(first);
-    expect(ok.cdpUrl).toMatch(/^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}$/);
+    expect(ok.cdpUrl).toMatch(/^ws:\/\/127\.0\.0\.1:8123\/ws\/browser-cdp\/[0-9a-f]{32}\?ticket=[A-Za-z0-9_-]{43}$/);
     const second = await post(h, "/api/browser/dedicated/connect", { client: "late" });
     expect(second.statusCode).toBe(409);
     expect(body(second)).toMatchObject({ reason: "busy", instanceId: ok.instanceId });

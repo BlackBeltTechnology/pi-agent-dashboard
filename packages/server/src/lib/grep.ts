@@ -11,6 +11,7 @@ import { execFile } from "node:child_process"; // ban:child_process-ok rg spawn;
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
+import { isDashboardStateDirSync } from "./dashboard-state-guard.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -207,6 +208,10 @@ export function grepWithJsScan(cwd: string, query: string, opts: GrepOptions = {
       const rel = relative(cwd, full).replace(/\\/g, "/");
       if (isIgnored(rel)) continue;
       if (entry.isDirectory()) {
+        // Never walk into the dashboard state dir (token, identity key, config): the route also
+        // filters its matches, but a secret should not even be read. See change:
+        // close-container-loopback-impersonation (D8).
+        if (isDashboardStateDirSync(full)) continue;
         queue.push({ dir: full, depth: depth + 1 });
         continue;
       }

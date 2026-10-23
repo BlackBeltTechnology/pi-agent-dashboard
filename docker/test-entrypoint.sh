@@ -1001,13 +1001,18 @@ echo "[test-entrypoint] health OK"
 if [ "${PI_E2E_IDENTITY:-}" = "1" ]; then
   echo "[test-entrypoint] websocket smoke SKIPPED (PI_E2E_IDENTITY=1: enforced plane — a trusted login descriptor is always seeded (D21) — refuses ticketless /ws)"
 else
+  # Under the strict `requireLocalProof` default a bare loopback `/ws` upgrade is refused, so mint a
+  # single-use ticket THROUGH the CLI (which proves local possession) and present it. See change:
+  # close-container-loopback-impersonation (D5).
+  WS_TICKET="$(pi-dashboard api POST /api/ws-ticket --port "${PORT}" --data '{"scope":"browser"}' 2>/dev/null | jq -r '.data.ticket // empty' 2>/dev/null || true)"
+  [ -n "${WS_TICKET}" ] || smoke_fail "could not mint a WebSocket ticket (pi-dashboard api POST /api/ws-ticket)"
   node -e '
     const url = process.argv[1];
     const ws = new WebSocket(url);
     const t = setTimeout(() => { console.error("ws connect timeout"); process.exit(1); }, 5000);
     ws.onopen = () => { clearTimeout(t); ws.close(); process.exit(0); };
     ws.onerror = (e) => { clearTimeout(t); console.error("ws error", (e && e.message) || e); process.exit(1); };
-  ' "ws://localhost:${PORT}/ws" || smoke_fail "WebSocket connect to /ws failed"
+  ' "ws://127.0.0.1:${PORT}/ws?ticket=${WS_TICKET}" || smoke_fail "WebSocket connect to /ws failed"
   echo "[test-entrypoint] websocket OK"
 fi
 

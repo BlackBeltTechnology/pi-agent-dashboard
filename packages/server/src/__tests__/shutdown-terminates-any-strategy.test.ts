@@ -24,6 +24,7 @@ import { spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -104,7 +105,7 @@ async function registerSession(sessionId: string, cwd: string, pid?: number) {
 }
 
 async function browserSocket(): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
   await waitForOpen(ws);
   await delay(100);
   return ws;
@@ -255,7 +256,7 @@ describe("shutdown terminates the session process for any spawn strategy (#452)"
     bridge.close();
     await delay(200);
 
-    const res = await fetch(`http://127.0.0.1:${httpPort}/api/session/rest-shutdown/shutdown`, {
+    const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/session/rest-shutdown/shutdown`, {
       method: "POST",
     });
     expect(res.ok).toBe(true);

@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -55,7 +56,7 @@ async function harness(sessionId: string, opts: { replayComplete?: boolean } = {
   });
 
   const frames: Array<Record<string, any>> = [];
-  const browser = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const browser = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   browser.on("message", (raw) => {
     try {
       const m = JSON.parse(String(raw));

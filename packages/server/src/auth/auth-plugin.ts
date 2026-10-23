@@ -30,10 +30,11 @@ import {
   verifyToken,
   warnOnInvalidRedirectBase,
 } from "./auth.js";
+import { isSafeLocalPath } from "@blackbelt-technology/pi-dashboard-shared/safe-local-path.js";
 import { isBypassed } from "./bypass-urls.js";
 import { hasLocalCredential } from "./local-credential.js";
 import type { LocalTrustContext } from "./local-proof.js";
-import { isLocallyTrusted, isObserveApiRequest, isTrustedSource } from "./localhost-guard.js";
+import { isLocallyTrusted, isObserveApiRequest, isTrustedSource, needsLocalProof } from "./localhost-guard.js";
 import { noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 import { renderLoginPasskeySection } from "./passkey/passkey-pages.js";
 import { registerPasskeyRoutes } from "./passkey/passkey-routes.js";
@@ -115,16 +116,7 @@ function decodeState(state: string): { returnUrl: string; nonce: string } {
  * path. Anything else → `/`. See change: harden-trust-and-credential-boundaries (D1).
  */
 export function sanitizeReturnUrl(raw: unknown): string {
-  if (typeof raw !== "string" || raw.length === 0) return "/";
-  if (raw[0] !== "/" || raw[1] === "/" || raw[1] === "\\") return "/";
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control chars is the point
-  if (/[\u0000-\u001f\u007f]/.test(raw)) return "/";
-  try {
-    if (new URL(raw, "http://x.invalid").origin !== "http://x.invalid") return "/";
-  } catch {
-    return "/";
-  }
-  return raw;
+  return isSafeLocalPath(raw) ? raw : "/";
 }
 
 const STATE_COOKIE = "pi_dash_oauth_state";
@@ -156,7 +148,7 @@ function readStateCookie(cookieValue: unknown, secret: string): string | null {
 /**
  * Simple login page HTML with provider links.
  */
-function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUrl = "/", passkeySection = ""): string {
+function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUrl = "/", passkeySection = "", needsProof = false): string {
   const ret = encodeURIComponent(sanitizeReturnUrl(returnUrl));
   const providerLinks = providers
     .map((p) => `<a href="/auth/start/${p.key}?return=${ret}" style="display:block;margin:10px 0;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;text-align:center;font-size:16px;">Sign in with ${p.name}</a>`)
@@ -165,6 +157,11 @@ function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUr
   const errorHtml = error
     ? `<div style="color:#ef4444;margin-bottom:16px;">${escapeHtml(String(error))}</div>`
     : "";
+  // A bare-loopback tab the strict default refuses for want of proof: the remedy first, because
+  // signing in is not what this browser is missing. See change: close-container-loopback-impersonation (D3).
+  const proofHtml = needsProof
+    ? `<div style="text-align:left;margin:0 0 20px;padding:12px 14px;background:#0f172a;border:1px solid #475569;border-radius:8px;font-size:14px;line-height:1.45;">This browser has not proven it is on the same machine as the dashboard. Run <code style="background:#334155;padding:2px 6px;border-radius:4px;">pi-dashboard open</code> in a terminal on that machine (or use the desktop app) to authorize it.</div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -172,7 +169,7 @@ function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUr
 <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#e2e8f0;}
 .card{background:#1e293b;padding:40px;border-radius:12px;max-width:400px;width:100%;text-align:center;}
 h1{margin:0 0 24px;font-size:24px;}</style>
-</head><body><div class="card"><h1>🔐 PI Dashboard</h1>${errorHtml}${providerLinks}${providerLinks && passkeySection ? "<hr>" : ""}${passkeySection}</div></body></html>`;
+</head><body><div class="card"><h1>🔐 PI Dashboard</h1>${proofHtml}${errorHtml}${providerLinks}${providerLinks && passkeySection ? "<hr>" : ""}${passkeySection}</div></body></html>`;
 }
 
 /**
@@ -360,9 +357,12 @@ export async function registerAuthPlugin(
     const providers = Array.from(authState.providerRegistry.values());
     const error = (request.query as any)?.error;
     const passkeysOn = passkeys?.isEnabled() === true;
+    // A bare-loopback request the strict default refuses for want of proof must see the remedy, not be
+    // bounced to a provider whose sign-in would not help it. See change: close-container-loopback-impersonation (D3).
+    const needsProof = needsLocalProof(request as unknown as { ip: string; headers: unknown; isAuthenticated?: boolean }, localTrust);
 
     // With passkeys enabled the picker always renders: both options are offered.
-    if (providers.length === 1 && !error && !passkeysOn) {
+    if (providers.length === 1 && !error && !passkeysOn && !needsProof) {
       // Auto-redirect to single provider
       const p = providers[0];
       const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
@@ -374,7 +374,7 @@ export async function registerAuthPlugin(
 
     const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
     const section = passkeysOn && passkeys ? renderLoginPasskeySection(passkeys.rpContext(), returnUrl) : "";
-    return reply.type("text/html").send(renderLoginPage(providers, error, returnUrl, section));
+    return reply.type("text/html").send(renderLoginPage(providers, error, returnUrl, section, needsProof));
   });
 
   // GET /auth/start/:provider — redirect to provider's authorize URL
@@ -516,9 +516,14 @@ export async function registerAuthPlugin(
     // Strict observe exception: bare local may still READ observe-tier REST routes.
     if (
       localTrust?.strict() &&
-      isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> }) &&
-      isObserveApiRequest(request)
-    ) return;
+      isLocallyTrusted({ ip: request.ip, headers: request.headers as Record<string, unknown> })
+    ) {
+      // Recognise a signed-in session FIRST (tag only: never refuses, never clears a cookie on
+      // these routes), so a signed-in loopback tab is `isAuthenticated` on observe routes and is
+      // not shown the proof banner. See change: close-container-loopback-impersonation (D3).
+      tagSessionCookie(request);
+      if (isObserveApiRequest(request)) return;
+    }
     if (localToken && hasLocalCredential(request.headers)) return;
 
     // Skip auth routes

@@ -94,10 +94,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # System libs + a hermetic bundled Chromium (PW_CHANNEL is left unset so
-      # the config picks the bundled browser, not a system channel).
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
+      # System libs + hermetic bundled browsers (PW_CHANNEL is left unset so
+      # the config picks the bundled Chromium, not a system channel). Firefox and
+      # WebKit are installed in EVERY shard because `--shard` distributes the
+      # firefox/webkit project tests of tests/e2e/large-selection.spec.ts (the one
+      # cross-engine spec) across shards. See change: keep-oversized-chat-selection.
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       # Managed mode: globalSetup boots the harness (test-up.sh --build builds
       # the image from THIS checked-out tree) and globalTeardown tears it down.

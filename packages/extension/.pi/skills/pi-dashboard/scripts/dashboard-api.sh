@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Pi Dashboard API helper — wraps curl with port auto-detection and JSON formatting.
+# Pi Dashboard API helper — wraps curl (or `pi-dashboard api` for a local target, which sends local proof)
+# with port auto-detection and JSON formatting.
 #
 # This is the REST layer for READ-ONLY + no-WS-twin operations (session/health/
 # config reads, git ops, grep/browse, plugin_config_write, tunnel, peer scan,
@@ -40,8 +41,45 @@ else
   PORT=8000
 fi
 
+# The config file can hold several "port" keys (e.g. nested ones): the first match is the server port.
+PORT="${PORT%%$'\n'*}"
+
 HOST="${DASHBOARD_HOST:-localhost}"
 BASE="http://$HOST:$PORT"
+
+# ── Local callers: send local proof ────────────────────────────────
+#
+# The strict `requireLocalProof` default refuses a bare-loopback curl on every non-observe route.
+# When the target is THIS host and no JWT is in play, delegate to `pi-dashboard api`, which mints a
+# fresh local proof for the request. A remote HOST (or a JWT) keeps the plain curl path below.
+# See change: close-container-loopback-impersonation (D5).
+case "$HOST" in
+  localhost|127.0.0.1|::1|"[::1]")
+    if [ -z "${DASHBOARD_TOKEN:-}" ] && command -v pi-dashboard >/dev/null 2>&1; then
+      API_ARGS=(api "$METHOD" "$PATH_ARG" --port "$PORT")
+      case "$METHOD" in
+        POST|PUT|PATCH)
+          BODY_OUT="$BODY"
+          [ -n "$BODY_OUT" ] || BODY_OUT='{}'
+          API_ARGS+=(--data "$BODY_OUT")
+          ;;
+      esac
+      if RESPONSE=$(pi-dashboard "${API_ARGS[@]}" 2>&1); then
+        :
+      else
+        RC=$?
+        # A non-2xx answer: show the server's body, then fail like curl -f would not (curl -s prints it and exits 0).
+        if [ "$RC" = "2" ]; then
+          echo "ERROR: Failed to reach dashboard at $BASE" >&2
+          echo "Is the server running? Try: pi-dashboard status" >&2
+          exit 1
+        fi
+      fi
+      if command -v jq &>/dev/null; then echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"; else echo "$RESPONSE"; fi
+      exit 0
+    fi
+    ;;
+esac
 
 # ── Build curl args ────────────────────────────────────────────────
 

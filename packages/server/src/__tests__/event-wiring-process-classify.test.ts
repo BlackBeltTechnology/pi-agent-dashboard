@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -25,7 +26,7 @@ async function connectSession(piPort: number, sessionId: string, pid?: number): 
 }
 
 async function connectBrowser(browserPort: number, sessionId: string, sink: any[]): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   // Attach the message listener synchronously so the `sessions_snapshot`
   // sent on connect (the replay path for stored processes) is captured.
   ws.on("message", (raw) => {

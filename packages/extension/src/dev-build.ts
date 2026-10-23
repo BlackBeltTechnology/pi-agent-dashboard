@@ -2,7 +2,9 @@
  * Dev build-on-reload helper.
  * Builds the Vite client and requests server shutdown.
  */
+import { httpProofHeaders } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
 import { execSync as defaultExecSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { readLocalToken } from "./local-token-header.js";
 
 export interface DevBuildOptions {
   packageRoot: string;
@@ -11,6 +13,8 @@ export interface DevBuildOptions {
   _execSync?: typeof defaultExecSync;
   /** @internal for testing */
   _fetch?: typeof fetch;
+  /** @internal for testing: the local token (default: read from `~/.pi/dashboard/local/token`). */
+  _token?: string | undefined;
 }
 
 /**
@@ -31,7 +35,13 @@ export function runDevBuild(opts: DevBuildOptions): void {
 
   try {
     console.log("🛑 Dashboard: stopping server...");
-    fetchFn(`http://localhost:${opts.serverPort}/api/shutdown`, { method: "POST" }).catch(() => {});
+    // `/api/shutdown` is an operate route: under the strict `requireLocalProof` default a bare POST is
+    // refused, so dial the loopback literal and carry a proof for this exact request. No token ⇒ no
+    // proof header (the refusal is then the honest answer). See change: close-container-loopback-impersonation (D5).
+    const url = `http://127.0.0.1:${opts.serverPort}/api/shutdown`;
+    const token = "_token" in opts ? opts._token : readLocalToken();
+    const headers = token ? httpProofHeaders(token, url, "POST") : {};
+    fetchFn(url, { method: "POST", headers }).catch(() => {});
     console.log("✅ Dashboard: server stopped");
   } catch {
     // Server may not be running — that's fine

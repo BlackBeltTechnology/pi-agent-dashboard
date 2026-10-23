@@ -2,7 +2,7 @@
 name: browser
 description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron apps — navigating, forms, clicks, screenshots, data extraction, testing web apps, UI checks, the dashboard Electron shell, or the user''s own logged-in Chrome via the browser relay or Panerelay (SSO/2FA). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser".'
 license: Apache-2.0
-allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*), Bash(curl:*)
+allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*), Bash(curl:*), Bash(pi-dashboard:*)
 metadata:
   author: pi-dashboard
   version: "1.2"
@@ -81,7 +81,7 @@ else
 fi
 PD_RUNNING=$(pgrep -f "Pi Dashboard|pi-dashboard" >/dev/null 2>&1 && echo yes || echo no)
 # Browser relay: the dashboard's own capability probe (see dashboard-relay.md).
-RELAY=$(curl -fsS http://localhost:8000/api/browser/status 2>/dev/null || echo unavailable)
+RELAY=$(pi-dashboard api GET /api/browser/status 2>/dev/null || echo unavailable)
 echo "CDP_LIVE=$CDP_LIVE PD_RUNNING=$PD_RUNNING RELAY=$RELAY"
 ```
 

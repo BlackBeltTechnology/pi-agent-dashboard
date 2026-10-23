@@ -1,0 +1,3 @@
+# radius-mcp.ts — index
+
+Radius MCP follow-up (pi `/login` parity). `RADIUS_MCP_URL` (drift-tested vs pi), `RADIUS_MCP_CODES` (`provider_auth.radius_mcp_*`), pure `planRadiusMcp`, `readRadiusMcpStatus` (GET), `configureRadiusMcp` (POST; order runtime→credential→override→unparseable→no-op→write), `countReloads` (counts `respawn\|forwarded`; rejects logged by id). Writes through `mcp-core` (`@blackbelt-technology/pi-dashboard-mcp-core`) `saveServer` only; types imported from mcp-core, never the mcp-client plugin. No pi-ai import. See change: add-radius-provider-login. See change: decouple-plugins-from-core (task 2.3).

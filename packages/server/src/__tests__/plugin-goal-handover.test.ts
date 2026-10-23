@@ -30,6 +30,7 @@ vi.mock("../spawn-process/process-manager.js", async (importOriginal) => {
 });
 
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,7 +71,7 @@ async function registerBridge(
 const API = (port: number) => `http://127.0.0.1:${port}`;
 
 async function api(port: number, method: string, url: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${API(port)}${url}`, {
+  const res = await proofFetch(`${API(port)}${url}`, {
     method,
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,

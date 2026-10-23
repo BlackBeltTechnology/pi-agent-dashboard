@@ -31,7 +31,7 @@ revoke any registry row, including its own, regardless of the caller's network
 position — a device bearer arriving over loopback SHALL be refused on the
 strength of the credential alone.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Token issued and recorded
 - **WHEN** a device successfully redeems a pairing code
@@ -128,34 +128,41 @@ upgrade") and the durable bearer SHALL NOT ride the socket.
 - **THEN** the server responds 401
 
 ### Requirement: Genuine-local trust via IPC allowlist, not a network address check
-Auth exemption for local tooling SHALL be granted by an allowlist of genuine local
-IPC — a dedicated Unix domain socket, or an explicit local token — or by a
-genuinely-local TCP request: loopback peer AND no proxy-forwarding header
-(`x-forwarded-*`, `x-real-ip`, `forwarded`). A loopback request carrying a
-forwarding header SHALL NOT be auth-exempt. A marker-less reverse tunnel
-terminating on loopback is indistinguishable from a genuinely-local request at
-the socket level; it is closed only when `auth.requireLocalProof` is enabled, in
-which case a bare genuinely-local request SHALL be exempt only for
-`observe`-tier routes, and `control`/`operate` routes plus browser WebSocket
-upgrades SHALL additionally require the local token, a local-proof cookie, or
-another credential. This SHALL be enforced at every call site (network guard,
-`onRequest` hook, and the WebSocket upgrade handlers) through one shared
-predicate.
+Auth exemption for local tooling SHALL be granted by an allowlist of genuine
+local IPC: a dedicated Unix domain socket, or an explicit local token or local
+credential proof. A genuinely-local TCP request (loopback peer AND no
+proxy-forwarding header such as `x-forwarded-*`, `x-real-ip` or `forwarded`)
+SHALL also need local proof for `control`/`operate` routes and browser WebSocket
+upgrades.
+
+A loopback request carrying a forwarding header SHALL NOT be auth-exempt.
+
+A marker-less relay terminating on loopback is indistinguishable from a
+genuinely-local request at the socket level. Examples: an SSH reverse tunnel,
+`socat`, or a local container/VM runtime forwarding to host loopback. Under the
+default configuration (the top-level `requireLocalProof` absent or `true`), such
+a relay is closed: a bare genuinely-local request SHALL be exempt only for
+`observe`-tier routes. `control`/`operate` routes plus browser WebSocket
+upgrades SHALL additionally require the local token, a local credential proof, a
+local-proof cookie, or another credential. Only an explicit
+`requireLocalProof: false` SHALL restore the bare-loopback exemption. This SHALL
+be enforced at every call site (network guard, `onRequest` hook, and the
+WebSocket upgrade handlers) through one shared predicate.
 
 #### Scenario: Tunnel request is not auto-trusted
 - **WHEN** a request reaches the server via a header-injecting tunnel/reverse proxy (presenting as `127.0.0.1` with an `x-forwarded-*`, `x-real-ip`, or `forwarded` header) with no valid bearer/cookie
 - **THEN** the server SHALL NOT auth-exempt it and SHALL respond 401
 
 #### Scenario: Unmarked tunnel is not auto-trusted
-- **WHEN** `auth.requireLocalProof` is enabled and a request arrives over a tunnel that injects no proxy marker (e.g. an SSH reverse tunnel) for a `control`/`operate` route
-- **THEN** the server SHALL still require a credential (local token, local-proof cookie, or other), because trust is not derived from the loopback address alone
+- **WHEN** `requireLocalProof` is absent or `true` and a request arrives over a relay that injects no proxy marker (e.g. an SSH reverse tunnel, or a container runtime forwarding to host loopback) for a `control`/`operate` route
+- **THEN** the server SHALL still require a credential (local token, local credential proof, local-proof cookie, or other), because trust is not derived from the loopback address alone
 
 #### Scenario: Unmarked tunnel under default configuration
-- **WHEN** `auth.requireLocalProof` is not enabled and a request arrives over a tunnel that injects no proxy marker
-- **THEN** it SHALL be treated as genuinely local, and operator documentation SHALL state that only header-injecting tunnels are safe without `requireLocalProof`
+- **WHEN** `requireLocalProof` is absent from the config and a request with no credential arrives over a relay that injects no proxy marker, for a `control`/`operate` route or a browser WebSocket upgrade
+- **THEN** it SHALL NOT be treated as genuinely local; only an explicit `requireLocalProof: false` restores that, and operator documentation SHALL state that opting out re-exposes the dashboard to any local container or marker-less tunnel
 
 #### Scenario: Genuine local IPC still bypasses
-- **WHEN** a local tool connects over the dedicated Unix domain socket (or presents the local token)
+- **WHEN** a local tool connects over the dedicated Unix domain socket (or presents the local token or a valid local credential proof)
 - **THEN** the auth exemption SHALL apply
 
 #### Scenario: Local IPC is not exposed to other host users
@@ -163,8 +170,8 @@ predicate.
 - **THEN** the socket path SHALL be `0600` and the token SHALL live in a `0700` directory so other users on a shared host cannot use it
 
 #### Scenario: Existing same-host callers migrated, not broken
-- **WHEN** D10 lands
-- **THEN** the pi bridge and model-proxy SHALL connect via the local IPC allowlist (Unix socket / local token); the same-desktop browser (terminal and editor views) SHALL be admitted as genuinely local, or via the local-proof cookie when `auth.requireLocalProof` is enabled
+- **WHEN** the default configuration is in effect
+- **THEN** the pi bridge and model-proxy SHALL connect via the local IPC allowlist (Unix socket / local credential proof); the same-desktop browser (terminal and editor views) SHALL be admitted via the local-proof cookie obtained through `pi-dashboard open` or the desktop app
 
 ### Requirement: WebSocket auth via single-use ticket before upgrade
 A client SHALL obtain a short-lived, single-use WebSocket ticket from an
@@ -221,7 +228,7 @@ the global Host-admission gate mode. It SHALL NOT be a public pairing prefix.
 The minted token SHALL be indistinguishable from a pairing-minted token to
 every consumer (REST bearer branch, `/mcp` device caller resolution).
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Operator mints a token
 - **WHEN** an operator-authenticated request on an admitted host posts `{ "label": "claude-code" }`
@@ -307,7 +314,7 @@ trust mode is `"legacy"`**; in `"pair"` mode a network match grants no tier
 exemption. The gate SHALL only refuse; it SHALL NOT admit a request that
 existing admission rules reject.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Observe bearer cannot restart
 - **WHEN** a request bearing an `observe` device token calls `POST /api/restart`

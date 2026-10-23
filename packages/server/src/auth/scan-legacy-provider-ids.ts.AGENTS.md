@@ -1,0 +1,3 @@
+# scan-legacy-provider-ids.ts — index
+
+`PI_RENAMED_PROVIDER_IDS` (`azure-openai-responses`→`azure`, single source) + `scanLegacyProviderIds({agentDir?})` → `LegacyProviderIdEntry[]`. Read-only, lock-free (`tryReadJson`, per-file try/catch): finds pi's renamed `azure-openai-responses` (→ `azure`) in `auth.json` keys, `settings.json` `defaultProvider`/`enabledModels`/`modelThinkingLevels` (`/` boundary), `models.json` `providers` keys. Ids + location tokens only, never values; corrupt/unreadable/missing file skipped, nothing quarantined. Dir = runtime `getAgentDir` → `PI_CODING_AGENT_DIR` → `~/.pi/agent`. See change: update-pi-core-1-1-adopt-apis.
