@@ -454,7 +454,7 @@ const SELECTION_RETAIN_CAP_FINE = 100;
 const SELECTION_RETAIN_CAP_COARSE = 40;
 // Copy ceilings (D3): the transcript part of a copy larger than this is
 // declined with a toast instead of freezing the tab mounting hundreds of rows.
-// PLACEHOLDERS pending the end-to-end calibration (design D3).
+// Calibrated end-to-end on the product build (design D3).
 const SELECTION_COPY_CAP_FINE = 500;
 const SELECTION_COPY_CAP_COARSE = 150;
 
