@@ -23,7 +23,7 @@ import { bridgeExtensionIdentity } from "../extension-identity.js";
 import { registerFlowEventListeners } from "../flow-event-wiring.js";
 import { createGitPollState, runGitPollTick } from "../git-poll.js";
 import { flipHasUI } from "../hasui-flip.js";
-import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "../instance-verification.js";
+import { healthUrlForInstance, verifyInstanceIdentity } from "../instance-verification.js";
 import { sendPiVersionIfChanged as _sendPiVersionIfChanged } from "../model-tracker.js";
 import { provisionOpenspecCli } from "../openspec-cli-shim.js";
 import { pollCost } from "../poll-cost.js";
@@ -39,6 +39,7 @@ import { registerRoleModelTools } from "../role-model-tools.js";
 import { autoStartServer } from "../server-auto-start.js";
 import { launchServer } from "../server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "../server-pin-store.js";
+import { verifyDiscoveredCandidate } from "../server-proof-probe.js";
 import { handleSessionChange as _handleSessionChange, branchFingerprint, consumeSpawnToken, filterByEnabledModels, isLive } from "../session-sync.js";
 import { detectSessionSource } from "../source-detector.js";
 import { consumePendingReloadOnSessionStart, releaseBridgeOwnerOnShutdown, reloadCompletedFeedback } from "../terminal-reload.js";
@@ -861,7 +862,11 @@ export function registerSessionStart(inst: BridgeInstance): void {
         inst.connection
           .retargetTo(candidateUrl, {
             trigger,
-            verify: () => probeEndpointReachability({ healthUrl }),
+            // Reachable AND — when this bridge holds the local token — able to
+            // return a valid server counter-proof: a healthy answer is not an
+            // identity. A refusal keeps the established connection and is logged
+            // with its named cause. See change: harden-bridge-inbound-and-discovery (D19).
+            verify: () => verifyDiscoveredCandidate({ healthUrl, candidateUrl }),
           })
           .then((accepted) => {
             console.log(`[dashboard] re-target ${inst.dashboardUrl} -> ${candidateUrl}: ${accepted ? "accepted" : "refused by migration gate"}`);

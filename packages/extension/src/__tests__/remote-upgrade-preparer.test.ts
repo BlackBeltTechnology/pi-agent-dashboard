@@ -20,6 +20,7 @@ function rig(env: Record<string, string | undefined>, fetchImpl?: typeof fetch) 
     fetchImpl: fetchSpy as unknown as typeof fetch,
     log: { log: (...a: unknown[]) => out.push(a.join(" ")), error: (...a: unknown[]) => out.push(a.join(" ")) },
     record: (d) => recorded.push(d.detail),
+    isPinned: () => true,
   });
   return { prepare, out, recorded, fetchSpy };
 }

@@ -15,3 +15,5 @@ Team-confined `/skill:` route (design D12, add-team-skill-access). In `send_prom
 - `rename_session`: `origin:"system"` → `options.onSystemRename(name)` BEFORE `pi.setSessionName` (rollback fn on throw); no origin → `options.onUserRename()`. See change: investigate-auto-name-provenance-relabel.
 
 - Single-bang `!cmd` (`handleBashCommand`): `pi.sendUserMessage(message, { deliverAs: "followUp" })` — idle starts a turn, busy queues (pi-owned, no dashboard chip); a refused send (compaction) is warned, never fails the handler. `!!` and `excludeFromContext` paths unchanged. See change: update-pi-core-1-3-adopt-apis.
+
+Inbound bounds: option `limits?: InboundLimits` (default built from env). `handleBashCommand` takes one per-session slot (`limits.tryAcquireBash`) shared by `!`, `!!` and exec slash templates (`tryExecSlashTemplate(..., limits?)`); at the limit it emits `command_feedback {command:"bash",status:"error"}` ("bash concurrency limit reached (N …)") and never spawns; the slot is released in `finally` on every exit path. See change: harden-bridge-inbound-and-discovery (D17).

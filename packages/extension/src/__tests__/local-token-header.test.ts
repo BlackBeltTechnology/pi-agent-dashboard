@@ -113,16 +113,18 @@ describe("localCredentialPlan", () => {
     ).toBeUndefined();
   });
 
-  it("sends a proof — never the raw token — and no verifyUpgrade when unmarked", async () => {
+  it("sends a proof — never the raw token — and, holding the token, verifies the server even when unmarked", async () => {
     const plan = await localCredentialPlan("ws://127.0.0.1:9999", {
       env: { homedir: home },
       marker: undefined,
+      allowUnproven: undefined,
       connect: fakeConnect("127.0.0.1"),
     });
     expect(plan?.headers).toBeDefined();
     expect(Object.keys(plan!.headers!)).toEqual(["X-Pi-Local-Proof"]);
     expect(JSON.stringify(plan!.headers)).not.toContain(TOKEN);
-    expect(plan!.verifyUpgrade).toBeUndefined();
+    // See change: harden-bridge-inbound-and-discovery (D19): token holder ⇒ counter-proof required.
+    expect(plan!.verifyUpgrade).toBeTypeOf("function");
     expect(plan!.createConnection).toBeTypeOf("function");
   });
 
@@ -202,12 +204,11 @@ describe("localCredentialPlan", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("a marker for another endpoint does not demand a counter-proof here", async () => {
-    const plan = await localCredentialPlan("ws://127.0.0.1:7777", {
-      env: { homedir: home },
-      marker: "ws://127.0.0.1:9999",
-      connect: fakeConnect("127.0.0.1"),
-    });
-    expect(plan!.verifyUpgrade).toBeUndefined();
+  it("a marker for another endpoint is irrelevant: a token holder demands counter-proof anyway, unless it opts out", async () => {
+    const base = { env: { homedir: home }, marker: "ws://127.0.0.1:9999", connect: fakeConnect("127.0.0.1") };
+    const proven = await localCredentialPlan("ws://127.0.0.1:7777", { ...base, allowUnproven: undefined });
+    expect(proven!.verifyUpgrade).toBeTypeOf("function");
+    const optedOut = await localCredentialPlan("ws://127.0.0.1:7777", { ...base, allowUnproven: "1", log: () => {} });
+    expect(optedOut!.verifyUpgrade).toBeUndefined();
   });
 });

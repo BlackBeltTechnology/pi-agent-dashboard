@@ -14,12 +14,12 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
+import { LOCAL_PROOF_REQUIRED } from "@blackbelt-technology/pi-dashboard-shared/local-proof-signal.js";
 import { ToolResolver, whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
-import { LOCAL_PROOF_REQUIRED } from "@blackbelt-technology/pi-dashboard-shared/local-proof-signal.js";
+import { RESTART_QUIESCE_MS, SHUTDOWN_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
@@ -346,7 +346,6 @@ export function registerSystemRoutes(
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
   // suppress only the spawn step in `server-auto-start.ts` for `quiesceMs`;
   // discovery + reconnection still run.
-  const SHUTDOWN_QUIESCE_MS = 60000;
   const announceRestart = (
     reason: "restart" | "shutdown",
     quiesceMs: number,

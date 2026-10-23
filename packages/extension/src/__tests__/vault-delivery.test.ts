@@ -294,3 +294,46 @@ describe("live rotation (X10)", () => {
     vi.useRealTimers();
   });
 });
+
+// See change: harden-bridge-inbound-and-discovery (test-plan BE18, BX6).
+describe("BE18: vault_sync_request origin is raw, userinfo-stripped, never normalized", () => {
+  const cases: Array<[string, string]> = [
+    ["https://user@github.com/o/r", "https://github.com/o/r"],
+    ["https://user:pass@github.com/o/r", "https://github.com/o/r"],
+    ["https://user:p%40ss@github.com/o/r", "https://github.com/o/r"],
+    ["https://user:p@ss@github.com/o/r", "https://github.com/o/r"],
+    ["https://tok@github.com:8443/o/r", "https://github.com:8443/o/r"],
+    ["https://user:pass@[::1]:8443/o/r", "https://[::1]:8443/o/r"],
+    ["ssh://git:secret@github.com/o/r", "ssh://git@github.com/o/r"],
+    ["ssh://git@github.com/o/r", "ssh://git@github.com/o/r"],
+    ["git@github.com:o/r.git", "git@github.com:o/r.git"],
+    ["https://github.com/o/r", "https://github.com/o/r"],
+  ];
+  const syncOrigin = async (origin: string | undefined) => {
+    const d = mk({ resolveProject: async (cwd) => ({ dir: cwd, origin }) });
+    identity(d);
+    await d.onSessionStart({ reason: "startup", getCwd: () => "/work/p" });
+    return sent.filter((m) => m.type === "vault_sync_request").at(-1) as { origin?: string } | undefined;
+  };
+
+  for (const [raw, wire] of cases) {
+    it(`${raw} → ${wire}`, async () => {
+      const req = await syncOrigin(raw);
+      expect(req?.origin).toBe(wire);
+      expect(req?.origin).toMatch(/^[a-z]+:\/\/|^git@/); // never the `host/path` normalized shape
+      for (const s of ["pass", "p%40ss", "tok", "secret"]) expect(JSON.stringify(req)).not.toContain(s);
+      if (raw.startsWith("https://user")) expect(JSON.stringify(req)).not.toContain("user");
+    });
+  }
+
+  it("BX6: userinfo-bearing unparseable remotes send no origin at all", async () => {
+    for (const raw of ["https://user:pass@", "https://user:pass@/o/r", "ssh://:secret@"]) {
+      sent = [];
+      const req = await syncOrigin(raw);
+      expect(req, raw).toBeDefined();
+      expect(req).not.toHaveProperty("origin");
+      expect(JSON.stringify(sent)).not.toContain("secret");
+      expect(JSON.stringify(sent)).not.toContain("pass");
+    }
+  });
+});

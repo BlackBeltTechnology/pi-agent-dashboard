@@ -46,6 +46,26 @@ see [`docs/release-process.md`](docs/release-process.md).
     `connect`. Plugin WS scopes may declare `peerCredential: "plugin"` to authenticate their peer themselves.
   - **A container that mounts `~/.pi` or `$HOME` can still mint proofs**: possession of the token is the credential.
     Never mount the dashboard directory into a container.
+- **BREAKING (security): a bridge that holds the local token now requires the server's counter-proof on EVERY loopback
+  dial** (`ws:` and `wss:` — the configured endpoint, auto-start, a discovered mDNS advert, a retarget and every
+  reconnect), not only when its spawner set `PI_DASHBOARD_REQUIRE_SERVER_PROOF`. A rogue process on a loopback port
+  that advertises `_pi-dashboard._tcp` and answers `/api/health` can no longer receive a session's data. `ws+unix:` is
+  exempt. A refusal logs `server_proof_missing` or `server_proof_invalid` and backs off. **Version skew:** servers older
+  than 0.10.0 cannot answer a counter-proof and are refused; set `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1` on the
+  bridge to opt out (exactly `1`; logged each dial). A same-user process can still read the token — out of scope.
+- **The paired-device bearer is no longer sent to a discovered host.** The ticket mint goes only to a pinned endpoint:
+  the configured one or a pin-store `lastEndpoint` (canonical `host:port` equality). A lone stored pin no longer pins
+  any other host. Refusal logs `bridge ticket unpinned_discovered_host`.
+- **Bridge inbound bounds.** `server_restarting.quiesceMs` is normalized inside `pauseAutoStart` (invalid ignored,
+  fractions rounded up, capped at 120000 ms). Concurrent `!`/`!!`/exec-template bash is bounded per session
+  (`PI_DASHBOARD_BRIDGE_MAX_BASH`, default 4) and turn-starting inbound commands share one token bucket per connection
+  (`PI_DASHBOARD_BRIDGE_PROMPT_RATE=<burst>/<refillPerSec>`, default `30/10`); a refusal is shown inline as a
+  `command_feedback` error, never dropped silently. Invalid values fall back to the default with one log line.
+- **Git remote credentials never leave the bridge.** `https://user:token@host/o/r` is stripped of all userinfo (and
+  `ssh://user:pass@host` of its password) before links are built and before the vault sync origin is sent; the hub
+  strips again on receipt. A remote with userinfo that cannot be parsed yields no origin and no links.
+- **Bash output reaches tunnel viewers by design** — only vault values are masked; there is no pattern redaction
+  (documented in the architecture notes, FAQ and README).
 
 ### Added
 

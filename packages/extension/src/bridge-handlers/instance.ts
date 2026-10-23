@@ -29,6 +29,7 @@ import type { EmptyActionableGuard } from "../empty-actionable-guard.js";
 import type { resolveEndpoint } from "../endpoint-resolution.js";
 import type { createFollowupBuffer } from "../followup-buffer.js";
 import type { GitTracker } from "../git-tracker.js";
+import type { InboundLimits } from "../inbound-limits.js";
 import type { ReadFileOutcome } from "../markdown-image-inliner.js";
 import type { createMcpDashboardRegistrar } from "../mcp-token-delivery.js";
 import type { MessageUpdateCoalescer } from "../message-update-coalescer.js";
@@ -36,7 +37,6 @@ import type { createPathGate } from "../path-gate/index.js";
 import type { Suppression } from "../path-gate/suppression.js";
 import type { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
 import type { createPluginRequestClient } from "../plugin-request-client.js";
-import type { VaultDelivery } from "../vault-delivery.js";
 import type { PrStatusScheduler } from "../pr-status.js";
 import type { PromptBus } from "../prompt-bus.js";
 import type { RetryTracker } from "../retry-tracker.js";
@@ -46,6 +46,7 @@ import type { SubagentTickThrottle } from "../subagent-tick-throttle.js";
 import type { createTransportDiagnostics } from "../transport-diagnostics.js";
 import type { UiModulesBridgeCtx } from "../ui-modules.js";
 import type { UsageDrain } from "../usage-drain.js";
+import type { VaultDelivery } from "../vault-delivery.js";
 
 export interface BridgeState {
   cleanup?: () => void;
@@ -61,6 +62,8 @@ export interface BridgeState {
   pi?: ExtensionAPI;
   /** All connection instances from any bridge incarnation (for cleanup) */
   connections?: ConnectionManager[];
+  /** Process-wide inbound limiter (see `BridgeInstance.inboundLimits`). */
+  inboundLimits?: InboundLimits;
   /** All interval timers from any bridge incarnation (for cleanup) */
   timers?: ReturnType<typeof setInterval>[];
   /**
@@ -189,6 +192,12 @@ export interface BridgeInstance {
   vaultDelivery: VaultDelivery;
   connection: ConnectionManager;
   commandHandler: ReturnType<typeof createCommandHandler>;
+  /**
+   * Process-wide inbound bounds (bash concurrency + per-connection prompt
+   * bucket); the single instance lives in `shared.inboundLimits` so `/reload`
+   * keeps the allowance. See change: harden-bridge-inbound-and-discovery (D17).
+   */
+  inboundLimits: InboundLimits;
   syncBc: () => BridgeContext;
   applyBc: (bc: BridgeContext) => void;
   /** `liveTailOpen`: keep in-flight tail calls open. See change: fix-replay-fabricates-orphan-end-for-live-calls. */

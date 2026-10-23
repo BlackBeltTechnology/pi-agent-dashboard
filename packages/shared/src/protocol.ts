@@ -898,7 +898,12 @@ export interface VaultSyncRequestMessage {
   type: "vault_sync_request";
   sessionId: string;
   cwd?: string;
-  /** Raw `git remote get-url origin` of `cwd`; absent when there is no readable origin. The hub normalises it. */
+  /**
+   * `git remote get-url origin` of `cwd` in its RAW shape (never normalised), with URL userinfo
+   * stripped by the bridge (`http(s)`: all userinfo; `ssh://`: password only). Absent when there is no
+   * readable origin, or the remote carries userinfo but cannot be parsed. The hub strips again on
+   * receipt (old bridges) and normalises it once. See change: harden-bridge-inbound-and-discovery (D18).
+   */
   origin?: string;
   tracked: string[];
   reason: "connect" | "startup" | "reload" | "new" | "resume" | "fork";

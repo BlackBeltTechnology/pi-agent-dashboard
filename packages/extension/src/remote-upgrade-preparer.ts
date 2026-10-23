@@ -14,7 +14,7 @@
  *
  * Extracted from `bridge.ts` so it is testable without a live bridge.
  *
- * See change: fix-remote-bridge-ticket-origin (D2, D4).
+ * See change: fix-remote-bridge-ticket-origin (D2, D4); harden-bridge-inbound-and-discovery (D19: pinned-only).
  */
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import { resolveDashboardHttpOrigin } from "./dashboard-http-origin.js";
@@ -26,6 +26,12 @@ export interface RemoteUpgradePreparerDeps {
   log: Pick<Console, "log" | "error">;
   /** Mirror of a diagnostic line over the wire (`transportDiagnostics.record`). */
   record: (d: { event: "endpoint_resolved"; detail: string }) => void;
+  /**
+   * Is `endpoint` pinned (configured endpoint or a pin-store `lastEndpoint`)?
+   * Required, not defaulted: an absent gate would silently hand the bearer to
+   * any discovered host. See change: harden-bridge-inbound-and-discovery (D19).
+   */
+  isPinned: (endpoint: string) => boolean;
 }
 
 export type RemoteUpgradePreparer = ((endpoint: string) => Promise<{ url?: string } | undefined>) & {
@@ -53,6 +59,14 @@ export function createRemoteUpgradePreparer(deps: RemoteUpgradePreparerDeps): Re
 
   const prepare = async (endpoint: string): Promise<{ url?: string } | undefined> => {
     if (!isRemoteEndpoint(endpoint)) return undefined;
+    // The device bearer goes ONLY to a pinned endpoint. A discovery-only host
+    // gets no request at all — not even the ticket mint, which carries the
+    // bearer. See change: harden-bridge-inbound-and-discovery (D19).
+    if (!deps.isPinned(endpoint)) {
+      const reason = `${endpoint} is not a configured or pinned endpoint; the device bearer is not sent to a discovered host`;
+      deps.log.error(`[dashboard] bridge ticket unpinned_discovered_host: ${reason}`);
+      throw new Error(reason);
+    }
     const resolved = resolveAndNote(endpoint);
     if (!resolved.ok) {
       deps.log.error(`[dashboard] bridge ticket ${resolved.cause}: ${resolved.reason}`);

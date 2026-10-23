@@ -59,7 +59,7 @@ async function startServer(opts: { counter?: string; refuse?: boolean; onMessage
   return (server.address() as AddressInfo).port;
 }
 
-function bridge(port: number, marked: boolean) {
+function bridge(port: number, marked: boolean, optOut = false) {
   const reports: IdentityFailureReport[] = [];
   let opens = 0;
   const url = `ws://127.0.0.1:${port}`;
@@ -71,7 +71,14 @@ function bridge(port: number, marked: boolean) {
       opens += 1;
     },
     planDial: (base) =>
-      localCredentialPlan(base, { env: { homedir: home }, marker: marked ? url : undefined }),
+      localCredentialPlan(base, {
+        env: { homedir: home },
+        marker: marked ? url : undefined,
+        // Pinned explicitly: the real env must never decide a test. A token holder requires the
+        // counter-proof unless it opts out. See change: harden-bridge-inbound-and-discovery (D19).
+        allowUnproven: optOut ? "1" : undefined,
+        log: () => {},
+      }),
     onIdentityFailure: (r) => {
       reports.push(r);
       appendIdentityLog(r, { homedir: home });
@@ -111,13 +118,21 @@ describe("X3 forged counter-proof", () => {
 });
 
 describe("X5 a proof-ignorant server", () => {
-  it("(a) grace-like accept: the unmarked bridge registers, the marked one aborts and quarantines", async () => {
+  it("(a) only the explicit opt-out registers with a proof-ignorant server; a token holder — marked or not — aborts and quarantines", async () => {
     const port = await startServer();
+    const optedOut = bridge(port, false, true);
+    optedOut.cm.connect();
+    await sleep(400);
+    expect(optedOut.opens()).toBe(1);
+    expect(optedOut.reports).toHaveLength(0);
+    optedOut.cm.disconnect();
+
+    // Unmarked but holding the token: no longer a grace accept (D19).
     const unmarked = bridge(port, false);
     unmarked.cm.connect();
     await sleep(400);
-    expect(unmarked.opens()).toBe(1);
-    expect(unmarked.reports).toHaveLength(0);
+    expect(unmarked.opens()).toBe(0);
+    expect(unmarked.reports).toHaveLength(1);
     unmarked.cm.disconnect();
 
     const marked = bridge(port, true);

@@ -18,12 +18,13 @@ import type { FileEntry, ImageContent, MissingToolError, PiSessionInfo } from "@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
+import { createInboundLimits, type InboundLimits } from "./inbound-limits.js";
 import { errText, reportRefresh } from "./model-refresh.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate, readTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { filterByEnabledModels } from "./session-sync.js";
 import { resolveServerCliPath } from "./server-launcher.js";
+import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 
 const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".cache", "__pycache__", ".venv"]);
@@ -443,6 +444,13 @@ export function createCommandHandler(
   sessionIdOrGetter: string | (() => string),
   options?: {
     getModelRegistry?: () => any;
+    /**
+     * Process-wide inbound bounds (bash concurrency + prompt bucket). The
+     * bridge passes its single instance so the allowance survives `/reload`;
+     * absent → a handler-local one built from the environment.
+     * See change: harden-bridge-inbound-and-discovery (D17).
+     */
+    limits?: InboundLimits;
     /** Re-sync dashboard-registered providers from providers.json (bridge wires
      *  `reloadProviders(pi)`). Awaited by `request_models` before the registry
      *  refresh. See change: refresh-models-on-provider-change (D1). */
@@ -638,6 +646,8 @@ export function createCommandHandler(
     }, PERSISTENT_ABORT_INTERVAL_MS);
   }
 
+  const limits = options?.limits ?? createInboundLimits();
+
   return {
     async handle(msg: ServerToExtensionMessage): Promise<ExtensionToServerMessage | undefined> {
       const sessionId = getSessionId();
@@ -716,7 +726,7 @@ export function createCommandHandler(
 
           // Route based on parsed command type
           if (parsed.type === "bash") {
-            await handleBashCommand(pi, sessionId, parsed.command, parsed.excludeFromContext, options?.eventSink);
+            await handleBashCommand(pi, sessionId, parsed.command, parsed.excludeFromContext, options?.eventSink, undefined, limits);
             return undefined;
           }
 
@@ -858,7 +868,7 @@ export function createCommandHandler(
               // precedence). See change: add-dashboard-slash-commands.
               const ranExec =
                 !handled &&
-                (await tryExecSlashTemplate(pi, parsed.text, process.cwd(), sessionId, options?.eventSink));
+                (await tryExecSlashTemplate(pi, parsed.text, process.cwd(), sessionId, options?.eventSink, limits));
               if (!handled && !ranExec) {
                 // sendUserMessage exempt from gating: only typed single-line
                 // slashes that are NOT extension commands reach this — i.e.
@@ -1405,6 +1415,7 @@ export async function tryExecSlashTemplate(
   cwd: string,
   sessionId: string,
   eventSink?: (msg: ExtensionToServerMessage) => void,
+  limits?: InboundLimits,
 ): Promise<boolean> {
   const loaded = loadPromptTemplate(text, cwd, pi as any);
   if (!loaded || loaded.kind !== "exec") return false;
@@ -1416,7 +1427,7 @@ export async function tryExecSlashTemplate(
     args,
     env: buildDashboardExecEnv(),
     source: "slash-exec",
-  });
+  }, limits);
   return true;
 }
 
@@ -1483,6 +1494,46 @@ function dispatchDashboardRetry(
 
 /** Execute a bash command and forward results */
 async function handleBashCommand(
+  pi: ExtensionAPI,
+  sessionId: string,
+  command: string,
+  excludeFromContext: boolean,
+  eventSink?: (msg: ExtensionToServerMessage) => void,
+  execOpts?: BashExecOptions,
+  limits?: InboundLimits,
+): Promise<void> {
+  // Concurrency bound: `!`, `!!` and exec slash templates share ONE counter
+  // per session. A refusal is visible (command_feedback), never silent; the
+  // slot is released on every exit path (success, non-zero, spawn error,
+  // timeout, abort). See change: harden-bridge-inbound-and-discovery (D17).
+  let release: (() => void) | undefined;
+  if (limits) {
+    release = limits.tryAcquireBash(sessionId);
+    if (!release) {
+      eventSink?.({
+        type: "event_forward",
+        sessionId,
+        event: {
+          eventType: "command_feedback",
+          timestamp: Date.now(),
+          data: {
+            command: "bash",
+            status: "error",
+            message: `bash concurrency limit reached (${limits.maxBash} in flight per session) — wait for a running command to finish`,
+          },
+        },
+      });
+      return;
+    }
+  }
+  try {
+    await runBashCommand(pi, sessionId, command, excludeFromContext, eventSink, execOpts);
+  } finally {
+    release?.();
+  }
+}
+
+async function runBashCommand(
   pi: ExtensionAPI,
   sessionId: string,
   command: string,

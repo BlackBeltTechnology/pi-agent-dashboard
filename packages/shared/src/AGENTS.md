@@ -118,6 +118,7 @@ Files in this directory. One row per source file.
 | `recovery-timing.ts` | The two cold-start recovery windows in one module so their relation is testable. → see `recovery-timing.ts.AGENTS.md` |
 | `redaction.ts` | `REDACTION_PATTERNS_V1`, `REDACTION_VERSION`, `redactSecrets`. → see `redaction.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). → see `recommended-extensions.ts.AGENTS.md` |
+| `remote-credentials.ts` | `stripRemoteCredentials(raw)`: http(s) ⇒ drop all userinfo; other `scheme://user:pass@host` ⇒ drop password, keep user; scp/no-userinfo ⇒ unchanged; userinfo + no usable host ⇒ `undefined`. Keeps raw shape (never `normalizeOrigin`'s host/path). Used by git-link-builder, vault sync origin, hub. See change: harden-bridge-inbound-and-discovery (D18). |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… →… → see `rest-api.ts.AGENTS.md` |
 | `role-config-disk.ts` | Node-only `readRoleConfigFromDisk(home?)` + `providersJsonPath`; total — missing/garbled `providers.json` →… → see `role-config-disk.ts.AGENTS.md` |
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |

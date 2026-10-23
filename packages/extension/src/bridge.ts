@@ -24,6 +24,7 @@ import {
   tryExecSlashTemplate,
   validateImages,
 } from "./command-handler.js";
+import { createInboundLimits } from "./inbound-limits.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
 import {
@@ -49,7 +50,9 @@ import { createPollingHolder, drainDisposables, ensureDisposable, teardownPrevio
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import { localCredentialPlan } from "./local-token-header.js";
+import { localCredentialPlan, proofFailureLogCause } from "./local-token-header.js";
+import { isPinnedEndpoint } from "./pinned-endpoint.js";
+import { loadServerPins, serverPinsPath } from "./server-pin-store.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-token-delivery.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
@@ -1036,10 +1039,19 @@ function initBridge(pi: ExtensionAPI) {
   // Mint a bridge ticket per remote dial; origin + failure causes: see
   // `remote-upgrade-preparer.ts`. Log the resolved HTTP origin up front too
   // (D4), deduped with the per-dial log.
+  // The bearer goes only to a PINNED endpoint: the one this bridge was configured
+  // with (or the user explicitly moved to), or a pin-store `lastEndpoint`.
+  // A discovery-only host is never pinned. See change: harden-bridge-inbound-and-discovery (D19).
+  const configuredEndpoint = inst.dashboardUrl;
   const prepareRemoteUpgrade = createRemoteUpgradePreparer({
     env: process.env,
     log: console,
     record: (d) => transportDiagnostics.record(d),
+    isPinned: (endpoint) =>
+      isPinnedEndpoint(endpoint, {
+        configured: [configuredEndpoint, inst.dashboardUrl],
+        pins: loadServerPins(serverPinsPath()),
+      }),
   });
   prepareRemoteUpgrade.noteOrigin(inst.dashboardUrl);
 
@@ -1184,7 +1196,7 @@ function initBridge(pi: ExtensionAPI) {
     // counter-proof before `open`. See change: loopback-credential-proof (D6, D7).
     planDial: (base) => localCredentialPlan(base),
     onIdentityFailure: (report) => {
-      console.error(`[dashboard] server identity check failed (${report.cause}) at ${report.endpoint}`);
+      console.error(`[dashboard] server identity check failed (${proofFailureLogCause(report.cause)}) at ${report.endpoint}`);
       appendIdentityLog(report);
     },
     // Every accepted re-target (and every reversal) re-derives these from the
@@ -1328,7 +1340,15 @@ function initBridge(pi: ExtensionAPI) {
   // See change: fix-terminal-session-dashboard-reload.
   const terminalReload = createTerminalReload({ pi, getSessionId: () => inst.sessionId });
 
+  // One limiter per bridge process: kept in the process-global state so a
+  // `/reload` does not refill the prompt bucket. See change:
+  // harden-bridge-inbound-and-discovery (D17).
+  const bridgeState = getBridgeState();
+  const inboundLimits = (bridgeState.inboundLimits ??= createInboundLimits());
+  inst.inboundLimits = inboundLimits;
+
   const commandHandler = createCommandHandler(pi, () => inst.sessionId, {
+    limits: inboundLimits,
     getModelRegistry: () => inst.cachedModelRegistry,
     // Selector-open re-sync of providers.json: heals a missed credentials_updated.
     // See change: refresh-models-on-provider-change (D1).
@@ -1497,6 +1517,7 @@ function initBridge(pi: ExtensionAPI) {
         process.cwd(),
         inst.sessionId,
         (msg) => inst.connection.send(msg),
+        inst.inboundLimits,
       );
       if (ranExec) {
         // Non-turn exec-template route: settle optimistic idle bubble.

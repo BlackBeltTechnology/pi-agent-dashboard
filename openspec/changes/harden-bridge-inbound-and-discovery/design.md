@@ -71,6 +71,22 @@ MODIFIES mdns-discovery "Guarded migration away from an established bridge"; ADD
 - `!` output reaches tunnel viewers by design (`extension/src/command-handler.ts:1526-1538`). Only vault values are masked (`vault-redaction.ts:1-21`).
 - Document in `docs/architecture.md` "Remote confinement" (~`:3103`), `docs/faq.md` (~`:723`) and README "Tunnel (zrok)" (~`:394`), via DocScribe.
 
+## Measurement record (task 2.1, `performance-optimization`)
+
+Method: static trace of every producer of an inbound turn-starting command, then a fake-clock replay (test BP1) of each workload against the **default** limits. Production traffic cannot be sampled from a worktree, so the peaks below are the *upper bounds the code permits*, not telemetry. The bucket and the bash counter are **per bridge connection / per session**, so fan-out across sessions never concentrates on one bucket.
+
+| Producer | Code | Inbound prompts per bridge connection |
+|---|---|---|
+| Interactive typing / paste | composer → `send_prompt` | human-bound; ≤ 3/s sustained, ≤ 8 back-to-back (paste + queued follow-up drain on `agent_settled`, `followup-buffer.ts` cap 20 drains one entry per settle) |
+| Automation run | `automation-plugin/src/server/index.ts:455` `sendToSession` | exactly 1 per spawned run session (per-session bridge) |
+| `/reload` fan-out | `session-action-handler.ts:95,185` one `send_prompt "/reload"` per session | exactly 1 per bridge, regardless of M sessions |
+| Flows / chat-gateway | one prompt per agent turn / per platform message | ≤ 1 per turn; platform-side rate limits make > 1/s per chat impractical |
+| Bash | `!` / `!!` / exec templates | UI sends sequentially; observed concurrent = 1 |
+
+Recorded constants (`__tests__/helpers/bridge-inbound-peaks.ts`): peak 3 prompts/s, peak burst 8, peak concurrent bash 1, reload fan-out M = 40 sessions (1 prompt each).
+
+Defaults ≥ 3× the peaks (asserted by BP1): bucket refill 10/s ≥ 3×3 = 9; burst 30 ≥ 3×8 = 24; bash 4 ≥ 3×1 = 3. The provisional defaults (4 bash, `30/10`) are therefore **final**.
+
 ## Sequencing
 
 ```mermaid

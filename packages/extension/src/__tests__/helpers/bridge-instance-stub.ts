@@ -9,6 +9,7 @@
  */
 import { vi } from "vitest";
 import { type BridgeInstance, type BridgeState, createInstance } from "../../bridge-handlers/instance.js";
+import { createInboundLimits } from "../../inbound-limits.js";
 
 export interface StubPi {
   on: ReturnType<typeof vi.fn>;
@@ -60,6 +61,8 @@ export function makeStubInstance(
     sessionId: "S1",
     sessionReady: true,
     connection: connection as never,
+    // A real limiter (defaults): a dispatch test that never floods never trips it.
+    inboundLimits: createInboundLimits(),
     // Inert vault delivery: tests that exercise it pass their own.
     vaultDelivery: {
       onServerMessage: () => false,

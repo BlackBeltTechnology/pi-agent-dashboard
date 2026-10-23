@@ -4025,3 +4025,41 @@ describe("regroupOwnedEvents", () => {
     expect(regroupOwnedEvents(state, [{ ownerId: "x", displayName: "X", eventTypes: ["quota_*"] }])).toBe(state);
   });
 });
+
+// See change: harden-bridge-inbound-and-discovery (test-plan BF1): a bridge-refused
+// (rate-limited) command settles the optimistic bubble and shows the limit inline.
+describe("BF1: inbound-limit refusal settles the optimistic bubble", () => {
+  for (const command of ["send_prompt", "retry_session", "git_commit_draft"]) {
+    it(`${command}: prompt_received then command_feedback error → no pending bubble, inline error carries the limit`, () => {
+      let state = createInitialState();
+      state = { ...state, pendingPrompt: { status: "sending", text: "hello" } };
+      state = applyPromptReceived(state, false); // bridge ack (fresh:false) arrives first
+      state = reduceEvent(state, {
+        eventType: "command_feedback",
+        timestamp: 2000,
+        data: {
+          command,
+          status: "error",
+          message: `${command} refused: inbound command rate limit reached (burst 30, refill 10/s) — retry shortly`,
+        },
+      });
+      expect(state.pendingPrompt).toBeUndefined(); // no permanent spinner
+      const fb = state.messages.at(-1)!;
+      expect(fb.role).toBe("commandFeedback");
+      expect((fb.args as any).status).toBe("error");
+      expect((fb.args as any).command).toBe(command);
+      expect(fb.content).toContain("burst 30");
+    });
+  }
+
+  it("a still-sending bubble is also settled by the error alone (ack lost)", () => {
+    let state = createInitialState();
+    state = { ...state, pendingPrompt: { status: "sending", text: "x" } };
+    state = reduceEvent(state, {
+      eventType: "command_feedback",
+      timestamp: 1,
+      data: { command: "send_prompt", status: "error", message: "rate limit" },
+    });
+    expect(state.pendingPrompt).toBeUndefined();
+  });
+});

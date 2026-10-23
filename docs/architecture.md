@@ -3149,6 +3149,38 @@ New folders can be created from two entry points — a footer **＋ New folder**
 - Residual: marker-less relay (`ssh -R`, no forwarding headers) looks loopback = local unless `requireLocalProof: false` (opt-out). Default on: refused without proof.
 - Operator opt-out: `config.json` `browse.confineRemote` (default `true`). Only explicit `false` disables. Read at server start (restart to apply). Off → remote callers browse / mkdir / pin like local callers. Used by the Docker e2e harness (browser = remote peer via port mapping; specs pin per-test dirs outside `$HOME`); harness env `PI_E2E_BROWSE_CONFINEMENT=1` keeps it on. Shipping installs stay confined.
 - Threat model: guards observe-tier remote viewer. Caller that may spawn session/terminal already has FS reach.
+- Shell output over tunnel (change: harden-bridge-inbound-and-discovery): `!` / `!!` / exec-template bash output (`bash_output`, `packages/extension/src/command-handler.ts`) reaches every tunnel viewer by design.
+- Only credential-vault values masked (`packages/extension/src/vault-redaction.ts`). No pattern redaction of secrets in output.
+- Operator rule: no secrets printed by shell commands on a tunneled session.
+
+#### Bridge inbound bounds (change: harden-bridge-inbound-and-discovery)
+
+Bridge caps per-unit-time work that server or bridge-socket holder can trigger. Limiter: `packages/extension/src/inbound-limits.ts`.
+
+- `PI_DASHBOARD_BRIDGE_MAX_BASH` = max concurrent `!` / `!!` / exec-template bash per session. Default `4`.
+- `PI_DASHBOARD_BRIDGE_PROMPT_RATE` = `<burst>/<refillPerSec>`. Token bucket per bridge connection. Default `30/10`.
+- Prompt bucket shared by: `send_prompt`, `retry_session`, `git_commit_draft`, flow_management run, `plugin_emit_event`, `promote_followup_entry`.
+- Valid values: positive integers only. Invalid (`0`, negative, non-integer, empty) → default + one log line per process per variable. `0` ≠ unlimited.
+- Bucket survives WS reconnect and `/reload` (per bridge process). Keyed on connection object.
+- Refusal visible: inline `command_feedback` error in chat. Never silent drop.
+- Bash refusal text: `bash concurrency limit reached (N in flight per session)`.
+- Prompt refusal text: `inbound command rate limit reached (burst B, refill R/s)`.
+- `server_restarting.quiesceMs` normalized in `ConnectionManager.pauseAutoStart` (`packages/extension/src/connection.ts`): invalid / ≤0 ignored; fraction rounded up; capped at `MAX_QUIESCE_MS` = `120000` (`packages/shared/src/recovery-timing.ts`). Later pause never shortens active one.
+
+#### Bridge loopback counter-proof (change: harden-bridge-inbound-and-discovery)
+
+- Bridge holding local token (`~/.pi/dashboard/local/token`) requires server counter-proof on EVERY loopback dial (`ws:` and `wss:`): configured endpoint, auto-start, discovered mDNS advert, retarget, reconnect. `ws+unix:` exempt.
+- Independent of `PI_DASHBOARD_REQUIRE_SERVER_PROOF`.
+- Refusal: no register, no session data. Log cause `server_proof_missing` (no proof) or `server_proof_invalid` (bad MAC / timeout). Then backoff.
+- Opt-out: `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1` (exactly `1`). Logged each dial. Needed for same-host server older than 0.10.0.
+- Same-user rogue process out of scope (can read token).
+- Device bearer (`PI_DASHBOARD_TOKEN`) sent only to pinned endpoint: configured, or pin-store `lastEndpoint`. Canonical host:port equality. Lone pin is no fallback.
+- Discovered host → log `bridge ticket unpinned_discovered_host`. No request sent.
+
+#### Git remote credentials (change: harden-bridge-inbound-and-discovery)
+
+- Bridge strips userinfo from remotes before building links and before `vault_sync_request.origin`: http(s) all userinfo; ssh:// password only. Hub strips again.
+- Unparseable remote with userinfo → no origin, no links.
 
 #### Recovery server lockdown (change: harden-server-capability-bounds)
 
