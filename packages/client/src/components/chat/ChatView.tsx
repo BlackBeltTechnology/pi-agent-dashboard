@@ -1,13 +1,13 @@
 import { isWidgetBarPrompt, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
+import { useMediaQuery } from "@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery";
 import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLanDisconnect, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useMediaQuery } from "@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";

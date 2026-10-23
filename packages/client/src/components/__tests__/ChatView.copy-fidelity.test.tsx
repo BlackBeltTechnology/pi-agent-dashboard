@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 import { ChatView } from "../chat/ChatView.js";
@@ -15,7 +15,7 @@ const win = vi.hoisted(() => ({
   range: null as null | { start: number; end: number },
   extra: [] as number[],
   measured: [] as string[],
-  total: () => -1,
+  total: (() => -1) as () => number,
 }));
 const hooks = vi.hoisted(() => ({
   throwOnSerialize: false,
@@ -375,11 +375,8 @@ describe("ChatView full-span copy (D2/D3/D7)", () => {
     const { text, prevented } = dispatchCopy(view.scrollEl);
     expect(prevented).toBe(true);
     expect(text).toContain(marker(60));
-    await flush();
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-    expect(mountedRows(view.scrollEl)).toEqual(before);
+    // The fallback `bump()` is a plain scheduled update: poll for it, no fixed tick.
+    await waitFor(() => expect(mountedRows(view.scrollEl)).toEqual(before));
   });
 
   it("X3: a copy-only row's late image load never reaches the size cache", async () => {

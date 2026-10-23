@@ -1,4 +1,4 @@
-import type { CDPSession } from "@playwright/test";
+import type { BrowserContext, CDPSession } from "@playwright/test";
 import { expect, type Page, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
@@ -33,16 +33,28 @@ const COPY_P90_BUDGET_MS = 1500;
 
 const chatScroll = (page: Page) => byTestId(page, "chatScrollContainer");
 
-/** Open a fresh session, stream the whole long transcript, return to a settled state. */
-async function openLongSession(page: Page): Promise<void> {
+/** Turn on the test-only copy-timing sink for every page load of `page`. */
+async function enableCopyTiming(page: Page): Promise<void> {
   await page.addInitScript(() => {
     (window as unknown as { __piCopyTimingEnabled?: boolean }).__piCopyTimingEnabled = true;
   });
+}
+
+/**
+ * Open a fresh session, stream the whole long transcript and settle. Returns the
+ * session id, so a narrow/touch page can deep-link to the SAME session (the
+ * session list does not render its desktop cards below 600px height or on a
+ * 390px mobile shell, so `spawnFreshGitSession` only works at a desktop size).
+ */
+async function openLongSession(page: Page): Promise<string> {
+  await enableCopyTiming(page);
   const card = await spawnFreshGitSession(page);
+  const id = (await card.getAttribute("data-session-id")) as string;
   await card.click();
   await sendPrompt(page, LONG);
   await expect(page.getByText(LONG_TRANSCRIPT_TAIL).last()).toBeVisible({ timeout: 240_000 });
   await chatScroll(page).waitFor({ state: "visible" });
+  return id;
 }
 
 interface SelInfo {
@@ -260,14 +272,17 @@ test.describe("oversized chat selection (chromium desktop)", () => {
     expect(Math.abs(scrollTop1 - scrollTop0)).toBeLessThanOrEqual(1);
     expect((await selectionInfo(page)).collapsed).toBe(false);
 
-    // Collapse: follow resumes and the final stream text lands.
+    // Collapse, jump to the bottom: the content that arrived during the selection is there.
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    await byTestId(page, "scrollToBottom").click();
     await expect(page.getByText(/slow-chunk-39/).last()).toBeVisible({ timeout: 60_000 });
   });
 
   test("F8: a short desktop window still uses the fine ceiling (60 rows stay mounted)", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 560 });
     await openLongSession(page);
+    // 560px tall makes `useMobile()` true (max-height: 599px) while the pointer stays fine.
+    await page.setViewportSize({ width: 1280, height: 560 });
+    await chatScroll(page).waitFor({ state: "visible" });
     expect(await capOf(page, "retain")).toBeGreaterThanOrEqual(100);
     await dragSelect(page, 60);
     const info = await selectionInfo(page);
@@ -308,6 +323,11 @@ test.describe("oversized chat selection (chromium desktop)", () => {
 
 test.describe("oversized chat selection (chromium mobile, coarse pointer)", () => {
   test.setTimeout(420_000);
+  // Contexts opened by hand are not closed with the test's own context.
+  const extraContexts: BrowserContext[] = [];
+  test.afterEach(async () => {
+    for (const ctx of extraContexts.splice(0)) await ctx.close();
+  });
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
   test.beforeEach(({ browserName }) => {
     test.skip(browserName !== "chromium", "chromium-only: mobile emulation + CDP");
@@ -315,8 +335,30 @@ test.describe("oversized chat selection (chromium mobile, coarse pointer)", () =
 
   test("F6/F9/P1: coarse copy declines past the ceiling, swipe-back yields to a selection, copy p90 holds under 6x CPU", async ({
     page,
+    browser,
   }) => {
-    await openLongSession(page);
+    // Stream the transcript on a desktop-size context, then deep-link the touch page to it.
+    const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    extraContexts.push(desktop);
+    const sessionId = await openLongSession(await desktop.newPage());
+    await enableCopyTiming(page);
+    await page.goto(`/session/${sessionId}`);
+    await chatScroll(page).waitFor({ state: "visible" });
+    // The deep-linked page replays history: wait until the whole transcript is
+    // loaded (last row index) before any copy, else the row count is a race.
+    await expect
+      .poll(
+        async () => {
+          await chatScroll(page).evaluate((el) => {
+            el.scrollTop = el.scrollHeight;
+          });
+          return page.evaluate(() =>
+            Math.max(-1, ...Array.from(document.querySelectorAll<HTMLElement>("[data-index]")).map((r) => Number(r.dataset.index))),
+          );
+        },
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThan(200);
     await primeClipboard(page, "PRIOR");
     const copyCap = await capOf(page, "copy");
     expect(copyCap).toBeLessThan(240); // the fixture must exceed the coarse ceiling

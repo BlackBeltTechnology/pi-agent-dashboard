@@ -205,6 +205,29 @@ total, so the placeholders carry no acceptance weight.
 
 Both satisfy copy ceiling ≥ retained ceiling (100 / 40).
 
+**Calibration record (task 4.18, product build, docker harness, chromium).**
+End-to-end handler time (mount + serialize + release), `window.__piCopyTiming`,
+10 copies each, select-all over the `long-transcript` fixture (243 rows):
+
+| CPU | rows | p50 | p90 | max |
+|---|---|---|---|---|
+| 1× | 243 | 24.1 ms | 24.7 ms | 25.7 ms |
+| 6× | 243 | 150.2 ms | 172.0 ms | 174.1 ms |
+
+That is ≈0.10 ms/row at 1× and ≈0.71 ms/row at 6× on the fixture's light rows
+(text + collapsed bash cards); serialize + release add roughly 10 % on top of the
+spike's mount-only figure. The real-session per-row p90 from the spike (≈2.1 ms
+fine, ≈7.7 ms coarse) is the binding number for heavy rows: it gives
+500 × 2.1 ≈ 1.05 s and 150 × 7.7 ≈ 1.15 s, both ≤ ~1.5 s. The constants are
+therefore **kept** at `SELECTION_COPY_CAP_FINE = 500` and
+`SELECTION_COPY_CAP_COARSE = 150` (code and this document agree).
+
+**Not measured here:** a terminal- and mermaid-heavy real session on the product
+build, and heap growth at the ceiling (the harness holds only synthetic
+transcripts, and this environment has no way to replay a real session into it).
+That measurement remains a manual follow-up before widening either ceiling; if it
+shows memory or time spikes the ceilings are lowered, never raised.
+
 Decline path, used when the transcript part exceeds the ceiling:
 1. `preventDefault()` with **no** `setData`. The spike showed all 3 engines keep
    the previous clipboard contents, so nothing is overwritten and nothing
