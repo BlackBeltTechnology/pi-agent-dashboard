@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, parseBackends, parseEnvFile } from "../config.js";
 
 describe("parseEnvFile", () => {
@@ -214,5 +214,36 @@ describe("parseBackends", () => {
     expect(parseBackends("assemblyai,soniox")).toEqual(["soniox", "assemblyai"]);
     expect(parseBackends("soniox,soniox")).toEqual(["soniox"]);
     expect(parseBackends("assemblyai,whisper")).toEqual(["assemblyai"]);
+  });
+});
+
+describe("BE28 MAX_AUDIO_MB parsing", () => {
+  let d: string;
+  beforeEach(() => {
+    d = fs.mkdtempSync(path.join(os.tmpdir(), "cfg-mb-"));
+  });
+  afterEach(() => fs.rmSync(d, { recursive: true, force: true }));
+
+  const load = (raw: string | undefined, warn: (m: string) => void = () => {}) =>
+    loadConfig({
+      env: raw === undefined ? { SONIOX_API_KEY: "k" } : { SONIOX_API_KEY: "k", MAX_AUDIO_MB: raw },
+      cwd: d,
+      skillDir: d,
+      warn,
+    });
+
+  it.each(["-1", "NaN", "abc", "1.5", "5 MB"])("invalid %j falls back to 200 with exactly one warning", (raw) => {
+    const warn = vi.fn();
+    expect(load(raw, warn).maxAudioMb).toBe(200);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("valid values (incl. 0) parse and never warn", () => {
+    const warn = vi.fn();
+    expect(load("50", warn).maxAudioMb).toBe(50);
+    expect(load("0", warn).maxAudioMb).toBe(0);
+    expect(load(undefined, warn).maxAudioMb).toBe(200);
+    expect(load("", warn).maxAudioMb).toBe(200);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
