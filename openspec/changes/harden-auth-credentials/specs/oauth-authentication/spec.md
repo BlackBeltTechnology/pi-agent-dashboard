@@ -105,16 +105,3 @@ The flag SHALL NOT be derived from `request.protocol` or from any forwarding hea
 #### Scenario: Forwarding headers never grant trust
 - **WHEN** a request from an untrusted peer carries `X-Forwarded-For` naming a trusted-network address
 - **THEN** authorization SHALL still evaluate the socket peer and the request SHALL be refused
-
-## ADDED Requirements
-
-### Requirement: CSP report sink is public to the OAuth gate
-The OAuth `onRequest` gate SHALL treat `POST /__pi/csp-report/:policy` as a public path, so violation reports from signed-out pages (the login and passkey pages) are neither redirected to `/auth/login` nor refused. The exemption SHALL cover only that method and path pattern; it SHALL NOT widen any other route. See the `baseline-content-security-policy` capability for the sink's own limits.
-
-#### Scenario: Signed-out report is not redirected
-- **WHEN** OAuth is configured and a request with no cookie posts a report to `/__pi/csp-report/strict`
-- **THEN** the OAuth gate SHALL NOT redirect or refuse it
-
-#### Scenario: Exemption is narrow
-- **WHEN** OAuth is configured and a request with no cookie sends `GET /__pi/csp-report/strict` or posts to another `/__pi/` path
-- **THEN** the OAuth gate SHALL apply as for any non-public path

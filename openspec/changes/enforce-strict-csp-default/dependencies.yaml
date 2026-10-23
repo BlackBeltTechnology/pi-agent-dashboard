@@ -1,3 +1,3 @@
 blocked_by:
-  - change: close-residual-audit-findings
-    reason: "This change flips the CSP default from report to enforce. It needs everything close-residual-audit-findings (S3b) ships: the baseline report sink, the persisted violation and dropped counters used as soak evidence, the strict nonce policy, and the enforce-mode semantics. The soak gate (>=14 consecutive days, zero strict script-src* violations, zero dropped reports, >=1 release, strict-enforced E2E green) can only start once that change is released."
+  - change: harden-cors-and-csp-reporting
+    reason: "This change flips the CSP default from report to enforce. It needs everything harden-cors-and-csp-reporting (S3b) ships: the baseline report sink, the persisted violation and dropped counters used as soak evidence, the strict nonce policy, and the enforce-mode semantics. The soak gate (>=14 consecutive days, zero strict script-src* violations, zero dropped reports, >=1 release, strict-enforced E2E green) can only start once that change is released."

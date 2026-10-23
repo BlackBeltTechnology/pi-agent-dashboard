@@ -1,5 +1,11 @@
 blocked_by:
-  - change: close-container-loopback-impersonation
-    reason: "Both changes MODIFY bearer-device-auth, trust-and-credential-boundaries, oauth-authentication and trusted-networks. close-container-loopback-impersonation owns B14r (requireLocalProof default flip, demonstrated container exploit) and lands first; this change lands after it and rebases its MODIFIED blocks on that change's archived text."
-  - change: fix-remote-bridge-ticket-origin
-    reason: "R4 (never send the device bearer to a discovered unpinned host) builds on the bridge HTTP-origin resolution that fix-remote-bridge-ticket-origin rewrites in bridge.ts / bridge-ticket-client.ts. Implementing R4 first would collide in the same files."
+  - change: harden-auth-credentials
+    reason: "Owns B17, B16r, B18, B4r."
+  - change: harden-cors-and-csp-reporting
+    reason: "Owns B19, R2, S3b (instrumentation + strict policy), B26r."
+  - change: harden-git-terminal-plugin-boundaries
+    reason: "Owns B20, B1r, R1, S1r, B15r."
+  - change: harden-bridge-inbound-and-discovery
+    reason: "Owns B21, B22, R4, R5."
+  - change: harden-media-and-electron-args
+    reason: "Owns B23, B24."

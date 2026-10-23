@@ -1,0 +1,3 @@
+blocked_by:
+  - change: fix-remote-bridge-ticket-origin
+    reason: "R4's rule 'never send the device bearer to a discovered unpinned host' gates the bridge HTTP-origin resolution that change rewrote in bridge.ts / bridge-ticket-client.ts. Already archived (2026-10-22); kept for traceability."

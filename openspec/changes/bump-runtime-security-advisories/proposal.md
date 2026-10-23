@@ -31,7 +31,7 @@ implementation.
   version.
 - Re-run `pnpm audit` and confirm none of these advisories still apply.
   Record any remaining runtime-reachable advisory with its reason in
-  `close-residual-audit-findings/advisory-triage.md`.
+  `harden-cors-and-csp-reporting/advisory-triage.md`.
 - Also look at the lower-risk runtime paths found in the same audit, and bump
   them when the bump is a patch-level upgrade:
   - undici via `@fastify/http-proxy`
@@ -58,7 +58,7 @@ behaviour.
   vitest suite plus the docker E2E smoke, because fastify patch releases have
   changed hook and route-matching edge cases before.
 - Rollback: revert the lockfile and package.json commit.
-- Related: `close-residual-audit-findings` (B26r) records the triage and points
+- Related: `harden-cors-and-csp-reporting` (B26r, split out of `close-residual-audit-findings`) records the triage and points
   here for the fixes.
 
 ## Discipline Skills
