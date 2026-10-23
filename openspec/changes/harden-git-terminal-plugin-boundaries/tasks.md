@@ -99,13 +99,13 @@
 
 ## 7. Integration
 
-- [ ] 7.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures
-- [ ] 7.2 `npm run quality:changed` passes (Biome ratchet)
-- [ ] 7.3 `openspec validate harden-git-terminal-plugin-boundaries --strict` passes
-- [ ] 7.4 `review-code` pass on the full diff; findings fixed or recorded
-- [ ] 7.5 Spawn the `Audit` subagent on the diff (auth, untrusted input, secrets and exec boundaries are touched; read-only findings); parent fixes and re-runs 20.1
-- [ ] 7.6 Rebuild/restart per the `implement` skill (extension→`npm run reload`, server→`/api/restart`, client→build+restart) and verify `curl -s http://localhost:8000/api/health` answers
-- [ ] 7.7 Final DOX/docs sweep: every changed source file has an updated directory `AGENTS.md` row and `scripts/check-conventions.mjs` passes on `proposal.md`
+- [x] 7.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures
+- [x] 7.2 `npm run quality:changed` passes (Biome ratchet)
+- [x] 7.3 `openspec validate harden-git-terminal-plugin-boundaries --strict` passes
+- [x] 7.4 `review-code` pass on the full diff; findings fixed or recorded
+- [x] 7.5 Spawn the `Audit` subagent on the diff (auth, untrusted input, secrets and exec boundaries are touched; read-only findings); parent fixes and re-runs 20.1
+- [x] 7.6 Rebuild/restart per the `implement` skill (extension→`npm run reload`, server→`/api/restart`, client→build+restart) and verify `curl -s http://localhost:8000/api/health` answers
+- [x] 7.7 Final DOX/docs sweep: every changed source file has an updated directory `AGENTS.md` row and `scripts/check-conventions.mjs` passes on `proposal.md`
 
 ## Workflow follow-up
 
