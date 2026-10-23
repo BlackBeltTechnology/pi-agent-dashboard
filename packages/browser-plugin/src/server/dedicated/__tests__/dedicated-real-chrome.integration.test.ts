@@ -148,7 +148,7 @@ describe.skipIf(skipReason !== undefined)("#I2 real Chrome: no TCP debugging soc
     const proxy = http.createServer();
     const wss = new WebSocketServer({ server: proxy });
     wss.on("connection", (ws, req) => {
-      const guid = (req.url ?? "").split("/").pop() as string;
+      const guid = new URL(req.url ?? "", "http://x").pathname.split("/").pop() as string;
       manager.attachCdp(guid, ws as never);
     });
     await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
@@ -161,7 +161,7 @@ describe.skipIf(skipReason !== undefined)("#I2 real Chrome: no TCP debugging soc
 
     const conn = await manager.connectDedicated({ client: "i2" });
     if (!conn.ok) throw new Error(`dedicated connect failed: ${JSON.stringify(conn)}`);
-    const url = `ws://127.0.0.1:${proxyPort}/ws/browser-cdp/${conn.cdpUrl.split("/").pop()}`;
+    const url = `ws://127.0.0.1:${proxyPort}/ws/browser-cdp/${new URL(conn.cdpUrl).pathname.split("/").pop()}`;
     expect(chrome.state()).toBe("running");
 
     const procs = await listProcs();

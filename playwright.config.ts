@@ -68,5 +68,12 @@ export default defineConfig({
     PW_CHANNEL
       ? { name: PW_CHANNEL, use: { ...devices["Desktop Chrome"], channel: PW_CHANNEL } }
       : { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // Cross-engine legs for the oversized-selection behaviour: selection and
+    // Range semantics under unmount differ between Blink, Gecko and WebKit (a
+    // WebKit drag silently re-anchors where the others wipe), so this ONE spec
+    // runs in all three. Every other spec stays chromium-only.
+    // See change: keep-oversized-chat-selection (task 2.1).
+    { name: "firefox", testMatch: "**/large-selection.spec.ts", use: { ...devices["Desktop Firefox"] } },
+    { name: "webkit", testMatch: "**/large-selection.spec.ts", use: { ...devices["Desktop Safari"] } },
   ],
 });

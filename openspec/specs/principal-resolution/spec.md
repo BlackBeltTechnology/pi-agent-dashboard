@@ -133,7 +133,7 @@ The plane has no mode flag. Identity SHALL be **enforced** only while a trusted 
 
 #### Scenario: Active resolver without a login provider stays inert (self-lockout guard)
 - **WHEN** a trusted resolver is registered and configured but no trusted plugin has registered a browser login descriptor
-- **THEN** identity is not enforced: the dispatch hook makes no claim, a genuinely-local browser loads the dashboard and opens its WebSocket as before this change, and remote access follows the pre-change network guard
+- **THEN** identity is not enforced: the dispatch hook makes no claim, a genuinely-local browser loads the dashboard and opens its WebSocket as before this change, subject to the local-trust rule of `trust-and-credential-boundaries` "Opt-in local proof for loopback trust" (under the default, with local proof), and remote access follows the pre-change network guard
 - **AND** the server logs, before listening, that a resolver is configured but no login provider is registered so identity is NOT enforced
 
 #### Scenario: Resolver plus login provider arms enforcement

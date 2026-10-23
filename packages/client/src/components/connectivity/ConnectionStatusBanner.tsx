@@ -2,6 +2,7 @@ import { knockRefusalCopy } from "@blackbelt-technology/pi-dashboard-shared/pair
 import { mdiAlertCircleOutline, mdiAlertOutline, mdiInformationOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
+import { LOCAL_PROOF_COMMAND } from "../../hooks/useNetworkDenied.js";
 import type { ConnectionStatus } from "../../hooks/useWebSocket.js";
 import { getApiBase, useApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -9,6 +10,7 @@ import { assignLocation, openExternalUrl } from "../../lib/nav/safe-navigation.j
 import { confirmCodeAriaLabel, formatCountdown, groupConfirmCode } from "../../lib/pairing/knock-format.js";
 import { type KnockView, knockViewAt } from "../../lib/pairing/knock-state.js";
 import { requestAccessTarget } from "../../lib/pairing/request-access-target.js";
+import { copyText } from "../../lib/util/clipboard.js";
 
 /** Bar recipes per knock state — severity tokens only (no palette classes). */
 const BAR = "flex w-full flex-wrap items-center gap-2 border-b px-4 py-2 text-sm";
@@ -64,7 +66,7 @@ export interface ConnectionStatusBannerProps {
    * browse-denied server is thus never labeled "offline".
    * See change: distinguish-offline-from-network-denied.
    */
-  networkDenied?: { hint?: string } | null;
+  networkDenied?: { hint?: string; reason?: "local_proof_required" } | null;
   /** Callback for the "Settings → Servers" affordance in the denied surface. */
   onOpenServers?: () => void;
   /** Injectable for tests. Defaults to 3000ms. */
@@ -105,6 +107,9 @@ export function ConnectionStatusBanner({
   // (no transport threshold delay) and take precedence over the offline
   // banner so a reachable-but-denied server is never labeled "offline".
   // Still suppressed during an in-flight staging switch.
+  if (networkDenied?.reason === "local_proof_required" && !inFlightSwitch) {
+    return <LocalProofBanner onOpenServers={onOpenServers} />;
+  }
   if (networkDenied && !inFlightSwitch) {
     // Same-origin denial → the request page on this origin; otherwise the denying
     // (active) server's own request page in a new context without an opener.
@@ -205,6 +210,54 @@ export function ConnectionStatusBanner({
           {i18nT("connection.switchServer", undefined, "Switch server")}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The strict default refuses this plain browser tab until it proves it is on the same machine as
+ * the dashboard. The remedy is a command to run there, so it is shown copyable; "Request access"
+ * does not apply (this is not a network denial).
+ * See change: close-container-loopback-impersonation (D3).
+ */
+function LocalProofBanner({ onOpenServers }: { onOpenServers?: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void copyText(LOCAL_PROOF_COMMAND).then((ok) => setCopied(ok));
+  };
+  return (
+    <div role="alert" data-testid="local-proof-required-banner" className={`${BAR} ${BAR_TONE.idle}`}>
+      <span className="flex min-w-[12rem] flex-1 items-start gap-1.5">
+        <Icon path={mdiAlertOutline} size={0.7} className="mt-0.5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 break-words">
+          <strong>{i18nT("connection.localProof.title", undefined, "This browser is not authorized for local control.")}</strong>{" "}
+          {i18nT("connection.localProof.run", undefined, "Run this on the machine the dashboard runs on:")}{" "}
+          <code data-testid="local-proof-command" className="select-all rounded px-1 font-mono">
+            {LOCAL_PROOF_COMMAND}
+          </code>
+        </span>
+      </span>
+      <span className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          data-testid="local-proof-copy"
+          onClick={copy}
+          className="focus-ring min-h-[44px] cursor-pointer rounded-md border border-[var(--accent-solid)] bg-[var(--accent-solid)] px-2.5 text-xs font-semibold text-white sm:min-h-[32px]"
+        >
+          {copied
+            ? i18nT("connection.localProof.copied", undefined, "Copied")
+            : i18nT("connection.localProof.copy", undefined, "Copy command")}
+        </button>
+        {onOpenServers && (
+          <button
+            type="button"
+            onClick={onOpenServers}
+            className={`focus-ring min-h-[44px] cursor-pointer rounded-md border px-2.5 text-xs font-semibold sm:min-h-[32px] ${SECONDARY_BORDER.idle}`}
+          >
+            {i18nT("settings.settingsServers", undefined, "Settings → Servers")}
+          </button>
+        )}
+      </span>
     </div>
   );
 }

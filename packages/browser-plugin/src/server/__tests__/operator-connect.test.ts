@@ -63,7 +63,7 @@ async function makeWorld(opts: WorldOpts = {}): Promise<World> {
     listProfiles: async () => ({ profiles: [{ profileDirectory: "Default", label: "Default", installed: true }] }),
     openChrome: (profile, url) => {
       chromeOpens.push({ profile, url });
-      const guid = new URL(url).searchParams.get("mcpRelayUrl")!.split("/").pop()!;
+      const guid = new URL(new URL(url).searchParams.get("mcpRelayUrl")!).pathname.split("/").pop()!;
       const [relayExt, extSide] = socketPair();
       manager.attachExtension(guid, relayExt);
       void extSide;
@@ -101,7 +101,7 @@ describe("successful operator connect (E12)", () => {
     const { result, linkId, instanceId } = await connectLive(w);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.cdpUrl).toBe(`ws://127.0.0.1:8123/ws/browser-cdp/${GUID}`); // the one place the guid is legitimate
+    expect(result.cdpUrl).toMatch(new RegExp(`^ws://127\\.0\\.0\\.1:8123/ws/browser-cdp/${GUID}\\?ticket=[A-Za-z0-9_-]{43}$`)); // the one place the guid is legitimate
     expect(result.instanceId).toBe(instanceId);
 
     // Nothing sent to any socket carries the guid; the link is addressed by linkId only.

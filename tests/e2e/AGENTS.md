@@ -33,6 +33,7 @@ One row per file.
 | `hermes-model-override.spec.ts` | → `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | → `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | → `known-server-stale-name.spec.ts.AGENTS.md` |
+| `large-selection.spec.ts` | → `large-selection.spec.ts.AGENTS.md` |
 | `large-session-resume-replay.spec.ts` | → `large-session-resume-replay.spec.ts.AGENTS.md` |
 | `lazy-islands.spec.ts` | → `lazy-islands.spec.ts.AGENTS.md` |
 | `live-server-downloads.spec.ts` | L3 #F1/#X1 |

@@ -2,4 +2,4 @@
 executable: bash
 description: Dashboard server config (secrets redacted). Runs locally, no LLM.
 ---
-curl -s "$PI_DASHBOARD_BASE/api/config" | jq .
+eval "$PI_DASHBOARD_CLI" api GET /api/config | jq .

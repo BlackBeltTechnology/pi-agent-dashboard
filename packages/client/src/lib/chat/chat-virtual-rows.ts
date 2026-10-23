@@ -279,12 +279,52 @@ export function rangeToRowIndexSpan(
 }
 
 /**
+ * Rows to keep mounted for ONE selection span (change: keep-oversized-chat-
+ * selection, D1). Within the retained-row ceiling `cap` every row of the span is
+ * retained; past it only the two ENDPOINT rows are, so neither Range boundary
+ * ever moves (the interior re-highlights on remount). Never empty for a span.
+ */
+function spanRetainedRows(lo: number, hi: number, cap: number, count: number): number[] {
+  const min = Math.max(0, lo);
+  const max = Math.min(count - 1, hi);
+  if (min > max) return [];
+  if (max - min + 1 > cap) return min === max ? [min] : [min, max];
+  return Array.from({ length: max - min + 1 }, (_, i) => min + i);
+}
+
+/**
+ * D4 retained union: `stored` is the event-time span, `live` the extractor-time
+ * read of the live Selection. Let U be their min/max hull. Within `cap` retain
+ * all of U; otherwise ONLY the endpoint rows of both spans (≤ 4 rows). So a
+ * stale stored span can never turn a live endpoint into an unmounted interior
+ * row, and the retained set is always ≤ max(cap, 4). Sorted, deduped, in
+ * `[0, count)`.
+ */
+export function retainedSelectionRows(
+  stored: SelectionRowSpan | null,
+  live: SelectionRowSpan | null,
+  cap: number,
+  count: number,
+): number[] {
+  if (!stored && !live) return [];
+  const spans = [stored, live].filter((s): s is SelectionRowSpan => s != null);
+  const hullMin = Math.min(...spans.map((s) => s.min));
+  const hullMax = Math.max(...spans.map((s) => s.max));
+  if (Math.min(count - 1, hullMax) - Math.max(0, hullMin) + 1 <= cap) {
+    return spanRetainedRows(hullMin, hullMax, Number.POSITIVE_INFINITY, count);
+  }
+  const out = new Set<number>();
+  for (const s of spans) for (const i of spanRetainedRows(s.min, s.max, 0, count)) out.add(i);
+  return Array.from(out).sort((a, b) => a - b);
+}
+
+/**
  * Union an active selection's row span into the virtualizer's default range
- * (D3). Returns `base` unchanged when there is no span OR when the span exceeds
- * the retained-row ceiling `cap` (past the cap the caller ACTIVELY clears the
- * selection rather than force-mounting the span or handing back a silently
- * truncated copy). Result stays sorted ascending and within `[0, count)` as the
- * virtualizer requires.
+ * (D3 / keep-oversized-chat-selection D1). Within the retained-row ceiling `cap`
+ * the whole span is added; past it ONLY its two endpoint rows are — the
+ * selection is never cleared and copy fidelity comes from the copy handler's
+ * transient full-span mount, not from retention. Result stays sorted ascending
+ * and within `[0, count)` as the virtualizer requires.
  */
 export function extendRangeWithSelection(
   base: number[],
@@ -293,10 +333,105 @@ export function extendRangeWithSelection(
   count: number,
 ): number[] {
   if (!span) return base;
-  if (span.max - span.min + 1 > cap) return base; // past ceiling: caller clears
   const set = new Set(base);
-  const lo = Math.max(0, span.min);
-  const hi = Math.min(count - 1, span.max);
-  for (let i = lo; i <= hi; i++) set.add(i);
+  for (const i of retainedSelectionRows(span, null, cap, count)) set.add(i);
   return Array.from(set).sort((a, b) => a - b);
+}
+
+/**
+ * Union the virtualizer default range, the retained rows and a transient COPY
+ * span (D2). `copyOnly` = copy span minus base minus retained: rows mounted only
+ * for the duration of one copy, which the render loop leaves unmeasured so the
+ * virtualizer size cache and scroll position stay untouched.
+ */
+export function mergeCopySpan(
+  base: number[],
+  retained: number[],
+  copySpan: SelectionRowSpan | null,
+  count: number,
+): { rows: number[]; copyOnly: Set<number> } {
+  const set = new Set(base);
+  for (const i of retained) set.add(i);
+  const copyOnly = new Set<number>();
+  if (copySpan) {
+    const hi = Math.min(count - 1, copySpan.max);
+    for (let i = Math.max(0, copySpan.min); i <= hi; i++) {
+      if (!set.has(i)) copyOnly.add(i);
+      set.add(i);
+    }
+  }
+  return { rows: Array.from(set).sort((a, b) => a - b), copyOnly };
+}
+
+/** `virtualRowKey` → display-row index, for resolving DOM rows by stable identity (D4). */
+export function buildRowKeyToIndex(displayRows: readonly BurstItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  displayRows.forEach((row, index) => {
+    map.set(virtualRowKey(row, index), index);
+  });
+  return map;
+}
+
+/** Row key of the nearest `[data-row-key]` ancestor inside `container`, else `null`. */
+function endpointRowKey(node: Node | null, container: HTMLElement): string | null {
+  if (!node) return null;
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+  const rowEl = el?.closest?.("[data-row-key]") ?? null;
+  if (!rowEl || !container.contains(rowEl)) return null;
+  return rowEl.getAttribute("data-row-key");
+}
+
+/**
+ * Row span of `range` clipped to `container`, resolved by stable row key (D4/D7).
+ * An endpoint OUTSIDE the container clamps to the boundary row (start → `0`, end
+ * → `rowCount - 1`), which is the clipped span of a range that begins before or
+ * ends after the transcript. An endpoint in a non-virtual region inside the
+ * container clamps like `rangeToRowIndexSpan`; an endpoint whose key is no
+ * longer in `keyToIndex` falls back to the `stored` span's matching bound.
+ * No ownership gate: callers decide whether the range counts.
+ */
+export function rangeRowSpanInContainer(
+  range: Range,
+  container: HTMLElement,
+  keyToIndex: ReadonlyMap<string, number>,
+  rowCount: number,
+  stored: SelectionRowSpan | null = null,
+): SelectionRowSpan | null {
+  if (rowCount <= 0) return null;
+  const resolve = (node: Node, isStart: boolean, fallback: number | undefined): number | null => {
+    if (!container.contains(node)) return isStart ? 0 : rowCount - 1;
+    const key = endpointRowKey(node, container);
+    if (key == null) return clampEndpointToBoundary(node, container, rowCount);
+    return keyToIndex.get(key) ?? fallback ?? null;
+  };
+  const a = resolve(range.startContainer, true, stored?.min);
+  const b = resolve(range.endContainer, false, stored?.max);
+  if (a == null && b == null) return null;
+  const x = a ?? (b as number);
+  const y = b ?? (a as number);
+  return { min: Math.max(0, Math.min(x, y)), max: Math.min(rowCount - 1, Math.max(x, y)) };
+}
+
+/**
+ * Row span of the LIVE Selection, read at extractor time (D4). Requires a
+ * non-collapsed selection whose anchor OR focus lies inside `container` (the
+ * hook's `selectionIntersects` test — a page-wide range with both endpoints
+ * outside yields `null`). Resolution is `rangeRowSpanInContainer`'s: by the
+ * stable `data-row-key`, never the DOM `data-index`, which still holds
+ * pre-splice numbers right after a history splice. READ-ONLY: never mutates the
+ * Selection.
+ */
+export function liveSelectionRowSpan(
+  container: HTMLElement,
+  keyToIndex: ReadonlyMap<string, number>,
+  rowCount: number,
+  stored: SelectionRowSpan | null = null,
+): SelectionRowSpan | null {
+  if (rowCount <= 0 || typeof window === "undefined") return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const anchorIn = sel.anchorNode ? container.contains(sel.anchorNode) : false;
+  const focusIn = sel.focusNode ? container.contains(sel.focusNode) : false;
+  if (!anchorIn && !focusIn) return null;
+  return rangeRowSpanInContainer(sel.getRangeAt(0), container, keyToIndex, rowCount, stored);
 }

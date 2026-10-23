@@ -35,6 +35,7 @@ import {
   BlockEventBuffer,
   blockEvents,
 } from "../tunnel/tunnel-block-events.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 /** TEST-NET-3 — never a real peer. */
 const UNTRUSTED = "203.0.113.5";
@@ -254,7 +255,7 @@ describe("4.5–4.8 — pending queue route surface", () => {
 
   it("4.5 lists pending requests to a trusted client", async () => {
     blockEvents.record(GENUINE, { proxied: false, origin: "https://refused.example" });
-    const res = await fetch(url("/api/tunnel/block-events"));
+    const res = await proofFetch(url("/api/tunnel/block-events"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; data: { events: Array<{ ip: string; origin?: string }> } };
     expect(body.success).toBe(true);
@@ -263,6 +264,7 @@ describe("4.5–4.8 — pending queue route surface", () => {
   });
 
   it("4.5 refuses an unauthenticated read", async () => {
+    // A tunnelled (forwarded) caller is deliberately sent WITHOUT local proof.
     const res = await fetch(url("/api/tunnel/block-events"), { headers: TUNNELED });
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe("network_not_allowed");
@@ -272,7 +274,7 @@ describe("4.5–4.8 — pending queue route surface", () => {
     blockEvents.record(GENUINE, { proxied: false });
     const ledgerBefore = JSON.stringify(blockEvents.list());
 
-    const res = await fetch(url("/api/tunnel/block-events"), {
+    const res = await proofFetch(url("/api/tunnel/block-events"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ip: GENUINE }),
@@ -290,14 +292,14 @@ describe("4.5–4.8 — pending queue route surface", () => {
   it("4.6 recording/list never mutates trusted-network policy", async () => {
     const before = JSON.stringify(readRawConfig());
     blockEvents.record(UNTRUSTED, { proxied: false });
-    await fetch(url("/api/tunnel/block-events"));
+    await proofFetch(url("/api/tunnel/block-events"));
     expect(JSON.stringify(readRawConfig())).toBe(before);
   });
 
   it("4.7 refuses accept for a loopback peer (trusting it would trust the tunnel)", async () => {
     blockEvents.record("127.0.0.1", { proxied: false });
     const before = JSON.stringify(readRawConfig());
-    const res = await fetch(url("/api/tunnel/block-events"), {
+    const res = await proofFetch(url("/api/tunnel/block-events"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ip: "127.0.0.1" }),
@@ -309,7 +311,7 @@ describe("4.5–4.8 — pending queue route surface", () => {
 
   it("4.7 refuses accept for a proxy-terminated peer", async () => {
     blockEvents.record("100.64.0.9", { proxied: true });
-    const res = await fetch(url("/api/tunnel/block-events"), {
+    const res = await proofFetch(url("/api/tunnel/block-events"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ip: "100.64.0.9" }),
@@ -319,7 +321,7 @@ describe("4.5–4.8 — pending queue route surface", () => {
   });
 
   it("4.7 refuses accept for a peer with no recorded pending request", async () => {
-    const res = await fetch(url("/api/tunnel/block-events"), {
+    const res = await proofFetch(url("/api/tunnel/block-events"), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ip: "198.51.100.7" }),
@@ -444,7 +446,7 @@ describe("E18 — network-denial plane in pair mode", () => {
 
   const cfgJson = () => JSON.stringify(readRawConfig());
   const post = (ip: string) =>
-    fetch(`http://127.0.0.1:${handle.httpPort}/api/tunnel/block-events`, {
+    proofFetch(`http://127.0.0.1:${handle.httpPort}/api/tunnel/block-events`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ip }),
@@ -465,7 +467,7 @@ describe("E18 — network-denial plane in pair mode", () => {
 
   it("pair: a CORS denial still raises a prompt", async () => {
     th.setTrustConfig({ trustMode: "pair", extra: { accessGrants: { promptEnabled: true } } });
-    const res = await fetch(`http://127.0.0.1:${handle.httpPort}/api/health`, {
+    const res = await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/health`, {
       headers: { origin: "https://e18-denied.example.com" },
     });
     expect(res.status).toBeLessThan(500);

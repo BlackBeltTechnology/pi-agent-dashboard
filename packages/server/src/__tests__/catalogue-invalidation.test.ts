@@ -27,6 +27,7 @@ import { WebSocket } from "ws";
 import { readAuthJson } from "../auth/provider-auth-storage.js";
 import { _resetForTests, getLatestCatalogue } from "../package/provider-catalogue-cache.js";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -68,7 +69,7 @@ const OPENROUTER_CATALOGUE = [
 ];
 
 async function getJson(port: number, urlPath: string): Promise<{ status: number; body: any }> {
-  const res = await fetch(`http://127.0.0.1:${port}${urlPath}`);
+  const res = await proofFetch(`http://127.0.0.1:${port}${urlPath}`);
   return { status: res.status, body: await res.json() };
 }
 

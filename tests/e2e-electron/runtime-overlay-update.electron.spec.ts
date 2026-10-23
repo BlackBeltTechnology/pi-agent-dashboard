@@ -28,6 +28,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ElectronApplication } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+import { httpProofHeaders } from "../../packages/shared/src/local-credential-proof.js";
 import { isPortInUse, launchElectron, makeThrowawayHome, resolvePackagedBinary } from "./electron-lifecycle.js";
 
 const PORT = Number(process.env.PW_ELECTRON_RUNTIME_PORT ?? 18_960);
@@ -52,6 +53,21 @@ interface RuntimeStatus {
   check?: { state?: string; target?: string };
 }
 
+/** HOME of the app under test — its `local/token` is what the strict `requireLocalProof` default checks. */
+let proofHome = "";
+
+/** `fetch` to the app's server carrying a fresh local proof (operate routes refuse a bare loopback caller). */
+function proofFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  try {
+    const token = fs.readFileSync(path.join(proofHome, ".pi", "dashboard", "local", "token"), "utf8").trim();
+    for (const [k, v] of Object.entries(httpProofHeaders(token, url, (init.method ?? "GET").toUpperCase()))) headers.set(k, v);
+  } catch {
+    // No token yet (server not booted): the bare request is the honest probe.
+  }
+  return fetch(url, { ...init, headers });
+}
+
 async function health(): Promise<Health | null> {
   try {
     const res = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(3_000) });
@@ -62,13 +78,13 @@ async function health(): Promise<Health | null> {
 }
 
 async function status(refresh = false): Promise<RuntimeStatus> {
-  const res = await fetch(`${BASE}/api/runtime/status${refresh ? "?refresh=true" : ""}`, { signal: AbortSignal.timeout(60_000) });
+  const res = await proofFetch(`${BASE}/api/runtime/status${refresh ? "?refresh=true" : ""}`, { signal: AbortSignal.timeout(60_000) });
   const body = (await res.json()) as { data: RuntimeStatus };
   return body.data;
 }
 
 async function post(route: string, body: unknown = {}): Promise<void> {
-  const res = await fetch(`${BASE}${route}`, {
+  const res = await proofFetch(`${BASE}${route}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -104,6 +120,7 @@ function makeHome(): string {
   const home = makeThrowawayHome(PORT);
   // The server's npm (ToolRegistry-resolved) honours the user's npmrc.
   fs.writeFileSync(path.join(home, ".npmrc"), `registry=${REGISTRY}\n`);
+  proofHome = home;
   return home;
 }
 
@@ -133,7 +150,7 @@ async function coldLaunchBundled(home: string): Promise<ElectronApplication> {
 
 async function stop(app: ElectronApplication | undefined, home: string | undefined): Promise<void> {
   if (app) {
-    await fetch(`${BASE}/api/shutdown`, { method: "POST", signal: AbortSignal.timeout(10_000) }).catch(() => {});
+    await proofFetch(`${BASE}/api/shutdown`, { method: "POST", signal: AbortSignal.timeout(10_000) }).catch(() => {});
     // A native dialog (e.g. "runtime reverted") can block a graceful close.
     const closed = await Promise.race([
       app.close().then(() => true, () => true),

@@ -55,10 +55,14 @@ while [ "$WAITED" -lt 90 ]; do
 done
 [ "$WAITED" -lt 90 ] || { echo "FAIL: dashboard never started"; sed -n '1,40p' "$QA_HOME/start.log"; exit 1; }
 
-# 1. Header-less local client — the shape every non-browser caller has.
-STATUS="$(curl -s -o "$QA_HOME/ticket.json" -w '%{http_code}' --max-time 5 \
-  -X POST -H 'Content-Type: application/json' -d '{"scope":"browser"}' \
-  "http://localhost:$PORT/api/ws-ticket" 2>/dev/null || true)"
+# 1. Header-less local client — the shape every non-browser caller has. Under the strict
+# `requireLocalProof` default a bare curl is refused, so the local tool is the CLI, which mints local proof
+# (HOME is the server's: that is where the token lives). See change: close-container-loopback-impersonation (D5).
+if HOME="$QA_HOME" pi-dashboard api POST /api/ws-ticket --port "$PORT" --data '{"scope":"browser"}' > "$QA_HOME/ticket.json" 2>&1; then
+  STATUS=200
+else
+  STATUS="cli-exit-$?"
+fi
 if [ "$STATUS" != "200" ]; then
   echo "FAIL: header-less POST /api/ws-ticket returned $STATUS (expected 200 — the gate must not break local tooling)"
   head -c 400 "$QA_HOME/ticket.json" 2>/dev/null || true

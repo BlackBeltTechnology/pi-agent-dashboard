@@ -15,7 +15,7 @@ Files in this directory. One row per source file.
 | `capability-issuance.ts` | Who is issued a prompt capability (design D1a, tasks 2b.1/3.5). → see `capability-issuance.ts.AGENTS.md` |
 | `canonical-subject.ts` | Re-export shim → `@blackbelt-technology/pi-dashboard-shared/canonical-subject.js`. → see `canonical-subject.ts.AGENTS.md` |
 | `cors-denial.ts` | CORS origin denial -> DEFERRED `cors`-plane denial (server-cors spec "An origin denial may be answered by… → see `cors-denial.ts.AGENTS.md` |
-| `containment-gate.ts` | The ONE gate every body-emitting file-read site routes through; before it each of the ten sites inlined… → see `containment-gate.ts.AGENTS.md` |
+| `containment-gate.ts` | The ONE gate every body-emitting file-read site routes through; before it each of the ten sites inlined… → see `containment-gate.ts.AGENTS.md` `evaluateContainment` refuses a dashboard-state path first with NO remedy and records nothing; an unproven local caller (`currentCallerUnproven`) skips `holdDenial` (prompt-ineligible, `promptOutcome:"ineligible"`). See change: close-container-loopback-impersonation (D8). |
 | `cwd-admission-log.ts` | `createIndeterminateLogger(logger)` — rate-limited `[cwd-admission] indeterminate` sink: 1 line per canonical… → see `cwd-admission-log.ts.AGENTS.md` |
 | `cwd-verdict.ts` | `resolveCwdVerdict(cwd, resolution, {known, rerunAlways?})`: the ONE post-verdict `cwd`-plane re-run (real… → see `cwd-verdict.ts.AGENTS.md` |
 | `denial-hold.ts` | The one call a denial site makes (task 6.1-6.3). `installGrantCoordinator` / `holdDenial(facts, target?)` +… → see `denial-hold.ts.AGENTS.md` |

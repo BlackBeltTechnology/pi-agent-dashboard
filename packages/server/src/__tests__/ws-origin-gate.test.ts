@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { resetConfigSnapshot } from "../config-snapshot.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+import { proofFetch, proofHeaders, proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const ATTACKER = "http://attacker.example";
 
@@ -29,6 +30,10 @@ afterEach(async () => {
   if (handle) await handle.stop();
   handle = undefined;
 });
+
+/** Proof for a local dial; none for a simulated remote (`x-forwarded-for`) one. */
+const localProofFor = (url: string, headers: Record<string, string>): Record<string, string> =>
+  "x-forwarded-for" in headers ? {} : proofHeaders(url.replace(/^ws/, "http"));
 
 type DialResult =
   | { kind: "open"; first?: string }
@@ -42,7 +47,10 @@ type DialResult =
  */
 function dial(url: string, headers: Record<string, string> = {}): Promise<DialResult> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url, { headers });
+    // A real local client under the strict default carries proof, so every outcome below is
+    // attributable to the Origin gate rather than to local-proof admission. A dial that simulates a
+    // REMOTE caller (forwarding header) carries none: it is admitted by its ticket, not by locality.
+    const ws = new WebSocket(url, { headers: { ...localProofFor(url, headers), ...headers } });
     let settled = false;
     const done = (r: DialResult) => {
       if (settled) return;
@@ -79,9 +87,10 @@ const isStatus = (r: DialResult, code: number) => r.kind === "status" && r.statu
  */
 function rawUpgrade(port: number, origin: string): Promise<string> {
   return new Promise((resolve) => {
+    const proof = proofHeaders(`http://127.0.0.1:${port}/ws`)["X-Pi-Local-Proof"];
     const sock = net.connect(port, "127.0.0.1", () => {
       sock.write(
-        `GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+        `GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nX-Pi-Local-Proof: ${proof}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
           `Sec-WebSocket-Key: ${Buffer.from("0123456789abcdef").toString("base64")}\r\n` +
           `Sec-WebSocket-Version: 13\r\nOrigin: ${origin}\r\n\r\n`,
       );
@@ -106,7 +115,7 @@ function rawUpgrade(port: number, origin: string): Promise<string> {
 /** Create a terminal over an already-trusted socket and return its id. */
 function createTerminal(httpPort: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+    const ws = proofWebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     const fail = setTimeout(() => reject(new Error("create_terminal timed out")), 10000);
     ws.on("open", () => ws.send(JSON.stringify({ type: "create_terminal", cwd: process.cwd() })));
     ws.on("message", (data) => {
@@ -132,7 +141,7 @@ function createTerminal(httpPort: number): Promise<string> {
 
 /** Register a live-server entry pointing at a local upstream port. */
 async function startLiveEntry(httpPort: number, upstreamPort: number): Promise<string> {
-  const res = await fetch(`http://127.0.0.1:${httpPort}/api/live-server/start`, {
+  const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/live-server/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ host: "127.0.0.1", port: upstreamPort, label: "test" }),
@@ -144,7 +153,7 @@ async function startLiveEntry(httpPort: number, upstreamPort: number): Promise<s
 
 /** Mint a capability path for a live entry (genuinely-local test caller). */
 async function mintLivePath(httpPort: number, id: string): Promise<string> {
-  const res = await fetch(`http://127.0.0.1:${httpPort}/api/live-server/${id}/capability`, {
+  const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/live-server/${id}/capability`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ egress: "open", scripts: true }),
@@ -188,7 +197,7 @@ describe("#E5 legitimate local clients are unaffected", () => {
   function dialUntilSnapshot(url: string, headers: Record<string, string> = {}): Promise<string[] | null> {
     return new Promise((resolve) => {
       const frames: string[] = [];
-      const ws = new WebSocket(url, { headers });
+      const ws = new WebSocket(url, { headers: { ...localProofFor(url, headers), ...headers } });
       const finish = (out: string[] | null) => {
         try {
           ws.close();
@@ -290,7 +299,7 @@ describe("#E8 terminal hijack", () => {
 describe("#E9 an untrusted Origin does not consume a ticket", () => {
   it("403s the attacker dial, then the SAME ticket still opens from loopback", async () => {
     handle = await createTestServer();
-    const res = await fetch(`http://127.0.0.1:${handle.httpPort}/api/ws-ticket`, {
+    const res = await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/ws-ticket`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scope: "browser" }),

@@ -157,7 +157,7 @@ describe.skipIf(skipReason !== undefined)("#I1 real Chrome: an ephemeral context
 
     const proxy = http.createServer();
     const wss = new WebSocketServer({ server: proxy });
-    wss.on("connection", (ws, req) => manager.attachCdp((req.url ?? "").split("/").pop() as string, ws as never));
+    wss.on("connection", (ws, req) => manager.attachCdp(new URL(req.url ?? "", "http://x").pathname.split("/").pop() as string, ws as never));
     await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
     cleanups.push(async () => {
       for (const c of wss.clients) c.terminate();
@@ -177,7 +177,7 @@ describe.skipIf(skipReason !== undefined)("#I1 real Chrome: an ephemeral context
     async function session(opts: { ephemeral: boolean }, paths: string[]) {
       const conn = await manager.connectDedicated({ client: "i1", ephemeral: opts.ephemeral, private: opts.ephemeral });
       if (!conn.ok) throw new Error(`dedicated connect failed: ${JSON.stringify(conn)}`);
-      const cdp = await Cdp.open(`ws://127.0.0.1:${proxyPort}/ws/browser-cdp/${conn.cdpUrl.split("/").pop()}`);
+      const cdp = await Cdp.open(`ws://127.0.0.1:${proxyPort}/ws/browser-cdp/${new URL(conn.cdpUrl).pathname.split("/").pop()}`);
       try {
         const sessionId = await openTab(cdp);
         for (const p of paths) await navigate(cdp, sessionId, p);

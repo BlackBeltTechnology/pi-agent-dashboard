@@ -424,7 +424,7 @@ async function spawnAndAttach(
       deps.onServerSpawned?.(result.childPid);
     }
     deps.onLaunchEnd?.(true);
-    deps.notify(`🌐 Dashboard started at http://localhost:${config.port}`, "info");
+    deps.notify(`🌐 Dashboard started at http://localhost:${config.port} — a plain browser tab needs one-time local authorization: run \`pi-dashboard open\``, "info");
 
     // D-post: the server we just launched owns the attach decision. Probe the
     // resolved port with the SAME bootstrap-aware opts as the pre-launch gate;

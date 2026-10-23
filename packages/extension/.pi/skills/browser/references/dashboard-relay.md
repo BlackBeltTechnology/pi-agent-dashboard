@@ -62,8 +62,9 @@ browser.
 
 ## Fallback recipe — REST, for sessions without `browser_connect`
 
-Same dashboard, plain `curl`. Use the dashboard port (`8000` by default;
-`PI_DASHBOARD_PORT` overrides). The REST routes do **not** apply the
+Same dashboard, via `pi-dashboard api` (a bare `curl` is refused on these routes under the strict
+`requireLocalProof` default; the CLI sends local proof). Use the dashboard port (`8000` by default;
+`PI_DASHBOARD_PORT` overrides; or pass `--port <n>`). The REST routes do **not** apply the
 `defaultBrowser` / `onUnavailable` policy: you choose.
 
 1. Probe status (Step 1).
@@ -75,8 +76,8 @@ Same dashboard, plain `curl`. Use the dashboard port (`8000` by default;
    (Step 5).
 
 ```bash
-curl -s -X POST http://localhost:8000/api/browser/dedicated/connect
-# → {"cdpUrl":"ws://127.0.0.1:<port>/ws/browser-cdp/<guid>","instanceId":"inst-…"}
+pi-dashboard api POST /api/browser/dedicated/connect
+# → {"cdpUrl":"ws://127.0.0.1:<port>/ws/browser-cdp/<guid>?ticket=<single-use>","instanceId":"inst-…"}
 ```
 
 The REST routes for the dedicated profile are
@@ -96,7 +97,7 @@ only `connect` and `open`; `stop` and `reset` belong to the user in Settings.
 ## Step 1 — Probe status
 
 ```bash
-curl -s http://localhost:8000/api/browser/status
+pi-dashboard api GET /api/browser/status
 # → {"enabled":true,"canOpenChrome":true,"operatorHosts":true,
 #    "dedicated":{"available":true,"state":"stopped",…}}
 ```
@@ -117,8 +118,8 @@ Branch on the response:
 ### Step 1b — Enable the relay (only if `enabled:false`)
 
 ```bash
-curl -s -X PUT http://localhost:8000/api/browser/enabled \
-  -H 'content-type: application/json' -d '{"enabled":true}'
+pi-dashboard api PUT /api/browser/enabled \
+  --data '{"enabled":true}'
 ```
 
 The kill switch is safe to flip: turning it off closes every live instance
@@ -127,7 +128,7 @@ first (the response returns only after they are gone).
 ## Step 2 — Pick a profile
 
 ```bash
-curl -s http://localhost:8000/api/browser/profiles
+pi-dashboard api GET /api/browser/profiles
 ```
 
 Rows are keyed by `profileDirectory`. Pick one with `"installed":true`; match a
@@ -144,12 +145,14 @@ profiles never appear in it.
 ## Step 3 — Connect to a Chrome profile
 
 ```bash
-curl -s -X POST http://localhost:8000/api/browser/connect \
-  -H 'content-type: application/json' \
-  -d '{"profileDirectory":"Default"}'
+pi-dashboard api POST /api/browser/connect \
+  --data '{"profileDirectory":"Default"}'
 ```
 
-Success returns `{"cdpUrl":"ws://127.0.0.1:<port>/ws/browser-cdp/<guid>","instanceId":"inst-…"}`.
+Success returns `{"cdpUrl":"ws://127.0.0.1:<port>/ws/browser-cdp/<guid>?ticket=<single-use>","instanceId":"inst-…"}`.
+The `?ticket=` is a one-time credential (valid 60 s, spent by the first dial): pass the **whole** `cdpUrl`
+to `agent-browser connect` unchanged, and never log or share it. A client that drops cannot re-dial the same
+URL — call `connect` again for a fresh one.
 **Keep the `instanceId`** — it is how you disconnect, and the only public handle
 to this instance.
 
@@ -170,9 +173,8 @@ see the extra reasons in the next section):
 `hostId`:
 
 ```bash
-curl -s -X POST http://localhost:8000/api/browser/connect \
-  -H 'content-type: application/json' \
-  -d '{"profileDirectory":"Default","host":"<hostId from Step 2 operatorHosts[]>"}'
+pi-dashboard api POST /api/browser/connect \
+  --data '{"profileDirectory":"Default","host":"<hostId from Step 2 operatorHosts[]>"}'
 ```
 
 Rules:
@@ -214,7 +216,7 @@ relay behaves like any CDP endpoint for the allowed surface.
 ## Step 5 — Disconnect when done
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/browser/disconnect?instanceId=<instanceId>"
+pi-dashboard api POST "/api/browser/disconnect?instanceId=<instanceId>"
 ```
 
 Do this as soon as the task ends (it closes the dedicated instance too). A live instance holds a **tab group open in
@@ -288,9 +290,8 @@ When a page driven through the dedicated profile needs the user to sign in:
 1. Open the sign-in page with `POST /api/browser/dedicated/open {url}`, in a
    **hidden** tab the agent cannot see:
    ```bash
-   curl -s -X POST http://localhost:8000/api/browser/dedicated/open \
-     -H 'content-type: application/json' \
-     -d '{"url":"https://example.com/login"}'
+   pi-dashboard api POST /api/browser/dedicated/open \
+     --data '{"url":"https://example.com/login"}'
    ```
    Only `https:` URLs are accepted (`400` otherwise). The user can also press
    **Open to sign in** in Settings → Browser Relay.
@@ -307,7 +308,7 @@ almost always a password-manager extension (LastPass, iCloud Passwords)
 detaching the debugger. Diagnose it from the audit (`GET /api/browser/audit`):
 
 ```bash
-curl -s http://localhost:8000/api/browser/audit
+pi-dashboard api GET /api/browser/audit
 ```
 
 A `detach` entry for that `instanceId` with detail `closed:<reason>` (the

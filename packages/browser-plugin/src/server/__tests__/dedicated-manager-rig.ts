@@ -101,7 +101,7 @@ export function makeDedicatedRig(opts: DedicatedRigOptions = {}): DedicatedRig {
     onAgentTabCreated: opts.onAgentTabCreated,
     dedicated: { chrome, hidden, availability: opts.availabilityFn ?? (() => avail), noClientMs: opts.noClientMs },
   });
-  const guidOf = (cdpUrl: string): string => cdpUrl.split("/").pop() as string;
+  const guidOf = (cdpUrl: string): string => new URL(cdpUrl).pathname.split("/").pop() as string;
   return {
     manager,
     chrome,

@@ -71,7 +71,12 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // 603,857 B). What stays is board behaviour that cannot split: the per-card chips + wave/issue badges, the
 // execution-order sort/drop helpers, the API client and the inline English fallbacks. 603,857 B is 721 B
 // over the old cap; 591 KiB (605,184 B) leaves ~1.3 KB. Smallest step with headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 591 * 1024;
+// keep-oversized-chat-selection (2026-10-23): 591 -> 593 KiB. ChatView is entry-resident, and the change
+// adds what cannot split: the live-selection/retention helpers (chat-virtual-rows), the three-part copy
+// serializer (chat-selection-copy), the document copy listener + toast wiring in ChatView and the swipe
+// guard. 606,473 B on CI, 1,289 B over the old cap; 592 KiB would still be 265 B short, so 593 KiB
+// (607,232 B) leaves ~750 B. Smallest KiB step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 593 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

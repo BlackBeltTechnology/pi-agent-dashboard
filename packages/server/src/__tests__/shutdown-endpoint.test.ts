@@ -3,6 +3,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 
 let httpPort: number;
 let piPort: number;
@@ -28,7 +29,7 @@ describe("POST /api/shutdown", () => {
     httpPort = server.httpPort()!;
     piPort = server.piPort()!;
 
-    const res = await fetch(`http://127.0.0.1:${httpPort}/api/shutdown`, {
+    const res = await proofFetch(`http://127.0.0.1:${httpPort}/api/shutdown`, {
       method: "POST",
     });
 

@@ -150,11 +150,14 @@ set_strategy() { # $1 = headless|tmux
 spawn_pid() {
   cd "$REPO_ROOT"
   PORT="$PORT" node -e '
-    const WebSocket=require("ws"),fs=require("fs"),os=require("os"),path=require("path");
+    const WebSocket=require("ws"),fs=require("fs"),os=require("os"),path=require("path"),{execFileSync}=require("child_process");
+    // `pi-dashboard api` mints local proof (strict `requireLocalProof` default). See change: close-container-loopback-impersonation (D5).
+    const api=(m,p,d)=>execFileSync("pi-dashboard",["api",m,p,"--port",String(process.env.PORT),...(d?["--data",JSON.stringify(d)]:[])],{encoding:"utf8"});
+    const ticket=JSON.parse(api("POST","/api/ws-ticket",{scope:"browser"})).data.ticket;
     const cwd=fs.mkdtempSync(path.join(os.tmpdir(),"qa-cm-"));
     const real=(p)=>{try{return fs.realpathSync(p)}catch{return p}};
     const pre=new Set();let armed=false;
-    const ws=new WebSocket(`ws://localhost:${process.env.PORT}/ws`);
+    const ws=new WebSocket(`ws://localhost:${process.env.PORT}/ws?ticket=${encodeURIComponent(ticket)}`);
     const t=setTimeout(()=>{console.error("timeout");process.exit(2)},60000);
     ws.on("message",(raw)=>{const m=JSON.parse(raw.toString());
       if(m.type!=="session_added"||!m.session)return;
@@ -163,7 +166,7 @@ spawn_pid() {
       if(!m.session.pid)return;
       console.log(m.session.pid);clearTimeout(t);process.exit(0)});
     ws.on("open",()=>setTimeout(async()=>{armed=true;
-      await fetch(`http://localhost:${process.env.PORT}/api/session/spawn`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({cwd})})},500));'
+      try{api("POST","/api/session/spawn",{cwd})}catch(e){console.error("spawn failed:",e.message);process.exit(2)}},500));'
 }
 
 # Process environment, one NAME=value per line. `ps eww` is NOT reliable: pi

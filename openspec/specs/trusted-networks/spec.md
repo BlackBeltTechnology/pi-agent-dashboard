@@ -32,7 +32,7 @@ All other requests SHALL receive a **403 with a self-describing JSON body** of t
 
 The existing `localhostGuard` export SHALL be preserved for backward compatibility.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Loopback IP allowed
 - **WHEN** `requireLocalProof` is disabled and a request arrives from `127.0.0.1` with no proxy-forwarding header
@@ -124,7 +124,7 @@ required for a route to be protected.
 ### Requirement: WebSocket upgrade respects trusted networks
 The WebSocket upgrade handler in `server.ts` SHALL check genuine-local, local-IPC token, ticket and auth, and — **only when the effective trust mode is `"legacy"`** — trusted networks. When the identity floor requires a principal-bearing ticket for the upgrade's scope, that rule SHALL take precedence over every allowance in this requirement, in both modes. In `"legacy"` mode a connection SHALL be allowed without authentication when `isTrustedSource(remoteAddress, headers, trustedNetworks)` is `true`; credential checks (ticket, cookie) SHALL be evaluated before this network match. The `validateWsUpgrade` function SHALL accept the admission list and the upgrade headers and SHALL use `isTrustedSource`.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: WebSocket from trusted network without auth
 - **WHEN** the identity floor is not enforced, the effective trust mode is `"legacy"`, and a WebSocket upgrade arrives from `192.168.1.42` with `trustedNetworks: ["192.168.1.0/24"]` and no auth cookie
@@ -298,7 +298,7 @@ The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no O
 ### Requirement: WebSocket upgrade admits bypassHosts trust without OAuth
 **Only when the effective trust mode is `"legacy"`**, the WebSocket upgrade handler in `server.ts` SHALL admit a connection from an IP matching `resolvedTrustedNetworks` regardless of whether OAuth is configured. When `config.authConfig` is absent or its resolved provider registry is empty and the mode is `"legacy"`, the upgrade SHALL NOT require a JWT cookie; the IP match alone SHALL be sufficient to proceed. In `"pair"` mode the IP match SHALL NOT be sufficient.
 
-When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token, local credential proof, or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: WebSocket upgrade from bypassHosts-only trusted network
 - **WHEN** config is `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` (effective mode `"legacy"`) and a WebSocket upgrade request arrives from `192.168.1.42` with no auth cookie
@@ -321,7 +321,7 @@ provider registry is empty, `request.isAuthenticated` SHALL default to `false`
 non-trusted, non-exception in-jurisdiction requests. Enforcement SHALL NOT depend
 on the conditional OAuth `onRequest` hook being registered.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: plugin route denied over tunnel with auth off
 - **WHEN** auth is not configured and a proxied/tunneled request (forwarding headers present, so not genuine-local) arrives at `POST /api/plugins/automation/create` from an untrusted IP
@@ -612,7 +612,7 @@ Every decision that admits or exempts a request because its source IP matches `t
 
 This applies to: the HTTP network guard and universal hook, the OAuth `onRequest` bypass-host skip, the WebSocket upgrade with auth configured, the WebSocket upgrade with auth not configured, and the device-tier exemption. At each of these admission sites the `trusted` argument SHALL be the mode-dependent admission list (empty in `"pair"` mode), per "Network match does not authenticate in pair mode".
 
-When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token, local credential proof, or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Tunnel request with loopback trusted entry is denied
 - **GIVEN** `trustedNetworks: ["127.0.0.1"]`, auth not configured

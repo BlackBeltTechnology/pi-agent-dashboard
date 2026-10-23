@@ -1,0 +1,3 @@
+# begin-flow.ts — index
+
+`beginFlow(params)` — shared OAuth start robustness for `POST /api/provider-auth/start` + plugin seam: per-provider `queueStart` + supersede, first-step/settled/`FLOW_START_TIMEOUT_MS` race, forget-on-early-failure, `openInBrowser` (suppressed under `VITEST`). Returns `{ok:true,flow}` or `{ok:false,code:start_timeout|login_failed,message}`. `pluginFlowProvider(id,key)` → `plugin:<id>:<key>`; `isPluginFlow`. See change: expose-plugin-credential-and-oauth-seams. Awaits `loadPiDeviceId()` before `startFlow` (Sign in with ChatGPT needs `getDeviceId`). See change: update-pi-core-1-0-adopt-apis.

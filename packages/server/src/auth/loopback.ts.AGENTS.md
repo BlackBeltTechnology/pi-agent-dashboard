@@ -1,0 +1,3 @@
+# loopback.ts — index
+
+Import-free leaf: `LOOPBACK_ADDRESSES` set + `isLoopback(ip)`; `isLoopbackRange(ip)` = `127.0.0.0/8` ∪ `::1` ∪ `::ffff:127.0.0.0/104`, any textual form via `node:net` `BlockList` (builtin; no project imports) (range, for relayed-loopback refusal only; `isLoopback` stays set-based). See change: fix-trusted-network-tunnel-bypass. Extracted from `localhost-guard.ts` so it and `tunnel/tunnel-block-events.ts` depend on this leaf instead of each other (broke the 2-edge cycle). Keep import-free — an import back into either former side re-forms the cycle. See change: cleanup-import-cycles.

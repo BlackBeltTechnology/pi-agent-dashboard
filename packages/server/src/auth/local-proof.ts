@@ -6,16 +6,24 @@
  * additionally present PROOF: the `X-Pi-Local-Token` header or a `pi_dash_local`
  * cookie bootstrapped from the local token (`pi-dashboard open` / Electron).
  *
- * Cookie value: `<id>.<expiresAt>.<HMAC(k_local, "<id>.<expiresAt>")>` with
- * `k_local = HMAC(localToken, "pi-dashboard/local-proof/v1")`. Rotating the local
- * token invalidates every proof cookie.
- * See change: harden-trust-and-credential-boundaries (D2).
+ * Cookie value: `<id>.<issuedAt>.<lastUse>.<port>.<HMAC(k_local, "<id>.<issuedAt>.<lastUse>.<port>")>`
+ * with `k_local = HMAC(localToken, "pi-dashboard/local-proof/v1")`. It is bound to the port
+ * of the listener that issued it (a browser sends it to every `localhost:<port>` site, so a
+ * cookie captured by another local web app only replays against the right port), expires
+ * after 12 h idle (re-signed when a request arrives more than 1 h after the last refresh) and
+ * has an absolute 30-day cap. Rotating the local token invalidates every proof cookie.
+ * See change: harden-trust-and-credential-boundaries (D2); close-container-loopback-impersonation (D12).
  */
 import crypto from "node:crypto";
 import { hasLocalCredential } from "./local-credential.js";
 
 export const LOCAL_PROOF_COOKIE = "pi_dash_local";
+/** Absolute cap from `issuedAt`, and the cookie's browser `Max-Age`. */
 export const LOCAL_PROOF_MAX_AGE_S = 30 * 24 * 60 * 60;
+/** A cookie unused (never re-signed) for longer than this is no longer proof. */
+const LOCAL_PROOF_IDLE_MS = 12 * 60 * 60 * 1000;
+/** An admitted request this long after the last refresh gets a re-signed cookie. */
+const LOCAL_PROOF_REFRESH_AFTER_MS = 60 * 60 * 1000;
 const CODE_TTL_MS = 60_000;
 
 export interface LocalTrustContext {
@@ -24,13 +32,20 @@ export interface LocalTrustContext {
   localToken: string;
   /** `HMAC(localToken, "pi-dashboard/local-proof/v1")`. */
   proofKey: Buffer;
+  /** The listening port the cookie is bound to; absent ⇒ 0 (a context with no listener, e.g. `inject()`). */
+  port?: () => number;
 }
 
-export function createLocalTrustContext(localToken: string, strict: () => boolean): LocalTrustContext {
+export function createLocalTrustContext(
+  localToken: string,
+  strict: () => boolean,
+  port?: () => number,
+): LocalTrustContext {
   return {
     strict,
     localToken,
     proofKey: crypto.createHmac("sha256", localToken).update("pi-dashboard/local-proof/v1").digest(),
+    ...(port ? { port } : {}),
   };
 }
 
@@ -38,27 +53,63 @@ function mac(key: Buffer, payload: string): string {
   return crypto.createHmac("sha256", key).update(payload).digest("base64url");
 }
 
-/** Mint a `pi_dash_local` cookie value. */
-export function signLocalProof(ctx: LocalTrustContext, now = Date.now(), maxAgeS = LOCAL_PROOF_MAX_AGE_S): string {
-  const payload = `${crypto.randomBytes(12).toString("base64url")}.${now + maxAgeS * 1000}`;
+const ctxPort = (ctx: LocalTrustContext): number => ctx.port?.() ?? 0;
+
+function seal(ctx: LocalTrustContext, id: string, issuedAt: number, lastUse: number): string {
+  const payload = `${id}.${issuedAt}.${lastUse}.${ctxPort(ctx)}`;
   return `${payload}.${mac(ctx.proofKey, payload)}`;
 }
 
-/** Valid, unexpired, correctly signed proof cookie value? */
-export function verifyLocalProofCookie(value: string | undefined, ctx: LocalTrustContext, now = Date.now()): boolean {
-  if (!value) return false;
+/** Mint a `pi_dash_local` cookie value bound to this context's port. */
+export function signLocalProof(ctx: LocalTrustContext, now = Date.now()): string {
+  return seal(ctx, crypto.randomBytes(12).toString("base64url"), now, now);
+}
+
+export interface LocalProofCookieInfo {
+  /** True when a request this long after `lastUse` should be given a re-signed cookie. */
+  needsRefresh: boolean;
+  /** A re-signed value (same id and `issuedAt`, `lastUse = now`). */
+  refreshed: string;
+  /** Seconds the re-signed cookie may live (remaining time to the absolute cap). */
+  maxAgeS: number;
+}
+
+/**
+ * `null` unless the cookie is correctly signed, bound to this port, within the idle window and
+ * within the absolute cap. Otherwise what a refresh would look like.
+ */
+export function inspectLocalProofCookie(
+  value: string | undefined,
+  ctx: LocalTrustContext,
+  now = Date.now(),
+): LocalProofCookieInfo | null {
+  if (!value) return null;
   const parts = value.split(".");
-  if (parts.length !== 3) return false;
-  const [id, exp, sig] = parts as [string, string, string];
-  const expiresAt = Number(exp);
-  if (!id || !Number.isFinite(expiresAt) || expiresAt <= now) return false;
-  const want = Buffer.from(mac(ctx.proofKey, `${id}.${exp}`));
+  if (parts.length !== 5) return null;
+  const [id, issued, last, port, sig] = parts as [string, string, string, string, string];
+  const issuedAt = Number(issued);
+  const lastUse = Number(last);
+  if (!id || !Number.isFinite(issuedAt) || !Number.isFinite(lastUse) || Number(port) !== ctxPort(ctx)) return null;
+  const want = Buffer.from(mac(ctx.proofKey, `${id}.${issued}.${last}.${port}`));
   const got = Buffer.from(sig);
-  return want.length === got.length && crypto.timingSafeEqual(want, got);
+  if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
+  if (lastUse < issuedAt || now - lastUse > LOCAL_PROOF_IDLE_MS) return null;
+  const absoluteEnd = issuedAt + LOCAL_PROOF_MAX_AGE_S * 1000;
+  if (now > absoluteEnd) return null;
+  return {
+    needsRefresh: now - lastUse > LOCAL_PROOF_REFRESH_AFTER_MS,
+    refreshed: seal(ctx, id, issuedAt, now),
+    maxAgeS: Math.max(1, Math.floor((absoluteEnd - now) / 1000)),
+  };
+}
+
+/** Valid, unexpired, port-bound, correctly signed proof cookie value? */
+export function verifyLocalProofCookie(value: string | undefined, ctx: LocalTrustContext, now = Date.now()): boolean {
+  return inspectLocalProofCookie(value, ctx, now) !== null;
 }
 
 /** Read one cookie from a raw `Cookie` header (works on WS upgrade paths). */
-function readCookie(headers: Record<string, unknown> | undefined, name: string): string | undefined {
+export function readCookie(headers: Record<string, unknown> | undefined, name: string): string | undefined {
   const raw = headers?.cookie;
   const header = Array.isArray(raw) ? raw.join("; ") : raw;
   if (typeof header !== "string") return undefined;

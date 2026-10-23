@@ -22,10 +22,23 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ElectronApplication } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+import { httpProofHeaders } from "../../packages/shared/src/local-credential-proof.js";
 import { isPortInUse, launchElectron, makeThrowawayHome, REPO_ROOT, resolvePackagedBinary } from "./electron-lifecycle.js";
 
 const PORT = Number(process.env.PW_ELECTRON_LOCAL_LINK_PORT ?? 18_950);
 const CLI = path.join(REPO_ROOT, "packages", "server", "src", "cli.ts");
+
+/** `fetch` carrying a fresh local proof from the app HOME's token (operate routes refuse a bare loopback caller). */
+function proofFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  try {
+    const token = fs.readFileSync(path.join(home ?? "", ".pi", "dashboard", "local", "token"), "utf8").trim();
+    for (const [k, v] of Object.entries(httpProofHeaders(token, url, (init.method ?? "GET").toUpperCase()))) headers.set(k, v);
+  } catch {
+    // No token yet: the bare request is the honest probe.
+  }
+  return fetch(url, { ...init, headers });
+}
 
 interface RuntimeHealth {
   origin?: string;
@@ -90,7 +103,7 @@ test.beforeAll(async () => {
 test.afterEach(async () => {
   if (app) {
     // app.close() skips the graceful quit, so stop our server explicitly.
-    await fetch(`http://127.0.0.1:${PORT}/api/shutdown`, { method: "POST" }).catch(() => {});
+    await proofFetch(`http://127.0.0.1:${PORT}/api/shutdown`, { method: "POST" }).catch(() => {});
     await app.close().catch(() => {});
     app = undefined;
   }
@@ -149,7 +162,7 @@ test("X13: link this checkout from the app menu, then edit + restart runs the ed
   try {
     fs.writeFileSync(CLI, `${original}\nconsole.log(${JSON.stringify(marker)});\n`);
     const before = (await runtimeHealth())?.pid;
-    await fetch(`http://127.0.0.1:${PORT}/api/restart`, { method: "POST" });
+    await proofFetch(`http://127.0.0.1:${PORT}/api/restart`, { method: "POST" });
     await expect
       .poll(async () => {
         const h = await runtimeHealth();

@@ -20,11 +20,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function openBrowserWs(port: number): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${port}/ws`);
   await new Promise<void>((resolve) => ws.on("open", () => resolve()));
   // Drain any initial server-pushed messages.
   await wait(50);

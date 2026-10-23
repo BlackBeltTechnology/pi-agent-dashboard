@@ -27,6 +27,7 @@ vi.mock("../auth/provider-auth-registry.js", () => ({
 import { createKeeperManager, EMPTY_KEEPER_LOG_STATS } from "../rpc-keeper/keeper-manager.js";
 import type { DashboardServer } from "../server.js";
 import { setKeeperManager } from "../spawn-process/process-manager.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;
@@ -141,7 +142,7 @@ describe("GET /api/health", () => {
     handle = await createTestServer();
     server = handle.server;
 
-    const res = await fetch(`http://localhost:${handle.httpPort}/api/config`);
+    const res = await proofFetch(`http://127.0.0.1:${handle.httpPort}/api/config`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       data?: { reachability?: { resolvedBindHost?: string; pendingBindHost?: string; unreachable?: string[] } };
@@ -212,13 +213,13 @@ describe("GET /api/health — keeperLogs degraded case (X10)", () => {
 
     handle = await createTestServer();
     server = handle.server;
-    const base = `http://localhost:${handle.httpPort}`;
+    const base = `http://127.0.0.1:${handle.httpPort}`;
 
-    const handlers = await fetch(`${base}/api/provider-auth/handlers`);
+    const handlers = await proofFetch(`${base}/api/provider-auth/handlers`);
     expect(handlers.status).toBe(200);
     expect(await handlers.json()).toEqual({ ids: [] });
 
-    const health = await fetch(`${base}/api/health`);
+    const health = await proofFetch(`${base}/api/health`);
     expect(health.status).toBe(200);
     const healthBody = (await health.json()) as {
       providerAuth?: { error: string | null };
@@ -227,11 +228,11 @@ describe("GET /api/health — keeperLogs degraded case (X10)", () => {
     expect(healthBody.providerAuth?.error).toContain("0.86.1");
 
     // Every other route keeps serving.
-    const status = await fetch(`${base}/api/provider-auth/status`);
+    const status = await proofFetch(`${base}/api/provider-auth/status`);
     expect(status.status).toBe(200);
 
     // Unknown-provider start is still a clean 400, not a 500.
-    const start = await fetch(`${base}/api/provider-auth/start`, {
+    const start = await proofFetch(`${base}/api/provider-auth/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "anthropic" }),
@@ -259,9 +260,9 @@ describe("GET /api/health — keeperLogs degraded case (X10)", () => {
     try {
       handle = await createTestServer();
       server = handle.server;
-      const base = `http://localhost:${handle.httpPort}`;
+      const base = `http://127.0.0.1:${handle.httpPort}`;
 
-      const status = await fetch(`${base}/api/provider-auth/status`);
+      const status = await proofFetch(`${base}/api/provider-auth/status`);
       const rows = (await status.json()) as Array<{
         id: string;
         flowType: string;
@@ -272,7 +273,7 @@ describe("GET /api/health — keeperLogs degraded case (X10)", () => {
       expect(row?.flowType).not.toBe("api_key");
       expect(row?.authenticated).toBe(true);
 
-      const del = await fetch(`${base}/api/provider-auth/anthropic`, { method: "DELETE" });
+      const del = await proofFetch(`${base}/api/provider-auth/anthropic`, { method: "DELETE" });
       expect(del.status).toBe(200);
       expect(JSON.parse(fs.readFileSync(authPath, "utf-8")).anthropic).toBeUndefined();
     } finally {

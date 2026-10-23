@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
+import { proofWebSocket } from "../test-support/local-credential-stamp.js";
 
 /**
  * Helper: connect a pi session via WebSocket and register it.
@@ -81,7 +82,7 @@ function sendToolEvent(ws: WebSocket, sessionId: string, opts: { phase?: string;
  * Helper: send a detach_proposal via browser gateway.
  */
 async function sendDetach(browserPort: number, sessionId: string): Promise<void> {
-  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+  const ws = proofWebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({

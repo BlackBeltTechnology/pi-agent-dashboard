@@ -65,7 +65,12 @@ curl -s "$BASE/api/health" | jq .
 
 ## Authentication
 
-By default, auth is **disabled** and all localhost requests work without tokens.
+By default, auth is **disabled**. Local requests still need to PROVE they come from this machine:
+under the strict `requireLocalProof` default a bare `curl` to a non-observe route (anything that
+changes state, plus `/api/config`, `/api/ws-ticket`, …) is refused with `403 local_proof_required`.
+Read-only (observe) routes such as `/api/sessions` and `/api/health` stay open to a plain `curl`.
+Use `pi-dashboard api <METHOD> <path> [--data '<json>']` (it mints a fresh local proof per request),
+or `scripts/dashboard-api.sh`, for everything else.
 
 When auth is enabled (remote/tunnel access), include the JWT cookie:
 
@@ -97,12 +102,12 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 
 | Action | Command |
 |--------|---------|
-| Send prompt | `curl -s -X POST "$BASE/api/session/ID/prompt" -H 'Content-Type: application/json' -d '{"text":"your message"}'` |
-| Abort | `curl -s -X POST "$BASE/api/session/ID/abort" -H 'Content-Type: application/json' -d '{}'` |
-| Shutdown session | `curl -s -X POST "$BASE/api/session/ID/shutdown" -H 'Content-Type: application/json' -d '{}'` |
-| Rename | `curl -s -X POST "$BASE/api/session/ID/rename" -H 'Content-Type: application/json' -d '{"name":"my-name"}'` |
-| Archive | `curl -s -X POST "$BASE/api/session/ID/archive" -H 'Content-Type: application/json' -d '{}'` |
-| Unarchive | `curl -s -X POST "$BASE/api/session/ID/unarchive" -H 'Content-Type: application/json' -d '{}'` |
+| Send prompt | `pi-dashboard api POST /api/session/ID/prompt --data '{"text":"your message"}'` |
+| Abort | `pi-dashboard api POST /api/session/ID/abort --data '{}'` |
+| Shutdown session | `pi-dashboard api POST /api/session/ID/shutdown --data '{}'` |
+| Rename | `pi-dashboard api POST /api/session/ID/rename --data '{"name":"my-name"}'` |
+| Archive | `pi-dashboard api POST /api/session/ID/archive --data '{}'` |
+| Unarchive | `pi-dashboard api POST /api/session/ID/unarchive --data '{}'` |
 
 > `GET /api/sessions` lists RESIDENT sessions only — archived sessions are excluded.
 > Resolve an archived id with `GET /api/sessions/archived?q=<text>` (or
@@ -110,46 +115,46 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 > Archiving an alive-but-idle session terminates its pi process and completes on
 > the ended transition; a running or interrupted (`live:true`) session is refused
 > (WS error / REST 409).
-| Spawn new | `curl -s -X POST "$BASE/api/session/spawn" -H 'Content-Type: application/json' -d '{"cwd":"/path"}'` |
-| Resume/Fork | `curl -s -X POST "$BASE/api/session/ID/resume" -H 'Content-Type: application/json' -d '{"mode":"continue"}'` |
+| Spawn new | `pi-dashboard api POST /api/session/spawn --data '{"cwd":"/path"}'` |
+| Resume/Fork | `pi-dashboard api POST /api/session/ID/resume --data '{"mode":"continue"}'` |
 
 ### Flow Control
 
 | Action | Command |
 |--------|---------|
-| Abort flow | `curl -s -X POST "$BASE/api/session/ID/flow-control" -H 'Content-Type: application/json' -d '{"action":"abort"}'` |
-| Toggle autonomous | `curl -s -X POST "$BASE/api/session/ID/flow-control" -H 'Content-Type: application/json' -d '{"action":"toggle_autonomous"}'` |
+| Abort flow | `pi-dashboard api POST /api/session/ID/flow-control --data '{"action":"abort"}'` |
+| Toggle autonomous | `pi-dashboard api POST /api/session/ID/flow-control --data '{"action":"toggle_autonomous"}'` |
 
 ### Model / Thinking
 
 | Action | Command |
 |--------|---------|
-| Set model | `curl -s -X POST "$BASE/api/session/ID/model" -H 'Content-Type: application/json' -d '{"provider":"anthropic","modelId":"claude-sonnet-4-20250514"}'` |
-| Set thinking | `curl -s -X POST "$BASE/api/session/ID/thinking-level" -H 'Content-Type: application/json' -d '{"level":"high"}'` |
+| Set model | `pi-dashboard api POST /api/session/ID/model --data '{"provider":"anthropic","modelId":"claude-sonnet-4-20250514"}'` |
+| Set thinking | `pi-dashboard api POST /api/session/ID/thinking-level --data '{"level":"high"}'` |
 
 ### Git Operations
 
 | Action | Command |
 |--------|---------|
 | List branches | `curl -s "$BASE/api/git/branches?cwd=CWD" \| jq .` |
-| Checkout | `curl -s -X POST "$BASE/api/git/checkout" -H 'Content-Type: application/json' -d '{"cwd":"CWD","branch":"main"}'` |
-| Init repo | `curl -s -X POST "$BASE/api/git/init" -H 'Content-Type: application/json' -d '{"cwd":"CWD"}'` |
-| Stash pop | `curl -s -X POST "$BASE/api/git/stash-pop" -H 'Content-Type: application/json' -d '{"cwd":"CWD"}'` |
+| Checkout | `pi-dashboard api POST /api/git/checkout --data '{"cwd":"CWD","branch":"main"}'` |
+| Init repo | `pi-dashboard api POST /api/git/init --data '{"cwd":"CWD"}'` |
+| Stash pop | `pi-dashboard api POST /api/git/stash-pop --data '{"cwd":"CWD"}'` |
 
 ### OpenSpec
 
 | Action | Command |
 |--------|---------|
-| Attach proposal | `curl -s -X POST "$BASE/api/session/ID/attach-proposal" -H 'Content-Type: application/json' -d '{"changeName":"change-name"}'` |
-| Detach proposal | `curl -s -X POST "$BASE/api/session/ID/detach-proposal" -H 'Content-Type: application/json' -d '{}'` |
+| Attach proposal | `pi-dashboard api POST /api/session/ID/attach-proposal --data '{"changeName":"change-name"}'` |
+| Detach proposal | `pi-dashboard api POST /api/session/ID/detach-proposal --data '{}'` |
 | Archive listing | `curl -s "$BASE/api/openspec-archive?cwd=CWD" \| jq .` |
 
 ### Configuration
 
 | Action | Command |
 |--------|---------|
-| Read config | `curl -s "$BASE/api/config" \| jq .` |
-| Update config | `curl -s -X PUT "$BASE/api/config" -H 'Content-Type: application/json' -d '{"autoShutdown":false}'` |
+| Read config | `pi-dashboard api GET /api/config \| jq .` |
+| Update config | `pi-dashboard api PUT /api/config --data '{"autoShutdown":false}'` |
 
 ### Access Provisioning
 
@@ -157,17 +162,17 @@ Propose-only: the dashboard operator approves each folder. Prefer the `project-a
 
 | Action | Command |
 |--------|---------|
-| Submit request | `curl -s -X POST "$BASE/api/access/provision" -H 'Content-Type: application/json' -d '{"projectRoot":"/abs/project","lines":[{"path":"../lib","why":"tests"}]}'` |
+| Submit request | `pi-dashboard api POST /api/access/provision --data '{"projectRoot":"/abs/project","lines":[{"path":"../lib","why":"tests"}]}'` |
 | Pending requests | `curl -s "$BASE/api/access/provision" \| jq .` |
-| Request status | `curl -s "$BASE/api/access/provision/ID" \| jq .` |
+| Request status | `pi-dashboard api GET /api/access/provision/ID \| jq .` |
 
 ### Tunnel
 
 | Action | Command |
 |--------|---------|
 | Tunnel status | `curl -s "$BASE/api/tunnel-status" \| jq .` |
-| Connect tunnel | `curl -s -X POST "$BASE/api/tunnel-connect"` |
-| Disconnect tunnel | `curl -s -X POST "$BASE/api/tunnel-disconnect"` |
+| Connect tunnel | `pi-dashboard api POST /api/tunnel-connect` |
+| Disconnect tunnel | `pi-dashboard api POST /api/tunnel-disconnect` |
 
 ## Helper Script
 
