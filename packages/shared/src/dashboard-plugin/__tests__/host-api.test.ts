@@ -2,26 +2,28 @@ import { describe, expect, it } from "vitest";
 import { isValidHostApiRange, PLUGIN_HOST_API_VERSION, satisfiesHostApi, satisfiesHostApiRange } from "../host-api.js";
 
 describe("PLUGIN_HOST_API_VERSION", () => {
-  it("is the frozen 1.2.0 contract", () => {
-    expect(PLUGIN_HOST_API_VERSION).toBe("1.2.0");
+  it("is the current 1.3.0 contract", () => {
+    expect(PLUGIN_HOST_API_VERSION).toBe("1.3.0");
   });
 });
 
-describe("satisfiesHostApiRange (host 1.2.0)", () => {
+describe("satisfiesHostApiRange (host 1.3.0)", () => {
   const cases: Array<[string, boolean]> = [
     ["^1.0.0", true],
     ["^1.2", true],
     ["^1.2.0", true],
-    ["^1.2.1", false],
-    ["^1.3.0", false],
+    ["^1.2.1", true],
+    ["^1.3.0", true],
+    ["^1.3.1", false],
+    ["^1.4.0", false],
     ["^1.9.0", false],
     ["^2.0.0", false],
     ["^0.9.0", false],
-    ["1.2.0", true],
-    ["1.2.1", false],
+    ["1.3.0", true],
+    ["1.3.1", false],
   ];
   it.each(cases)("%s → %s", (range, expected) => {
-    expect(satisfiesHostApiRange("1.2.0", range)).toBe(expected);
+    expect(satisfiesHostApiRange("1.3.0", range)).toBe(expected);
   });
 
   it("caret on 0.x pins the minor; on 0.0.x pins the patch", () => {
@@ -52,7 +54,7 @@ describe("isValidHostApiRange", () => {
 describe("satisfiesHostApi", () => {
   it("is bound to PLUGIN_HOST_API_VERSION", () => {
     expect(satisfiesHostApi("^1.0.0")).toBe(true);
-    expect(satisfiesHostApi("^1.3.0")).toBe(false);
+    expect(satisfiesHostApi("^1.4.0")).toBe(false);
     expect(satisfiesHostApi("^2.0.0")).toBe(false);
   });
 });
