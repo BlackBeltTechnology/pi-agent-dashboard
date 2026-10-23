@@ -13,6 +13,12 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import {
+  admitRouteCwdParam,
+  sendRouteCwdRefusal,
+} from "@blackbelt-technology/pi-dashboard-shared/plugin-route-cwd.js";
 import { parse as parseYaml } from "yaml";
 
 export type FlowInputType = "string" | "number" | "boolean" | "object" | "array";
@@ -24,10 +30,24 @@ export interface FlowInputField {
   required: boolean;
 }
 
+/** A path segment that would climb or stay put (`.` / `..`) — never a flow namespace or name. */
+const isDotSegment = (s: string): boolean => s === "." || s === "..";
+
+/**
+ * Whether a flow id could escape the flows dir: exactly `.` / `..`, or any path separator.
+ * Only EXACT dot segments count — `team.review`, `a..b`, `...`, `.hidden`, `x.` stay valid.
+ * For the `<ns>:<name>` form each segment is checked, since `..:x` would climb.
+ * See change: harden-git-terminal-plugin-boundaries (S1r).
+ */
+export function isTraversalFlowId(flowId: string): boolean {
+  if (flowId.includes("/") || flowId.includes("\\")) return true;
+  return flowId.split(":").some(isDotSegment);
+}
+
 /** Resolve a `<ns>:<name>` flow id to its `flow.yaml` path under `cwd`. */
 export function flowYamlPath(cwd: string, flowId: string): string | null {
   const m = /^([\w.-]+):([\w.-]+)$/.exec(flowId);
-  if (!m) return null;
+  if (!m || isDotSegment(m[1]) || isDotSegment(m[2])) return null;
   return path.join(cwd, ".pi", "flows", "flows", m[1], m[2], "flow.yaml");
 }
 
@@ -55,4 +75,39 @@ export function readFlowInputs(cwd: string, flowId: string): FlowInputField[] {
     out.push({ name, type: type as FlowInputType, required: d?.required === true });
   }
   return out;
+}
+
+export interface FlowInputsRouteDeps {
+  /** Live admit set (host known folders), read per request. Fail-closed default: nothing known. */
+  knownCwds?: () => string[];
+  /** `admitCwd` options (the host's throttled `onIndeterminate` logger; test seams). */
+  admitOptions?: AdmitCwdOptions;
+}
+
+/**
+ * `GET /api/plugins/flows/flow-inputs?cwd=&flow=` — read-only. The cwd is REQUIRED and admitted
+ * (400 `invalid_cwd` / `cwd_required`, 403, 503) before any flow file is read — there is no
+ * `process.cwd()` fallback — and a traversal-shaped flow id is 400 `invalid_flow_id`.
+ * See change: wire-flow-inputs-in-automation; harden-git-terminal-plugin-boundaries (S1r).
+ */
+export function mountFlowInputsRoute(fastify: ServerPluginContext["fastify"], deps: FlowInputsRouteDeps = {}): void {
+  fastify.get("/api/plugins/flows/flow-inputs", async (req, reply) => {
+    const q = (req.query ?? {}) as Record<string, unknown>;
+    const adm = await admitRouteCwdParam(q.cwd, {
+      required: true,
+      ...(deps.knownCwds ? { knownCwds: deps.knownCwds } : {}),
+      ...(deps.admitOptions ? { admitOptions: deps.admitOptions } : {}),
+    });
+    if (!adm.ok) return sendRouteCwdRefusal(reply, adm);
+    try {
+      const flow = typeof q.flow === "string" ? q.flow : "";
+      if (flow && isTraversalFlowId(flow)) {
+        reply.code(400);
+        return { error: "invalid_flow_id", message: "flow id must not contain path separators or dot segments" };
+      }
+      return { inputs: flow && adm.cwd ? readFlowInputs(adm.cwd, flow) : [] };
+    } finally {
+      adm.release();
+    }
+  });
 }

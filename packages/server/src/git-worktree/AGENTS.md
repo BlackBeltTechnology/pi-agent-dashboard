@@ -10,6 +10,8 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `git-worktree-compose.ts` | Pure helper composing live `gitWorktree` payload. Exports `composeWorktreePayload(wire, cachedBase, prior)` → `null`… → see `git-worktree-compose.ts.AGENTS.md` |
 | `git-worktree-lifecycle.ts` | Pure stderr→code mappers `mapRemoveStderr` / `mapMergeStderr` / `mapPushStderr` / `mapPrStderr` +… → see `git-worktree-lifecycle.ts.AGENTS.md` |
 | `git-worktree.ts` | Pure helpers for worktree handling: `slugifyBranch(branch)` (path-safe slug), `parsePorcelainWorktrees(out)`… → see `git-worktree.ts.AGENTS.md` |
+| `redact-git-text.ts` | `redactGitText(input,{root?,home?})`, `gitErrorText(err)`. Userinfo strip, token mask (prefix+`***`), paths → repo-relative/`~`/`<path>`; SHAs kept; never throws. See change: harden-git-terminal-plugin-boundaries. |
+| `ref-arg.ts` | `assertRefArg`/`isValidRefArg`/`isMissingArg`, `InvalidRefError`, `INVALID_REF_CODE="invalid_ref"`. Rejects non-string, empty, leading `-`, C0/DEL. See change: harden-git-terminal-plugin-boundaries. |
 | `worktree-init-errors.ts` | Pure `mapInitStderrToHint(stderr)`. Ordered regex table. Codes: EACCES, EBADENGINE/Unsupported engine,… → see `worktree-init-errors.ts.AGENTS.md` |
 | `worktree-init-registry.ts` | `createWorktreeInitRegistry({ttlMs?,terminalTtlMs?,sendTo?})`. → see `worktree-init-registry.ts.AGENTS.md` |
 | `worktree-init-trust.ts` | TOFU trust store. `isTrusted(repoRoot,hash)`/`recordTrust(repoRoot,hash)` keyed by `repoRoot +… → see `worktree-init-trust.ts.AGENTS.md` `listSessionTrust()`, `setSessionTrustChangedListener`: session record/revoke notify sync; session set still never written. See change: mirror-dashboard-trust-live-remote. |

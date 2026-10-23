@@ -8,9 +8,13 @@ import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { mountAutomationRoutes } from "../server/routes.js";
 
+// Known folders for the S1r cwd admission; `/r` is the stop-route fixture cwd.
+// See change: harden-git-terminal-plugin-boundaries.
+const admittedCwds: string[] = ["/r"];
+
 async function appWith(hooks: Parameters<typeof mountAutomationRoutes>[1]) {
   const app = Fastify();
-  mountAutomationRoutes(app, hooks);
+  mountAutomationRoutes(app, { knownCwds: () => admittedCwds, ...hooks });
   await app.ready();
   return app;
 }
@@ -150,8 +154,10 @@ describe("GET /api/plugins/automation/result?sessionId=", () => {
   let base: string;
   beforeEach(() => {
     base = fs.mkdtempSync(path.join(os.tmpdir(), "auto-result-sid-"));
+    admittedCwds.push(base);
   });
   afterEach(() => {
+    admittedCwds.pop();
     fs.rmSync(base, { recursive: true, force: true });
   });
 

@@ -5,3 +5,5 @@ Hand-rolled manifest validator. Throws `ManifestValidationError` with `pluginId`
 `tool-renderer` claims: `expandWhileRunning` must be boolean, `resultPending` a string; both rejected on any other slot (naming plugin + slot); copied onto the normalized claim only when set. See change: decouple-plugins-from-core (task 4.5).
 
 Optional string `clientBundle` / `clientStyles` (package-relative prebuilt client entry / stylesheet) are type-checked with `client`/`server`/`bridge` and copied onto the normalized manifest when set; layout (dedicated asset root) is checked at discovery by `server/client-layout.ts`, not here. See change: decouple-plugins-from-core (task 6.1).
+
+Optional `emits`: static array of exact event names the plugin may emit into sessions (distinct from inbound `eventTypes`). Rejected with an error naming `emits`: non-array, non-string/empty/whitespace-bearing entry, entry >128 chars, >64 entries, reserved prefix (`roles:` `role:` `model:` `prompt:` `dashboard:` `ui:`, case-insensitive). Absent/`[]` = emits nothing. Exports `MAX_EMITS_ENTRIES`, `MAX_EMITS_ENTRY_LENGTH`. See change: harden-git-terminal-plugin-boundaries (D16).

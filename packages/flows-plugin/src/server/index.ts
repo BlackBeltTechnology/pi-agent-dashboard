@@ -8,9 +8,10 @@
  * See change: adopt-server-driven-intent-rendering.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { provideFlowsActions } from "./automation-actions.js";
-import { readFlowInputs } from "./flow-inputs.js";
 import { registerFlowFileRoutes } from "./flow-files.js";
+import { mountFlowInputsRoute } from "./flow-inputs.js";
 import { renderSessionFlowActions } from "./render-actions.js";
 import { stateStore } from "./state-store.js";
 
@@ -61,11 +62,15 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // Read-only endpoint: a flow's declared `inputs:` schema, for the automation
   // input-wiring UI. Never writes a flow file. See change:
   // wire-flow-inputs-in-automation.
-  ctx.fastify.get("/api/plugins/flows/flow-inputs", async (req) => {
-    const q = (req.query ?? {}) as Record<string, unknown>;
-    const cwd = typeof q.cwd === "string" ? q.cwd : process.cwd();
-    const flow = typeof q.flow === "string" ? q.flow : "";
-    return { inputs: flow ? readFlowInputs(cwd, flow) : [] };
+  // The cwd is required + admitted against the host known folders (no `process.cwd()`
+  // fallback); a traversal-shaped flow id is refused. See change:
+  // harden-git-terminal-plugin-boundaries (S1r).
+  const admitOnIndeterminate = ctx.consume<NonNullable<AdmitCwdOptions["onIndeterminate"]>>(
+    "host.cwdAdmissionOnIndeterminate",
+  );
+  mountFlowInputsRoute(ctx.fastify, {
+    knownCwds: ctx.consume<() => string[]>("host.knownFolderCwds") ?? (() => []),
+    ...(admitOnIndeterminate ? { admitOptions: { onIndeterminate: admitOnIndeterminate } } : {}),
   });
 
   // Flow YAML / agent / code-handler files reported by this plugin's bridge,

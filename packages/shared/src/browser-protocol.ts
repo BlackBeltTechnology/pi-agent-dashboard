@@ -771,6 +771,23 @@ export interface TerminalLimitReachedMessage {
 }
 
 /**
+ * A `create_terminal` / `open_inline_terminal` was refused for a reason other than a
+ * cap: the cwd was not admitted, admission could not be decided, or the inline session
+ * is unknown. Sent only to the requesting socket; no PTY was spawned.
+ * See change: harden-git-terminal-plugin-boundaries (D14).
+ */
+export interface TerminalErrorMessage {
+  type: "terminal_error";
+  code: "cwd_not_admitted" | "cwd_admission_unavailable" | "session_not_found";
+  /** The requested cwd, echoed (empty string when the request carried none). */
+  cwd: string;
+  /** True when the refused request was an inline-terminal open. */
+  inline: boolean;
+  /** Human-readable refusal text (non-empty). */
+  message: string;
+}
+
+/**
  * A `pin_directory` / `add_folder_to_workspace` / `move_folder_to_workspace` from a
  * non-local socket was refused: the path is outside the shared roots. Sent only to
  * the requesting socket. See change: harden-server-capability-bounds (D1b).
@@ -1249,6 +1266,7 @@ export type ServerToBrowserMessage =
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalLimitReachedMessage
+  | TerminalErrorMessage
   | FolderRefusedMessage
   | TerminalUpdatedMessage
   | SessionStateResetMessage

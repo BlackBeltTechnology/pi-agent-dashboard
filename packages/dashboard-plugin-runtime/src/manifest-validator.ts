@@ -37,6 +37,7 @@ import {
   type SlotId,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import { isUnclaimableHandlerExt } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { RESERVED_EVENT_PREFIXES } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 /** Valid `resource-page-section` `resourceType` values. See change: add-skill-atlas-screen. */
 const RESOURCE_PAGE_TYPES: ReadonlySet<string> = new Set(["skill", "agent", "extension", "prompt", "theme"]);
@@ -817,6 +818,8 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     eventTypes = [...(m.eventTypes as string[])];
   }
 
+  const emits = m.emits !== undefined ? validateEmits(m.emits, pluginId) : undefined;
+
   // hostApi: `^MAJOR.MINOR[.PATCH]` or exact. See change: decouple-plugins-from-core (D7).
   if (m.hostApi !== undefined && !isValidHostApiRange(m.hostApi)) {
     throw new ManifestValidationError(
@@ -845,6 +848,35 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
 
     ...(projectTypes ? { projectTypes } : {}),
     ...(eventTypes ? { eventTypes } : {}),
+    ...(emits ? { emits } : {}),
     ...(typeof m.hostApi === "string" ? { hostApi: m.hostApi } : {}),
   };
+}
+
+/** Max entries in a manifest `emits` list. */
+export const MAX_EMITS_ENTRIES = 64;
+/** Max length of one `emits` entry. */
+export const MAX_EMITS_ENTRY_LENGTH = 128;
+
+/**
+ * `emits`: static list of exact event names the plugin may emit into sessions.
+ * Rejects non-lists, empty / whitespace-bearing entries, reserved host
+ * prefixes (case-insensitive) and over-size lists (<= 64 entries, <= 128 chars).
+ * See change: harden-git-terminal-plugin-boundaries (D16).
+ */
+function validateEmits(value: unknown, pluginId: string): string[] {
+  const fail = (why: string): never => {
+    throw new ManifestValidationError(pluginId, `manifest.emits ${why}`);
+  };
+  if (!Array.isArray(value)) return fail("must be an array of event names");
+  if (value.length > MAX_EMITS_ENTRIES) return fail(`must have at most ${MAX_EMITS_ENTRIES} entries`);
+  for (const t of value) {
+    if (typeof t !== "string" || t.length === 0) return fail("entries must be non-empty strings");
+    if (t.length > MAX_EMITS_ENTRY_LENGTH) return fail(`entries must be at most ${MAX_EMITS_ENTRY_LENGTH} characters`);
+    if (/\s/.test(t)) return fail("entries must not contain whitespace");
+    const lower = t.toLowerCase();
+    const prefix = RESERVED_EVENT_PREFIXES.find((p) => lower.startsWith(p));
+    if (prefix) return fail(`entry "${t.slice(0, 40)}" uses the reserved prefix "${prefix}"`);
+  }
+  return [...(value as string[])];
 }

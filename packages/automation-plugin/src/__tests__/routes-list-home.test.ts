@@ -40,7 +40,9 @@ afterEach(() => {
 
 async function list(cwd: string, hooks: Parameters<typeof mountAutomationRoutes>[1] = {}) {
   const app = Fastify();
-  mountAutomationRoutes(app, hooks);
+  // The request cwd must be admitted (S1r): home and the repo are known folders here.
+  // See change: harden-git-terminal-plugin-boundaries.
+  mountAutomationRoutes(app, { knownCwds: () => [H, R], ...hooks });
   await app.ready();
   const res = await app.inject({ method: "GET", url: `/api/plugins/automation/list?cwd=${encodeURIComponent(cwd)}` });
   await app.close();

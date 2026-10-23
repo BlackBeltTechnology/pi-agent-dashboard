@@ -98,21 +98,29 @@ export interface ActionRegistration {
   }) => ActionEvent | null;
 }
 
+/** Manifest `emits` of a provider plugin (`undefined` = unknown / not loaded). */
+export type ProviderEmitsLookup = (providerId: string) => readonly string[] | undefined;
+
 export class ActionRegistry {
   private byId = new Map<string, ActionRegistration>();
   private countBySource = new Map<string, number>();
   private warn: (msg: string) => void;
+  private providerEmits: ProviderEmitsLookup;
 
-  constructor(opts?: { warn?: (msg: string) => void }) {
+  constructor(opts?: { warn?: (msg: string) => void; providerEmits?: ProviderEmitsLookup }) {
     this.warn = opts?.warn ?? ((m) => console.warn(m));
+    this.providerEmits = opts?.providerEmits ?? (() => undefined);
   }
 
   /**
    * Register an action. Rejected (with a logged warning, no throw) when the
    * source is already at the per-source cap, when the id is malformed, or on
-   * a duplicate id.
+   * a duplicate id. When `provider` (the plugin the host recorded as having
+   * published it) is given, a `buildEvent` action's `emits` must be a subset
+   * of that provider's manifest `emits`; the whole action is rejected
+   * otherwise. See change: harden-git-terminal-plugin-boundaries (D16).
    */
-  register(reg: ActionRegistration): boolean {
+  register(reg: ActionRegistration, provider?: string): boolean {
     if (!/^[a-z0-9-]+\.[a-z0-9-]+$/i.test(reg.id)) {
       this.warn(`[action-registry] rejected malformed action id "${reg.id}" (expected <source>.<verb>)`);
       return false;
@@ -124,6 +132,17 @@ export class ActionRegistry {
     if (reg.buildEvent && !(Array.isArray(reg.emits) && reg.emits.length > 0)) {
       this.warn(`[action-registry] rejected "${reg.id}": buildEvent actions must declare a non-empty \`emits\` list`);
       return false;
+    }
+    if (reg.buildEvent && provider !== undefined) {
+      const declared = new Set(this.providerEmits(provider) ?? []);
+      const undeclared = (reg.emits as string[]).filter((t) => !declared.has(t));
+      if (undeclared.length > 0) {
+        this.warn(
+          `[action-registry] rejected "${reg.id}": provider plugin "${provider}" does not declare ` +
+            `${undeclared.map((t) => `"${t}"`).join(", ")} in its manifest \`emits\``,
+        );
+        return false;
+      }
     }
     if (this.byId.has(reg.id)) {
       this.warn(`[action-registry] rejected duplicate action id "${reg.id}"`);
@@ -251,25 +270,48 @@ export function createActionRegistryWithBuiltins(opts?: { warn?: (msg: string) =
 /** Prefix under which action contributions are published for collection. */
 export const ACTION_CONTRIBUTION_PREFIX = "automation.action.";
 
+/** `consumeAll` provider recorded for host-set entries (exempt from the source check). */
+const HOST_PROVIDER = "host";
+
 /**
  * Collect all published action contributions into a fresh registry. Each
  * publisher provides an `ActionRegistration` or array under
  * `automation.action.<source>`. Registration guards (id shape, duplicate,
- * exactly-one dispatch, per-source cap) apply during collection.
- * See change: decouple-automation-action-registry.
+ * exactly-one dispatch, per-source cap) apply during collection, plus:
+ * an entry whose host-recorded `provider` is neither the key's `<source>`
+ * nor the host is ignored with a warning (spoof), an empty source is
+ * malformed, and a `buildEvent` action's `emits` must be within its
+ * PROVIDER's manifest `emits` (`providerEmits`; absent = fail closed).
+ * See change: decouple-automation-action-registry;
+ * harden-git-terminal-plugin-boundaries (D16).
  */
 export function collectActionRegistry(
-  entries: Array<{ key: string; value: unknown }>,
-  opts?: { warn?: (msg: string) => void },
+  entries: Array<{ key: string; value: unknown; provider?: string }>,
+  opts?: { warn?: (msg: string) => void; providerEmits?: ProviderEmitsLookup },
 ): ActionRegistry {
   const reg = new ActionRegistry(opts);
-  for (const { value } of entries) {
-    const contribs = Array.isArray(value) ? value : [value];
-    for (const c of contribs) {
-      if (c && typeof c === "object") reg.register(c as ActionRegistration);
+  const warn = opts?.warn ?? ((m: string) => console.warn(m));
+  for (const { key, value, provider } of entries) {
+    const refusal = entryRefusal(key, provider);
+    if (refusal) {
+      warn(`[action-registry] ${refusal}`);
+      continue;
+    }
+    for (const c of Array.isArray(value) ? value : [value]) {
+      if (c && typeof c === "object") reg.register(c as ActionRegistration, provider);
     }
   }
   return reg;
+}
+
+/** Why a published entry must be ignored (spoofed/malformed), or `null` when it may be collected. */
+function entryRefusal(key: string, provider: string | undefined): string | null {
+  const source = key.startsWith(ACTION_CONTRIBUTION_PREFIX)
+    ? key.slice(ACTION_CONTRIBUTION_PREFIX.length).split(".", 1)[0]
+    : "";
+  if (!source) return `ignored malformed contribution key "${key}" (empty source segment)`;
+  if (provider === HOST_PROVIDER || provider === source) return null;
+  return `ignored "${key}": provider "${String(provider)}" is not the key source "${source}"`;
 }
 
 /** Normalize a bare `prompt`/`skill` action kind to its `core.*` id. */

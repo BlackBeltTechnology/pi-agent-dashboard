@@ -65,49 +65,90 @@ describe("browser-gateway handler error reporting", () => {
     errorSpy.mockRestore();
   });
 
-  it("logs handler exceptions with type and error (does not silently swallow)", async () => {
-    const throwingTerminalManager = {
-      spawn: vi.fn(() => {
-        throw new Error("posix_spawnp failed.");
-      }),
-      attach: vi.fn(),
-      detach: vi.fn(),
-      kill: vi.fn(),
-      get: vi.fn(),
-      list: vi.fn(() => []),
-      updateTitle: vi.fn(),
-    } as unknown as TerminalManager;
+  it("SX2 a throwing PTY spawn is logged once, never becomes an unhandled rejection, and the requester gets terminal_error", async () => {
+    // change: harden-git-terminal-plugin-boundaries (#SX2). Was: handler exceptions logged
+    // as `[browser-gw] handler error` — the async handler now owns its failure.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const throwingTerminalManager = {
+        spawn: vi.fn(() => {
+          throw new Error("posix_spawnp failed.");
+        }),
+        attach: vi.fn(),
+        detach: vi.fn(),
+        kill: vi.fn(),
+        get: vi.fn(),
+        list: vi.fn(() => []),
+        updateTitle: vi.fn(),
+      } as unknown as TerminalManager;
 
-    const gateway = createBrowserGateway(
-      createMemorySessionManager(),
-      createMemoryEventStore(() => false),
-      makeStubPiGateway(),
-      undefined,
-      undefined,
-      makeStubOrderManager(),
-      undefined,
-      undefined,
-      throwingTerminalManager,
-    );
+      const manager = createMemorySessionManager();
+      manager.restore({
+        id: "s1", cwd: "/tmp", source: "tui", status: "active", startedAt: 1, tokensIn: 0, tokensOut: 0, cost: 0,
+      } as DashboardSession);
+      const gateway = createBrowserGateway(
+        manager,
+        createMemoryEventStore(() => false),
+        makeStubPiGateway(),
+        undefined,
+        undefined,
+        makeStubOrderManager(),
+        undefined,
+        undefined,
+        throwingTerminalManager,
+      );
 
+      const ws = makeFakeWs();
+      gateway.wss.emit("connection", ws, {});
+      ws.send.mockClear();
+
+      // Standalone create at a known (session) cwd, then an inline open for the same session.
+      ws.emit("message", Buffer.from(JSON.stringify({ type: "create_terminal", cwd: "/tmp" })));
+      await new Promise((r) => setTimeout(r, 50));
+      ws.emit("message", Buffer.from(JSON.stringify({ type: "open_inline_terminal", sessionId: "s1", cwd: "/tmp" })));
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(throwingTerminalManager.spawn).toHaveBeenCalledTimes(2);
+      expect(unhandled).toEqual([]);
+      const frames = ws.send.mock.calls.map((c) => JSON.parse(String(c[0])) as ServerToBrowserMessage);
+      const errors = frames.filter((f) => f.type === "terminal_error");
+      expect(errors).toEqual([
+        expect.objectContaining({ code: "cwd_admission_unavailable", inline: false, cwd: "/tmp" }),
+        expect.objectContaining({ code: "cwd_admission_unavailable", inline: true, cwd: "/tmp" }),
+      ]);
+      // The failure is logged once per request by the handler (not again by the gateway).
+      const logged = errorSpy.mock.calls.filter((args: unknown[]) => String(args[0]).includes("[terminal]"));
+      expect(logged).toHaveLength(2);
+      expect(errorSpy.mock.calls.some((args: unknown[]) => String(args[0]).includes("[browser-gw] handler error"))).toBe(false);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("SX2 a throwing sessionManager.get on inline-open is refused as cwd_admission_unavailable without escaping", async () => {
+    const manager = createMemorySessionManager();
+    const realGet = manager.get.bind(manager);
+    let armed = false;
+    manager.get = ((id: string) => {
+      // Throw only for the terminal handler's own lookup (the gateway's ACP guard also calls get).
+      if (armed && new Error().stack?.includes("terminal-handler")) throw new Error("sm boom");
+      return realGet(id);
+    }) as typeof manager.get;
+    const terminalManager = { spawn: vi.fn(), attach: vi.fn(), detach: vi.fn(), kill: vi.fn(), get: vi.fn(), list: vi.fn(() => []), updateTitle: vi.fn() } as unknown as TerminalManager;
+    const gateway = createBrowserGateway(manager, createMemoryEventStore(() => false), makeStubPiGateway(), undefined, undefined, makeStubOrderManager(), undefined, undefined, terminalManager);
     const ws = makeFakeWs();
     gateway.wss.emit("connection", ws, {});
-
-    ws.emit(
-      "message",
-      Buffer.from(JSON.stringify({ type: "create_terminal", cwd: "/tmp" })),
-    );
-    // Allow any microtasks to settle.
-    await new Promise((r) => setImmediate(r));
-
-    const handlerErrorCall = errorSpy.mock.calls.find(
-      (args: unknown[]) =>
-        typeof args[0] === "string" &&
-        args[0].includes("[browser-gw] handler error") &&
-        args[0].includes("type=create_terminal"),
-    );
-    expect(handlerErrorCall, "expected a [browser-gw] handler error log line").toBeTruthy();
-    expect(throwingTerminalManager.spawn).toHaveBeenCalledOnce();
+    ws.send.mockClear();
+    armed = true;
+    ws.emit("message", Buffer.from(JSON.stringify({ type: "open_inline_terminal", sessionId: "s1", cwd: "/tmp" })));
+    await new Promise((r) => setTimeout(r, 50));
+    const frames = ws.send.mock.calls.map((c) => JSON.parse(String(c[0])) as ServerToBrowserMessage);
+    expect(frames.filter((f) => f.type === "terminal_error")).toEqual([
+      expect.objectContaining({ code: "cwd_admission_unavailable", inline: true }),
+    ]);
+    expect(terminalManager.spawn).not.toHaveBeenCalled();
   });
 
   it("E30: a legacy hide_session is rejected as unknown and mutates no session", async () => {
