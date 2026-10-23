@@ -6,7 +6,7 @@ Bridge extension behavior: forwards pi session events to the dashboard, tracks m
 
 ### Requirement: Relay plugin-emitted events into the session bus
 
-The bridge SHALL handle a `plugin_emit_event` control message from the server: when `pi.events` is available and the message carries a non-empty string `eventType`, it SHALL call `pi.events.emit(eventType, data)` where `data` is the message's `data` object (or `{}` when absent). The bridge SHALL NOT restrict `eventType` to a known set — it relays whatever the server-side plugin requested. A missing or non-string `eventType` SHALL be ignored (no emit).
+The bridge SHALL handle a `plugin_emit_event` control message from the server: when `pi.events` is available and the message carries a non-empty string `eventType`, it SHALL call `pi.events.emit(eventType, data)` where `data` is the message's `data` object (or `{}` when absent). The bridge SHALL relay the events the server forwards and SHALL NOT keep its own event-type list; which event types a plugin may emit is decided by the server-side allowlist, which is authoritative. A missing or non-string `eventType` SHALL be ignored (no emit).
 
 #### Scenario: Bridge re-emits a configured event
 
@@ -17,6 +17,11 @@ The bridge SHALL handle a `plugin_emit_event` control message from the server: w
 
 - **WHEN** the bridge receives `{ type: "plugin_emit_event" }` with no `eventType`
 - **THEN** it SHALL emit nothing and SHALL NOT throw.
+
+#### Scenario: Server decides which events exist
+
+- **WHEN** the server does not forward an event type because its allowlist refuses it
+- **THEN** the bridge SHALL never receive a `plugin_emit_event` for it and SHALL emit nothing
 
 ### Requirement: Dev build and server shutdown on reload cleanup
 When `devBuildOnReload` is `true` in the loaded config, the bridge extension's cleanup function (called on `/reload`) SHALL perform the following before the normal cleanup:
