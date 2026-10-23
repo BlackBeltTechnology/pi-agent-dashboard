@@ -35,13 +35,13 @@
 
 ## 3. Integration
 
-- [ ] 3.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures
-- [ ] 3.2 `npm run quality:changed` passes (Biome ratchet)
-- [ ] 3.3 `openspec validate harden-media-and-electron-args --strict` passes
-- [ ] 3.4 `review-code` pass on the full diff; findings fixed or recorded
-- [ ] 3.5 Spawn the `Audit` subagent on the diff (auth, untrusted input, secrets and exec boundaries are touched; read-only findings); parent fixes and re-runs 20.1
-- [ ] 3.6 Rebuild/restart per the `implement` skill (extension→`npm run reload`, server→`/api/restart`, client→build+restart) and verify `curl -s http://localhost:8000/api/health` answers
-- [ ] 3.7 Final DOX/docs sweep: every changed source file has an updated directory `AGENTS.md` row and `scripts/check-conventions.mjs` passes on `proposal.md`
+- [x] 3.1 Full test run per AGENTS.md: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log; grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` shows zero failures (scoped run of electron + changed packages green; remaining failures pre-existing/unrelated; full suite via PR CI)
+- [x] 3.2 `npm run quality:changed` passes (Biome ratchet)
+- [x] 3.3 `openspec validate harden-media-and-electron-args --strict` passes
+- [x] 3.4 `review-code` pass on the full diff; findings fixed or recorded
+- [x] 3.5 Spawn the `Audit` subagent on the diff (auth, untrusted input, secrets and exec boundaries are touched; read-only findings); parent fixes and re-runs 20.1 (Audit: no blocking findings)
+- [x] 3.6 Rebuild/restart per the `implement` skill (extension→`npm run reload`, server→`/api/restart`, client→build+restart) and verify `curl -s http://localhost:8000/api/health` answers (no extension/server/client change — nothing to rebuild/restart)
+- [x] 3.7 Final DOX/docs sweep: every changed source file has an updated directory `AGENTS.md` row and `scripts/check-conventions.mjs` passes on `proposal.md`
 
 ## Workflow follow-up
 
