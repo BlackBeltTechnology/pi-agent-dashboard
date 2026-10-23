@@ -113,4 +113,8 @@ Resolves `PI_DASHBOARD_TRUSTED_TYPES` with the CSP mode, passes it to `registerC
 
 Builds `fileRouteAdmission` (`knownFolderCwds` + `cwdAdmissionLogger`): passed to file, grep, package, canvas-types, resource-activation, openspec-group routes, `gateFilePath` (live preview `start-static` + per-asset proxy gate; a 503 adds `Retry-After`) and `createWatchFilesHandler` (`watch_files`). Addons routes get `knownCwds: knownFolderCwds`. See change: core-file-cwd-admission.
 
+Plugin context wiring: `pluginServiceRegistry = createPluginServiceRegistry()` (per-plugin `provide` attribution, `automation.action.<source>` ownership, `consumeAll` entries carry `provider`); `pluginManifestEmits` captured at `createContext`, live via status store `loaded===true` (`loadedManifestEmits`, also published as host service `host.pluginManifestEmits`); `emitEventToSession` passes `{pluginId, allowed: computeEmitAllowlist}` to the seam. See change: harden-git-terminal-plugin-boundaries (D16).
+
+Universal guard caveat: a route registered after `ready()` is refused by Fastify (never served), so a plugin hot-load that registers routes fails that plugin only; pinned by `__tests__/post-start-route-registration.test.ts`. See change: harden-git-terminal-plugin-boundaries.
+
 Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZrokWildcard: liveCorsAllowZrokWildcard()`; `indexHtml` passes `cspNonceFor(reply)` to `sendIndexWithImportMap`; `proxyToVite` calls `markViteProxied`; `readCspReports` dep to system routes. See change: harden-cors-and-csp-reporting.

@@ -11,7 +11,7 @@
  */
 
 /** Current host API version. Bump per the snapshot rules in `scripts/host-api-surface.mjs`. */
-export const PLUGIN_HOST_API_VERSION = "1.2.0";
+export const PLUGIN_HOST_API_VERSION = "1.3.0";
 
 /** A manifest `hostApi` range: `^MAJOR.MINOR[.PATCH]` or an exact `MAJOR.MINOR.PATCH`. */
 export type HostApiRange = string;

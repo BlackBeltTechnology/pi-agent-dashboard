@@ -176,6 +176,7 @@ import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal
 import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import type { ReplayState } from "../session/hydration-state.js";
+import { listKnownFolderCwds } from "../lib/route-admission.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { relayBrowserPromptResponse } from "../questions/question-answer.js";
@@ -2016,6 +2017,13 @@ export function createBrowserGateway(
           maxReplayEvents,
           replayWindowMode,
           directoryService, terminalManager,
+          terminalAdmission: {
+            knownCwds: () =>
+              listKnownFolderCwds({
+                sessionManager,
+                preferencesStore: preferencesStore ?? { getPinnedDirectories: () => [] },
+              }),
+          },
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
           pendingInitialPromptRegistry,
@@ -2478,7 +2486,12 @@ export function createBrowserGateway(
             break;
           }
           case "create_terminal":
-            handleCreateTerminal(msg, ctx);
+            // Async (cwd admission). The handler never rejects; `.catch` is the backstop so
+            // nothing can become an unhandled rejection.
+            // See change: harden-git-terminal-plugin-boundaries (D14).
+            handleCreateTerminal(msg, ctx).catch((err) => {
+              console.error("[ws] create_terminal handler failed:", err);
+            });
             break;
           case "open_inline_terminal":
             handleOpenInlineTerminal(msg, ctx);

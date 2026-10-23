@@ -207,6 +207,8 @@ describe("review B1/B2 — terminal upgrade honours host policy and token expiry
           resolve(m.terminal.id);
         }
       });
+      // The terminal cwd must be a known folder (change: harden-git-terminal-plugin-boundaries).
+      ws!.send(JSON.stringify({ type: "pin_directory", path: h.home }));
       ws!.send(JSON.stringify({ type: "create_terminal", cwd: h.home }));
     });
     ws!.close();

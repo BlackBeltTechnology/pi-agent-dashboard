@@ -109,7 +109,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "server": "./src/server/index.ts",
         "bridge": "./src/bridge/index.ts",
         "configSchema": "./src/configSchema.json",
-        "i18nCatalog": "catalog"
+        "i18nCatalog": "catalog",
+        "emits": []
     },
     claims: [
       { pluginId: "automation", priority: 100, slot: "sidebar-folder-section", Component: FolderAutomationSection },
@@ -261,6 +262,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "i18nCatalog": "catalog",
         "eventTypes": [
             "flow_*"
+        ],
+        "emits": [
+            "flow:run",
+            "dashboard-flows:report-files"
         ]
     },
     claims: [

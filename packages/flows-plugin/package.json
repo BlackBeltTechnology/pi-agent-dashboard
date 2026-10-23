@@ -43,6 +43,10 @@
     "eventTypes": [
       "flow_*"
     ],
+    "emits": [
+      "flow:run",
+      "dashboard-flows:report-files"
+    ],
     "i18nCatalog": "catalog",
     "priority": 100,
     "configSchema": "./src/configSchema.json",

@@ -1948,7 +1948,15 @@ export function useMessageHandler(
       // A cap refusal: notice in the slot that asked (tab bar vs chat). Sent only
       // to the requesting socket. See change: harden-server-capability-bounds.
       case "terminal_limit_reached":
+        if (pendingTerminalCwdRef.current === msg.cwd) pendingTerminalCwdRef.current = null;
         showTerminalLimitNotice({ scope: msg.scope, limit: msg.limit, cwd: msg.cwd, inline: msg.inline });
+        break;
+
+      // A cwd refusal (not admitted / undecidable / unknown session): no terminal state, a
+      // dismissible notice (newer replaces older). See change: harden-git-terminal-plugin-boundaries.
+      case "terminal_error":
+        if (pendingTerminalCwdRef.current === msg.cwd) pendingTerminalCwdRef.current = null;
+        showTerminalLimitNotice({ kind: "error", code: msg.code, message: msg.message, cwd: msg.cwd, inline: msg.inline });
         break;
 
       // A remote pin / add / move-folder outside the shared roots was dropped.

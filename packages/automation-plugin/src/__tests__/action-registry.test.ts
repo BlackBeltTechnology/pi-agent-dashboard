@@ -96,18 +96,18 @@ describe("ActionRegistry", () => {
 
   it("collectActionRegistry merges published contributions (single + array) with guards", () => {
     const entries = [
-      { key: "automation.action.core", value: coreActionContributions() }, // array
-      { key: "automation.action.flows", value: { id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: () => ({ eventType: "flow:run" }) } }, // single
-      { key: "automation.action.bad", value: { id: "nodispatch", source: "bad", label: "X" } }, // rejected: bad id + no dispatch
+      { key: "automation.action.core", provider: "host", value: coreActionContributions() }, // array
+      { key: "automation.action.flows", provider: "flows", value: { id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: () => ({ eventType: "flow:run" }) } }, // single
+      { key: "automation.action.bad", provider: "bad", value: { id: "nodispatch", source: "bad", label: "X" } }, // rejected: bad id + no dispatch
     ];
-    const reg = collectActionRegistry(entries, { warn: () => {} });
+    const reg = collectActionRegistry(entries, { warn: () => {}, providerEmits: (id) => (id === "flows" ? ["flow:run"] : undefined) });
     const ids = [...reg.ids()].sort();
     expect(ids).toEqual(["core.prompt", "core.skill", "flows.run"]);
     expect(reg.get("flows.run")?.buildEvent).toBeDefined();
   });
 
   it("collectActionRegistry tolerates non-object contribution values", () => {
-    const reg = collectActionRegistry([{ key: "automation.action.junk", value: 42 }], { warn: () => {} });
+    const reg = collectActionRegistry([{ key: "automation.action.junk", provider: "junk", value: 42 }], { warn: () => {} });
     expect([...reg.ids()]).toEqual([]);
   });
 
@@ -130,5 +130,122 @@ describe("ActionRegistry", () => {
       buildPrompt: noopBuild, buildEvent: () => null,
     } as any)).toBe(false);
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+});
+
+// test-plan #SE18, #SE19 — provider manifest `emits` gates event actions at
+// registration; the consumeAll provider must equal the key's source.
+// See change: harden-git-terminal-plugin-boundaries (D16).
+describe("emits subset check at registration (SE18)", () => {
+  const be = () => ({ eventType: "flow:run" });
+  const manifests: Record<string, string[]> = { flows: ["flow:run"], evil: [], empty: [] };
+  const providerEmits = (id: string) => manifests[id];
+  const mk = (provider: string, over: Record<string, unknown>) => {
+    const warn = vi.fn();
+    const reg = new ActionRegistry({ warn, providerEmits });
+    const ok = reg.register(
+      { id: "flows.run", source: "flows", label: "Run", buildEvent: be, emits: ["flow:run"], ...over } as any,
+      provider,
+    );
+    return { ok, reg, warn };
+  };
+
+  it("accepts an event action whose emits is within the provider manifest", () => {
+    const { ok, reg } = mk("flows", {});
+    expect(ok).toBe(true);
+    expect(reg.has("flows.run")).toBe(true);
+  });
+
+  it("rejects the whole action when emits exceeds the manifest, naming provider and type", () => {
+    const { ok, reg, warn } = mk("flows", { emits: ["flow:run", "custom:thing"] });
+    expect(ok).toBe(false);
+    expect(reg.has("flows.run")).toBe(false);
+    const line = warn.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(line).toContain("flows");
+    expect(line).toContain("custom:thing");
+  });
+
+  it("uses the PROVIDER's manifest, not the key source: evil cannot borrow flows' emits", () => {
+    const { ok, reg } = mk("evil", {});
+    expect(ok).toBe(false);
+    expect(reg.has("flows.run")).toBe(false);
+  });
+
+  it("accepts a prompt action from a provider with an empty manifest", () => {
+    const { ok } = mk("empty", { buildEvent: undefined, emits: undefined, buildPrompt: noopBuild });
+    expect(ok).toBe(true);
+  });
+
+  it("rejects an event action with missing emits", () => {
+    const { ok } = mk("flows", { emits: undefined });
+    expect(ok).toBe(false);
+  });
+
+  it("a rejected action does not abort collection of the others; rejected ones are not listed", () => {
+    const warn = vi.fn();
+    const reg = collectActionRegistry(
+      [
+        { key: "automation.action.core", provider: "host", value: coreActionContributions() },
+        { key: "automation.action.flows", provider: "flows", value: [
+          { id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: be },
+          { id: "flows.bad", source: "flows", label: "Bad", emits: ["flow:run", "custom:thing"], buildEvent: be },
+        ] },
+      ],
+      { warn, providerEmits },
+    );
+    expect([...reg.ids()].sort()).toEqual(["core.prompt", "core.skill", "flows.run"]);
+    expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toContain("custom:thing");
+  });
+
+  it("collection with no providerEmits lookup fails closed for event actions", () => {
+    const reg = collectActionRegistry(
+      [{ key: "automation.action.flows", provider: "flows", value: { id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: be } }],
+      { warn: () => {} },
+    );
+    expect(reg.has("flows.run")).toBe(false);
+  });
+});
+
+describe("collection ignores entries whose provider is not the key source (SE19)", () => {
+  const prompt = (id: string) => ({ id, source: id.split(".")[0], label: id, buildPrompt: noopBuild });
+
+  it("ignores the evil entry with one warning; keeps host and matching-provider entries", () => {
+    const warn = vi.fn();
+    const reg = collectActionRegistry(
+      [
+        { key: "automation.action.flows", provider: "evil", value: prompt("flows.evilrun") },
+        { key: "automation.action.core", provider: "host", value: prompt("core.prompt") },
+        { key: "automation.action.flows", provider: "flows", value: prompt("flows.run") },
+      ],
+      { warn, providerEmits: () => [] },
+    );
+    expect([...reg.ids()].sort()).toEqual(["core.prompt", "flows.run"]);
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("evil");
+    expect(lines[0]).toContain("automation.action.flows");
+  });
+
+  it("refuses an empty source segment as malformed with a warning", () => {
+    const warn = vi.fn();
+    const reg = collectActionRegistry(
+      [
+        { key: "automation.action.", provider: "host", value: prompt("x.a") },
+        { key: "automation.action..x", provider: "host", value: prompt("x.b") },
+      ],
+      { warn, providerEmits: () => [] },
+    );
+    expect(reg.ids().size).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("an entry without a provider is ignored (fail closed)", () => {
+    const warn = vi.fn();
+    const reg = collectActionRegistry(
+      [{ key: "automation.action.flows", value: prompt("flows.run") } as any],
+      { warn, providerEmits: () => [] },
+    );
+    expect(reg.ids().size).toBe(0);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

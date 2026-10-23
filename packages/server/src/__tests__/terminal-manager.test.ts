@@ -1,4 +1,7 @@
+import { isAdmissionLive } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
+import { handleCreateTerminal, handleOpenInlineTerminal } from "../browser-handlers/terminal-handler.js";
 import { DEFAULT_MAX_EVENT_DATA_SIZE } from "../persistence/memory-event-store.js";
 import {
   capTranscript,
@@ -8,6 +11,7 @@ import {
   TerminalLimitError,
   type TerminalManager,
 } from "../terminal/terminal-manager.js";
+import { captureAdmissions, cleanupAdmissionDirs, failingRunner, tmpDir } from "./helpers/admission-test-kit.js";
 
 // Mock node-pty
 const mockPtyWrite = vi.fn();
@@ -898,5 +902,142 @@ describe("terminal bounds (global + per-owner cap, inline orphan reaper)", () =>
     expect(removed).toEqual([t.id]);
     expect(mgr.getTerminalRecord(t.id)?.transcript).toContain("bye");
     expect(mockPtyKill).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Terminal cwd admission × caps (change: harden-git-terminal-plugin-boundaries, #SE35, #SP2, #SX1) ───
+describe("terminal admission precedence and the cap", () => {
+  type Sent = { type: string; code?: string; scope?: string };
+  const KNOWN = "/c/known";
+
+  /** A requester ctx over a REAL manager (mocked pty). */
+  function requester(mgr: TerminalManager, over: { known?: string[]; admitOptions?: object; sessions?: Record<string, { cwd: string }> } = {}) {
+    const sent: Sent[] = [];
+    const ws = { id: "ws" };
+    const ctx = {
+      ws,
+      sendTo: (_to: unknown, msg: Sent) => sent.push(msg),
+      broadcast: vi.fn(),
+      broadcastEvent: vi.fn(),
+      eventStore: { insertEvent: vi.fn(() => 1), getEvent: vi.fn(), getEvents: vi.fn(() => []) },
+      sessionOrderManager: { insert: vi.fn(), getOrder: vi.fn(() => []) },
+      sessionManager: { get: (id: string) => over.sessions?.[id] },
+      terminalAdmission: { knownCwds: () => over.known ?? [KNOWN], admitOptions: over.admitOptions },
+      terminalManager: mgr,
+    } as unknown as BrowserHandlerContext;
+    return { ctx, sent };
+  }
+
+  function fill(mgr: TerminalManager, n: number): void {
+    for (let i = 0; i < n; i++) mgr.spawn(`/fill${i}`);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ptyInstances = [];
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanupAdmissionDirs();
+  });
+
+  it("SE35 standalone at the cap: admitted → terminal_limit_reached; unknown cwd → terminal_error wins", async () => {
+    const mgr = createTerminalManager({ maxConcurrent: 2 });
+    fill(mgr, 2);
+    const ok = requester(mgr);
+    await handleCreateTerminal({ type: "create_terminal", cwd: KNOWN }, ok.ctx);
+    expect(ok.sent.map((m) => m.type)).toEqual(["terminal_limit_reached"]);
+    const bad = requester(mgr);
+    await handleCreateTerminal({ type: "create_terminal", cwd: "/c/unknown" }, bad.ctx);
+    expect(bad.sent).toEqual([expect.objectContaining({ type: "terminal_error", code: "cwd_not_admitted" })]);
+    expect(mgr.list()).toHaveLength(2);
+  });
+
+  it("SE35 inline at the cap: known session → terminal_limit_reached; unknown session → terminal_error session_not_found", () => {
+    const mgr = createTerminalManager({ maxConcurrent: 2 });
+    fill(mgr, 2);
+    const r = requester(mgr, { sessions: { s1: { cwd: KNOWN } } });
+    handleOpenInlineTerminal({ type: "open_inline_terminal", sessionId: "s1", cwd: KNOWN }, r.ctx);
+    expect(r.sent.map((m) => m.type)).toEqual(["terminal_limit_reached"]);
+    const u = requester(mgr, { sessions: { s1: { cwd: KNOWN } } });
+    handleOpenInlineTerminal({ type: "open_inline_terminal", sessionId: "nope", cwd: KNOWN }, u.ctx);
+    expect(u.sent).toEqual([expect.objectContaining({ type: "terminal_error", code: "session_not_found" })]);
+    expect(mgr.list()).toHaveLength(2);
+  });
+
+  it("SP2 1000 refused/indeterminate/spawn-throws attempts at cap C-1 leak no slot and no live token", async () => {
+    const pty = await import("node-pty");
+    const spawnFn = pty.spawn as unknown as ReturnType<typeof vi.fn>;
+    const C = 5;
+    const mgr = createTerminalManager({ maxConcurrent: C });
+    fill(mgr, C - 1);
+    const undecidable = tmpDir(); // exists, not known → git derivation → failing runner → indeterminate
+    const kit = captureAdmissions();
+    try {
+      const admitOptions = { runner: failingRunner };
+      const r = requester(mgr, { admitOptions });
+      for (let i = 0; i < 1000; i++) {
+        const kind = i % 3;
+        if (kind === 0) {
+          await handleCreateTerminal({ type: "create_terminal", cwd: "/c/unknown" }, r.ctx);
+        } else if (kind === 1) {
+          await handleCreateTerminal({ type: "create_terminal", cwd: undecidable }, r.ctx);
+        } else {
+          spawnFn.mockImplementationOnce(() => { throw new Error("pty boom"); });
+          await handleCreateTerminal({ type: "create_terminal", cwd: KNOWN }, r.ctx);
+        }
+      }
+      expect(mgr.list()).toHaveLength(C - 1);
+      const codes = new Set(r.sent.map((m) => m.code));
+      expect(codes).toEqual(new Set(["cwd_not_admitted", "cwd_admission_unavailable"]));
+      const final = requester(mgr, { admitOptions });
+      await handleCreateTerminal({ type: "create_terminal", cwd: KNOWN }, final.ctx);
+      expect(final.sent).toEqual([]);
+      expect(mgr.list()).toHaveLength(C);
+      expect(kit.tokens.length).toBeGreaterThan(0);
+      expect(kit.tokens.every((t) => !isAdmissionLive(t))).toBe(true);
+    } finally {
+      kit.restore();
+    }
+  }, 30_000);
+
+  /** A realpath whose FIRST call per path (the request's own) is held until released. */
+  function heldRealpath() {
+    const gates = new Map<string, () => void>();
+    const seen = new Set<string>();
+    const realpath = (p: string) => {
+      if (seen.has(p)) return Promise.resolve({ kind: "ok" as const, path: p });
+      seen.add(p);
+      return new Promise<{ kind: "ok"; path: string }>((res) => gates.set(p, () => res({ kind: "ok", path: p })));
+    };
+    return { realpath, release: (p: string) => gates.get(p)?.() };
+  }
+  const tick = () => new Promise((r) => setImmediate(r));
+
+  it.each([
+    [2, "forward", 1],
+    [2, "reverse", 1],
+    [10, "forward", 1],
+    [10, "reverse", 1],
+    [3, "forward", 2],
+  ])("SX1 %i concurrent creates, released %s, %i slot(s) below the cap → exactly that many spawn; the rest terminal_limit_reached", async (n, order, free) => {
+    const C = 6;
+    const mgr = createTerminalManager({ maxConcurrent: C });
+    fill(mgr, C - free);
+    const cwds = Array.from({ length: n }, (_, i) => `/c/req${i}`);
+    const held = heldRealpath();
+    const reqs = cwds.map(() => requester(mgr, { known: cwds, admitOptions: { realpath: held.realpath } }));
+    const pending = cwds.map((cwd, i) => handleCreateTerminal({ type: "create_terminal", cwd }, reqs[i].ctx));
+    for (const cwd of order === "forward" ? cwds : [...cwds].reverse()) {
+      held.release(cwd);
+      await tick();
+    }
+    await Promise.all(pending);
+    expect(mgr.list()).toHaveLength(C);
+    const limited = reqs.filter((r) => r.sent.some((m) => m.type === "terminal_limit_reached")).length;
+    expect(limited).toBe(n - free);
+    expect(reqs.filter((r) => r.sent.length === 0).length).toBe(free);
   });
 });

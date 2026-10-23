@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import * as sharedGit from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import {
   buildGitFixtures,
@@ -21,6 +22,8 @@ import {
   resolveMainPath,
   stashPop,
 } from "../git-worktree/git-operations.js";
+import { redactGitText } from "../git-worktree/redact-git-text.js";
+import { assertRefArg, InvalidRefError } from "../git-worktree/ref-arg.js";
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: "pipe" });
@@ -519,5 +522,220 @@ describe("classifyWorktreeRemoval — tri-state classifier (E4)", () => {
     ],
   ])("%s", (_name, roots, verdict) => {
     expect(gitOps.classifyWorktreeRemoval(roots)).toBe(verdict);
+  });
+});
+
+// ── B20: redactGitText (change: harden-git-terminal-plugin-boundaries) ──────────
+describe("redactGitText", () => {
+  const ctx = { root: "/home/u/proj", home: "/home/u" };
+  const r = (t: string) => redactGitText(t, ctx);
+  const alnum = (n: number) => "aB3".repeat(Math.ceil(n / 3)).slice(0, n);
+
+  it("SE10: relativizes repo paths, ~ for home, <path> for foreign, no sibling-prefix leak", () => {
+    expect(r("/home/u/proj/src/a.ts")).toBe("src/a.ts");
+    expect(r("/home/u/.ssh/config")).toBe("~/.ssh/config");
+    expect(r("/var/secret/x")).toBe("<path>");
+    expect(r("D:\\other\\x")).toBe("<path>");
+    expect(r("/home/u/proj-wt/x.ts")).toBe("~/proj-wt/x.ts");
+    expect(r("src/a.ts")).toBe("src/a.ts");
+    expect(r("fatal: '/home/u/proj/src/a.ts': not found")).toBe("fatal: 'src/a.ts': not found");
+  });
+
+  it("SE11: URL userinfo is removed, host/path kept", () => {
+    const out = r(
+      [
+        "https://user:tok@github.com/o/r.git",
+        "https://deploytoken@github.com/o/r.git",
+        "http://u:p@h/x",
+        "https://user:p%40ss@host/x",
+        "https://user:p@ss@host/x",
+      ].join(" and "),
+    );
+    for (const secret of ["user", "tok", "deploytoken", "p%40ss", "ss@", "u:p"]) expect(out).not.toContain(secret);
+    expect(out).toContain("github.com/o/r.git");
+    expect(out).not.toContain("<path>");
+    expect(out).toContain("host/x");
+    expect(r("https://a:b@one/x https://c:d@two/y")).toBe("https://one/x https://two/y");
+  });
+
+  it("SE12: token shapes are masked to prefix + ***", () => {
+    const cases: Array<[string, string]> = [
+      [`ghp_${alnum(36)}`, "ghp_***"],
+      [`github_pat_${alnum(82)}`, "github_pat_***"],
+      [`glpat-${alnum(20)}`, "glpat-***"],
+      [`sk-${alnum(48)}`, "sk-***"],
+    ];
+    for (const [secret, masked] of cases) {
+      expect(r(`remote said ${secret} was rejected`)).toBe(`remote said ${masked} was rejected`);
+    }
+    expect(r("sent Authorization: Bearer abc.def.ghi to host")).toBe("sent Authorization: Bearer *** to host");
+  });
+
+  it("SE13: commit SHAs survive byte-identical", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    expect(r(sha)).toBe(sha);
+    expect(r(`bad object ${sha}`)).toBe(`bad object ${sha}`);
+    expect(r(`/home/u/proj/.git/objects/01/${sha.slice(2)}`)).toBe(`.git/objects/01/${sha.slice(2)}`);
+    const sha256 = "ab".repeat(32);
+    expect(r(sha256)).toBe(sha256);
+    expect(r("abc1234")).toBe("abc1234");
+    const out = r(`${sha} ghp_${alnum(36)} ${sha256}`);
+    expect(out).toBe(`${sha} ghp_*** ${sha256}`);
+  });
+
+  it("SE36: token bounds (>=20 chars, non-word boundary before prefix)", () => {
+    for (const same of [
+      "task-1",
+      "risk-averse",
+      "sk-abc12",
+      `sk-${alnum(19)}`,
+      `xsk-${alnum(20)}`,
+      `_sk-${alnum(20)}`,
+      `ghp_${alnum(19)}`,
+    ]) {
+      expect(r(same)).toBe(same);
+    }
+    expect(r(`sk-${alnum(20)}`)).toBe("sk-***");
+    expect(r(`sk-${alnum(25)}!`)).toBe("sk-***!");
+    expect(r(`sk-${alnum(60)}`)).toBe("sk-***");
+    expect(r(`(sk-${alnum(20)}`)).toBe("(sk-***");
+    expect(r(`ghp_${alnum(20)}`)).toBe("ghp_***");
+  });
+
+  it("SE37: bare root -> '.', ssh password removed (user kept), ssh user-only and scp unchanged", () => {
+    expect(r("/home/u/proj")).toBe(".");
+    expect(r("ssh://user:pass@host/x")).toBe("ssh://user@host/x");
+    expect(r("ssh://git@host/x")).toBe("ssh://git@host/x");
+    expect(r("git@github.com:o/r.git")).toBe("git@github.com:o/r.git");
+    expect(r("ssh://git:secret@github.com/o/r.git")).toBe("ssh://git@github.com/o/r.git");
+  });
+
+  it("SE37b: hook output with no paths or secrets is byte-identical", () => {
+    const text = "husky - pre-commit hook exited with code 1 (error)\nlint: 3 problems\n\u2716 unicode ok";
+    expect(r(text)).toBe(text);
+  });
+
+  it("SX9: never throws on odd input", () => {
+    expect(redactGitText(undefined, ctx)).toBe("");
+    expect(redactGitText(null, ctx)).toBe("");
+    expect(redactGitText("", ctx)).toBe("");
+    expect(redactGitText(new Error(""), ctx)).toBe("");
+    expect(redactGitText(new Error("fatal: /home/u/x"), ctx)).toBe("fatal: ~/x");
+    expect(redactGitText("fatal: /home/u/x", ctx)).toBe("fatal: ~/x");
+    expect(redactGitText("0123456789", ctx)).toBe("0123456789");
+    expect(redactGitText(Buffer.from([0xff, 0xfe, 0x66, 0x6f]), ctx)).toEqual(expect.any(String));
+    expect(redactGitText("bad \uFFFD bytes", ctx)).toBe("bad \uFFFD bytes");
+    expect(redactGitText({ weird: true }, ctx)).toEqual(expect.any(String));
+    expect(() => redactGitText("/x", { root: undefined, home: undefined })).not.toThrow();
+  });
+
+  it("SP4: linear-time on pathological 100 KB / 1 MB inputs", () => {
+    const mk = (bytes: number, unit: string) => unit.repeat(Math.ceil(bytes / unit.length)).slice(0, bytes);
+    const units = ["https://", "/a", "Bearer ", "https://u:p@h/x /home/u/proj/a.ts Bearer abc sk-aaaaaaaaaaaaaaaaaaaaaaaa "];
+    // CPU time (user+system), not wall time: a loaded CI host can deschedule the process for tens
+    // of ms, which says nothing about the algorithm's cost.
+    const cpuMs = () => {
+      const u = process.cpuUsage();
+      return (u.user + u.system) / 1000;
+    };
+    const run = (input: string, times: number) => {
+      const t: number[] = [];
+      for (let i = 0; i < times; i++) {
+        const s = cpuMs();
+        redactGitText(input, ctx);
+        t.push(cpuMs() - s);
+      }
+      return t.sort((a, b) => a - b);
+    };
+    for (const unit of units) {
+      run(mk(100_000, unit), 5); // warm-up
+      const small = run(mk(100_000, unit), 200);
+      expect(small[Math.floor(small.length * 0.99) - 1]).toBeLessThan(10);
+      const big = run(mk(1_000_000, unit), 20);
+      const med = (a: number[]) => a[Math.floor(a.length / 2)];
+      expect(med(big)).toBeLessThanOrEqual(20 * Math.max(med(small), 0.05));
+    }
+  });
+});
+
+// ── B1r: assertRefArg + derived checkout name (change: harden-git-terminal-plugin-boundaries) ──
+describe("assertRefArg", () => {
+  it("accepts ordinary refs", () => {
+    for (const ok of ["feature/a-b", "feature/x", "origin/main", "0123456789abcdef0123456789abcdef01234567", "release/1.2.3", "a-b", "feature/--x", "a\u0085b", "a\u2028b", "a\u00e9b"]) {
+      expect(assertRefArg(ok)).toBe(ok);
+    }
+  });
+  it("refuses non-strings, empty, leading dash and C0/DEL controls", () => {
+    for (const bad of ["-x", "--orphan=x", "-", "--", "-b", "", 0, false, true, 1, {}, [], ["main"], null, undefined, "a\nb", "a\u0000b", "a\tb", "a\rb", "a\u001fb", "a\u007fb"]) {
+      expect(() => assertRefArg(bad)).toThrow(InvalidRefError);
+    }
+  });
+});
+
+describe("checkoutBranch derived local name (SE6)", () => {
+  let repo: string;
+  let calls: string[][];
+  let spies: Array<ReturnType<typeof vi.spyOn>>;
+  beforeEach(() => {
+    repo = makeRepo();
+    calls = [];
+    const real = platformExec.execFileSync;
+    const realSync = platformExec.spawnSync;
+    spies = [
+      vi.spyOn(platformExec, "execFileSync").mockImplementation(((file: any, args: any, opts: any) => {
+        if (file === "git") calls.push([...(args ?? [])]);
+        return (real as any)(file, args, opts);
+      }) as any),
+      vi.spyOn(platformExec, "spawnSync").mockImplementation(((file: any, args: any, opts: any) => {
+        if (file === "git") calls.push([...(args ?? [])]);
+        return (realSync as any)(file, args, opts);
+      }) as any),
+    ];
+  });
+  afterEach(() => {
+    for (const s of spies) s.mockRestore();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("origin/-x, origin/--orphan=x, origin/ -> InvalidRefError before any git spawn", () => {
+    for (const bad of ["origin/-x", "origin/--orphan=x", "origin/"]) {
+      expect(() => checkoutBranch(repo, bad, false)).toThrow(InvalidRefError);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("direct option-like branch refused before any git spawn", () => {
+    expect(() => checkoutBranch(repo, "--orphan=x", false)).toThrow(InvalidRefError);
+    expect(calls).toEqual([]);
+  });
+
+  it("origin/feature/a-b strips only the remote prefix: checkout -b feature/a-b origin/feature/a-b", () => {
+    const remote = mkdtempSync(join(tmpdir(), "git-ops-remote-"));
+    try {
+      git("checkout -b feature/a-b", repo);
+      writeFileSync(join(repo, "r.txt"), "d");
+      git("add .", repo);
+      git("commit -m r", repo);
+      git("checkout main", repo);
+      execSync(`git clone ${repo} ${remote}`, { stdio: "pipe" });
+      calls.length = 0;
+      const result = checkoutBranch(remote, "origin/feature/a-b", false);
+      expect(result.success).toBe(true);
+      expect(calls).toContainEqual(["checkout", "-b", "feature/a-b", "origin/feature/a-b"]);
+    } finally {
+      rmSync(remote, { recursive: true, force: true });
+    }
+  });
+
+  it("origin/main is accepted (existing local main -> plain checkout of the derived name)", () => {
+    const clone = mkdtempSync(join(tmpdir(), "git-ops-clone2-"));
+    try {
+      execSync(`git clone ${repo} ${clone}`, { stdio: "pipe" });
+      git("checkout -b side", clone);
+      const result = checkoutBranch(clone, "origin/main", false);
+      expect(result.success).toBe(true);
+    } finally {
+      rmSync(clone, { recursive: true, force: true });
+    }
   });
 });

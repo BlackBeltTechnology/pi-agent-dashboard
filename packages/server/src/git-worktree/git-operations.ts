@@ -27,6 +27,8 @@ import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.
 // are otherwise un-spyable). `pruneWorktrees` calls `self.resolveMainPath`.
 // See change: support-non-git-init-hook.
 import * as self from "./git-operations.js";
+import { redactGitText } from "./redact-git-text.js";
+import { assertRefArg, isValidRefArg } from "./ref-arg.js";
 import {
   ensureWorktreeExcludeLine,
   isOrphanWorktreePath,
@@ -325,12 +327,12 @@ export async function commitFiles(opts: {
 
   const staged = await runGitCapture(["add", "--", ...safePaths], cwd);
   if (staged.code !== 0) {
-    throw new GitCommitError("stage-failed", staged.stderr.trim() || "git add failed");
+    throw new GitCommitError("stage-failed", redactGitText(staged.stderr.trim() || "git add failed", { root: cwd }));
   }
 
   const committed = await runGitCapture(["commit", "-F", "-", "--", ...safePaths], cwd, message);
   if (committed.code !== 0) {
-    throw new GitCommitError("commit-failed", committed.stderr.trim() || "git commit failed");
+    throw new GitCommitError("commit-failed", redactGitText(committed.stderr.trim() || "git commit failed", { root: cwd }));
   }
 
   const head = await runGitCapture(["rev-parse", "HEAD"], cwd);
@@ -354,7 +356,7 @@ export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
   // Propagate a real git failure instead of masking it as "no changes". A
   // clean tree still exits 0 with empty stdout → `[]` below.
   if (statusRes.code !== 0) {
-    throw new GitCommitError("not-a-repo", statusRes.stderr.trim() || "git status failed");
+    throw new GitCommitError("not-a-repo", redactGitText(statusRes.stderr.trim() || "git status failed", { root: cwd }));
   }
 
   const files: GitChangedFile[] = [];
@@ -480,12 +482,24 @@ export interface CheckoutDirty {
   files: string[];
 }
 
-/** Checkout a branch. Returns dirty info if working tree is dirty and stash=false. */
+/**
+ * Checkout a branch. Returns dirty info if working tree is dirty and stash=false.
+ * Throws `InvalidRefError` (before ANY git process starts) when `branch`, or the local name
+ * derived from it by stripping the remote prefix, is not a safe positional git argument.
+ * See change: harden-git-terminal-plugin-boundaries (B1r).
+ */
 export function checkoutBranch(
   cwd: string,
   branch: string,
   stash: boolean
 ): CheckoutResult | CheckoutDirty {
+  assertRefArg(branch, "branch");
+  // Check if this is a remote branch that needs a local tracking branch
+  const isRemote = branch.includes("/");
+  const localName = isRemote ? branch.replace(/^[^/]+\//, "") : branch;
+  // The derived name reaches `git checkout [-b] <localName>`: validate it too (`origin/-x`, `origin/`).
+  if (isRemote) assertRefArg(localName, "local branch name");
+
   // Already on this branch?
   const headRef = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (headRef === branch) return { success: true };
@@ -502,10 +516,7 @@ export function checkoutBranch(
     stashed = true;
   }
 
-  // Check if this is a remote branch that needs a local tracking branch
-  const isRemote = branch.includes("/");
   if (isRemote) {
-    const localName = branch.replace(/^[^/]+\//, "");
     // Check if local branch exists
     const localExists = tryRun(["git", "rev-parse", "--verify", `refs/heads/${localName}`], cwd);
     if (!localExists) {
@@ -691,6 +702,8 @@ export function pruneWorktrees(
 export type AddWorktreeError =
   | "not_a_repo"
   | "cwd_invalid"
+  /** A caller-supplied ref / path is option-like or has control characters (B1r). */
+  | "invalid_ref"
   | "branch_in_use"
   | "branch_exists"
   | "path_exists"
@@ -722,6 +735,10 @@ export interface AddWorktreeFailure {
   orphanLikely?: boolean;
 }
 
+function invalidRef(what: string): { ok: false; error: "invalid_ref"; message: string } {
+  return { ok: false, error: "invalid_ref", message: `invalid ${what}` };
+}
+
 export interface AddWorktreeOptions {
   /** Cwd inside the parent repo (any worktree's path resolves to the same parent). */
   cwd: string;
@@ -750,6 +767,12 @@ export interface AddWorktreeOptions {
  */
 export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddWorktreeFailure {
   const { cwd, base, newBranch, force } = opts;
+  // B1r: every caller-supplied argument is validated before any git process starts. `path` is
+  // optional (absent → derived default); `newBranch` absent → checkout mode.
+  // See change: harden-git-terminal-plugin-boundaries.
+  if (!isValidRefArg(base)) return invalidRef("base");
+  if (newBranch !== undefined && !isValidRefArg(newBranch)) return invalidRef("newBranch");
+  if (opts.path !== undefined && opts.path !== "" && !isValidRefArg(opts.path)) return invalidRef("path");
   // Checkout mode = no newBranch. `base` is the existing branch ref to
   // check out. See change: worktree-checkout-existing-branch.
   const checkoutMode = newBranch === undefined;
@@ -780,6 +803,8 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
   // branch name (bare name triggers DWIM for remote-only refs); fork mode
   // forks from `base`.
   const checkoutCommitish = resolvedBranch;
+  // The derived local name (`origin/-x` → `-x`) reaches git as a positional argument too.
+  if (!isValidRefArg(resolvedBranch)) return invalidRef("derived branch name");
   // Derive worktree path when not supplied. Fork mode slugs the new
   // branch name; checkout mode slugs the local name of the base ref so
   // `origin/foo` lands at `.worktrees/foo`, not `.worktrees/origin-foo`.
@@ -1275,7 +1300,8 @@ export function resolveDefaultBase(
 
 /** `resolveDefaultBase` that throws `GitMissingError` instead of swallowing a missing binary. */
 function resolveDefaultBaseStrict(cwd: string, hint?: string): string | null {
-  if (hint && tryRunStrict(["git", "rev-parse", "--verify", hint], cwd)) return hint;
+  // B1r: a stored hint is untrusted (WS-supplied) — an option-like hint is ignored, never passed to git.
+  if (isValidRefArg(hint) && tryRunStrict(["git", "rev-parse", "--verify", hint], cwd)) return hint;
   for (const name of BASE_FALLBACKS) {
     if (tryRunStrict(["git", "rev-parse", "--verify", `refs/heads/${name}`], cwd)) return name;
   }
@@ -1315,8 +1341,8 @@ export function resolveRemoteBase(
 /** `resolveRemoteBase` that throws `GitMissingError` instead of swallowing a missing binary. */
 function resolveRemoteBaseStrict(cwd: string, hint?: string): string | null {
   const stripOrigin = (n: string) => n.replace(/^origin\//, "");
-  const hintBare = hint ? stripOrigin(hint) : undefined;
-  if (hintBare && tryRunStrict(["git", "rev-parse", "--verify", `refs/remotes/origin/${hintBare}`], cwd)) {
+  const hintBare = isValidRefArg(hint) ? stripOrigin(hint) : undefined;
+  if (isValidRefArg(hintBare) && tryRunStrict(["git", "rev-parse", "--verify", `refs/remotes/origin/${hintBare}`], cwd)) {
     return hintBare;
   }
   for (const name of BASE_FALLBACKS) {
@@ -1645,6 +1671,7 @@ function computeOrphanLikely(cwd: string, worktreePath: string, mainPath?: strin
 }
 
 export type OrphanCleanupError =
+  | "invalid_ref"
   | "outside_repo"
   | "not_a_directory"
   | "not_orphan"
@@ -1700,6 +1727,11 @@ export function orphanCleanup(
   const targetPath = opts.path;
   const maxFiles = opts.maxFiles ?? 20;
   const maxFileSize = opts.maxFileSize ?? 1_048_576; // 1 MB
+
+  // B1r: an option-like / control-character path is refused before anything touches git or the fs.
+  if (!isValidRefArg(targetPath)) {
+    return { ok: false, error: "invalid_ref", message: "invalid path" };
+  }
 
   // ── (i) Resolve the anchor: the RESOLVED main checkout (D6) — an orphan
   // can be cleaned from any worktree of the repo. `null` is a refusal.
@@ -1955,6 +1987,8 @@ export function addWorktreeFromPr(opts: {
   path?: string;
 }): AddWorktreeFromPrSuccess | AddWorktreeFromPrFailure {
   const { cwd, prNumber } = opts;
+  // B1r: an option-like `path` is refused before any git process starts.
+  if (opts.path !== undefined && opts.path !== "" && !isValidRefArg(opts.path)) return invalidRef("path");
   // D2: one resolution proves repo-ness and anchors the derived path. The
   // refusal happens BEFORE any fetch — an unresolvable checkout never
   // touches the network.
