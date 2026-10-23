@@ -4,8 +4,9 @@
  * It reads the plain `index.html` (never its `.gz`, mtime-cached), inserts the static host import map
  * before the first module script / modulepreload, and answers `no-cache`.
  *
- * `nonce` is optional: set it once the baseline CSP adopts per-response script nonces, so the
- * inline map keeps working under a tightened `script-src` (BCSP). Today's baseline allows inline.
+ * `nonce` is optional: `server.ts` passes the per-response `cspNonceFor(reply)` so the inline map runs
+ * under the strict policy's `script-src 'self' 'nonce-…'` (the CSP onSend hook reads the same memoized
+ * nonce). Omitted → no `nonce` attribute (CSP off, tests). See change: harden-cors-and-csp-reporting (D9).
  *
  * It also inserts `<meta name="pi-trusted-types" content="<mode>">` (the resolved
  * `PI_DASHBOARD_TRUSTED_TYPES` mode) so the client's `default` policy knows whether to

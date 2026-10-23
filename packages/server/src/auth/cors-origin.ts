@@ -44,13 +44,14 @@ export interface CorsOriginOptions {
   /**
    * Allow ANY `*.share.zrok.io` / `*.shares.zrok.io` host (branch 5).
    *
-   * `true` (default) for CORS readability, where the allowance shipped and is
-   * load-bearing for tunnel-URL rotation. `false` for ADMISSION (WS upgrade,
-   * mutating REST): zrok shares are free and self-service, so a stranger share
-   * is very likely same-site to the victim's tunnel and the wildcard would let
-   * it defeat even the OAuth'd gate. Tunnels the dashboard itself runs are live
-   * tunnel origins (branch 4/4b) and stay admitted.
-   * See change: fix-ws-origin-cswsh (D1 rule 2).
+   * Opt-in: only the boolean `true` enables it (`cors.allowZrokWildcard`,
+   * default `false`). Zrok shares are free and self-service, so a stranger
+   * share is very likely same-site to the victim's tunnel; the wildcard would
+   * let it read responses (CORS) and, for admission (WS upgrade, mutating
+   * REST), defeat even the OAuth'd gate — admission therefore ALWAYS forces it
+   * off. Tunnels the dashboard itself runs are live tunnel origins (branch
+   * 4/4b) and stay allowed with the wildcard off.
+   * See change: fix-ws-origin-cswsh (D1 rule 2), harden-cors-and-csp-reporting (B19).
    */
   allowZrokWildcard?: boolean;
   /** Top-level `allowedHosts` (live) — host-admission only. */
@@ -69,6 +70,41 @@ export interface CorsOriginOptions {
    * See change: add-host-allowlist-admission.
    */
   hostGateMode?: "report" | "enforce";
+}
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: detecting them is the point.
+const HAS_CONTROL = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Canonical form of an origin or URL for tunnel comparison: lowercase scheme
+ * and host, default port elided, ONE trailing hostname dot stripped, path /
+ * query dropped. `null` for anything that is not a well-formed http(s) origin
+ * (padding, control characters, bad port, other schemes).
+ *
+ * A trailing-dot origin equals its dotless form, matching host admission.
+ * See change: harden-cors-and-csp-reporting (R2).
+ */
+export function canonicalOrigin(raw: string): string | null {
+  if (typeof raw !== "string" || raw !== raw.trim() || HAS_CONTROL.test(raw)) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    const host = u.hostname.endsWith(".") ? u.hostname.slice(0, -1) : u.hostname;
+    if (host === "") return null;
+    return `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Run a dynamic getter; a throwing getter means "nothing live", never a 500. */
+function safely<T>(read: (() => T) | undefined, fallback: T): T {
+  if (!read) return fallback;
+  try {
+    return read() ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /**
@@ -111,7 +147,8 @@ export interface CorsAllowance {
  *  3. Loopback host (any port) → allow.
  *  4. Active zrok tunnel URL → allow.
  *  4b. Any CURRENTLY connected tunnel origin (any provider) → allow.
- *  5. Any `*.share.zrok.io` / `*.shares.zrok.io` (zrok v2) host → allow.
+ *  5. Any `*.share.zrok.io` / `*.shares.zrok.io` (zrok v2) host → allow, ONLY
+ *     when `allowZrokWildcard === true` (opt-in, default off).
  *  6. Neutral static PWA shell `https://pi-dashboard.dev` → allow.
  *  7. Explicitly configured origin → allow.
  *  8. Origin host matches a trusted network (CIDR / wildcard / exact) → allow.
@@ -130,6 +167,9 @@ export function classifyCorsOrigin(
   // 2. Opaque-origin document. Never echo an ACAO for it, so an embedded
   //    untrusted app cannot call dashboard APIs even cross-origin.
   if (origin === "null") return { allowed: false, revocable: false, kind: "opaque" };
+  // Padding / control characters are never sent by a browser; `new URL()`
+  // silently strips them, so do not normalize them into a trusted value.
+  if (origin !== origin.trim() || HAS_CONTROL.test(origin)) return { allowed: false, revocable: false, kind: "denied" };
   try {
     const u = new URL(origin);
     const host = u.hostname;
@@ -137,26 +177,25 @@ export function classifyCorsOrigin(
     if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1") {
       return allow("loopback");
     }
+    // Tunnel branches compare CANONICAL origins (case, default port, one
+    // trailing dot, path), so the recorded URL and the browser's Origin agree.
+    const requestOrigin = canonicalOrigin(origin);
     // 4. Active zrok tunnel URL (dynamic — rotation without restart).
-    const tunnelUrl = opts.getTunnelUrl?.() ?? null;
-    if (tunnelUrl && origin === tunnelUrl) return allow("active-tunnel");
-    // 4b. Any live tunnel's origin, for every provider. Compared as ORIGINS,
-    //     not as URLs: a provider reports `https://host/path`, and a browser
-    //     sends `https://host`, so a string equality against the raw URL would
-    //     silently never match for any provider that carries a path.
-    for (const raw of opts.getLiveTunnelOrigins?.() ?? []) {
-      let candidate: string;
-      try {
-        candidate = new URL(raw).origin;
-      } catch {
-        continue;
-      }
-      if (candidate === u.origin) return allow("live-tunnel");
+    const tunnelUrl = safely(opts.getTunnelUrl, null);
+    const canonicalTunnel = tunnelUrl ? canonicalOrigin(tunnelUrl) : null;
+    if (requestOrigin && canonicalTunnel && requestOrigin === canonicalTunnel) return allow("active-tunnel");
+    // 4b. Any live tunnel's origin, for every provider. Compared as canonical
+    //     ORIGINS, not URLs: a provider reports `https://host/path`, and a
+    //     browser sends `https://host`. Malformed entries are skipped.
+    for (const raw of safely(opts.getLiveTunnelOrigins, [] as string[])) {
+      const candidate = canonicalOrigin(raw);
+      if (candidate && requestOrigin && candidate === requestOrigin) return allow("live-tunnel");
     }
-    // 5. Any *.share.zrok.io (v1) or *.shares.zrok.io (v2) host.
+    // 5. Opt-in only: any *.share.zrok.io (v1) or *.shares.zrok.io (v2) host.
+    const bareHost = host.endsWith(".") ? host.slice(0, -1) : host;
     if (
-      opts.allowZrokWildcard !== false &&
-      (host.endsWith(".share.zrok.io") || host.endsWith(".shares.zrok.io"))
+      opts.allowZrokWildcard === true &&
+      (bareHost.endsWith(".share.zrok.io") || bareHost.endsWith(".shares.zrok.io"))
     ) {
       return allow("zrok-wildcard");
     }
@@ -227,7 +266,11 @@ export function isSameOriginByHost(
   try {
     const o = new URL(origin);
     const h = new URL(`${o.protocol}//${hostHeader}`);
-    if (h.host === "" || o.host !== h.host) return false;
+    if (h.host === "") return false;
+    // Canonical compare: case, default port and one trailing dot all agree.
+    const co = canonicalOrigin(origin);
+    const ch = canonicalOrigin(`${o.protocol}//${hostHeader}`);
+    if (!co || !ch || co !== ch) return false;
   } catch {
     return false;
   }

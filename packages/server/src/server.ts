@@ -94,7 +94,10 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
-import { registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
+import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
+import { registerCspReportSink } from "./auth/csp-report-sink.js";
+import { CspReportStore } from "./auth/csp-report-store.js";
+import { stateCallerFor } from "./auth/dashboard-state-caller.js";
 import { isHostAdmitted } from "./auth/host-admission.js";
 import {
   createHostGate,
@@ -108,8 +111,8 @@ import {
 import { ensureServerIdentity } from "./auth/identity.js";
 import { createLocalCredentialVerifier, hasLocalCredential, listenWithProofFloor } from "./auth/local-credential.js";
 import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
+import { createLocalProofRefusalLogger } from "./auth/local-proof-refusal-log.js";
 import { ensureLocalToken } from "./auth/local-token.js";
-import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
 import {
   createLanInterfaceProvider,
   createNetworkGuard,
@@ -122,9 +125,6 @@ import {
   setLocalProofRefusalObserver,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
-import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
-import { stateCallerFor } from "./auth/dashboard-state-caller.js";
-import { createLocalProofRefusalLogger } from "./auth/local-proof-refusal-log.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { NavIntents } from "./auth/nav-intent.js";
 import { PasskeyService } from "./auth/passkey/passkey-service.js";
@@ -137,6 +137,7 @@ import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js"
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
+import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
 import { createHostServeApp } from "./auth/serve-app-host.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { admissionTrustedNetworks, effectiveTrustMode } from "./auth/trust-mode.js";
@@ -164,6 +165,7 @@ import {
   liveAcceptLanRequests,
   liveAllowedHosts,
   liveCorsAllowedOrigins,
+  liveCorsAllowZrokWildcard,
   liveHostGateMode,
   livePreviewExposureOverride,
   livePublicBaseUrls,
@@ -213,6 +215,7 @@ import {
   readServedBundledPluginIds,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
+import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
@@ -2112,6 +2115,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // which single origin we mint OAuth URIs and set cookies for.
     // See change: add-zrok-custom-reserved-name (D4).
     getLiveTunnelOrigins: liveTunnelOrigins,
+    // Opt-in zrok wildcard for CORS READS only (B19); admission forces it off.
+    allowZrokWildcard: liveCorsAllowZrokWildcard(),
     allowedHosts: liveAllowedHosts(),
     publicBaseUrls: livePublicBaseUrls(),
     bindHost: config.host,
@@ -2720,6 +2725,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Trusted Types / CSP violation counters (authenticated, rate-limited, counters
   // only). See change: harden-client-sinks (D8).
   registerCspViolationRoutes(fastify, { networkGuard, log: { warn: (m) => fastify.log.warn(m) } });
+  // Baseline CSP report sink (`POST /__pi/csp-report/:policy`, public to the OAuth gate), its
+  // persisted counter (`~/.pi/dashboard/csp-reports.json`) and the operator reset
+  // (`POST /api/csp-reports/reset`, operate). See change: harden-cors-and-csp-reporting (D8).
+  const cspReportStore = new CspReportStore();
+  registerCspReportSink(fastify, { store: cspReportStore, networkGuard });
   // Signed navigation intents for operator-opened route-backed overlays
   // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).
   registerNavIntentRoutes(fastify, { networkGuard, intents: new NavIntents() });
@@ -3004,7 +3014,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     live: () => piTrustMirror.live,
     readSnapshot: () => piTrustMirror.readSnapshot(),
   });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3708,7 +3718,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return reply.code(404).send({ success: false, error: "not_found", message: `No API route for ${request.method} ${rawPath}` });
   };
 
-  const indexHtml = createIndexHtmlSender(clientDir, { trustedTypesMode });
+  const indexSender = createIndexHtmlSender(clientDir, { trustedTypesMode });
+  // Every HTML shell response carries a per-response nonce on its import map; `registerCsp`'s onSend hook
+  // reads the same memoized nonce for the strict policy header. Off mode emits no strict policy → no nonce.
+  // See change: harden-cors-and-csp-reporting (D9).
+  const indexHtml = {
+    sendIndexWithImportMap: (reply: FastifyReply) =>
+      indexSender.sendIndexWithImportMap(reply, cspMode === "off" ? undefined : { nonce: cspNonceFor(reply) }),
+  };
 
   if (config.dev) {
     // Dev mode: proxy to Vite dev server, fall back to production build
@@ -3737,6 +3754,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         const contentType = res.headers.get("content-type");
         if (contentType) reply.header("Content-Type", contentType);
         reply.code(res.status);
+        markViteProxied(reply); // dev response: baseline CSP only, no strict/nonce/report destination (D10)
         return reply.send(Buffer.from(await res.arrayBuffer()));
       } catch {
         vitePort = 0; // Vite stopped — re-probe next time

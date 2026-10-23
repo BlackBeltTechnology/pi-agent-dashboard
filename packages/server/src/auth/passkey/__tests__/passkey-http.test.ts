@@ -10,10 +10,11 @@ import path from "node:path";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { authorizeWsUpgrade, effectiveSessionTier, registerAuthPlugin } from "../../auth-plugin.js";
-import { verifyToken } from "../../auth.js";
-import { createRouteTierGate } from "../../route-tier-gate.js";
 import { registerUserRoutes } from "../../../routes/user-routes.js";
+import { verifyToken } from "../../auth.js";
+import { authorizeWsUpgrade, effectiveSessionTier, registerAuthPlugin } from "../../auth-plugin.js";
+import { createRouteTierGate } from "../../route-tier-gate.js";
+import { renderLoginPasskeySection } from "../passkey-pages.js";
 import { PASSKEY_PROVIDER, PasskeyService } from "../passkey-service.js";
 import { computeRpContext, type RpContext } from "../rp-context.js";
 import { UserDirectory } from "../user-directory.js";
@@ -245,23 +246,66 @@ describe("login page", () => {
     expect(res.body).toContain("temporary (ephemeral tunnel)");
   });
 
-  it("every inline page script parses (login, invite, phone)", async () => {
+  // WE20 (harden-cors-and-csp-reporting, D9): no executable inline script remains; per-request data rides a JSON island.
+  const HOSTILE = [
+    "/x</script><script>alert(1)</script>",
+    "/<!--",
+    "/a\u2028b\u2029c",
+    `/"quote'single`,
+    "/name</SCRIPT >",
+  ];
+  const scriptsOf = (html: string) => [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)].map((m) => ({ attrs: m[1]!, body: m[2]! }));
+
+  it("WE20: passkey pages carry no executable inline script or inline handlers; scripts are same-origin assets", async () => {
+    const loginSection = (ret: string) => `<html><body>${renderLoginPasskeySection(rp, ret)}</body></html>`;
     const pages = [
+      ...HOSTILE.map(loginSection),
       (await app!.inject({ method: "GET", url: "/auth/login?return=%2Fsessions" })).body,
       (await remote("GET", "/auth/invite")).body,
       (await remote("GET", "/auth/phone")).body,
     ];
-    let scripts = 0;
+    const srcs = new Set<string>();
     for (const html of pages) {
-      // Case-insensitive, attribute/whitespace tolerant; `src=` tags have no body.
-      for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script[^>]*>/gi)) {
-        if (!m[1]!.trim()) continue;
-        scripts++;
-        // Function() parses without executing: a syntax error throws here.
-        expect(() => new Function(m[1]!)).not.toThrow();
+      const scripts = scriptsOf(html);
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const { attrs, body } of scripts) {
+        if (/\bsrc\s*=/.test(attrs)) {
+          expect(body.trim()).toBe("");
+          srcs.add(/\bsrc\s*=\s*"([^"]+)"/.exec(attrs)![1]!);
+        } else {
+          expect(attrs).toMatch(/type="application\/json"/);
+        }
       }
+      expect(html).not.toMatch(/\son[a-z]+\s*=/i);
     }
-    expect(scripts).toBe(3);
+    expect(srcs.size).toBeGreaterThan(1);
+    for (const src of srcs) {
+      expect(src.startsWith("/auth/passkey/"), src).toBe(true);
+      const asset = await remote("GET", src);
+      expect(asset.statusCode, src).toBe(200);
+      expect(asset.headers["content-type"], src).toContain("application/javascript");
+      // Function() parses without executing: a syntax error throws here.
+      expect(() => new Function(asset.body), src).not.toThrow();
+    }
+  });
+
+  it("WE20: hostile per-request data round-trips through the JSON data island", () => {
+    for (const ret of HOSTILE) {
+      const html = renderLoginPasskeySection(rp, ret);
+      const islands = scriptsOf(html).filter((s) => /type="application\/json"/.test(s.attrs));
+      expect(islands).toHaveLength(1);
+      expect(islands[0]!.body).not.toMatch(/<|\u2028|\u2029/);
+      expect(JSON.parse(islands[0]!.body)).toEqual({ returnUrl: ret });
+    }
+  });
+
+  it("passkey page styles are a same-origin stylesheet, not inline", async () => {
+    const html = (await remote("GET", "/auth/invite")).body;
+    expect(html).not.toContain("<style");
+    expect(html).toContain('href="/auth/passkey/pages.css"');
+    const css = await remote("GET", "/auth/passkey/pages.css");
+    expect(css.statusCode).toBe(200);
+    expect(css.headers["content-type"]).toContain("text/css");
   });
 
   it("login ?error= is HTML-escaped (reflected XSS)", async () => {

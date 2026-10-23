@@ -526,3 +526,76 @@ describe("OAuth hook — serveApp mounts load without sign-in", () => {
     expect(lookalike.statusCode).toBe(302);
   });
 });
+
+describe("OAuth hook — the CSP report sink is public, narrowly (WE34)", () => {
+  const AUTH_SECRET = "test-secret-32-chars-long-abcdef";
+  let th: TrustModeHome;
+  let tmp: string;
+  beforeEach(() => {
+    th = useTrustModeHome();
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "auth-csp-sink-"));
+  });
+  afterEach(() => {
+    th.restore();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  async function app() {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const { registerCspReportSink } = await import("../auth/csp-report-sink.js");
+    const { CspReportStore } = await import("../auth/csp-report-store.js");
+    const a = Fastify();
+    await registerAuthPlugin(a, {
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      port: 8000,
+    });
+    registerCspReportSink(a, {
+      store: new CspReportStore({ filePath: path.join(tmp, "csp-reports.json") }),
+      networkGuard: async () => {},
+      log: () => {},
+    });
+    a.post("/__pi/other", async () => ({ reached: true }));
+    a.get("/api/config", async () => ({ reached: true }));
+    await a.ready();
+    return a;
+  }
+
+  const REMOTE = "203.0.113.5";
+  const body = JSON.stringify({ "csp-report": { "effective-directive": "script-src-elem" } });
+  const gateOf = (r: { statusCode: number; headers: Record<string, unknown> }) => `${r.statusCode} ${String(r.headers.location ?? "")}`;
+
+  it("POST on exactly the three policy paths (query ignored) is neither redirected nor refused", async () => {
+    const a = await app();
+    for (const url of ["/__pi/csp-report/baseline", "/__pi/csp-report/strict", "/__pi/csp-report/trusted-types", "/__pi/csp-report/strict?x=1"]) {
+      const res = await a.inject({ method: "POST", url, remoteAddress: REMOTE, headers: { "content-type": "application/csp-report" }, payload: body });
+      expect(res.statusCode, url).toBe(204);
+    }
+    await a.close();
+  });
+
+  it("every other shape gets the same gate response as an unrelated /__pi/ path (no prefix match)", async () => {
+    const a = await app();
+    const control = await a.inject({ method: "POST", url: "/__pi/other", remoteAddress: REMOTE, headers: { "content-type": "application/csp-report" }, payload: body });
+    expect([302, 401]).toContain(control.statusCode);
+    const rows: Array<[string, string]> = [
+      ["GET", "/__pi/csp-report/strict"],
+      ["PUT", "/__pi/csp-report/strict"],
+      ["OPTIONS", "/__pi/csp-report/strict"],
+      ["POST", "/__pi/csp-report/strict-evil"],
+      ["POST", "/__pi/csp-report/strict/extra"],
+      ["POST", "/__pi/csp-report/"],
+      ["POST", "/__pi/csp-report"],
+      ["POST", "/__PI/csp-report/strict"],
+      ["POST", "//__pi/csp-report/strict"],
+      ["POST", "/__pi/csp-report/../../api/config"],
+    ];
+    for (const [method, url] of rows) {
+      const res = await a.inject({ method: method as "GET", url, remoteAddress: REMOTE, headers: { "content-type": "application/csp-report" }, payload: method === "POST" || method === "PUT" ? body : undefined });
+      expect(gateOf(res as never), `${method} ${url}`).toBe(gateOf(control as never));
+    }
+    const api = await a.inject({ method: "GET", url: "/api/config", remoteAddress: REMOTE });
+    expect(api.statusCode).toBe(401);
+    await a.close();
+  });
+});

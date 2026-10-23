@@ -703,6 +703,65 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     rm -f "$WRAPPER_OUT"
     echo "#X4: PI_DASHBOARD_TS_LOADER=jiti is ignored — healthy, native header, one server warning, none from the wrapper"
 
+    # --- CSP report counters survive a restart (test-plan #WX3) --------------
+    # See change: harden-cors-and-csp-reporting (D8).
+    #
+    # The persisted counter (~/.pi/dashboard/csp-reports.json) is only provable
+    # on a real restart: one accepted `strict` report and one refused (oversize,
+    # so `dropped` is non-zero) are recorded, the server is restarted through
+    # POST /api/restart, and `cspReports` read from the VM loopback must carry
+    # the same counts, `dropped` and `since`. No UI assertions.
+    CSP_POST_URL="http://localhost:8000/__pi/csp-report/strict"
+    CSP_REPORT_BODY='{"csp-report":{"effective-directive":"script-src-elem","document-uri":"http://localhost:8000/"}}'
+    CSP_OVERSIZE_FILE=$(mktemp)
+    head -c 9000 /dev/zero | tr '\0' 'a' > "$CSP_OVERSIZE_FILE"
+    CSP_ACCEPT_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$CSP_POST_URL" -H "content-type: application/csp-report" --data-binary "$CSP_REPORT_BODY" || echo "000")
+    if [ "$CSP_ACCEPT_CODE" != "204" ]; then
+      echo "FAIL (#WX3): a strict CSP report was answered $CSP_ACCEPT_CODE, expected 204"
+      rm -f "$CSP_OVERSIZE_FILE"
+      exit 1
+    fi
+    CSP_REFUSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$CSP_POST_URL" -H "content-type: application/csp-report" --data-binary "@$CSP_OVERSIZE_FILE" || echo "000")
+    rm -f "$CSP_OVERSIZE_FILE"
+    if [ "$CSP_REFUSE_CODE" != "413" ]; then
+      echo "FAIL (#WX3): an oversize CSP report was answered $CSP_REFUSE_CODE, expected 413"
+      exit 1
+    fi
+    csp_block() {
+      curl -fsS http://localhost:8000/api/health 2>/dev/null \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}process.stdout.write(j.cspReports?JSON.stringify(j.cspReports):'MISSING')})"
+    }
+    # The counter is flushed within 5 s of a change (and on graceful shutdown).
+    sleep 6
+    CSP_BEFORE=$(csp_block)
+    CSP_CHECK=$(printf '%s' "$CSP_BEFORE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{console.log('FAIL: cspReports missing or not JSON ('+s+')');return}const n=j.counts&&j.counts.strict&&j.counts.strict['script-src-elem'];if(!(n>=1))return console.log('FAIL: strict script-src-elem count is '+n);if(!(j.dropped>=1))return console.log('FAIL: dropped is '+j.dropped);console.log('OK')})")
+    if [ "$CSP_CHECK" != "OK" ]; then
+      echo "FAIL (#WX3): pre-restart cspReports block wrong: $CSP_CHECK"
+      exit 1
+    fi
+    CSP_BEFORE_ID=$(identity)
+    pi-dashboard api POST /api/restart >/dev/null 2>&1 || true
+    sleep 6
+    waited=0
+    while [ $waited -lt 20 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    CSP_AFTER_ID=$(identity)
+    if [ "$CSP_AFTER_ID" = "$CSP_BEFORE_ID" ]; then
+      echo "FAIL (#WX3): no replacement process observed ($CSP_BEFORE_ID unchanged) — the restart did not happen"
+      exit 1
+    fi
+    CSP_AFTER=$(csp_block)
+    if [ "$CSP_AFTER" != "$CSP_BEFORE" ]; then
+      echo "FAIL (#WX3): cspReports changed across the restart:"
+      echo "  before: $CSP_BEFORE"
+      echo "  after:  $CSP_AFTER"
+      exit 1
+    fi
+    echo "#WX3: cspReports (counts, dropped, since) identical across a restart"
+
     restore_config
 
     # =========================================================================

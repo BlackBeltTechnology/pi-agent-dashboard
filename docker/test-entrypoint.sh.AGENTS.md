@@ -8,3 +8,5 @@ Runtime canary: copies `${HOST_CWD}/.pi-test-canary/plugins/*` into `~/.pi/dashb
 - `PI_E2E_SEED` block seeds `cfg.terminals.maxConcurrent` from `PI_E2E_TERMINALS_MAX_CONCURRENT` (7th node argv). See change: harden-server-capability-bounds.
 
 - `PI_E2E_SEED` block seeds `cfg.browse.confineRemote=false` unless `PI_E2E_BROWSE_CONFINEMENT=1` (8th node argv): the harness browser is a remote peer via the port mapping. See change: harden-server-capability-bounds.
+
+`PI_E2E_OAUTH_NO_BYPASS=1` seeds `auth.bypassUrls: []` (real gate) instead of `["/"]`; for `csp-report-sink-oauth.spec.ts` only. See change: harden-cors-and-csp-reporting.
