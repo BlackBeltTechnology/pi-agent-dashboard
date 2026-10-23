@@ -4544,6 +4544,34 @@ Follow-up change names. None exist yet. Create via `openspec change new <name>`.
 - Latch disarmed on narrow-booted harness or while `narrowTrust` active.
 - Deliberate-poisoning faults: `PW_E2E_HARNESS_FAULTS=1 npx playwright test tests/e2e/harness-isolation-faults.spec.ts` on FRESH harness only. Reused poisoned harness records poison as baseline.
 
+### CSP enforce + OAuth real-gate E2E lanes
+
+Default harness = `report` mode: nothing blocked. Strict-policy specs skip there. Two opt-in lanes.
+
+Enforce lane — strict CSP ENFORCED:
+```bash
+PI_E2E_SEED=1 PI_DASHBOARD_CSP=enforce docker/test-up.sh -d --build
+PW_E2E_USE_RUNNING=1 npx playwright test csp-strict-enforce
+```
+- Spec `tests/e2e/csp-strict-enforce.spec.ts`. Skips on default harness.
+- `docker/test-up.sh` passes `PI_DASHBOARD_CSP` (+ `PI_DASHBOARD_TRUSTED_TYPES`) to container via `docker/compose.test.yml`.
+- Default-lane sibling: `tests/e2e/csp-strict-report.spec.ts` (dual Report-Only, sink labels).
+- Green enforce lane = exit-gate item of follow-up `enforce-strict-csp-default`.
+
+OAuth real-gate lane — WF5, report sink public to OAuth gate:
+```bash
+PI_E2E_SEED=1 PI_E2E_OAUTH=1 PI_E2E_OAUTH_NO_BYPASS=1 docker/test-up.sh -d --build
+PW_E2E_USE_RUNNING=1 npx playwright test csp-report-sink-oauth
+```
+- Spec `tests/e2e/csp-report-sink-oauth.spec.ts`.
+- `PI_E2E_OAUTH_NO_BYPASS=1` seeds `bypassUrls:[]` → REAL gate. Plain `PI_E2E_OAUTH=1` seeds `bypassUrls:["/"]` → matches every path → exemption assertion passes vacuously.
+- Lane LOCKS Playwright host out of every other route. Run ONLY this spec there.
+- Spec skips when gate not armed for client (blanket-bypass harness or trusted source).
+- Control request: `GET /api/sessions` (gated). `/api/health` public to OAuth gate, cannot show "gated".
+- Tear down lane harness before normal runs: `docker/test-down.sh`.
+
+See change: harden-cors-and-csp-reporting.
+
 ### Bus client denial
 
 - `OffBoxError` carries `.status` + `.error`.

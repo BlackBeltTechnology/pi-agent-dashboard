@@ -119,6 +119,7 @@
     "z-layer:lint": "node scripts/z-layer-lint.mjs",
     "knip:config": "node scripts/knip-config.mjs",
     "check:plugin-boundary": "node scripts/check-plugin-boundary.mjs",
+    "check:advisory-triage": "node scripts/check-advisory-triage.mjs --xlsx",
     "build:canary": "node scripts/build-runtime-canary.mjs"
   },
   "engines": {
