@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildRowKeyToIndex,
   buildToolCallToRowIndex,
   buildTurnToFirstRowIndex,
   computeRowTextChars,
@@ -7,7 +8,10 @@ import {
   extendRangeWithSelection,
   isBurst,
   isGroup,
+  liveSelectionRowSpan,
+  mergeCopySpan,
   rangeToRowIndexSpan,
+  retainedSelectionRows,
   virtualRowKey,
 } from "../chat/chat-virtual-rows.js";
 import type { ChatMessage } from "../chat/event-reducer.js";
@@ -352,9 +356,17 @@ describe("extendRangeWithSelection (task 4.2 / 4.4)", () => {
     expect(extendRangeWithSelection([18, 19], { min: 17, max: 25 }, 100, 20)).toEqual([17, 18, 19]);
   });
 
-  it("does NOT extend past the cap (no full mount) — caller actively clears", () => {
-    // span length 151 > cap 100 → base returned untouched.
-    expect(extendRangeWithSelection([10, 11], { min: 0, max: 150 }, 100, 200)).toEqual([10, 11]);
+  it("E1: past the cap retains only the endpoint rows, never the interior (D1)", () => {
+    const base = Array.from({ length: 11 }, (_, i) => 10 + i);
+    for (const len of [99, 100]) {
+      const out = extendRangeWithSelection(base, { min: 200, max: 200 + len - 1 }, 100, 1000);
+      for (let i = 200; i < 200 + len; i++) expect(out).toContain(i);
+      expect(out).toEqual([...out].sort((a, b) => a - b));
+      expect(out.every((i) => i >= 0 && i < 1000)).toBe(true);
+    }
+    const over = extendRangeWithSelection(base, { min: 200, max: 300 }, 100, 1000); // 101 rows
+    expect(over).toEqual([...base, 200, 300]);
+    expect(over).not.toContain(250);
   });
 
   it("retains a span exactly at the cap boundary", () => {
@@ -399,5 +411,154 @@ describe("buildToolCallToRowIndex (composer dock Show)", () => {
     ]);
     expect(map.get("dup")).toBe(0);
     expect(map.size).toBe(1);
+  });
+});
+
+// --- keep-oversized-chat-selection: D4 retained union, copy span, live resolution ---
+
+const span = (min: number, max: number) => ({ min, max });
+const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+
+describe("retainedSelectionRows (D4 union rule)", () => {
+  it("E2: stale stored + live spans whose hull exceeds the cap retain only the four endpoints", () => {
+    const out = retainedSelectionRows(span(0, 60), span(50, 110), 100, 1000);
+    expect(out).toEqual([0, 50, 60, 110]);
+    expect(out.length).toBeLessThanOrEqual(Math.max(100, 4));
+  });
+
+  it("E3: a hull within the cap retains every row of the hull", () => {
+    expect(retainedSelectionRows(span(10, 40), span(10, 60), 100, 1000)).toEqual(range(10, 60));
+  });
+
+  it("uses the single available span and clamps to [0, count)", () => {
+    expect(retainedSelectionRows(null, span(3, 5), 100, 1000)).toEqual([3, 4, 5]);
+    expect(retainedSelectionRows(span(8, 30), null, 10, 20)).toEqual([8, 19]);
+    expect(retainedSelectionRows(null, null, 100, 20)).toEqual([]);
+  });
+});
+
+describe("mergeCopySpan (D2)", () => {
+  it("E4: unions the copy span and reports the copy-only rows", () => {
+    const base = range(10, 20);
+    const retained = [0, 300];
+    const { rows, copyOnly } = mergeCopySpan(base, retained, span(0, 300), 1000);
+    expect(rows).toEqual(range(0, 300));
+    const expected = new Set(range(0, 300).filter((i) => !(i >= 10 && i <= 20) && i !== 0 && i !== 300));
+    expect(copyOnly).toEqual(expected);
+  });
+
+  it("returns base unchanged and an empty copy-only set without a copy span", () => {
+    const { rows, copyOnly } = mergeCopySpan([1, 2], [5], null, 10);
+    expect(rows).toEqual([1, 2, 5]);
+    expect(copyOnly.size).toBe(0);
+  });
+});
+
+describe("liveSelectionRowSpan (D4)", () => {
+  let container: HTMLElement;
+  let rows: HTMLElement[];
+  let keyToIndex: Map<string, number>;
+
+  function setup(count = 10) {
+    container = document.createElement("div");
+    rows = Array.from({ length: count }, (_, i) => {
+      const row = document.createElement("div");
+      row.setAttribute("data-index", String(i));
+      row.setAttribute("data-row-key", `k${i}`);
+      row.textContent = `row ${i}`;
+      container.appendChild(row);
+      return row;
+    });
+    document.body.appendChild(container);
+    keyToIndex = new Map(rows.map((_, i) => [`k${i}`, i]));
+  }
+
+  function select(startNode: Node, endNode: Node) {
+    const r = document.createRange();
+    r.setStart(startNode.firstChild ?? startNode, 0);
+    const end = endNode.firstChild ?? endNode;
+    r.setEnd(end, end.textContent?.length ?? 0);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it("E5: resolves a reversed range, clamps a non-virtual tail endpoint, and null when collapsed", () => {
+    setup();
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    // Reversed: anchor in k7, focus in k2.
+    sel.setBaseAndExtent(rows[7].firstChild!, 0, rows[2].firstChild!, 0);
+    expect(liveSelectionRowSpan(container, keyToIndex, 10)).toEqual({ min: 2, max: 7 });
+
+    const tail = document.createElement("div");
+    tail.textContent = "streaming tail";
+    container.appendChild(tail);
+    select(rows[4], tail);
+    expect(liveSelectionRowSpan(container, keyToIndex, 10)).toEqual({ min: 4, max: 9 });
+
+    sel.removeAllRanges();
+    expect(liveSelectionRowSpan(container, keyToIndex, 10)).toBeNull();
+    sel.setBaseAndExtent(rows[3].firstChild!, 1, rows[3].firstChild!, 1);
+    expect(liveSelectionRowSpan(container, keyToIndex, 10)).toBeNull();
+  });
+
+  it("E6: resolves by row key, not by the stale pre-splice data-index", () => {
+    setup();
+    // 5 rows spliced above: k3 now lives at index 8, but the DOM still says 3.
+    keyToIndex.set("k3", 8);
+    select(rows[3], rows[3]);
+    expect(liveSelectionRowSpan(container, keyToIndex, 15)).toEqual({ min: 8, max: 8 });
+  });
+
+  it("E7: a range with both endpoints outside the container is null", () => {
+    setup();
+    const before = document.createElement("p");
+    before.textContent = "before";
+    const after = document.createElement("p");
+    after.textContent = "after";
+    document.body.insertBefore(before, container);
+    document.body.appendChild(after);
+    select(before, after);
+    expect(liveSelectionRowSpan(container, keyToIndex, 10)).toBeNull();
+  });
+
+  it("E8: a missing key falls back to the stored bound without throwing", () => {
+    setup();
+    rows[5].setAttribute("data-row-key", "kX"); // trimmed from displayRows
+    select(rows[1], rows[5]);
+    expect(liveSelectionRowSpan(container, keyToIndex, 40, span(4, 30))).toEqual({ min: 1, max: 30 });
+    select(rows[5], rows[8]);
+    expect(liveSelectionRowSpan(container, keyToIndex, 40, span(4, 30))).toEqual({ min: 4, max: 8 });
+  });
+
+  it("P3: live read + union stays under 0.2 ms per call over a 2000-entry key map", () => {
+    setup();
+    const big = new Map<string, number>(Array.from({ length: 2000 }, (_, i) => [`k${i}`, i]));
+    select(rows[1], rows[8]);
+    const base = range(0, 15);
+    const t0 = performance.now();
+    for (let i = 0; i < 1000; i++) {
+      const live = liveSelectionRowSpan(container, big, 2000);
+      mergeCopySpan(base, retainedSelectionRows(span(1, 8), live, 100, 2000), null, 2000);
+    }
+    expect((performance.now() - t0) / 1000).toBeLessThan(0.2);
+  });
+});
+
+describe("buildRowKeyToIndex", () => {
+  it("maps virtualRowKey of each display row to its index", () => {
+    const rows: BurstItem[] = [msg({ id: "a" }), burst("b1"), group("g1"), msg({ id: "z" })];
+    const map = buildRowKeyToIndex(rows);
+    expect(map.get("a")).toBe(0);
+    expect(map.get("b1")).toBe(1);
+    expect(map.get("g1")).toBe(2);
+    expect(map.get("z")).toBe(3);
+    expect(map.size).toBe(4);
   });
 });

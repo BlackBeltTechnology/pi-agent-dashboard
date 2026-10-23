@@ -39,6 +39,16 @@ import type { SelectionRowSpan } from "../lib/chat/chat-virtual-rows.js";
  * the re-render and the →false edge. Ref for out-of-render guards, state for
  * render-driven effects.
  *
+ * Retention (change: keep-oversized-chat-selection, D1/D4): the span ref is no
+ * longer the SOLE source of which rows stay mounted. `rangeExtractor` unions it
+ * with a read-only live read of the Selection (covers a late or swallowed
+ * `selectionchange`), and the signal below stays on ONE clock — only retention
+ * reads two sources. `mapRange` never clears the selection: a selection past the
+ * retained-row ceiling stays active (`isSelecting` / `isSelectingRef` stay true,
+ * so the bottom-pin and tail freeze remain suspended); only its endpoint rows
+ * are retained and copy fidelity comes from the copy handler's full-span mount.
+ * A range with BOTH endpoints outside the container is never active.
+ *
  * `mapRange` MUST be referentially stable (wrap in `useCallback`); it is a
  * listener dependency.
  */
@@ -100,10 +110,8 @@ export function useActiveChatSelection(
       const container = containerRef.current;
       const sel = typeof window !== "undefined" ? window.getSelection() : null;
       const active = !!(container && sel && selectionIntersects(container, sel));
-      // Proactive capture while the anchor row is still mounted. `mapRange` may
-      // actively clear the selection past the retained-row ceiling (returning
-      // null), which fires another selectionchange that settles the boolean to
-      // false on the next tick.
+      // Proactive capture while the anchor row is still mounted. `mapRange` only
+      // records the span; it never clears the selection, whatever its size.
       selectionSpanRef.current = active ? mapRange((sel as Selection).getRangeAt(0)) : null;
 
       // D6: publish the boolean on the SAME clock as the span, for guards that

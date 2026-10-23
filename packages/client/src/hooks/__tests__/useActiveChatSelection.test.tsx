@@ -118,6 +118,24 @@ describe("useActiveChatSelection", () => {
     expect(result.current.isSelecting).toBe(false);
   });
 
+  it("E7: a page-wide range with both endpoints outside the container never activates", async () => {
+    const { container, outside } = buildDom();
+    const after = document.createElement("p");
+    after.textContent = "after the transcript";
+    document.body.appendChild(after);
+    const ref = createRef<HTMLElement>();
+    ref.current = container;
+    const mapRange = vi.fn(passthroughSpan);
+    const { result } = renderHook(() => useActiveChatSelection(ref, mapRange));
+
+    await act(async () => selectRange(outside, after));
+    await flush();
+    expect(result.current.isSelecting).toBe(false);
+    expect(result.current.isSelectingRef.current).toBe(false);
+    expect(result.current.selectionSpanRef.current).toBeNull();
+    expect(mapRange).not.toHaveBeenCalled();
+  });
+
   it("is true for a cross-boundary selection (anchor outside, focus inside)", async () => {
     const { container, inside, outside } = buildDom();
     const ref = createRef<HTMLElement>();

@@ -24,6 +24,8 @@ export const zhCNCatalog: Record<string, string> = {
   "chat.historyGap.countMany": "{count} 条更早的消息",
   "chat.historyGap.countOne": "1 条更早的消息",
   "chat.historyGap.error": "无法加载更早的消息。",
+  "chat.copyTooLarge": "选区过大，无法一次复制。请分批复制。",
+  "chat.copyMultiTranscript": "选区跨越多个对话记录。请分别复制每个对话记录。",
   "chat.historyGap.announced": "已加载 {count} 条更早的消息",
   "chat.historyGap.load": "加载更早的",
   "chat.historyGap.notRetained": "更早的消息已不再保留",
