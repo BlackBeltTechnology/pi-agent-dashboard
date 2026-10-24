@@ -30,6 +30,8 @@ import type { ProveResult } from "@blackbelt-technology/pi-dashboard-shared/serv
 
 /** Min gap between evaluations of one (fingerprint, port). */
 const MOVE_CHALLENGE_INTERVAL_MS = 60_000;
+/** At most this many addresses of one advert are challenged per evaluation (a shared bridge address may answer as another machine). */
+const MOVE_MAX_CHALLENGES = 4;
 /** A suggestion not re-verified for this long is withdrawn. */
 const MOVE_SUGGESTION_TTL_MS = 10 * 60_000;
 
@@ -117,11 +119,11 @@ export function createKnownServerMoves(deps: KnownServerMovesDeps): KnownServerM
     }
   };
 
-  /** First advertised address that is safe and on-link to challenge. */
-  const challengeableAddress = (peer: DiscoveredServer): string | undefined => {
+  /** Advertised addresses that are safe and on-link to challenge, in advert order. */
+  const challengeableAddresses = (peer: DiscoveredServer): string[] => {
     const candidates = peer.addresses?.length ? peer.addresses : net.isIP(peer.host) ? [peer.host] : [];
     const ifaces = interfaces();
-    return candidates.find((a) => net.isIP(a) && !isSpecial(a) && isOnLink(a, ifaces));
+    return candidates.filter((a) => net.isIP(a) && !isSpecial(a) && isOnLink(a, ifaces));
   };
 
   return {
@@ -148,15 +150,24 @@ export function createKnownServerMoves(deps: KnownServerMovesDeps): KnownServerM
           drop(key, fingerprint, "stored address answers again");
           continue;
         }
-        const target = challengeableAddress(peer);
-        if (!target) {
+        const eligible = challengeableAddresses(peer);
+        if (eligible.length === 0) {
           log(
             `[known-servers] move-skipped fp=${short(fingerprint)}: no on-link address among ${(peer.addresses ?? [peer.host]).join(", ")}`,
           );
           continue;
         }
-        const proof = await deps.prove(`http://${formatHostPort(target, peer.port)}`);
-        if (!("proven" in proof) || proof.proven !== fingerprint) continue;
+        // An advertised address may reach this very machine or another one (shared virtual-bridge IPs):
+        // walk them in order and suggest only an address that itself proves the pinned identity.
+        let target: string | undefined;
+        for (const address of eligible.slice(0, MOVE_MAX_CHALLENGES)) {
+          const proof = await deps.prove(`http://${formatHostPort(address, peer.port)}`);
+          if ("proven" in proof && proof.proven === fingerprint) {
+            target = address;
+            break;
+          }
+        }
+        if (!target) continue;
         const existing = suggestions.get(key);
         suggestions.set(key, { host: normalizeHostKey(target), port: peer.port, fromHost: storedKey, verifiedAt: now() });
         if (!existing || existing.host !== normalizeHostKey(target)) {

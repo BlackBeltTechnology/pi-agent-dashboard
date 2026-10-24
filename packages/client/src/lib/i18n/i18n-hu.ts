@@ -3314,6 +3314,7 @@ export const huCatalog: Record<string, string> = {
   "remoteAccess.machine.address": "A másik gép címe",
   "remoteAccess.machine.badAddress": "Adjon meg egy címet, például 192.168.1.20:8000.",
   "remoteAccess.machine.found": "megtalálva ezen a hálózaton",
+  "remoteAccess.machine.selfAddress": "Ez a cím erre a vezérlőpultra mutat, nem egy másik gépre.",
   "remoteAccess.machine.identityChanged": "A címen lévő szerver nem az, amelyet ez a vezérlőpult ismert — az azonosítója megváltozott. Leállítva.",
   "remoteAccess.reach.failed": "A gép nem érhető el: {reason}.",
   "remoteAccess.reach.remove": "Eltávolítás az ismert szerverek közül",

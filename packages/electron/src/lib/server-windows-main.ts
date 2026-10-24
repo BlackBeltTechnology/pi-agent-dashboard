@@ -10,6 +10,7 @@
  *
  * See change: add-electron-server-windows (D1, D9, D10).
  */
+import dns from "node:dns/promises";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -113,7 +114,13 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
     const r = await proveServerIdentity(origin);
     return "proven" in r ? r.proven : undefined;
   };
-  const discovery = createServerDiscovery({ isPaired: (fp) => keyring.has(fp), proveLocal, onChange: changed });
+  // Remote mode has no local server: nothing is `self` there (`localFp()` is "none").
+  const discovery = createServerDiscovery({
+    isPaired: (fp) => keyring.has(fp),
+    proveLocal,
+    hasLocalServer: () => !!opts.getLocalOrigin(),
+    onChange: changed,
+  });
   let localFpTimer: ReturnType<typeof setTimeout> | null = null;
 
   const bounds = createBoundsStore(MANAGED_DIR);
@@ -155,6 +162,9 @@ export function startServerWindows(opts: ServerWindowsMainOptions): ServerWindow
     discovery,
     ports,
     prove: (baseUrl) => proveServerIdentity(baseUrl),
+    // Proof and use are bound to one address literal: names are resolved by the OS resolver (`.local` included).
+    lookup: async (hostname) => (await dns.lookup(hostname, { all: true })).map((a) => a.address),
+    interfaces: () => os.networkInterfaces(),
     log,
   });
 

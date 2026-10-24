@@ -4305,6 +4305,36 @@ Cross-refs:
 - docs/architecture.md → mDNS Server Discovery → Dashboard-owned names
 - packages/server/src/auth/identity.ts
 
+## Paired server shows identity changed but its key did not
+
+Symptom: Electron server window for paired machine blanks / "identity mismatch". That machine's key never changed. Or discovery lists remote machine as "local".
+
+Cause: two machines share one address. Common: macOS Virtualization bridge `192.168.64.1` on `bridge102`. Also docker, VPN, Tailscale overlaps.
+- `.local` name resolves to shared address.
+- Request reaches viewer's OWN dashboard.
+- Own dashboard proves own fingerprint → treated as foreign.
+
+Now:
+- Electron resolves http hostnames to literals (max 8). Proves each literal.
+- Bearer exchange, window origin, re-verification use literal that proved pin.
+- Proof = this machine's own fingerprint (proven against local server, never mDNS advert) → `self`. Wrong address. Skipped. Logs `candidate skipped host=… reason=self`. Never alarm.
+- Any other fingerprint → `foreign`. Real mismatch. Strict: blank window, all partition cookies removed, one notice.
+- Window re-selects on non-pin proof: blanks, clears cookies, reruns host selection, reopens at proving address. Logs `host moved`.
+- Only `self` / unreachable answers → window blank, title "not reachable". Retry every 60 s / focus / resume.
+- mDNS locality by fingerprint: advert with differing `fp` never local.
+- Server advertising skips `bridgeN|vmnet|vboxnet` interfaces (best effort).
+
+Server: adding known server whose address proves this server's own fingerprint → `409 self_address` ("That address reaches this dashboard itself, not another machine."). Backfill / move suggestions never use self address.
+
+Check `$TMPDIR/pi-dashboard-electron.log`:
+- `candidate skipped` → wrong address, ignored.
+- `foreign proof` naming real other fingerprint → mismatch genuine. Re-pair.
+- `host moved` → window reopened at proving address.
+
+Residual (not fixed): plain http. Attacker taking over address between proof and use not covered. Needs TLS key pinning.
+
+See change: harden-peer-address-identity.
+
 ## How do I run the team / identity-matrix E2E specs locally, and where do they run in CI?
 
 `playwright.config.ts` `testIgnore` excludes `tests/e2e/team/**` + `tests/e2e/identity-matrix/**`. Bare `npx playwright test` collects 0 of them. Config-owned.

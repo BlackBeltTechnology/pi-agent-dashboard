@@ -10,8 +10,10 @@ import {
   buildCandidates,
   createServerDiscovery,
   describeDiscovered,
+  expandRef,
   identityVerdict,
   isFingerprint,
+  orderByLocality,
   partitionFor,
   pickVerifiedHost,
   resolveExpectedFingerprint,
@@ -151,13 +153,13 @@ describe("buildCandidates / pickVerifiedHost (P1, P2)", () => {
   afterEach(() => vi.useRealTimers());
   const ref = (host: string, scheme: "http" | "https" = "http") => ({ scheme, host, port: 8000 });
 
-  it("orders stored https → stored http → discovered; caps discovery at 3; dedupes", () => {
+  it("orders stored https → stored http → discovered; dedupes; no hard cap (batching bounds the probing)", () => {
     const c = buildCandidates(
       [ref("s1"), ref("s2", "https")],
       [ref("d1"), ref("d2"), ref("s1"), ref("d3"), ref("d4")],
     );
-    expect(c.map((x) => x.ref.host)).toEqual(["s2", "s1", "d1", "d2", "d3"]);
-    expect(c.map((x) => x.source)).toEqual(["stored", "stored", "discovered", "discovered", "discovered"]);
+    expect(c.map((x) => x.ref.host)).toEqual(["s2", "s1", "d1", "d2", "d3", "d4"]);
+    expect(c.map((x) => x.source)).toEqual(["stored", "stored", "discovered", "discovered", "discovered", "discovered"]);
   });
 
   it("P1: 5 stalled stored + 3 discovery, 3rd proves after 300 ms ⇒ discovery host within 5 s; all started concurrently", async () => {
@@ -286,5 +288,132 @@ describe("rankRoutes(credentialed) agrees with buildCandidates (#E5)", () => {
       const discovered = [route("d1", "http", { proven: proven(3), latencyMs: 0 }), route("d2", "http", { proven: proven(4), latencyMs: 0 })];
       expect(listMarker(stored, discovered), `mask ${mask}`).toBe(electronPick(stored, discovered));
     }
+  });
+});
+
+// ── harden-peer-address-identity ──────────────────────────────────────────────
+
+const iface = (address: string, netmask: string, family: "IPv4" | "IPv6" = "IPv4", cidr?: string) =>
+  ({ address, netmask, family, internal: false, mac: "aa:bb:cc:dd:ee:01", cidr: cidr ?? null }) as never;
+
+describe("orderByLocality (#E5, #E6)", () => {
+  const ifaces = {
+    en0: [iface("192.168.16.220", "255.255.255.0")],
+    bridge102: [iface("192.168.64.1", "255.255.255.0")],
+    utun4: [iface("100.83.251.119", "255.255.255.255")],
+  };
+  it("#E5: on-link first (prefix from netmask), own addresses last, zone kept for matching only, nothing dropped", () => {
+    const out = orderByLocality(["10.9.9.9", "172.16.184.1", "192.168.64.1", "192.168.16.203", "fe80::5%en0"], ifaces);
+    expect(out).toEqual(["192.168.16.203", "10.9.9.9", "172.16.184.1", "fe80::5%en0", "192.168.64.1"]);
+    expect(out).toHaveLength(5);
+  });
+  it("#E5: the own address is last even when it is on-link", () => {
+    expect(orderByLocality(["192.168.16.220", "10.1.1.1"], ifaces)).toEqual(["10.1.1.1", "192.168.16.220"]);
+  });
+  it("#E6: IPv6 prefix comes from the interface's own mask, not a fixed /64", () => {
+    const v6 = { en1: [iface("2001:db8:0:1::5", "ffff:ffff:ffff:ff00::", "IPv6")] };
+    expect(orderByLocality(["2001:db8:1::1", "2001:db8:0:ff::1"], v6)).toEqual(["2001:db8:0:ff::1", "2001:db8:1::1"]);
+  });
+  it("#E6: cidr wins when present", () => {
+    const v6 = { en1: [iface("2001:db8:0:1::5", "ffff:ffff:ffff:ffff::", "IPv6", "2001:db8:0:1::5/56")] };
+    expect(orderByLocality(["2001:db8:1::1", "2001:db8:0:ff::1"], v6)).toEqual(["2001:db8:0:ff::1", "2001:db8:1::1"]);
+  });
+});
+
+describe("expandRef (#E3, #E4)", () => {
+  const ref = { scheme: "http" as const, host: "pi-dashboard-x-8000.local", port: 8000 };
+  const lits = (n: number) => Array.from({ length: n }, (_, i) => `10.0.0.${i + 1}`);
+  it.each([
+    [7, 7],
+    [8, 8],
+    [9, 8],
+  ])("#E3: %i literals resolve to %i candidates", async (n, expected) => {
+    expect(await expandRef(ref, async () => lits(n))).toHaveLength(expected);
+  });
+  it("#E3: duplicates and non-literals are dropped", async () => {
+    const out = await expandRef(ref, async () => ["10.0.0.1", "10.0.0.1", "not an ip"]);
+    expect(out.map((r) => r.host)).toEqual(["10.0.0.1"]);
+  });
+  it("#E4: https and IP literals are not looked up", async () => {
+    const lookup = vi.fn(async () => ["10.0.0.1"]);
+    const https = { scheme: "https" as const, host: "studio.example", port: 443 };
+    expect(await expandRef(https, lookup)).toEqual([https]);
+    const ip = { scheme: "http" as const, host: "192.168.16.203", port: 8000 };
+    expect(await expandRef(ip, lookup)).toEqual([ip]);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+  it("#X3: a rejecting lookup yields no candidates", async () => {
+    expect(await expandRef(ref, async () => Promise.reject(new Error("ENOTFOUND")))).toEqual([]);
+  });
+  it("#X2: a lookup stalling past the timeout yields no candidates", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = expandRef(ref, () => new Promise<string[]>(() => {}), 2000);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(await p).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("pickVerifiedHost batches (#E7)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const refs = (n: number) => Array.from({ length: n }, (_, i) => ({ scheme: "http" as const, host: `10.9.0.${i + 1}`, port: 8000 }));
+
+  it("13 failing literals, the proving one 14th ⇒ a second batch runs and picks it", async () => {
+    const candidates = buildCandidates([], [...refs(13), { scheme: "http", host: "192.168.16.203", port: 8000 }]);
+    const started: string[] = [];
+    const p = pickVerifiedHost(candidates, async (origin) => {
+      started.push(origin);
+      return origin.includes("192.168.16.203");
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect((await p)?.ref.host).toBe("192.168.16.203");
+    expect(started).toHaveLength(14);
+  });
+  it("only the first batch is started before it settles", async () => {
+    const candidates = buildCandidates([], refs(14));
+    const started: string[] = [];
+    const p = pickVerifiedHost(candidates, (origin) => {
+      started.push(origin);
+      return new Promise<boolean>(() => {});
+    });
+    expect(started).toHaveLength(12);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toBeNull();
+  });
+  it("stalled first batch ⇒ the second batch never starts before the deadline; null at 5 s", async () => {
+    const candidates = buildCandidates([], refs(13));
+    const p = pickVerifiedHost(candidates, () => new Promise<boolean>(() => {}));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toBeNull();
+  });
+});
+
+describe("createServerDiscovery locality (#E8)", () => {
+  const mk = (servers: DiscoveredServer[], proveLocal?: () => Promise<string | undefined>, hasLocalServer?: () => boolean) => {
+    const b = new EventEmitter() as DashboardBrowser;
+    b.servers = new Map(servers.map((s, i) => [String(i), s]));
+    b.sweep = async () => {};
+    b.stop = vi.fn();
+    return createServerDiscovery({ createBrowser: () => b, isPaired: () => false, ...(proveLocal ? { proveLocal } : {}), ...(hasLocalServer ? { hasLocalServer } : {}) });
+  };
+  it("adverts of the pinned fp are returned whatever their locality flag; this machine's own fp is excluded", async () => {
+    const L = `sha256:${b64("L")}`;
+    const d = mk([advert({ fingerprint: F, isLocal: true, instance: "f" }), advert({ fingerprint: L, instance: "l" })], async () => L);
+    await d.resolveLocalFp();
+    expect(d.advertsFor(F)).toHaveLength(1);
+    expect(d.advertsFor(L)).toHaveLength(0);
+  });
+  it("localFp(): undefined while unresolved, the fp once proven, none in remote mode", async () => {
+    const L = `sha256:${b64("L")}`;
+    const local = mk([], async () => L);
+    expect(local.localFp()).toBeUndefined();
+    await local.resolveLocalFp();
+    expect(local.localFp()).toBe(L);
+    expect(mk([]).localFp()).toBe("none");
+    expect(mk([], async () => undefined, () => false).localFp()).toBe("none");
   });
 });

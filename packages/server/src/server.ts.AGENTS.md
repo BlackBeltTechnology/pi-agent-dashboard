@@ -118,3 +118,7 @@ Plugin context wiring: `pluginServiceRegistry = createPluginServiceRegistry()` (
 Universal guard caveat: a route registered after `ready()` is refused by Fastify (never served), so a plugin hot-load that registers routes fails that plugin only; pinned by `__tests__/post-start-route-registration.test.ts`. See change: harden-git-terminal-plugin-boundaries.
 
 Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZrokWildcard: liveCorsAllowZrokWildcard()`; `indexHtml` passes `cspNonceFor(reply)` to `sendIndexWithImportMap`; `proxyToVite` calls `markViteProxied`; `readCspReports` dep to system routes. See change: harden-cors-and-csp-reporting.
+
+## harden-peer-address-identity
+
+mDNS browser gets `ownFingerprint: serverIdentity.fingerprint`; `registerKnownServersRoutes` gets `ownFingerprint`. See change: harden-peer-address-identity.

@@ -85,6 +85,8 @@ export interface KnownServersRouteDeps {
   lookup?: (host: string) => Promise<unknown>;
   fetchImpl?: typeof fetch;
   moves?: KnownServerMoves;
+  /** This server's own fingerprint: an address proving it is this dashboard itself (`self_address`), never a peer. */
+  ownFingerprint?: () => string | undefined;
   log?: (message: string) => void;
   /** Budget overrides (tests shrink them; production uses the defaults). */
   timeouts?: { challengeMs?: number; dnsMs?: number; httpMs?: number };
@@ -231,6 +233,13 @@ export function registerKnownServersRoutes(fastify: FastifyInstance, deps: Known
       const heldBefore = readList().some((e) => holdsRoute(e, candidate));
       // `fingerprint` in the body is a hint only and is never persisted unless proven.
       const proven = provedFingerprint(await prove(host, port, scheme));
+
+      // The address reaches THIS dashboard (e.g. a virtual-bridge address both machines hold): never a peer.
+      // Takes precedence over every other post-challenge outcome (incl. identity_changed); nothing is pinned.
+      if (proven && proven === deps.ownFingerprint?.()) {
+        log(`[known-servers] route refused: address reaches this dashboard itself ${routeUrl(candidate)} fp=${shortFp(proven)}`);
+        return fail(reply, 409, "self_address");
+      }
 
       return enqueueKnownServersWrite((): ApiResponse<{ updated?: boolean }> & Record<string, unknown> => {
         const list = readList();
@@ -412,6 +421,8 @@ export function registerKnownServersRoutes(fastify: FastifyInstance, deps: Known
 
   /** Pin the identity a reachable route proved on its still-unpinned entry (folding a duplicate holder into it). */
   async function backfill(route: Route, proven: string): Promise<void> {
+    // An entry whose address reaches this very server must never be pinned to this server's own identity.
+    if (proven === deps.ownFingerprint?.()) return;
     await enqueueKnownServersWrite(() => {
       const list = readList();
       const idx = list.findIndex((e) => holdsRoute(e, route));

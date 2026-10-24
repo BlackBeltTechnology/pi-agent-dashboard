@@ -519,7 +519,6 @@
     "polish-sidebar-header-controls": "ui",
     "close-residual-audit-findings": "ui",
     "harden-client-sinks": "ui",
-    "add-trusted-types-report-only": "ui",
     "composer-dock-collapse-and-file-open": "ui",
     "scope-anchor-editor-pane-controls": "ui",
     "core-file-cwd-admission": "codeql-debt",
@@ -537,7 +536,6 @@
     "ui": [
       "harden-auth-credentials",
       "add-meeting-bot-attendee",
-      "add-trusted-types-report-only",
       "close-residual-audit-findings",
       "fix-folder-card-pill-contrast",
       "bump-runtime-security-advisories"

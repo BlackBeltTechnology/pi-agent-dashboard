@@ -32,7 +32,7 @@ The dashboard server SHALL advertise itself via mDNS as `_pi-dashboard._tcp` on 
 - **THEN** the keys SHALL be no others than `version`, `pid`, `piPort`, `name` and, when an identity exists, `fp`, and no value SHALL contain a tunnel or public URL
 
 ### Requirement: mDNS service browsing
-A shared discovery module SHALL browse for `_pi-dashboard._tcp` services and return discovered servers. Each discovered server SHALL carry `host`, `port`, `piPort`, `version`, `isLocal`, `addresses`, and, when advertised, `fingerprint` and `name`. For a server on the local machine, `host` SHALL be an IP address literal of a local interface the server serves on, IPv4 preferred, so reaching it does not depend on mDNS name resolution. Every URL built from a discovered `host` SHALL bracket IPv6 literals.
+A shared discovery module SHALL browse for `_pi-dashboard._tcp` services and return discovered servers. Each discovered server SHALL carry `host`, `port`, `piPort`, `version`, `isLocal`, `addresses`, and, when advertised, `fingerprint` and `name`. For a server on the local machine, `host` SHALL be an IP address literal of a local interface the server serves on, IPv4 preferred, so reaching it does not depend on mDNS name resolution. Every URL built from a discovered `host` SHALL bracket IPv6 literals. When the browsing process supplies its own dashboard fingerprint and an advert carries a different `fp`, that advert SHALL NOT be local, whatever addresses it shares with this machine; a matching `fp` alone SHALL NOT make an advert local.
 
 #### Scenario: Discover localhost server
 - **WHEN** `discoverDashboard()` is called and a server is advertising on the local machine
@@ -59,6 +59,11 @@ A shared discovery module SHALL browse for `_pi-dashboard._tcp` services and ret
 #### Scenario: No server found within timeout
 - **WHEN** `discoverDashboard()` is called and no server is advertising
 - **THEN** it SHALL return an empty result after the specified timeout (default 2 seconds)
+
+#### Scenario: Remote server sharing a virtual-bridge address is not local
+- **GIVEN** this machine's dashboard fingerprint is L and it has interface address `192.168.64.1`
+- **WHEN** an advert with fingerprint F ≠ L lists addresses `192.168.64.1` and `192.168.16.203`
+- **THEN** the discovered server SHALL have `isLocal: false`
 
 ### Requirement: Continuous background browsing
 The discovery module SHALL support continuous browsing mode that emits events when servers appear, change, or disappear. A peer SHALL be identified by its advertised service instance, and the identifier used when a peer disappears SHALL be the same one used when it appeared. A change to an advertised peer's host, port, addresses or TXT SHALL update the existing peer rather than create a new one. The module SHALL periodically re-browse so that address changes are picked up and a peer that stops answering without announcing its departure is removed.
@@ -229,7 +234,7 @@ The server SHALL publish its service instance name, SRV target and address recor
 - **THEN** its first label SHALL contain only lowercase letters, digits and hyphens, SHALL NOT start or end with a hyphen, and SHALL be at most 63 characters
 
 ### Requirement: Advertised addresses are limited to served interfaces
-The server SHALL advertise only addresses it accepts connections on and that a peer can use without an interface zone. A server bound to one specific address SHALL advertise only that address. A server bound to a hostname SHALL advertise only the local interface addresses that hostname resolves to, and SHALL NOT advertise when it resolves to none. A server bound to all interfaces SHALL advertise its non-internal interface addresses except IPv6 link-local addresses and addresses of container or virtual bridge interfaces. When the set of addresses it would advertise changes while running, the server SHALL re-advertise with the new set.
+The server SHALL advertise only addresses it accepts connections on and that a peer can use without an interface zone. A server bound to one specific address SHALL advertise only that address. A server bound to a hostname SHALL advertise only the local interface addresses that hostname resolves to, and SHALL NOT advertise when it resolves to none. A server bound to all interfaces SHALL advertise its non-internal interface addresses except IPv6 link-local addresses and addresses of container or virtual bridge interfaces, including macOS virtual-machine bridges (`bridgeN`, `vmnet`, `vboxnet`). This exclusion is best-effort: consumers SHALL NOT rely on an advertised address being unique to the advertising machine. When the set of addresses it would advertise changes while running, the server SHALL re-advertise with the new set.
 
 #### Scenario: Specific bind advertises only that address
 - **WHEN** the server is bound to `192.168.16.31`
@@ -252,6 +257,11 @@ The server SHALL advertise only addresses it accepts connections on and that a p
 #### Scenario: Teardown withdraws the advertised records
 - **WHEN** the server shuts down
 - **THEN** the goodbye it sends SHALL cover the same records it advertised, under the dashboard-owned names
+
+#### Scenario: macOS virtual-machine bridge is not advertised
+- **GIVEN** the machine has interface `bridge102` with address `192.168.64.1`
+- **WHEN** the server is bound to `0.0.0.0`
+- **THEN** the advertised address records SHALL NOT contain `192.168.64.1`
 
 ### Requirement: Local-token holders require server counter-proof on every loopback dial
 

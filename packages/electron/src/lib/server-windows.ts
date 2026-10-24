@@ -22,7 +22,9 @@
  *
  * See change: add-electron-server-windows (D5–D8, D12, D14), group-servers-by-identity (D8).
  */
+import type { NetworkInterfaceInfo } from "node:os";
 import type { ProveFn } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
+import { classifyProof, type ProveResult } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { decideServerWindowNavigation } from "./link-handling.js";
 import {
   type ConnectingState,
@@ -35,9 +37,14 @@ import { type CodePairingSession, startCodePairing } from "./pairing-code-client
 import {
   buildCandidates,
   type Candidate,
+  expandRef,
+  HOST_SELECTION_DEADLINE_MS,
   type HostRef,
   isPlainHost,
   isValidPort,
+  LITERALS_PER_NAME_CAP,
+  type LookupFn,
+  orderByLocality,
   partitionFor,
   pickVerifiedHost,
   type ServerDiscovery,
@@ -104,7 +111,7 @@ type Handler = (...args: any[]) => void;
 export interface SessionLike {
   fetch(url: string, init: { method: string; headers?: Record<string, string>; redirect?: "manual"; signal?: AbortSignal }): Promise<Response>;
   cookies: { remove(url: string, name: string): Promise<void> };
-  clearStorageData(): Promise<void>;
+  clearStorageData(options?: { storages?: string[] }): Promise<void>;
   setPermissionRequestHandler(handler: (wc: unknown, permission: string, cb: (granted: boolean) => void) => void): void;
   setPermissionCheckHandler?(handler: (wc: unknown, permission: string) => boolean): void;
   /** Electron keeps ONE listener per event per session; `null` unsubscribes. */
@@ -173,8 +180,12 @@ export interface ServerWindowPorts {
 
 export interface ServerWindowsDeps {
   keyring: ServerKeyring;
-  discovery: Pick<ServerDiscovery, "advertsFor" | "raw" | "list">;
+  discovery: Pick<ServerDiscovery, "advertsFor" | "raw" | "list"> & Partial<Pick<ServerDiscovery, "localFp">>;
   ports: ServerWindowPorts;
+  /** Resolve an `http` hostname to address literals (proof and use are bound to one literal). Absent ⇒ names are used as they are. */
+  lookup?: LookupFn;
+  /** This machine's interfaces (`os.networkInterfaces`) — locality ordering of candidates. */
+  interfaces?: () => NodeJS.Dict<NetworkInterfaceInfo[]>;
   prove: ProveFn;
   log: (line: string) => void;
   now?: () => number;
@@ -189,8 +200,26 @@ export interface ServerWindowsDeps {
 type OpenFailure = "unreachable" | "identity_mismatch" | "needs_pairing" | "unknown_server" | "invalid";
 export type OpenResult = { ok: true; pairing?: true } | { ok: false; reason: OpenFailure };
 
-/** Why a re-verification/host probe did not accept. */
-type Probe = { kind: "ok" } | { kind: "mismatch"; proven?: string } | { kind: "unreachable" };
+/**
+ * What one identity challenge showed (`classifyProof` plus transport): `self` = this machine's own
+ * dashboard (a wrong address, never an alarm); `foreign` = any other identity (strict handling);
+ * `unverified` = a non-pin proof while the own fingerprint is still unknown (retry, like a transport failure).
+ */
+type Probe =
+  | { kind: "ok" }
+  | { kind: "self"; proven: string }
+  | { kind: "foreign"; proven?: string }
+  | { kind: "unverified" }
+  | { kind: "unreachable" };
+
+/** A `foreign` proof seen during a selection (origin + the short-form source of the report). */
+interface ForeignProof {
+  origin: string;
+  proven?: string;
+}
+
+/** Window state: `live` (verified page), `parked` (blank, timers running, recoverable), `blanked` (mismatch reported, timers stopped). */
+type WindowState = "live" | "parked" | "blanked";
 
 interface OpenWindow {
   fp: string;
@@ -204,8 +233,13 @@ interface OpenWindow {
   lastRecheckAt: number | null;
   rechecking: boolean;
   unpaired: boolean;
-  /** Identity mismatch proven: window blanked, timers stopped; a reopen replaces it. */
-  blanked: boolean;
+  state: WindowState;
+  /** A re-selection is running (re-verification triggers do not overlap). */
+  reselecting: boolean;
+  /** The partition's cookies were removed since the window stopped being verified (a failed removal is retried before anything loads). */
+  cookiesCleared: boolean;
+  /** Unsubscribe the session's `/api/*` listener (idempotent). */
+  detachApi: (() => void) | null;
   /** Last time an off-origin URL was handed to the system browser (rate limit). */
   lastExternalAt: number;
   interval: ReturnType<typeof setInterval> | null;
@@ -258,44 +292,85 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
 
   const hostText = (r: HostRef) => `${r.host}:${r.port}`;
 
+  /** The advert's other literals as pairing alternatives: plain hosts, locality order, ≤ 8, never the primary. */
+  function alternativesOf(primary: HostRef, addresses: string[]): HostRef[] {
+    const hosts = orderByLocality(addresses.filter((h) => isPlainHost(h) && h !== primary.host), deps.interfaces?.() ?? {});
+    return hosts.slice(0, LITERALS_PER_NAME_CAP).map((host) => ({ scheme: "http" as const, host, port: primary.port }));
+  }
+
   // ── host selection + probes ────────────────────────────────────────────────
 
+  const localFp = (): string | "none" | undefined => (deps.discovery.localFp ? deps.discovery.localFp() : "none");
+  const shortOr = (fp: string | undefined): string => (fp ? shortFingerprint(fp) : "invalid-signature");
+
+  /** One identity challenge at `origin`, classified against the pin and this machine's own fingerprint. */
   async function probe(origin: string, pinFp: string): Promise<Probe> {
-    const r = await deps.prove(origin).catch(() => ({ refused: "challenge failed" }) as const);
-    if ("proven" in r) return r.proven === pinFp ? { kind: "ok" } : { kind: "mismatch", proven: r.proven };
-    if ("identityFailure" in r && r.identityFailure) return { kind: "mismatch" };
-    return { kind: "unreachable" };
+    const r: ProveResult = await deps.prove(origin).catch((): ProveResult => ({ refused: "challenge failed" }));
+    if ("refused" in r && r.identityFailure !== true) return { kind: "unreachable" };
+    switch (classifyProof(r, { pin: pinFp, localFp: localFp() })) {
+      case "ok":
+        return { kind: "ok" };
+      case "self":
+        return { kind: "self", proven: "proven" in r ? r.proven : "" };
+      case "foreign":
+        return { kind: "foreign", ...("proven" in r ? { proven: r.proven } : {}) };
+      default:
+        return { kind: "unverified" };
+    }
   }
 
-  function discoveredRefs(fp: string): HostRef[] {
-    const refs: HostRef[] = [];
-    for (const adv of discovery.advertsFor(fp)) {
-      if (!isValidPort(adv.port)) continue;
-      // mDNS is unauthenticated: a host that is not a plain name/address could rewrite the URL authority.
-      for (const host of [adv.host, ...(adv.addresses ?? [])]) {
-        if (isPlainHost(host)) refs.push({ scheme: "http", host, port: adv.port });
-      }
-    }
-    return refs;
+  /** Plain, valid http refs of one advert: its host name, then its addresses. */
+  function advertRefs(adv: { host: string; port: number; addresses?: string[] }): HostRef[] {
+    if (!isValidPort(adv.port)) return [];
+    // mDNS is unauthenticated: a host that is not a plain name/address could rewrite the URL authority.
+    return [adv.host, ...(adv.addresses ?? [])].filter(isPlainHost).map((host) => ({ scheme: "http" as const, host, port: adv.port }));
   }
 
-  async function pickHost(entry: KeyringEntryView): Promise<{ host: Candidate } | { failure: "unreachable" | "identity_mismatch" }> {
-    const candidates = buildCandidates(entry.lastHosts, discoveredRefs(entry.fingerprint));
-    const mismatches: Array<{ origin: string; proven?: string }> = [];
-    const picked = await pickVerifiedHost(candidates, async (origin) => {
-      const p = await probe(origin, entry.fingerprint);
-      if (p.kind === "mismatch") mismatches.push({ origin, ...(p.proven ? { proven: p.proven } : {}) });
-      return p.kind === "ok";
-    });
-    if (picked) return { host: picked };
-    if (mismatches.length > 0) {
-      const m = mismatches[0]!;
-      log(
-        `[server-windows] identity mismatch at open fp=${shortFingerprint(entry.fingerprint)} expected=${shortFingerprint(entry.fingerprint)} proven=${m.proven ? shortFingerprint(m.proven) : "invalid-signature"} host=${m.origin}`,
-      );
-      return { failure: "identity_mismatch" };
-    }
-    return { failure: "unreachable" };
+  /** Order refs by `orderByLocality` of their hosts (stable; nothing dropped). */
+  function orderRefs(refs: HostRef[]): HostRef[] {
+    const order = orderByLocality(
+      refs.map((r) => r.host),
+      deps.interfaces?.() ?? {},
+    );
+    return refs.map((r, i) => ({ r, i, k: order.indexOf(r.host) })).sort((x, y) => x.k - y.k || x.i - y.i).map((x) => x.r);
+  }
+
+  /**
+   * Candidates for a selection: stored refs, then discovered refs (locality never filters them), every
+   * `http` hostname resolved to ≤ 8 address literals — each literal is proven separately, so the origin
+   * that is used is the origin that proved the pin.
+   */
+  async function selectionCandidates(entry: KeyringEntryView): Promise<Candidate[]> {
+    const expandOrdered = async (ref: HostRef): Promise<HostRef[]> => {
+      const out = await expandRef(ref, deps.lookup);
+      return out.length > 1 ? orderRefs(out) : out;
+    };
+    const stored = (await Promise.all(entry.lastHosts.map(expandOrdered))).flat();
+    const discovered = (await Promise.all(discovery.advertsFor(entry.fingerprint).flatMap(advertRefs).map(expandOrdered))).flat();
+    return buildCandidates(stored, orderRefs(discovered));
+  }
+
+  type PickResult = { host: Candidate; foreign: ForeignProof[] } | { failure: "unreachable" | "identity_mismatch"; foreign: ForeignProof[] };
+
+  async function pickHost(entry: KeyringEntryView): Promise<PickResult> {
+    const started = now();
+    const candidates = await selectionCandidates(entry);
+    const foreign: ForeignProof[] = [];
+    const picked = await pickVerifiedHost(
+      candidates,
+      async (origin) => {
+        const p = await probe(origin, entry.fingerprint);
+        if (p.kind === "self") log(`[server-windows] candidate skipped host=${origin} fp=${shortOr(p.proven)} reason=self`);
+        if (p.kind === "foreign") {
+          foreign.push({ origin, ...(p.proven ? { proven: p.proven } : {}) });
+          log(`[server-windows] foreign proof host=${origin} fp=${shortOr(p.proven)}`);
+        }
+        return p.kind === "ok";
+      },
+      Math.max(0, HOST_SELECTION_DEADLINE_MS - (now() - started)),
+    );
+    if (picked) return { host: picked, foreign };
+    return { failure: foreign.length > 0 ? "identity_mismatch" : "unreachable", foreign };
   }
 
   // ── credential exchange ────────────────────────────────────────────────────
@@ -337,8 +412,8 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   function focusExisting(fp: string): boolean {
     const existing = registry.get(fp);
     if (!existing || existing.win.isDestroyed()) return false;
-    if (existing.blanked) {
-      // A blanked window proved an identity mismatch: reopening must re-verify from scratch.
+    if (existing.state !== "live") {
+      // A parked or blanked window shows no verified page: reopening must re-verify from scratch.
       existing.win.close();
       return false;
     }
@@ -357,6 +432,12 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
 
     const picked = await pickHost(entry);
     if ("failure" in picked) {
+      const m = picked.foreign[0];
+      if (m) {
+        log(
+          `[server-windows] identity mismatch at open fp=${shortFingerprint(entry.fingerprint)} expected=${shortFingerprint(entry.fingerprint)} proven=${shortOr(m.proven)} host=${m.origin}`,
+        );
+      }
       return failOpen(
         entry,
         picked.failure,
@@ -378,7 +459,11 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
   async function loadVerified(entry: KeyringEntryView, bearer: string, host: Candidate, opts: { notify?: boolean }): Promise<OpenResult> {
     const fp = entry.fingerprint;
     const origin = serverOrigin(host.ref);
+    // The proving literal becomes the most recent host (a discovered address, or a literal a stored name resolved to).
     if (host.source === "discovered") keyring.heal(fp, { ...host.ref, source: "mdns" });
+    else if (!entry.lastHosts.some((h) => h.scheme === host.ref.scheme && h.host === host.ref.host && h.port === host.ref.port)) {
+      keyring.heal(fp, { ...host.ref, source: "saved" });
+    }
 
     const partition = partitionFor(fp, entry.remembered);
     const ses = ports.sessionFor(partition);
@@ -424,7 +509,10 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       lastRecheckAt: null,
       rechecking: false,
       unpaired: false,
-      blanked: false,
+      state: "live",
+      reselecting: false,
+      cookiesCleared: false,
+      detachApi: null,
       lastExternalAt: Number.NEGATIVE_INFINITY,
       interval: null,
       offResume: null,
@@ -501,6 +589,8 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       if (ow.win.isDestroyed() || registry.get(fp) !== ow) return; // a closed window never re-checks
       if (details.statusCode === 401 || details.statusCode === 403) background(recheck(ow, ses), "credential re-check");
     });
+    // The session outlives its windows: the listener must go with its window (one listener per session).
+    ow.detachApi = () => ses.webRequest.onCompleted(apiFilter, null);
 
     // Identity re-verification (D12).
     ow.interval = setInterval(() => background(reverify(ow), "re-verification"), REVERIFY_INTERVAL_MS);
@@ -520,17 +610,26 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
         /* window already gone */
       }
     });
-    win.on("closed", () => {
-      if (ow.interval) clearInterval(ow.interval);
-      ow.offResume?.();
-      // The partition session outlives the window: drop its request listener so it cannot fire later.
-      if (registry.get(fp) === ow) {
-        registry.delete(fp);
-        ses.webRequest.onCompleted(apiFilter, null);
-      }
-    });
+    win.on("closed", () => detach(ow));
 
     wc.loadURL(`${origin}/`).catch(() => {});
+  }
+
+  /** Stop a window's re-verification triggers. */
+  function stopTimers(ow: OpenWindow): void {
+    if (ow.interval) clearInterval(ow.interval);
+    ow.interval = null;
+    ow.offResume?.();
+    ow.offResume = null;
+  }
+
+  /** Stop a window's timers and unsubscribe its session listener; idempotent, never touches a newer window. */
+  function detach(ow: OpenWindow): void {
+    stopTimers(ow);
+    if (registry.get(ow.fp) === ow) {
+      registry.delete(ow.fp);
+      ow.detachApi?.();
+    }
   }
 
   function applyTitle(ow: OpenWindow): void {
@@ -540,7 +639,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
 
   /** True when this 401/403 may trigger an exchange re-run (rate limit, one at a time, window still live). */
   function takeRecheckSlot(ow: OpenWindow): boolean {
-    if (ow.rechecking || ow.unpaired || ow.blanked) return false;
+    if (ow.rechecking || ow.unpaired || ow.reselecting || ow.state !== "live") return false;
     if (ow.lastRecheckAt !== null && now() - ow.lastRecheckAt < RECHECK_MIN_INTERVAL_MS) return false;
     ow.lastRecheckAt = now();
     ow.rechecking = true;
@@ -554,9 +653,9 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       if (!bearer) return;
       // The stored credential only goes to an address that still proves the pinned identity.
       const p = await probe(ow.origin, ow.fp);
-      if (ow.win.isDestroyed() || ow.blanked) return;
-      if (p.kind === "mismatch") return blankAfterMismatch(ow, p.proven);
-      if (p.kind === "unreachable") return;
+      if (ow.win.isDestroyed() || ow.state !== "live") return;
+      if (p.kind === "self" || p.kind === "foreign") return reselect(ow, p);
+      if (p.kind !== "ok") return;
       // "ok": a tier refusal — change nothing (no reload). "transport": try again after the window.
       if ((await exchange(ses, ow.origin, bearer)) !== "refused") return;
       ow.unpaired = true;
@@ -574,30 +673,117 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     applyTitle(ow);
   }
 
-  /** Proven mismatch: the host no longer belongs to the pinned identity — blank, drop the cookie, report. */
+  /** Remove every cookie of the partition (it holds only this server's); awaited. False (logged) on failure. */
+  async function clearCookies(ow: OpenWindow): Promise<boolean> {
+    try {
+      await ow.win.webContents.session.clearStorageData({ storages: ["cookies"] });
+      ow.cookiesCleared = true;
+      return true;
+    } catch (e) {
+      log(`[server-windows] cookie removal failed fp=${shortFingerprint(ow.fp)}: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }
+
+  /** A `foreign` proof and no proving host: blank, drop the cookies, report once, stop the timers. */
   async function blankAfterMismatch(ow: OpenWindow, proven: string | undefined): Promise<void> {
-    if (ow.blanked) return;
+    if (ow.state === "blanked") return;
     // One report, then silence: a persistent impostor must not re-prompt every minute.
-    ow.blanked = true;
-    if (ow.interval) clearInterval(ow.interval);
-    ow.interval = null;
-    ow.offResume?.();
-    ow.offResume = null;
+    ow.state = "blanked";
+    stopTimers(ow);
+    ow.detachApi?.(); // it stays registered: a reopen replaces it
     log(
-      `[server-windows] identity mismatch while open fp=${shortFingerprint(ow.fp)} expected=${shortFingerprint(ow.fp)} proven=${proven ? shortFingerprint(proven) : "invalid-signature"} host=${hostText(ow.host)}`,
+      `[server-windows] identity mismatch while open fp=${shortFingerprint(ow.fp)} expected=${shortFingerprint(ow.fp)} proven=${shortOr(proven)} host=${hostText(ow.host)}`,
     );
     await ow.win.webContents.loadURL("about:blank").catch(() => {});
-    await ow.win.webContents.session.cookies.remove(`${ow.origin}/api/`, DEVICE_COOKIE).catch(() => {});
+    if (!ow.cookiesCleared) await clearCookies(ow);
     ports.notify(ow.label, `The address of ${ow.label} now answers with a different identity. The window was blanked and its credential removed.`);
   }
 
+  /** Close `ow` and open the entry again at the literal that just proved the pin (no re-resolution). */
+  async function replaceWindow(ow: OpenWindow, host: Candidate): Promise<void> {
+    const entry = keyring.get(ow.fp);
+    const bearer = keyring.bearerFor(ow.fp);
+    if (!entry || !bearer) return;
+    log(`[server-windows] host moved fp=${shortFingerprint(ow.fp)} from=${ow.origin} to=${serverOrigin(host.ref)}`);
+    detach(ow);
+    if (!ow.win.isDestroyed()) ow.win.close();
+    await loadVerified(entry, bearer, host, { notify: true });
+  }
+
+  /** Re-run host selection for a window whose host stopped proving the pin; act on the outcome (D4 step 3). */
+  async function selectAndAct(ow: OpenWindow, seen: ForeignProof[]): Promise<void> {
+    const entry = keyring.get(ow.fp);
+    if (!entry) return;
+    const picked = await pickHost(entry);
+    if (ow.win.isDestroyed() || registry.get(ow.fp) !== ow || ow.state === "blanked") return;
+    const foreign = [...seen, ...picked.foreign];
+    if ("host" in picked) return moveOrStay(ow, picked.host, foreign);
+    if (foreign.length > 0) return blankAfterMismatch(ow, foreign[0]!.proven);
+    // Only this machine (or nothing) answered: stay (blank when parked), say so, retry at the next trigger.
+    setUnreachable(ow, true);
+  }
+
+  /** A host proved the pin: keep a live window already there, otherwise replace the window. */
+  async function moveOrStay(ow: OpenWindow, host: Candidate, foreign: ForeignProof[]): Promise<void> {
+    if (serverOrigin(host.ref) === ow.origin && ow.state === "live") return setUnreachable(ow, false);
+    if (foreign.length > 0) log(`[server-windows] host moved past a foreign proof fp=${shortFingerprint(ow.fp)} host=${foreign[0]!.origin}`);
+    await replaceWindow(ow, host);
+  }
+
+  /** Log a non-pin proof at the window's own origin; the `foreign` ones are what a mismatch report rests on. */
+  function noteNonOk(ow: OpenWindow, p: { kind: "self"; proven: string } | { kind: "foreign"; proven?: string }): ForeignProof[] {
+    if (p.kind === "self") {
+      log(`[server-windows] candidate skipped host=${ow.origin} fp=${shortOr(p.proven)} reason=self`);
+      return [];
+    }
+    log(`[server-windows] foreign proof host=${ow.origin} fp=${shortOr(p.proven)}`);
+    return [{ origin: ow.origin, ...(p.proven ? { proven: p.proven } : {}) }];
+  }
+
+  /** Content of an unproven origin must not stay on screen, and its cookies must not outlive it. False ⇒ load nothing this cycle. */
+  async function parkAndClear(ow: OpenWindow): Promise<boolean> {
+    ow.state = "parked";
+    await ow.win.webContents.loadURL("about:blank").catch(() => {});
+    return !ow.win.isDestroyed() && (await clearCookies(ow));
+  }
+
+  /** The one transition behind both re-verification paths (D4): `p` is the non-ok result at the window's origin. */
+  async function reselect(ow: OpenWindow, p: Exclude<Probe, { kind: "ok" }>): Promise<void> {
+    if (ow.reselecting || ow.state === "blanked") return;
+    ow.reselecting = true;
+    try {
+      let seen: ForeignProof[] = [];
+      if (p.kind === "self" || p.kind === "foreign") {
+        seen = noteNonOk(ow, p);
+        if (!(await parkAndClear(ow))) return; // stay parked; the next trigger retries
+      } else {
+        // Transport failure (or an unverifiable proof): keep the page, flag the title.
+        setUnreachable(ow, true);
+      }
+      await selectAndAct(ow, seen);
+    } finally {
+      ow.reselecting = false;
+    }
+  }
+
   async function reverify(ow: OpenWindow): Promise<void> {
-    if (ow.win.isDestroyed() || ow.blanked) return;
+    if (ow.win.isDestroyed() || ow.state === "blanked" || ow.reselecting) return;
+    if (ow.state === "parked") {
+      // Nothing is loaded: retry a failed cookie removal first, then look for a host that proves the pin.
+      ow.reselecting = true;
+      try {
+        if (!ow.cookiesCleared && !(await clearCookies(ow))) return;
+        await selectAndAct(ow, []);
+      } finally {
+        ow.reselecting = false;
+      }
+      return;
+    }
     const p = await probe(ow.origin, ow.fp);
-    if (ow.win.isDestroyed() || ow.blanked) return;
-    // A rebooting server or a roaming laptop is not an attack: keep the page, flag the title.
-    if (p.kind !== "mismatch") return setUnreachable(ow, p.kind === "unreachable");
-    await blankAfterMismatch(ow, p.proven);
+    if (ow.win.isDestroyed() || ow.state !== "live") return;
+    if (p.kind === "ok") return setUnreachable(ow, false);
+    await reselect(ow, p);
   }
 
   // ── pairing hand-off ───────────────────────────────────────────────────────
@@ -650,6 +836,8 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       keyring,
       log,
       onState: pushState,
+      localFp,
+      ...(deps.lookup ? { lookup: deps.lookup } : {}),
       ...(deps.pairingHooks ?? {}),
     });
     session = s;
@@ -694,6 +882,7 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
       startPairingFor({
         label: entry.label,
         ref,
+        ...(advert ? { alternatives: alternativesOf(ref, advert.addresses ?? []) } : {}),
         pinnedFp: fp,
         ...(advert ? { source: "mdns" as const } : {}),
         ...(advert?.fingerprint ? { advertFp: advert.fingerprint } : {}),
@@ -708,9 +897,11 @@ export function createServerWindows(deps: ServerWindowsDeps): ServerWindows {
     if (entry.fingerprint && keyring.has(entry.fingerprint) && !keyring.get(entry.fingerprint)?.needsPairing) {
       return open(entry.fingerprint, { notify: true });
     }
+    const primary: HostRef = { scheme: "http", host: entry.host, port: entry.port };
     return startPairingFor({
       label: entry.name,
-      ref: { scheme: "http", host: entry.host, port: entry.port },
+      ref: primary,
+      alternatives: alternativesOf(primary, entry.addresses),
       source: "mdns",
       ...(entry.fingerprint && keyring.has(entry.fingerprint) ? { pinnedFp: entry.fingerprint } : {}),
       ...(entry.fingerprint ? { advertFp: entry.fingerprint } : {}),

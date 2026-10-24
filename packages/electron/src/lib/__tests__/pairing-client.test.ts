@@ -411,3 +411,66 @@ describe("delivered routes after a knock approval (#X14, #X15)", () => {
     expect(states2).not.toContain(CODE);
   });
 });
+
+// ── harden-peer-address-identity: alternatives, literal binding (#E14 #E15 #E16) ──
+
+describe("pairing alternatives and literal binding", () => {
+  const L = `sha256:${"L".repeat(43)}`;
+  const P = `sha256:${"P".repeat(43)}`;
+  const own = { scheme: "http" as const, host: "192.168.64.1", port: 8000 };
+  const real = { scheme: "http" as const, host: "192.168.16.203", port: 8000 };
+  const name = { scheme: "http" as const, host: "pi-dashboard-31f4-8000.local", port: 8000 };
+  const answers = (m: Record<string, string | "unreachable">) => async (origin: string) => {
+    const v = m[origin];
+    return !v || v === "unreachable" ? { refused: "challenge failed" } : { proven: v };
+  };
+  const requestHosts = (f: ReturnType<typeof vi.fn>) => posts(f, "/api/pair/request").map(([u]) => new URL(String(u)).hostname);
+
+  it("#E14: the address that reaches this machine is skipped; the knock and the saved host use the one that proves F", async () => {
+    const f = routeFetch();
+    const s = run(target({ advertFp: F, ref: own, alternatives: [real] }), answers({ "http://192.168.64.1:8000": L, "http://192.168.16.203:8000": F }), { localFp: () => L });
+    await settle();
+    expect(phases()).not.toContain("mismatch");
+    expect(phases()).toContain("confirm");
+    s.send("Laptop");
+    expect(await s.done).toEqual({ status: "approved", fingerprint: F });
+    expect(requestHosts(f)).toEqual(["192.168.16.203"]);
+    expect(keyring.get(F)!.lastHosts[0]).toMatchObject({ host: "192.168.16.203", port: 8000 });
+    expect(logs.some((l) => l.includes("candidate skipped") && l.includes("reason=self"))).toBe(true);
+    expect(logs.join("\n")).not.toContain(BEARER);
+  });
+
+  it("#E15: a hostname primary is resolved once; knock and every poll go to the same literal", async () => {
+    const f = routeFetch();
+    const lookup = vi.fn().mockResolvedValueOnce(["192.168.16.203"]).mockResolvedValue(["192.168.64.1"]);
+    const s = run(target({ advertFp: F, ref: name }), answers({ "http://192.168.16.203:8000": F, "http://192.168.64.1:8000": L }), { lookup, localFp: () => L });
+    await settle();
+    s.send("Laptop");
+    await s.done;
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(requestHosts(f).length).toBeGreaterThan(0);
+    const polls = posts(f, "/api/pair/poll").map(([u]) => new URL(String(u)).hostname);
+    expect(new Set([...requestHosts(f), ...polls])).toEqual(new Set(["192.168.16.203"]));
+  });
+
+  it("#E16: alternatives that are all this machine or unreachable ⇒ unreachable, no knock", async () => {
+    const f = routeFetch();
+    const s = run(target({ advertFp: F, ref: own, alternatives: [real] }), answers({ "http://192.168.64.1:8000": L }), { localFp: () => L });
+    expect(await s.done).toEqual({ status: "unreachable" });
+    expect(posts(f, "/api/pair/request")).toHaveLength(0);
+  });
+
+  it("#E16: one alternative proving another identity ⇒ mismatch, no knock", async () => {
+    const f = routeFetch();
+    const s = run(target({ advertFp: F, ref: own, alternatives: [real] }), answers({ "http://192.168.64.1:8000": L, "http://192.168.16.203:8000": P }), { localFp: () => L });
+    expect(await s.done).toEqual({ status: "mismatch" });
+    expect(posts(f, "/api/pair/request")).toHaveLength(0);
+  });
+
+  it("no alternative proves F and the own fingerprint is still unknown ⇒ unverifiable, not a mismatch", async () => {
+    const f = routeFetch();
+    const s = run(target({ advertFp: F, ref: own }), answers({ "http://192.168.64.1:8000": L }), { localFp: () => undefined });
+    expect(await s.done).toEqual({ status: "unverifiable" });
+    expect(posts(f, "/api/pair/request")).toHaveLength(0);
+  });
+});

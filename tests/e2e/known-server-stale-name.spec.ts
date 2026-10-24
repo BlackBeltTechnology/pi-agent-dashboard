@@ -21,6 +21,7 @@
  * pairing-approval-dialog.spec.ts (operator context via helpers/bridge-credential).
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { settingsSection } from "./fixtures/retro-ux/stubs.js";
 import { expect, test } from "./fixtures.js";
@@ -221,15 +222,46 @@ async function proxyToHarness(page: Page, host: string, port: number): Promise<v
   );
 }
 
+/** The harness server's own fingerprint, as its public identity challenge proves it (SHA-256 of the SPKI key). */
+async function ownFingerprint(request: import("@playwright/test").APIRequestContext): Promise<string> {
+  const res = await request.post("/api/pair/challenge", { data: { nonce: "f10-fingerprint-probe-nonce" } });
+  const publicKey = (await res.json()).data.publicKey as string;
+  return `sha256:${createHash("sha256").update(Buffer.from(publicKey, "base64url")).digest("base64url")}`;
+}
+
+/**
+ * Seed ONE pinned entry with a route per address straight into the container's config. The add API refuses an
+ * address that reaches the server's OWN dashboard (`409 self_address`, harden-peer-address-identity) and the harness
+ * has no second dashboard, so the twin entry — one identity under two addresses — is written the way a restored
+ * config would carry it. Everything the test asserts (selector row, route chips, Settings card) is browser-side.
+ */
+function seedTwinEntry(hosts: string[], fingerprint: string): void {
+  const id = execFileSync(
+    "docker",
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${harnessProject()}`, "--filter", "label=com.docker.compose.service=pi-dashboard"],
+    { encoding: "utf8", timeout: 30_000 },
+  )
+    .trim()
+    .split("\n")[0];
+  const entry = {
+    host: hosts[0],
+    port: DASHBOARD_PORT,
+    label: TWIN_LABEL,
+    addedAt: new Date().toISOString(),
+    fingerprint,
+    routes: hosts.map((host) => ({ host, port: DASHBOARD_PORT, scheme: "http", source: "saved" })),
+  };
+  const script = `const fs=require("fs");const p="/home/pi/.pi/dashboard/config.json";let c={};try{c=JSON.parse(fs.readFileSync(p,"utf8"))}catch{}c.knownServers=[...(c.knownServers||[]).filter(e=>e.fingerprint!==${JSON.stringify(fingerprint)}),${JSON.stringify(entry)}];fs.writeFileSync(p,JSON.stringify(c,null,2));`;
+  execFileSync("docker", ["exec", id!, "node", "-e", script], { timeout: 30_000 });
+}
+
 test("F10: one identity under two addresses is ONE selector row with two route chips and ONE Settings card", async ({ page, request }) => {
   const aliases = harnessAliases();
   test.skip(aliases.length < 2, "needs two names for the harness container (docker harness)");
   const headers = operatorHeaders();
+  const fingerprint = await ownFingerprint(request);
   try {
-    for (const host of aliases) {
-      const seeded = await request.post("/api/known-servers", { data: { host, port: DASHBOARD_PORT, label: TWIN_LABEL }, headers });
-      expect((await seeded.json()).success).toBe(true);
-    }
+    seedTwinEntry(aliases, fingerprint);
     await page.context().setExtraHTTPHeaders(headers);
     for (const host of aliases) await proxyToHarness(page, host, DASHBOARD_PORT);
     await gotoDashboard(page);
@@ -250,7 +282,7 @@ test("F10: one identity under two addresses is ONE selector row with two route c
     await expect(card).toHaveCount(1);
     await expect(card.getByTestId("route-row")).toHaveCount(2);
   } finally {
-    for (const host of aliases) await request.delete("/api/known-servers", { data: { host, port: DASHBOARD_PORT }, headers });
+    await request.delete("/api/known-servers", { data: { fingerprint }, headers });
   }
 });
 

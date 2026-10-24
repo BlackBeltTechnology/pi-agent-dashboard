@@ -25,6 +25,12 @@ import {
 
 const F = `sha256:${"A".repeat(43)}`;
 const G = `sha256:${"B".repeat(43)}`;
+/** This machine's own dashboard fingerprint / any other foreign fingerprint (harden-peer-address-identity). */
+const L = `sha256:${"L".repeat(43)}`;
+const P = `sha256:${"P".repeat(43)}`;
+
+/** Cross-fake event order (reset per test): clear / load / close. */
+let order: string[] = [];
 const ORIGIN = "http://192.168.16.204:8000";
 const BEARER = "B1-secret";
 
@@ -56,7 +62,14 @@ class FakeSession implements SessionLike {
   cookies = {
     remove: async (url: string, name: string) => void this.cookiesRemoved.push([url, name]),
   };
-  clearStorageData = async () => void this.cleared++;
+  clearCalls: unknown[] = [];
+  clearFails = false;
+  clearStorageData = async (o?: unknown) => {
+    if (this.clearFails) throw new Error("clear failed");
+    this.cleared++;
+    this.clearCalls.push(o);
+    order.push("clear");
+  };
   /** When set, the exchange waits for it (lets a test act while the exchange is in flight). */
   gate?: () => Promise<void>;
   fetch = async (url: string, init: any) => {
@@ -92,7 +105,10 @@ class FakeWindow implements ServerWindowLike {
       session,
       on: (e: string, fn: (...a: any[]) => void) => this.wcEv.on(e, fn),
       setWindowOpenHandler: (fn: any) => void (this.windowOpenHandler = fn),
-      loadURL: async (u: string) => void this.loaded.push(u),
+      loadURL: async (u: string) => {
+        this.loaded.push(u);
+        order.push(`load:${u}`);
+      },
       getURL: () => this.loaded.at(-1) ?? "",
       executeJavaScript: async (code: string) => void this.scripts.push(code),
     };
@@ -101,6 +117,7 @@ class FakeWindow implements ServerWindowLike {
   isDestroyed = () => this.destroyed;
   isMinimized = () => this.minimized;
   close = vi.fn(() => {
+    order.push("close");
     this.ev.emit("close");
     this.destroyed = true;
     this.ev.emit("closed");
@@ -127,6 +144,11 @@ interface Rig {
   resume: Array<() => void>;
   startPairing: ReturnType<typeof vi.fn>;
   startCodePairing: ReturnType<typeof vi.fn>;
+  /** harden-peer-address-identity controls */
+  lookup: ReturnType<typeof vi.fn>;
+  lookupTable: Map<string, string[] | Error | { delayMs: number; addrs: string[] }>;
+  ifaces: { value: Record<string, unknown[]> };
+  local: { value: string | "none" | undefined };
   codeSessions: Array<{ submitCode: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; resolve: (r: unknown) => void }>;
 }
 
@@ -162,6 +184,17 @@ function makeRig(opts: { encrypt?: boolean } = {}): Rig {
     codeSessions.push(cs);
     return { submitCode: cs.submitCode, stop: cs.stop, done };
   });
+  const lookupTable: Rig["lookupTable"] = new Map();
+  const lookup = vi.fn(async (h: string) => {
+    const v = lookupTable.get(h);
+    if (v === undefined) throw new Error("ENOTFOUND");
+    if (v instanceof Error) throw v;
+    if (Array.isArray(v)) return v;
+    await new Promise((r) => setTimeout(r, v.delayMs));
+    return v.addrs;
+  });
+  const ifaces: Rig["ifaces"] = { value: {} };
+  const local: Rig["local"] = { value: "none" };
   const ports: ServerWindowPorts = {
     createWindow: (options) => {
       const ses = sessions.get(options.webPreferences.partition) ?? new FakeSession();
@@ -196,14 +229,17 @@ function makeRig(opts: { encrypt?: boolean } = {}): Rig {
       advertsFor: (fp) => adverts.filter((a) => a.fingerprint === fp).map((a) => ({ ...a, piPort: 0, version: "1", pid: 1, isLocal: false, source: "mdns" as const })),
       raw: () => [],
       list: () => discovered,
+      localFp: () => local.value,
     },
+    lookup,
+    interfaces: () => ifaces.value as never,
     ports,
     prove,
     log: (l) => logs.push(l),
     startPairing: startPairing as never,
     startCodePairing: startCodePairing as never,
   });
-  return { keyring, sw, windows, sessions, prove, provenBy, external, notices, askNeedsPairing, connectingOpened, adverts, discovered, bounds, logs, resume, startPairing, startCodePairing, codeSessions };
+  return { keyring, sw, windows, sessions, prove, provenBy, external, notices, askNeedsPairing, connectingOpened, adverts, discovered, bounds, logs, resume, startPairing, startCodePairing, lookup, lookupTable, ifaces, local, codeSessions };
 }
 
 const pairHome = (r: Rig) =>
@@ -215,6 +251,7 @@ const win = (r: Rig) => r.windows[0]!;
 const ses = (r: Rig) => r.sessions.get(partitionOf(r))!;
 
 beforeEach(() => {
+  order = [];
   vi.useFakeTimers();
   vi.setSystemTime(0);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "sw-"));
@@ -377,13 +414,14 @@ describe("host selection and identity at open", () => {
   it("a discovered advert with a URL-significant host is never probed (audit/CodeRabbit)", async () => {
     rig.provenBy.clear();
     rig.adverts.push({ host: "attacker.example#", port: 8000, fingerprint: F, addresses: ["10.0.0.1/evil", "good.lan"] });
-    rig.provenBy.set("http://good.lan:8000", F);
+    rig.lookupTable.set("good.lan", ["10.1.2.3"]);
+    rig.provenBy.set("http://10.1.2.3:8000", F);
     const p = rig.sw.open(F);
     await vi.advanceTimersByTimeAsync(5000);
     expect(await p).toEqual({ ok: true });
     const probed = rig.prove.mock.calls.map((c) => String(c[0]));
     expect(probed.some((u) => u.includes("#") || u.includes("evil"))).toBe(false);
-    expect(win(rig).loaded).toEqual(["http://good.lan:8000/"]);
+    expect(win(rig).loaded).toEqual(["http://10.1.2.3:8000/"]);
   });
 
   it("heals a moved server: discovered host that proves F becomes most recent", async () => {
@@ -674,7 +712,8 @@ describe("identity re-verification (P3, X6, takeover)", () => {
     rig.provenBy.set(ORIGIN, G);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(win(rig).loaded.at(-1)).toBe("about:blank");
-    expect(ses(rig).cookiesRemoved).toContainEqual([`${ORIGIN}/api/`, "pi_dash_device"]);
+    // every cookie of the partition goes (not just the one for this origin), awaited
+    expect(ses(rig).clearCalls).toEqual([{ storages: ["cookies"] }]);
     const line = rig.logs.find((l) => l.includes("identity mismatch while open"))!;
     expect(line).toContain("sha256:AAAAAAAAAAAAAAAA");
     expect(line).toContain("sha256:BBBBBBBBBBBBBBBB");
@@ -891,5 +930,301 @@ describe("pairing targets record how the host was learned (#X15)", () => {
     await vi.advanceTimersByTimeAsync(5000);
     await p;
     expect(rig.keyring.get(F)!.lastHosts[0]).toMatchObject({ host: "192.168.16.77", source: "mdns" });
+  });
+});
+
+// ═══ harden-peer-address-identity ═════════════════════════════════════════════
+// Proof is bound to an address literal; a foreign proof is self | foreign; one re-selection transition.
+
+const A = ORIGIN; // http://192.168.16.204:8000 — where the window is first loaded
+const B_HOST = "192.168.16.203";
+const B = `http://${B_HOST}:8000`;
+const OWN_BRIDGE = "192.168.64.1";
+const OWN = `http://${OWN_BRIDGE}:8000`;
+const NAME = "pi-dashboard-31f4-8000.local";
+
+/** A keyring whose only stored host is `host` (a hostname the advert/stored ref uses). */
+function freshRig(host: { scheme: "http" | "https"; host: string; port: number }): Rig {
+  fs.rmSync(path.join(dir, "server-keyring.json"), { force: true });
+  const r = makeRig();
+  r.keyring.savePaired({ fingerprint: F, label: "home-imac", host, bearer: BEARER, pinnedPubkey: "PUB" });
+  r.provenBy.clear();
+  return r;
+}
+const advertAt = (r: Rig, addresses: string[], host = NAME) => r.adverts.push({ host, port: 8000, fingerprint: F, addresses });
+
+describe("proof and use are bound to one literal (#E2 #E3 #E4 #X2 #X3)", () => {
+  it("#E2: a name resolving to this machine and to the server uses only the literal that proved F", async () => {
+    rig = freshRig({ scheme: "http", host: NAME, port: 8000 });
+    rig.local.value = L;
+    rig.lookupTable.set(NAME, [OWN_BRIDGE, B_HOST]);
+    rig.provenBy.set(OWN, L);
+    rig.provenBy.set(B, F);
+    const p = rig.sw.open(F);
+    await flush();
+    expect(await p).toEqual({ ok: true });
+    const s = ses(rig);
+    expect(s.fetchCalls.map((c) => c.url)).toEqual([`${B}/api/device-session`]);
+    expect(win(rig).loaded).toEqual([`${B}/`]);
+    expect(rig.keyring.get(F)!.lastHosts[0]).toMatchObject({ host: B_HOST, port: 8000 });
+    // nothing was ever challenged or fetched at the name itself
+    expect(rig.prove.mock.calls.map((c) => String(c[0])).some((u) => u.includes(NAME))).toBe(false);
+    expect(rig.logs.some((l) => l.includes("candidate skipped") && l.includes("reason=self"))).toBe(true);
+    expect(rig.notices).toEqual([]);
+  });
+
+  it.each([7, 8, 9])("#E3: a name with %i literals is probed at %i literals at most 8", async (n) => {
+    rig = freshRig({ scheme: "http", host: NAME, port: 8000 });
+    rig.lookupTable.set(NAME, Array.from({ length: n }, (_, i) => `10.7.0.${i + 1}`));
+    const p = rig.sw.open(F);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toEqual({ ok: false, reason: "unreachable" });
+    const probed = rig.prove.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("10.7.0."));
+    expect(probed).toHaveLength(Math.min(n, 8));
+    expect(probed.some((u) => u.includes("10.7.0.9"))).toBe(false);
+  });
+
+  it("#E4: an https host keeps its name — no lookup, challenge and window use the name", async () => {
+    rig = freshRig({ scheme: "https", host: "studio.example", port: 443 });
+    rig.provenBy.set("https://studio.example:443", F);
+    const p = rig.sw.open(F);
+    await flush();
+    expect(await p).toEqual({ ok: true });
+    expect(rig.lookup).not.toHaveBeenCalled();
+    expect(ses(rig).fetchCalls[0]!.url).toBe("https://studio.example:443/api/device-session");
+    expect(win(rig).loaded).toEqual(["https://studio.example:443/"]);
+  });
+
+  it("#X2: a lookup stalling past the deadline counts as unreachable; the stored literal still opens within 5 s", async () => {
+    rig = freshRig({ scheme: "http", host: B_HOST, port: 8000 });
+    rig.keyring.savePaired({ fingerprint: F, label: "home-imac", host: { scheme: "http", host: NAME, port: 8000 }, bearer: BEARER, pinnedPubkey: "PUB" });
+    rig.lookupTable.set(NAME, { delayMs: 6000, addrs: [OWN_BRIDGE] });
+    rig.provenBy.set(B, F);
+    const p = rig.sw.open(F);
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(await p).toEqual({ ok: true });
+    expect(win(rig).loaded).toEqual([`${B}/`]);
+  });
+
+  it("#X3: a lookup that throws ⇒ unreachable, no mismatch, no exchange", async () => {
+    rig = freshRig({ scheme: "http", host: NAME, port: 8000 });
+    rig.lookupTable.set(NAME, new Error("ENOTFOUND"));
+    const p = rig.sw.open(F);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toEqual({ ok: false, reason: "unreachable" });
+    expect(rig.sessions.size === 0 || [...rig.sessions.values()].every((s) => s.fetchCalls.length === 0)).toBe(true);
+    expect(rig.logs.some((l) => l.includes("identity mismatch"))).toBe(false);
+  });
+});
+
+describe("candidates are ordered by locality, in batches (#E7 #E8)", () => {
+  it("#E7: the working address listed after 13 off-link ones opens via the second batch", async () => {
+    rig = freshRig({ scheme: "http", host: "10.255.255.1", port: 8000 });
+    const offLink = Array.from({ length: 13 }, (_, i) => `10.9.0.${i + 1}`);
+    advertAt(rig, [...offLink, B_HOST], "adv.invalid");
+    rig.provenBy.set(B, F);
+    const p = rig.sw.open(F);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toEqual({ ok: true });
+    expect(win(rig).loaded).toEqual([`${B}/`]);
+  });
+
+  it("#E7: with an interface covering it, the working address is in the first batch (probed before the off-link tail)", async () => {
+    rig = freshRig({ scheme: "http", host: "10.255.255.1", port: 8000 });
+    rig.ifaces.value = { en0: [{ address: "192.168.16.220", netmask: "255.255.255.0", family: "IPv4", internal: false, mac: "aa:bb:cc:dd:ee:01", cidr: "192.168.16.220/24" }] };
+    advertAt(rig, [...Array.from({ length: 13 }, (_, i) => `10.9.0.${i + 1}`), B_HOST], "adv.invalid");
+    rig.provenBy.set(B, F);
+    const p = rig.sw.open(F);
+    await flush();
+    expect(await p).toEqual({ ok: true });
+    const probed = rig.prove.mock.calls.map((c) => String(c[0]));
+    expect(probed).toContain(B);
+    expect(probed.some((u) => u.includes("10.9.0.13"))).toBe(false); // second batch never started
+  });
+
+  it("#E8-window: an advert flagged local still contributes its addresses (selection ignores locality)", async () => {
+    rig = freshRig({ scheme: "http", host: "10.255.255.1", port: 8000 });
+    rig.adverts.push({ host: "adv.invalid", port: 8000, fingerprint: F, addresses: [B_HOST] });
+    rig.provenBy.set(B, F);
+    const p = rig.sw.open(F);
+    await flush();
+    expect(await p).toEqual({ ok: true });
+  });
+});
+
+describe("foreign proofs: self vs foreign (#F8 #E1-window)", () => {
+  it("#F8: own fingerprint unresolved ⇒ no notice, no mismatch, retry; once resolved the next trigger classifies self", async () => {
+    await rig.sw.open(F);
+    rig.local.value = undefined;
+    rig.provenBy.set(A, L);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.notices).toEqual([]);
+    expect(rig.logs.some((l) => l.includes("identity mismatch"))).toBe(false);
+    expect(win(rig).loaded.at(-1)).toBe(`${A}/`); // the page stays: treated like a transport failure
+    rig.local.value = L;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(win(rig).loaded.at(-1)).toBe("about:blank");
+    expect(rig.notices).toEqual([]);
+    expect(rig.logs.some((l) => l.includes("reason=self"))).toBe(true);
+  });
+
+  it("an advertised impostor is still foreign: P answers, nothing proves F ⇒ mismatch at open", async () => {
+    rig = freshRig({ scheme: "http", host: B_HOST, port: 8000 });
+    rig.local.value = L;
+    rig.adverts.push({ host: "adv.invalid", port: 8000, fingerprint: P, addresses: [] }); // advert says P, pin says F
+    rig.provenBy.set(B, P);
+    const p = rig.sw.open(F, { notify: true });
+    await flush();
+    expect(await p).toEqual({ ok: false, reason: "identity_mismatch" });
+    expect(rig.logs.some((l) => l.includes("foreign proof"))).toBe(true);
+  });
+});
+
+/** A live window at A; address A now proves `now`; B proves F (advertised). */
+async function liveAtA(aNow: string | "unreachable", opts: { bProves?: string | "unreachable" } = {}): Promise<void> {
+  await rig.sw.open(F);
+  rig.local.value = L;
+  rig.adverts.push({ host: B_HOST, port: 8000, fingerprint: F, addresses: [] });
+  if (aNow === "unreachable") rig.provenBy.delete(A);
+  else rig.provenBy.set(A, aNow);
+  if ((opts.bProves ?? F) !== "unreachable") rig.provenBy.set(B, opts.bProves ?? F);
+}
+
+describe("one re-selection transition (#F1–#F7, #X1, #X4)", () => {
+  it("#F1: scheduled re-verification — blank, cookies cleared (awaited), old window closed, then B loaded; no notice", async () => {
+    await liveAtA(L);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(order.slice(order.indexOf(`load:about:blank`))).toEqual(["load:about:blank", "clear", "close", `load:${B}/`]);
+    expect(rig.windows).toHaveLength(2);
+    expect(rig.windows[0]!.loaded.at(-1)).toBe("about:blank");
+    expect(ses(rig).clearCalls).toEqual([{ storages: ["cookies"] }]);
+    expect(rig.notices).toEqual([]);
+    expect(rig.logs.some((l) => l.includes("host moved") && l.includes(A) && l.includes(B))).toBe(true);
+    expect(ses(rig).fetchCalls.at(-1)!.url).toBe(`${B}/api/device-session`);
+  });
+
+  it.each(["focus", "resume"])("#F2: the %s trigger runs the same transition", async (kind) => {
+    await liveAtA(L);
+    vi.setSystemTime(90_000); // past the focus minimum, no interval tick fires
+    if (kind === "focus") win(rig).ev.emit("focus");
+    else for (const cb of rig.resume) cb();
+    await flush();
+    await flush();
+    expect(rig.windows).toHaveLength(2);
+    expect(rig.windows[1]!.loaded).toEqual([`${B}/`]);
+    expect(rig.notices).toEqual([]);
+  });
+
+  it("#F3: credential path — a 401 re-proves identity first; foreign + no proving host ⇒ blanked, one notice, timers stopped, no bearer sent", async () => {
+    await rig.sw.open(F);
+    rig.local.value = L;
+    rig.provenBy.set(A, P);
+    const before = ses(rig).fetchCalls.length;
+    ses(rig).onCompleted?.({ statusCode: 401, url: `${A}/api/x` });
+    await flush();
+    await flush();
+    expect(ses(rig).fetchCalls.length).toBe(before); // no /api/device-session to A
+    expect(win(rig).loaded.at(-1)).toBe("about:blank");
+    expect(rig.notices).toHaveLength(1);
+    expect(rig.notices[0]![1]).toMatch(/different identity/);
+    const calls = rig.prove.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(rig.prove.mock.calls.length).toBe(calls); // timers stopped
+  });
+
+  it("#F4: transport failure keeps the page, then moves to the host that proves F", async () => {
+    await liveAtA("unreachable");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.windows[0]!.loaded).not.toContain("about:blank");
+    expect(rig.windows).toHaveLength(2);
+    expect(rig.windows[1]!.loaded).toEqual([`${B}/`]);
+  });
+
+  it("#F4: transport failure and no other host ⇒ page stays, title says not reachable, retries at the next trigger", async () => {
+    await liveAtA("unreachable", { bProves: "unreachable" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.windows).toHaveLength(1);
+    expect(win(rig).loaded).toEqual([`${A}/`]);
+    expect(win(rig).title).toContain("not reachable");
+    rig.provenBy.set(B, F);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.windows).toHaveLength(2);
+  });
+
+  it("#F5: only this machine answers ⇒ parked (blank, not reachable, no notice, timers alive); later B proves F ⇒ moved", async () => {
+    await liveAtA(L, { bProves: "unreachable" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(win(rig).loaded.at(-1)).toBe("about:blank");
+    expect(win(rig).title).toContain("not reachable");
+    expect(rig.notices).toEqual([]);
+    rig.provenBy.set(B, F);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.windows).toHaveLength(2);
+    expect(rig.windows[1]!.loaded).toEqual([`${B}/`]);
+    expect(rig.notices).toEqual([]);
+  });
+
+  it("#F6: a parked window is not focused by an open — it is replaced and re-verified from scratch", async () => {
+    await liveAtA(L, { bProves: "unreachable" });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const parked = win(rig);
+    rig.provenBy.set(B, F);
+    const p = rig.sw.open(F);
+    await flush();
+    expect(await p).toEqual({ ok: true });
+    expect(parked.focus).not.toHaveBeenCalled();
+    expect(parked.close).toHaveBeenCalled();
+    expect(rig.windows).toHaveLength(2);
+  });
+
+  it("#F7: picking the window's own origin again is a no-op — no replacement, no cookie clear, title cleared", async () => {
+    await rig.sw.open(F);
+    rig.prove.mockImplementationOnce(async () => ({ refused: "challenge failed" }));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.windows).toHaveLength(1);
+    expect(ses(rig).cleared).toBe(0);
+    expect(win(rig).loaded).toEqual([`${A}/`]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(win(rig).title).not.toContain("not reachable");
+  });
+
+  it("#X1: cookie removal fails ⇒ nothing loads this cycle, error logged, parked; the next trigger retries and moves", async () => {
+    await liveAtA(L);
+    ses(rig).clearFails = true;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.windows).toHaveLength(1);
+    expect(win(rig).loaded.at(-1)).toBe("about:blank");
+    expect(rig.logs.some((l) => l.includes("cookie removal failed"))).toBe(true);
+    ses(rig).clearFails = false;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ses(rig).cleared).toBe(1);
+    expect(rig.windows).toHaveLength(2);
+    expect(rig.windows[1]!.loaded).toEqual([`${B}/`]);
+  });
+
+  it("#X4: the exchange at the new host is refused ⇒ needs pairing, re-pair offered, no window loads B", async () => {
+    await liveAtA(L);
+    ses(rig).exchange = { status: 401 };
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rig.keyring.get(F)!.needsPairing).toBe(true);
+    expect(rig.askNeedsPairing).toHaveBeenCalledTimes(1);
+    expect(rig.windows.flatMap((w) => w.loaded)).not.toContain(`${B}/`);
+  });
+});
+
+describe("observability without secrets (#X5)", () => {
+  it("skipped, foreign and moved lines are present and carry no bearer, cookie or code", async () => {
+    await liveAtA(L);
+    await vi.advanceTimersByTimeAsync(60_000); // F1: skipped self + moved
+    rig.provenBy.set(B, P);
+    rig.provenBy.set(`http://${B_HOST}:8000`, P);
+    await vi.advanceTimersByTimeAsync(60_000); // B now foreign
+    const all = rig.logs.join("\n");
+    expect(all).toMatch(/candidate skipped host=\S+ fp=sha256:\S+ reason=self/);
+    expect(all).toMatch(/foreign proof host=\S+ fp=sha256:\S+/);
+    expect(all).toMatch(/host moved fp=sha256:\S+ from=\S+ to=\S+/);
+    expect(all).not.toContain(BEARER);
+    expect(all).not.toContain("pi_dash_device");
+    expect(all).not.toMatch(/\b\d{8}\b/); // no 8-digit pairing code
   });
 });

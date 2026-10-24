@@ -6,3 +6,7 @@
 ## group-servers-by-identity
 
 `pairWithCode`, `submitCode`, `source` on targets. See change: group-servers-by-identity.
+
+## harden-peer-address-identity
+
+Proof bound to an address literal: `http` hostnames resolve (injected `lookup`, ≤ 8 literals/name, 2 s) to literals, each proven separately; exchange, origin, heal, re-verify use the proving literal. `probe` → `ok|self|foreign|unverified|unreachable` via shared `classifyProof` + `discovery.localFp()`. `pickHost` returns proving literal + `foreign[]`; candidates: stored, then discovered ordered by `orderByLocality` (own last), batches of 12. Window state `live|parked|blanked`; `reselect(ow, proof)` is the ONE transition behind `reverify` and `recheck`: transport failure keeps page + reruns `pickHost`; self/foreign ⇒ `about:blank`, `clearStorageData({storages:["cookies"]})` awaited (fail ⇒ stay parked, retry next trigger), then `pickHost` ⇒ `replaceWindow` (`host moved`) | foreign seen ⇒ `blanked` + one notice | else parked "not reachable". `focusExisting` replaces non-`live`. `pairAgain`/`connectDiscovered` pass `alternatives`. Logs `candidate skipped … reason=self`, `foreign proof …`, `host moved …` (no secrets). See change: harden-peer-address-identity.

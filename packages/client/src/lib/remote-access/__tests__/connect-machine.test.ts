@@ -85,6 +85,11 @@ describe("ensureKnown (E14, X9)", () => {
     expect(await ensureKnown({ host: "10.0.0.9", port: 8000 }, known)).toEqual({ kind: "identity-changed" });
   });
 
+  it("409 self_address is its own outcome (the address reaches this dashboard, not a failure message)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonRes({ success: false, error: "self_address" }, 409));
+    expect(await ensureKnown({ host: "192.168.64.1", port: 8000 }, known)).toEqual({ kind: "self-address" });
+  });
+
   it("a 403 is a refusal, not a failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonRes({ success: false, error: "forbidden" }, 403));
     expect(await ensureKnown({ host: "10.0.0.9", port: 8000 }, known)).toEqual({ kind: "refused" });

@@ -51,6 +51,8 @@ export type AddOutcome =
   | { kind: "created"; address: Address }
   /** The server at the address is not the one pinned — the task stops. */
   | { kind: "identity-changed" }
+  /** The address reaches this dashboard itself (a shared virtual-bridge address), not another machine. */
+  | { kind: "self-address" }
   | { kind: "refused" }
   | { kind: "failed"; message: string };
 
@@ -68,6 +70,7 @@ export async function ensureKnown(addr: Address, known: readonly KnownServerList
     }
     if (res.status === 401 || res.status === 403) return { kind: "refused" };
     if (json.error === "identity_changed") return { kind: "identity-changed" };
+    if (json.error === "self_address") return { kind: "self-address" };
     return { kind: "failed", message: json.error ?? `HTTP ${res.status}` };
   } catch (e) {
     return { kind: "failed", message: e instanceof Error ? e.message : "request failed" };

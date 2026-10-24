@@ -13,3 +13,7 @@ Deps seams: `prove`, `lookup`, `fetchImpl`, `moves`, `timeouts`, `log`. See chan
 ## group-servers-by-identity
 
 Routes-aware list/add/remove/probe via one serialized write queue; add attaches route to proven identity (no `already_known`); scheme-aware bounded proof; `invalid_scheme`. See change: group-servers-by-identity.
+
+## harden-peer-address-identity
+
+Dep `ownFingerprint`. Add: after the operator guard, an address proving the own fp ⇒ `409 self_address` (precedes `identity_changed`; nothing pinned). `backfill` never pins the own fp. See change: harden-peer-address-identity.

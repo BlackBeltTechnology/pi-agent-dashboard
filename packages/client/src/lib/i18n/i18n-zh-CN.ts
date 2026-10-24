@@ -3316,6 +3316,7 @@ export const zhCNCatalog: Record<string, string> = {
   "remoteAccess.machine.address": "另一台机器的地址",
   "remoteAccess.machine.badAddress": "请输入类似 192.168.1.20:8000 的地址。",
   "remoteAccess.machine.found": "在此网络上发现",
+  "remoteAccess.machine.selfAddress": "该地址指向此仪表板本身，而不是另一台机器。",
   "remoteAccess.machine.identityChanged": "该地址上的服务器不是此仪表板所知的那台 — 其身份已更改。已停止。",
   "remoteAccess.reach.failed": "无法访问该机器：{reason}。",
   "remoteAccess.reach.remove": "从已知服务器中移除",

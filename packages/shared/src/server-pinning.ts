@@ -258,3 +258,32 @@ async function readCapped(res: Response, max: number, signal: AbortSignal): Prom
   }
   return Buffer.concat(chunks).toString("utf-8");
 }
+
+/**
+ * How a proven identity relates to the pin (the expected server) and to this
+ * machine's own dashboard.
+ *
+ * - `ok`: the pinned server.
+ * - `self`: this machine's own dashboard answered (wrong address, never an alarm).
+ * - `foreign`: any other fingerprint, or an invalid signature (strict handling).
+ * - `unverified`: a transport refusal (nothing proven), or a non-pin proof while `localFp` is still unresolved; treated
+ *   like a transport failure until one local proof succeeds.
+ *
+ * `localFp`: the fingerprint proven against the local server (never read from an
+ * advert); `"none"` = no local server (remote mode), so there is no self.
+ *
+ * See change: harden-peer-address-identity (D2).
+ */
+export type ProofClass = "ok" | "self" | "foreign" | "unverified";
+
+export function classifyProof(
+  proven: ProveResult,
+  ctx: { pin: string; localFp: string | "none" | undefined },
+): ProofClass {
+  if ("proven" in proven && proven.proven === ctx.pin) return "ok";
+  // An invalid key/signature is an impostor signal, never downgraded.
+  if ("refused" in proven) return proven.identityFailure === true ? "foreign" : "unverified";
+  if (ctx.localFp === undefined) return "unverified";
+  if ("proven" in proven && ctx.localFp !== "none" && proven.proven === ctx.localFp) return "self";
+  return "foreign";
+}

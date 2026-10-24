@@ -1,0 +1,72 @@
+# Opt-in two-dashboard overlay for the E2E harness: a SECOND dashboard container on
+# the same user-defined bridge network (multicast works there), each container owning a
+# dummy interface `bridge0` with the SAME address 192.168.64.1/24 — the macOS
+# Virtualization default that exists on every Mac and made one machine's dashboard
+# answer for another's. mDNS is ENABLED (the base harness turns it off).
+#
+#   PI_E2E_SEED=1 TEST_EXTRA_COMPOSE=compose.test.peer.yml docker/test-up.sh -d --build
+#   docker/test-down.sh          # env var not needed: list read from the state file
+#
+# The peer is NOT published to the host; specs reach it with `docker compose exec
+# pi-dashboard-peer …`. Its state lives in its own tmpfs volume, so it has its OWN
+# identity (a shared volume would share identity.key and defeat the test).
+#
+# Needs NET_ADMIN (dummy interface) and network access at start (iproute2 is
+# installed on demand by docker/peer-entrypoint.sh).
+#
+# See change: harden-peer-address-identity (test-plan #X6).
+services:
+  pi-dashboard:
+    cap_add:
+      - NET_ADMIN
+    entrypoint: ["/usr/local/bin/peer-entrypoint.sh"]
+    environment:
+      PI_DASHBOARD_NO_MDNS: "0"
+      PI_PEER_BRIDGE_ADDR: "192.168.64.1/24"
+    volumes:
+      - "./peer-entrypoint.sh:/usr/local/bin/peer-entrypoint.sh:ro"
+
+  pi-dashboard-peer:
+    image: "pi-dashboard:${TEST_IMAGE_TAG:-local}"
+    init: true
+    restart: "no"
+    user: "root"
+    entrypoint: ["/usr/local/bin/peer-entrypoint.sh"]
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+    depends_on:
+      - pi-dashboard
+    environment:
+      DASHBOARD_PORT: "${DASHBOARD_PORT:-18000}"
+      PI_GATEWAY_PORT: "${PI_GATEWAY_PORT:-18999}"
+      PI_GATEWAY_TCP: "1"
+      PI_DASHBOARD_HOST: "0.0.0.0"
+      PI_GATEWAY_BIND: "127.0.0.1"
+      TUNNEL_ENABLED: "false"
+      HOME: "/home/pi"
+      HOST_CWD: "${HOST_CWD:-}"
+      TEST_COPY_MODE: "${TEST_COPY_MODE:-}"
+      PI_E2E_SEED: "${PI_E2E_SEED:-1}"
+      PI_DASHBOARD_NO_MDNS: "0"
+      PI_PEER_BRIDGE_ADDR: "192.168.64.1/24"
+    volumes:
+      - "peer-state:/home/pi/.pi"
+      - "${HOST_CWD:-/tmp}:/mnt/test-lower:ro"
+      - "./fixtures:/fixtures-src:ro"
+      - "./test-entrypoint.sh:/usr/local/bin/test-entrypoint.sh:ro"
+      - "./peer-entrypoint.sh:/usr/local/bin/peer-entrypoint.sh:ro"
+      - "../qa/fixtures:/app/qa/fixtures:ro"
+    tmpfs:
+      - "/tmp"
+      - "/mnt/test-overlay:size=2g"
+      - "/fixtures:size=256m"
+    mem_limit: 2g
+
+volumes:
+  peer-state:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=1g,noatime"

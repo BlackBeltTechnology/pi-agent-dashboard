@@ -28,13 +28,15 @@ import {
   type KnockHooks,
   type KnockOutcome,
   type ProveFn,
-  proveExpected,
   sendKnock,
 } from "@blackbelt-technology/pi-dashboard-shared/pairing-knock-client.js";
+import { classifyProof } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import type { RouteSource } from "@blackbelt-technology/pi-dashboard-shared/server-routes.js";
 import { recordDeliveredRoutes } from "./delivered-routes.js";
 import {
+  expandRef,
   type HostRef,
+  type LookupFn,
   resolveExpectedFingerprint,
   serverOrigin,
   shortFingerprint,
@@ -88,6 +90,11 @@ export interface PairingTarget {
   /** Sanitised display label. */
   label: string;
   ref: HostRef;
+  /**
+   * The same server's other address literals (≤ 8, locality order). Each is proven in turn; an address
+   * that proves this machine's own dashboard is skipped (a wrong address), a foreign one is a mismatch.
+   */
+  alternatives?: HostRef[];
   /** Keyring pin, when an entry exists. */
   pinnedFp?: string;
   /** Fingerprint advertised by discovery. */
@@ -107,6 +114,10 @@ export interface PairingClientDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
+  /** Resolve an `http` hostname to address literals; the proving literal is used for knock, poll and the saved host. */
+  lookup?: LookupFn;
+  /** This machine's own fingerprint (`"none"` = no local server, `undefined` = not yet known). Default: none. */
+  localFp?: () => string | "none" | undefined;
 }
 
 export type PairingResult =
@@ -135,8 +146,11 @@ interface ProvenIdentity {
 }
 
 export function startPairing(target: PairingTarget, deps: PairingClientDeps): PairingSession {
-  const origin = serverOrigin(target.ref);
-  const hostText = `${target.ref.host}:${target.ref.port}`;
+  // The address literal that proved the identity replaces these once proving succeeds (knock, poll and
+  // the saved host all use it — a `.local` name could re-resolve to another machine in between).
+  let ref = target.ref;
+  let origin = serverOrigin(ref);
+  let hostText = `${ref.host}:${ref.port}`;
   const unencrypted = target.ref.scheme === "http";
   const abort = new AbortController();
   let proven: ProvenIdentity | null = null;
@@ -186,42 +200,102 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
     return { status: "unverifiable" };
   }
 
-  /** Expected identity known (pin and/or advert): the address must prove exactly that. */
-  async function proveKnown(expectedFp: string): Promise<{ proof: ProvenIdentity } | { result: PairingResult }> {
-    let checked: Awaited<ReturnType<typeof proveExpected>>;
-    try {
-      checked = await proveExpected(origin, expectedFp, deps.prove);
-    } catch {
-      return { result: reportUnverifiable(expectedFp) };
+  /** The refs to prove, in order: the primary, then its alternatives; `http` hostnames become address literals. */
+  async function attemptRefs(): Promise<HostRef[]> {
+    const out: HostRef[] = [];
+    for (const r of [target.ref, ...(target.alternatives ?? [])]) {
+      for (const lit of await expandRef(r, deps.lookup)) {
+        if (!out.some((o) => o.scheme === lit.scheme && o.host === lit.host && o.port === lit.port)) out.push(lit);
+      }
     }
-    if (!("status" in checked)) return { proof: checked };
-    // identity_mismatch: a refused challenge (proven null) is "unverifiable"; a different identity is a mismatch.
-    if (checked.proven === null) return { result: reportUnverifiable(checked.expected) };
-    return {
-      result: reportMismatch({
-        expected: checked.expected,
-        other: checked.proven,
-        otherLabel: "proven",
-        stage: "challenge",
-        message: `This address answered with a different identity (${shortFingerprint(checked.proven)}) than expected for ${target.label} (${shortFingerprint(checked.expected)}). No request was sent.`,
-      }),
-    };
+    return out;
   }
 
-  /** Trust on first use: whatever the address proves is shown to the user to compare. */
-  async function proveFirstUse(): Promise<{ proof: ProvenIdentity } | { result: PairingResult }> {
+  /** Bind the pairing to the literal that proved the identity. */
+  function bind(r: HostRef): void {
+    ref = r;
+    origin = serverOrigin(r);
+    hostText = `${r.host}:${r.port}`;
+  }
+
+  const skipLine = (r: HostRef, fp: string) =>
+    deps.log(`[server-windows] candidate skipped host=${r.host}:${r.port} fp=${shortFingerprint(fp)} reason=self`);
+
+  /** The address answered with another identity than the expected one. */
+  const mismatchAt = (pin: string, proven: string): PairingResult =>
+    reportMismatch({
+      expected: pin,
+      other: proven,
+      otherLabel: "proven",
+      stage: "challenge",
+      message: `This address answered with a different identity (${shortFingerprint(proven)}) than expected for ${target.label} (${shortFingerprint(pin)}). No request was sent.`,
+    });
+
+  type Step =
+    | { kind: "proof"; proof: ProvenIdentity }
+    | { kind: "result"; result: PairingResult }
+    /** Not this address: unreachable, unverifiable, or `self` (this machine's own dashboard). */
+    | { kind: "skip"; self: boolean };
+
+  /** The identity an address proved, or `null` (unreachable, refused or invalid: try the next address). */
+  async function proveAt(r: HostRef): Promise<Extract<Awaited<ReturnType<ProveFn>>, { proven: string }> | null> {
     try {
-      const r = await deps.prove(origin);
-      if ("refused" in r) return { result: reportUnverifiable(undefined) };
-      return { proof: { fingerprint: r.proven, ...(r.publicKey ? { publicKey: r.publicKey } : {}) } };
+      const proof = await deps.prove(serverOrigin(r));
+      return "proven" in proof ? proof : null;
     } catch {
-      return { result: reportUnverifiable(undefined) };
+      return null;
     }
   }
 
-  /** Prove the identity at the address; either a proof or the terminal result to return. */
-  function proveIdentity(expected: ReturnType<typeof resolveExpectedFingerprint>): Promise<{ proof: ProvenIdentity } | { result: PairingResult }> {
-    return expected.kind === "expected" ? proveKnown(expected.fingerprint) : proveFirstUse();
+  /** With a pin the shared classification; on first use anything but this machine's own dashboard is acceptable. */
+  function classifyAt(pin: string | undefined, proof: { proven: string }, own: string | "none" | undefined): "ok" | "self" | "foreign" | "unverified" {
+    if (pin) return classifyProof(proof, { pin, localFp: own });
+    return proof.proven === own ? "self" : "ok";
+  }
+
+  /** Prove one address against the pin (when there is one) or, on first use, accept any identity but this machine's. */
+  async function proveRef(r: HostRef, pin: string | undefined): Promise<Step> {
+    const proof = await proveAt(r);
+    if (!proof) return { kind: "skip", self: false };
+    const cls = classifyAt(pin, proof, deps.localFp ? deps.localFp() : "none");
+    switch (cls) {
+      case "ok":
+        bind(r);
+        return { kind: "proof", proof: { fingerprint: proof.proven, ...(proof.publicKey ? { publicKey: proof.publicKey } : {}) } };
+      case "foreign":
+        bind(r);
+        return { kind: "result", result: mismatchAt(pin ?? "", proof.proven) };
+      case "self":
+        skipLine(r, proof.proven);
+        return { kind: "skip", self: true };
+      default:
+        return { kind: "skip", self: false }; // unverified while the own fingerprint is unknown
+    }
+  }
+
+  /**
+   * Prove each address in order. With an expected identity: the pin proves ⇒ bound; this machine's own
+   * dashboard ⇒ skipped (wrong address); any other identity ⇒ a mismatch; nothing proven ⇒ unverifiable
+   * (or unreachable once an address turned out to be this machine). Without one (trust on first use):
+   * the first address that proves anything but this machine.
+   */
+  async function proveIdentity(
+    expected: ReturnType<typeof resolveExpectedFingerprint>,
+  ): Promise<{ proof: ProvenIdentity } | { result: PairingResult }> {
+    const pin = expected.kind === "expected" ? expected.fingerprint : undefined;
+    let sawSelf = false;
+    for (const r of await attemptRefs()) {
+      const step = await proveRef(r, pin);
+      if (step.kind === "proof") return { proof: step.proof };
+      if (step.kind === "result") return { result: step.result };
+      sawSelf ||= step.self;
+    }
+    if (sawSelf) {
+      logLine("unreachable", pin);
+      emit(base("unreachable", { message: `No address of ${target.label} could be reached: the addresses tried belong to this computer. No request was sent.` }));
+      return { result: { status: "unreachable" } };
+    }
+    return { result: reportUnverifiable(pin) };
   }
 
   /** The user chooses "Send request" (resolves the device name) or stops (resolves null). */
@@ -297,7 +371,7 @@ export function startPairing(target: PairingTarget, deps: PairingClientDeps): Pa
         fingerprint: p.fingerprint,
         label: target.label,
         ...(p.publicKey ? { pinnedPubkey: p.publicKey } : {}),
-        host: { ...target.ref, ...(target.source ? { source: target.source } : {}) },
+        host: { ...ref, ...(target.source ? { source: target.source } : {}) },
         bearer: token,
       });
     } catch {
