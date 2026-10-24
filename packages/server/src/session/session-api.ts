@@ -40,6 +40,18 @@ import type { SessionManager } from "./memory-session-manager.js";
 import { systemRenameUpdates, userRenameUpdates } from "./name-provenance.js";
 import { decideResume } from "./session-origin.js";
 
+/** Prompt delivery mode (change: leaf-only-helpers, WO-A 1.3). */
+const PROMPT_MODES = ["steer", "followUp"] as const;
+type PromptMode = (typeof PROMPT_MODES)[number];
+
+/** Returns an error message, or undefined when absent/valid. */
+function validatePromptMode(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !PROMPT_MODES.includes(value as PromptMode))
+    return `mode must be one of: ${PROMPT_MODES.join(", ")}`;
+  return undefined;
+}
+
 /** Spawn capability-scope body limits (change: leaf-only-helpers, WO-A 1.1). */
 const SPAWN_EXCLUDE_TOOLS_MAX_ENTRIES = 32;
 const SPAWN_EXCLUDE_TOOL_MAX_CHARS = 200;
@@ -145,11 +157,11 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
   // install window is no longer needed.
 
   // POST /api/session/:id/prompt
-  fastify.post<IdParams & { Body: { text?: string; images?: any[] } }>(
+  fastify.post<IdParams & { Body: { text?: string; images?: any[]; mode?: string } }>(
     "/api/session/:id/prompt",
     async (request, reply) => {
       const { id } = request.params;
-      const { text, images } = request.body ?? {};
+      const { text, images, mode } = request.body ?? {};
       // Untrusted input: a bare truthiness check accepted objects and numbers,
       // which then reached the bridge as a `send_prompt.text`.
       // See change: fix-spawn-correlation-ttl-coupling.
@@ -160,6 +172,16 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       if (images !== undefined && !Array.isArray(images)) {
         reply.code(400);
         return { success: false, error: "images must be an array" } satisfies ApiResponse;
+      }
+      // WO-A (change: leaf-only-helpers): `mode` selects how pi takes the prompt
+      // (`deliverAs`). It rides the bridge `send_prompt` as `delivery`, the field
+      // the bridge already routes: while streaming, "followUp" (the default, so
+      // today's bridge-buffered queueing is unchanged) buffers in the bridge and
+      // "steer" goes to pi as `{deliverAs:"steer"}`; idle, both go straight to pi.
+      const modeError = validatePromptMode(mode);
+      if (modeError) {
+        reply.code(400);
+        return { success: false, error: modeError } satisfies ApiResponse;
       }
       const result = getSessionOrFail(sessionManager, id);
       if ("error" in result) {
@@ -177,6 +199,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         text,
         images,
         promptId,
+        delivery: (mode ?? "followUp") as "steer" | "followUp",
       });
       if (!sent) {
         reply.code(502);
