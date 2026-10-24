@@ -13,7 +13,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as accessGrants from "../../access/access-grants.js";
 import { resolveFileMention } from "../resolve-file-mention.js";
+
+vi.mock("../../access/access-grants.js", async (orig) => ({
+  ...(await orig<typeof import("../../access/access-grants.js")>()),
+  grantedSubjects: vi.fn(() => [] as string[]),
+}));
 
 describe("resolveFileMention", () => {
   let home: string;
@@ -83,5 +89,22 @@ describe("resolveFileMention", () => {
     const res = await resolveFileMention("~/../../etc/passwd", { cwd });
     expect(res).toBeNull();
     expect(statSpy).not.toHaveBeenCalled();
+  });
+
+  // #E8 (codeql-file-containment-barrier): the passive mention site keeps consuming grants.
+  it("a mention outside the anchors resolves only when a grant covers it, and a refusal is null (#E8)", async () => {
+    const outside = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "rfm-out-")));
+    try {
+      await fsp.writeFile(path.join(outside, "x.txt"), "x");
+      await fsp.writeFile(path.join(outside, "y.txt"), "y");
+      expect(await resolveFileMention(path.join(outside, "x.txt"), { cwd })).toBeNull();
+      vi.mocked(accessGrants.grantedSubjects).mockReturnValue([outside]);
+      expect(await resolveFileMention(path.join(outside, "x.txt"), { cwd })).toMatchObject({ resolved: path.join(outside, "x.txt"), kind: "abs" });
+      vi.mocked(accessGrants.grantedSubjects).mockReturnValue([path.join(outside, "x.txt")]);
+      expect(await resolveFileMention(path.join(outside, "y.txt"), { cwd })).toBeNull();
+    } finally {
+      vi.mocked(accessGrants.grantedSubjects).mockReturnValue([]);
+      await fsp.rm(outside, { recursive: true, force: true });
+    }
   });
 });

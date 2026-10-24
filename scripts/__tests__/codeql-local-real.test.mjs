@@ -113,6 +113,78 @@ describe.skipIf(!packsCached)("real CodeQL CLI", () => {
     expect(pathInjectionLines(out)).toEqual([lineOf(UNCHECKED_BARRIER, "readFileSync")]);
   }, 600_000);
 
+  // R1–R6 (codeql-file-containment-barrier D5): the shapes the containment sites ship. One analysis per
+  // repo; every sink is on its own marked line. `PATH_EXPECT` is the OBSERVED outcome per shape: a shape
+  // CodeQL cannot propagate is recorded as expected residue (evidence/codeql.md), never hoped silent.
+  const CONTAINMENT_GUARD_IMPORT = "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
+  const containmentFiles = () => {
+    const probe = `import Fastify from "fastify";
+import fs from "node:fs";
+import path from "node:path";
+import { containmentAllows } from "${CONTAINMENT_GUARD_IMPORT}";
+import { decidePassive, evaluateContainment } from "./gate.js";
+import { readIt } from "./lib/sinks.js";
+const app = Fastify();
+const isArtifact = (p: string) => p.length > Date.now() % 7;
+async function gate(rel: string) {
+  const resolved = path.resolve("/base", rel);
+  const d = await evaluateContainment(resolved, ["/base"]);
+  if (!containmentAllows(d, resolved)) return { code: 403 as const };
+  return { resolved };
+}
+app.get("/a", async (req: any) => { const resolved = path.resolve("/base", req.query.path); const d = await evaluateContainment(resolved, ["/base"]); if (!containmentAllows(d, resolved)) return null; return fs.readFileSync(resolved); /*A*/ });
+app.get("/b", async (req: any) => { const resolved = path.resolve("/base", req.query.path); await evaluateContainment(resolved, ["/base"]); return fs.readFileSync(resolved); /*B*/ });
+app.get("/c", async (req: any) => { const a = path.resolve("/base", req.query.path); const b = path.resolve("/base", req.query.other); const d = await evaluateContainment(a, ["/base"]); if (!containmentAllows(d, a)) return null; return fs.readFileSync(b); /*C*/ });
+app.get("/d", async (req: any) => { const resolved = path.resolve("/base", req.query.path); const d = await evaluateContainment(resolved, ["/base"]); containmentAllows(d, resolved); return fs.readFileSync(resolved); /*D*/ });
+app.get("/f", async (req: any) => { const matches: { path: string }[] = req.query.m; return Promise.all(matches.map(async (m) => { const r = path.resolve("/base", m.path); const d = await decidePassive(r, ["/base"], { allowGrant: true }); if (containmentAllows(d, r)) return fs.readFileSync(r); /*F*/ return null; })); });
+app.get("/g", async (req: any) => { const g = await gate(req.query.path); if ("code" in g) return null; return readIt(g.resolved); });
+app.get("/h", async (req: any) => { const resolved = path.resolve("/base", req.query.path); const d = await evaluateContainment(resolved, ["/base"]); if (!(containmentAllows(d, resolved) || isArtifact(resolved))) return null; return fs.readFileSync(resolved); /*H*/ });
+app.listen({ port: 1 });
+`;
+    const files = monorepo(probe);
+    // Opaque bodies: a real `===` inside the guard would itself be a sanitizing guard and hide the model.
+    files["packages/shared/src/containment-guard.ts"] =
+      "export type PathDecision = { allowed: boolean; viaGrant: boolean; resolved: string };\n" +
+      "export function containmentAllows(d: PathDecision, r: string): boolean { return d.allowed && r.length > d.resolved.length % 3; }\n";
+    files["packages/server/src/gate.ts"] =
+      `import type { PathDecision } from "${CONTAINMENT_GUARD_IMPORT}";\n` +
+      "export async function evaluateContainment(resolved: string, anchors: string[]): Promise<PathDecision> { return { allowed: anchors.length > Date.now() % 2, viaGrant: false, resolved }; }\n" +
+      "export async function decidePassive(resolved: string, anchors: string[], opts: { allowGrant: boolean }): Promise<PathDecision> { return evaluateContainment(resolved, opts.allowGrant ? anchors : []); }\n";
+    files["packages/server/src/lib/sinks.ts"] = 'import fs from "node:fs";\nexport function readIt(p: string) { return fs.readFileSync(p); /*G*/ }\n';
+    return { files, probe };
+  };
+  // Observed shape outcomes (true = still reported), CodeQL 2.27.2 / javascript-queries 2.4.7.
+  // A guarded: silent. B unguarded, C predicate on A but sink on B, D result never branched on: reported.
+  // F (filter shape, #R3) and G (guarded value returned from a helper, read in another module, #R4): silent.
+  // H (#R5, `containmentAllows(..) || <unmodelled admission>`): reported, so the raw site's artifact-root branch
+  // stays residue. Update only from a real run, with the reason in evidence/codeql.md.
+  const PATH_EXPECT = { A: false, B: true, C: true, D: true, F: false, G: false, H: true };
+  const reportedMarkers = (out, probe) => {
+    const hits = new Set(out.newResults.filter((r) => r.ruleId === "js/path-injection").map((r) => `${r.file}:${r.startLine}`));
+    const at = (file, text, m) => hits.has(`${file}:${lineOf(text, `/*${m}*/`)}`);
+    const sinks = 'import fs from "node:fs";\nexport function readIt(p: string) { return fs.readFileSync(p); /*G*/ }\n';
+    const r = {};
+    for (const m of "ABCDFH") r[m] = at("packages/server/src/probe.ts", probe, m);
+    r.G = at("packages/server/src/lib/sinks.ts", sinks, "G");
+    return r;
+  };
+
+  it("#R1 #R2 #R3 #R4 #R5 containmentAllows model: guarded silent, twins reported, shapes measured", () => {
+    const { files, probe } = containmentFiles();
+    const out = JSON.parse(realRun(realRepo(files), ["--json"]).stdout);
+    const got = reportedMarkers(out, probe);
+    // eslint-disable-next-line no-console
+    console.log(`#R observed ${JSON.stringify(got)}`);
+    for (const [m, want] of Object.entries(PATH_EXPECT)) expect({ m, reported: got[m] }).toEqual({ m, reported: want });
+  }, 600_000);
+
+  it("#R6 without the model file the guarded read IS reported (R1 depends on the model)", () => {
+    const { files, probe } = containmentFiles();
+    delete files[MODEL_REL];
+    const out = JSON.parse(realRun(realRepo(files), ["--json"]).stdout);
+    expect(reportedMarkers(out, probe).A).toBe(true);
+  }, 600_000);
+
   // #E16 (design D0): the guard SHAPES the git/openspec routes ship. Every sink is its own function in a
   // separate lib module (a shared sink line would report for the twin and hide the guarded result).
   it("#E16 the shipped admission shapes are recognised; every unguarded twin is reported", () => {

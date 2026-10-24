@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import type { CwdHoldDecision } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import {
   admissionAllows,
   issueHeldAdmission,
@@ -21,7 +22,7 @@ import { realpathAsync } from "@blackbelt-technology/pi-dashboard-shared/platfor
 import { ASCIIDOC_PROFILE, keepColWidthStyleOnly } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
+import { type DenialRemedy, decidePassive, evaluateContainment } from "../access/containment-gate.js";
 import { resolveCwdVerdict } from "../access/cwd-verdict.js";
 import { type HoldTarget, holdDenial } from "../access/denial-hold.js";
 import {
@@ -43,7 +44,6 @@ import {
   parseFlagsQuery,
 } from "../browse.js";
 import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
-import { DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import {
   BROWSE_OUTSIDE_ROOTS_ERROR,
   type BrowseRootSources,
@@ -52,6 +52,7 @@ import {
   isWithinBrowseRoots,
   resolveBrowseRoots,
 } from "../lib/browse-roots.js";
+import { DashboardStateRefused, openStateChecked, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { renderDiagram } from "../lib/diagram-render.js";
 import { createDigestGate, type DigestGate, type DigestLane } from "../lib/digest-gate.js";
@@ -71,7 +72,7 @@ import {
   renderPptx,
   resolveRowLimit,
 } from "../lib/office-preview.js";
-import { isAllowed, safeRealpath } from "../lib/path-containment.js";
+import { safeRealpath } from "../lib/path-containment.js";
 import { loadPurify } from "../lib/purify.js";
 import { admitRouteCwd, listKnownFolderCwds, type RouteAdmissionDeps } from "../lib/route-admission.js";
 
@@ -399,7 +400,7 @@ export async function gateFilePath(
   } finally {
     admitted.release();
   }
-  if (!decision.allowed) {
+  if (!containmentAllows(decision, resolved)) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };
   }
   // `viaGrant` MUST be propagated: `assertRegularFile` and the handle-verified
@@ -451,7 +452,7 @@ async function gateReadPath(
   } finally {
     admitted.release();
   }
-  if (!readDecision.allowed) {
+  if (!containmentAllows(readDecision, resolved)) {
     return { code: 403, error: "path outside working directory", ...readDecision.remedy };
   }
   return { resolved, viaGrant: readDecision.viaGrant, relPath };
@@ -554,7 +555,7 @@ export function registerFileRoutes(
     } finally {
       admitted.release();
     }
-    if (!decision.allowed) {
+    if (!containmentAllows(decision, resolved)) {
       return { code: 403, error: "path outside working directory", ...decision.remedy };
     }
     let stat: import("node:fs").Stats;
@@ -908,7 +909,7 @@ export function registerFileRoutes(
     // `allowGrant: false` — a read grant must NOT authorize launching a local
     // application or revealing in the file manager. Those are a different
     // capability from reading, so the two spawn routes keep the pre-change
-    // `isAllowed`-only decision (task 4.5 review gate, blocking #2).
+    // layers ①/② only decision (task 4.5 review gate, blocking #2).
     const gate = await gateFilePath(cwd, rawPath, routeAdmission, {
       allowGrant: false,
       disclosure: canDiscloseAccessPosture(request),
@@ -964,7 +965,7 @@ export function registerFileRoutes(
         // parent (task 4.5 review).
         subjectKind: "directory",
       });
-      if (!treeDecision.allowed) {
+      if (!containmentAllows(treeDecision, resolved)) {
         reply.code(403);
         return { success: false, error: "path outside working directory", ...treeDecision.remedy } as unknown as ApiResponse;
       }
@@ -1177,7 +1178,7 @@ export function registerFileRoutes(
         // `fs.access` accepts files AND directories — polymorphic, see above.
         subjectKind: "auto",
       });
-      if (!existsDecision.allowed) {
+      if (!containmentAllows(existsDecision, resolved)) {
         reply.code(403);
         return { success: false, error: "path outside cwd", ...existsDecision.remedy } as unknown as ApiResponse;
       }
@@ -1263,7 +1264,7 @@ export function registerFileRoutes(
       // True only when the GRANT layer admitted this read — layers ①/② and the
       // artifact root do NOT get handle verification (task 2.8 scope).
       let viaGrant = false;
-      if (!(await isAllowed(resolved, { anchors: rawAnchors }))) {
+      if (!containmentAllows(await decidePassive(resolved, rawAnchors, { allowGrant: false }), resolved)) {
         if (!(await isImageUnderArtifactRoot(resolved))) {
           const rawDecision = await evaluateContainment(resolved, rawAnchors, {
             site: "file-routes:raw",
@@ -1271,7 +1272,7 @@ export function registerFileRoutes(
             disclosure: canDiscloseAccessPosture(request),
             session: admitted.cwd,
           });
-          if (!rawDecision.allowed) {
+          if (!containmentAllows(rawDecision, resolved)) {
             reply.code(403);
             return { success: false, error: "path outside working directory", ...rawDecision.remedy } as unknown as ApiResponse;
           }
@@ -1494,7 +1495,7 @@ export function registerFileRoutes(
         disclosure: canDiscloseAccessPosture(request),
         session: admitted.cwd,
       });
-      if (!renderDecision.allowed) {
+      if (!containmentAllows(renderDecision, resolved)) {
         reply.code(403);
         return { success: false, error: "path outside working directory", ...renderDecision.remedy } as unknown as ApiResponse;
       }

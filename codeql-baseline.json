@@ -358,13 +358,6 @@
       "reason": "github-dismissed (#328, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
     },
     {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/access/verified-read.ts",
-      "lineHash": "72b2a45f3e115b89:2",
-      "count": 1,
-      "reason": "github-dismissed (#330, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
-    },
-    {
       "ruleId": "js/server-side-unvalidated-url-redirection",
       "file": "packages/server/src/auth/auth-plugin.ts",
       "lineHash": "687f1ae7376b109b:1",
@@ -562,13 +555,6 @@
     },
     {
       "ruleId": "js/path-injection",
-      "file": "packages/server/src/lib/eml.ts",
-      "lineHash": "25cb726ab15a22be:1",
-      "count": 1,
-      "reason": "github-dismissed (#331, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
-    },
-    {
-      "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/folder-project.ts",
       "lineHash": "e1e4b63b7398c5c0:1",
       "count": 1,
@@ -583,13 +569,6 @@
     },
     {
       "ruleId": "js/path-injection",
-      "file": "packages/server/src/lib/office-preview.ts",
-      "lineHash": "cac23c75a0d87ef4:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/path-containment.ts",
       "lineHash": "15965871f904b078:1",
       "count": 1,
@@ -599,13 +578,6 @@
       "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/path-containment.ts",
       "lineHash": "4ddbc7764036ed7c:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/lib/resolve-file-mention.ts",
-      "lineHash": "1542f13c2d9a5ad0:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
     },
@@ -626,55 +598,6 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "1e0e73a03196a493:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "69b54f123f7121bc:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "70a561a4b4af9489:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "7fc5eb9027cf81ef:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login. Path admitted by gateReadPath (known session cwd + containment/grant) before open (GET /api/file/digest)."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "87ff3db82c5a499a:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "87ff3db82c5a499a:2",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "9a26909aeb482827:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "9cf3db8a4e00aba8:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
@@ -683,27 +606,6 @@
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "9f8b559045ac19db:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "a438004af06d8b0c:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "a5a11ee02a22124:1",
-      "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "c784a9244ee84cab:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
     },
