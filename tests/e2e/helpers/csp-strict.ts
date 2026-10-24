@@ -91,6 +91,8 @@ export interface CspReportsBlock {
   since: string;
   dropped: number;
   counts: Record<string, Record<string, number>>;
+  /** Trusted Types shadow outcomes (change: add-trusted-types-shadow-enforce): `since` + six counts. */
+  ttShadow?: { since: string } & Record<string, number | string>;
 }
 
 /** `cspReports` from `/api/health`, fetched over container loopback; undefined when the block is absent. */

@@ -11,7 +11,7 @@ import { type AccessGrantHealth, snapshotAccessGrantHealth } from "../access/acc
 import { AccessPlaneRegistry } from "../access/access-plane.js";
 import { GrantCoordinator } from "../access/grant-coordinator.js";
 import { createFilesystemPlane } from "../access/planes.js";
-import { CspReportStore, type CspReportsSnapshot } from "../auth/csp-report-store.js";
+import { CspReportStore, type CspReportsSnapshot, SHADOW_OUTCOMES } from "../auth/csp-report-store.js";
 import { createLocalTrustContext } from "../auth/local-proof.js";
 import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { noteNetworkOnlyAdmission, resetNetworkTrustTelemetryForTests } from "../auth/network-trust-telemetry.js";
@@ -416,12 +416,12 @@ describe("cspReports health block (WE33, WE54, WX6)", () => {
     }
   });
 
-  it("WE54: the block is exactly { since, dropped, counts } with counts only — no URL, path or report content", async () => {
+  it("WE54: the block is exactly { since, dropped, counts, ttShadow } with counts only — no URL, path or report content", async () => {
     const store = populated();
     const app = await cspApp({ read: () => store.snapshot() });
     const body = (await app.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1" })).json();
     const block = body.cspReports as Record<string, unknown>;
-    expect(Object.keys(block).sort()).toEqual(["counts", "dropped", "since"]);
+    expect(Object.keys(block).sort()).toEqual(["counts", "dropped", "since", "ttShadow"]);
     expect(new Date(block.since as string).toISOString()).toBe(block.since);
     expect(block.dropped).toBe(1);
     expect(block.counts).toEqual({
@@ -431,6 +431,26 @@ describe("cspReports health block (WE33, WE54, WX6)", () => {
     });
     const text = JSON.stringify(block);
     for (const frag of ["/secret/path", "/settings/security", "http", "://"]) expect(text).not.toContain(frag);
+  });
+
+  it("E21: ttShadow is always present (six counts, zeros included, plus its since); counts only; absent for a non-permitted caller", async () => {
+    const store = populated();
+    store.reset();
+    const app = await cspApp({ read: () => store.snapshot() });
+    const read = async () =>
+      (await app.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1" })).json().cspReports.ttShadow as Record<string, unknown>;
+    const zero = await read();
+    expect(Object.keys(zero).sort()).toEqual(["shadow-error", "since", ...SHADOW_OUTCOMES.filter((o) => o !== "shadow-error")].sort());
+    for (const o of SHADOW_OUTCOMES) expect(zero[o], o).toBe(0);
+    expect(new Date(zero.since as string).toISOString()).toBe(zero.since);
+    store.recordShadow("shadow-error", 1);
+    const after = await read();
+    expect(after["shadow-error"]).toBe(1);
+    expect(JSON.stringify(after)).not.toMatch(/firstSeen|lastSeen/);
+    const denied = await app.inject({ method: "GET", url: "/api/health", remoteAddress: "198.51.100.7" });
+    expect(denied.statusCode).toBe(200);
+    expect(denied.body).not.toContain("cspReports");
+    expect(denied.body).not.toContain("ttShadow");
   });
 
   it("WX6: a throwing counter read omits the block (absent, not null) and health still answers 200", async () => {
