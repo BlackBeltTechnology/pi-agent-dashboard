@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const PKG_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const raw = fs.readFileSync(path.join(PKG_DIR, ".pi", "skills", "blender", "SKILL.md"), "utf8");
+// A Windows checkout may carry CRLF line endings (core.autocrlf): normalise before parsing.
+const raw = fs.readFileSync(path.join(PKG_DIR, ".pi", "skills", "blender", "SKILL.md"), "utf8").replace(/\r\n/g, "\n");
 const parts = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(raw);
 const front = parts?.[1] ?? "";
 const body = parts?.[2] ?? "";

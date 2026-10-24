@@ -118,7 +118,9 @@ describe("socket-guard self-test (task 4.4)", () => {
       const net = require("node:net"), fs = require("node:fs"), os = require("node:os"), path = require("node:path");
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-sock-"));
       fs.mkdirSync(path.join(dir, "tsx-501"));
-      const plain = path.join(dir, "plain.sock"), tooling = path.join(dir, "tsx-501", "4242.pipe");
+      const bs = String.fromCharCode(92), win = process.platform === "win32";
+      const plain = win ? bs + bs + "." + bs + "pipe" + bs + "guard-plain-" + process.pid : path.join(dir, "plain.sock");
+      const tooling = win ? bs + bs + "." + bs + "pipe" + bs + "tsx-" + process.pid : path.join(dir, "tsx-501", "4242.pipe");
       let left = 2;
       const done = () => { if (--left === 0) { fs.rmSync(dir, { recursive: true, force: true }); process.exit(0); } };
       for (const p of [plain, tooling]) {
@@ -128,7 +130,7 @@ describe("socket-guard self-test (task 4.4)", () => {
     `);
     const connects = log.filter((l) => l.kind === "connect");
     expect(connects).toHaveLength(1);
-    expect(connects[0].detail).toContain("plain.sock");
+    expect(connects[0].detail).toMatch(/guard-plain|plain\.sock/);
     expect(log.filter((l) => l.kind === "listen")).toHaveLength(2);
   });
 

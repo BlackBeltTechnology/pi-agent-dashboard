@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -67,7 +67,7 @@ afterEach(() => {
 function setup(fx = makeRuntimeFixture()) {
   const home = tmp();
   const root = path.join(home, "cache");
-  const fetchSpy = vi.fn<typeof fetch>(async () => new Response(fx.tgz));
+  const fetchSpy = vi.fn<typeof fetch>(async () => new Response(new Uint8Array(fx.tgz)));
   const deps = (extra: Partial<ProvisionDeps> = {}): Partial<ProvisionDeps> => ({
     env: { BLENDER_WASM_HOME: root },
     homedir: () => home,
@@ -538,7 +538,7 @@ describe("bounded download", () => {
 
   it("X2: a declared content-length above the pin fails before reading", async () => {
     const s = setup();
-    s.fetchSpy.mockImplementation(async () => new Response(s.fx.tgz, { headers: { "content-length": String(s.fx.pin.bytes + 1) } }));
+    s.fetchSpy.mockImplementation(async () => new Response(new Uint8Array(s.fx.tgz), { headers: { "content-length": String(s.fx.pin.bytes + 1) } }));
     const err = await rejectsWith(provision(s.deps()), "download-failed");
     expect(err.message).toMatch(/declares/);
   });
@@ -647,7 +647,7 @@ describe("atomic commit", () => {
         fresh: fs.existsSync(path.join(s.root, ".staging-999-fresh")),
         versionDir: fs.existsSync(s.versionDir),
       });
-      return new Response(s.fx.tgz);
+      return new Response(new Uint8Array(s.fx.tgz));
     });
     await provision(s.deps());
     expect(seen).toEqual([{ stale: false, fresh: true, versionDir: false }]);
@@ -701,7 +701,7 @@ describe("atomic commit", () => {
       new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
         const p = spawn(
           process.execPath,
-          ["--import", createRequire(import.meta.url).resolve("tsx"), child, tgzPath, JSON.stringify(s.fx.pin), s.root, barrier, "2"],
+          ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, child, tgzPath, JSON.stringify(s.fx.pin), s.root, barrier, "2"],
           { stdio: ["ignore", "pipe", "pipe"] },
         );
         let out = "";

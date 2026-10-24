@@ -57,7 +57,7 @@ const probeOf = (mode: JspiMode): (() => Promise<ProbeResult>) => async () => ({
 function realProvisioning(fetchImpl?: typeof fetch) {
   const fx = makeRuntimeFixture();
   const home = tmp();
-  const fetchSpy = vi.fn<typeof fetch>(fetchImpl ?? (async () => new Response(fx.tgz)));
+  const fetchSpy = vi.fn<typeof fetch>(fetchImpl ?? (async () => new Response(new Uint8Array(fx.tgz))));
   const provisionDeps: Partial<ProvisionDeps> = { env: { BLENDER_WASM_HOME: path.join(home, "cache") }, homedir: () => home, fetch: fetchSpy, pin: fx.pin, log: () => {} };
   const provisionSpy = vi.fn(() => provision(provisionDeps));
   return { fx, home, fetchSpy, provisionSpy, provisionDeps };

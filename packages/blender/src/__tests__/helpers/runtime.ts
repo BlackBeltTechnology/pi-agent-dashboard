@@ -8,8 +8,9 @@
  */
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe } from "vitest";
+import { beforeAll, describe } from "vitest";
 import { probeJspi } from "../../host/probe.js";
+import { provision } from "../../provision.js";
 
 /** Fixed per-machine runtime cache for the real-runtime suites. */
 export const TEST_CACHE = path.join(os.tmpdir(), "pi-blender-wasm-test-cache");
@@ -35,8 +36,23 @@ async function computeGate(): Promise<RealGate> {
 
 export const realGate: RealGate = await computeGate();
 
+/**
+ * Make sure the shared test cache holds the pinned runtime. Idempotent and safe across test files running
+ * in parallel processes (the commit is an atomic rename). A fresh CI machine has an empty cache, so a suite
+ * that copies or inspects it must not depend on another file having booted a session first.
+ */
+export async function ensureTestCache(): Promise<void> {
+  await provision({ env: { ...process.env, BLENDER_WASM_HOME: TEST_CACHE } });
+}
+
 /** `describe` that runs only when the real runtime is usable; otherwise a skipped suite naming the reason. */
 export function describeReal(name: string, fn: () => void): void {
-  if (realGate.enabled) describe(name, { timeout: REAL_TIMEOUT_MS }, fn);
-  else describe.skip(`${name} [skipped: ${realGate.reason}]`, fn);
+  if (realGate.enabled) {
+    describe(name, { timeout: REAL_TIMEOUT_MS }, () => {
+      beforeAll(ensureTestCache, REAL_TIMEOUT_MS);
+      fn();
+    });
+  } else {
+    describe.skip(`${name} [skipped: ${realGate.reason}]`, fn);
+  }
 }

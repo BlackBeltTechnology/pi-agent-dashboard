@@ -44,7 +44,11 @@ function trySymlink(target: string, link: string): boolean {
 }
 
 /** Every file and directory below `dir`, relative, sorted. */
-const tree = (dir: string): string[] => fs.readdirSync(dir, { recursive: true }).map(String).sort();
+const tree = (dir: string): string[] =>
+  fs
+    .readdirSync(dir, { recursive: true })
+    .map((p) => String(p).replaceAll("\\", "/"))
+    .sort();
 
 describe("normaliseRelative", () => {
   it.each([

@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { PIN } from "../pin.js";
+import { extractAllowlisted } from "../tar.js";
 
 const pkgDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const MODULE_ERRORS = /ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING|ERR_MODULE_NOT_FOUND|ERR_UNKNOWN_FILE_EXTENSION|Cannot find (module|package)/;
@@ -72,7 +73,7 @@ describe("blender packaging", () => {
     expect(pkg.bin["pi-blender"]).toBe("bin/pi-blender");
     expect(pkg.pi.skills).toEqual([".pi/skills/blender"]);
     expect(pkg.files).toEqual(expect.arrayContaining(["bin/", "dist/", ".pi/skills/", "README.md", "!src/__tests__", "!**/AGENTS.md", "!**/*.AGENTS.md"]));
-    const front = /^---\n([\s\S]*?)\n---/.exec(fs.readFileSync(path.join(pkgDir, pkg.pi.skills[0], "SKILL.md"), "utf8"))?.[1] ?? "";
+    const front = /^---\n([\s\S]*?)\n---/.exec(fs.readFileSync(path.join(pkgDir, pkg.pi.skills[0], "SKILL.md"), "utf8").replace(/\r\n/g, "\n"))?.[1] ?? "";
     expect(front).toMatch(/^name: blender$/m);
   });
 
@@ -85,10 +86,11 @@ describe("blender packaging", () => {
     expect(files.filter((f) => f.startsWith("src/") && f.endsWith(".test.ts"))).toEqual([]);
   }, 200_000);
 
-  it("E67/5.3: the bundles are self-contained — no bare import of a workspace package, and worker-boot.cjs is the verbatim CommonJS copy", () => {
+  it("E67/5.3: the bundles are self-contained — no bare import of a workspace package, and worker-boot.cjs is the verbatim CommonJS copy", async () => {
     const tmp = scratchDir("blender-bundle-");
     const { tarball } = packOnce();
-    expect(spawnSync("tar", ["-xzf", tarball, "-C", tmp, "--strip-components=1"]).status).toBe(0);
+    // The package's own tar reader, not a `tar` binary: on a Windows runner `tar` may be GNU tar, which reads `C:\\` as a host.
+    await extractAllowlisted(tarball, tmp, (p) => (p.startsWith("package/dist/") ? p.slice("package/".length) : undefined));
     for (const f of ["blender.js", "host.js"]) {
       const text = fs.readFileSync(path.join(tmp, "dist", f), "utf8");
       expect(text, f).not.toMatch(/from\s+["']@blackbelt-technology\//);
