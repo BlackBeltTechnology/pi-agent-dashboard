@@ -58,7 +58,7 @@ The comment at `file-routes.ts:911` ("`isAllowed`-only decision") describes `gat
 Before any route edit, extend `scripts/__tests__/codeql-local-real.test.mjs` with a mini monorepo using the repo's model file:
 - (a) guarded sink silent;
 - (b) unguarded twin reported;
-- (c) decision for path A, sink on path B: reported;
+- (c) decision and predicate for path A, sink on path B: reported;
 - (d) decision never branched on: reported;
 - (e) the production shape: `path.resolve(cwd, rel)` → `await evaluateContainment` → `if (!containmentAllows(...)) return` → `fs.readFile`;
 - (f) the filter shape (`if (containmentAllows(...)) return m`) as in `grep-routes.ts`;

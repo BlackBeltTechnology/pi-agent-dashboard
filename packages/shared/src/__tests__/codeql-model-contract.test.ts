@@ -97,3 +97,19 @@ describe("extensions/ holds only model files (#E2)", () => {
     expect(unexpectedFiles(fs.readdirSync(extDir))).toEqual([]);
   });
 });
+
+describe("containmentAllows barrier rows (#E12, codeql-file-containment-barrier)", () => {
+  const doc = parseYaml(fs.readFileSync(path.join(extDir, "cwd-guard.model.yml"), "utf8")) as ModelDoc;
+  const rows = (doc.extensions ?? [])
+    .filter((e) => e.addsTo?.extensible === "barrierGuardModel")
+    .flatMap((e) => e.data ?? [])
+    .filter((r) => String(r[1]).startsWith("Member[containmentAllows]"));
+
+  it("has the quoted `.js` row and the dot-free alias, guarding Argument[1] for path-injection", () => {
+    expect(rows.map((r) => String(r[0])).sort()).toEqual([
+      "'@blackbelt-technology/pi-dashboard-shared/containment-guard.js'",
+      "@blackbelt-technology/pi-dashboard-shared/containment-guard",
+    ]);
+    for (const r of rows) expect(r.slice(1)).toEqual(["Member[containmentAllows].Argument[1]", "true", "path-injection"]);
+  });
+});

@@ -23,6 +23,7 @@
  */
 
 import { lstat } from "node:fs/promises";
+import type { PathDecision } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import { currentCallerUnproven, dashboardStateRefuses } from "../lib/dashboard-state-guard.js";
 import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { recordPathDenial } from "./access-denials.js";
@@ -64,10 +65,18 @@ async function remedySubject(resolved: string, kind: SubjectKind): Promise<strin
   }
 }
 
-export interface ContainmentDecision {
-  allowed: boolean;
-  /** True when the grant layer (not layers ①/②) admitted the path. */
-  viaGrant: boolean;
+/**
+ * A containment verdict bound to the exact path it decided (`resolved`). Branded in
+ * `@blackbelt-technology/pi-dashboard-shared/containment-guard.js`; this module is the ONLY
+ * place that builds one (see `decision`), so `containmentAllows(decision, resolved)` can only
+ * be true for the path that was actually evaluated.
+ * See change: codeql-file-containment-barrier.
+ */
+export type ContainmentDecision = PathDecision;
+
+/** The one constructor of a {@link ContainmentDecision}. */
+function decision(resolved: string, allowed: boolean, viaGrant: boolean): ContainmentDecision {
+  return { allowed, viaGrant, resolved } as ContainmentDecision;
 }
 
 /** The additive remedy fields carried beside an unchanged `error` string. */
@@ -235,19 +244,19 @@ export async function evaluateContainment(
   // Dashboard secrets (token, identity key, config) are refused before anything else, with the
   // plain refusal and NO remedy: nothing is recorded, so there is no `denialId` to turn into a
   // grant, and no operator is asked. See change: close-container-loopback-impersonation (D8).
-  if (await dashboardStateRefuses(resolved)) return { allowed: false, viaGrant: false };
+  if (await dashboardStateRefuses(resolved)) return decision(resolved, false, false);
 
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
   // grant layer, and only on a miss does the denial get recorded.
-  let decision: ContainmentDecision;
+  let verdict: ContainmentDecision;
   if (await isAllowed(resolved, { anchors })) {
-    decision = { allowed: true, viaGrant: false };
+    verdict = decision(resolved, true, false);
   } else if ((opts.allowGrant ?? true) && (await isGrantAdmitted(resolved, grantedSubjects()))) {
-    decision = { allowed: true, viaGrant: true };
+    verdict = decision(resolved, true, true);
   } else {
-    decision = { allowed: false, viaGrant: false };
+    verdict = decision(resolved, false, false);
   }
-  if (decision.allowed) return decision;
+  if (verdict.allowed) return verdict;
 
   // A site that cannot be ADMITTED by a grant must not ORIGINATE one. Recording a
   // denial here would return a `denialId` the operator could accept, minting a
@@ -259,7 +268,7 @@ export async function evaluateContainment(
   // `denialBody` emits only the fields that are present. (Task 4.5, fresh cycle
   // round 1: `allowGrant: false` previously blocked admission but still minted a
   // remedy at `/api/open-in-system` and `/api/reveal-in-file-manager`.)
-  if (opts.allowGrant === false) return decision;
+  if (opts.allowGrant === false) return verdict;
 
   // `subjectKind` decides what the remedy names — see `remedySubject`. The
   // default ("file") is right for the majority of sites (a refused file read);
@@ -281,7 +290,7 @@ export async function evaluateContainment(
 
   if (opts.quiet) {
     return {
-      ...decision,
+      ...verdict,
       remedy: {
         reason: "Path is outside every containment anchor for this session.",
         hint: "Grant access to this directory from the denial's remedy, or open the file from a session rooted in it.",
@@ -317,9 +326,28 @@ export async function evaluateContainment(
         opts.hold,
       );
   const reEvaluated = resolution.kind === "allow" && (await reEvaluate(resolved, anchors, resolution));
-  if (reEvaluated) return { allowed: true, viaGrant: true };
+  if (reEvaluated) return decision(resolved, true, true);
   if (opts.disclosure) remedy.promptOutcome = outcomeFor(resolution, opts.hold !== undefined);
-  return { ...decision, remedy };
+  return { ...verdict, remedy };
+}
+
+/**
+ * The decision of a PASSIVE site: one that filters or returns nothing instead of refusing with a
+ * body, and so never originates a denial (`grep-routes.ts` result filter, `resolve-file-mention.ts`,
+ * the raw-image pre-check in `file-routes.ts`). Layers ①/② first, then — only with `allowGrant` —
+ * the grant layer. No dashboard-state check, no denial record, no hold: exactly the
+ * `isAllowed` / `isGrantAdmitted` pair these sites called by hand before, now bound to the path.
+ * `grantSubjects` lets a loop hoist the store read (design D16: no N × store read per match).
+ * See change: codeql-file-containment-barrier.
+ */
+export async function decidePassive(
+  resolved: string,
+  anchors: string[],
+  opts: { allowGrant: boolean; grantSubjects?: string[] },
+): Promise<ContainmentDecision> {
+  if (await isAllowed(resolved, { anchors })) return decision(resolved, true, false);
+  if (opts.allowGrant && (await isGrantAdmitted(resolved, opts.grantSubjects ?? grantedSubjects()))) return decision(resolved, true, true);
+  return decision(resolved, false, false);
 }
 
 /**

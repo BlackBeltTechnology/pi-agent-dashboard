@@ -24,8 +24,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { grantedSubjects } from "../access/access-grants.js";
-import { isAllowed, isGrantAdmitted } from "./path-containment.js";
+import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
+import { decidePassive } from "../access/containment-gate.js";
 
 export type MentionKind = "abs" | "tilde" | "relative";
 
@@ -80,9 +80,7 @@ export async function resolveFileMention(
   // The canonical cwd joins the request spelling when it differs (core-file-cwd-admission D2), so a
   // mention resolved here opens through the same anchor set as `/api/file`.
   const anchors = canonCwd !== undefined && canonCwd !== cwd ? [cwd, canonCwd, homePiAnchor()] : [cwd, homePiAnchor()];
-  if (!(await isAllowed(candidate, { anchors }))) {
-    if (!(await isGrantAdmitted(candidate, grantedSubjects()))) return null;
-  }
+  if (!containmentAllows(await decidePassive(candidate, anchors, { allowGrant: true }), candidate)) return null;
   try {
     await fs.stat(candidate);
   } catch {
