@@ -473,7 +473,7 @@ Filed 2026-10-20 (drafts `openspec/changes/extend-craft-web-to-all-apps/upstream
 ### 14.8 Live control: VectorCraft re-spike (change add-craft-live-control, task 1.1) — go
 
 - Date 2026-10-24. Version `vectorcraft-web` 0.16.0 (newest release). `window.vectorcraft` first in 0.14.0.
-- Method: `spike-craft-web-app-in-sandbox`. Real `createPostInstall` (shim v2 tree). Production CSP. `sandbox=allow-scripts`. Playwright (swiftshader). 900x650 frame.
+- Method: `spike-craft-web-app-in-sandbox`. Real `createPostInstall` (shim v2 tree: v3 not yet existed; page API shim-independent; shim v3 verified later by `tests/e2e/craft-live-control.spec.ts` on real build). Production CSP. `sandbox=allow-scripts`. Playwright (swiftshader). 900x650 frame.
 - Decision: GO.
 - Title regex `^(.*) [-–—] VectorCraft$` matches `logo.svg — VectorCraft`. Shim title `logo.svg`, `confirmed:true`. No CSP messages.
 - Drop-open ok. User click → shim `dirty true`. Save → shim `save` message.

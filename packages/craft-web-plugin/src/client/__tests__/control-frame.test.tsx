@@ -230,6 +230,8 @@ describe("claims and runs through the host", () => {
     expect(m.getByTestId("craft-agent-log")).toBeTruthy();
     fireEvent.click(m.getByTestId("craft-agent-log").querySelector("summary") as HTMLElement);
     expect(m.getByTestId("craft-agent-log").querySelectorAll('[data-testid="craft-agent-log-row"]')).toHaveLength(1);
+    // each row carries its time (spec: time, method, outcome, bytes, preview)
+    expect(m.getByTestId("craft-agent-log-time").getAttribute("datetime")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("a probe for another path or another session's file gets no claim / a wrong-session claim", async () => {

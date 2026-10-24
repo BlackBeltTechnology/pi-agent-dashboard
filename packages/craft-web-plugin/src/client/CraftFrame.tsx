@@ -323,6 +323,9 @@ function AgentLog({ t, log }: { t: Translate; log: readonly AgentLogRow[] }) {
       <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-auto">
         {[...log].reverse().map((r) => (
           <li key={`${r.at}-${r.method}-${r.bytes}-${r.preview.length}`} data-testid="craft-agent-log-row" className="flex flex-wrap gap-x-2 text-[var(--text-primary)]">
+            <time dateTime={new Date(r.at).toISOString()} className="text-[var(--text-secondary)]" data-testid="craft-agent-log-time">
+              {new Date(r.at).toLocaleTimeString()}
+            </time>
             <span className="font-mono">{r.method}</span>
             <span>{r.outcome}</span>
             <span className="text-[var(--text-secondary)]">{t("agentLogBytes", { bytes: r.bytes })}</span>

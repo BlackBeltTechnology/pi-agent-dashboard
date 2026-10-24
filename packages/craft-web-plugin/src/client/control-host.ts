@@ -284,7 +284,8 @@ export class ControlHost {
   private async shape(method: string, result: unknown): Promise<{ result: unknown } | ControlReply> {
     if (method === "ui.screenshot") {
       const shot = await processScreenshot(result, { maxRawBytes: this.d.maxBytes, ...this.d.screenshot });
-      return shot.ok ? { result: shot.result } : this.fail("reply_too_large", shot.message);
+      if (shot.ok) return { result: shot.result };
+      return this.fail(shot.kind === "too-large" ? "reply_too_large" : "app_error", shot.message);
     }
     return { result: method === "engine.commands" ? this.filterCommands(result) : result };
   }

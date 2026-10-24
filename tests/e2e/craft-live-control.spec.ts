@@ -330,6 +330,7 @@ test.describe("live control through the real router", () => {
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText("engine.execute");
     await expect(rows.first()).toContainText("ok");
+    await expect(rows.first().getByTestId("craft-agent-log-time")).toHaveText(/\d/);
     await expect(rows.first()).toContainText(/\d+ B/);
     expect(((await rows.first().textContent()) ?? "").length).toBeLessThan(250);
   });

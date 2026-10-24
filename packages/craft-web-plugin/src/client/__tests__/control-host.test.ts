@@ -391,9 +391,9 @@ describe("E15 screenshot pipeline", () => {
   });
 
   it("a reply with no image, a non-PNG and an oversize raw image are refused", async () => {
-    expect(await processScreenshot({ width: 1, height: 1 }, deps)).toMatchObject({ ok: false });
-    expect(await processScreenshot({ pngBase64: btoa("not a png at all, just text bytes....") }, deps)).toMatchObject({ ok: false, message: expect.stringMatching(/not a PNG/) });
-    expect(await processScreenshot(raw(10, 10), { maxRawBytes: 10 })).toMatchObject({ ok: false, message: expect.stringMatching(/file size limit/) });
+    expect(await processScreenshot({ width: 1, height: 1 }, deps)).toMatchObject({ ok: false, kind: "failed" });
+    expect(await processScreenshot({ pngBase64: btoa("not a png at all, just text bytes....") }, deps)).toMatchObject({ ok: false, kind: "failed", message: expect.stringMatching(/not a PNG/) });
+    expect(await processScreenshot(raw(10, 10), { maxRawBytes: 10 })).toMatchObject({ ok: false, kind: "too-large", message: expect.stringMatching(/file size limit/) });
   });
 
   it("through the host: ui.screenshot becomes a JPEG reply, or reply_too_large", async () => {
@@ -405,6 +405,10 @@ describe("E15 screenshot pipeline", () => {
     const q = h.host.run("ui.screenshot", undefined);
     answer(h, { ok: true, result: raw(5000, 5000) });
     expect(await q).toMatchObject({ ok: false, code: "reply_too_large" });
+    // a failure that is not about size is the app's problem, not "ask for less"
+    const r = h.host.run("ui.screenshot", undefined);
+    answer(h, { ok: true, result: { width: 1, height: 1 } });
+    expect(await r).toMatchObject({ ok: false, code: "app_error", error: expect.stringMatching(/no image/) });
   });
 
   it("encodeJpeg uses createImageBitmap + OffscreenCanvas at the requested edge", async () => {
