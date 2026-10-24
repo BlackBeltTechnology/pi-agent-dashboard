@@ -4,17 +4,32 @@ The vault delivers only to hub-local sessions. Its trust gate admits a paired de
 
 ## What Changes
 
-- Define how the hub proves that a paired device's bridge connection is confidential end to end. Candidates for the design: a TLS-terminating hub listener; a proxy-asserted header bound to the device credential; or payload encryption to the device's pairing key, which makes transport TLS unnecessary for vault material.
-- Wire the proof into `isTls(sessionId)` (or replace the predicate) in the vault delivery hub.
-- Show the remote state in the session view: why a paired device does or does not receive vault values.
+- **Bridges over the native TLS listener (opt-in).** A new `tls.acceptBridges` switch lets the Built-in HTTPS listener route `/ws/bridge` upgrades into the pi gateway, under ticket-only bridge auth. A ticket-admitted connection there is always attributed to its device. Off by default.
+- **Hub-observed proof.** A paired device is trusted for remote delivery only when all of these hold:
+  - its upgrade arrived on the hub's own TLS socket with no forwarding header;
+  - its ticket was minted the same way;
+  - the device is active;
+  - its bearer was never presented or issued off a proven channel;
+  - its bridge declares certificate validation enforced.
+
+  This replaces the never-wired `isTls(sessionId)` predicate. Proxy-asserted headers are not evidence.
+- **Hub-local needs local admission.** Hub vault delivery requires the unix socket, a local credential proof, or the in-process connection. Loopback by address alone no longer qualifies (legacy token, tokenless grace, deviceless or device ticket), because an L4 forwarder looks the same. This tightens deprecated paths, which now report `local-unproven`.
+- **Bearer exposure record.** The paired-device registry records the first use or issue of a bearer outside a proven channel. A proven channel is proven TLS, or a valid local credential proof. Devices paired before this change have unknown history and need a new token.
+- **TLS-only bridge tokens.** An operator token issued for a bridge on another machine is available only over a proven channel, and carries a `pi_tls_` prefix. The bridge never sends it to a non-`https` origin, so an active MITM never sees it. The hub refuses it (and records exposure) on any non-proven channel. MCP and QR tokens are unchanged.
+- **Deactivation withdraws.** Revoking or holding a device, recording its bearer as exposed, or turning Accept bridges off pushes `denied` to the affected connected sessions within 5 s. Expiry does the same within 60 s.
+- **Bridge validates the certificate.** For TLS endpoints, the bridge refuses to dial or send its bearer when TLS validation is disabled (`tls-verify-disabled`). A `wss://` endpoint without a path dials `/ws/bridge`.
+- **Explain the refusal.** The session view, the token-issue dialog and the log name the missing proof and the fix. The causes are `unattributed`, `local-unproven`, `device-inactive`, `plain-transport`, `bearer-exposed`, `history-unknown`, `ticket-plain` and `bridge-outdated`.
 
 ## Capabilities
 
 ### New Capabilities
-- (to be decided in design)
+- (none)
 
 ### Modified Capabilities
-- `credential-delivery`: "Delivery only to granted sessions on trusted devices" — how TLS is established.
+- `pi-gateway-auth`: remote bridges may connect over the TLS listener, and remote endpoints require certificate validation.
+- `bearer-device-auth`: plaintext bearer exposure is recorded, and tokens issued on a proven channel are TLS-only.
+- `dashboard-tls-listener`: the listener serves the bridge path behind an opt-in switch.
+- `credential-delivery`: defines what "over TLS" means in "Delivery only to granted sessions on trusted devices" (proven by the hub itself). Revocation withdraws, and refused sessions explain the cause.
 
 ## Impact
 
