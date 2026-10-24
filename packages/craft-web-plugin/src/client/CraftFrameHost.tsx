@@ -63,7 +63,8 @@ function useStatus(appId: string) {
     if (clear) setOutcome(null);
     setKey((k) => k + 1);
   }, []);
-  return { gate: toGate(outcome, appId), refresh };
+  const app = outcome && outcome.kind === "status" ? outcome.status.apps[appId] : undefined;
+  return { gate: toGate(outcome, appId), refresh, buildVersion: app?.status === "ok" ? (app.installedVersion ?? app.version) : undefined };
 }
 
 /** Snapshot preflight: held until the frame's `ready` takes it, then fresh reads (Retry/Resume). */
@@ -142,7 +143,7 @@ export function CraftFrameHost({ app, ...fh }: { app: CraftWebApp } & FileHandle
   const t = useCraftT();
   const fhRef = useRef<FileHandlerProps>(fh);
   fhRef.current = fh;
-  const { gate, refresh } = useStatus(app.id);
+  const { gate, refresh, buildVersion } = useStatus(app.id);
   const { snap, take, retry: retrySnap } = useSnapshotPreflight(fhRef);
   const [prep, setPrep] = useState<Prep>({ phase: "idle" });
   const probe = useMemo(() => (gate.kind === "ready" && snap.phase === "ok" ? probeRenderer() : null), [gate.kind, snap.phase]);
@@ -180,5 +181,5 @@ export function CraftFrameHost({ app, ...fh }: { app: CraftWebApp } & FileHandle
   if (!probe) return panel("craft-snapshot-loading", t("readingFile"));
   const mode = rendererMode(probe);
   if (mode === "none") return panel("craft-no-renderer", t("noRenderer", { app: app.label }));
-  return <CraftFrame app={app} fh={fh} initialWebgl={mode === "webgl"} webglCapable={probe.webgl2} takeSnapshot={take} />;
+  return <CraftFrame app={app} fh={fh} initialWebgl={mode === "webgl"} webglCapable={probe.webgl2} takeSnapshot={take} buildVersion={buildVersion} />;
 }

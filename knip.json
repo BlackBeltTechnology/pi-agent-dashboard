@@ -548,6 +548,7 @@
       "entry": [
         "src/client/index.tsx",
         "src/server/index.ts",
+        "src/bridge/index.ts",
         "src/server/ooxml-validator.mjs",
         "src/shim/craft-shim.js",
         "**/vitest.config.ts",
