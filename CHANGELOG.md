@@ -80,6 +80,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Headless Blender for agents, with no native install.** New optional package `@blackbelt-technology/pi-dashboard-blender`
+  (`pi-blender` CLI, `blender` skill, `blender-wasm` stdio MCP server) runs the published Blender WebAssembly build
+  (`@knervous/blender-web` 0.0.5) inside Node 24 (WebAssembly JSPI). The runtime (~175 MB, GPL-3.0-or-later, never bundled)
+  downloads on first use, verified against a sha512 pin in source, and is cached under `<pi agent dir>/tools/blender-wasm/`
+  (`BLENDER_WASM_DIR` serves offline installs). Five tools (`blender_python`, `blender_scene`, `blender_import`,
+  `blender_export`, `blender_reset`) work in one persistent scene; file access is confined to the project root with
+  all-or-nothing output commits, agent Python gets an in-memory filesystem with no network or subprocess, and a timed-out,
+  crashed or idle session is killed and rebooted (`sessionReset: true` reports the lost scene). Registration is opt-in:
+  `pi-blender mcp --register`. On Node 22 the tools answer `jspi-unavailable` and nothing downloads.
+
 - **Session UI deep links for agents.** `GET /api/sessions` rows carry absolute `uiUrl` / `diffUrl`
   built from the origin the caller used (a matching public base or tunnel, an admitted `Host`, else
   `http://localhost:<port>`), and accept `?id=<id>` (exact id or a prefix of 8+ characters). A
