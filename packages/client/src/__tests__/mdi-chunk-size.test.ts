@@ -76,7 +76,13 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // serializer (chat-selection-copy), the document copy listener + toast wiring in ChatView and the swipe
 // guard. 606,473 B on CI, 1,289 B over the old cap; 592 KiB would still be 265 B short, so 593 KiB
 // (607,232 B) leaves ~750 B. Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 593 * 1024;
+// add-trusted-types-shadow-enforce (2026-10-24): 593 -> 595 KiB. The shadow classifier lives in the Trusted
+// Types `default` policy, which `bootClient` installs synchronously before first render, so it cannot split:
+// the six-outcome classifier (memo + per-window budget + two-pass HTML test) and the shadow aggregate
+// transport (clamp/carry, byte-bounded priority report) are unavoidably in the entry. 607,648 B in this
+// test's own gzip, 416 B over the old cap; 594 KiB (608,256 B) would leave only ~600 B for CI's compressor
+// variance, so 595 KiB (609,280 B, ~1.6 KB headroom). Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 595 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
