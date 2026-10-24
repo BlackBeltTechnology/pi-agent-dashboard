@@ -642,6 +642,20 @@
         "**/__tests__/**/*.test.{ts,tsx}"
       ]
     },
+    "packages/blender": {
+      "entry": [
+        "src/bin/blender.ts",
+        "src/host/host.ts",
+        "src/host/worker-boot.cjs",
+        "src/__tests__/helpers/socket-guard.cjs",
+        "scripts/*.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs,cjs}"
+      ]
+    },
     "packages/craft-apps": {
       "entry": [
         "src/bin/craft.ts",
