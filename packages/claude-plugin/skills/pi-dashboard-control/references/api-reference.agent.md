@@ -52,6 +52,7 @@ Conventions: JSON responses; mutations need `Content-Type: application/json`. Lo
 
 ## Events & diff
 - `GET /api/events/:sessionId/:seq` → `{eventType, timestamp, data}`.
+- `GET /api/events/stream?session=ID,…&types=T,…` → SSE, never ends. `ready`, then open questions, then live: `session_added`, `status {from?,to}` (changes only), `session_removed`, `question_opened {questionId, questionType, preview, sessionLabel}`, `question_closed {reason: answered|removed}`. `: ping` every 20 s. Unknown type → 400. observe; visibility = session list. Follow it with the `pi-dashboard-watch` skill.
 - `GET /api/session-diff?sessionId=` (LO) → `{isGitRepo, files:[{path, changes:[{type, timestamp, message}], gitDiff}]}`.
 
 ## Configuration

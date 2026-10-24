@@ -139,6 +139,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // add-pending-question-stack: answers stay human-in-the-loop.
   { pattern: "/api/questions", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
   { pattern: "/api/questions/", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
+  // add-agent-event-stream: an endless SSE response, not a request/response tool.
+  { pattern: "/api/events/stream", reason: "transport: long-lived SSE stream, not a tool call. See change: add-agent-event-stream" },
   { pattern: "browser_host_connect_result", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_host_ext_close", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_host_ext_data", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

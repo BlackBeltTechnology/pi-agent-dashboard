@@ -51,6 +51,7 @@ Pull-only condensed map. Source: packages/extension/.pi/skills/pi-dashboard/refe
 
 ## Events
 - `GET /api/events/:sessionId/:seq` — `{ eventType, timestamp, data }`.
+- `GET /api/events/stream?session=ID,…&types=T,…` — SSE, never ends. `ready`, then open questions, then live: `session_added`, `status {from?,to}` (changes only), `session_removed`, `question_opened {questionId, questionType, preview, sessionLabel}`, `question_closed {reason: answered|removed}`. `: ping` every 20 s. Unknown type → 400. observe; visibility = session list; not an MCP tool.
 - `GET /api/session-diff?sessionId=ID` — localhost-only. `{ isGitRepo, files:[{ path, changes:[{ type, timestamp, message }], gitDiff }] }`.
 
 ## Configuration

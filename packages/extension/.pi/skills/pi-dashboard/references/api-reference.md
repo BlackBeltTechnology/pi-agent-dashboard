@@ -430,6 +430,31 @@ Fetch a specific event by sequence number.
 }
 ```
 
+### `GET /api/events/stream`
+Server-Sent Events feed of agent transitions, for a controller that reacts instead of polling (observe tier).
+Query: `session=<id>[,<id>…]` (full ids) and `types=<type>[,<type>…]`. Unknown type → `400`.
+The response never ends: it starts with a `ready` frame, then every currently open question as `question_opened`, then live events. A `: ping` comment arrives every 20 s.
+
+```
+retry: 3000
+event: ready
+data: {"sessions":["<id>"],"types":["status","question_opened"]}
+
+id: 1
+event: question_opened
+data: {"type":"question_opened","sessionId":"<id>","questionId":"<qid>","questionType":"select","preview":"Push to main?","sessionLabel":"<label>"}
+```
+
+| Event | Data |
+|---|---|
+| `session_added` | `sessionId`, `status?`, `cwd?`, `name?` |
+| `status` | `sessionId`, `from?` (absent when the previous status is unknown), `to` (`active`, `idle`, `streaming`, `ended`). Emitted only when the status changes |
+| `session_removed` | `sessionId` |
+| `question_opened` | `sessionId`, `questionId`, `questionType`, `preview`, `sessionLabel`. Detail and answer: `GET /api/questions/:id`, `POST /api/questions/:id/answer` |
+| `question_closed` | `sessionId`, `questionId`, `reason` (`answered`, `removed`) |
+
+Visibility follows the session list: an event for a session the caller may not see is not sent. Not exposed as an MCP tool.
+
 ### `GET /api/session-diff?sessionId=ID`
 Get file changes made during a session (localhost-only).
 
