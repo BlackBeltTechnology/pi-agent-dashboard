@@ -48,7 +48,7 @@ export function appendLog(log: readonly AgentLogRow[], row: AgentLogRow): AgentL
 
 /** One log row from a finished request (method, outcome code, reply size, ≤ 120-char preview). */
 export function logRow(method: string, reply: ControlReply, at: number): AgentLogRow {
-  if (!reply.ok) return { at, method, outcome: reply.code, bytes: reply.error.length, preview: reply.error.slice(0, PREVIEW_CHARS) };
+  if (!reply.ok) return { at, method, outcome: reply.code, bytes: new TextEncoder().encode(reply.error).length, preview: reply.error.slice(0, PREVIEW_CHARS) };
   const text = JSON.stringify(reply.result) ?? "";
   return { at, method, outcome: "ok", bytes: jsonBytes(reply.result) ?? 0, preview: text.slice(0, PREVIEW_CHARS) };
 }

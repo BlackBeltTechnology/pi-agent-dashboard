@@ -118,7 +118,7 @@ function registerLiveControl(ctx: ServerPluginContext, getConfig: () => CraftWeb
   ctx.registerBrowserHandler?.(CONTROL_GONE, (msg, ws) => router.onGone(msg, ws));
 
   // Test-only driver of the `craft_control` lane for the browser E2E (no pi session / model needed): the
-  // fixture flag gates it; it is unlisted in the route tiers, so it fails closed at `operate`. Never in production.
+  // fixture flag gates it; it is unlisted in the REST route tiers (`route-tiers.ts`: unlisted ⇒ `operate`), and the fixture flag is the boundary. Never in production.
   if (fixture) {
     ctx.fastify.post<{ Body: { sessionId?: unknown } & Record<string, unknown> }>("/api/plugins/craft-web/fixture/control", async (request, reply) => {
       const { sessionId, ...payload } = request.body ?? {};

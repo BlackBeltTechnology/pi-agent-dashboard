@@ -138,6 +138,7 @@ export function createControlRouter(deps: ControlRouterDeps): ControlRouter {
   /** Sliding window of routed requests per session; `host.state` never reaches this. */
   function admit(sessionId: string): boolean {
     const t = now();
+    if (rate.size > OWNER_CAP) for (const [id, stamps] of rate) if (t - (stamps.at(-1) ?? 0) >= RATE_WINDOW_MS) rate.delete(id);
     const recent = (rate.get(sessionId) ?? []).filter((x) => t - x < RATE_WINDOW_MS);
     if (recent.length >= RATE_LIMIT) {
       rate.set(sessionId, recent);
