@@ -22,7 +22,7 @@ import { restartDashboard } from "./windowed-session.js";
 const REGISTRY = "/home/pi/.pi/dashboard/paired-devices.json";
 
 /**
- * Set `expiresAt` of the row labelled `label` to one minute ago (keeping `pairedAt`) and restart
+ * Set `expiresAt` of every row labelled `label` (a re-run on a kept harness leaves earlier rows) to one minute ago (keeping `pairedAt`) and restart
  * the server. Throws when no row carries that label.
  */
 export async function expirePairedDevice(label: string): Promise<void> {
@@ -30,9 +30,9 @@ export async function expirePairedDevice(label: string): Promise<void> {
     const fs = require("node:fs");
     const [file, label, at] = process.argv.slice(1);
     const rows = JSON.parse(fs.readFileSync(file, "utf8"));
-    const row = rows.find((r) => r.label === label);
-    if (!row) { console.error("no paired device labelled " + label); process.exit(3); }
-    row.expiresAt = Number(at);
+    const matching = rows.filter((r) => r.label === label);
+    if (matching.length === 0) { console.error("no paired device labelled " + label); process.exit(3); }
+    for (const row of matching) row.expiresAt = Number(at);
     fs.writeFileSync(file, JSON.stringify(rows), { mode: 0o600 });
   `;
   execFileSync(
