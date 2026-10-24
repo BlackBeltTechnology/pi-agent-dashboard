@@ -67,6 +67,8 @@ export default defineConfig({
       "packages/mockup-loop",
       "packages/nano-banana",
       "packages/craft-apps",
+      // blender (change: add-blender-wasm-mcp): headless Blender WASM MCP server; real-runtime suites gated by BLENDER_WASM_E2E=1.
+      "packages/blender",
       // photocraft: deprecation shim (change: add-craft-apps-core) — forwards pi-photocraft to craft-apps.
       "packages/photocraft",
       "packages/video-production",

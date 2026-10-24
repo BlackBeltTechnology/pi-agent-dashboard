@@ -1,0 +1,60 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-blender",
+  "version": "0.10.0",
+  "description": "Headless Blender for pi agents without a native install: runs the published Blender WebAssembly build inside Node, provisions one integrity-pinned runtime on first use, and exposes it as a sandboxed stdio MCP server (blender-wasm) with a project-root-confined file workflow. Ships the pi-blender CLI and a blender skill.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/blender"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "blender",
+    "3d",
+    "glb",
+    "webassembly",
+    "mcp"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/blender"
+    ]
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./bin/*": "./bin/*",
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
+  "bin": {
+    "pi-blender": "bin/pi-blender"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "src/",
+    "!src/__tests__",
+    ".pi/skills/",
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "prepack": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "tsx": "^4.21.0",
+    "vitest": "^2.1.8"
+  }
+}

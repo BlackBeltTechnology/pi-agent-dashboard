@@ -237,6 +237,22 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.8)
 
+  packages/blender:
+    dependencies:
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.10.0
+        version: link:../shared
+    devDependencies:
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      tsx:
+        specifier: ^4.21.0
+        version: 4.23.12
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@26.4.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(supports-color@8.1.1)(terser@5.51.2)
+
   packages/browser-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':

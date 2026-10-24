@@ -451,13 +451,103 @@ jobs:
       - name: pytest (music-production + footage-redaction + document-converter engine)
         run: .venv/bin/python -m pytest packages/music-production/tests packages/video-production/tests/redaction packages/document-converter/engine/tests
 
+  # ── Blender WebAssembly real-runtime legs ──────────────────────────────────
+  # Change: add-blender-wasm-mcp (test-plan X25, task 5.4). The real suites of
+  # packages/blender boot the actual Blender WASM runtime, which needs Node 24
+  # (WebAssembly JSPI), so they cannot run in the Node 22 unit shards: there
+  # they are SKIPPED WITH A REASON (`describeReal`, helpers/runtime.ts) and the
+  # files still appear in the vitest report, so `verify-executed` passes.
+  # These legs run them for real on all three OSes with BLENDER_WASM_E2E=1
+  # (plus the package's unit suites). The 66 MB runtime tarball is cached per OS
+  # and pin integrity. The job only does work when the diff can affect the
+  # package (or on develop pushes / dispatch), and always reports success
+  # otherwise, so `ci-result` can need it unconditionally.
+  blender-real:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Does this run touch packages/blender?
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            if git diff --name-only "origin/$BASE_REF...HEAD" | grep -qE '^(packages/(blender|shared)/|\.github/workflows/ci\.yml$|pnpm-lock\.yaml$|package\.json$)'; then
+              echo "run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::diff does not touch packages/blender or its inputs; real-runtime leg skipped"
+            fi
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: pnpm/action-setup@v4
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - if: steps.gate.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Cache key = OS + the pin's sha512 integrity (read from the source of truth, hashed to a key-safe string).
+      - name: Locate the runtime cache
+        id: cache
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          echo "dir=$(node -p "require('path').join(require('os').tmpdir(), 'pi-blender-wasm-test-cache')")" >> "$GITHUB_OUTPUT"
+          node -e "const m=/integrity:\s*\"(sha512-[^\"]+)\"/.exec(require('fs').readFileSync('packages/blender/src/pin.ts','utf8'));if(!m){console.error('pin integrity not found');process.exit(1)}console.log('key='+require('crypto').createHash('sha256').update(m[1]).digest('hex').slice(0,16))" >> "$GITHUB_OUTPUT"
+
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.cache.outputs.dir }}
+          key: blender-wasm-${{ runner.os }}-${{ steps.cache.outputs.key }}
+
+      - name: vitest packages/blender (real runtime, BLENDER_WASM_E2E=1)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          BLENDER_WASM_E2E: "1"
+        run: |
+          export HOME="$RUNNER_TEMP/pi-test-home"
+          mkdir -p "$HOME"
+          npx vitest run --project @blackbelt-technology/pi-dashboard-blender
+
+      - name: Upload vitest JSON report
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-blender-real-${{ matrix.os }}
+          path: test-results/vitest.json
+          retention-days: 14
+          if-no-files-found: warn
+
   # ── aggregate ────────────────────────────────────────────────────────────────
   # One check that means "this run proved what it had to". Fails when `select`
   # did not succeed, when any job failed or was cancelled, or when a job the
   # selection EXPECTED to run was skipped. A skip counts as success only for a
   # test job the selection did not expect.
   ci-result:
-    needs: [select, ci, unit, real-process, ci-scenarios, docker-plugin-load, music-pytest]
+    needs: [select, ci, unit, real-process, ci-scenarios, docker-plugin-load, music-pytest, blender-real]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

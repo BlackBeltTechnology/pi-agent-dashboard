@@ -637,6 +637,24 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		],
 	},
 	{
+		id: "@blackbelt-technology/pi-dashboard-blender",
+		source: "npm:@blackbelt-technology/pi-dashboard-blender",
+		displayName: "pi-dashboard-blender",
+		fallbackDescription:
+			"Headless Blender for pi agents without a native install: runs the " +
+			"published Blender WebAssembly build inside Node (Node 24+, ~1.2 GB per " +
+			"session), provisions one integrity-pinned runtime on first use and " +
+			"exposes it as a sandboxed stdio MCP server (blender-wasm) with a " +
+			"project-root-confined file workflow for 3D modelling and GLB export. " +
+			"Exposes the pi-blender CLI.",
+		status: "optional",
+		unlocks: [
+			"blender skill (headless 3D modelling with bpy, GLB-first export)",
+			"pi-blender CLI (ensure, status, mcp, mcp --register)",
+			"blender-wasm MCP server (blender_scene, blender_python, blender_import, blender_export, blender_reset)",
+		],
+	},
+	{
 		id: "@blackbelt-technology/pi-untrusted-content-guard",
 		source: "npm:@blackbelt-technology/pi-untrusted-content-guard",
 		displayName: "pi-untrusted-content-guard",
