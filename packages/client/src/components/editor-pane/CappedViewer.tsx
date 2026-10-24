@@ -26,7 +26,10 @@ import { useEffect, useState } from "react";
 import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { activeChangeOfPath, archivedArtifactPath } from "../../lib/openspec/archived-artifact-path.js";
+import { useArchiveEntries } from "../../lib/openspec/useAttachmentResolution.js";
 import { useEditorLimits } from "../../lib/preview/editor-limits-config.js";
+import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { TooLargePreview } from "./TooLargePreview.js";
 import type { ViewerProps } from "./types.js";
 import type { OpenPathViewer } from "./viewer-kinds.js";
@@ -88,14 +91,45 @@ export function CappedViewer({ viewer, ...props }: Props) {
     // Re-probe on target change only.
   }, [pending, props.cwd, props.path]);
 
-  if (probe.kind === "missing") {
+  // A missing `openspec/changes/<name>/…` file may have moved to the archive: read
+  // the folder's archive listing ONLY then (null cwd reads nothing), so an existing
+  // file or any other missing path never touches `/api/openspec-archive`.
+  // See change: fix-archived-session-view-header-and-stale-artifact-tab (D3).
+  const missing = probe.kind === "missing";
+  const archive = useArchiveEntries(missing && activeChangeOfPath(props.path) ? props.cwd : null);
+  const archivedPath = missing && archive.status === "ok" ? archivedArtifactPath(props.path, archive.entries) : null;
+  const workspace = useOptionalSplitWorkspace();
+
+  if (missing) {
+    const openArchived = workspace && archivedPath
+      ? () => {
+          // Ordinary idempotent open + close: exactly one tab remains.
+          workspace.openInSplit(archivedPath);
+          workspace.dispatch({ type: "closeByPath", path: props.path });
+        }
+      : null;
     return (
       <div
         role="status"
         data-testid="editor-file-missing"
         className="p-4 text-sm text-[var(--text-secondary)] [overflow-wrap:anywhere]"
       >
-        {t("editor.fileMissing", { path: props.path }, "File no longer exists: {path}")}
+        <div>{t("editor.fileMissing", { path: props.path }, "File no longer exists: {path}")}</div>
+        {archivedPath && openArchived && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span>
+              {t("editor.changeArchived", { name: archivedPath.split("/")[3] }, "This change was archived as {name}.")}
+            </span>
+            <button
+              type="button"
+              data-testid="editor-open-archived"
+              onClick={openArchived}
+              className="rounded border border-[var(--border-primary)] px-2 py-0.5 text-xs hover:bg-[var(--bg-hover)]"
+            >
+              {t("editor.openArchivedCopy", undefined, "Open archived copy")}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

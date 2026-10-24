@@ -288,7 +288,7 @@ const firstLaunchHandled = new WeakSet<Page>();
  * own scoped "Skip" the moment it appears, before any action. Idempotent and
  * scoped to the first-launch backdrop testid so no unrelated "Skip" is hit.
  */
-async function armFirstLaunchDismiss(page: Page): Promise<void> {
+export async function armFirstLaunchDismiss(page: Page): Promise<void> {
   if (firstLaunchHandled.has(page)) return;
   firstLaunchHandled.add(page);
   const backdrop = page.getByTestId("first-launch-display-backdrop");

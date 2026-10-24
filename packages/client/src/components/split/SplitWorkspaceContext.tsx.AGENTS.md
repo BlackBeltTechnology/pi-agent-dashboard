@@ -15,3 +15,4 @@ See change: add-editor-pane-file-handlers — context adds `setBaseline(path, di
 See change: improve-canvas-html-and-url-ux — adds `openStaticTarget(cwd,path,{background,opener,bump})` (tab `static:<abs file>`, viewer `live-server`, one tab per file); `openLiveTarget` opts gain `opener` (`agent` sets `autoOpened`) and `bump`. `bump` on an existing tab: inactive → `reloadNonce+1`, active → `updatedByAgent`.
 
 `hasFileSearch` (true only when the provider received `onFilenameSearch`; folder providers leave it false): gates the rail Search view, the `+` menu's Open file…, the Search-tabs fall-through and the Cmd-P / Cmd-Shift-F interception. See change: scope-anchor-editor-pane-controls (D4).
+`cwdUnavailable` (provider prop → context value): empty `cwd` is permanent. Empty `cwd` also makes `onFilenameSearch` a no-op (watch effects already skip it). See change: fix-archived-session-view-header-and-stale-artifact-tab (D4).

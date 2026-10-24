@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `archived-artifact-path.ts` | Pure `activeChangeOfPath(path)` (name of an `openspec/changes/<name>/…` path, `archive/` excluded) and `archivedArtifactPath(path, entries)` (same sub-path under the newest exactly-named archive entry via `matchArchiveEntries`, else `null`). See change: fix-archived-session-view-header-and-stale-artifact-tab (D2). |
 | `openspec-dependencies-api.ts` | `fetchDependencies(cwd, change)` / `saveDependencies(body)` for `/api/openspec/dependencies`; `DependenciesApiError {status, reason}`; types `DependenciesGet`, `DeclaredDependencies`. See change: add-openspec-change-dependencies. |
 | `openspec-dependencies-view.ts` | Pure board helpers: `hasDependencyGraph`, `showDependencyUi` (default schema `pi-spec-driven` or any `hasFile`), `showDeclareHint` (`dependencies` artifact `ready`, graph present), `orderByWave` (waves → null → no field), `executionOrderDrop` (own column no-op; other column appends), `sourceOrderAfterMove` (source column's MANUAL order, never the wave display). See change: add-openspec-change-dependencies. |
 | `OpenSpecMapContext.tsx` | `OpenSpecMapContext` + `useOpenSpecMap()`: App's `openspecMap` for attachment resolution; absent provider → empty map. See change: resolve-archived-attached-proposal. |
