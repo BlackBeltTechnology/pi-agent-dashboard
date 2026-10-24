@@ -22,4 +22,4 @@ Explicit `session_unregister` handler passes `{ endSource: "bridge_unregister" }
 
 `stop()` stays synchronous; the socket teardown it hands off (`unbindGatewaySocket`) is tracked and exposed via `stopped(): Promise<void>` (never rejects). `server.stop()` awaits it right after `piGateway.stop()` — so `stop()` never resolves while teardown can still touch HOME (nightly flake: post-teardown `[gateway] could not lock` warn → vitest `EnvironmentTeardownError`).
 
-`start()` returns `Promise<void>` (#978): resolves on `listening`, rejects on bind `error` (tears down wss, clears `tcpKind`); promise pre-handled so unawaited calls raise no unhandled rejection. Post-bind TCP errors logged `[pi-gateway] TCP listener error`. `startLoopbackFallback` awaits the same `startTcp` promise.
+`start()` stays sync `void`; bind outcome via `tcpListening(): Promise<void>` (#978) — resolves on `listening` (or at once when no TCP start), rejects on bind `error` (tears down wss, clears `tcpKind`); pre-handled so an unobserved failure raises no unhandled rejection. Post-bind TCP errors logged `[pi-gateway] TCP listener error`. `startLoopbackFallback` awaits the same `startTcp` promise.

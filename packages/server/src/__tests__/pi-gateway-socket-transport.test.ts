@@ -544,19 +544,20 @@ describe("loopback fallback (fix-gateway-socket-stale-owner)", () => {
     expect(g.bridgeListeners().listeners).toEqual([]);
   });
 
-  it("start() on a held port rejects and an unawaited start() raises no unhandled rejection", async () => {
+  it("start() on a held port: tcpListening() rejects; an unobserved bind failure raises no unhandled rejection", async () => {
     const port = await freePort();
     await hold(port, "127.0.0.1");
     const onUnhandled = vi.fn();
     process.on("unhandledRejection", onUnhandled);
     try {
       const g = mk();
-      void g.start(port, "127.0.0.1");
+      g.start(port, "127.0.0.1");
       await new Promise((r) => setTimeout(r, 50));
       expect(onUnhandled).not.toHaveBeenCalled();
       expect(g.bridgeListeners().listeners).toEqual([]);
       const g2 = mk();
-      await expect(g2.start(port, "127.0.0.1")).rejects.toThrow(/EADDRINUSE/);
+      g2.start(port, "127.0.0.1");
+      await expect(g2.tcpListening()).rejects.toThrow(/EADDRINUSE/);
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }

@@ -33,7 +33,8 @@ export async function startGatewayListeners(
   if (policy.tcp) {
     const { port, host } = policy.tcp;
     try {
-      await gateway.start(port, host, { kind: policy.socketPath ? "tcp" : "loopback" });
+      gateway.start(port, host, { kind: policy.socketPath ? "tcp" : "loopback" });
+      await gateway.tcpListening();
     } catch (err) {
       // Fail startup like the socket / fallback paths do, instead of running
       // degraded with no bridge listener (#978).

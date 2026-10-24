@@ -112,12 +112,17 @@ export interface LocalGatewaySocket {
 
 export interface PiGateway {
   /**
-   * Serve bridges over TCP. Resolves once listening; rejects (and leaves no
-   * half-started listener) when the bind fails, e.g. `EADDRINUSE`. The returned
-   * promise is pre-handled, so an unawaited call never raises an unhandled
-   * rejection. See issue #978.
+   * Serve bridges over TCP. Synchronous: the bind outcome is observed via
+   * {@link PiGateway.tcpListening}. A failed bind tears the half-started
+   * listener down and never escapes as an uncaught exception. See issue #978.
    */
-  start(port: number, host?: string, opts?: { kind?: "tcp" | "loopback" }): Promise<void>;
+  start(port: number, host?: string, opts?: { kind?: "tcp" | "loopback" }): void;
+  /**
+   * Bind outcome of the last `start()`: resolves once listening (or at once when
+   * no TCP listener was started); rejects with the bind error, e.g. `EADDRINUSE`.
+   * See issue #978.
+   */
+  tcpListening(): Promise<void>;
   /**
    * Serve bridges on `127.0.0.1:<port>` because the unix socket cannot be
    * used. Requires the local token or a ticket — no tokenless grace — and
@@ -236,6 +241,8 @@ export function createPiGateway(
   let pendingTeardown: Promise<void> = Promise.resolve();
   /** What the TCP `wss` is for (health, spawn pinning). See D7. */
   let tcpKind: "tcp" | "loopback" | "loopback-fallback" | null = null;
+  /** Bind outcome of the last `start()` (pre-handled; see `tcpListening`). */
+  let tcpBound: Promise<void> = Promise.resolve();
   let fallbackReason: "occupied" | "unsupported" | undefined;
 
   // Map sessionId → WebSocket
@@ -1211,7 +1218,7 @@ export function createPiGateway(
       }
       throw err;
     });
-    bound.catch(() => {});
+    bound.catch(() => undefined);
     return bound;
   };
 
@@ -1332,7 +1339,10 @@ export function createPiGateway(
       startHeartbeat();
     },
     start(port: number, host?: string, startOpts?: { kind?: "tcp" | "loopback" }) {
-      return startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+      tcpBound = startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+    },
+    tcpListening() {
+      return tcpBound;
     },
     async startLoopbackFallback(port: number, reason: "occupied" | "unsupported") {
       if (!options?.bridgeAuth) {
