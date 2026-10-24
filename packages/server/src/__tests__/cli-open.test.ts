@@ -118,7 +118,7 @@ describe("cmdOpen local-proof code validation pin (E8)", () => {
   });
 
   it("valid 43-char base64url code: open called once with the loopback URL", async () => {
-    const code = "Ab0_-".repeat(8) + "Ab3"; // 43 chars of base64url alphabet
+    const code = `${"Ab0_-".repeat(8)}Ab3`; // 43 chars of base64url alphabet
     expect(code).toHaveLength(43);
     const open = vi.fn();
     expect(await cmdOpen(cfg, { err: () => {}, out: () => {}, fetchImpl: ok(code), open })).toBe(0);

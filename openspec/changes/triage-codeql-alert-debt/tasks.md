@@ -59,7 +59,7 @@ Order follows design D6: mirror first (at an analysed `develop` SHA, before any 
 - [x] 7.3 On the branch: `npm run codeql -- --json`, then `--prune`, then `node scripts/codeql-local.mjs --check-baseline-diff origin/develop`. Removals must be a subset of D2 local-only keys, D3 fixed keys, and keys already stale at `H` (listed in `evidence/residue.md`). Verify: the diff check exits 0, and a script compares the removed keys with that union and prints `OK`. Any other removal stops the change.
 - [x] 7.4 For each D3 "fix, then …" row whose line is still reported (new key), add it with `--accept` and the D3 reason citing the fix. Add these keys to `evidence/residue.md` as post-merge mirror items (task 8.2). Verify: `--check-baseline-diff origin/develop` exits 0.
 - [x] 7.5 G2: `node -e` over `codeql-baseline.json` prints `0` untriaged entries. Also re-check pre-merge G3 at `H`: no open alert at `H` matches a triaged entry that is neither `github-dismissed` nor listed in `evidence/residue.md`. Verify: both commands' output is pasted into `evidence/residue.md`.
-- [ ] 7.6 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`. Verify: both are green, and `grep -nE 'Tests +[0-9]+ failed' /tmp/pi-test.log` finds nothing.
+- [x] 7.6 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `npm run quality:changed`. Verify: both are green, and `grep -nE 'Tests +[0-9]+ failed' /tmp/pi-test.log` finds nothing.
 
 ## 8. Docs, follow-ups, post-merge
 
