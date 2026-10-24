@@ -56,4 +56,24 @@ describe("fake OIDC issuer — redirect allowlist boundaries", () => {
     expect((await authorize("http://127.0.0.1.evil.test:7777/x")).status).toBe(400);
     expect((await authorize("http://u@127.0.0.1:7777/x")).status).toBe(400);
   });
+
+  it("refuses a target with control characters that URL parsing would silently strip", async () => {
+    issuer = await startFakeOidcIssuer({ users: USERS, redirectUriPrefixes: [PREFIX] });
+    for (const target of [`${PREFIX}/x\r\ny`, `${PREFIX}/x\ty`]) {
+      const res = await authorize(target);
+      expect(res.status).toBe(400);
+      expect(res.headers.get("location")).toBeNull();
+    }
+    // the issuer is still serving after the refused targets
+    expect((await authorize(PREFIX)).status).toBe(302);
+  });
+
+  it("keeps a query constraint of the registered prefix", async () => {
+    issuer = await startFakeOidcIssuer({ users: USERS, redirectUriPrefixes: [`${PREFIX}?tenant=trusted`] });
+    for (const target of [`${PREFIX}?tenant=other`, PREFIX]) {
+      const res = await authorize(target);
+      expect(res.status).toBe(400);
+      expect(res.headers.get("location")).toBeNull();
+    }
+  });
 });

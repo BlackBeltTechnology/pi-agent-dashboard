@@ -130,6 +130,9 @@ export interface FakeOidcOptions {
  * See change: triage-codeql-alert-debt (design D3 #345).
  */
 function matchesRegisteredUri(candidate: string, prefix: string): boolean {
+  // `new URL()` silently drops ASCII tab/CR/LF, so the parsed target would pass while the raw
+  // string (written to `Location`) still carries them.
+  if (/[\t\r\n]/.test(candidate)) return false;
   let c: URL;
   try {
     c = new URL(candidate);
@@ -146,6 +149,8 @@ function matchesRegisteredUri(candidate: string, prefix: string): boolean {
     return false;
   }
   if (c.origin !== p.origin) return false;
+  // A registered query is a constraint: the candidate must carry it.
+  if (p.search && !c.search.startsWith(p.search)) return false;
   const base = p.pathname.endsWith("/") ? p.pathname : `${p.pathname}/`;
   return c.pathname === p.pathname || c.pathname.startsWith(base);
 }
