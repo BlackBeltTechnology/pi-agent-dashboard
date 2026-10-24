@@ -169,7 +169,7 @@
     "skip-rpc-probes-in-event-forwarder": "future",
     "focus-driven-folder-compaction": "next-phase",
     "add-server-push-notifications": "future",
-    "add-capacitor-mobile-shell": "future",
+    "add-android-server-host": "future",
     "windows-authenticode-signing": "electrun-execution",
     "manage-node-runtime-updates": "electrun-execution",
     "add-extension-ui-rjsf-form": "ui-extensions",
@@ -620,7 +620,7 @@
       "spec-file-git-history-header",
       "skip-rpc-probes-in-event-forwarder",
       "automate-windows-remote-qa",
-      "add-capacitor-mobile-shell",
+      "add-android-server-host",
       "add-release-video-pipeline"
     ],
     "separate-functions-to-plugins": [

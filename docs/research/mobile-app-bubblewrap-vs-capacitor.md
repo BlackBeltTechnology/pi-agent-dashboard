@@ -193,9 +193,57 @@ makes TWA awkward.
 - `bwrap` (the other tool) — separate hardening track for sandboxing agent-run shell commands on Linux
   (`command-executor` spec, privilege-escalation helpers). Different project.
 
+## Spike results 2026-10-24 — verdict revised
+
+Supersedes "Verdict" and "Sequencing" above. Earlier sections kept as dated record.
+
+Setup:
+- Android 14 emulator `sdk_gphone64_arm64`.
+- System WebView `113.0.5672.136` (factory floor, not updated).
+- Capacitor `7.6.9`.
+- Isolated server: `HOME=/tmp/pi-spike-home`, port `8123`, `trustedNetworks: ["127.0.0.1"]`.
+- LAN IP untrusted → real auth path.
+- Recipe: project skill `spike-android-webview-host`.
+
+| # | Spike | Result |
+|---|---|---|
+| S1 | Plain WebView + native `POST /api/device-session` (Bearer, `Content-Type: application/json`, body `{}`) → `CookieManager.setCookie(origin, Set-Cookie)` → `loadUrl(origin)` | Dashboard authenticated. `/api/ws-ticket` 200. `/api/plugins/runtime-clients` 200. Import map present. 192/192 client chunks import (Monaco, xterm, mermaid, pdf.js, KaTeX, cytoscape). 0 console errors. Gotcha: `HttpURLConnection` default form-urlencoded body → `415`. |
+| S1b | Device revoked (`DELETE /api/paired-devices/:id`) | Page loads. `/api/*` 403. In-page banner "Disconnected… Retrying" / "Server offline" — misleading. Native host must classify refusal itself (Electron `electron-server-windows` D7 analogue). |
+| S2 | `network_security_config` `<domain>192.168.0.0/16</domain>` | Ignored. CIDR unsupported. Exact IP literal (`10.0.2.2`) works. WebView enforces config too (`net::ERR_CLEARTEXT_NOT_PERMITTED`). |
+| S3 | Page on secure asset origin `https://appassets.androidplatform.net` (bundled-client analogue) → `http`/`ws` LAN | `fetch` blocked (Mixed Content). `new WebSocket` throws `SecurityError`. |
+| S4 | WebView 113 features | `PublicKeyCredential`, `Notification`, `PushManager` undefined. androidx.webkit `WEB_AUTHENTICATION` false. `BarcodeDetector`, `crypto.subtle`, `serviceWorker`, `navigator.clipboard` present. |
+| S5 | Capacitor `allowNavigation: ["*"]` | Remote server page: no `window.Capacitor`; has `window.androidBridge` (`addJavascriptInterface` fallback, `MessageHandler.java:38`). Remote page called `Preferences.set/get` and `CapacitorCookies.getCookies` directly. Scheme-qualified entry (`http://host:port`) does not navigate in-app. |
+| S6 | `@capacitor/preferences` storage | Plain `getSharedPreferences(MODE_PRIVATE)`. Value read back plaintext from `shared_prefs/CapacitorStorage.xml`. |
+
+Additional finding (not a spike):
+- FCM HTTP v1 needs service-account key of the app's own Firebase project on every sender.
+- Unfit for self-hosted servers without project-run relay.
+
+Revised verdict:
+- Earlier "Capacitor wrap of shell/client bundle" verdict: superseded.
+- Chosen: native Kotlin + Compose host (discovery, identity proof, pairing, Keystore-encrypted keyring, UnifiedPush) + bridge-free WebView on each server's own origin. Same model as `electron-server-windows`.
+- Bundled client rejected: S3; runtime plugins skipped in remote mode `runtime-plugin-loader.ts:268`; version skew.
+- Capacitor rejected: S5, S6.
+- Push: UnifiedPush registered as `web-push` subscription. No vendor secret.
+- Planned: OpenSpec change `add-android-server-host` (renamed from `add-capacitor-mobile-shell`).
+
+```mermaid
+flowchart LR
+  APP["Native host<br/>Kotlin + Compose"]
+  WV["Bridge-free WebView<br/>server origin"]
+  SRV["Dashboard server"]
+  DIST["UnifiedPush distributor"]
+  APP -->|"device-session cookie"| WV
+  APP -->|"POST /api/push/register (web-push)"| SRV
+  SRV -->|"web-push"| DIST
+  DIST -->|"deliver"| APP
+  APP -->|"tap opens server"| WV
+```
+
 ## Sources
 
 - github.com/GoogleChromeLabs/bubblewrap (README)
 - developer.chrome.com/docs/android/trusted-web-activity/{quick-start,overview}
 - Repo: `public/manifest.json`, `public/sw.js`, `packages/shell/` (AGENTS.md + src),
   `packages/electron/`, `docs/architecture.md` (pairing / tunnel / allowed-origins sections).
+- Spike 2026-10-24 — throwaway APKs under `/tmp/pi-android-spike` (not committed). Recipe = project skill `spike-android-webview-host`.
