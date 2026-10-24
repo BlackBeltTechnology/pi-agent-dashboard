@@ -79,6 +79,7 @@ export async function startFakeHealthServer(
   const healthDelayMs = opts.healthDelayMs ?? 400;
   let health: FakeHealth = { ok: true, ...initial };
   const requests: Array<{ method: string; url: string; body?: string; headers?: Record<string, string | string[] | undefined> }> = [];
+  const localIdentity = newIdentity();
 
   const server: Server = createServer((req, res) => {
     const entry: { method: string; url: string; body?: string; headers?: Record<string, string | string[] | undefined> } = { method: req.method ?? "", url: req.url ?? "", headers: req.headers };
@@ -100,6 +101,19 @@ export async function startFakeHealthServer(
     if (url.startsWith("/api/shutdown") && req.method === "POST") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    // The local dashboard proves ITS OWN identity like the real one: the app resolves its own fingerprint from
+    // this answer, which is how a foreign proof is told apart from "this machine" (harden-peer-address-identity).
+    if (url.startsWith("/api/pair/challenge") && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        const { nonce } = JSON.parse(body || "{}") as { nonce?: string };
+        const signature = crypto.sign(null, Buffer.from(String(nonce), "utf-8"), localIdentity.privateKey);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ success: true, data: { fingerprint: localIdentity.fingerprint, publicKey: localIdentity.publicKeyB64, signature: b64url(signature), v: 1 } }));
+      });
       return;
     }
     // Anything else (the BrowserWindow URL, loading page assets) → minimal HTML.

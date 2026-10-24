@@ -376,11 +376,13 @@ describe("pickVerifiedHost batches (#E7)", () => {
   it("only the first batch is started before it settles", async () => {
     const candidates = buildCandidates([], refs(14));
     const started: string[] = [];
-    void pickVerifiedHost(candidates, (origin) => {
+    const p = pickVerifiedHost(candidates, (origin) => {
       started.push(origin);
       return new Promise<boolean>(() => {});
     });
     expect(started).toHaveLength(12);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await p).toBeNull();
   });
   it("stalled first batch ⇒ the second batch never starts before the deadline; null at 5 s", async () => {
     const candidates = buildCandidates([], refs(13));
