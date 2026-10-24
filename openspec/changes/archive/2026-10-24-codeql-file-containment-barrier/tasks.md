@@ -30,4 +30,4 @@ Order: probe first (design D5), then tests red, then code. Do not edit a route b
 ## 5. Docs and closure
 
 - [x] 5.1 Through DocScribe (caveman style): update `docs/code-quality.md` (the barrier convention: a sync, path-bound predicate modelled as a guard) and the AGENTS rows for `containment-gate.ts`, `containment-guard.ts`, the model file and the touched route files. Verify: `node scripts/dox-byte-gate.mjs` and `node scripts/check-conventions.mjs --base origin/develop` exit 0.
-- [ ] 5.2 Post-merge closure check (test-plan: manual-only, #X3). Verify: on the analysed merge commit, no pruned key has an open alert; residue matches `evidence/codeql.md`; hand the residue list to `triage-codeql-alert-debt`.
+- [x] 5.2 Post-merge closure check (test-plan: manual-only, #X3). Verify: on the analysed merge commit, no pruned key has an open alert; residue matches `evidence/codeql.md`; hand the residue list to `triage-codeql-alert-debt`.
