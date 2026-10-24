@@ -13,6 +13,7 @@ See proposal.md (Why) for motivation and spike evidence. Current state relevant 
 - **Shim compatibility.** Profiles set `minShimVersion` 1 (WordCraft, `app-profiles.ts:125`) or 2 (`app-profiles.ts:221`). An older supported shim stays usable with `shimUpdate:true` (`src/server/service.ts:248-256`). The client status parser exposes `shimUpdate` but not `shimVersion` (`src/client/status-types.ts:51-59`).
 - **Frame profile.** The shim sees only `window.__CRAFT_PROFILE__ = frameProfile(p)`; its hash keys the prepared tree (`app-profiles.ts:282-290`, `post-install.ts:54-58`).
 - **Craft control protocol.** It is compiled into every Craft wasm build. VectorCraft ≥ 0.14 exposes it in-page as `window.vectorcraft.request(method, params) → Promise`, plus convenience wrappers; `screenshot` is `request("ui.screenshot")` (upstream `apps/vectorcraft-web/src/api.rs`). Requests run on the app's UI loop. A queued request cannot be cancelled from the page.
+- **Page APIs upstream (checked 2026-10-24).** `window.vectorcraft` (VectorCraft ≥ 0.14), `window.filmcraft` (FilmCraft ≥ 0.5, installed from wasm) and `window.effectcraft` (EffectCraft ≥ 0.8, wrapped by the app's `web/index.html`; EffectCraft needs `?nosw` and its worker trampoline). The other ten apps have no web transport. Their wasm contains the protocol, but nothing feeds `control_rx`. GridCraft and CADCraft have a `?host=parent` bridge for open/save/dirty only, and it works only for same-origin parents.
 - **Plugin seams.**
   - Bridge → server request lane `requestPluginServer` / `registerPiRequestHandler`: sessionId from the socket key, 256 KiB caps, 15 s (`docs/plugin-seams.md` "Request/reply lane").
   - Browser → server `registerBrowserHandler(type, (msg, ws))` (`packages/dashboard-plugin-runtime/src/server/server-context.ts:156`). Plugin-registered message types are unlisted, so they need tier `operate`, fail-closed (`packages/shared/src/ws-message-tiers.ts:14`); an observe-only socket cannot send them.
@@ -30,7 +31,7 @@ See proposal.md (Why) for motivation and spike evidence. Current state relevant 
 - Opening a workspace file in the pane for the agent.
 - Collaborative-editing semantics (OT, caret rebasing, separate undo stacks): upstream, documented in the skill.
 - Subscriptions or change streams. Request/reply only.
-- Any control transport other than `page-api`. The proposed upstream `craft:control` postMessage contract gets a profile kind in a follow-up, once upstream ships it.
+- Any control transport other than `page-api`. We ask upstream for a page API (three apps already ship one). If an app ships a different transport instead, a follow-up adds a profile kind for it.
 - Cancelling a request inside the app after a timeout. Not possible through the page API.
 
 ## Decisions
@@ -118,7 +119,7 @@ New messages, nonce-bound:
 - host → frame `control {nonce, id, method, params}`;
 - frame → host `control-result {nonce, id, ok, result?, error?}`.
 
-The frame profile gains only `control: { kind: "page-api", global: "<name>" }`. This changes VectorCraft's profile hash, so its tree is re-prepared, which the `webVersion` bump forces anyway. The policy lists (D4) stay host-side so that editing them never forces a re-prepare.
+The frame profile gains only `control: { kind: "page-api", global: "<name>" }`. This changes the enabled app's profile hash, so its tree is re-prepared, which its `webVersion` bump (or, for W2, its new claim) forces anyway. The policy lists (D4) stay host-side so that editing them never forces a re-prepare.
 
 The shim calls `window[global].request(method, params)` and settles on resolve or reject:
 - before `opened` → `not-ready`;
@@ -145,7 +146,7 @@ The security boundary is unchanged: frame isolation, CSP, and the save path with
 - **Nested-command allowlist per app**, for `engine.execute`. Params must have exactly the shape `{command: string, params?: object}`; anything else → `denied`. The allowlist is matched exactly against `command`. `control.allowedCommands` in the host-side profile, valid only for `control.verifiedVersion`.
   - Excluded by construction: open/import, new/close/revert (they would swap the tab's document), quit, URL openers, print, recent files.
   - Read-only commands are marked as such (D6).
-- **Gate check:** the per-app gate (task 1.1) asserts that:
+- **Gate check:** the per-app gate (D8; tasks 1.1 and 10.x) asserts that:
   - every allowlisted top-level method and nested command exists in the verified build's `engine.commands`;
   - no allowlisted command runs scripts, batches or macros, or takes a nested command.
 - **Unknown or unlisted** → `denied`.
@@ -201,16 +202,27 @@ Errors:
 - app: `app_error` (app message, ≤ 2 KiB);
 - availability: `unavailable` / `no_handler` (plugin disabled or server without it; sessions already running keep the tool until restart), `disabled` (config kill switch `plugins['craft-web'].liveControl: false`).
 
-### D8. VectorCraft gate, or the change does not ship
+### D8. One enablement gate per app; VectorCraft blocks the change
 
-VectorCraft gets a `control` entry only after its web build at the bumped version passes:
+An app gets a `control` entry only after its web build, at the version being pinned, passes the gate:
 - the existing per-app e2e rows;
-- the control rows, under the production sandbox;
+- the control rows, under the production sandbox and after the real post-install (for EffectCraft: `window.effectcraft` survives the post-install `index.html` rewrite and `?nosw`);
 - `allowedCommands` and the read-only marks derived from, and checked against, its `engine.commands`;
 - each read-only command leaves the document unchanged (a `document.inspect` digest before and after is equal);
-- an own-file `.svg` save through the app (format choice in its Save As). If that fails, D6's "never clears" path is the documented behaviour.
+- the app's own-file save path through the app. Where it has none, D6's "never clears" path is the documented behaviour.
 
-If the gate fails, implementation stops (`SHIP_IT_BLOCKED.md`). No machinery ships without an enabled app. The fakecraft test double is served only when `PI_DASHBOARD_FIXTURE_PLUGINS=1`, through an explicit env check in craft-web; the fixture gate itself only covers `fixture: true` plugins (`docs/plugin-seams.md` "Fixture gate"). A test proves that it is absent by default.
+A `control` entry is valid only for an app that has an edit claim in the pane (profile check), so it cannot be added ahead of its claim.
+
+| Wave | Apps | Prerequisite | If absent at ship time |
+|---|---|---|---|
+| W1 | VectorCraft | web ≥ 0.14 (pin bump from 0.13.1) | Implementation stops (`SHIP_IT_BLOCKED.md`). No machinery ships without an enabled app. |
+| W2 | FilmCraft, EffectCraft | `add-craft-web-media-projects` has shipped the `.fcproj` / `.ecproj` claim; the page API already exists | Recorded as pending |
+| W3 | GridCraft, WordCraft, PhotoCraft, LightCraft, PdfCraft, DesignCraft, SoundCraft, DeckCraft, CADCraft | An upstream release with `window.<app>.request` | Recorded as pending with the issue URL |
+| W3 | FigCraft | The above, plus an editor-pane claim (separate change) | Recorded as pending |
+
+"Recorded as pending" is a row in the live-control status table (`docs/craft-web-plugin.md`): app, state, prerequisite, issue URL. A gate task is done either way, so upstream timing never blocks this change. A later enablement is a follow-up change that runs the same gate.
+
+The fakecraft test double is served only when `PI_DASHBOARD_FIXTURE_PLUGINS=1`, through an explicit env check in craft-web; the fixture gate itself only covers `fixture: true` plugins (`docs/plugin-seams.md` "Fixture gate"). A test proves that it is absent by default.
 
 ### D9. Skill ships with the plugin
 
@@ -219,7 +231,7 @@ The skill `craft-live-edit` lives in `packages/craft-web-plugin/.pi/skills/`, ne
 ## Risks / Trade-offs
 
 - **Shared undo history** (spike: the agent's undo removed user typing) → skill rule: `edit.undo` only when asked and when `document.inspect` shows the agent's step on top. Not enforced, because the user may ask for an undo.
-- **Caret not rebased** (WordCraft, not enabled here) → skill rule + upstream ask.
+- **Caret not rebased** (WordCraft, W3) → skill rule + upstream ask.
 - **Toggle commands** → skill: read state first.
 - **Late completion after timeout** → "outcome unknown" semantics; dirty still marked; skill: inspect before retrying.
 - **The nonce is readable in-frame** (existing residual, `docs/craft-web-plugin.md` §6/§12). A malicious bundle can forge `control-result` content. Accepted: the reply is app output with the same trust as the app; it is enveloped as untrusted and size-capped. Writes still pass the save path.
@@ -228,16 +240,17 @@ The skill `craft-live-edit` lives in `packages/craft-web-plugin/.pi/skills/`, ne
 - **Path aliases** beyond the three forms (D2), e.g. a hard link → `not-open`; the skill tells the agent to use the path shown in the tab.
 - **Keep-alive pinning:** each agent-edited, unsaved instance cannot be evicted (existing rule). A multi-file agent sweep can pin all three live slots. The skill says: prefer `pi-craft` headless for multi-file work, and tell the user which tabs hold unsaved agent edits.
 - **Fail-closed policy may block a useful command** → per-app lists are edited in the profile, with an e2e row per addition.
-- **Upstream transport never lands for other apps** → VectorCraft-only feature; the cost of keeping it is small.
-- **Shim v3** changes VectorCraft's profile hash → re-prepare, which its version bump forces anyway; other apps are untouched.
+- **Upstream transport never lands for W3 apps** → they stay pending; the feature covers W1 (and W2 once media projects land). The cost of keeping the machinery is small.
+- **W2 depends on another change** → if `add-craft-web-media-projects` records a no-go, FilmCraft and EffectCraft stay pending although their APIs exist; their media-project caveats (OPFS recovery fails in the sandbox) are that change's concern.
+- **Shim v3** changes the profile hash of each newly enabled app → re-prepare, which its version bump (or, for W2, its new claim) forces anyway; other apps are untouched.
 
 ## Migration Plan
 
 - Ships behind the plugin opt-in (`craft-web`, `defaultEnabled:false`) plus a config kill switch `plugins['craft-web'].liveControl` (default `true`). The kill switch is checked on the server and leaves the frame profile untouched.
 - `SHIM_VERSION` 2 → 3 sets `shimUpdate:true` on every other app's tree, so Settings offers an update for each; they keep working without it.
-- VectorCraft: the `webVersion` bump and the profile-hash change → re-prepare (network) on update.
+- Each enabled app (VectorCraft at least): the `webVersion` bump and the profile-hash change → re-prepare (network) on update.
 - Rollback:
   - flip `liveControl` off: immediate, no re-prepare;
   - or disable the plugin: the tool answers `unavailable` / `no_handler` until sessions restart.
-  - Removing the `control` profile entry changes VectorCraft's profile hash and forces another re-prepare, so it is not the rollback path.
+  - Removing an app's `control` profile entry changes its profile hash and forces another re-prepare, so it is not the rollback path.
   - A plugin downgrade after re-preparing makes v3 trees outdated for every app; this is the existing "downgrade offline" residual.

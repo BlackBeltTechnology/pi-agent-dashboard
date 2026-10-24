@@ -30,7 +30,7 @@ Exemplars used below:
 - [ ] 2.1 Add `control` to `CraftAppProfile` (`src/shared/app-profiles.ts`):
   - `{kind:"page-api", global, verifiedVersion, allowedCommands, readOnlyCommands, saveParamNames}`;
   - `frameProfile()` projects only `{kind, global}`;
-  - profile rule checks: `global` matches `^[a-z][a-z0-9-]{1,31}$`, and `readOnlyCommands ⊆ allowedCommands`.
+  - profile rule checks: `global` matches `^[a-z][a-z0-9-]{1,31}$`, `readOnlyCommands ⊆ allowedCommands`, and `control` only on an app with an edit claim.
 
   Set the VectorCraft entry and bump `webVersion` in `packages/craft-apps/src/registry.ts` only when 1.1 is go. Verify: the `profileErrors` tests for valid and invalid entries pass.
 - [ ] 2.2 Test, profile drift (test-plan #E20). Exemplar: `src/__tests__/manifest.test.ts`. Assert:
@@ -39,7 +39,8 @@ Exemplars used below:
   - read-only marks are a subset of `allowedCommands`;
   - no allowlisted command matches `/open|import|new|close|revert|quit|print|url|script|macro|batch/i`;
   - `frameProfile` holds only `{kind, global}`.
-- [ ] 2.3 Update the `src/shared/AGENTS.md` and `packages/craft-apps/src/AGENTS.md` rows. Verify: the rows name `control` and this change.
+- [ ] 2.3 Test, control needs an edit claim (test-plan #E26). Exemplar: `src/__tests__/manifest.test.ts`. `profileErrors` accepts `control` on an app with an edit claim and reports "control requires an edit claim" for an app with no claim (FilmCraft before media projects, FigCraft) and for a view-only claim.
+- [ ] 2.4 Update the `src/shared/AGENTS.md` and `packages/craft-apps/src/AGENTS.md` rows. Verify: the rows name `control` and this change.
 
 ## 3. Shim v3
 
@@ -196,7 +197,7 @@ Exemplars used below:
 
 - [ ] 8.1 Add a test driver that invokes `craft_control` for L3. It either drives a session bridge or uses a test-only route behind the fixture flag (see `tests/e2e/plugin-embedded-app.spec.ts`). Verify: a smoke row calling `echo` on fakecraft returns `ok`.
 - [ ] 8.2 Test, two devices (test-plan #E22). Exemplar: `tests/e2e/craft-web-editor.spec.ts`. The fakecraft doc is open and visible in session S in two browser contexts, context A focused last. After a mutation, only A's `document.inspect` digest changes.
-- [ ] 8.3 Test, VectorCraft live edit (test-plan #E23, gate go). Exemplar: `craft-web-editor.spec.ts`. With `logo.svg` open and a selection made by a real click, an agent `engine.execute` adds a rectangle. The rectangle appears in `document.inspect`, the selection is unchanged, and `ready` was sent once.
+- [ ] 8.3 Test, live edit per enabled app (test-plan #E23). Exemplar: `craft-web-editor.spec.ts`. Parametrized over every profile with `control` (VectorCraft from gate go). With the app's fixture document open and a selection made by a real click, an agent `engine.execute` runs the gate-recorded create command (VectorCraft: add a rectangle). The object appears in `document.inspect`, the selection is unchanged, and `ready` was sent once.
 - [ ] 8.4 Test, not open (test-plan #E24). Exemplar: `craft-web-editor.spec.ts`. No editor shows `report.docx` → `not-open`, and the file sha is unchanged.
 - [ ] 8.5 Test, unsupported app (test-plan #E25). Exemplar: `craft-web-editor.spec.ts`. WordCraft `report.docx` open → `unsupported`, and no `control` message reaches the frame (frame message log).
 - [ ] 8.6 Test, routed latency (test-plan #P1). Exemplar: `craft-web-editor.spec.ts`. 50 sequential routed fakecraft `echo` requests, one context: round trip p95 ≤ 600 ms.
@@ -213,14 +214,36 @@ Exemplars used below:
 - [ ] 8.17 Test, VectorCraft sibling save (test-plan #X11, gate go). Exemplar: `craft-web-editor.spec.ts`. After an agent save and the user's "Create", `logo.vectorcraft` exists, the `logo.svg` sha is unchanged, `host.state` lists `sibling`, and the tab is still unsaved.
 - [ ] 8.18 Test, cancelled in-app save (test-plan #X12). Exemplar: `craft-web-editor.spec.ts`. An agent save opens fakecraft's `saveDialog` and the user cancels: `host.state` → `noSaveYet:true`, `saves:[]`.
 - [ ] 8.19 Test, isolation (test-plan #X13). Exemplar: `craft-web-editor.spec.ts` F5 row. With control enabled, fakecraft `fetch("https://example.com")` and `fetch("/api/health")` are both refused, with CSP violations reported.
-- [ ] 8.20 Test, read-only commands (test-plan #X16, gate go). Exemplar: `craft-web-editor.spec.ts`. For every VectorCraft read-only-marked command run via `craft_control`, the `document.inspect` digest is identical before and after.
+- [ ] 8.20 Test, read-only commands per enabled app (test-plan #X16). Exemplar: `craft-web-editor.spec.ts`. Parametrized over every profile with `control`: for every read-only-marked command run via `craft_control`, the `document.inspect` digest is identical before and after.
 - [ ] 8.21 Manual check (test-plan: manual-only, #F7): `craft-agent-active` and `craft-agent-log` placement and legibility in dark and light themes next to the existing toolbar chips.
 - [ ] 8.22 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `npm run test:e2e -- craft-web-editor`. Verify: no failures in the log grep, and e2e is green.
 
 ## 9. Upstream
 
-- [ ] 9.1 After the user has reviewed `/tmp/spikeB/upstream/ISSUE.md`, file the web-transport request (GridCraft, WordCraft; the caret-rebasing note for WordCraft) on `storytold/gridcraft` and `storytold/wordcraft`. Record the URLs in `docs/craft-web-plugin.md` §14.7 via DocScribe. Verify: the URLs are recorded.
+- [ ] 9.1 After the user has reviewed `/tmp/spikeB/upstream/ISSUE.md`, file the page-API request on each W3 repo: `storytold/{gridcraft,wordcraft,photocraft,lightcraft,pdfcraft,designcraft,soundcraft,deckcraft,cadcraft,figcraft}`. The ask is a `window.<app>` global with `request`, `execute`, `commands` and `screenshot`, as VectorCraft, FilmCraft and EffectCraft already ship; for WordCraft add the caret-rebasing note. Record the URLs in the status table (10.1). Verify: ten URLs are recorded.
+
+## 10. Further apps (W2, W3)
+
+Each gate task below ends in one of two recorded states, so none waits on upstream:
+- **enabled**: run the D8 gate at the newest upstream release (re-spike under the production sandbox with the real post-install, derive `allowedCommands` and the read-only marks, record the create command for 8.3), bump `webVersion`, add the `control` entry. Rows 8.3 and 8.20 then cover the app.
+- **pending**: the prerequisite is absent. Write the status-table row with the prerequisite and the upstream issue URL.
+
+Verify for every gate task: the app's status-table row says `enabled <version>` (and 2.2, 8.3 and 8.20 pass with it) or `pending` (with the prerequisite and the URL).
+
+- [ ] 10.1 Add the live-control status table (all 13 apps: wave, state, prerequisite, page-API global, upstream issue) to `docs/craft-web-plugin.md` §14 via DocScribe. Verify: 13 rows; VectorCraft `enabled <version>` after 1.1.
+- [ ] 10.2 Gate FilmCraft (W2). Prerequisite: `add-craft-web-media-projects` has shipped the `.fcproj` edit claim. `window.filmcraft` exists upstream since 0.5. Check that the media-project mount (pushed media) leaves `window.filmcraft.request` working.
+- [ ] 10.3 Gate EffectCraft (W2). Prerequisite: `add-craft-web-media-projects` has shipped the `.ecproj` edit claim. `window.effectcraft` exists since 0.8 and is wrapped by the app's `web/index.html`. Check that it survives the post-install rewrite with `?nosw` and the worker trampoline.
+- [ ] 10.4 Gate GridCraft (W3). Prerequisite: an upstream release with `window.gridcraft.request`. Check the shared undo hazard and toggles (spike B) in the skill examples.
+- [ ] 10.5 Gate WordCraft (W3). Prerequisite: an upstream release with `window.wordcraft.request`. Record whether caret rebasing landed. If not, the skill's caret rule stays mandatory for WordCraft.
+- [ ] 10.6 Gate PhotoCraft (W3). Prerequisite: an upstream release with `window.photocraft.request`.
+- [ ] 10.7 Gate LightCraft (W3). Prerequisite: an upstream release with `window.lightcraft.request`.
+- [ ] 10.8 Gate PdfCraft (W3). Prerequisite: an upstream release with `window.pdfcraft.request`.
+- [ ] 10.9 Gate DesignCraft (W3). Prerequisite: an upstream release with `window.designcraft.request`.
+- [ ] 10.10 Gate SoundCraft (W3). Prerequisite: an upstream release with `window.soundcraft.request`.
+- [ ] 10.11 Gate DeckCraft (W3). Prerequisite: an upstream release with `window.deckcraft.request`.
+- [ ] 10.12 Gate CADCraft (W3). Prerequisite: an upstream release with `window.cadcraft.request`.
+- [ ] 10.13 Gate FigCraft (W3). Prerequisites: an upstream release with `window.figcraft.request` and a FigCraft editor-pane claim (separate change). Without the claim it stays `pending`, even if the API exists.
 
 ## Workflow follow-up
 
-- When upstream releases a control transport for another app: add its profile `control` entry plus e2e rows in a follow-up change; add a new profile `kind` if that transport is not `page-api`.
+- A `pending` app whose prerequisite later appears is enabled in a small follow-up change that runs the 10.x gate procedure. A transport other than `page-api` also needs a new profile `kind`.

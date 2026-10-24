@@ -6,7 +6,7 @@ Hard gate resolved: performance thresholds set by the user (routed p95 ≤ 600 m
 
 Test doubles:
 - **fakecraft**: the fixture app from design D8, served only with `PI_DASHBOARD_FIXTURE_PLUGINS=1`. It exposes `window.fakecraft.request`, an in-memory document, and the methods echo, sleep, oversize, malformed and save.
-- **VectorCraft**: L3 rows that name VectorCraft run in its per-app e2e row and only once the gate (task 1.1) is go.
+- **Control-enabled apps**: rows marked "per enabled app" run once for every profile with a `control` entry (VectorCraft from W1; FilmCraft, EffectCraft and W3 apps as their gates pass). The VectorCraft-specific rows run only once gate 1.1 is go.
 
 ## Scenarios
 
@@ -36,8 +36,9 @@ Test doubles:
 | E20 | Profile drift | decision-table | L1 | automated | profile table with `control` entries | `manifest.test.ts` | every `control` profile has `verifiedVersion` = registry `webVersion`, non-empty `allowedCommands`, read-only marks ⊆ `allowedCommands`, and no allowlisted command matches `/open\|import\|new\|close\|revert\|quit\|print\|url\|script\|macro\|batch/i`; frame profile contains only `{kind, global}` |
 | E21 | Fixture gate | EP | L1 | automated | server start without `PI_DASHBOARD_FIXTURE_PLUGINS`; with it set to `1` | craft-web registers | without the flag no fakecraft mount, profile or claim exists; with it they do |
 | E22 | Exactly one instance (two devices) | decision-table | L3 | automated | fakecraft doc open and visible in session S in two browser contexts; context A focused last | `craft_control` mutation | only A's document changes (`document.inspect` digest); B unchanged |
-| E23 | Agent addresses by path (happy) | EP | L3 | automated | VectorCraft `logo.svg` (gate go) open and visible; user selection made by a real click | `craft_control engine.execute` adding a rectangle | rectangle present in `document.inspect`; selection unchanged; no frame reload (`ready` count stays 1) |
+| E23 | Agent addresses by path (happy), per enabled app | EP | L3 | automated | each control-enabled app's e2e fixture document open and visible (VectorCraft: `logo.svg`); user selection made by a real click | `craft_control engine.execute` with the app's gate-recorded create command (VectorCraft: add a rectangle) | created object present in `document.inspect`; selection unchanged; no frame reload (`ready` count stays 1) |
 | E24 | Agent addresses by path (not open) | EP | L3 | automated | session S with no editor on `report.docx` | `craft_control` | `not-open`; file sha unchanged |
+| E26 | Opt-in per app (claim first) | decision-table | L1 | automated | profile tables: `control` on an app with an edit claim; on an app with no claim (FilmCraft before media projects, FigCraft); on a view-only claim | `profileErrors` | first valid; the other two report "control requires an edit claim" |
 | E25 | Opt-in per app | EP | L3 | automated | WordCraft `report.docx` open (no `control`) | `craft_control` | `unsupported`; no `control` message reaches the frame (frame message log) |
 
 ### Performance
@@ -78,16 +79,16 @@ Test doubles:
 | X13 | Isolation unchanged | fault-injection | L3 | automated | fakecraft with control enabled runs `fetch("https://example.com")` and `fetch("/api/health")` from inside the frame | page load | both refused by CSP (violation reported via `csp`), as in the existing F5 row |
 | X14 | Observe-only devices cannot claim | decision-table | L1 | automated | `craft-web/control-claim` and `craft-web/control-result` message types | `wsMessageTier(type)` | both resolve to `operate` (unlisted ⇒ operate), so an observe or control socket is rejected by the host gate |
 | X15 | Tool availability | fault-injection | L1 | automated | `requestPluginServer` stub answering `{ok:false,error:"unavailable"}`, `"no_handler"`, `"request_too_large"`, `"timeout"` | bridge tool call | tool errors `unavailable`, `no_handler`, `request_too_large`, `timeout` (outcome unknown) with readable messages |
-| X16 | VectorCraft gate | fault-injection | L3 | automated | VectorCraft (gate go): each read-only-marked command | run via `craft_control` | `document.inspect` digest identical before/after for every read-only command |
+| X16 | Enablement gate, per enabled app | fault-injection | L3 | automated | each control-enabled app (VectorCraft from gate go): each read-only-marked command | run via `craft_control` | `document.inspect` digest identical before/after for every read-only command |
 
 ---
 
 ## Coverage summary
 
 - Requirements covered: 10/10 (craft-live-control) + 1/1 (craft-web-editor delta, via X13, E17, E25)
-- Scenarios by class: edge 25 · perf 2 · frontend 7 · error 16
-- Scenarios by level: L1 30 · L3 19 · manual 1
-- Scenarios by disposition: automated 49 · manual-only 1
+- Scenarios by class: edge 26 · perf 2 · frontend 7 · error 16
+- Scenarios by level: L1 31 · L3 19 · manual 1
+- Scenarios by disposition: automated 50 · manual-only 1
 
 ## New infra needed
 

@@ -7,6 +7,7 @@ A Craft app open in the editor pane cannot be driven by the session it belongs t
 A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the full desktop control protocol inside their web builds. It runs every frame on the same `control_rx` channel the desktop TCP control server feeds; only a web transport is missing:
 
 - **VectorCraft ≥ 0.14** ships that transport upstream as `window.vectorcraft` (`request`, `execute`, `commands`, `inspect`, `screenshot`). We pin web 0.13.1.
+- **FilmCraft (≥ 0.5) and EffectCraft (≥ 0.8)** ship the same page API (`window.filmcraft`, `window.effectcraft`). Neither has an editor-pane claim yet; their project files are owned by `add-craft-web-media-projects`.
 - **GridCraft 0.11.1** (patched `host.rs`, ~70 lines) and **WordCraft 0.10.0** (new `control_bridge.rs`, ~90 lines), both built with trunk:
   - Embedded in our production sandbox and CSP; WordCraft also ran behind our real post-install shim.
   - Control requests round-trip in p50 7 ms (GridCraft) and 12 ms (WordCraft).
@@ -26,7 +27,11 @@ A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the fu
   - they mark the tab unsaved, so close, eviction and reload guards apply;
   - agent saves take exactly the user's save routing (save-target choice, first-overwrite notice, sibling question, conflicts); the agent reads the outcome afterwards (`host.state`) instead of waiting on dialogs;
   - a device download with no recent user input in the editor asks the user first, so agent-triggered exports never land silently, while the user's own exports work as before.
-- **Per-app opt-in** via a new profile field `control`. It includes a per-app allowlist of nested commands, valid only for the verified build version. Apps without it report `unsupported`. Ships enabled for **VectorCraft only**, gated by re-verifying its web build at a version ≥ 0.14 (pin bump from 0.13.1). If that gate fails, the change does not ship. GridCraft and WordCraft get the profile entry once upstream releases a web transport. The upstream ask is tracked as a task, not shipped code.
+- **Per-app opt-in** via a new profile field `control`. It includes a per-app allowlist of nested commands, valid only for the verified build version. Apps without it report `unsupported`. Every app is enabled only through the same per-app gate (re-spike under the production sandbox, derived allowlist, e2e rows). Rollout waves:
+  - **W1, VectorCraft** (web ≥ 0.14, pin bump from 0.13.1). This gate blocks the change: if it fails, nothing ships.
+  - **W2, FilmCraft and EffectCraft**: their page APIs already exist. Each is enabled once `add-craft-web-media-projects` has shipped its `.fcproj` / `.ecproj` edit claim (see Dependencies).
+  - **W3, the other ten apps** (GridCraft, WordCraft, PhotoCraft, LightCraft, PdfCraft, DesignCraft, SoundCraft, DeckCraft, CADCraft, FigCraft): each is enabled once upstream releases `window.<app>.request`. FigCraft also needs an editor-pane claim, which is out of scope here.
+  - A W2/W3 gate whose prerequisite is absent when the change ships ends as a recorded "pending" row (prerequisite + upstream issue URL), so the change does not wait on upstream. Enabling it later is a small follow-up using the same gate.
 - **User visibility:** the tab shows a non-blocking "agent is editing" indicator while a request is in flight, and every agent request is listed in a per-tab activity log. Edits stay undoable by the user through the app.
 - **Skill `craft-live-edit`** (shipped with the craft-web plugin, next to its tool):
   - when to use live control vs `pi-craft` headless;
@@ -46,7 +51,7 @@ A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the fu
 ## Impact
 
 - `packages/craft-web-plugin`:
-  - `src/shared/app-profiles.ts` (`control` field, VectorCraft entry);
+  - `src/shared/app-profiles.ts` (`control` field; entries for the apps whose gate passes);
   - `src/shim/craft-shim.js` (v3: relay, `SHIM_VERSION` bump → re-prepare);
   - `src/client/frame-session.ts` + `CraftFrame.tsx` (relay, indicator, activity log);
   - `src/client/` control registry (`usePluginMessage` / `usePluginSend`);
@@ -54,13 +59,18 @@ A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the fu
   - new `src/bridge/` entry (`craft_control` tool);
   - `.pi/skills/craft-live-edit/`;
   - `package.json` manifest (bridge, `pi.skills`).
-- `packages/craft-apps`: VectorCraft `webVersion` bump in `src/registry.ts` after its web spike; `craft-studio` links the new skill.
-- Shim v3 plus a `control` entry in VectorCraft's frame profile → only VectorCraft re-prepares, which its version bump forces anyway. Other apps keep their current trees and `minShimVersion`.
+- `packages/craft-apps`: `webVersion` bumps in `src/registry.ts` for each app whose gate passes (VectorCraft at least); `craft-studio` links the new skill.
+- Shim v3 plus a `control` entry in an app's frame profile → that app re-prepares, which its version bump forces anyway. FilmCraft and EffectCraft get their entry together with their new claims. Other apps keep their current trees and `minShimVersion`.
+- `docs/craft-web-plugin.md`: a live-control status table for all 13 apps (state, prerequisite, upstream issue).
 - No core changes: uses existing seams (request/reply lane, operate-tier plugin browser messages, session-scoped broadcast). The server never sends on a raw socket.
-- Upstream dependency (not code here): web control transports for GridCraft, WordCraft and the other Craft apps, plus WordCraft caret rebasing. Draft issue and patches: `/tmp/spikeB/upstream/`.
+- Upstream dependency (not code here): a `window.<app>` page API, as VectorCraft, FilmCraft and EffectCraft already ship, for the ten W3 apps, plus WordCraft caret rebasing. A page API runs inside the frame, so it needs no cross-origin support. Draft issue: `/tmp/spikeB/upstream/ISSUE.md`.
+
+## Dependencies
+
+- **`add-craft-web-media-projects`**: W2 only. FilmCraft and EffectCraft documents can be open in the pane only after that change ships their `.fcproj` / `.ecproj` edit claims. W1 and the shared machinery do not depend on it. If it records a no-go, W2 ends as recorded "pending" rows.
 
 ## Discipline Skills
 
 - `security-hardening`: new agent→frame command path. Who may drive whose open document (session scoping is a correctness guard, not authentication; multi-device viewers; observe-only clients); replies from a third-party bundle flow into the model as untrusted data; the relay must not widen frame isolation.
 - `observability-instrumentation`: new external-call path. Per-request outcome counters (ok / not-open / ambiguous / timeout / unsupported) and latency, in line with the existing craft-web telemetry counters.
-- `doubt-driven-review`: the shim message contract and the proposed upstream `craft:control` naming are effectively public protocol; review them before they stand.
+- `doubt-driven-review`: the shim message contract and the `window.<app>` page-API shape we ask upstream to adopt are effectively public protocol; review them before they stand.
