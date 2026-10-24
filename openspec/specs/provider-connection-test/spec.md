@@ -8,7 +8,7 @@ auth-error / unreachable / not-tested) in Settings → Providers.
 
 ### Requirement: Server exposes POST /api/providers/test
 
-The dashboard server SHALL expose `POST /api/providers/test` behind the localhost/auth network guard. The endpoint accepts `{ name?: string, baseUrl: string, apiKey: string, api: string }` and performs a live HTTP probe against the provider using the per-API-type request shape, returning a structured pass/fail result.
+The dashboard server SHALL expose `POST /api/providers/test` behind the localhost/auth network guard. The endpoint accepts `{ name?: string, baseUrl: string, apiKey: string, api: string }` and performs a live HTTP probe against the provider using the per-API-type request shape, returning a structured pass/fail result. The probe SHALL NOT follow HTTP redirects, so the provider credential is only ever sent to the configured base URL.
 
 #### Scenario: openai-completions probe succeeds
 - **WHEN** the endpoint receives `{ baseUrl: "https://api.example.com/v1", apiKey: "sk-abc", api: "openai-completions" }`
@@ -56,6 +56,11 @@ The dashboard server SHALL expose `POST /api/providers/test` behind the localhos
 #### Scenario: Endpoint rejects non-local unauthenticated requests
 - **WHEN** the request arrives from a non-loopback, non-bypassed, non-authenticated origin
 - **THEN** the network guard SHALL reject the request before any upstream probe is issued
+
+#### Scenario: Provider answers with a redirect
+- **WHEN** the probe target answers `302` with `Location` pointing at another host
+- **THEN** the response SHALL be `{ ok: false, error: "<message naming the redirect>" }` with no `status` field
+- **AND** no request (and so no `x-api-key`, `Authorization` or `key` value) SHALL reach the redirect target
 
 ### Requirement: Test button on the custom-endpoint surface
 
