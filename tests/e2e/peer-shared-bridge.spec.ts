@@ -110,6 +110,7 @@ test("two dashboards sharing a bridge address: nobody advertises it, peers stay 
     )
     .toBe(true);
   expect(peers.find((p) => p.fingerprint === fpB)?.isLocal).toBe(false);
+  expect(peers.some((p) => p.fingerprint === fpA)).toBe(false); // A never lists itself
 
   // 2) Both dashboards advertise, and neither advert lists the shared address (both hold it on `bridge0`).
   for (const id of [a!, b!]) {
