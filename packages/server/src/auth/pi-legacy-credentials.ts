@@ -28,6 +28,7 @@ import {
   readPiSettings,
   withPiSettingsLock,
 } from "../pi-agent-settings.js";
+import { auditLine, auditPrefix } from "./audit-log.js";
 import {
   type AuthData,
   CredentialTypeConflictError,
@@ -278,6 +279,8 @@ async function writePhase(moves: Plan["moves"], deps: FsDeps): Promise<LegacyApp
       if (r === "exists") {
         return { ok: false, error: "conflict", message: `Providers already holds a credential for ${m.provider}`, legacy: currentLegacy(deps) };
       }
+      // System writer (no request here): provider id only, never the key (D2).
+      auditLine("provider-auth", "legacy_migrated", { provider: auditPrefix(m.provider, 64), actor: "system" });
     } catch (err) {
       const legacy = currentLegacy(deps);
       if (err instanceof CredentialTypeConflictError) {

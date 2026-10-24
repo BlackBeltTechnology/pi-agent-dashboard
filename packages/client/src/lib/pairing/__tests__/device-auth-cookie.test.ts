@@ -6,30 +6,39 @@
 import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../api/api-context.js";
+import { getInitialWsUrl, LAST_SERVER_KEY } from "../../api/server-switch.js";
 import {
-  clearDeviceBearer,
+  browserHolderBody,
   finishDevicePairing,
   getDeviceBearer,
   installDeviceAuthFetch,
   isDevicePaired,
   migrateLegacyDeviceBearer,
   mintWsTicket,
+  resetDeviceAuthRuntimeForTests,
+  startDeviceBearerRotation,
   storeDeviceBearer,
 } from "../device-auth.js";
 
 const LEGACY = "pi-dashboard:device-bearer";
+const SLOT = (origin: string) => `${LEGACY}:${origin}`;
+/** Every per-origin slot key currently in storage. */
+const slotKeys = () => Object.keys(localStorage).filter((k) => k.startsWith(`${LEGACY}:`));
 const MARKER = "pi-dashboard:device-paired";
 const res = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status });
 
 beforeEach(() => {
+  resetDeviceAuthRuntimeForTests();
   clearAccessToken();
-  clearDeviceBearer();
-  localStorage.removeItem(MARKER);
+  localStorage.clear();
   setGlobalApiBase("");
+  (window as unknown as { __piDeviceAuthFetch?: boolean }).__piDeviceAuthFetch = false;
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   setGlobalApiBase("");
+  localStorage.clear();
 });
 
 describe("finishDevicePairing", () => {
@@ -49,7 +58,7 @@ describe("finishDevicePairing", () => {
     expect(getDeviceBearer()).toBe("T");
     expect(isDevicePaired()).toBe(false);
   });
-  it("E36 cross-origin: no exchange, bearer stays", async () => {
+  it("E36 cross-origin: no exchange, bearer stays (per-origin slot)", async () => {
     setGlobalApiBase("https://other.example");
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
@@ -117,26 +126,111 @@ describe("F8 bearer kept until the cookie is proven", () => {
   });
 });
 
-describe("F2 legacy migration", () => {
-  it.each([
-    [() => res(200), { bearer: null, marker: "1" }],
-    [() => res(401), { bearer: null, marker: null }],
-    [() => { throw new Error("offline"); }, { bearer: "OLD", marker: null }],
-  ])("outcome %#", async (respond, want) => {
-    storeDeviceBearer("OLD");
-    vi.stubGlobal("fetch", vi.fn(async () => (respond as () => Response)()));
-    await migrateLegacyDeviceBearer();
-    expect(getDeviceBearer()).toBe(want.bearer);
-    expect(localStorage.getItem(MARKER)).toBe(want.marker);
-  });
-  it("E36 cross-origin leaves the legacy bearer alone", async () => {
-    setGlobalApiBase("https://other.example");
-    storeDeviceBearer("OLD");
-    const f = vi.fn();
+describe("AE56 legacy global slot is discarded on every path (replaces F2 migration)", () => {
+  /** Run client start (migrate + first fetches) and assert nothing legacy was exchanged, sent or copied. */
+  async function startAndAssertDiscarded(): Promise<void> {
+    localStorage.setItem(LEGACY, "old-tok");
+    const f = vi.fn(async () => res(200, { success: true }));
     vi.stubGlobal("fetch", f);
+    installDeviceAuthFetch();
     await migrateLegacyDeviceBearer();
-    expect(f).not.toHaveBeenCalled();
-    expect(getDeviceBearer()).toBe("OLD");
+    await window.fetch("/api/sessions");
+    await window.fetch("https://b.example/api/sessions");
+    expect(localStorage.getItem(LEGACY)).toBeNull();
+    const calls = f.mock.calls as unknown as [RequestInfo, RequestInit | undefined][];
+    for (const [input, init] of calls) {
+      expect(new Headers(init?.headers).get("Authorization") ?? "").not.toContain("old-tok");
+      expect(String(input)).not.toContain("/api/device-session");
+    }
+    expect(slotKeys()).toEqual([]);
+    expect(isDevicePaired()).toBe(false);
+  }
+
+  it("AE56 same-origin base", async () => {
+    await startAndAssertDiscarded();
+  });
+  it("AE56 cross-origin via the saved server (LAST_SERVER_KEY)", async () => {
+    localStorage.setItem(LAST_SERVER_KEY, "b.example:443");
+    setGlobalApiBase(new URL(getInitialWsUrl().replace(/^ws/, "http")).origin);
+    expect(getDeviceBearer()).toBeNull();
+    await startAndAssertDiscarded();
+  });
+  it("AE56 cross-origin via the VITE_API_URL early fallback", async () => {
+    vi.resetModules();
+    vi.doMock("../../api/api-context.js", async (orig) => ({
+      ...(await orig<typeof import("../../api/api-context.js")>()),
+      VITE_API_URL: "https://b.example",
+    }));
+    try {
+      const fresh = await import("../device-auth.js");
+      localStorage.setItem(LEGACY, "old-tok");
+      const f = vi.fn(async () => res(200, { success: true }));
+      vi.stubGlobal("fetch", f);
+      fresh.installDeviceAuthFetch();
+      await fresh.migrateLegacyDeviceBearer();
+      await window.fetch("https://b.example/api/sessions");
+      expect(localStorage.getItem(LEGACY)).toBeNull();
+      expect(f).toHaveBeenCalledTimes(1);
+      expect(new Headers((f.mock.calls[0] as unknown as [string, RequestInit])[1]?.headers).get("Authorization")).toBeNull();
+      expect(slotKeys()).toEqual([]);
+    } finally {
+      vi.doUnmock("../../api/api-context.js");
+      vi.resetModules();
+    }
+  });
+});
+
+describe("AE58 same-origin keep-failed bearer lives in the per-origin slot", () => {
+  it("AE58 stores the bearer in the page-origin slot, never the legacy key, and the next /api/ fetch carries it", async () => {
+    const f = vi.fn(async (url: string) =>
+      String(url).endsWith("/api/device-session") ? res(200, { success: true }) : String(url).endsWith("/api/favorite-models") ? res(401, {}) : res(200, {}),
+    );
+    vi.stubGlobal("fetch", f);
+    const result = await finishDevicePairing("T");
+    expect(result).toEqual({ keepFailed: true }); // the landing renders the user notice from this flag
+    expect(JSON.parse(localStorage.getItem(SLOT(window.location.origin)) ?? "null")).toEqual({ token: "T" });
+    expect(localStorage.getItem(LEGACY)).toBeNull();
+    installDeviceAuthFetch();
+    await window.fetch("/api/anything");
+    const last = f.mock.calls.at(-1) as unknown as [RequestInfo, RequestInit];
+    expect(new Headers(last[1].headers).get("Authorization")).toBe("Bearer T");
+  });
+});
+
+describe("AE54 holder:\"browser\" is declared only for a cross-origin API", () => {
+  const bodies = (f: ReturnType<typeof vi.fn>) =>
+    (f.mock.calls as unknown as [RequestInfo, RequestInit | undefined][]).map(([, init]) => String(init?.body ?? ""));
+
+  it("AE54 same-origin, cookie proven: no holder on any request", async () => {
+    const f = vi.fn(async () => res(200, { success: true }));
+    vi.stubGlobal("fetch", f);
+    expect(browserHolderBody()).toEqual({});
+    await finishDevicePairing("T");
+    expect(bodies(f).some((b) => b.includes("holder"))).toBe(false);
+  });
+  it("AE54 same-origin, cookie-only check fails (keep-failed): no holder, and rotation never runs", async () => {
+    const f = vi.fn(async (url: string) => (String(url).endsWith("/api/device-session") ? res(200, {}) : res(401, {})));
+    vi.stubGlobal("fetch", f);
+    expect(browserHolderBody()).toEqual({});
+    expect(await finishDevicePairing("T")).toEqual({ keepFailed: true });
+    await startDeviceBearerRotation();
+    expect(bodies(f).some((b) => b.includes("holder"))).toBe(false);
+    expect(f.mock.calls.some((c) => String(c[0]).includes("/rotate"))).toBe(false);
+  });
+  it("AE54 cross-origin pairing: the declaration is added to the pairing request body", () => {
+    setGlobalApiBase("https://other.example");
+    expect(browserHolderBody()).toEqual({ holder: "browser" });
+    expect({ pendingId: "p1", ...browserHolderBody() }).toEqual({ pendingId: "p1", holder: "browser" });
+  });
+  it("AE54 cross-origin rotation: the rotate body declares holder:browser", async () => {
+    setGlobalApiBase("https://other.example");
+    storeDeviceBearer("T1", Date.now() + 7 * 86_400_000);
+    const f = vi.fn(async () => res(200, { token: "T2", expiresAt: Date.now() + 7 * 86_400_000 }));
+    vi.stubGlobal("fetch", f);
+    await startDeviceBearerRotation();
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://other.example/api/paired-devices/rotate");
+    expect(JSON.parse(String(init.body))).toEqual({ holder: "browser" });
   });
 });
 

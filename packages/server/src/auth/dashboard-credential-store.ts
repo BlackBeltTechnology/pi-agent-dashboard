@@ -26,6 +26,7 @@
  * See change: collapse-model-proxy-onto-modelruntime (D1).
  */
 import { isDeepStrictEqual } from "node:util";
+import { auditLine, auditPrefix } from "./audit-log.js";
 import {
   type AuthCredential,
   type AuthData,
@@ -238,6 +239,8 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
     switch (result.outcome) {
       case "written":
         this.recentlyWritten.set(providerId, { credential: result.credential, at: Date.now() });
+        // System writer (no request): provider id only, never a token (D2).
+        auditLine("provider-auth", "oauth_refreshed", { provider: auditPrefix(providerId, 64), actor: "system" });
         return result.credential;
       case "changed":
         if (isFreshOAuth(result.credential)) return result.credential;
@@ -296,6 +299,7 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
     return this.enqueue(providerId, signal, async () => {
       this.recentlyWritten.delete(providerId);
       await removeCredential(providerId, undefined, { createIfMissing: false, ...(signal ? { signal } : {}) });
+      auditLine("provider-auth", "removed", { provider: auditPrefix(providerId, 64), actor: "system" });
     });
   }
 }

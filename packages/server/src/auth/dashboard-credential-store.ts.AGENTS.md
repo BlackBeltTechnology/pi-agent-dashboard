@@ -1,3 +1,7 @@
 # dashboard-credential-store.ts — index
 
 `DashboardCredentialStore` — pi-ai `CredentialStore` over auth.json for the single runtime. `read` (any type; unlocked non-quarantining `tryReadAuthJson`, torn → one locked retry, tolerant `undefined`), `list` (same torn-read discipline), `modify(id, fn, {signal})` (per-provider in-process mutex shared with `delete`; locked snapshot; `fn` runs with file lock released, raced vs signal; abort → never persist; refresh-only: no stored OAuth / non-OAuth result / empty access → refused; CAS `writeRefreshedOAuth`: written / changed+fresh → stored / else named error; rejected `fn` → locked re-read adopts different fresh cred or names removed/replaced/corrupt; an UNEXPIRED credential this store persisted < 30 s ago (`RECENT_REFRESH_MS`) is returned without calling `fn` (expired → always refreshed), so one request's two auth resolutions never refresh a short-lived token twice), `delete` (`removeCredential(..., {createIfMissing:false})`, never creates auth.json). `isFreshOAuth` = pi's 5-min window (`OAUTH_REFRESH_WINDOW_MS`). `coordinationError` names provider + outcome only. Structural `RuntimeCredentialStore`. See change: collapse-model-proxy-onto-modelruntime.
+
+## harden-auth-credentials
+
+Audit lines, `actor=system` (no request, no `ip=`): `[provider-auth] oauth_refreshed provider=<id>` on CAS `written`; `[provider-auth] removed provider=<id>` after `delete`. Via `audit-log.ts`; never a token. See change: harden-auth-credentials.

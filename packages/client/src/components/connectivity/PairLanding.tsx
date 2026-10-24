@@ -17,7 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, useI18n } from "../../lib/i18n/i18n.js";
-import { finishDevicePairing } from "../../lib/pairing/device-auth.js";
+import { browserHolderBody, finishDevicePairing } from "../../lib/pairing/device-auth.js";
 import { challengeIdentity, postJson } from "../../lib/pairing/pair-protocol.js";
 import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
 import { decodePayloadString } from "../../lib/pairing/pairing-qr.js";
@@ -34,6 +34,8 @@ interface RedeemResult {
 interface PollResult {
   status: "pending" | "approved" | "rejected" | "unknown";
   token?: string;
+  /** Epoch ms; present only for a browser-holder pairing (cross-origin API). */
+  expiresAt?: number;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -51,7 +53,7 @@ async function findVerifiedUrl(payload: PairingPayload): Promise<string | null> 
   return null;
 }
 
-type PollOutcome = { token: string } | "rejected" | "unknown" | "cancelled";
+type PollOutcome = { token: string; expiresAt?: number } | "rejected" | "unknown" | "cancelled";
 
 /**
  * Poll `/api/pair/poll` until approved, rejected, or cancelled. Throws on
@@ -61,9 +63,12 @@ type PollOutcome = { token: string } | "rejected" | "unknown" | "cancelled";
  */
 async function pollForToken(url: string, pendingId: string, isCancelled: () => boolean): Promise<PollOutcome> {
   while (!isCancelled()) {
-    const poll = await postJson<PollResult>(url, "/api/pair/poll", { pendingId });
+    // `holder:"browser"` only when this browser keeps the bearer itself (cross-origin API).
+    const poll = await postJson<PollResult>(url, "/api/pair/poll", { pendingId, ...browserHolderBody() });
     if (isCancelled()) return "cancelled";
-    if (poll.status === "approved" && poll.token) return { token: poll.token };
+    if (poll.status === "approved" && poll.token) {
+      return typeof poll.expiresAt === "number" ? { token: poll.token, expiresAt: poll.expiresAt } : { token: poll.token };
+    }
     if (poll.status === "rejected") return "rejected";
     if (poll.status !== "pending") return "unknown";
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -128,9 +133,9 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
     else window.location.href = "/";
   }, [onPaired]);
 
-  const finishPaired = useCallback(async (token: string) => {
+  const finishPaired = useCallback(async (token: string, expiresAt?: number) => {
     issuedToken.current = token;
-    const result = await finishDevicePairing(token);
+    const result = await (expiresAt === undefined ? finishDevicePairing(token) : finishDevicePairing(token, expiresAt));
     if (result?.keepFailed) {
       setPhase("keepFailed");
       return;
@@ -164,7 +169,10 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
     // 2. REDEEM — trade the one-time code for a confirm code shown on THIS phone,
     // then 3. POLL — the operator types that code into the dashboard (D12).
     try {
-      const redeemed = await postJson<RedeemResult>(verifiedUrl, "/api/pair/redeem", { code: payload.code });
+      const redeemed = await postJson<RedeemResult>(verifiedUrl, "/api/pair/redeem", {
+        code: payload.code,
+        ...browserHolderBody(),
+      });
       if (cancelled.current) return;
       setConfirmCode(redeemed.confirmCode);
       setPhase("polling");
@@ -180,7 +188,7 @@ function QrPairLanding({ onPaired }: { onPaired?: (token: string) => void }) {
         setError(t("landing.err.expiredRejected", undefined, "Pairing expired or was rejected. Re-scan the QR to start over."));
         return;
       }
-      await finishPaired(outcome.token);
+      await finishPaired(outcome.token, outcome.expiresAt);
     } catch (err) {
       setPhase("error");
       setError(

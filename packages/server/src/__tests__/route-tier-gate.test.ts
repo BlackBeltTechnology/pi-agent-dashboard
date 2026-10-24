@@ -21,6 +21,7 @@ import { createMutationOriginGate } from "../auth/mutation-origin-gate.js";
 import { createRouteTierGate, type TierRefusal } from "../auth/route-tier-gate.js";
 import { admissionTrustedNetworks } from "../auth/trust-mode.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { registerBearerRotateRoute } from "../routes/pairing-routes.js";
 import { registerPluginRuntimeClientRoutes } from "../routes/plugin-runtime-client-routes.js";
 import { useTrustModeHome } from "../test-support/trust-mode-home.js";
 
@@ -101,6 +102,8 @@ async function mkApp(opts: { trusted?: string[] | (() => string[]) } = {}): Prom
     return { ok: true };
   });
   app.post("/api/ws-ticket", async () => ({ success: true }));
+  // The REAL rotate route (tier observe; bearer-only auth). See change: harden-auth-credentials (AE50).
+  registerBearerRotateRoute(app, { registry: reg });
   app.post("/api/fixture", async () => ({ success: true }));
   // Live-preview HTTP proxy patterns (live-server-proxy.ts). See change: add-passkey-user-auth.
   app.all("/live/:id/*", async () => ({ ok: true }));
@@ -498,5 +501,39 @@ describe("WE32 — POST /api/csp-reports/reset is an operate-tier route", () => 
     const res = await reset(app, { "x-test-cookie": "1", "x-test-tier": "control" });
     expect(res.statusCode).toBe(403);
     expect(cspStore.snapshot().dropped).toBe(1);
+  });
+});
+
+describe("AE50 — rotate is an observe-tier route, the CSP counter reset stays operate", () => {
+  const REMOTE = "203.0.113.9";
+
+  it("every tier may rotate; only operate passes the reset gate", async () => {
+    const { app, tokens } = await mkApp();
+    for (const tier of ["observe", "control", "operate"] as const) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/paired-devices/rotate",
+        remoteAddress: REMOTE,
+        headers: bearer(tokens[tier]),
+        payload: { holder: "browser" },
+      });
+      expect(res.statusCode, `${tier} rotate`).toBe(200);
+      expect(res.json().token).toEqual(expect.any(String));
+    }
+    // The tokens above were rotated (grace keeps the old ones valid for the reset calls below).
+    for (const tier of ["observe", "control"] as const) {
+      const res = await app.inject({ method: "POST", url: "/api/csp-reports/reset", remoteAddress: REMOTE, headers: bearer(tokens[tier]) });
+      expect(res.statusCode, `${tier} reset`).toBe(403);
+      expect(res.headers["www-authenticate"]).toContain("insufficient_scope");
+      expect(res.headers["www-authenticate"]).toContain('scope="operate"');
+    }
+    const ok = await app.inject({ method: "POST", url: "/api/csp-reports/reset", remoteAddress: REMOTE, headers: bearer(tokens.operate) });
+    expect(ok.statusCode).toBe(200);
+  });
+
+  it("the route→tier map lists rotate at observe", async () => {
+    const { routeTier } = await import("@blackbelt-technology/pi-dashboard-shared/route-tiers.js");
+    expect(routeTier("POST", "/api/paired-devices/rotate")).toBe("observe");
+    expect(routeTier("POST", "/api/csp-reports/reset")).toBe("operate");
   });
 });

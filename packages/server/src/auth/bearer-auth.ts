@@ -20,10 +20,12 @@
  *       (see `ws-ticket.ts`).
  */
 import type { TLSSocket } from "node:tls";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { auditLine, auditPrefix } from "./audit-log.js";
 import { hasProxyForwardingHeaders } from "./localhost-guard.js";
 import { isLoopbackRange } from "./loopback.js";
+import { isSecureOrigin } from "./secure-origin.js";
 
 /** Extract a `Bearer` token from an Authorization header, or null. */
 export function parseBearerHeader(authorization: string | undefined): string | null {
@@ -39,6 +41,10 @@ export function parseBearerHeader(authorization: string | undefined): string | n
 }
 
 export const DEVICE_COOKIE = "pi_dash_device";
+/** Route pattern of the browser-bearer rotation (the one route whose refusals are audited, D2). */
+export const ROTATE_ROUTE = "/api/paired-devices/rotate";
+/** 401 body for an expired browser bearer (distinct from revoked/unknown, which carry no `code`). */
+const BEARER_EXPIRED_BODY = { success: false as const, error: "bearer_expired", code: "bearer_expired" as const };
 /** 400 days — `PairedDeviceRegistry` rows carry no expiry; revocation is the kill switch. */
 const DEVICE_COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
 
@@ -58,13 +64,33 @@ function deviceCookieSecure(request: FastifyRequest, globalSecure: () => boolean
   // DIRECT only: a request carrying proxy-forwarding headers came through a TLS-terminating
   // proxy that may sit on another host/container (peer 172.x), and keeps the global rule.
   if (peer && !isLoopbackRange(peer) && !hasProxyForwardingHeaders(request.headers)) return false;
-  return globalSecure();
+  // The global rule is the ONE predicate shared with the OAuth state + session cookies:
+  // https base || loopback socket peer + Host equal to a live https tunnel origin.
+  // See change: harden-auth-credentials (D3).
+  return isSecureOrigin(request, globalSecure());
 }
 
 /** Pathname of a request URL (no query/fragment). */
 function pathnameOf(url: string): string {
   const q = url.search(/[?#]/);
   return q < 0 ? url : url.slice(0, q);
+}
+
+/**
+ * The device cookie's bearer. Authorization wins: the cookie is a fallback for
+ * `/api/*` URLs only and is never consulted when an Authorization header is present.
+ */
+function deviceCookieToken(request: FastifyRequest): string | null {
+  if (request.headers.authorization || !pathnameOf(request.url).startsWith("/api/")) return null;
+  return (request.cookies as Record<string, string | undefined> | undefined)?.[DEVICE_COOKIE] ?? null;
+}
+
+/** 401 `bearer_expired`; a refused ROTATION of a known device is also audited (A-G4): id prefix, reason, socket peer only. */
+function refuseExpired(request: FastifyRequest, reply: FastifyReply, deviceId: string): FastifyReply {
+  if (request.method === "POST" && request.routeOptions?.url === ROTATE_ROUTE) {
+    auditLine("pairing", "rotate_refused", { id: auditPrefix(deviceId), reason: "bearer_expired", ip: request.ip });
+  }
+  return reply.code(401).send(BEARER_EXPIRED_BODY);
 }
 
 /** Register the REST bearer onRequest branch. */
@@ -80,17 +106,19 @@ export function registerBearerAuth(
       /* already decorated by another plugin */
     }
   }
-  fastify.addHook("onRequest", async (request: FastifyRequest) => {
+  fastify.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
     if ((request as any).isAuthenticated) return;
     const headerToken = parseBearerHeader(request.headers.authorization);
-    // Authorization wins. The cookie is a fallback for `/api/*` URLs only and is
-    // never consulted when an Authorization header is present.
-    const cookieToken =
-      !request.headers.authorization && pathnameOf(request.url).startsWith("/api/")
-        ? ((request.cookies as Record<string, string | undefined> | undefined)?.[DEVICE_COOKIE] ?? null)
-        : null;
-    const token = headerToken ?? cookieToken;
-    const verified = token ? deps.registry.verify(token) : null;
+    const token = headerToken ?? deviceCookieToken(request);
+    const verdict = token ? deps.registry.verifyDetailed(token) : null;
+    // A PRESENTED Authorization bearer is always judged, before any network
+    // trust: an expired browser bearer is a distinct 401 the client re-pairs
+    // on, even from a loopback / trusted peer. (A cookie-carried bearer that
+    // expired falls through unauthenticated, like a revoked one.) Revoked,
+    // unknown and superseded-after-grace bearers stay a plain denial.
+    // See change: harden-auth-credentials (D5, A-G12).
+    if (verdict?.status === "expired" && headerToken) return refuseExpired(request, reply, verdict.id);
+    const verified = verdict?.status === "ok" ? verdict : null;
     if (verified) {
       (request as any).isAuthenticated = true;
       // Additive marker: HOW the request authenticated. `operatorGuard` on the

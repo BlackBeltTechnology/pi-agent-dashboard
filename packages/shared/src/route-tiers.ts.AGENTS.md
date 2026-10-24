@@ -67,3 +67,5 @@ improve-canvas-html-and-url-ux: `/api/live-server/:id/capability` now `observe` 
 `POST /api/csp-violations` observe, `GET /api/csp-violations` operate, `POST /api/nav-intent` + `/verify` observe. See change: harden-client-sinks.
 
 `POST /api/csp-reports/reset` at tier `operate`. See change: harden-cors-and-csp-reporting.
+
+`POST /api/paired-devices/rotate` = `observe` (bearer rotates itself). See change: harden-auth-credentials.

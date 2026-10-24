@@ -13,6 +13,7 @@
 
 import type { CatalogueReadyResponse, LegacyProviderIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance } from "fastify";
+import { auditLine, auditPrefix, auditRequestFields } from "../auth/audit-log.js";
 import { beginFlow, isPluginFlow } from "../auth/begin-flow.js";
 import {
   abortAllFlows,
@@ -157,9 +158,13 @@ export function registerProviderAuthRoutes(
     const out = readRadiusMcpStatus(radiusMcpDeps());
     return reply.code(out.status).send(out.body);
   });
-  fastify.post("/api/provider-auth/radius/mcp", async (_request, reply) => {
+  fastify.post("/api/provider-auth/radius/mcp", async (request, reply) => {
     await registryReady;
     const out = await configureRadiusMcp(radiusMcpDeps());
+    // Audit a configured outcome only (D2); `written` is a boolean, never request data.
+    if (out.status === 200) {
+      auditLine("provider-auth", "radius_mcp", { written: out.body.written === true, ...auditRequestFields(request) });
+    }
     return reply.code(out.status).send(out.body);
   });
 
@@ -235,6 +240,7 @@ export function registerProviderAuthRoutes(
         // polling, so the message travels in this response.
         return reply.code(500).send({ error: result.message });
       }
+      auditLine("provider-auth", "oauth_start", { provider: auditPrefix(provider, 64), ...auditRequestFields(request) });
       return toFlowStatus(result.flow);
     },
   );
@@ -262,6 +268,8 @@ export function registerProviderAuthRoutes(
         return reply.code(409).send({ error: "No input pending for this flow" });
       }
       resolve(typeof request.body?.value === "string" ? request.body.value : "");
+      // The value may be an auth code: only the flow id prefix is audited (D2).
+      auditLine("provider-auth", "flow_input", { flow: auditPrefix(request.params.flowId), ...auditRequestFields(request) });
       return reply.code(202).send({ ok: true });
     },
   );
@@ -290,6 +298,7 @@ export function registerProviderAuthRoutes(
         const authJsonKey = resolveAuthJsonKey(provider);
         const credential: ApiKeyCredential = { type: "api_key", key };
         await writeCredential(authJsonKey, credential);
+        auditLine("provider-auth", "key_set", { provider: auditPrefix(authJsonKey, 64), ...auditRequestFields(request) });
         notifyBridges();
         return { ok: true };
       } catch (err: any) {
@@ -329,6 +338,7 @@ export function registerProviderAuthRoutes(
         const isOAuthRow = oauthIdSet().has(rawId);
         const authJsonKey = resolveAuthJsonKey(rawId);
         await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key");
+        auditLine("provider-auth", "removed", { provider: auditPrefix(authJsonKey, 64), ...auditRequestFields(request) });
       } catch (err: any) {
         if (err instanceof CredentialTypeConflictError) {
           return reply.code(409).send({

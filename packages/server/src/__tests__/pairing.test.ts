@@ -12,6 +12,7 @@ import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing/pairing.js"
 import { MAX_DEVICE_LABEL_BYTES, registerPairingRoutes } from "../routes/pairing-routes.js";
 import { stampLegacyHook } from "../test-support/local-credential-stamp.js";
 import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";
+import * as rot from "./helpers/bearer-rotation-app.js";
 
 let tmpDir: string;
 let clock: number;
@@ -1168,5 +1169,49 @@ describe("E19 — configured networks extend knock eligibility", () => {
     cfg("pair", []);
     const { app } = await knockApp();
     expect((await knock(app, "192.168.16.31")).statusCode).toBe(200);
+  });
+});
+
+// ── AE75: the pairing response carries the first `expiresAt` (change: harden-auth-credentials, D5) ──
+describe("AE75 pairing response carries expiresAt for a browser holder", () => {
+  const post = (app: FastifyInstance, url: string, payload: Record<string, unknown>, headers: Record<string, string> = {}) =>
+    app.inject({
+      method: "POST",
+      url,
+      remoteAddress: "127.0.0.1",
+      headers: { "content-type": "application/json", ...headers },
+      payload,
+    });
+
+  it.each([
+    ["redeem", true],
+    ["poll", true],
+    ["redeem", false],
+  ] as const)("holder declared at %s=%s", async (where, browser) => {
+    const fake = rot.fakeClock();
+    try {
+      const { app, mgr } = await mkD2App({ localToken: "approve-local-token" });
+      const p = mgr.createPayload()!;
+      const redeemBody: Record<string, unknown> = { code: p.code };
+      if (browser && where === "redeem") redeemBody.holder = "browser";
+      const redeem = await post(app, "/api/pair/redeem", redeemBody);
+      const { pendingId, confirmCode } = redeem.json().data as { pendingId: string; confirmCode: string };
+      const approve = await post(
+        app,
+        "/api/pair/approve",
+        { code: p.code, confirmCode, label: "phone" },
+        { "x-pi-local-token": "approve-local-token" },
+      );
+      expect(approve.statusCode).toBe(200);
+      const pollBody: Record<string, unknown> = { pendingId };
+      if (browser && where === "poll") pollBody.holder = "browser";
+      const poll = (await post(app, "/api/pair/poll", pollBody)).json().data as Record<string, unknown>;
+      expect(poll.status).toBe("approved");
+      expect(typeof poll.token).toBe("string");
+      if (browser) expect(poll.expiresAt).toBe(rot.T0 + 604_800_000);
+      else expect("expiresAt" in poll).toBe(false);
+    } finally {
+      fake.restore();
+    }
   });
 });

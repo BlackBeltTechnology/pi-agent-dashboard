@@ -91,6 +91,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pi-trust/query", reason: "bridge-to-server trust query at project_trust; authenticated by the bridge's own credential, not an agent action" },
   { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
   { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
+  { pattern: "/api/paired-devices/rotate", reason: "browser device-bearer rotation; bearer-only credential plumbing (change: harden-auth-credentials)" },
   { pattern: "/api/pair/challenge", reason: "pairing ceremony" },
   { pattern: "/api/pair/payload", reason: "pairing ceremony" },
   { pattern: "/api/pair/poll", reason: "pairing ceremony" },

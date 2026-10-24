@@ -210,4 +210,31 @@ test.describe.serial("config-override-oauth-redirect-base", () => {
       .poll(() => mintedRedirectUri(request), { timeout: 15_000, intervals: [250] })
       .toBe(`${BASE_B}/auth/callback/${PROVIDER}`);
   });
+
+  // AF6 — the `Secure` attribute is observable through the rendered login redirect.
+  // See change: harden-auth-credentials (D3, test-plan AF6). With a PLAIN-http base
+  // and a host-side (non-loopback) peer there is no live-tunnel branch, so neither
+  // the base nor `X-Forwarded-Proto: https` can flip `Secure` on: the header is never
+  // trusted (Fastify runs with `trustProxy` off).
+  test("AF6: pi_dash_oauth_state is NOT Secure on a plain-http base, with or without X-Forwarded-Proto", async ({
+    request,
+  }) => {
+    const PLAIN_BASE = "http://pi-e2e-plain.example.com";
+    expect((await request.put("/api/config", { data: { auth: { redirectBaseUrl: PLAIN_BASE } } })).ok()).toBe(true);
+    await expect
+      .poll(() => mintedRedirectUri(request), { timeout: 15_000, intervals: [250] })
+      .toBe(`${PLAIN_BASE}/auth/callback/${PROVIDER}`);
+
+    for (const headers of [{}, { "X-Forwarded-Proto": "https" }] as Array<Record<string, string>>) {
+      const res = await request.get(`/auth/start/${PROVIDER}`, { maxRedirects: 0, headers });
+      expect(res.status(), `auth start must redirect (headers ${JSON.stringify(headers)})`).toBe(302);
+      const stateCookie = res
+        .headersArray()
+        .filter((h) => h.name.toLowerCase() === "set-cookie")
+        .map((h) => h.value)
+        .find((c) => c.startsWith("pi_dash_oauth_state="));
+      expect(stateCookie, "the 302 must set the OAuth state cookie").toBeTruthy();
+      expect(stateCookie, `no Secure for headers ${JSON.stringify(headers)}`).not.toMatch(/;\s*Secure/i);
+    }
+  });
 });

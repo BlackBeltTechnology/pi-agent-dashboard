@@ -5,3 +5,5 @@ Browser `/pair` landing — phone-camera counterpart of the Electron shell `Pair
 `/pair?request` (query, NO fragment) dispatches to request mode (`PairRequestLanding`); the QR fragment flow is unchanged. Renders `PairKeepFailedNotice` when `finishDevicePairing` reports `keepFailed`. See change: add-lan-knock-pairing.
 
 Constant / same-origin navigation sink carries a `client-sinks: allow — <reason>` annotation. See change: harden-client-sinks.
+
+QR flow sends `...browserHolderBody()` on redeem + poll (`{holder:"browser"}` only for a cross-origin API); poll's `expiresAt` flows to `finishDevicePairing(token, expiresAt)`. See change: harden-auth-credentials.

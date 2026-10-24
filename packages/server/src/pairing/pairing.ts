@@ -78,6 +78,13 @@ export interface RedeemMeta {
   remoteAddress?: string;
   /** Raw `X-Forwarded-For` header; only the first hop is kept. */
   forwardedFor?: string;
+  /**
+   * Holder declaration from the redeem / knock body. Only the exact string
+   * `"browser"` counts (anything else = no declaration): it makes the issued
+   * bearer expiring. Never displayed, never logged.
+   * See change: harden-auth-credentials (D5).
+   */
+  holder?: unknown;
 }
 
 /** Operator-facing view of one pending device — never carries a code (R5). */
@@ -130,6 +137,10 @@ interface PendingDevice {
   approveAttempts: number;
   /** Set once approved; the device polls to collect it. */
   issuedToken: string | null;
+  /** The device declared `holder:"browser"` at redeem / knock time. */
+  browserHolder: boolean;
+  /** Registry id of the row minted at approval (poll reads its expiry). */
+  deviceId?: string;
   /** Set once an operator denied it; the code is dead (D3). */
   rejected: boolean;
   userAgent?: string;
@@ -194,7 +205,7 @@ export type DenyResult = { ok: true } | { ok: false; error: "no_pending" };
 
 export type PollResult =
   | { status: "pending" }
-  | { status: "approved"; token: string }
+  | { status: "approved"; token: string; expiresAt?: number }
   | { status: "rejected" }
   | { status: "unknown" };
 
@@ -390,6 +401,7 @@ export class PairingManager {
       createdAt: this.now(),
       approveAttempts: 0,
       issuedToken: null,
+      browserHolder: meta.holder === "browser",
       rejected: false,
       userAgent: bound(meta.userAgent, MAX_UA_CHARS),
       viaHost: bound(meta.host, MAX_HOST_CHARS),
@@ -595,8 +607,10 @@ export class PairingManager {
       label ?? pending.label,
       "pairing",
       isTier(tier) ? tier : defaultTierForSource("pairing"),
+      pending.browserHolder ? "browser" : undefined,
     );
     pending.issuedToken = token;
+    pending.deviceId = device.id;
     // Drop the code so it can never be reused; keep the pending slot so the
     // device's next poll collects the token, then it self-expires via sweep.
     entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
@@ -607,16 +621,28 @@ export class PairingManager {
     return { ok: true, device };
   }
 
-  /** Device polls for its token after redemption. */
-  poll(pendingId: string): PollResult {
+  /** Expiry (epoch ms) for a collected token's row, converting it when `holder:"browser"` was declared late. */
+  private browserExpiry(pending: PendingDevice, holder: unknown): number | undefined {
+    if (pending.deviceId === undefined) return undefined;
+    return this.deps.registry.browserExpiryFor(pending.deviceId, pending.browserHolder || holder === "browser");
+  }
+
+  /**
+   * Device polls for its token after redemption. A `holder:"browser"` on the
+   * poll body (exact string only) also counts when it was not declared at
+   * redeem: the still-uncollected token's row becomes an expiring browser row.
+   * `expiresAt` (epoch ms) is returned only for an expiring row.
+   */
+  poll(pendingId: string, holder?: unknown): PollResult {
     this.sweep();
     for (const entry of this.codes.values()) {
       if (entry.pending?.pendingId === pendingId) {
         if (entry.pending.issuedToken) {
           const token = entry.pending.issuedToken;
+          const expiresAt = this.browserExpiry(entry.pending, holder);
           // One-shot: clear so the token isn't re-served, drop the code.
           this.codes.delete(entry.code);
-          return { status: "approved", token };
+          return expiresAt === undefined ? { status: "approved", token } : { status: "approved", token, expiresAt };
         }
         if (entry.pending.rejected) return { status: "rejected" };
         return { status: "pending" };

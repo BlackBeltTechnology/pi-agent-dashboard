@@ -599,3 +599,73 @@ describe("OAuth hook — the CSP report sink is public, narrowly (WE34)", () => 
     await a.close();
   });
 });
+
+// ── harden-auth-credentials (B17): the session cookie accepts HS256 only ──
+describe("OAuth hook — non-HS256 session JWTs are rejected (AE2, AE3)", () => {
+  const AUTH_SECRET = "test-secret-32-chars-long-abcdef";
+  const EXTERNAL = "203.0.113.9";
+  const claims = { sub: "u@example.com", name: "U", username: "u", provider: "github" };
+
+  async function app() {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const a = Fastify();
+    await registerAuthPlugin(a, {
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      port: 8000,
+    });
+    const reached = { n: 0 };
+    a.get("/api/sessions", async () => {
+      reached.n++;
+      return { ok: true };
+    });
+    a.get("/", async () => {
+      reached.n++;
+      return { ok: true };
+    });
+    await a.ready();
+    return { a, reached };
+  }
+  const cleared = (res: { headers: Record<string, unknown> }) =>
+    ([] as string[]).concat((res.headers["set-cookie"] as string[] | string | undefined) ?? []).some((c) =>
+      new RegExp(`^${COOKIE_NAME}=;`).test(c) && /Max-Age=0|Expires=Thu, 01 Jan 1970/i.test(c),
+    );
+
+  it("AE2 a correctly signed HS384 cookie → 401, cookie cleared, handler not reached", async () => {
+    const { a, reached } = await app();
+    const token = jwt.sign(claims, AUTH_SECRET, { algorithm: "HS384", expiresIn: "1h" });
+    const res = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: EXTERNAL, cookies: { [COOKIE_NAME]: token } });
+    await a.close();
+    expect(res.statusCode).toBe(401);
+    expect(cleared(res)).toBe(true);
+    expect(reached.n).toBe(0);
+    // Control: the same claims signed HS256 are admitted.
+    const ok = await (async () => {
+      const { a: b } = await app();
+      const r = await b.inject({ method: "GET", url: "/api/sessions", remoteAddress: EXTERNAL, cookies: { [COOKIE_NAME]: signToken(claims, AUTH_SECRET) } });
+      await b.close();
+      return r;
+    })();
+    expect(ok.statusCode).toBe(200);
+  });
+
+  // The pin classifies a non-HS256 token as INVALID (401, like a tampered one), not as expired.
+  // NOTE (spec gap, reported): the hook picks redirect-vs-401 from the `Accept` header, not from
+  // the rejection reason, so "(a) 302 / (b) 401" is exercised here with the Accept a browser
+  // navigation (a) / an API client (b) sends; see the ship-it report.
+  it("AE3 expired HS256 → 302 /auth/login + cleared; HS384 → 401 + cleared", async () => {
+    const { a, reached } = await app();
+    const expired = jwt.sign(claims, AUTH_SECRET, { algorithm: "HS256", expiresIn: -1 });
+    const hs384 = jwt.sign(claims, AUTH_SECRET, { algorithm: "HS384", expiresIn: "1h" });
+    const html = { accept: "text/html" };
+    const resA = await a.inject({ method: "GET", url: "/", remoteAddress: EXTERNAL, headers: html, cookies: { [COOKIE_NAME]: expired } });
+    const resB = await a.inject({ method: "GET", url: "/", remoteAddress: EXTERNAL, cookies: { [COOKIE_NAME]: hs384 } });
+    await a.close();
+    expect(resA.statusCode).toBe(302);
+    expect(String(resA.headers.location)).toMatch(/^\/auth\/login/);
+    expect(cleared(resA)).toBe(true);
+    expect(resB.statusCode).toBe(401);
+    expect(cleared(resB)).toBe(true);
+    expect(reached.n).toBe(0);
+  });
+});
