@@ -12,6 +12,8 @@ import type {
   FileHandlerSaveResult,
   FileHandlerSnapshot,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import { DOWNLOAD_CONFIRM_MS } from "../shared/control-protocol.js";
+import { ControlHost, type SaveOutcome } from "./control-host.js";
 import { type OpenOutcome, reportCsp, reportTelemetry } from "./craft-api.js";
 import { CRAFT_WEB_APPS, type CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
@@ -70,6 +72,8 @@ interface SessionUi {
   setExhausted(info: SiblingExhausted | null): void;
   setOffer(offer: DownloadOffer | null): void;
   setSaveError(message: string | null): void;
+  /** Live control: an export the agent triggered without user input asks before it downloads (D4). */
+  setDownloadConfirm?(prompt: { name: string } | null): void;
 }
 
 export interface SessionDeps {
@@ -81,6 +85,10 @@ export interface SessionDeps {
   saveTarget: () => SaveTarget;
   t: () => Translate;
   ui: SessionUi;
+  /** Per-instance opaque handle of live control (CSPRNG uuid). */
+  instanceId?: string;
+  /** Installed web build version when known (a mismatch with the control profile's `verifiedVersion` → unsupported). */
+  buildVersion?: string;
 }
 
 type SaveMsg = Extract<ShimMessage, { type: "save" }>;
@@ -113,9 +121,23 @@ export class FrameSession {
   private readonly loadListener = () => this.onLoad();
 
   private readonly d: SessionDeps;
+  /** Live agent control of this instance (policy, busy, replies, unsaved flag, save records). */
+  readonly control: ControlHost;
+  private downloadResolve: ((allow: boolean) => void) | null = null;
 
   constructor(deps: SessionDeps) {
     this.d = deps;
+    this.control = new ControlHost({
+      profile: deps.app.profile.control,
+      label: deps.app.label,
+      buildVersion: deps.buildVersion,
+      maxBytes: deps.app.maxBytes,
+      instanceId: deps.instanceId ?? "",
+      postControl: (id, method, params) => this.post({ type: "control", nonce: deps.nonce, id, method, params }),
+      isOpen: () => this.opened && !this.dropped,
+      snapshotState: () => ({ path: this.d.fh().path, unsaved: this.reported }),
+      onPendingChange: () => this.recompute(),
+    });
   }
 
   start(): void {
@@ -147,6 +169,8 @@ export class FrameSession {
     clearTimeout(this.blockedTimer);
     this.saveAsResolve?.("cancel");
     this.siblingResolve?.("cancel");
+    this.downloadResolve?.(false);
+    this.control.dispose();
     window.removeEventListener("message", this.listener);
     this.d.frame?.removeEventListener("load", this.loadListener);
   }
@@ -154,6 +178,11 @@ export class FrameSession {
   /** Save-as dialog button → resolves the pending prompt. */
   pickSaveAs(choice: SaveAsChoice): void {
     this.saveAsResolve?.(choice);
+  }
+
+  /** Download confirmation button (Allow / Block) → resolves the pending prompt. */
+  pickDownload(allow: boolean): void {
+    this.downloadResolve?.(allow);
   }
 
   /** Sibling dialog button → resolves the pending prompt. */
@@ -188,6 +217,17 @@ export class FrameSession {
     this.d.fh().setDirty(v);
   }
 
+  /**
+   * Unsaved state = the app's own dirty report, a copy save the tab's file still lacks, or an agent edit
+   * (`agentPending`, which a shim `dirty:false` cannot clear). Nothing is reported until one of them speaks.
+   */
+  private recompute(): void {
+    if (this.dropped) return;
+    const held = this.copyPending || this.control.agentPending;
+    if (this.appDirty === null && !held) return;
+    this.report((this.appDirty ?? false) || held);
+  }
+
   /** Frame lost (navigation / reload / failure): nothing further is ever sent to it. */
   private drop(next: Phase): void {
     if (this.dropped) return;
@@ -196,6 +236,8 @@ export class FrameSession {
     clearTimeout(this.openTimer);
     this.saveAsResolve?.("cancel");
     this.siblingResolve?.("cancel");
+    this.downloadResolve?.(false);
+    this.control.resetCaps();
     if (next === "reloaded") {
       this.d.ui.setLostEdits(this.reported !== false);
       // The document is gone with the frame: nothing unsaved is held any more.
@@ -223,7 +265,9 @@ export class FrameSession {
   private dispatch(m: ShimMessage): void {
     switch (m.type) {
       case "ready":
-        return this.onReady();
+        return this.onReady(m);
+      case "control-result":
+        return this.control.onFrameResult(m);
       case "opened":
         return this.onOpened(m.confirmed !== false);
       case "start-failed":
@@ -243,9 +287,10 @@ export class FrameSession {
     }
   }
 
-  private onReady(): void {
+  private onReady(m: Extract<ShimMessage, { type: "ready" }>): void {
     if (this.readySeen) return this.drop("reloaded");
     this.readySeen = true;
+    this.control.setCaps(m);
     clearTimeout(this.readyTimer);
     this.d.ui.setPhase("opening");
     this.snapP?.then(
@@ -297,7 +342,7 @@ export class FrameSession {
     // A view-only instance holds nothing to save, whatever the app reports.
     if (!this.opened || this.preview) return;
     this.appDirty = value;
-    this.report(value || this.copyPending);
+    this.recompute();
   }
 
   private onBlocked(): void {
@@ -318,20 +363,25 @@ export class FrameSession {
   // --- save mapping -----------------------------------------------------------------------
 
   private async handleSave(m: SaveMsg): Promise<void> {
+    // Every save message is numbered (live control reads the outcome back through `host.state`, design D5).
+    const seq = this.control.beginSave();
     if (this.saving) {
       this.d.ui.setSaveError(this.d.t()("saveBusy"));
       this.reply(false, "busy");
+      this.control.endSave(seq, "rejected");
       return;
     }
     this.saving = true;
+    let outcome: SaveOutcome = "rejected";
     try {
-      await this.routeAndSave(m);
+      outcome = await this.routeAndSave(m, this.control.saveMark());
     } finally {
       this.saving = false;
+      this.control.endSave(seq, outcome);
     }
   }
 
-  private async routeAndSave(m: SaveMsg): Promise<void> {
+  private async routeAndSave(m: SaveMsg, mark: number): Promise<SaveOutcome> {
     const route = routeSave({
       suggestedName: m.suggestedName,
       tabPath: this.d.fh().path,
@@ -344,22 +394,42 @@ export class FrameSession {
     });
     const remembered = this.rememberedSaveAs.get(saveNameKey(m.suggestedName));
     if (route === "download") {
+      // An export nobody asked for (the agent's, or a late one) must not download silently (design D4).
+      if (this.control.downloadConfirmApplies && typeof m.msSinceInput === "number" && m.msSinceInput > DOWNLOAD_CONFIRM_MS && !(await this.confirmDownload(m.suggestedName))) {
+        this.reply(false, "blocked");
+        return "denied";
+      }
       downloadToDevice(m.suggestedName, m.bytes, m.mime);
       this.reply(true);
-    } else if (route === "too-large") {
+      return "downloaded";
+    }
+    if (route === "too-large") {
       this.d.ui.setOffer({ name: m.suggestedName, bytes: m.bytes, mime: m.mime });
       this.reply(false, "too-large");
-    } else if (route === "sibling") {
-      await this.siblingSave(m);
-    } else if (route === "own") {
-      await this.workspaceSave(m.bytes, remembered ?? this.d.saveTarget());
-    } else {
-      const choice = await this.askSaveAs(m.suggestedName);
-      if (choice === "cancel") return this.reply(false, "cancelled");
-      // D10: an answer is remembered for later saves under the SAME suggested name only.
-      if (this.d.app.profile.saveName === "inner-title") this.rememberedSaveAs.set(saveNameKey(m.suggestedName), choice);
-      await this.workspaceSave(m.bytes, choice);
+      return "too-large";
     }
+    if (route === "sibling") return this.siblingSave(m);
+    if (route === "own") return this.workspaceSave(m.bytes, remembered ?? this.d.saveTarget(), mark);
+    const choice = await this.askSaveAs(m.suggestedName);
+    if (choice === "cancel") {
+      this.reply(false, "cancelled");
+      return "cancelled";
+    }
+    // D10: an answer is remembered for later saves under the SAME suggested name only.
+    if (this.d.app.profile.saveName === "inner-title") this.rememberedSaveAs.set(saveNameKey(m.suggestedName), choice);
+    return this.workspaceSave(m.bytes, choice, mark);
+  }
+
+  /** The agent-triggered download asks first: Allow / Block. A dropped frame counts as Block. */
+  private confirmDownload(name: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.downloadResolve = (allow) => {
+        this.downloadResolve = null;
+        if (!this.dropped) this.d.ui.setDownloadConfirm?.(null);
+        resolve(allow);
+      };
+      this.d.ui.setDownloadConfirm?.({ name });
+    });
   }
 
   /**
@@ -367,7 +437,7 @@ export class FrameSession {
    * (never overwrites), optionally open it in the native claim; or download; or cancel. The tab's own file
    * still lacks the edits, so the tab stays dirty.
    */
-  private async siblingSave(m: SaveMsg): Promise<void> {
+  private async siblingSave(m: SaveMsg): Promise<SaveOutcome> {
     const ext = splitName(m.suggestedName).ext;
     const tabPath = this.d.fh().path;
     const name = siblingName(tabPath, ext);
@@ -381,10 +451,14 @@ export class FrameSession {
       };
       this.d.ui.setSibling({ ext, name, canOpen });
     });
-    if (choice === "cancel") return this.reply(false, "cancelled");
+    if (choice === "cancel") {
+      this.reply(false, "cancelled");
+      return "cancelled";
+    }
     if (choice === "download") {
       downloadToDevice(m.suggestedName, m.bytes, m.mime);
-      return this.reply(true);
+      this.reply(true);
+      return "downloaded";
     }
     let res: FileHandlerSaveResult;
     try {
@@ -392,20 +466,23 @@ export class FrameSession {
     } catch (err) {
       res = { ok: false, reason: "rejected", message: err instanceof Error ? err.message : String(err) };
     }
-    if (this.dropped) return;
+    if (this.dropped) return "rejected";
     if (!res.ok) {
       if (res.reason === "conflict-unresolved") {
         const stem = name.slice(0, name.length - ext.length);
         this.d.ui.setExhausted({ name, first: `${stem}-2${ext}`, last: `${stem}-99${ext}`, offer: { name, bytes: m.bytes, mime: m.mime } });
-        return this.reply(false, "conflict");
+        this.reply(false, "conflict");
+        return "exhausted";
       }
-      return this.onSaveFailed(res.reason, res.message, ext);
+      this.onSaveFailed(res.reason, res.message, ext);
+      return failureOutcome(res.reason);
     }
     this.d.ui.setSaveError(null);
     this.copyPending = true;
-    this.report(true);
+    this.recompute();
     this.reply(true);
     if (choice === "create-open" && native) this.d.fh().openFile?.(res.path, native.claimId);
+    return "sibling";
   }
 
   private askSaveAs(name: string): Promise<SaveAsChoice> {
@@ -419,29 +496,35 @@ export class FrameSession {
     });
   }
 
-  private async workspaceSave(bytes: ArrayBuffer, target: SaveTarget): Promise<void> {
+  private async workspaceSave(bytes: ArrayBuffer, target: SaveTarget, mark: number): Promise<SaveOutcome> {
     let res: FileHandlerSaveResult;
     try {
       res = await this.d.fh().save(bytes, { target });
     } catch (err) {
       res = { ok: false, reason: "rejected", message: err instanceof Error ? err.message : String(err) };
     }
-    if (this.dropped) return;
+    if (this.dropped) return "rejected";
     // Core may turn an overwrite into a copy (first-overwrite notice, conflict dialog): the written
     // path decides. A copy is `<stem>.<suffix>.<ext>`, never the tab's own base name.
-    if (res.ok) this.onSaved(target === "overwrite" && baseName(res.path) === baseName(this.d.fh().path));
-    else this.onSaveFailed(res.reason, res.message);
+    if (res.ok) {
+      const own = target === "overwrite" && baseName(res.path) === baseName(this.d.fh().path);
+      this.onSaved(own, mark);
+      return own ? "saved" : "copy";
+    }
+    this.onSaveFailed(res.reason, res.message);
+    return failureOutcome(res.reason);
   }
 
-  private onSaved(own: boolean): void {
+  private onSaved(own: boolean, mark: number): void {
     this.d.ui.setSaveError(null);
     if (!own) {
       this.copyPending = true;
-      this.report(true);
     } else {
       this.copyPending = false;
-      if (this.appDirty !== null) this.report(this.appDirty);
+      // The tab's file now holds the edits, unless an agent edit landed after this save message (D6).
+      this.control.ownSaveAcked(mark);
     }
+    this.recompute();
     this.reply(true, undefined, own);
   }
 
@@ -451,4 +534,12 @@ export class FrameSession {
     if (reason === "rejected") reportTelemetry(this.d.app.id, { kind: "reject", ext });
     this.reply(false, reason);
   }
+}
+
+/** `host.state` outcome of a failed workspace save. */
+function failureOutcome(reason: string): SaveOutcome {
+  if (reason === "conflict-unresolved") return "conflict";
+  if (reason === "cancelled") return "cancelled";
+  if (reason === "too-large") return "too-large";
+  return "rejected";
 }

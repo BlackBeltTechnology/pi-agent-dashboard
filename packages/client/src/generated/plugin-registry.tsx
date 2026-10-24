@@ -1008,6 +1008,22 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "maxBytes": 134217728
             },
             {
+                "slot": "editor-pane-file-handler",
+                "component": "FakeCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "fakecraft",
+                "extensions": [
+                    ".fakecraft"
+                ],
+                "mode": "edit",
+                "label": "Edit in FakeCraft (test fixture)",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 1048576,
+                "copySuffix": "fakecraft"
+            },
+            {
                 "slot": "settings-section",
                 "component": "CraftWebSettings",
                 "module": "./src/client/CraftWebSettings.tsx",
@@ -1016,6 +1032,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         ],
         "client": "./src/client/index.tsx",
         "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
         "configSchema": "./configSchema.json",
         "defaultEnabled": false,
         "i18nCatalog": "catalog"
@@ -1033,6 +1050,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"deckcraft","extensions":[".pptx"],"mode":"edit","label":"Edit in DeckCraft","keepAlive":{"max":3},"maxBytes":104857600,"firstOverwriteNotice":"DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.","copySuffix":"deckcraft","siblingExtensions":[".deckcraft"],"validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DeckCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"deckcraft-native","extensions":[".deckcraft"],"mode":"edit","label":"Edit in DeckCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"DeckCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DeckCraft; slide features it does not support may change. A copy is the safe way to compare.","copySuffix":"deckcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DeckCraftNativeHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"lightcraft","extensions":[".dng",".cr2",".cr3",".nef",".arw",".raf",".orf",".rw2"],"mode":"preview","label":"View in LightCraft","keepAlive":{"max":3},"maxBytes":134217728}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "LightCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"fakecraft","extensions":[".fakecraft"],"mode":"edit","label":"Edit in FakeCraft (test fixture)","keepAlive":{"max":3},"maxBytes":1048576,"copySuffix":"fakecraft"}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "FakeCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/CraftWebSettings"), "CraftWebSettings") },
     ],
     catalog: craft_web_catalog,
@@ -1159,4 +1177,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "2273f7a93a95c7d71a6d846e02c36c48ace662844916fbbb8327b46c1b29dd44";
+export const PLUGIN_REGISTRY_HASH = "92e1fd2f90bb532f2abc865a28018ca61d8040373676bb608e7217870b124201";

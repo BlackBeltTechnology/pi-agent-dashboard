@@ -94,6 +94,13 @@ export const EN = {
   fixedLatestFailsToStart: "Newer web builds fail to start.",
   prepareSized: "Download {app} (about {size})",
   updateShim: "Update {app}",
+  // add-craft-live-control: agent activity (chip + log) and the agent-export confirmation (D4).
+  agentActive: "Agent: {method}",
+  agentLogTitle: "Agent activity ({count})",
+  agentLogBytes: "{bytes} B",
+  downloadConfirmTitle: "The editor wants to download {name}",
+  downloadAllow: "Allow",
+  downloadBlock: "Block",
 } as const;
 
 export type MsgKey = keyof typeof EN;

@@ -87,6 +87,11 @@ export interface CraftWebServiceDeps {
   provisionWeb: ProvisionWebFn;
   /** Is the `/apps/craft-<app>/` mount registered (restart-effective)? */
   isMounted: (app: string) => boolean;
+  /**
+   * Fixture apps (FakeCraft, `PI_DASHBOARD_FIXTURE_PLUGINS=1` only): a prepared tree the plugin builds itself, so
+   * their status is always `ok` and they have no prepare / config / registry entry.
+   */
+  fixtureApps?: readonly { app: string; version: string }[];
   /** Overrides of the provisioning seams (tests: fetch, env, apiBase…). */
   provisionDeps?: Partial<ProvisionDeps>;
   postInstall?: (ctx: WebPostInstallContext) => void | Promise<void>;
@@ -120,7 +125,11 @@ export interface CraftWebService {
 }
 
 /** Host-reported events (design D4 observability). */
-export type TelemetryEvent = { kind: "open"; outcome: "title" | "fallback" | "timeout" | "start-failed" } | { kind: "reject"; ext: string };
+export type TelemetryEvent =
+  | { kind: "open"; outcome: "title" | "fallback" | "timeout" | "start-failed" }
+  | { kind: "reject"; ext: string }
+  /** One live-control request (add-craft-live-control): outcome code (`ok` or an error code) and its duration. */
+  | { kind: "control"; outcome: string; ms: number };
 
 export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebService {
   const { logger } = deps;
@@ -332,6 +341,9 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
     status() {
       const apps: Record<string, AppStatus> = {};
       for (const app of CLAIMED_APPS) apps[app] = appStatus(app);
+      for (const f of deps.fixtureApps ?? []) {
+        apps[f.app] = { status: "ok", enabled: true, channel: "pinned", version: f.version, installedVersion: f.version, sizeGzip: 0, shimVersion: shimVersion(), preparing: false, cspViolations: cspCounts.get(f.app) ?? 0 };
+      }
       return { shimVersion: shimVersion(), apps };
     },
 
@@ -361,6 +373,12 @@ export function createCraftWebService(deps: CraftWebServiceDeps): CraftWebServic
 
     reportTelemetry(app, event) {
       if (!admit(telemetryWindow, app, "telemetry")) return false;
+      if (event.kind === "control") {
+        const line = `telemetry ${app} control outcome=${event.outcome} ms=${Math.round(event.ms)}`;
+        if (event.outcome === "ok") logger.info(line);
+        else logger.warn(line);
+        return true;
+      }
       const label = event.kind === "open" ? `open outcome=${event.outcome}` : `validator-reject ext=${event.ext}`;
       const key = `${app} ${label}`;
       telemetryCounts.set(key, (telemetryCounts.get(key) ?? 0) + 1);

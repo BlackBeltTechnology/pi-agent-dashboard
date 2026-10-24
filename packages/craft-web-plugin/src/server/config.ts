@@ -7,7 +7,12 @@ import type { WebChannel } from "@blackbelt-technology/pi-dashboard-craft-apps/p
 
 export interface CraftWebConfig {
   apps?: Record<string, { enabled?: boolean; version?: WebChannel } | undefined>;
+  /** Kill switch of live agent control (add-craft-live-control); `false` = every request answers `disabled`. */
+  liveControl?: boolean;
 }
+
+/** Live control is on unless the config explicitly sets `liveControl` to `false`. Read live. */
+export const liveControlEnabled = (config: CraftWebConfig | undefined): boolean => config?.liveControl !== false;
 
 /** Enabled unless the config explicitly sets `apps.<app>.enabled` to `false`. */
 export function appEnabled(config: CraftWebConfig | undefined, app: string): boolean {

@@ -9,6 +9,8 @@ import type { CraftAppProfile } from "./app-profiles.js";
 const OPENED_FALLBACK_MIN_MS = 1000;
 const OPENED_FALLBACK_MAX_MS = 15_000;
 
+const CONTROL_GLOBAL_RE = /^[a-z][a-z0-9-]{1,31}$/;
+
 const EXT_RE = /^\.[a-z0-9][a-z0-9.-]{0,15}$/;
 
 function oneProfile(p: CraftAppProfile): string[] {
@@ -29,6 +31,16 @@ function oneProfile(p: CraftAppProfile): string[] {
   }
   if (!Number.isInteger(p.minShimVersion) || p.minShimVersion < 1) at(`minShimVersion ${p.minShimVersion} must be a positive integer`);
   if (p.claims.length === 0) at("has no claims");
+  if (p.control) {
+    const c = p.control;
+    if (!p.claims.some((cl) => cl.mode === "edit")) at("control requires an edit claim");
+    if (!CONTROL_GLOBAL_RE.test(c.global)) at(`control global "${c.global}" must match ${CONTROL_GLOBAL_RE.source}`);
+    if (c.kind === "page-command" && !c.digestCommand) at("control kind page-command requires digestCommand");
+    if (c.allowedCommands.length === 0) at("control allowedCommands is empty");
+    const allowed = new Set(c.allowedCommands);
+    for (const sc of c.saveCommands) if (!allowed.has(sc)) at(`control saveCommands lists ${sc}, which is not in allowedCommands`);
+    for (const r of c.readOnlyCommands) if (!allowed.has(r)) at(`control readOnlyCommands lists ${r}, which is not in allowedCommands`);
+  }
   for (const c of p.claims) {
     if (c.maxBytes > HANDLER_MAX_BYTES) at(`claim ${c.id} maxBytes ${c.maxBytes} exceeds HANDLER_MAX_BYTES`);
     for (const e of [...c.extensions, ...(c.siblingExtensions ?? [])]) if (!EXT_RE.test(e)) at(`claim ${c.id} extension "${e}" is not lower-case with a leading dot`);

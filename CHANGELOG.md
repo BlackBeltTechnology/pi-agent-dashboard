@@ -80,6 +80,20 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Agents can now edit a document that is open in an editor pane, live (`craft_control`).** The craft-web plugin adds a
+  `craft_control({path, method, params?, instance?})` pi tool that runs one command in the editor tab the user is looking
+  at (VectorCraft `.svg` first, VectorCraft web build 0.16.0), with a `craft-live-edit` skill. One request reaches at most
+  one live, visible instance (probe → claim → run, path-matched per session; the most recently used device wins, else
+  `ambiguous`); the host allowlists `engine.execute` commands per app, caps replies at 192 KiB, keeps one request in
+  flight per tab and reports `timeout` as outcome unknown. Agent edits mark the tab unsaved (the app's own `dirty:false`
+  cannot clear it), agent saves go through the same save routing as the user's (notices, conflict and sibling dialogs) and
+  are read back with `host.state`, and an export the agent triggers without user input asks before it downloads. The tab
+  shows an "Agent: …" chip and a 50-row activity log. Kill switch: `plugins['craft-web'].liveControl: false`.
+  **Compatibility:** craft-web shim v2 → v3 (other apps' prepared trees keep loading, Settings offers an update);
+  VectorCraft's web build moves 0.13.1 → 0.16.0 and re-prepares once. Other apps stay `pending` until upstream ships a
+  page API (status table in `docs/craft-web-plugin.md` §14.9). Test-only: with `PI_DASHBOARD_FIXTURE_PLUGINS=1` the
+  plugin also mounts a FakeCraft fixture and a driver route.
+
 - **Session UI deep links for agents.** `GET /api/sessions` rows carry absolute `uiUrl` / `diffUrl`
   built from the origin the caller used (a matching public base or tunnel, an admitted `Host`, else
   `http://localhost:<port>`), and accept `?id=<id>` (exact id or a prefix of 8+ characters). A
