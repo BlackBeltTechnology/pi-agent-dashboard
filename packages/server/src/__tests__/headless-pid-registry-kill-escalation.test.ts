@@ -119,13 +119,13 @@ describe("headlessPidRegistry.killBySessionId — SIGKILL escalation", () => {
     });
     reg.linkByToken("tok", "S1", PI_PID);
 
+    // Even when the keeper already auto-exited, pi's orphaned children still sit in
+    // the keeper's process group: the fallback targets the group, not keeper liveness.
+    // Mark the keeper dead BEFORE any timer runs so a liveness guard would be caught.
+    isProcessAliveMock.mockReturnValue(false);
     const killPromise = reg.killBySessionId("S1");
     await vi.runOnlyPendingTimersAsync();
     await killPromise;
-
-    // Even when the keeper already auto-exited, pi's orphaned children still sit in
-    // the keeper's process group: the fallback targets the group, not keeper liveness.
-    isProcessAliveMock.mockReturnValue(false);
     vi.advanceTimersByTime(200);
     await Promise.resolve();
     expect(killProcessGroupMock).toHaveBeenCalledWith(KEEPER_PID, { timeoutMs: 2000 });
