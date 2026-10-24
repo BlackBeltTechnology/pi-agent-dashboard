@@ -2,7 +2,7 @@ import {
   createSlotRegistry,
   PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import type React from "react";
 import { useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -785,5 +785,32 @@ describe("SplitWorkspaceProvider — changed-on-disk verification", () => {
     h.onWatchFiles.mockClear();
     act(() => h.result.current.resyncWatch());
     expect(h.onWatchFiles).toHaveBeenCalledWith("sD", "/proj", ["foo.ts"]);
+  });
+});
+
+// change: fix-archived-session-view-header-and-stale-artifact-tab (D4, #X5)
+describe("SplitWorkspaceProvider — empty cwd guard", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("X5: sends no watch_files and no filename search while cwd is empty, then resumes with the real cwd", () => {
+    const onWatchFiles = vi.fn();
+    const onFilenameSearch = vi.fn();
+    let ctx!: ReturnType<typeof useSplitWorkspace>;
+    function Probe() {
+      ctx = useSplitWorkspace();
+      return null;
+    }
+    const mk = (cwd: string) => (
+      <SplitWorkspaceProvider sessionId="sE" cwd={cwd} orientation="h" onWatchFiles={onWatchFiles} onFilenameSearch={onFilenameSearch}>
+        <Probe />
+      </SplitWorkspaceProvider>
+    );
+    const { rerender } = render(mk(""));
+    act(() => ctx.openInSplit("src/foo.ts"));
+    act(() => ctx.onFilenameSearch("foo", false));
+    expect(onWatchFiles).not.toHaveBeenCalled();
+    expect(onFilenameSearch).not.toHaveBeenCalled();
+    rerender(mk("/proj"));
+    expect(onWatchFiles).toHaveBeenCalledWith("sE", "/proj", expect.any(Array));
   });
 });

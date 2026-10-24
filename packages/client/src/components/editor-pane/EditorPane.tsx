@@ -99,6 +99,7 @@ export function EditorPane() {
   const {
     sessionId,
     cwd,
+    cwdUnavailable,
     paneState: state,
     dispatch,
     updateSplit,
@@ -275,7 +276,7 @@ export function EditorPane() {
   // A handler-mode tab has no built-in viewer: no baseline read here (the handler's
   // `snapshot()` sets the baseline) and `refreshNonce` does not key it.
   const fileViewerKey =
-    activeTab && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerView
+    activeTab && cwd && !isPseudoTabViewer(activeTab.viewer) && !fh.handlerView
       ? `${sessionId}\u0000${cwd}\u0000${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${activeTab.autoOpened === true}`
       : null;
   useEffect(() => {
@@ -345,6 +346,15 @@ export function EditorPane() {
             // Plugin file-handler mode: the page-level layer aligns the live
             // instance over this anchor; CappedViewer is NOT mounted.
             <FileHandlerAnchor instanceKey={fh.activeKey} />
+          ) : !cwd ? (
+            // No folder to read from yet (archived session row still resolving, or its
+            // fetch failed): mount no viewer, so no `/api/file?cwd=` request is issued.
+            // See change: fix-archived-session-view-header-and-stale-artifact-tab (D4).
+            <div data-testid="editor-pane-cwd-pending" className="p-4 text-sm text-[var(--text-tertiary)]">
+              {cwdUnavailable
+                ? t("session.archivedUnavailable", undefined, "Archived session unavailable")
+                : t("session.archivedLoading", undefined, "Loading archived session…")}
+            </div>
           ) : changeDetection && baselineReadyKey !== viewerKey ? (
             // Baseline first (D2): the digest round-trip is the price of the
             // fail-safe ordering; a failed digest still resolves (null baseline).

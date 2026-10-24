@@ -147,6 +147,7 @@ import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
 import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
 import { createReplayPersister } from "./lib/replay/replay-persist.js";
+import { viewedSession } from "./lib/session/archived-read-only-session.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
@@ -411,38 +412,6 @@ function PiResourceFileRoute({
       onBack={onBack}
     />
   );
-}
-
-/**
- * Synthesize a header-only `DashboardSession` from an archived summary row
- * (read-only `?archived=1` open). Feeds `SessionHeader` when the session is
- * deliberately absent from the live `sessions` Map; it must NEVER be written
- * back into that Map.
- * See change: archive-sessions-lazy-load.
- */
-function archivedSummaryToSession(item: ArchivedSessionSummary): DashboardSession {
-  return {
-    id: item.id,
-    cwd: item.cwd,
-    name: item.name,
-    firstMessage: item.firstMessage,
-    source: "tui",
-    status: "ended",
-    startedAt: item.endedAt,
-    endedAt: item.endedAt,
-    tokensIn: 0,
-    tokensOut: 0,
-    cost: 0,
-    sessionFile: item.sessionFile,
-    gitWorktree: item.gitWorktree,
-    // Origin + retained completeness carried through, so a read-only open of an
-    // ARCHIVED REMOTE session still distinguishes a truncated transfer from a
-    // whole one. Dropping them here would silently present a partial
-    // conversation as complete on exactly the sessions whose origin host is
-    // gone. See change: serve-retained-remote-transcripts (task 2.2).
-    originDeviceId: item.originDeviceId,
-    retainedTranscript: item.retainedTranscript,
-  };
 }
 
 // Referentially-stable empty steering array so the common (no-pending) case
@@ -841,23 +810,27 @@ export default function App() {
   // fetched from `/api/sessions/archived/:id` to seed the header when the
   // session is not (and must not be) in the live `sessions` Map.
   const [archivedSummaryById, setArchivedSummaryById] = useState<Map<string, ArchivedSessionSummary>>(new Map());
+  // Ids whose summary fetch failed: the archived header + pane say "unavailable"
+  // instead of "loading". See change: fix-archived-session-view-header-and-stale-artifact-tab (D1b).
+  const [archivedSummaryFailed, setArchivedSummaryFailed] = useState<Set<string>>(new Set());
   // Fetch the summary that seeds the read-only header (skip when the id is
   // live-resident — a restored session renders from the `sessions` Map).
   useEffect(() => {
     const id = archivedReadOnlyId;
-    if (!id || sessions.has(id) || archivedSummaryById.has(id)) return;
+    if (!id || sessions.has(id) || archivedSummaryById.has(id) || archivedSummaryFailed.has(id)) return;
     let alive = true;
     fetchArchivedSessionById(id)
       .then((item) => {
         if (alive) setArchivedSummaryById((prev) => new Map(prev).set(id, item));
       })
       .catch(() => {
-        /* header stays lean; the transcript still renders via the replay */
+        // The transcript still renders via the replay; header + pane show "unavailable".
+        if (alive) setArchivedSummaryFailed((prev) => new Set(prev).add(id));
       });
     return () => {
       alive = false;
     };
-  }, [archivedReadOnlyId, sessions, archivedSummaryById]);
+  }, [archivedReadOnlyId, sessions, archivedSummaryById, archivedSummaryFailed]);
   const [snapshotGeneration, setSnapshotGeneration] = useState(0);
   // ── Session route resolution (add-session-ui-deep-links-for-agents D3) ──
   // `/session/:id` → canonical held id, with a server lookup for ids outside the
@@ -1858,6 +1831,9 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  // The editor pane's folder: live row, else the archived read-only row (the summary
+  // seeds `cwd`, so a restored tab probes with the archived folder, never an empty one).
+  const paneSession = viewedSession(selectedId, sessions, archivedReadOnlyId, archivedSummaryById);
   // ── Ended-session composer context (no live bridge to ask) ──────────────
   // Folder command list + model catalogue + the user's model/thinking pick for
   // an ENDED session. See change: redesign-directory-home-split (D9).
@@ -2499,10 +2475,11 @@ export default function App() {
     // the fetched summary. The synthesized session NEVER feeds the composer
     // (`readOnly` gates it off below).
     const readOnly = !frozen && selectedId === archivedReadOnlyId;
-    const archivedSummary = readOnly ? archivedSummaryById.get(selectedId) : undefined;
-    const selectedSession =
-      sessions.get(selectedId) ??
-      (archivedSummary ? archivedSummaryToSession(archivedSummary) : undefined);
+    // The URL says "read-only archived open" (`?archived=1`): the header drops every
+    // mutating control even if the id became live meanwhile (D1).
+    const archivedView = selectedId === archivedReadOnlyId;
+    const selectedSession = viewedSession(selectedId, sessions, readOnly ? archivedReadOnlyId : undefined, archivedSummaryById);
+    const headerSession = viewedSession(selectedId, sessions, archivedView ? archivedReadOnlyId : undefined, archivedSummaryById);
     const selectedCwd = selectedSession?.cwd;
     const selectedState = sessionStates.get(selectedId) ?? createInitialState();
     // Reconciled composer liveness: the server session status is authoritative when
@@ -2533,16 +2510,28 @@ export default function App() {
           <EmbedExit navigate={navigate} />
         </div>
       )}
+      {archivedView && !headerSession ? (
+        // Archived summary still loading / failed: a header-sized placeholder, never the
+        // empty `SessionHeader` branch ("No session selected"). See D1b.
+        <div
+          className="px-4 py-2 border-b border-[var(--border-primary)] text-sm text-[var(--text-tertiary)]"
+          data-testid="archived-header-placeholder"
+        >
+          {archivedSummaryFailed.has(selectedId)
+            ? t("session.archivedUnavailable", undefined, "Archived session unavailable")
+            : t("session.archivedLoading", undefined, "Loading archived session…")}
+        </div>
+      ) : (
       <SessionHeader
-        session={sessions.get(selectedId)}
+        session={headerSession}
         state={selectedState}
-        onRename={handleRenameSession}
+        onRename={archivedView ? undefined : handleRenameSession}
         allTags={allTags}
-        onSetTags={selectedId ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
-        onSeekToCard={selectedId ? () => seekToCard(selectedId) : undefined}
+        onSetTags={selectedId && !archivedView ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
+        onSeekToCard={selectedId && !archivedView ? () => seekToCard(selectedId) : undefined}
         showBack
         onBack={goBack}
-        onResume={!readOnly && selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
+        onResume={!readOnly && !archivedView && selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
         contextUsage={selectedContextUsage}
         showContextRing={selectedSession?.displayPrefsOverride?.contextUsageBar ?? displayPrefs?.contextUsageBar ?? true}
         renderViewMenu={selectedSession && !readOnly && selectedCwd && selectedId ? ({ iconOnly }) => (
@@ -2555,7 +2544,7 @@ export default function App() {
             />
           </Suspense>
         ) : undefined}
-        mobileActions={isMobile ? {
+        mobileActions={isMobile && archivedView ? { onRefresh: () => handleRefreshChat(selectedId) } : isMobile ? {
           openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,
           onArchive: () => handleArchiveSession(selectedId),
           onResume: (mode) => handleResumeSession(selectedId, mode),
@@ -2573,6 +2562,7 @@ export default function App() {
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
         onRefresh={() => handleRefreshChat(selectedId)}
       />
+      )}
       {!isMobile && (() => {
         // Effective pref = override ?? global ?? true (default visible while
         // prefs load). "Token stats bar" gates the butterfly chart + stats;
@@ -3235,7 +3225,8 @@ export default function App() {
         }>
           <SplitWorkspaceProvider
             sessionId={selectedId ?? ""}
-            cwd={selectedSession?.cwd ?? ""}
+            cwd={paneSession?.cwd ?? ""}
+            cwdUnavailable={!!selectedId && archivedSummaryFailed.has(selectedId)}
             orientation={isMobile ? "v" : "h"}
             fileResults={fileResults}
             onFilenameSearch={handleListFiles}

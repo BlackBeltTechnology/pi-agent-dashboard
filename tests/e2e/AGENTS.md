@@ -14,6 +14,7 @@ One row per file.
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |
+| `archived-session-view.spec.ts` | → `archived-session-view.spec.ts.AGENTS.md` |
 | `canvas-egress-banner.spec.ts` | L3 |
 | `canvas-loopback-url-chip.spec.ts` | L3 |
 | `canvas-static-mockup.spec.ts` | L3 |

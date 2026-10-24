@@ -48,6 +48,9 @@ export interface PendingScroll {
 export interface SplitWorkspaceContextValue {
   sessionId: string;
   cwd: string;
+  /** True when `cwd` is empty because the viewed session could not be resolved
+   *  (archived summary fetch failed), not because it is still loading. */
+  cwdUnavailable: boolean;
   split: SplitState;
   updateSplit: (patch: Partial<SplitState>) => void;
   /** Set the content-area layout mode (header segmented switch). */
@@ -175,6 +178,8 @@ const EMPTY_TERMINALS: TerminalSession[] = [];
 interface ProviderProps {
   sessionId: string;
   cwd: string;
+  /** Empty `cwd` is permanent (session row failed to resolve). See change: fix-archived-session-view-header-and-stale-artifact-tab (D4). */
+  cwdUnavailable?: boolean;
   /** Responsive orientation (`h` desktop / `v` stacked); mirrored into persisted state. */
   orientation: SplitOrientation;
   /** Bridge filename-walk result (from `App`); optional so tests can omit it. */
@@ -222,6 +227,7 @@ interface ProviderProps {
 export function SplitWorkspaceProvider({
   sessionId,
   cwd,
+  cwdUnavailable = false,
   orientation,
   fileResults = null,
   onFilenameSearch,
@@ -408,7 +414,8 @@ export function SplitWorkspaceProvider({
   const consumePendingScroll = useCallback(() => setPendingScroll(null), []);
 
   const noopFilenameSearch = useCallback((_q: string, _r: boolean) => {}, []);
-  const filenameSearch = onFilenameSearch ?? noopFilenameSearch;
+  // No request with an empty cwd (D4): the filename walk needs a real folder.
+  const filenameSearch = cwd && onFilenameSearch ? onFilenameSearch : noopFilenameSearch;
   const noopClear = useCallback((_path: string, _gen?: number) => {}, []);
   const clearCandidate = onClearChanged ?? noopClear;
 
@@ -473,6 +480,7 @@ export function SplitWorkspaceProvider({
     () => ({
       sessionId,
       cwd,
+      cwdUnavailable,
       split,
       updateSplit,
       setMode,
@@ -502,7 +510,7 @@ export function SplitWorkspaceProvider({
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, onFilenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
+    [sessionId, cwd, cwdUnavailable, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openStaticTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, onFilenameSearch, changedFiles, clearChanged, changeDetection, captureBaseline, trackedFileWrite, setBaseline, resyncWatch, terminal, terminalActivated],
   );
 
   return (
