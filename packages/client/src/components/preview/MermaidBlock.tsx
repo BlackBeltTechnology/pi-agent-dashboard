@@ -58,17 +58,25 @@ function cacheKey(code: string, themeId: string): string {
 // LLMs often produce mermaid code with minor issues that cause parse errors.
 // We fix the most common problems before handing the code to mermaid.render().
 
+const MERMAID_ENTITIES: Record<string, string> = {
+  "&gt;": ">",
+  "&lt;": "<",
+  "&amp;": "&",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+/** Single-pass decode: each entity is decoded once, so `&amp;quot;` yields `&quot;`, not `"`. */
+export function decodeMermaidEntities(input: string): string {
+  return input.replace(/&(?:gt|lt|amp|quot|#39);/g, (m) => MERMAID_ENTITIES[m] ?? m);
+}
+
 function sanitizeMermaidCode(raw: string): string {
   let code = raw.trim();
 
   // Decode HTML entities — react-markdown/rehype may encode special chars
   // inside code blocks (e.g. --> becomes --&gt;)
-  code = code
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  code = decodeMermaidEntities(code);
 
   // Remove common leading indentation (dedent) — mermaid is whitespace-sensitive
   const lines = code.split("\n");

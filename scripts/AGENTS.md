@@ -44,6 +44,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/fixtures/npm-view-stub.mjs` | Gate CLI npm-view stub. → see `__tests__/fixtures/npm-view-stub.mjs.AGENTS.md` |
 | `__tests__/helpers/ensure-dashboard-harness.mjs` | `makeCtx()` sandbox for the bootstrap tests: temp HOME, logging stub executables, fixture/pid helpers, async `run()`. |
 | `__tests__/helpers/fixture-dashboard-server.mjs` | Standalone fixture `/api/health` server (modes dashboard/wrong-pid/no-pid/recovery/foreign-html/hung); delayed bind, optional lock-meta write. |
+| `__tests__/i18n-parity-equivalence.test.mjs` | Runs `i18n-parity.mjs`: exit 0, stdout lists every on-disk plugin catalog (behaviour kept after the `execFileSync` argv conversion). See change: triage-codeql-alert-debt. |
 | `__tests__/merge-latest-mac.test.mjs` | Covers test-plan U6 for `merge-latest-mac.py`: the `minimu… → see `__tests__/merge-latest-mac.test.mjs.AGENTS.md` |
 | `__tests__/qa-pack-fixture-plugin.test.mjs` | Tests `qa/scripts/pack-fixture-plugin.mjs`. |
 | `__tests__/qa-dist-only-scripts.test.mjs` | Guards QA 47–51, #E103. → `__tests__/qa-dist-only-scripts.test.mjs.AGENTS.md` |

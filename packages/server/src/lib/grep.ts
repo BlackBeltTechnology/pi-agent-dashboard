@@ -4,13 +4,19 @@
  * `rg` is absent. Both return ranked `{ path, line, col, snippet }[]` with caps
  * on files, bytes per file, and total matches to bound response size.
  *
- * See change: split-editor-workspace.
+ * The JS fallback scan runs on a `worker_thread` (`grep-worker.ts`) terminated after
+ * `RG_TIMEOUT_MS`, so a catastrophic caller regexp cannot stall the server.
+ *
+ * See change: split-editor-workspace, triage-codeql-alert-debt (#216).
  */
 
 import { execFile } from "node:child_process"; // ban:child_process-ok rg spawn; needs promisify({stdout,stderr}) shape
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { Worker } from "node:worker_threads";
+import { workerExecArgv } from "../attachments/fit-worker-pool.js";
 import { isDashboardStateDirSync } from "./dashboard-state-guard.js";
 
 const execFileAsync = promisify(execFile);
@@ -245,20 +251,95 @@ export function grepWithJsScan(cwd: string, query: string, opts: GrepOptions = {
   return matches;
 }
 
-/** Run a content search, preferring `rg` when `rgPath` is set, else JS scan. */
+/** Rejection of a fallback scan that outlived its timeout (the route maps it to 504). */
+export class GrepTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`search timed out after ${timeoutMs}ms`);
+    this.name = "GrepTimeoutError";
+  }
+}
+
+/** Test seams for the worker-backed scan. */
+interface GrepScanOptions {
+  /** Scan timeout in ms. Default `RG_TIMEOUT_MS`. */
+  scanTimeoutMs?: number;
+  /** Worker entry URL override (tests force a failing entry). Default: sibling `grep-worker.ts`. */
+  scanWorkerUrl?: string;
+}
+
+/** Message the worker posts back: the scan result, or the error it threw. */
+export type GrepWorkerReply = { ok: true; matches: GrepMatch[] } | { ok: false; error: string };
+
+/** What the worker receives through `workerData`. */
+export interface GrepWorkerRequest {
+  cwd: string;
+  query: string;
+  opts: GrepOptions;
+}
+
+function defaultScanWorkerUrl(): string {
+  return pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), "grep-worker.ts")).href;
+}
+
+/**
+ * `grepWithJsScan` on a `worker_thread`, terminated after `scanTimeoutMs`. The caller's
+ * pattern is compiled and run only inside the worker, so catastrophic backtracking
+ * (`(a+)+$`) cannot stall the server's event loop. Rejects with `GrepTimeoutError` on
+ * timeout, or with the worker's error (throw on start, crash, early exit). The worker is
+ * always terminated before this settles; never leaves a rejection unhandled.
+ */
+function grepWithJsScanInWorker(
+  cwd: string,
+  query: string,
+  opts: GrepOptions & GrepScanOptions = {},
+): Promise<GrepMatch[]> {
+  const { scanTimeoutMs = RG_TIMEOUT_MS, scanWorkerUrl, ...scanOpts } = opts;
+  const workerUrl = scanWorkerUrl ?? defaultScanWorkerUrl();
+  return new Promise<GrepMatch[]>((resolveScan, rejectScan) => {
+    let settled = false;
+    let worker: Worker | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const settle = (done: () => void): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      // Fire-and-forget: terminate() rejects only if the worker is already gone.
+      if (worker) void worker.terminate().catch(() => {});
+      done();
+    };
+    try {
+      const request: GrepWorkerRequest = { cwd, query, opts: scanOpts };
+      worker = new Worker(new URL(workerUrl), { workerData: request, execArgv: workerExecArgv(workerUrl) });
+    } catch (err) {
+      settle(() => rejectScan(err));
+      return;
+    }
+    timer = setTimeout(() => settle(() => rejectScan(new GrepTimeoutError(scanTimeoutMs))), scanTimeoutMs);
+    worker.on("message", (reply: GrepWorkerReply) => {
+      settle(() => (reply.ok ? resolveScan(reply.matches) : rejectScan(new Error(reply.error))));
+    });
+    worker.on("error", (err) => settle(() => rejectScan(err)));
+    worker.on("exit", (code) => settle(() => rejectScan(new Error(`grep worker exited (code ${code}) without a result`))));
+  });
+}
+
+/**
+ * Run a content search, preferring `rg` when `rgPath` is set, else the worker-backed JS
+ * scan. An rg failure degrades to that scan, which is bounded by `scanTimeoutMs`.
+ */
 export async function runGrep(
   cwd: string,
   query: string,
-  opts: GrepOptions & { rgPath?: string | null } = {},
+  opts: GrepOptions & GrepScanOptions & { rgPath?: string | null } = {},
 ): Promise<GrepMatch[]> {
   const { rgPath, ...grepOpts } = opts;
   if (rgPath) {
     try {
       return await grepWithRipgrep(rgPath, cwd, query, grepOpts);
     } catch {
-      // rg failed (spawn / parse) — degrade to the JS scan rather than erroring.
-      return grepWithJsScan(cwd, query, grepOpts);
+      // rg failed (spawn / parse / rejected pattern) — degrade to the bounded scan.
+      return grepWithJsScanInWorker(cwd, query, grepOpts);
     }
   }
-  return grepWithJsScan(cwd, query, grepOpts);
+  return grepWithJsScanInWorker(cwd, query, grepOpts);
 }

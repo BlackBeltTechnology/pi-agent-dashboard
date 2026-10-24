@@ -17,7 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { grantedSubjects } from "../access/access-grants.js";
 import { decidePassive } from "../access/containment-gate.js";
 import { admitFileCwd, cwdAnchors } from "../lib/file-cwd-admission.js";
-import { runGrep } from "../lib/grep.js";
+import { GrepTimeoutError, runGrep } from "../lib/grep.js";
 import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import { detectRipgrep } from "../ripgrep-detection.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -34,6 +34,8 @@ export function registerGrepRoutes(
     networkGuard: NetworkGuard;
     /** Shared cwd admission. Absent → the known set is the `sessionManager`'s session cwds only. */
     routeAdmission?: RouteAdmissionDeps;
+    /** Test seams for the fallback scan: timeout and worker entry. Default `RG_TIMEOUT_MS` + `grep-worker.ts`. */
+    grep?: { scanTimeoutMs?: number; scanWorkerUrl?: string };
   },
 ) {
   const { sessionManager, networkGuard } = deps;
@@ -63,7 +65,19 @@ export function registerGrepRoutes(
       if (!admitted.ok) return sendGateFailure(reply, admitted.failure);
       const anchors = cwdAnchors(admitted);
 
-      let matches = await runGrep(admitted.cwd, q, { regex, rgPath: detectRipgrep() });
+      let matches: Awaited<ReturnType<typeof runGrep>>;
+      try {
+        matches = await runGrep(admitted.cwd, q, { regex, rgPath: detectRipgrep(), ...deps.grep });
+      } catch (err) {
+        // A fallback scan that outlived its timeout (e.g. a catastrophic regexp) → 504; any other
+        // scan failure (worker died) → 500. Never a 200 with stale or partial matches.
+        if (err instanceof GrepTimeoutError) {
+          reply.code(504);
+          return { success: false, error: "search timed out" } satisfies ApiResponse;
+        }
+        reply.code(500);
+        return { success: false, error: "search failed" } satisfies ApiResponse;
+      }
 
       // Gate 2 — containment: drop any match that resolves outside cwd. rg/JS
       // scan already stay under cwd, so this is a defensive backstop.

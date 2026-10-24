@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 // Catalog-parity check (D6). Asserts that every key in the source key set
 // (union of all authored keys) exists in every non-source language catalog.
 // Source (`en`) is intentionally empty (English lives at call sites), so the
@@ -26,13 +26,18 @@ const hu = keysFromObjectLiteral(huSrc, "huCatalog");
 
 // --- Plugin catalogs (plugin.<id>.* authored unprefixed) -------------------
 // Each plugin ships src/i18n.ts exporting `catalog: { "zh-CN": {...}, hu: {...} }`.
-const pluginCatalogs = execSync(
-  `find ${ROOT}/packages -path '*plugin*/src/i18n.ts' -not -path '*/node_modules/*' 2>/dev/null || true`,
-  { encoding: "utf8" },
-)
-  .trim()
-  .split("\n")
-  .filter(Boolean);
+// argv array, no shell (change: triage-codeql-alert-debt). A failed `find` yields no catalogs.
+let pluginCatalogOut = "";
+try {
+  pluginCatalogOut = execFileSync(
+    "find",
+    [path.join(ROOT, "packages"), "-path", "*plugin*/src/i18n.ts", "-not", "-path", "*/node_modules/*"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+} catch {
+  // empty result, as the former `2>/dev/null || true`
+}
+const pluginCatalogs = pluginCatalogOut.trim().split("\n").filter(Boolean);
 
 let failed = false;
 const report = (label, ref, target) => {

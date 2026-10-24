@@ -927,3 +927,23 @@ describe("built-in settings round-trip (E11)", () => {
     expect(settings.defaultTools).toEqual(["+codemode", "-bash"]);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// Pins the false-positive basis of CodeQL js/prototype-polluting-assignment on
+// `clearOwnedEntry`: `type` is restricted to four literals before any write.
+// See change: triage-codeql-alert-debt (design D3 #152/#153, test-plan #E7).
+// ────────────────────────────────────────────────────────────────────────
+
+describe("toggle type enum pin (E7)", () => {
+  it.each(["__proto__", "constructor"])("type %j is rejected with 400 and pollutes nothing", async (badType) => {
+    const before = Object.getOwnPropertyNames(Object.prototype).sort();
+    const res = await toggle({
+      type: badType as unknown as "skill",
+      filePath: path.join(tmpDir, ".pi", "skills", "x", "SKILL.md"),
+      enabled: false,
+    });
+    expect(res).toMatchObject({ ok: false, status: 400, error: "type must be extension|skill|prompt|theme" });
+    expect(Object.getOwnPropertyNames(Object.prototype).sort()).toEqual(before);
+    expect(Object.keys({})).toEqual([]);
+  });
+});

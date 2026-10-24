@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 // One-time codemod: migrate `auto.*` codemod keys to structured domain keys.
 // - Harvests every referenced `auto.*` key + its English call-site fallback.
 // - Assigns a structured key (domain-rooted, camelCase leaf) deterministically.
@@ -16,10 +16,17 @@ const I18N = path.join(CLIENT, "lib/i18n.tsx");
 const WRITE = process.argv.includes("--write");
 
 // ---- 1. Collect client source files ---------------------------------------
-const files = execSync(
-  `grep -rl '"auto\\.' ${CLIENT} --include='*.tsx' --include='*.ts'`,
-  { encoding: "utf8" },
-)
+// argv array, no shell (change: triage-codeql-alert-debt). No match / failed grep yields no files.
+let grepOut = "";
+try {
+  grepOut = execFileSync("grep", ["-rl", '"auto\\.', CLIENT, "--include=*.tsx", "--include=*.ts"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+} catch {
+  // empty result
+}
+const files = grepOut
   .trim()
   .split("\n")
   .filter((f) => f && !f.endsWith("lib/i18n.tsx"));

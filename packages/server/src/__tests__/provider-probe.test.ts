@@ -1,6 +1,9 @@
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildProbeRequest,
+  listProviderModels,
   type ProbeInput,
   probeProvider,
   resolveProbeApiKey,
@@ -367,5 +370,51 @@ describe("probeProvider against a stalled upstream (real fixture, P1/task 4.6)",
     } finally {
       await stalled.close();
     }
+  });
+});
+
+// Real HTTP servers: a provider that redirects must never get the credential
+// forwarded to the redirect target. See change: triage-codeql-alert-debt (design D3 #19).
+describe("probeProvider redirect handling (real servers)", () => {
+  const servers: Server[] = [];
+  const listen = async (handler: (req: IncomingMessage) => { status: number; headers?: Record<string, string>; body?: string }) => {
+    const seen: IncomingMessage[] = [];
+    const server = createServer((req, res) => {
+      seen.push(req);
+      const r = handler(req);
+      res.writeHead(r.status, { "content-type": "application/json", ...r.headers });
+      res.end(r.body ?? "");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
+  };
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((s) => new Promise((resolve) => s.close(resolve))));
+  });
+
+  it("302 to another host: target gets zero requests; probe is ok:false naming the redirect (probeProvider + listProviderModels)", async () => {
+    const b = await listen(() => ({ status: 200, body: JSON.stringify({ data: [{ id: "leak" }] }) }));
+    const a = await listen(() => ({ status: 302, headers: { location: `${b.url}/models` } }));
+    const input: ProbeInput = { baseUrl: a.url, apiKey: "SECRET", api: "anthropic-messages" };
+
+    const result = await probeProvider(input);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBeUndefined();
+      expect(result.error).toMatch(/redirect/i);
+      expect(result.error).not.toContain("SECRET");
+    }
+    expect(await listProviderModels(input)).toEqual([]);
+    expect(a.seen.length).toBe(2);
+    expect(b.seen.length).toBe(0);
+  });
+
+  // Regression guard (green before and after the fix): a plain 200 keeps working.
+  it("200 with a models list: ok:true with those models", async () => {
+    const a = await listen(() => ({ status: 200, body: JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] }) }));
+    const result = await probeProvider({ baseUrl: a.url, apiKey: "sk-abc", api: "openai-completions" });
+    expect(result).toEqual({ ok: true, status: 200, modelCount: 2, sample: ["m1", "m2"] });
+    expect((await listProviderModels({ baseUrl: a.url, apiKey: "sk-abc", api: "openai-completions" })).map((m) => m.id)).toEqual(["m1", "m2"]);
   });
 });
