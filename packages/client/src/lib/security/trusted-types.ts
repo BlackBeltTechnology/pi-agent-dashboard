@@ -492,8 +492,9 @@ function shadowAggregate(): ShadowAggregate {
 /**
  * Drain the pending tallies into one bounded report (`null` when nothing is pending). Entries are taken in
  * priority order up to {@link MAX_REPORT_KEYS} and {@link REPORT_MAX_BYTES}; the rest are summed into `overflow`.
- * The shadow aggregate (≤ 6 small keys) is always included. Shadow totals are NOT drained here: they are
- * acknowledged by {@link flushViolations} only after a 2xx.
+ * The shadow aggregate (≤ 6 small keys) is always included. Its counts are drained from `shadowTotals` here
+ * (so overlapping flushes cannot send or acknowledge the same count twice); {@link flushViolations} restores
+ * them when the send fails for a reason other than a 400.
  */
 function takeReport(): { report: ViolationReport; sentShadow: ShadowAggregate } | null {
   const shadow = shadowAggregate();
@@ -520,6 +521,7 @@ function takeReport(): { report: ViolationReport; sentShadow: ShadowAggregate } 
     }
   }
   const report: ViolationReport = { entries, ...(overflow > 0 ? { overflow } : {}), ...(hasShadow ? { shadow } : {}) };
+  for (const o of SHADOW_OUTCOMES) shadowTotals[o] -= shadow[o] ?? 0;
   return { report, sentShadow: shadow };
 }
 
@@ -533,9 +535,10 @@ function statusOf(res: unknown): number {
 }
 
 /**
- * Send the pending batch. Never throws. Entries are dropped on any failure; shadow totals are subtracted only
- * after a 2xx. A 400 (schema rejection, which a conforming client never triggers) discards them so it cannot
- * poison later reports, and counts one `shadow-error` so the loss is visible; any other failure keeps them.
+ * Send the pending batch. Never throws. Entries are dropped on any failure. Shadow counts are taken out of the
+ * running totals before the send and put back on any failure except a 400 (schema rejection, which a conforming
+ * client never triggers): a 400 discards them so it cannot poison later reports, and counts one `shadow-error`
+ * so the loss is visible.
  */
 export async function flushViolations(fetchFn: FetchFn = (i, init) => fetch(i, init)): Promise<void> {
   const taken = takeReport();
@@ -553,12 +556,12 @@ export async function flushViolations(fetchFn: FetchFn = (i, init) => fetch(i, i
   } catch {
     /* dropped — reporting never affects the UI */
   }
-  if (status >= 200 && status < 300) {
-    for (const o of SHADOW_OUTCOMES) shadowTotals[o] -= taken.sentShadow[o] ?? 0;
-  } else if (status === 400) {
-    for (const o of SHADOW_OUTCOMES) shadowTotals[o] -= taken.sentShadow[o] ?? 0;
+  if (status >= 200 && status < 300) return;
+  if (status === 400) {
     if (Object.keys(taken.sentShadow).length > 0) shadowTotals["shadow-error"] += 1;
+    return;
   }
+  for (const o of SHADOW_OUTCOMES) shadowTotals[o] += taken.sentShadow[o] ?? 0;
 }
 
 /** Listen for violations and flush every 30 s and on `pagehide`. Off mode: no-op. */

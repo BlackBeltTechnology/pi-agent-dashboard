@@ -454,6 +454,21 @@ describe("shadow transport (#E12–#E14, #X2)", () => {
     expect(bodyOf(second).shadow).toEqual(expected);
   });
 
+  it("E13b (review r1): overlapping flushes never double-acknowledge — totals end exactly at zero", async () => {
+    install("report");
+    __shadowTotalsForTests()["would-alter-html"] = 2;
+    let release: (v: unknown) => void = () => {};
+    const slow = vi.fn().mockReturnValue(new Promise((r) => (release = r)));
+    const first = flushViolations(slow);
+    await flushViolations(okFetch()); // overlaps the in-flight first send: nothing left to send, nothing to subtract
+    release({ ok: true, status: 200 });
+    await first;
+    expect(__shadowTotalsForTests()["would-alter-html"]).toBe(0);
+    const next = okFetch();
+    await flushViolations(next);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   const sources = (n: number) => `https://h/${"a".repeat(600)}${n}`;
   const violate = (directive: string, i: number) =>
     recordViolation({ effectiveDirective: directive, sample: `sink${i}|x`, sourceFile: sources(i), lineNumber: 1 });

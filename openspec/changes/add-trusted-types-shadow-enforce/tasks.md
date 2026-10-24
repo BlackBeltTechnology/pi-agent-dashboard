@@ -50,4 +50,4 @@
 
 - [x] 6.1 Delegate `docs/architecture.md` updates (§ Violation channel, § Trusted Types interaction: shadow outcomes, aggregate transport, persisted `ttShadow` + its `since`, health field, reset split view) to DocScribe
 - [x] 6.2 Run the full client and server unit suites
-- [ ] 6.3 Run `review-code` on the diff before commit
+- [x] 6.3 Run `review-code` on the diff before commit
