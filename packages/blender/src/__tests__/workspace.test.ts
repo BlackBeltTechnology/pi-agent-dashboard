@@ -124,6 +124,14 @@ describe("confineExisting / confineOutput", () => {
     expect(codeOf(() => confineExisting(root, "/etc/hosts"))).toBe("path-outside-root");
   });
 
+  it("a name that merely starts with two dots is inside the root, not an escape", () => {
+    const root = makeRoot();
+    fs.writeFileSync(path.join(root, "..hidden.obj"), "o");
+    expect(confineExisting(root, "..hidden.obj").rel).toBe("..hidden.obj");
+    expect(confineOutput(root, "..out/model.glb").rel).toBe("..out/model.glb");
+    expect(codeOf(() => confineOutput(root, "../x"))).toBe("path-outside-root");
+  });
+
   it("confineExisting: a file used as a directory is input-not-found (ENOTDIR)", () => {
     const root = makeRoot();
     fs.writeFileSync(path.join(root, "f.txt"), "x");

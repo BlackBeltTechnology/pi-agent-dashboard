@@ -219,7 +219,7 @@ Registration:
 
 | Var | Effect |
 |-----|--------|
-| `BLENDER_WASM_HOME` | cache root. Default `<PI_CODING_AGENT_DIR | ~/.pi/agent>/tools/blender-wasm` |
+| `BLENDER_WASM_HOME` | cache root. Default `<PI_CODING_AGENT_DIR or ~/.pi/agent>/tools/blender-wasm` |
 | `BLENDER_WASM_DIR` | use extracted runtime dir. No download |
 | `BLENDER_WASM_IDLE_SEC` | idle shutdown, default 600 |
 | `BLENDER_WASM_MAX_INPUT_MB` | lowers input cap (max 256 MiB) |

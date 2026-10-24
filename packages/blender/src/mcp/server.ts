@@ -100,6 +100,11 @@ export async function runServer(deps: ServerDeps): Promise<number> {
         return;
       }
       case "notifications/cancelled": {
+        // A notification carries no id; one that does is a malformed request and would wait for a reply forever.
+        if (hasId) {
+          fail(id, -32600, "notifications/cancelled is a notification and must not carry an id");
+          return;
+        }
         const requestId = isObject(msg.params) ? msg.params.requestId : undefined;
         if (typeof requestId === "string" || typeof requestId === "number") inflight.get(requestId)?.cancel();
         return;
@@ -119,8 +124,9 @@ export async function runServer(deps: ServerDeps): Promise<number> {
       fail(null, -32700, "parse error");
       return;
     }
-    if (!isObject(parsed)) {
-      fail(null, -32600, "invalid request");
+    if (!isObject(parsed) || parsed.jsonrpc !== "2.0") {
+      const id = isObject(parsed) && (typeof parsed.id === "string" || typeof parsed.id === "number") ? parsed.id : null;
+      fail(id, -32600, 'invalid request: a JSON-RPC 2.0 object ("jsonrpc": "2.0") is required');
       return;
     }
     handle(parsed as Rpc);

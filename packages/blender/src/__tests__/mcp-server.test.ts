@@ -142,6 +142,19 @@ describe("protocol subset", () => {
     expect(mcp.stderr).toEqual([]);
   });
 
+  it("a message without \"jsonrpc\": \"2.0\" is -32600 (keeping its id), and notifications/cancelled carrying an id is -32600", async () => {
+    const mcp = startMcp(new FakeSupervisor());
+    mcp.raw(JSON.stringify({ id: 5, method: "ping" }));
+    mcp.raw(JSON.stringify({ jsonrpc: "1.0", id: 6, method: "ping" }));
+    mcp.raw(JSON.stringify({ jsonrpc: "2.0", id: 7, method: "notifications/cancelled", params: { requestId: 1 } }));
+    expect((await mcp.send("ping").response).result).toEqual({});
+    await mcp.end();
+    const msgs = mcp.lines.map((l) => JSON.parse(l) as Msg);
+    expect(msgs.find((m) => m.id === 5)?.error?.code).toBe(-32600);
+    expect(msgs.find((m) => m.id === 6)?.error?.code).toBe(-32600);
+    expect(msgs.find((m) => m.id === 7)?.error?.code).toBe(-32600);
+  });
+
   it("E21: a supported requested protocol version is echoed; an unknown one gets the latest supported", async () => {
     const mcp = startMcp(new FakeSupervisor());
     expect(LATEST_PROTOCOL_VERSION).toBe("2025-06-18");

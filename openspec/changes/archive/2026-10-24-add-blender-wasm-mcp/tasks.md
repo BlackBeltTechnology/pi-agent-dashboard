@@ -168,7 +168,7 @@
   - `npm pack --dry-run` lists them;
   - `scripts/verify-published-imports.mjs` passes;
   - a pack-and-install smoke test (`npm pack`, install into a temp prefix, run `pi-blender status` from a plain shell) exits 0.
-- [ ] 5.4 CI: add a Node 24 job matrix (`ubuntu-latest`, `macos-latest`, `windows-latest`) to `.github/workflows/ci.yml` that sets `BLENDER_WASM_E2E=1` and runs `packages/blender`'s real-runtime suites, caching `<os tmp>/pi-blender-wasm-test-cache` keyed by OS + pin integrity; verify all three legs run green on the PR and the Node 22 jobs report those suites as skipped with the reason
+- [x] 5.4 CI: add a Node 24 job matrix (`ubuntu-latest`, `macos-latest`, `windows-latest`) to `.github/workflows/ci.yml` that sets `BLENDER_WASM_E2E=1` and runs `packages/blender`'s real-runtime suites, caching `<os tmp>/pi-blender-wasm-test-cache` keyed by OS + pin integrity; verify all three legs run green on the PR and the Node 22 jobs report those suites as skipped with the reason
 - [x] 5.5 Test E56, L1, EP, for cli: Dispatch: input `render`; no args; `--help`; trigger run `bin/pi-blender`; expect usage on stderr, exit 1; exit 1; exit 0. Harness exemplar: `packages/craft-apps/src/__tests__/craft-cli.test.ts` (test-plan #E56)
 - [x] 5.6 Test E57, L1, decision-table, for cli: ensure: input injected probe `native` / `flag` / `unavailable` × fetch spy; trigger `ensure --json`; expect `jspi` field matches; `unavailable` → exit 69, zero fetch. Harness exemplar: `packages/craft-apps/src/__tests__/craft-cli.test.ts` (test-plan #E57)
 - [x] 5.7 Test E58, L1, EP, for cli: status: input empty cache; fetch spy throws; trigger `status`; expect pinned version reported as not cached; exit 0; zero fetch. Harness exemplar: `packages/craft-apps/src/__tests__/craft-cli.test.ts` (test-plan #E58)
@@ -180,7 +180,7 @@
 - [x] 5.13 Test E64, L1, EP, for cli: Registration notes: input dir without `.git` and `.pi/`; trigger `mcp --register`; expect stderr has the 4 notes + the not-a-project-root warning. Harness exemplar: `packages/craft-apps/src/__tests__/mcp-register.test.ts` (test-plan #E64)
 - [x] 5.14 Test E67, L1, install, for cli: Executable from a shell: input `npm pack` tarball installed into a temp prefix; trigger `<prefix>/bin/pi-blender status` from a plain shell (no tsx); expect exit 0 with a status report. Harness exemplar: `packages/craft-apps/src/__tests__/packaging.test.ts` (test-plan #E67)
 - [x] 5.15 Test X21, ci, EP (real Node 22), for mcp: JSPI gate: input Node 22 CI unit shards with an empty cache; trigger the `jspi-gate` test calls `blender_scene` against the real probe; expect `jspi-unavailable`; no download (this is the real-probe path on the Node 22 legs). Harness exemplar: `.github/workflows/ci.yml (unit shard job)` (test-plan #X21)
-- [ ] 5.16 Test X25, ci, workflow, for ci: matrix: input PR touching `packages/blender`; trigger CI; expect Node 24 legs on ubuntu, macos and windows green; Node 22 shards report the L1-real suites as skipped with the reason and pass `verify-executed`. Harness exemplar: `.github/workflows/ci.yml (unit shard job)` (test-plan #X25)
+- [x] 5.16 Test X25, ci, workflow, for ci: matrix: input PR touching `packages/blender`; trigger CI; expect Node 24 legs on ubuntu, macos and windows green; Node 22 shards report the L1-real suites as skipped with the reason and pass `verify-executed`. Harness exemplar: `.github/workflows/ci.yml (unit shard job)` (test-plan #X25)
 
 ## 6. Skill, manifest and docs
 

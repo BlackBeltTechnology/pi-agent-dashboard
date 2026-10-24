@@ -18,6 +18,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { PIN } from "../pin.js";
 import { descendants, hostPidBelow, isAlive, type McpClient, SOCKET_GUARD, startServer, waitUntil } from "./helpers/mcp-client.js";
 import { describeReal, TEST_CACHE } from "./helpers/runtime.js";
 
@@ -402,8 +403,8 @@ const sha256File = (p: string): string => createHash("sha256").update(fs.readFil
 /** A fresh BLENDER_WASM_HOME holding a byte-for-byte copy of the shared valid cache. */
 function copiedHome(): { home: string; versionDir: string } {
   const home = tmpDir("blender-home-");
-  fs.cpSync(path.join(TEST_CACHE, "0.0.5"), path.join(home, "0.0.5"), { recursive: true });
-  return { home, versionDir: path.join(home, "0.0.5") };
+  fs.cpSync(path.join(TEST_CACHE, PIN.version), path.join(home, PIN.version), { recursive: true });
+  return { home, versionDir: path.join(home, PIN.version) };
 }
 
 /** Overwrite `len` bytes at the middle of `file` with 0xFF, keeping its size. */

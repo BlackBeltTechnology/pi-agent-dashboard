@@ -48,7 +48,8 @@ export function resolveRoot(cwd: string, rootArg: string | undefined): string {
 
 function inside(root: string, target: string): boolean {
   const rel = path.relative(root, target);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  // `..foo` is an ordinary name; only `..` itself or `..<sep>…` leaves the root.
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
 /** Normalise a client path to a safe POSIX relative path, or throw `path-outside-root` / `invalid-arguments`. */
