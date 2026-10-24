@@ -1,0 +1,3 @@
+blocked_by:
+  - change: add-trusted-types-shadow-enforce
+    reason: "The soak gate reads the persisted Trusted Types shadow counters (cspReports.ttShadow: would-block-script, would-block-script-url, would-alter-html, would-throw-html) and the per-source trusted-types-shadow entries in /api/csp-violations that add-trusted-types-shadow-enforce ships. The >=14-day soak can only start once that change is released."

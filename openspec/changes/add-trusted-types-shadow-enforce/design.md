@@ -95,7 +95,7 @@ No script-URL example here is claimed as shipping code. Today the only app worke
 - `recordShadow` calls `markDirty()`.
 - **Accepted residual:** a crash loses ≤ 5 s of counts (existing debounce).
 
-**D7b. Gate expectations for the flip change.** Evidence is valid only for a window that starts at or after `ttShadow.since`. Over that window, `not-evaluated` and `shadow-error` must be zero or triaged like `would-alter-html`, because a classification that never ran is not a zero. `would-alter-html` = 0 is necessary but not sufficient (D2 residual), so the visual spec under enforce stays a gate condition.
+**D7b. Gate expectations for the flip change.** Evidence is valid only for a window that starts at or after `ttShadow.since`. Over that window, `not-evaluated` and `shadow-error` must be zero, with no triage path, because a classification that never ran is not a zero. If the D4 budget produces `not-evaluated` on real traffic, the budget is resized in its own change. `would-alter-html` = 0 is necessary but not sufficient (D2 residual), so the visual spec under enforce stays a gate condition. The flip change (`enforce-trusted-types-default`) owns the full gate.
 
 **D8. Health exposure.** Whenever this server version emits `cspReports`, it carries `ttShadow: { since, "would-block-script": n, …all six… }`. Counts are plain numbers, zeros included, and there are no per-key timestamps. An absent `ttShadow` means the server predates this change.
 
