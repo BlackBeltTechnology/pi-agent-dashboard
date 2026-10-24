@@ -122,6 +122,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/custom-event-groups", tier: "observe" },
   { method: "GET", path: "/api/doctor", tier: "observe" },
   { method: "GET", path: "/api/events/:sessionId/:seq", tier: "observe" },
+  // add-agent-event-stream: read-only SSE feed of session/question transitions.
+  { method: "GET", path: "/api/events/stream", tier: "observe" },
   { method: "GET", path: "/api/favorite-models", tier: "observe" },
   { method: "GET", path: "/api/file", tier: "observe" },
   { method: "GET", path: "/api/file/digest", tier: "observe" },

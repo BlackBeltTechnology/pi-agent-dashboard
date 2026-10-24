@@ -283,6 +283,8 @@ import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmis
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
+import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
+import { registerAgentEventStreamRoutes } from "./routes/agent-event-stream-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
@@ -1439,6 +1441,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const replayState = createReplayState(config.replayTimings);
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
+  // Transition-only feed behind `GET /api/events/stream` (registry frames + question changes).
+  // See change: add-agent-event-stream.
+  const agentEventHub = createAgentEventHub({
+    listQuestionRows: () => questionStore.listRows(),
+    ownerOf: (sessionId) => sessionManager.get(sessionId)?.principalOwner,
+  });
+  browserGateway.onRegistryFrame(agentEventHub.onRegistryFrame);
+  questionStore.onChange(agentEventHub.onQuestionChange);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
@@ -2858,6 +2868,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isResolverActive: identityEnforced,
     ownerOf: (sessionId) => sessionManager.get(sessionId)?.principalOwner,
   });
+  // SSE agent-event feed for external controllers. See change: add-agent-event-stream.
+  registerAgentEventStreamRoutes(fastify, { networkGuard, hub: agentEventHub, isResolverActive: identityEnforced });
   registerAccessPromptRoutes(fastify, {
     networkGuard,
     coordinator: grantCoordinator,

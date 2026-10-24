@@ -335,6 +335,13 @@ export interface BrowserGateway {
   ): void;
   broadcastToAll(msg: ServerToBrowserMessage): void;
   /**
+   * Observe every REGISTRY frame (`session_added` / `session_updated` /
+   * `session_removed`) as it enters `broadcast`, before per-socket filtering
+   * or shedding. Feeds the agent event hub. Returns an unsubscribe fn.
+   * See change: add-agent-event-stream.
+   */
+  onRegistryFrame(listener: (msg: ServerToBrowserMessage) => void): () => void;
+  /**
    * Broadcast an `openspec_update` envelope using a pre-stringified `data`
    * payload (from the OpenSpec poll worker). The envelope JSON is built by
    * string concatenation so the large `data` is NOT re-serialized on the
@@ -1554,7 +1561,18 @@ export function createBrowserGateway(
     return typeof id === "string" ? { id } : undefined;
   }
 
+  const registryListeners = new Set<(msg: ServerToBrowserMessage) => void>();
+
   function broadcast(msg: ServerToBrowserMessage) {
+    if (msg.type === "session_added" || msg.type === "session_updated" || msg.type === "session_removed") {
+      for (const l of registryListeners) {
+        try {
+          l(msg);
+        } catch (err) {
+          console.error("[browser-gateway] registry listener failed:", (err as Error).message);
+        }
+      }
+    }
     // Serialize once per fan-out: O(payload) instead of O(payload ×
     // subscribers). Matters for large recurring frames such as
     // `openspec_update` on repos with many changes. Back-pressure and
@@ -2833,6 +2851,13 @@ export function createBrowserGateway(
 
     broadcastToAll(msg: ServerToBrowserMessage) {
       broadcast(msg);
+    },
+
+    onRegistryFrame(listener: (msg: ServerToBrowserMessage) => void) {
+      registryListeners.add(listener);
+      return () => {
+        registryListeners.delete(listener);
+      };
     },
 
     broadcastOpenSpecUpdate(cwd: string, dataSerialized: string) {
