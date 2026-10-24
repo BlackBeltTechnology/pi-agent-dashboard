@@ -15,6 +15,12 @@ vi.mock("../spawn-process/process-manager.js", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   spawnPiSession: spawn,
 }));
+vi.mock("../spawn-process/acp-spawn.js", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  validateAcpAgent: () => ({ ok: true, agent: { id: "acp-x" } }),
+  preflightAcpSpawn: () => ({ ok: true }),
+  spawnAcpSession: vi.fn(),
+}));
 vi.mock("../spawn-process/spawn-register-watchdog.js", () => ({ armSpawnWatchdog: vi.fn() }));
 
 async function build() {
@@ -46,6 +52,17 @@ describe("POST /api/session/spawn capability scope", () => {
       "/w",
       expect.objectContaining({ excludeTools, name: "leaf-worker" }),
     );
+  });
+
+  it("rejects excludeTools combined with an ACP agent with 400 (no spawn)", async () => {
+    const app = await build();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/session/spawn",
+      payload: { cwd: "/w", agent: "acp-x", excludeTools: ["Agent"] },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("rejects a non-array excludeTools with 400 (no spawn)", async () => {

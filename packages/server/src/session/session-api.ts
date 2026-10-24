@@ -377,6 +377,12 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         reply.code(400);
         return { success: false, error: nameError } satisfies ApiResponse;
       }
+      // ACP spawns cannot apply pi-only capability scope; refuse rather than
+      // report a successful spawn that silently dropped the restriction.
+      if (acpAgent?.ok && (excludeTools !== undefined || name !== undefined)) {
+        reply.code(400);
+        return { success: false, error: "excludeTools and name are not supported for ACP agent spawns" } satisfies ApiResponse;
+      }
       if (acpAgent?.ok) {
         const preflight = preflightAcpSpawn(cwd, acpAgent.agent);
         if (!preflight.ok) {
