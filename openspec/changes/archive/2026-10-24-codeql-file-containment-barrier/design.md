@@ -58,7 +58,7 @@ The comment at `file-routes.ts:911` ("`isAllowed`-only decision") describes `gat
 Before any route edit, extend `scripts/__tests__/codeql-local-real.test.mjs` with a mini monorepo using the repo's model file:
 - (a) guarded sink silent;
 - (b) unguarded twin reported;
-- (c) decision for path A, sink on path B: reported;
+- (c) decision and predicate for path A, sink on path B: reported;
 - (d) decision never branched on: reported;
 - (e) the production shape: `path.resolve(cwd, rel)` → `await evaluateContainment` → `if (!containmentAllows(...)) return` → `fs.readFile`;
 - (f) the filter shape (`if (containmentAllows(...)) return m`) as in `grep-routes.ts`;
@@ -74,7 +74,7 @@ After migration run `npm run codeql`, record per-file before/after in `evidence/
 
 ### D7 — Soundness limits (stated, not hidden)
 
-The model trusts that `containmentAllows` is only called with a decision for the same path. Enforced by: (i) the brand, so no code can pass a hand-built decision without a cast; (ii) a source-shape contract test that `containment-gate.ts` is the only non-test module that casts to `PathDecision`; (iii) exact string equality in the predicate. CodeQL still trusts any call to the predicate; that residual trust is the price of a sync barrier and is owned here, not by the triage change. Passive sites do not run the dashboard-secret refusal today (`evaluateContainment:238` does); `decidePassive` preserves that gap rather than closing it. The lexical-vs-realpath gap and symlink swaps are the pre-existing containment behaviour, not widened.
+The model trusts that `containmentAllows` is only called with a decision for the same path. Enforced by: (i) the brand, so no code can pass a hand-built decision without a cast; (ii) a source-shape contract test that `containment-gate.ts` is the only non-test module that casts to `PathDecision`; (iii) exact string equality in the predicate. CodeQL still trusts any call to the predicate; that residual trust is the price of a sync barrier and is owned here, not by the triage change. Passive sites reach the dashboard-secret refusal through `isAllowed` / `isGrantAdmitted` (`path-containment.ts:137, :159`), not through `evaluateContainment:238`; `decidePassive` keeps exactly that. The lexical-vs-realpath gap and symlink swaps are the pre-existing containment behaviour, not widened.
 
 ## Risks / Trade-offs
 

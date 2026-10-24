@@ -423,6 +423,22 @@ Pitfalls:
 
 Result: `js/path-injection` 109 → 78, 0 new. See change: core-cwd-admission `evidence/codeql-probe.md`, `evidence/codeql.md`. Residue (lib-owned containment, `git-operations.ts` 13) → `triage-codeql-alert-debt`.
 
+### Containment barrier (async decisions)
+
+- Async decisions CodeQL cannot see through → SYNC path-bound predicate, modelled as barrier guard.
+- `containmentAllows(decision, resolved)` (`packages/shared/src/containment-guard.ts`): true iff `decision.allowed && decision.resolved === resolved`.
+- Model row: `.github/codeql/extensions/cwd-guard.model.yml`, `Argument[1]`, type single-quoted.
+- `ContainmentDecision` = branded `PathDecision`. Only `packages/server/src/access/containment-gate.ts` builds one (`evaluateContainment`, `decidePassive`).
+- Contract test: `packages/shared/src/__tests__/containment-guard.test.ts`.
+- Sites: `if (!containmentAllows(decision, resolved)) refuse`, then use same `resolved`.
+- Passive sites (grep filter, mention resolver, raw pre-check): `decidePassive(resolved, anchors, {allowGrant})`.
+- Probes `#R1-#R6` (`scripts/__tests__/codeql-local-real.test.mjs`), CodeQL 2.27.2, javascript-queries 2.4.7:
+  - silent: guarded read; filter shape; guarded value returned from helper.
+  - reported: unguarded; predicate-on-A/sink-on-B; never-branched; `containmentAllows(..) || <unmodelled admission>`.
+- Result: 131 → 117 results, 14 baseline entries closed. Residue: 4 `file-routes.ts` `operator-authz`.
+- Limit: CodeQL trusts any call to predicate (blesses `Argument[1]`). Runtime equality + branded type + contract test = guard.
+- See change: codeql-file-containment-barrier.
+
 ### Commands
 
 | Command | Effect |

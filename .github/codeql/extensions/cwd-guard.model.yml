@@ -32,6 +32,12 @@
 # the name onto the realpath'd projects root, then re-checks realpath containment.
 # See change: streamline-first-run.
 #
+# `containmentAllows(decision, resolved)` (packages/shared/src/containment-guard.ts) is true only when
+# the async `evaluateContainment` / `decidePassive` decision (packages/server/src/access/containment-gate.ts)
+# ALLOWED and was made for exactly that `resolved` string (strict equality), so it cannot bless any other
+# path. `resolved` is Argument[1]; file routes branch on it right after the `await`.
+# See change: codeql-file-containment-barrier.
+#
 # TYPE STRINGS: a type containing a dot MUST be single-quoted (`"'pkg/m.js'"`). CodeQL's
 # `parseTypeString` (`('[^']+'|[^.]+)(.*)`) ends the package name at the FIRST dot, so an
 # unquoted `pkg/m.js` parses as package `pkg/m` + type `js` and matches nothing — the rows
@@ -52,6 +58,8 @@ extensions:
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[admissionAllows].Argument[1]", "true", "path-injection"]
       - ["'@blackbelt-technology/pi-dashboard-shared/cwd-guard.js'", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
       - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[tokenAllows].Argument[1]", "true", "path-injection"]
+      - ["'@blackbelt-technology/pi-dashboard-shared/containment-guard.js'", "Member[containmentAllows].Argument[1]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/containment-guard", "Member[containmentAllows].Argument[1]", "true", "path-injection"]
   - addsTo:
       pack: codeql/javascript-all
       extensible: barrierModel

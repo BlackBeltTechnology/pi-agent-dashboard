@@ -3,6 +3,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
+import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import type { SessionListItem } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { sessionUiPath } from "@blackbelt-technology/pi-dashboard-shared/session-ui-path.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -547,7 +548,7 @@ export function registerSessionRoutes(
           disclosure: canDiscloseAccessPosture(request),
           session: sessionId,
         });
-        if (!sessionDecision.allowed) {
+        if (!containmentAllows(sessionDecision, absPath)) {
           reply.code(403);
           return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
         }

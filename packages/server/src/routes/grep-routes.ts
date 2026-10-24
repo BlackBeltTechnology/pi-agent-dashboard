@@ -11,12 +11,13 @@
  */
 
 import path from "node:path";
+import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { grantedSubjects } from "../access/access-grants.js";
+import { decidePassive } from "../access/containment-gate.js";
 import { admitFileCwd, cwdAnchors } from "../lib/file-cwd-admission.js";
 import { runGrep } from "../lib/grep.js";
-import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import type { RouteAdmissionDeps } from "../lib/route-admission.js";
 import { detectRipgrep } from "../ripgrep-detection.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
@@ -74,8 +75,8 @@ export function registerGrepRoutes(
       const contained = await Promise.all(
         matches.map(async (m) => {
           const resolvedMatch = path.resolve(admitted.cwd, m.path);
-          if (await isAllowed(resolvedMatch, { anchors })) return m;
-          return (await isGrantAdmitted(resolvedMatch, grantSubjects)) ? m : null;
+          const verdict = await decidePassive(resolvedMatch, anchors, { allowGrant: true, grantSubjects });
+          return containmentAllows(verdict, resolvedMatch) ? m : null;
         }),
       );
       matches = contained.filter((m): m is NonNullable<typeof m> => m !== null);
