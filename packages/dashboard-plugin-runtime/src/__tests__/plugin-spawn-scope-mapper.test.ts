@@ -115,6 +115,19 @@ describe("pluginSpawnToSessionOptions", () => {
     }
   });
 
+  it("X4: extensionConfig string[] drops empty elements; scalar empty string kept (#972)", () => {
+    const opts = {
+      cwd: "/w",
+      scope: {
+        extensionConfig: {
+          myext: { list: ["a", "", "b"], allEmpty: ["", ""], scalar: "" },
+        },
+      },
+    } as unknown as PluginSpawnOptions;
+    const mapped = pluginSpawnToSessionOptions(opts);
+    expect(mapped.extensionConfig).toEqual({ myext: { list: ["a", "b"], scalar: "" } });
+  });
+
   it("E7: an empty allowlist maps through to no flag", () => {
     expect(argvFor({ cwd: "/w", scope: { tools: [] } })).toEqual([]);
   });
