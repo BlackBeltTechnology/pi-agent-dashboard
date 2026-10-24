@@ -2,6 +2,8 @@
 
 ## 1. Soak gate (evidence before any code change; groups 2–5 start only after 1.7)
 
+Record evidence in `soak-evidence.md`; helper `soak/csp-soak.mjs` (self-test: `node --test openspec/changes/enforce-strict-csp-default/soak/csp-soak.test.mjs`) takes the snapshots, canary checks and gate verdict.
+
 - [ ] 1.1 Release precondition: run `git tag --contains f426a45b5` (`harden-cors-and-csp-reporting`); verify it prints at least one tag and record the open tag and its date here. If it prints nothing, stop: the change stays blocked
 - [ ] 1.2 Opening canary and reset: on an install running the 1.1 tag in `report` mode, open the dashboard (`pi-dashboard open`), append an inline `<script>` from DevTools, wait ≥5 s (counter flush), then `pi-dashboard api GET /api/health` (CLI sends local proof; if `cspReports` is absent, read `~/.pi/dashboard/csp-reports.json` on the server host instead); verify the strict `script-src-elem` count has risen. Then `pi-dashboard api POST /api/csp-reports/reset` and read health again; verify and record here: `serverVersion` equal to the tag without its `v`, tunnel-exposed or not, CSP mode (header kind on `/` in DevTools), TT mode (`<meta name="pi-trusted-types">`), the reset time, `since` within 60 s of it, all-zero counts
 - [ ] 1.3 Exercise checklist, dated at open, mid-window and close: load the dashboard, render a runtime plugin claim, open a diagram / editor surface, load the passkey login page, in each browser used; verify each run is recorded here with date and browsers
