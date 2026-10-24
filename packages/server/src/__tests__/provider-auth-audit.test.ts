@@ -11,9 +11,11 @@
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { writeCredential, removeCredential } = vi.hoisted(() => ({
+const { writeCredential, removeCredential, auth } = vi.hoisted(() => ({
   writeCredential: vi.fn(async () => {}),
   removeCredential: vi.fn(async () => {}),
+  // What `readAuthJson()` reports as stored (the DELETE route audits only a removal of an existing credential).
+  auth: { data: {} as Record<string, unknown> },
 }));
 
 vi.mock("../auth/provider-auth-storage.js", () => ({
@@ -21,7 +23,7 @@ vi.mock("../auth/provider-auth-storage.js", () => ({
   getAuthStatus: () => [],
   getOAuthProvidersMeta: () => [],
   oauthIdSet: () => new Set<string>(),
-  readAuthJson: () => ({}),
+  readAuthJson: () => auth.data,
   removeCredential,
   resolveAuthJsonKey: (id: string) => id,
   writeCredential,
@@ -103,6 +105,7 @@ afterEach(async () => {
 describe("AE29 — provider credential write and delete are logged", () => {
   it("AE29: key_set and removed lines; the api key is absent from every captured stream", async () => {
     const KEY = "sk-test-CANARY-1234567890";
+    auth.data = { openrouter: { type: "api_key", key: KEY } };
     const put = await app.inject({
       method: "PUT",
       url: "/api/provider-auth/api-key",
@@ -125,6 +128,20 @@ describe("AE29 — provider credential write and delete are logged", () => {
     expect(removed).toHaveLength(1);
     expect(removed[0]).toBe("[provider-auth] removed provider=openrouter actor=session:alice_ex ip=203.0.113.9");
     expect(captured.join("\n")).not.toContain(KEY);
+  });
+});
+
+describe("AE29b — removal of an absent provider is not audited", () => {
+  it("DELETE for a provider with no stored credential succeeds and emits no `removed` line", async () => {
+    auth.data = {};
+    const del = await app.inject({
+      method: "DELETE",
+      url: "/api/provider-auth/openrouter",
+      remoteAddress: "203.0.113.9",
+      headers: SESSION,
+    });
+    expect(del.statusCode).toBe(200);
+    expect(lines("[provider-auth] removed")).toHaveLength(0);
   });
 });
 

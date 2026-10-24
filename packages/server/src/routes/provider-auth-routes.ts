@@ -337,8 +337,10 @@ export function registerProviderAuthRoutes(
         // api-key row (X2).
         const isOAuthRow = oauthIdSet().has(rawId);
         const authJsonKey = resolveAuthJsonKey(rawId);
+        const existed = readAuthJson()[authJsonKey] !== undefined;
         await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key");
-        auditLine("provider-auth", "removed", { provider: auditPrefix(authJsonKey, 64), ...auditRequestFields(request) });
+        // Audit a real removal only: DELETE stays idempotent for an absent provider.
+        if (existed) auditLine("provider-auth", "removed", { provider: auditPrefix(authJsonKey, 64), ...auditRequestFields(request) });
       } catch (err: any) {
         if (err instanceof CredentialTypeConflictError) {
           return reply.code(409).send({
