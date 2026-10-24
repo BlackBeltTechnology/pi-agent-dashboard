@@ -1,5 +1,4 @@
 import { MERMAID_SVG_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
-import DOMPurify from "dompurify";
 import {
   mdiAlertCircleOutline,
   mdiAutoFix,
@@ -9,13 +8,14 @@ import {
   mdiRefresh,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import DOMPurify from "dompurify";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import type { RuleId } from "../../lib/preview/mermaid-repair.js";
 import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";

@@ -1,12 +1,12 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import Fastify, { type FastifyInstance } from "fastify";
-import { registerGrepRoutes } from "../grep-routes.js";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { detectRipgrep, resetRipgrepCache } from "../../ripgrep-detection.js";
 import type { SessionManager } from "../../session/memory-session-manager.js";
+import { registerGrepRoutes } from "../grep-routes.js";
 
 const cleanup: string[] = [];
 afterAll(() => {
