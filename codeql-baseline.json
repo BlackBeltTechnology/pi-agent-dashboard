@@ -197,137 +197,11 @@
       "reason": "github-dismissed (#238, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client-utils/src/identity/login-flow.ts",
-      "lineHash": "849e7377349aff97:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "packages/client-utils/src/identity/login-flow.ts",
-      "lineHash": "6429b8c2a63de047:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client-utils/src/identity/login-flow.ts",
-      "lineHash": "849e7377349aff97:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "packages/client-utils/src/identity/oidc-flow.ts",
-      "lineHash": "4bdc898d876be6e8:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/resource-exhaustion",
-      "file": "packages/client/src/components/chat/ThinkingBlock.tsx",
-      "lineHash": "83ed8a78314ca05:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/components/connectivity/UsersSection.tsx",
-      "lineHash": "755e433e3864b32a:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/components/connectivity/UsersSection.tsx",
-      "lineHash": "755e433e3864b32a:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/components/preview/DocxPreview.tsx",
-      "lineHash": "905c7e0ffbedb03c:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/double-escaping",
-      "file": "packages/client/src/components/preview/MermaidBlock.tsx",
-      "lineHash": "beaa342126d9d5cd:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "packages/client/src/lib/api/model-proxy-api.ts",
-      "lineHash": "1188a1fad939a53b:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "packages/client/src/lib/api/model-proxy-api.ts",
-      "lineHash": "a88522443fc5504e:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/unvalidated-dynamic-method-call",
-      "file": "packages/client/src/lib/git/worktree-init-store.ts",
-      "lineHash": "687306fc304c7555:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/client/src/lib/plugins/runtime-plugin-loader.ts",
-      "lineHash": "8bf6f4883d8afee7:1",
-      "count": 1,
-      "reason": "accepted-risk: pre-existing on develop (runtime-plugin-loader.ts), outside fix-folder-card-pill-contrast"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/client/src/lib/plugins/runtime-plugin-loader.ts",
-      "lineHash": "8bf6f4883d8afee7:1",
-      "count": 1,
-      "reason": "accepted-risk: pre-existing on develop (runtime-plugin-loader.ts), outside fix-folder-card-pill-contrast"
-    },
-    {
-      "ruleId": "js/client-side-unvalidated-url-redirection",
-      "file": "packages/dashboard-plugin-runtime/src/safe-navigation.tsx",
-      "lineHash": "3eaa1aca7dbc7351:1",
-      "count": 1,
-      "reason": "false-positive: SafeLink is the URL-policy chokepoint — href rendered only after classifyUrl + literal ^(https?://|mailto:) test (internal re-rooted same-origin); a general external link cannot carry a constant host. See change: harden-client-sinks"
-    },
-    {
-      "ruleId": "js/xss",
-      "file": "packages/dashboard-plugin-runtime/src/safe-navigation.tsx",
-      "lineHash": "3eaa1aca7dbc7351:1",
-      "count": 1,
-      "reason": "false-positive: SafeLink is the URL-policy chokepoint — href rendered only after classifyUrl + literal ^(https?://|mailto:) test (internal re-rooted same-origin); a general external link cannot carry a constant host. See change: harden-client-sinks"
-    },
-    {
       "ruleId": "js/missing-rate-limiting",
       "file": "packages/dashboard-plugin-runtime/src/server/app-mount.ts",
       "lineHash": "cedd8cfebeaf61a7:1",
       "count": 1,
       "reason": "accepted-risk: ctx.serveApp static handler for a trusted plugin's public build (extension allowlist, realpath confinement, no data); a per-request limit would break the legitimate 40 MB wasm + asset fan-out of an app load; hash taken from the PR-985 CodeQL analysis (codeql CLI unavailable locally)"
-    },
-    {
-      "ruleId": "js/resource-exhaustion",
-      "file": "packages/grammar-plugin/src/useGrammarCheck.ts",
-      "lineHash": "27a85c1ebb434f56:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/regex-injection",
-      "file": "packages/hermes-memory-plugin/src/client/settings-model.ts",
-      "lineHash": "9059fbf00680650a:1",
-      "count": 1,
-      "reason": "untriaged"
     },
     {
       "ruleId": "js/path-injection",
@@ -561,13 +435,6 @@
       "reason": "github-dismissed (#417, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
     },
     {
-      "ruleId": "js/regex-injection",
-      "file": "packages/server/src/lib/grep.ts",
-      "lineHash": "fb0ad27298634d88:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/path-containment.ts",
       "lineHash": "15965871f904b078:1",
@@ -591,9 +458,9 @@
     {
       "ruleId": "js/request-forgery",
       "file": "packages/server/src/package/provider-probe.ts",
-      "lineHash": "796dfe64fbb06025:1",
+      "lineHash": "796dfe64fba926ce:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "accepted-risk: the base URL is operator-configured (POST /api/providers/test at operate tier, and saved providers.json) and never read from a response; both probe fetches use redirect: \"error\", so the credential header is never forwarded to another origin — See change: triage-codeql-alert-debt"
     },
     {
       "ruleId": "js/path-injection",
@@ -747,7 +614,7 @@
       "file": "packages/shared/src/platform/process.ts",
       "lineHash": "3ac831a5aa3967b0:1",
       "count": 1,
-      "reason": "untriaged"
+      "reason": "false-positive: findPortHolders returns [] unless Number.isInteger(port) and 1 <= port <= 65535 (process.ts:72), so only a checked integer reaches the shell string — See change: triage-codeql-alert-debt"
     },
     {
       "ruleId": "js/shell-command-constructed-from-input",
@@ -789,35 +656,7 @@
       "file": "packages/shared/src/test-support/fake-oidc-issuer.ts",
       "lineHash": "752f8b07b7358981:1",
       "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/incomplete-sanitization",
-      "file": "scripts/ab-context/analyze.mjs",
-      "lineHash": "1f09f430d0aa8c8c:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/request-forgery",
-      "file": "scripts/heap-probe.mjs",
-      "lineHash": "6aa3a1ee9079c685:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/shell-command-injection-from-environment",
-      "file": "scripts/i18n-migrate-auto-keys.mjs",
-      "lineHash": "a969163747dd79f3:1",
-      "count": 1,
-      "reason": "untriaged"
-    },
-    {
-      "ruleId": "js/shell-command-injection-from-environment",
-      "file": "scripts/i18n-parity.mjs",
-      "lineHash": "19afae016bcb4e81:1",
-      "count": 1,
-      "reason": "untriaged"
+      "reason": "false-positive: allowed() parses both URLs, refuses userinfo and requires the same origin plus a path-segment boundary (matchesRegisteredUri); the registered prefixes come from the test harness, not a request — See change: triage-codeql-alert-debt"
     }
   ]
 }

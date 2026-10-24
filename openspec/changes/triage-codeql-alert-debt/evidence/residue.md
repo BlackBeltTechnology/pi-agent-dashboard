@@ -60,3 +60,16 @@ Total alerts to dismiss: 46. Not dismissed (fixed in group 4/5): #169 #216 #19 #
 - #222 `skill-block-parser.ts:45`: anchored, lazy, no nested quantifier. Holds.
 - Doubt review (`@review`, read-only): 0 blocking, verdict pass. Non-blocking, recorded and not acted on here: the shared `operator-authz` text ("an admitted caller can already spawn shell-capable sessions") does not hold for `observe`-tier GET routes, whose real defence is the per-sink gate (`gateReadPath`, `browse.ts` containment, `admitRouteCwd`, `admitCwd`). Dismissals stand; the text predates this change. `keeper-manager.ts` (#244) session ids are server-registered, not request-echoed (assumption). #31's reason is scoped to the alert's flow; a new tainted caller of the wrapper raises a fresh alert.
 - GitHub dismissal comment = reason text, cut to 280 characters, plus ` — See change: triage-codeql-alert-debt`.
+
+## Post-merge mirror items (task 8.2) and gate output (task 7.5)
+
+Entries whose guarded or fixed line is still reported by CodeQL after this change. The merge commit's analysis will open a new alert for each; dismiss and `--mirror-dismissal` them there:
+- `packages/shared/src/platform/process.ts` `3ac831a5aa3967b0:1` (old #30, guard at :72) — `false-positive:`.
+- `packages/shared/src/test-support/fake-oidc-issuer.ts` `752f8b07b7358981:1` (old #345, `matchesRegisteredUri`) — `false-positive:`.
+- `packages/server/src/package/provider-probe.ts` `796dfe64fba926ce:1` (new key after the `redirect: "error"` edit; old #19) — `accepted-risk:`.
+
+Alerts closed by code and expected to disappear at the merge commit: #169 (MermaidBlock), #216 (grep worker), #29 and #28 (i18n scripts), #167 (analyze.mjs).
+
+G2 (untriaged entries in `codeql-baseline.json`): `0`.
+G3 at H: the 46 residue alerts were dismissed and mirrored (all 45 entries `github-dismissed`); open alerts at H right now: `19 28 29 30 167 169 216 345 `. The eight listed above are the only ones left, and they are exactly the alerts fixed by code.
+Baseline: 93 entries (85 github-dismissed, 2 accepted-risk, 3 operator-authz, 3 false-positive, 0 untriaged). Prune removed 24 entries, all inside the D2 review set or the D3 fixed keys (script check printed 0 outside the union).
