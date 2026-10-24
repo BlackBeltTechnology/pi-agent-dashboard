@@ -73,3 +73,5 @@ Alerts closed by code and expected to disappear at the merge commit: #169 (Merma
 G2 (untriaged entries in `codeql-baseline.json`): `0`.
 G3 at H: the 46 residue alerts were dismissed and mirrored (all 45 entries `github-dismissed`); open alerts at H right now: `19 28 29 30 167 169 216 345 `. The eight listed above are the only ones left, and they are exactly the alerts fixed by code.
 Baseline: 93 entries (85 github-dismissed, 2 accepted-risk, 3 operator-authz, 3 false-positive, 0 untriaged). Prune removed 24 entries, all inside the D2 review set or the D3 fixed keys (script check printed 0 outside the union).
+
+Task 8.5 follow-up issue (cause-2 gap, 29 plugin-server results hidden by `**/__tests__/**`): https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/1059
