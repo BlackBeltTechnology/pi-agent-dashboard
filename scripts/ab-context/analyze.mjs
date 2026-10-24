@@ -37,7 +37,7 @@ for (const [k, cell] of [...cells.entries()].sort()) {
   const ni = rb >= ra - MARGIN ? "PASS" : "FAIL";
   if (ni === "FAIL") niFail++;
   const cellStr = (r, n) => `${isNaN(r) ? "  -" : pct(r)}(${n})`.padStart(9);
-  console.log(`${k.replace("|", " | ").padEnd(34)} ${cellStr(ra, a.n)} ${cellStr(rb, b.n)}   ${(d >= 0 ? "+" : "") + (100 * d).toFixed(0) + "pp"}  ${ni}`);
+  console.log(`${k.replaceAll("|", " | ").padEnd(34)} ${cellStr(ra, a.n)} ${cellStr(rb, b.n)}   ${(d >= 0 ? "+" : "") + (100 * d).toFixed(0) + "pp"}  ${ni}`);
 }
 
 // ── tokens & cost per arm ──

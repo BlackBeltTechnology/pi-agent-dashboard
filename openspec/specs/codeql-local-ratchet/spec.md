@@ -55,7 +55,8 @@ excluding `codeql-baseline.json`, identified by a snapshot id that changes with
 any content edit to those files and does not change when only the baseline
 changes. It SHALL build fresh `javascript-typescript` and `actions` databases on
 every run, analyze them with the code-scanning suites of the query-pack versions
-recorded in the baseline and the `remote` threat model, and use `$CODEQL_BIN`
+recorded in the baseline and CodeQL's default threat model (no `--threat-model`
+option, matching the CI workflow), and use `$CODEQL_BIN`
 when set, else `codeql` on `PATH`. It SHALL work in a linked git worktree and
 SHALL NOT modify the real index or working tree. A second concurrent run in the
 same worktree SHALL exit 2; a lock left by a process that is no longer alive
@@ -87,7 +88,7 @@ SHALL be taken over.
 
 #### Scenario: Analysis options
 - **WHEN** the script runs analysis through a `CODEQL_BIN` that records its arguments
-- **THEN** each `database create` SHALL include `--overwrite` into a new run directory and each `database analyze` SHALL include the pinned suite and `--threat-model=remote` and SHALL NOT include `--download`
+- **THEN** each `database create` SHALL include `--overwrite` into a new run directory and each `database analyze` SHALL include the pinned suite and SHALL NOT include `--download` or any `--threat-model` option
 
 #### Scenario: Conflicted index
 - **WHEN** the worktree index has unmerged entries

@@ -106,3 +106,23 @@ describe("cmdOpen --url", () => {
     expect(fs.existsSync(dir)).toBe(false);
   });
 });
+
+// ── Pins the false-positive basis of CodeQL js/shell-command-constructed-from-input on the
+// launched URL: the server-supplied code is validated before `open`.
+// See change: triage-codeql-alert-debt (design D3 #374, test-plan #E8). ──
+describe("cmdOpen local-proof code validation pin (E8)", () => {
+  it.each(["a b;rm", "x"])("invalid code %j: exit 1, open never called", async (code) => {
+    const open = vi.fn();
+    expect(await cmdOpen(cfg, { err: () => {}, out: () => {}, fetchImpl: ok(code), open })).toBe(1);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("valid 43-char base64url code: open called once with the loopback URL", async () => {
+    const code = `${"Ab0_-".repeat(8)}Ab3`; // 43 chars of base64url alphabet
+    expect(code).toHaveLength(43);
+    const open = vi.fn();
+    expect(await cmdOpen(cfg, { err: () => {}, out: () => {}, fetchImpl: ok(code), open })).toBe(0);
+    expect(open).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledWith(`http://localhost:8123/auth/local-proof?code=${code}`);
+  });
+});

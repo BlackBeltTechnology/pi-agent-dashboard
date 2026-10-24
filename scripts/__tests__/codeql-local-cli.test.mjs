@@ -115,7 +115,7 @@ describe("snapshot (#E5–#E8)", () => {
 });
 
 describe("analysis options (#E9)", () => {
-  it("pins suites, uses a fresh db dir, remote threat model and never --download", () => {
+  it("pins suites, uses a fresh db dir, matches CI (no --threat-model) and never --download", () => {
     const repo = seeded();
     const a = run(repo, [], { plan: bothLanguages([]) });
     const b = run(repo, [], { plan: bothLanguages([]) });
@@ -128,7 +128,8 @@ describe("analysis options (#E9)", () => {
         `codeql/actions-queries@${PACKS["codeql/actions-queries"]}:codeql-suites/actions-code-scanning.qls`,
       ]);
       for (const c of analyzes(r.calls)) {
-        expect(c.argv).toContain("--threat-model=remote");
+        // CI runs the default setup without a threat-model flag; the flag-on run added local-only results. See change: triage-codeql-alert-debt (#E1).
+        expect(c.argv.some((x) => x.startsWith("--threat-model"))).toBe(false);
         expect(c.argv).not.toContain("--download");
       }
     }

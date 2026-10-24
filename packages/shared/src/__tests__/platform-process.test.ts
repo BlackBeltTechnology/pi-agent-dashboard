@@ -77,6 +77,25 @@ describe("findPortHolders", () => {
     });
     expect(findPortHolders(8000, { platform: "win32", exec })).toEqual([]);
   });
+
+  // See change: triage-codeql-alert-debt (design D3 #30)
+  describe("port range guard", () => {
+    it.each([1, 65535])("port %d reaches lsof exactly once", (port) => {
+      const exec = vi.fn().mockReturnValue("");
+      findPortHolders(port, { platform: "darwin", exec });
+      expect(exec).toHaveBeenCalledOnce();
+      expect(exec.mock.calls[0][0]).toBe(`lsof -t -i :${port} -sTCP:LISTEN 2>/dev/null`);
+    });
+
+    it.each([0, 65536, 1.5, Number.NaN, "80; rm -rf /" as unknown as number])(
+      "invalid port %j returns [] without calling exec",
+      (port) => {
+        const exec = vi.fn().mockReturnValue("12345\n");
+        expect(findPortHolders(port, { platform: "darwin", exec })).toEqual([]);
+        expect(exec).not.toHaveBeenCalled();
+      },
+    );
+  });
 });
 
 describe("isProcessAlive", () => {

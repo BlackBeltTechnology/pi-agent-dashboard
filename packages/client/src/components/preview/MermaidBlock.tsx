@@ -1,5 +1,4 @@
 import { MERMAID_SVG_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
-import DOMPurify from "dompurify";
 import {
   mdiAlertCircleOutline,
   mdiAutoFix,
@@ -9,13 +8,14 @@ import {
   mdiRefresh,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import DOMPurify from "dompurify";
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import type { RuleId } from "../../lib/preview/mermaid-repair.js";
 import { useMermaidRepairClientConfig } from "../../lib/preview/mermaid-repair-config.js";
 import { useMermaidSourceContext } from "../../lib/preview/mermaid-source-context.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
 import { copyText } from "../../lib/util/clipboard.js";
 import { CopyButton } from "../primitives/CopyButton.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
@@ -58,17 +58,25 @@ function cacheKey(code: string, themeId: string): string {
 // LLMs often produce mermaid code with minor issues that cause parse errors.
 // We fix the most common problems before handing the code to mermaid.render().
 
+const MERMAID_ENTITIES: Record<string, string> = {
+  "&gt;": ">",
+  "&lt;": "<",
+  "&amp;": "&",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+/** Single-pass decode: each entity is decoded once, so `&amp;quot;` yields `&quot;`, not `"`. */
+export function decodeMermaidEntities(input: string): string {
+  return input.replace(/&(?:gt|lt|amp|quot|#39);/g, (m) => MERMAID_ENTITIES[m] ?? m);
+}
+
 function sanitizeMermaidCode(raw: string): string {
   let code = raw.trim();
 
   // Decode HTML entities — react-markdown/rehype may encode special chars
   // inside code blocks (e.g. --> becomes --&gt;)
-  code = code
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  code = decodeMermaidEntities(code);
 
   // Remove common leading indentation (dedent) — mermaid is whitespace-sensitive
   const lines = code.split("\n");

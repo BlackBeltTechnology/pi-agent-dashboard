@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { grepWithJsScan, parseRipgrepJson } from "../lib/grep.js";
+import { grepWithJsScan, parseRipgrepJson, runGrep } from "../lib/grep.js";
 import { detectRipgrep, resetRipgrepCache } from "../ripgrep-detection.js";
 
 const cleanup: string[] = [];
@@ -91,5 +92,95 @@ describe("grepWithJsScan (JS fallback path — 4.2)", () => {
   it("returns empty for an empty query", () => {
     const root = makeTree({ "a.ts": "x\n" });
     expect(grepWithJsScan(root, "")).toEqual([]);
+  });
+});
+
+/** 10 ms main-thread probe: the largest gap between ticks while a scan runs. */
+function startTickProbe() {
+  let last = performance.now();
+  let max = 0;
+  const id = setInterval(() => {
+    const now = performance.now();
+    max = Math.max(max, now - last);
+    last = now;
+  }, 10);
+  return {
+    stop(): number {
+      clearInterval(id);
+      return max;
+    },
+  };
+}
+
+// 40 `a` then `!` makes `(a+)+$` backtrack exponentially (V8 irregexp).
+const PATHOLOGICAL_LINE = `${"a".repeat(40)}!\n`;
+const PATHOLOGICAL_QUERY = "(a+)+$";
+
+describe("runGrep JS fallback — regex semantics unchanged by the worker move (#E9 #E10)", () => {
+  it("#E9: a regex query matches by pattern, not by literal text", async () => {
+    const root = makeTree({ "a.txt": "foo123\nfooBar\n" });
+    const out = await runGrep(root, "foo\\d+", { regex: true, rgPath: null });
+    expect(out.map((m) => [m.line, m.snippet])).toEqual([[1, "foo123"]]);
+  });
+
+  it("#E10: an invalid pattern degrades to a literal substring search", async () => {
+    const root = makeTree({ "a.txt": "x a(b y\nnothing\n" });
+    const out = await runGrep(root, "a(b", { regex: true, rgPath: null });
+    expect(out.map((m) => [m.line, m.snippet])).toEqual([[1, "x a(b y"]]);
+  });
+});
+
+describe("runGrep JS fallback — scan runs off the main thread, bounded by a timeout", () => {
+  it("#P1: a catastrophic regex times out without stalling the main thread", async () => {
+    const root = makeTree({ "a.txt": PATHOLOGICAL_LINE });
+    const probe = startTickProbe();
+    const t0 = Date.now();
+    await expect(
+      runGrep(root, PATHOLOGICAL_QUERY, { regex: true, rgPath: null, scanTimeoutMs: 500 }),
+    ).rejects.toMatchObject({ name: "GrepTimeoutError" });
+    const elapsed = Date.now() - t0;
+    const gap = probe.stop();
+    expect(elapsed).toBeLessThan(1500);
+    expect(gap).toBeLessThan(200);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "#X2: patterns rg rejects (exit 2) fall to the same bounded scan",
+    async () => {
+      const root = makeTree({ "a.txt": PATHOLOGICAL_LINE });
+      const fakeRg = join(root, "fake-rg.sh");
+      writeFileSync(fakeRg, "#!/bin/sh\nexit 2\n");
+      chmodSync(fakeRg, 0o755);
+      const probe = startTickProbe();
+      const t0 = Date.now();
+      await expect(
+        runGrep(root, PATHOLOGICAL_QUERY, { regex: true, rgPath: fakeRg, scanTimeoutMs: 300 }),
+      ).rejects.toMatchObject({ name: "GrepTimeoutError" });
+      const elapsed = Date.now() - t0;
+      const gap = probe.stop();
+      expect(elapsed).toBeLessThan(1300);
+      expect(gap).toBeLessThan(200);
+    },
+  );
+
+  it("#X3: a worker entry that throws on start rejects (no hang, no unhandled rejection)", async () => {
+    const root = makeTree({ "a.txt": "needle\n", "boom.mjs": 'throw new Error("boom on start");\n' });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const t0 = Date.now();
+      await expect(
+        runGrep(root, "needle", {
+          rgPath: null,
+          scanWorkerUrl: pathToFileURL(join(root, "boom.mjs")).href,
+        }),
+      ).rejects.toThrow(/boom on start/);
+      expect(Date.now() - t0).toBeLessThan(5000);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });

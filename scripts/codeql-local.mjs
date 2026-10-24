@@ -768,7 +768,7 @@ function analyseLanguage(bin, run, language, { pack, suite }, packs, globs, mode
     throw new CodeqlError(`codeql ${created.label} failed (${created.error ? created.error.message : `exit ${created.status}`}):\n${tail(created.stderr) || tail(created.stdout)}`);
   }
   const modelFlags = modelPack && language === "javascript-typescript" ? modelPackFlags(modelPack) : [];
-  mustRun(bin, ["database", "analyze", db, `${pack}@${packs[pack]}:${suite}`, "--threat-model=remote", ...modelFlags, "--format=sarif-latest", `--output=${out}`, "--threads=0"], {
+  mustRun(bin, ["database", "analyze", db, `${pack}@${packs[pack]}:${suite}`, ...modelFlags, "--format=sarif-latest", `--output=${out}`, "--threads=0"], {
     label: `database analyze ${language}`,
   });
   try {

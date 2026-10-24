@@ -121,6 +121,40 @@ export interface FakeOidcOptions {
   redirectUriPrefixes?: string[];
 }
 
+/**
+ * Parsed-URL match of a candidate against a registered prefix: no userinfo, same
+ * origin, and the candidate path equals the prefix path or continues it at a `/`
+ * boundary (so `/cbx` and `/cb/../x` do not match `/cb`). A `scheme://host:` prefix
+ * (trailing colon, no port) registers every port of that host. Query/fragment on the
+ * candidate are ignored (the issuer appends `code`/`state` to its redirects).
+ * See change: triage-codeql-alert-debt (design D3 #345).
+ */
+function matchesRegisteredUri(candidate: string, prefix: string): boolean {
+  // `new URL()` silently drops ASCII tab/CR/LF, so the parsed target would pass while the raw
+  // string (written to `Location`) still carries them.
+  if (/[\t\r\n]/.test(candidate)) return false;
+  let c: URL;
+  try {
+    c = new URL(candidate);
+  } catch {
+    return false;
+  }
+  if (c.username || c.password) return false;
+  const anyPort = /^(https?):\/\/([^/@:]+):$/.exec(prefix);
+  if (anyPort) return c.protocol === `${anyPort[1]}:` && c.hostname === anyPort[2];
+  let p: URL;
+  try {
+    p = new URL(prefix);
+  } catch {
+    return false;
+  }
+  if (c.origin !== p.origin) return false;
+  // A registered query is a constraint: the candidate must carry it.
+  if (p.search && !c.search.startsWith(p.search)) return false;
+  const base = p.pathname.endsWith("/") ? p.pathname : `${p.pathname}/`;
+  return c.pathname === p.pathname || c.pathname.startsWith(base);
+}
+
 export interface FakeOidcUser {
   username: string;
   password: string;
@@ -188,7 +222,7 @@ export async function startFakeOidcIssuer(opts: FakeOidcOptions = {}): Promise<F
   // ── interactive auth-code flow (only when `users` is configured) ──────────
   const users = opts.users ?? [];
   const prefixes = opts.redirectUriPrefixes ?? [];
-  const allowed = (uri: string | null): uri is string => !!uri && prefixes.some((p) => uri.startsWith(p));
+  const allowed = (uri: string | null): uri is string => !!uri && prefixes.some((p) => matchesRegisteredUri(uri, p));
   const codes = new Map<string, { user: FakeOidcUser; clientId: string; redirectUri: string; challenge: string; expiresAt: number }>();
   const sessions = new Map<string, FakeOidcUser>();
 

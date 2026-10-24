@@ -67,6 +67,9 @@ export function parseNetstatListeners(output: string, port: number, selfPid: num
  * Best-effort: any failure returns []. Excludes the current process PID.
  */
 export function findPortHolders(port: number, opts: ProcessOpts = {}): number[] {
+  // Integer-range guard: the port is interpolated into a shell string below.
+  // See change: triage-codeql-alert-debt (design D3 #30).
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return [];
   const platform = opts.platform ?? process.platform;
   const exec = opts.exec ?? defaultExec;
   try {

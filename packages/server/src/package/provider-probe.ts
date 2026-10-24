@@ -248,7 +248,9 @@ async function fetchProviderModelBody(input: ProbeInput): Promise<unknown | null
   // a provider that stalls the response BODY (not just the headers) is still
   // aborted rather than hanging until the socket dies.
   try {
-    const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
+    // redirect: "error" — the credential header must never follow a redirect to another origin.
+    // See change: triage-codeql-alert-debt (design D3 #19).
+    const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal, redirect: "error" });
     if (!response.ok) return null;
     try {
       return await response.json();
@@ -302,6 +304,7 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
       method: "GET",
       headers: req.headers,
       signal: controller.signal,
+      redirect: "error", // never forward the credential to a redirect target (D3 #19)
     });
     clearTimeout(timer);
 
@@ -334,7 +337,10 @@ export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
     };
   } catch (err: any) {
     clearTimeout(timer);
-    const message = err?.message ?? String(err);
+    // undici reports a refused redirect as `TypeError: fetch failed` with the reason in `cause`.
+    const message = /redirect/i.test(String(err?.cause?.message ?? ""))
+      ? "Provider answered with a redirect; probes do not follow redirects. Use the final URL as the base URL."
+      : (err?.message ?? String(err));
     return { ok: false, error: redactErrorText(message, input.apiKey) };
   }
 }
