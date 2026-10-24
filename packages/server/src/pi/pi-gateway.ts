@@ -111,7 +111,18 @@ export interface LocalGatewaySocket {
 }
 
 export interface PiGateway {
+  /**
+   * Serve bridges over TCP. Synchronous: the bind outcome is observed via
+   * {@link PiGateway.tcpListening}. A failed bind tears the half-started
+   * listener down and never escapes as an uncaught exception. See issue #978.
+   */
   start(port: number, host?: string, opts?: { kind?: "tcp" | "loopback" }): void;
+  /**
+   * Bind outcome of the last `start()`: resolves once listening (or at once when
+   * no TCP listener was started); rejects with the bind error, e.g. `EADDRINUSE`.
+   * See issue #978.
+   */
+  tcpListening(): Promise<void>;
   /**
    * Serve bridges on `127.0.0.1:<port>` because the unix socket cannot be
    * used. Requires the local token or a ticket — no tokenless grace — and
@@ -230,6 +241,8 @@ export function createPiGateway(
   let pendingTeardown: Promise<void> = Promise.resolve();
   /** What the TCP `wss` is for (health, spawn pinning). See D7. */
   let tcpKind: "tcp" | "loopback" | "loopback-fallback" | null = null;
+  /** Bind outcome of the last `start()` (pre-handled; see `tcpListening`). */
+  let tcpBound: Promise<void> = Promise.resolve();
   let fallbackReason: "occupied" | "unsupported" | undefined;
 
   // Map sessionId → WebSocket
@@ -1099,7 +1112,7 @@ export function createPiGateway(
     port: number,
     host: string | undefined,
     tcpOpts: { kind: "tcp" | "loopback" | "loopback-fallback"; requireLocalCredential?: boolean },
-  ) => {
+  ): Promise<void> => {
     // A listener already exists (socket transport): replacing `wss` here
     // would orphan it and silently re-route socket upgrades into the TCP
     // server's client set. Both transports are meant to SHARE one
@@ -1185,6 +1198,28 @@ export function createPiGateway(
     attachConnectionHandler(wss, "tcp");
     tcpKind = tcpOpts.kind;
     startHeartbeat();
+    // Bind outcome (#978): without an `error` listener a held port surfaced as an
+    // uncaught exception the crash safety net swallowed, leaving no bridge listener.
+    const server = wss;
+    const bound = new Promise<void>((resolve, reject) => {
+      server.once("listening", () => {
+        server.off("error", reject);
+        // Post-bind errors are reported loudly instead of escaping as uncaught.
+        server.on("error", (err) => console.error(`[pi-gateway] TCP listener error on port ${port}: ${String(err)}`));
+        resolve();
+      });
+      server.once("error", reject);
+    }).catch((err: unknown) => {
+      // A refused bind must leave no half-started listener behind.
+      server.close();
+      if (wss === server) {
+        wss = null;
+        tcpKind = null;
+      }
+      throw err;
+    });
+    bound.catch(() => undefined);
+    return bound;
   };
 
   return {
@@ -1304,26 +1339,17 @@ export function createPiGateway(
       startHeartbeat();
     },
     start(port: number, host?: string, startOpts?: { kind?: "tcp" | "loopback" }) {
-      startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+      tcpBound = startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+    },
+    tcpListening() {
+      return tcpBound;
     },
     async startLoopbackFallback(port: number, reason: "occupied" | "unsupported") {
       if (!options?.bridgeAuth) {
         // Fail closed: the fallback is only defensible behind an auth gate.
         throw new Error("pi-gateway: the loopback fallback requires bridge auth");
       }
-      startTcp(port, "127.0.0.1", { kind: "loopback-fallback", requireLocalCredential: true });
-      const server = wss as WebSocketServer;
-      try {
-        await new Promise<void>((resolve, reject) => {
-          server.once("listening", resolve);
-          server.once("error", reject);
-        });
-      } catch (err) {
-        server.close();
-        wss = null;
-        tcpKind = null;
-        throw err;
-      }
+      await startTcp(port, "127.0.0.1", { kind: "loopback-fallback", requireLocalCredential: true });
       fallbackReason = reason;
     },
     bridgeListeners() {
