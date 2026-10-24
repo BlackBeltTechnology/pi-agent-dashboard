@@ -1,0 +1,7 @@
+# craft-live-control.spec.ts — index
+
+Per-file sidecar. Pull-only. See change: add-craft-live-control.
+
+| File | Purpose |
+|------|---------|
+| `craft-live-control.spec.ts` | L3 for live agent control of an open Craft editor. Needs the harness with `PI_DASHBOARD_FIXTURE_PLUGINS=1` (docker test overlay): mounts the FakeCraft double and the test driver route `POST /api/plugins/craft-web/fixture/control` (body = tool args + `sessionId`; the same router a session's `craft_control` reaches). beforeAll enables craft-web, prepares vectorcraft + wordcraft (network). Client-side `throttle` keeps ≤ 18 routed calls / 10 s (router limit 20). FakeCraft rows: #E22 two devices, #E24 not-open, #E25 unsupported (WordCraft, frame message log), #P1/#P2 routed p95 ≤ 600 ms, pinned ≤ 150 ms, #F1 chip + log, #F4 typing during a request, #F5 tab switch → not-visible, #F6 close guard, #X7 timeout, #X8 agent export confirm (Block/Allow), #X9 user export, #X10 conflict + `host.state`, #X12 cancelled in-app save, #X13 CSP, tool surface (allowlist, denied, reply_too_large, app_error), screenshot JPEG. Real VectorCraft rows (`CONTROL_ROWS`, one per control profile; a guard test fails if an app lacks a row): #E23 create + selection + no reload, #F3 user undo, #X11 sibling save, #X16 read-only digest. `openInPane` falls back to the Editor button and the file tree when the `?file=` deep link does not open the tab. |

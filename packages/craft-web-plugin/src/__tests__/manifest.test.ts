@@ -22,9 +22,11 @@ import {
   type CraftAppProfile,
   capForExtension,
   claimProfile,
+  frameProfile,
   unconfirmedOpenCheck,
   unconfirmedOpenSentence,
 } from "../shared/app-profiles.js";
+import { FAKECRAFT_PROFILE } from "../shared/fixture-profile.js";
 import { profileErrors } from "../shared/profile-checks.js";
 
 const root = path.resolve(__dirname, "..", "..");
@@ -36,7 +38,10 @@ const manifest = pkg["pi-dashboard-plugin"];
 const serverPkg = JSON.parse(readFileSync(path.resolve(root, "..", "server", "package.json"), "utf8")) as { piDashboard: { bundledPlugins: string[] } };
 
 const validated = validateManifest(manifest, "craft-web");
-const claims = validated.claims.filter((c) => c.slot === "editor-pane-file-handler");
+const allFileClaims = validated.claims.filter((c) => c.slot === "editor-pane-file-handler");
+/** The FakeCraft fixture claim (add-craft-live-control D8) is declared in the manifest but is not a shipped app. */
+const fixtureClaim = allFileClaims.find((c) => c.id === FAKECRAFT_PROFILE.claims[0].id);
+const claims = allFileClaims.filter((c) => c !== fixtureClaim);
 
 /** Expected first-overwrite notice of a claim (D4): no-title apps lead with the unconfirmed-open check. */
 const expectedNotice = (p: CraftAppProfile): string => {
@@ -86,7 +91,8 @@ describe("craft-web manifest (E1)", () => {
         expect(CLIENT_CLAIMS[c.id].siblingExtensions).toEqual(c.siblingExtensions ?? []);
       }
     }
-    expect(Object.keys(CLIENT_CLAIMS).sort()).toEqual(Object.keys(CLAIM_APP).sort());
+    // the client table also holds the FakeCraft fixture claim, which the server table only gets under the fixture flag
+    expect(Object.keys(CLIENT_CLAIMS).sort()).toEqual([...Object.keys(CLAIM_APP), FAKECRAFT_PROFILE.claims[0].id].sort());
   });
 
   it("declares the settings-section claim backed by the lazy CraftWebSettings module (track-latest-craft-web-version)", () => {
@@ -241,5 +247,62 @@ describe("craft-web bundling (E24)", () => {
 
   it("repository.directory is packages/craft-web-plugin (runtime-overlay stager maps by it)", () => {
     expect((pkg.repository as { directory: string }).directory).toBe("packages/craft-web-plugin");
+  });
+});
+
+describe("FakeCraft fixture (add-craft-live-control D8)", () => {
+  it("is declared as one manifest claim bound to an exported handler, and valid as a profile", () => {
+    expect(fixtureClaim).toBeTruthy();
+    expect(fixtureClaim?.extensions).toEqual(FAKECRAFT_PROFILE.claims[0].extensions);
+    expect(typeof (clientBarrel as Record<string, unknown>)[String(fixtureClaim?.component)]).toBe("function");
+    expect(profileErrors([FAKECRAFT_PROFILE])).toEqual([]);
+  });
+
+  it("is in no shipped table: not a profiled app, not a server claim, not a registry app", () => {
+    expect(CRAFT_APP_PROFILES.map((p) => p.appId)).not.toContain(FAKECRAFT_PROFILE.appId);
+    expect(Object.keys(CLAIM_APP)).not.toContain("fakecraft");
+    expect([...CLAIMED_APPS]).not.toContain("fakecraft");
+    expect([...CLAIMED_WEB_APP_IDS]).not.toContain("fakecraft");
+  });
+});
+
+describe("live control profiles (add-craft-live-control)", () => {
+  const controlled = CRAFT_APP_PROFILES.filter((p) => p.control);
+  const FORBIDDEN = /open|import|new|close|revert|quit|print|url|script|macro|batch/i;
+
+  it("E20 every control profile is verified against the registry build and carries a safe, non-empty allowlist", () => {
+    expect(controlled.length).toBeGreaterThan(0);
+    for (const p of controlled) {
+      const c = p.control as NonNullable<CraftAppProfile["control"]>;
+      expect(c.verifiedVersion, p.appId).toBe(getApp(p.appId).webVersion);
+      expect(c.allowedCommands.length, p.appId).toBeGreaterThan(0);
+      const allowed = new Set(c.allowedCommands);
+      for (const r of c.readOnlyCommands) expect(allowed.has(r), `${p.appId} read-only ${r}`).toBe(true);
+      for (const sc of c.saveCommands) expect(allowed.has(sc) && !c.readOnlyCommands.includes(sc), `${p.appId} save command ${sc}`).toBe(true);
+      expect(c.allowedCommands.filter((x) => FORBIDDEN.test(x)), p.appId).toEqual([]);
+      expect(new Set(c.allowedCommands).size, `${p.appId} duplicate allowed command`).toBe(c.allowedCommands.length);
+    }
+  });
+
+  it("E20 the frame profile of a control app holds only {kind, global}; other apps' frame profile is unchanged", () => {
+    for (const p of CRAFT_APP_PROFILES) {
+      const fp = frameProfile(p);
+      if (p.control) expect(fp.control).toEqual({ kind: p.control.kind, global: p.control.global });
+      else expect(Object.hasOwn(fp, "control")).toBe(false);
+    }
+  });
+
+  it("E26 control needs an edit claim, a valid global and (page-command) a digestCommand", () => {
+    const ctl = { kind: "page-api", global: "fakecraft", verifiedVersion: "1", allowedCommands: ["a.b"], readOnlyCommands: [], saveCommands: [], saveParamNames: [] } as const;
+    const base = noTitle(3000);
+    expect(profileErrors([{ ...base, control: ctl }])).toEqual([]);
+    const view: CraftAppProfile = { ...base, control: ctl, claims: [{ id: "cadcraft", extensions: [".dxf"], mode: "preview", maxBytes: 1 }] };
+    expect(profileErrors([view]).join()).toMatch(/control requires an edit claim/);
+    expect(profileErrors([{ ...base, claims: [], control: ctl }]).join()).toMatch(/control requires an edit claim/);
+    expect(profileErrors([{ ...base, control: { ...ctl, global: "Bad Global" } }]).join()).toMatch(/control global/);
+    expect(profileErrors([{ ...base, control: { ...ctl, kind: "page-command" } }]).join()).toMatch(/requires digestCommand/);
+    expect(profileErrors([{ ...base, control: { ...ctl, kind: "page-command", digestCommand: "x.info" } }])).toEqual([]);
+    expect(profileErrors([{ ...base, control: { ...ctl, readOnlyCommands: ["z.z"] } }]).join()).toMatch(/readOnlyCommands lists z\.z/);
+    expect(profileErrors([{ ...base, control: { ...ctl, allowedCommands: [] } }]).join()).toMatch(/allowedCommands is empty/);
   });
 });

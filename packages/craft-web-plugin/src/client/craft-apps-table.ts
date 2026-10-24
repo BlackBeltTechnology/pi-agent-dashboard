@@ -5,6 +5,7 @@
  * See change: edit-office-in-pane-with-craft-web (D1, D4), extend-craft-web-to-all-apps (D1, D2).
  */
 import { CRAFT_APP_PROFILES, type CraftAppProfile, type CraftClaimMode } from "../shared/app-profiles.js";
+import { FAKECRAFT_PROFILE } from "../shared/fixture-profile.js";
 
 export interface CraftWebApp {
   /** `craft-apps` registry id; also the `/apps/craft-<id>/` mount and status key. */
@@ -23,8 +24,12 @@ export interface CraftWebApp {
   profile: CraftAppProfile;
 }
 
+/**
+ * One row per manifest claim. The FakeCraft fixture (live-control test double) is included so its claim can
+ * render; its server status exists only under `PI_DASHBOARD_FIXTURE_PLUGINS=1`, otherwise the gate fails closed.
+ */
 export const CRAFT_WEB_APPS: Readonly<Record<string, CraftWebApp>> = Object.fromEntries(
-  CRAFT_APP_PROFILES.flatMap((p) =>
+  [...CRAFT_APP_PROFILES, FAKECRAFT_PROFILE].flatMap((p) =>
     p.claims.map((c) => [
       c.id,
       {

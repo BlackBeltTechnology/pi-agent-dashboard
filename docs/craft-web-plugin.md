@@ -29,7 +29,7 @@ Source of truth: `packages/craft-web-plugin/README.md`, `packages/craft-web-plug
 | SoundCraft | 0.8.0 | `soundcraft` | `.scraftz` | edit | in place, named after session (first save asks) |
 | PhotoCraft | 0.10.0 | `photocraft` | `.psd` | edit | in place |
 | PhotoCraft | 0.10.0 | `photocraft-raster` | `.png .jpg .jpeg .webp .tif .tiff` | edit, sibling `.psd` | new `<stem>.psd` next to file |
-| VectorCraft | 0.13.1 | `vectorcraft` | `.svg` | edit, sibling `.vectorcraft` | new `<stem>.vectorcraft` next to file |
+| VectorCraft | 0.16.0 | `vectorcraft` | `.svg` | edit, sibling `.vectorcraft` | new `<stem>.vectorcraft` next to file |
 | DeckCraft | 0.7.0 | `deckcraft` | `.pptx` | edit, sibling `.deckcraft` | new `<stem>.deckcraft` next to file |
 | DeckCraft | 0.7.0 | `deckcraft-native` | `.deckcraft` | edit | in place |
 | LightCraft | 0.9.1 | `lightcraft` | `.dng .cr2 .cr3 .nef .arw .raf .orf .rw2` | preview | none (exports download to device) |
@@ -82,7 +82,7 @@ Dropped formats (gate failed, not claimed):
   12. `craft-build.json {app, version, shimVersion, profileHash, sizeGzip}`.
 - `profileHash` = hash of frame profile + `ready` + `workerTrampoline`. Changed profile → `shim-outdated`.
 - Result: no inline script. CSP needs no hash. Non-`index.html` assets content-hashed (immutable caching).
-- Shim version: `const SHIM_VERSION = 2;` in `src/shim/craft-shim.js`. Bump on any behaviour change.
+- Shim version: `const SHIM_VERSION = 3;` in `src/shim/craft-shim.js`. Bump on any behaviour change.
 - Shim compat (`shimCompat`, D8):
   - build shim > plugin shim → `shim-outdated`.
   - build shim < `minShimVersion` → `shim-outdated`.
@@ -205,20 +205,21 @@ frame-ancestors 'self'
 
 ## 6. Shim protocol
 
-Shim (`src/shim/craft-shim.js`, v2) runs inside frame. Profile from `window.__CRAFT_PROFILE__`; no profile → v1 title rule. Host accepts only `event.source === iframe.contentWindow` + matching nonce + known type + `bytes ≤ claim.maxBytes`.
+Shim (`src/shim/craft-shim.js`, v3) runs inside frame. Profile from `window.__CRAFT_PROFILE__`; no profile → v1 title rule. Host accepts only `event.source === iframe.contentWindow` + matching nonce + known type + `bytes ≤ claim.maxBytes`.
 
 Shim → host (`window.parent.postMessage(msg, "*", transfer)`):
 
 | Message | Sent when | Payload |
 |---|---|---|
-| `ready{nonce}` | after `TrunkApplicationStarted` (or profile hook), canvas present, one animation frame | host waits ≤ 60 s, else "could not start" + Retry (Retry after WebGPU failure uses `?webgl`) |
+| `ready{nonce}` (v3: + `shimVersion`, `control` = profile has `control` entry) | after `TrunkApplicationStarted` (or profile hook), canvas present, one animation frame | host waits ≤ 60 s, else "could not start" + Retry (Retry after WebGPU failure uses `?webgl`) |
 | `opened{nonce, title, confirmed?}` | title profile: title names delivered document. No-title profile: `openedFallbackMs` after drop, `confirmed:false` | timeout 15 s → "could not open". Absent `confirmed` = v1 = confirmed |
 | `start-failed{nonce, detail?}` | before opened: window `error`/`unhandledrejection` (RuntimeError, `unreachable`), `console.error` `panicked at` | host "could not start" + Retry; no resend |
-| `save{nonce, suggestedName, mime, bytes}` | stubbed `showSaveFilePicker` `close()`, or anchor-download interception | `bytes` transferred |
+| `save{nonce, suggestedName, mime, bytes}` (v3: + `msSinceInput` = ms since last trusted input; `1e9` if none) | stubbed `showSaveFilePicker` `close()`, or anchor-download interception | `bytes` transferred |
 | `dirty{nonce, value}` | title dirty marker + input tracking | see Dirty below |
 | `blocked{nonce, what}` | refused open: `file-input`, `showOpenFilePicker`, `showDirectoryPicker`, `drop-files`, `paste-files` | host toast "Open other files from the dashboard" |
 | `csp{nonce, directive}` | `securitypolicyviolation` | logged server-side |
 | `navigate-blocked{nonce, url}` | link click / `window.open` cancelled | host offers new browser tab after confirm |
+| `control-result{nonce, id, ok, result?, error?, code?}` | answer to host `control` | `code` = `not-ready` \| `unsupported` from shim itself; other replies relayed from page API |
 
 Host → shim (`targetOrigin "*"`, only value that reaches opaque origin; nonce + `event.source` are the gate):
 
@@ -226,6 +227,7 @@ Host → shim (`targetOrigin "*"`, only value that reaches opaque origin; nonce 
 |---|---|
 | `open{nonce, name, bytes}` | once, in reply to first `ready` |
 | `save-result{nonce, ok, error?, own?}` | `ok:false` → stub rejects `AbortError`. `own:true` = own-file overwrite acked (drives `cleanOnAckedSave`). No id: FIFO settles pending saves |
+| `control{nonce, id, method, params?}` | relayed to app page API per `profile.control`: `page-api` → `window[global].request(method, params)`; `page-command` → only `engine.execute{command, params?}` as `window[global].command(command, JSON text)`, reply `JSON.parse`'d. Global absent after `opened` waits 2 s, then `unsupported` |
 
 Nonce binds messages to mount. It does not authenticate the framed app (which can read it). Write safety: core + validator.
 
@@ -399,7 +401,7 @@ Harness `/tmp/craftweb-spike/` (not committed). Real `createPostInstall`, produc
 | DesignCraft 0.9.0 | Trunk | `.designcraft` | same name, assets embedded | none | A |
 | SoundCraft 0.8.0 | Trunk + 2nd inline script | `.scraftz` | `<session name>.scraftz` | none | A (session-name save) |
 | PhotoCraft 0.10.0 | Trunk | `.jpg` | `.psd` | `name — PhotoCraft` | B |
-| VectorCraft 0.13.1 | Trunk | `.svg` | in-app Save As, default `.vectorcraft` | `name — VectorCraft` | B |
+| VectorCraft 0.16.0 | Trunk | `.svg` | in-app Save As, default `.vectorcraft` | `name — VectorCraft` | B |
 | DeckCraft 0.8.0 / 0.7.0 | Trunk | 0.8.0 panics on start; 0.7.0 opens `.pptx` | `.deckcraft` (zip) | none | B (pin 0.7.0) |
 | LightCraft 0.9.1 | custom, `start(font)` | `.jpg` into demo library | nothing (non-destructive) | `LightCraft` | C |
 | FilmCraft 0.9.0 | custom, `filmcraftLoad.readyMs`; 2nd inline | media into demo project | `<project>.fcproj` | none | C (deferred) |
@@ -467,6 +469,171 @@ Filed 2026-10-20 (drafts `openspec/changes/extend-craft-web-to-all-apps/upstream
 - FigCraft dropped-file open: https://github.com/storytold/figcraft/issues/916
 - Common `window.<app>.request` API: https://github.com/storytold/craft-libs/issues/193
 - GridCraft `— Edited` kept after save: https://github.com/storytold/gridcraft/issues/2050
+
+### 14.8 Live control: VectorCraft re-spike (change add-craft-live-control, task 1.1) — go
+
+- Date 2026-10-24. Version `vectorcraft-web` 0.16.0 (newest release). `window.vectorcraft` first in 0.14.0.
+- Method: `spike-craft-web-app-in-sandbox`. Real `createPostInstall` (shim v2 tree: v3 not yet existed; page API shim-independent; shim v3 verified later by `tests/e2e/craft-live-control.spec.ts` on real build). Production CSP. `sandbox=allow-scripts`. Playwright (swiftshader). 900x650 frame.
+- Decision: GO.
+- Title regex `^(.*) [-–—] VectorCraft$` matches `logo.svg — VectorCraft`. Shim title `logo.svg`, `confirmed:true`. No CSP messages.
+- Drop-open ok. User click → shim `dirty true`. Save → shim `save` message.
+- `window.vectorcraft` keys: `request`, `execute`, `commands`, `inspect`, `screenshot`, `openFile`, `captureDownloads`, `files`, `readFile`.
+- `request("ui.inspect")` resolves `{documents:[{dirty,title}], canvasRect, fileDialog, tool, ...}`.
+- `request("engine.commands")` → 1121 commands `{id,label,params,enabled,ui,...}`. 450 KB. Exceeds 192 KiB result cap. Use by prefix via host-side filter or allowlist. Never whole.
+- `request("document.inspect")` → `{artboards, layers, history, dirty, selection, redo, revision, ...}`.
+- Agent edit: `engine.execute {command:"shape.rectangle", params:{x,y,width,height}}` → `{id}`. `document.dirty true`. `history ["Rectangle"]`.
+- Shim sends NO dirty message without user input. Needs `agentPending`.
+- Creation commands SELECT new object (`selection [4]`).
+- `object.setProps` / `object.move` with ids leave user selection alone. E2E "selection unchanged" row uses non-creating mutation.
+- User Ctrl/Cmd+Z in frame after agent rectangle removes it (F3 go).
+
+#### Save / export
+
+- `file.save` (no params) opens in-app Save As dialog. Default format VectorCraft → `.vectorcraft`, sibling path. Returns `{pending:"saveOptions"}`.
+- Save As format dropdown: VectorCraft, Template, PDF, SVG, SVG Compressed, `.ai`.
+- Choose SVG → SVG Options dialog → OK → shim `save {suggestedName:"logo.svg", mime:image/svg+xml}`. Own-file `.svg` save REACHABLE. App marks doc clean after.
+- `file.export.svg {svg:{}}` (params) writes with NO dialog. Shim `save {suggestedName:"logo.svg"}` immediately. No user input → `msSinceInput` large.
+- `document.export {format:"png"}` without path → `{dataBase64}` in result. No download.
+- `file.save` params `{path?, format?, options?, svg?}`. `path` = save-target param to strip (`saveParamNames ["path"]`).
+- `ui.screenshot` default reply `{width,height}` only. `{data:true}` adds `pngBase64`. Host forces `data:true`, decodes `pngBase64`. Not raw PNG reply.
+- `engine.commands` `ui:true` entries open dialogs. Allowlist excludes them except two save commands.
+
+#### Derived command lists (host-side profile, verifiedVersion 0.16.0)
+
+`allowedCommands` (96):
+
+```
+shape.rectangle shape.ellipse shape.polygon shape.star shape.line shape.arc shape.spiral text.create text.setText text.setStyle text.setRangeStyle path.create path.appendAnchor path.moveAnchors path.setAnchors path.reverse path.join select.all select.none select.set select.add select.toggle select.inverse select.allOnArtboard object.move object.rotate object.scale object.reflect object.shear object.transform object.nudge object.setProps object.setBounds object.group object.ungroup object.lock object.hide object.unlockAll object.showAll object.arrange.bringToFront object.arrange.bringForward object.arrange.sendBackward object.arrange.sendToBack object.align object.distribute object.pathfinder.unite object.pathfinder.minusFront object.pathfinder.intersect object.pathfinder.exclude object.pathfinder.divide object.pathfinder.trim object.pathfinder.merge object.pathfinder.crop object.pathfinder.outline object.pathfinder.minusBack object.compoundPath.make object.compoundPath.release object.clippingMask.make object.clippingMask.release paint.setFill paint.setStroke paint.swap paint.none paint.default stroke.set stroke.setAdvanced transparency.set appearance.addFill appearance.addStroke layer.setProps layer.setCurrent layer.move layer.duplicate artboard.setProps artboard.move edit.undo edit.redo edit.clear edit.duplicate file.save file.export.svg document.info document.node document.find document.formats document.json text.getRange text.fonts text.fontList stroke.widthProfile.list transparency.info transparency.opacityMaskInfo object.blend.info text.thread.info text.tabs.get paint.recent
+```
+
+`readOnlyCommands` (15):
+
+```
+document.info document.node document.find document.formats document.json text.getRange text.fonts text.fontList stroke.widthProfile.list transparency.info transparency.opacityMaskInfo object.blend.info text.thread.info text.tabs.get paint.recent
+```
+
+- All allowed exist in `engine.commands`.
+- None matches `/open|import|new|close|revert|quit|print|url|script|macro|batch/i`. `path.close` dropped for regex.
+- Each read-only run leaves digest unchanged. Digest = `document.inspect` (`artboards`, `layers`, `history`, `dirty`, `selection`, `redo`).
+
+#### Not allowlisted (by design)
+
+- `file.open*`, `file.new*`, `file.close*`, `file.revert`, `app.quit`, `document.open`, `document.activate`.
+- `file.saveAs`, `file.saveCopy`, `document.save` (path).
+- `file.print`, any `ui:*` dialog, `clipboard.*`, `edit.cut` / `edit.copy` / `edit.paste` (system clipboard).
+
+See change: add-craft-live-control
+
+### 14.9 Live-control status table (task 10.1)
+
+| App | Wave | State | Prerequisite | Page-API global | Upstream issue |
+|---|---|---|---|---|---|
+| VectorCraft | W1 | enabled 0.16.0 | — (gate §14.8 go) | `window.vectorcraft` (page-api) | upstream shipped (≥ 0.14) |
+| LightCraft | W1 (non-blocking) | pending | view-only (preview claim); control requires edit claim. API exists: `globalThis.lightcraft.command` (page-command; 0.9.1 pinned, 0.13.0 latest) | `globalThis.lightcraft` | none needed |
+| FilmCraft | W2 | pending | `add-craft-web-media-projects` ships `.fcproj` edit claim (still active change) | `window.filmcraft` (in 0.12.0 index.html) | none needed |
+| EffectCraft | W2 | pending | same change ships `.ecproj` claim | `window.effectcraft` (0.16.0 index.html; needs `?nosw` + worker trampoline; check post-install survival at enablement) | none needed |
+| GridCraft | W3 | pending | upstream release with `window.gridcraft.request` (latest 0.11.1: none) | — | https://github.com/storytold/gridcraft/issues/1274; photocraft#6450 comment https://github.com/storytold/photocraft/issues/6450#issuecomment-6383791154 |
+| WordCraft | W3 | pending | `window.wordcraft.request` + caret rebasing (latest 0.10.0: none) | — | https://github.com/storytold/wordcraft/issues/1589 (comment https://github.com/storytold/wordcraft/issues/1589#issuecomment-6383791347); photocraft#6450 comment |
+| PhotoCraft | W3 | pending | `window.photocraft.request` (latest 0.15.1: none) | — | https://github.com/storytold/photocraft/issues/6450 (comment https://github.com/storytold/photocraft/issues/6450#issuecomment-6383791154) |
+| PdfCraft | W3 | pending | `window.pdfcraft.request` (latest 0.13.0: none) | — | photocraft#6450 comment (above) |
+| DesignCraft | W3 | pending | `window.designcraft.request` (latest 0.12.0: none) | — | photocraft#6450 comment |
+| SoundCraft | W3 | pending | `window.soundcraft.request` (latest 0.12.1: none) | — | photocraft#6450 comment |
+| DeckCraft | W3 | pending | `window.deckcraft.request` (latest 0.10.0: none) | — | https://github.com/storytold/deckcraft/issues/714; photocraft#6450 comment |
+| CADCraft | W3 | pending | `window.cadcraft.request` (latest 0.12.0: none) | — | photocraft#6450 comment |
+| FigCraft | W3 | pending | `window.figcraft.request` AND editor-pane claim (separate change); stays pending even if API appears (latest 0.10.0: none) | — | photocraft#6450 comment |
+
+Survey 2026-10-24. Method: grep each latest `-web-` release for page global. Enabling pending app = follow-up change running D8 gate (re-spike under production sandbox, derive lists, record create command, e2e row in `tests/e2e/craft-live-control.spec.ts` `CONTROL_ROWS`).
+
+## 15. Live agent control
+
+Agent drives open web editor in user pane. Opt-in per app via `profile.control`. Headless path stays `pi-craft`.
+
+- Tool: `craft_control({path?, method, params?, instance?})` in `src/bridge/index.ts`.
+- Skill: `craft-live-edit` (`.pi/skills/craft-live-edit/SKILL.md`).
+
+### 15.1 Routing flow
+
+1. bridge → lane `craft-web/control`.
+2. `src/server/control-router.ts` → session-scoped broadcast `craft-web/control-probe`.
+3. Browsers answer `craft-web/control-claim {reqId, instanceId, status, msSinceFocus}`.
+4. Router chooses one claim → broadcast `craft-web/control-run`.
+5. Only client holding `instanceId` acts. Re-checks: open, visible, same session, `ttlMs` from receipt.
+6. `ControlHost.run` → shim relay → `craft-web/control-result`. Accepted only from claiming ws object, once.
+
+- Client→server types = plugin message types. Tier `operate` (unlisted ⇒ operate).
+- `craft-web/control-gone` on instance close.
+
+### 15.2 Claim selection
+
+- Status order: wrong-session, unsupported, not-ready, not-visible, eligible.
+- Window: closes 300 ms after first eligible claim, else 2 s.
+- Choice: smallest `msSinceFocus` ≤ 10 min; tie → earliest claim; else `ambiguous`.
+- No eligible: not-visible > not-ready > unsupported. Nothing or only wrong-session → not-open.
+- Claim from non-OPEN socket does not count.
+
+### 15.3 Limits and timeouts
+
+- 20 routed requests / 10 s / session (`host.state` exempt).
+- Result ≤ 192 KiB. Error ≤ 2 KiB (truncated). Request ≤ 256 KiB (lane).
+- App timeout 10 s → instance busy until late result or 30 s.
+- Server TTL 13 s → `timeout` = outcome unknown.
+- One request in flight per instance.
+
+### 15.4 Host policy (fails closed)
+
+- Top-level methods: `engine.execute`, `engine.commands`, `document.inspect`, `ui.inspect`, `ui.screenshot`, `host.state`.
+- `engine.execute` exactly `{command, params?}`. `command` ∈ per-app `allowedCommands`.
+- `saveParamNames` stripped. Save target decided by save routing.
+- `engine.commands` reply filtered to allowlist (VectorCraft full table 450 KB > cap).
+- `ui.screenshot`: host forces `{data:true}`, decodes `pngBase64`, refuses > 16 MP by PNG header, re-encodes JPEG q80 long edge 1280/960/640 ≤ 192 KiB.
+
+### 15.5 Profile
+
+- `CraftAppProfile.control`: `{kind page-api|page-command, global, verifiedVersion, allowedCommands, readOnlyCommands, saveCommands, saveParamNames, digestCommand?}` in `src/shared/app-profiles.ts`.
+- Only `{kind, global}` reaches frame (`frameProfile`).
+- Lists host-side → edits never force re-prepare.
+- Control valid only with edit claim.
+- VectorCraft lists: `src/shared/vectorcraft-control.ts`.
+
+### 15.6 Unsaved state
+
+- `agentPending` set when non-read-only request forwarded (any result).
+- Unsaved = shim dirty ‖ copyPending ‖ agentPending.
+- Own-file save ack clears `agentPending` only if no agent ok since save message and none running.
+- Sibling / copy / download never clear.
+
+### 15.7 Saves
+
+- Agent save = app save command through normal `routeSave`. Reply `saveRequested:true, saveSeq, instance`.
+- Outcome read via host-implemented `host.state{instance, sinceSeq}` → `{path, unsaved, saves[{seq,pending,outcome?,at}], noSaveYet}`.
+- Outcomes: saved, copy, sibling, conflict, cancelled, denied, downloaded, too-large, rejected, exhausted.
+- Device downloads: v3 control instance, save routed to download with `msSinceInput` > 2000 → host confirmation (Allow/Block). Block → `save-result ok:false`.
+
+### 15.8 UI
+
+- Toolbar chip `craft-agent-active`.
+- `<details>` `craft-agent-log`: ≤ 50 rows (method, outcome, bytes, ≤ 120-char preview).
+
+### 15.9 Kill switch, telemetry, versioning
+
+- Kill switch `plugins['craft-web'].liveControl: false` (read live, server) → `disabled`.
+- Telemetry: `telemetry <app> control outcome=<code> ms=<n>`.
+- Shim SHIM 2→3 → every other app's v2 tree `shimUpdate:true` (still loads; `minShimVersion` unchanged).
+- Control app profile hash changes → re-prepare.
+
+### 15.10 Test fixture
+
+- FakeCraft fixture: `src/server/fixtures/fakecraft/`. `FAKECRAFT_PROFILE` in `src/shared/fixture-profile.ts`.
+- Mount + status + test driver route `POST /api/plugins/craft-web/fixture/control` only under `PI_DASHBOARD_FIXTURE_PLUGINS=1`.
+- Manifest claim `fakecraft` (`.fakecraft`) in `package.json`. Gate says "not verified" without flag.
+
+### 15.11 Tests
+
+- `src/__tests__/manifest.test.ts` (profile drift).
+- `control-host.test.ts`, `control-frame.test.tsx`, `control-router.test.ts`, `fixture.test.ts`, `bridge.test.ts`.
+- `tests/e2e/craft-live-control.spec.ts`.
+
+See change: add-craft-live-control
 
 ## See also
 

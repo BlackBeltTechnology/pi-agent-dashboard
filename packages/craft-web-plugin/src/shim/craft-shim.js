@@ -12,10 +12,18 @@
  *   ready{nonce} opened{nonce,title,confirmed} save{nonce,suggestedName,mime,bytes}
  *   dirty{nonce,value} blocked{nonce,what} csp{nonce,directive}
  *   navigate-blocked{nonce,url} start-failed{nonce,detail}
+ *   control-result{nonce,id,ok,result?,error?,code?}   (v3; `code`: "not-ready" | "unsupported")
+ * `ready` (v3) also carries `shimVersion` and `control` (profile has a control entry); `save` (v3)
+ * carries `msSinceInput` (ms since the last trusted user input in the frame).
  * Host -> shim (accepted only from window.parent with the matching nonce):
  *   open{nonce,name,bytes}  save-result{nonce,ok,error?,own?}   (save-result carries no
  *   id, so results settle pending saves in FIFO order; `own` = an acknowledged
  *   overwrite of the tab's own file.)
+ *
+ * v3 (change add-craft-live-control, D3): `control{nonce,id,method,params}` (host -> shim) is relayed to the
+ * app's page API named by `profile.control` (`page-api`: `window[global].request(method, params)`;
+ * `page-command`: only `engine.execute{command,params?}` as `window[global].command(command, JSON text)`).
+ * The shim is a relay: policy (allowlists, caps, busy, timeouts) lives on the host and the server.
  *
  * v2 (change extend-craft-web-to-all-apps, D4): reads the app's adapter profile from
  * `window.__CRAFT_PROFILE__` (post-install loads it first): profile title regex;
@@ -32,7 +40,7 @@
  * (event -> boolean, default `event.isTrusted === true`) and `opts.profile`
  * (default `win.__CRAFT_PROFILE__`) are test seams only.
  */
-const SHIM_VERSION = 2;
+const SHIM_VERSION = 3;
 
 (function () {
   "use strict";
@@ -53,6 +61,11 @@ const SHIM_VERSION = 2;
   /** v1 rule (no profile): `<name>[ •] - <App>Craft`, dash, en dash or em dash. */
   var LEGACY_TITLE = { pattern: "^(.*?)(?: \u2022)? [-\u2013\u2014] [A-Za-z0-9]*Craft$", dirtyMarker: "\u2022" };
   var PANIC_RE = /panicked at/;
+  /** Longest wait for the app's page-API global to appear after `opened` (then `unsupported`). */
+  var CONTROL_GLOBAL_WAIT_MS = 2000;
+  var CONTROL_GLOBAL_POLL_MS = 100;
+  /** `msSinceInput` of a save when the user never touched the frame. */
+  var NO_INPUT_MS = 1e9;
 
   function stripExt(s) {
     return s.replace(/\.[A-Za-z0-9]{1,5}$/, "");
@@ -135,6 +148,8 @@ const SHIM_VERSION = 2;
     var openName = null; // delivered file name
     var startFailed = false;
     var leaving = false;
+    var lastInputAt = null; // Date.now() of the last trusted user input (control: msSinceInput)
+    var control = profile && profile.control ? profile.control : null;
 
     function post(type, fields, transfer) {
       if (nonce === null) return;
@@ -229,7 +244,7 @@ const SHIM_VERSION = 2;
         raf(function () {
           if (readySent) return;
           readySent = true;
-          post("ready", {});
+          post("ready", { shimVersion: SHIM_VERSION, control: control !== null });
         });
       })();
     }
@@ -423,6 +438,7 @@ const SHIM_VERSION = 2;
     }
 
     function markInput() {
+      lastInputAt = Date.now();
       for (var i = 0; i < pendingSaves.length; i++) pendingSaves[i].inputAfter = true;
       if (!opened) return;
       inputAfterTitle = true;
@@ -466,7 +482,8 @@ const SHIM_VERSION = 2;
     function postSave(name, mime, buffer) {
       return new Promise(function (resolve, reject) {
         pendingSaves.push({ resolve: resolve, reject: reject, inputAfter: false });
-        post("save", { suggestedName: name, mime: mime, bytes: buffer }, [buffer]);
+        var msSinceInput = lastInputAt === null ? NO_INPUT_MS : Math.max(0, Date.now() - lastInputAt);
+        post("save", { suggestedName: name, mime: mime, bytes: buffer, msSinceInput: msSinceInput }, [buffer]);
       });
     }
 
@@ -753,7 +770,9 @@ const SHIM_VERSION = 2;
         if (isTrusted(e)) markInput();
       });
       listen(win, "pointerdown", function (e) {
-        if (isTrusted(e)) pointerPending = true;
+        if (!isTrusted(e)) return;
+        pointerPending = true;
+        lastInputAt = Date.now();
       });
     }
 
@@ -783,12 +802,116 @@ const SHIM_VERSION = 2;
       }
     }
 
+    // ---- control relay (v3) -----------------------------------------------------------
+    function controlReply(id, fields) {
+      var msg = { id: id };
+      for (var k in fields) msg[k] = fields[k];
+      try {
+        post("control-result", msg);
+      } catch (_e) {
+        // the page API resolved with something structured clone refuses (function, symbol…)
+        post("control-result", { id: id, ok: false, error: "the app's reply is not serializable" });
+      }
+    }
+
+    function errText(err) {
+      var m = err && typeof err === "object" && "message" in err ? err.message : err;
+      return typeof m === "string" ? m : JSON.stringify(m === undefined ? null : m) || "error";
+    }
+
+    /** Call `fn` with the app global once it exists (≤ CONTROL_GLOBAL_WAIT_MS), else `onMissing`. */
+    function withGlobal(name, fnName, fn, onMissing) {
+      var waited = 0;
+      (function poll() {
+        var g = win[name];
+        if (g && typeof g[fnName] === "function") return fn(g);
+        if (waited >= CONTROL_GLOBAL_WAIT_MS) return onMissing();
+        waited += CONTROL_GLOBAL_POLL_MS;
+        win.setTimeout(poll, CONTROL_GLOBAL_POLL_MS);
+      })();
+    }
+
+    /** Settle a page-API promise into `control-result` (`parse`: the app answered JSON text). */
+    function settleControl(id, p, parse) {
+      p.then(
+        function (value) {
+          if (!parse) return controlReply(id, { ok: true, result: value });
+          try {
+            controlReply(id, { ok: true, result: JSON.parse(value) });
+          } catch (_e) {
+            controlReply(id, { ok: false, error: "the app's reply is not JSON" });
+          }
+        },
+        function (err) {
+          controlReply(id, { ok: false, error: errText(err) });
+        },
+      );
+    }
+
+    function controlMissing(id) {
+      controlReply(id, { ok: false, code: "unsupported", error: "the app's page API is not available" });
+    }
+
+    /** `page-command` apps: only `engine.execute{command, params?}` as `window[global].command(command, JSON text)`. */
+    function relayPageCommand(id, method, p) {
+      if (method !== "engine.execute" || !p || typeof p !== "object" || typeof p.command !== "string")
+        return controlReply(id, { ok: false, code: "unsupported", error: method + " is not available on a page-command app" });
+      withGlobal(
+        control.global,
+        "command",
+        function (g) {
+          var text;
+          try {
+            text = JSON.stringify(p.params === undefined ? {} : p.params);
+          } catch (_e) {
+            return controlReply(id, { ok: false, error: "params are not serializable" });
+          }
+          try {
+            settleControl(id, Promise.resolve(g.command(p.command, text)), true);
+          } catch (err) {
+            controlReply(id, { ok: false, error: errText(err) });
+          }
+        },
+        function () {
+          controlMissing(id);
+        },
+      );
+    }
+
+    /** `page-api` apps: `window[global].request(method, params)`. */
+    function relayPageApi(id, method, params) {
+      withGlobal(
+        control.global,
+        "request",
+        function (g) {
+          try {
+            settleControl(id, Promise.resolve(g.request(method, params)), false);
+          } catch (err) {
+            controlReply(id, { ok: false, error: errText(err) });
+          }
+        },
+        function () {
+          controlMissing(id);
+        },
+      );
+    }
+
+    function handleControl(msg) {
+      var id = msg.id;
+      if (!control) return controlReply(id, { ok: false, code: "unsupported", error: "this app has no live control" });
+      if (!opened) return controlReply(id, { ok: false, code: "not-ready", error: "the document is not open yet" });
+      var method = typeof msg.method === "string" ? msg.method : "";
+      if (control.kind === "page-command") return relayPageCommand(id, method, msg.params);
+      relayPageApi(id, method, msg.params);
+    }
+
     // ---- host messages -----------------------------------------------------------------
     function onMessage(e) {
       if (e.source !== win.parent) return;
       var d = e.data;
       if (!d || typeof d !== "object" || nonce === null || d.nonce !== nonce) return;
       if (d.type === "open") handleOpen(d);
+      else if (d.type === "control") handleControl(d);
       else if (d.type === "save-result") {
         var p = pendingSaves.shift();
         if (!p) return;

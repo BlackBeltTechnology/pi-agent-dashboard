@@ -8,18 +8,26 @@
  */
 
 export type ShimMessage =
-  | { type: "ready"; nonce: string }
+  /** Shim v3 adds `shimVersion` and `control` (the profile has a control entry); a v1/v2 shim sends neither. */
+  | { type: "ready"; nonce: string; shimVersion?: number; control?: boolean }
   /** `confirmed:false` = opened by the no-title fallback (shim v2); absent (v1 shim) counts as confirmed. */
   | { type: "opened"; nonce: string; title?: string; confirmed?: boolean }
-  | { type: "save"; nonce: string; suggestedName: string; mime?: string; bytes: ArrayBuffer }
+  /** `msSinceInput` (shim v3): ms since the last trusted user input in the frame. */
+  | { type: "save"; nonce: string; suggestedName: string; mime?: string; bytes: ArrayBuffer; msSinceInput?: number }
   | { type: "dirty"; nonce: string; value: boolean }
   | { type: "blocked"; nonce: string; what?: string }
   | { type: "csp"; nonce: string; directive: string }
   | { type: "navigate-blocked"; nonce: string; url: string }
   /** Wasm trap / Rust panic before opened (shim v2). */
-  | { type: "start-failed"; nonce: string; detail?: string };
+  | { type: "start-failed"; nonce: string; detail?: string }
+  /**
+   * Answer to a host `control` (shim v3). Fields stay `unknown` on purpose: the HOST validates them (a malformed
+   * reply becomes a tool error, not a silent drop). `code`: "not-ready" | "unsupported" from the shim itself.
+   */
+  | { type: "control-result"; nonce: string; id: number; ok: unknown; result?: unknown; error?: unknown; code?: unknown };
 
 export type HostMessage =
+  | { type: "control"; nonce: string; id: number; method: string; params?: unknown }
   | { type: "open"; nonce: string; name: string; bytes: ArrayBuffer }
   /** `own`: an acknowledged overwrite of the tab's own file (shim v2 `cleanOnAckedSave`). */
   | { type: "save-result"; nonce: string; ok: boolean; error?: string; own?: boolean };
@@ -42,12 +50,16 @@ type Fields = Record<string, unknown>;
 
 /** Per-type field validators; each returns the payload (without `nonce`) or `null` when malformed. */
 const PARSERS: Record<string, (d: Fields) => Record<string, unknown> | null> = {
-  ready: () => ({}),
+  ready: (d) => ({
+    ...(typeof d.shimVersion === "number" && Number.isInteger(d.shimVersion) ? { shimVersion: d.shimVersion } : {}),
+    ...(typeof d.control === "boolean" ? { control: d.control } : {}),
+  }),
   opened: (d) => ({ title: str(d.title) ?? undefined, confirmed: typeof d.confirmed === "boolean" ? d.confirmed : undefined }),
   save: (d) => {
     const suggestedName = str(d.suggestedName);
     const bytes = toBuffer(d.bytes);
-    return suggestedName === null || !bytes ? null : { suggestedName, mime: str(d.mime) ?? undefined, bytes };
+    const ms = typeof d.msSinceInput === "number" && Number.isFinite(d.msSinceInput) ? d.msSinceInput : undefined;
+    return suggestedName === null || !bytes ? null : { suggestedName, mime: str(d.mime) ?? undefined, bytes, ...(ms !== undefined ? { msSinceInput: ms } : {}) };
   },
   dirty: (d) => (typeof d.value === "boolean" ? { value: d.value } : null),
   blocked: (d) => ({ what: str(d.what) ?? undefined }),
@@ -60,6 +72,8 @@ const PARSERS: Record<string, (d: Fields) => Record<string, unknown> | null> = {
     return url === null ? null : { url };
   },
   "start-failed": (d) => ({ detail: str(d.detail) ?? undefined }),
+  "control-result": (d) =>
+    typeof d.id === "number" && Number.isFinite(d.id) ? { id: d.id, ok: d.ok, result: d.result, error: d.error, code: d.code } : null,
 };
 
 /** Shape + type check. Returns `null` for anything that is not a well-formed known message. */
