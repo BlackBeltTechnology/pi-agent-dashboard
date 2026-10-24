@@ -558,9 +558,11 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Match = exact (rule, file, `primaryLocationLineHash`) multiset equality.
 - Shipped local run 179 vs CI 150 (js 124 + actions 26; python excluded).
 - Local-only 29, CI-only 0.
-- Cause 1 — local-only 29 (client code, all sourced from `fetch(...)` responses):
-  - Script passes `--threat-model=remote`; CI passes none.
+- Cause 1 — local-only 29 (client code, all sourced from `fetch(...)` responses). CLOSED by change `triage-codeql-alert-debt`:
+  - Script passed `--threat-model=remote`; CI passes none.
   - Same db without flag → local == CI exactly (150/150, 0/0).
+  - Fix: `analyseLanguage` in `scripts/codeql-local.mjs` passes no `--threat-model` flag.
+  - Local + CI now use same suite + options.
 - Cause 2 — 29 plugin-server results lost at default→advanced switch, missing on BOTH sides:
   - `js/path-injection` 23, `js/missing-rate-limiting` 5, `js/tainted-format-string` 1.
   - Shared `paths-ignore` `**/__tests__/**` excludes only resolvable `Fastify()` → route-registrar call path.
@@ -570,10 +572,11 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Ruled out: extractor coverage (identical per file), query suite, alerts API vs SARIF counts, pack/CLI drift, CI `generated/extension-pack` (no effect on results).
 - Ruled out `cwd-guard` model: NOT evidence guard irrelevant. Model was dead when measured (unquoted type strings, see [Model type strings](#model-type-strings)). Fixed model applies on both sides.
 - Decision (2026-10-17) — align:
-  - Follow-up drops `--threat-model=remote`.
-  - Follow-up restores server coverage: un-ignore `__tests__` or data-extension model of registrar.
+  - Follow-up drops `--threat-model=remote`. DONE: `triage-codeql-alert-debt`.
+  - Follow-up restores server coverage: un-ignore `__tests__` or data-extension model of registrar. OPEN.
   - Each = own MODIFIED delta.
-  - Until then: local gate covers 29 fetch-response client results; neither side covers 29 plugin-server results.
+  - Remaining local ≠ GitHub difference = cause 2 only.
+  - Neither side covers 29 plugin-server results. Follow-up GitHub issue tracked: `triage-codeql-alert-debt` `evidence/residue.md` (task 8.5).
 - Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md` (path moves under `openspec/changes/archive/<date>-…` on archive).
 - Seed gated: unmatched share > 5 % → stop for decision.
 - Parity record:
@@ -582,6 +585,15 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Share = unmatched local ÷ local results. Only when both `javascript-all` versions match.
   - Numbers recorded in this section.
   - Share > 5 points above post-switch value → further issue.
+- Convention — triaged entry with open GitHub alert (change `triage-codeql-alert-debt`):
+  - Dismiss alert on GitHub. Reason `false positive` for `false-positive:` entries. `won't fix` otherwise.
+  - Dismissal comment = reason text ≤280 chars + ` — See change: <id>`.
+  - Mirror: `node scripts/codeql-local.mjs --mirror-dismissal <rule> <file> <lineHash> --alert <n>`.
+  - Run mirror on clean checkout of the analysed commit. See [Mirror a GitHub dismissal](#mirror-a-github-dismissal).
+  - Entry still reported after a fix (line stays flagged): reason cites the fix. Mirror post-merge at merge commit's analysed SHA.
+- Gap G3 — no gate:
+  - Nothing checks every open GitHub alert matches a `github-dismissed` entry.
+  - Checked by hand per change. Record: `evidence/residue.md`.
 
 ### Rollout
 
