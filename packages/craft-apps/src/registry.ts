@@ -152,7 +152,7 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     { confinement: "automation-roots", toolClass: "small", tools: 32, bridgeFlag: "--connect" },
     undefined,
     {
-      webVersion: "0.13.1",
+      webVersion: "0.16.0",
       webFidelityNote: "Saves are rewritten by VectorCraft; SVG features it does not support may change. A copy is the safe way to compare.",
     },
   ),

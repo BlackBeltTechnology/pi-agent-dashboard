@@ -24,6 +24,8 @@ packages/*/src/**/*.d.ts
 !packages/quota-plugin/src/pi-quotas.d.ts
 # Hand-authored browser shim injected verbatim into the WordCraft web build — source, not a build artifact.
 !packages/craft-web-plugin/src/shim/craft-shim.js
+# Hand-authored FakeCraft test-double page (served only under PI_DASHBOARD_FIXTURE_PLUGINS=1) — source, not a build artifact.
+!packages/craft-web-plugin/src/server/fixtures/fakecraft/fakecraft.js
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/git

@@ -20,7 +20,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `context-mode-roi-report.md` | ROI analysis. context-mode MCP plugin vs kb extension. Verdict: trim not drop. → see `context-mode-roi-report.md.AGENTS.md` |
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |
 | `craft-apps.md` | ArtCraft craft apps (13) headless via `pi-craft`. Provision `<CRAFT_HOME>/<app>/<v>/`; `<APP>_BIN`/`_VERSION`, `CRAFT_SOURCE`; MCP confinement table; `verify` exit 0/1/2/3. See change: add-craft-apps-core. |
-| `craft-web-plugin.md` | WordCraft in pane. See change: edit-office-in-pane-with-craft-web. |
+| `craft-web-plugin.md` | ArtCraft web editors in editor pane. Provision, sandbox/CSP, shim protocol v3, dirty/save mapping, validators, per-app spikes §14 (incl. §14.8 VectorCraft live-control re-spike, §14.9 live-control status table). §15 live agent control: `craft_control` probe→claim→run router, host policy, agentPending, host.state, kill switch liveControl, FakeCraft fixture. See change: edit-office-in-pane-with-craft-web. See change: add-craft-live-control. |
 | `credential-vault.md` | Hub `vault.json` 0600. Env bindings, grants, redaction. See change: add-credential-vault. |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
 | `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |

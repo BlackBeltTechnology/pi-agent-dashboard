@@ -5,6 +5,11 @@
   "description": "Plugin config persisted under plugins['craft-web'].* in ~/.pi/dashboard/config.json. The plugin is OPT-IN (manifest defaultEnabled:false). Per-app switches are enforced server-side too: prepare and saves are refused for a disabled app. Read live (no restart) by status, prepare and the file-validator enabled() switch.",
   "type": "object",
   "properties": {
+    "liveControl": {
+      "type": "boolean",
+      "description": "Kill switch of live agent control (the craft_control tool). When false every request answers `disabled` and no probe is broadcast. Read live on the server; the frame profile is untouched, so flipping it never forces a re-prepare.",
+      "default": true
+    },
     "apps": {
       "type": "object",
       "description": "Per-app switches, keyed by app id (status, prepare, config and mount are keyed by app id; one app may own several claims). An app without a verified web build version contributes no handler regardless of this flag.",

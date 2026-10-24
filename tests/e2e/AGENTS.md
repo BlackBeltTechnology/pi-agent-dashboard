@@ -25,6 +25,7 @@ One row per file.
 | `composer-liveness-reload.spec.ts` | → `composer-liveness-reload.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | → `composer-session-strip.spec.ts.AGENTS.md` |
 | `context-mode-settings.spec.ts` | → `context-mode-settings.spec.ts.AGENTS.md` |
+| `craft-live-control.spec.ts` | → `craft-live-control.spec.ts.AGENTS.md` |
 | `craft-web-editor.spec.ts` | → `craft-web-editor.spec.ts.AGENTS.md` |
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. Needs `PI_E2E_OAUTH_NO_BYPASS=1` + narrowed `PI_E2E_TRUSTED_NETWORKS`; skips when gate unarmed. See change: harden-cors-and-csp-reporting. |
 | `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script blocking, SW + deep-link nonce freshness. Skips without an enforcing header. See change: harden-cors-and-csp-reporting. |

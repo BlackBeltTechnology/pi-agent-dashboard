@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>FakeCraft</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 14px system-ui, sans-serif; background: #202428; color: #e8eaed; }
+  main { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
+  canvas { background: #2b3036; width: 320px; height: 200px; }
+  input { font: inherit; padding: 4px 6px; width: 280px; }
+  button { font: inherit; padding: 4px 10px; }
+  #dialog { display: none; position: fixed; top: 40px; left: 40px; padding: 12px; background: #3a4048; border: 1px solid #889; }
+  #dialog.open { display: block; }
+</style>
+</head>
+<body>
+<main>
+  <canvas id="stage" width="320" height="200"></canvas>
+  <label>Note <input id="note" data-testid="fakecraft-note" value="" autocomplete="off"></label>
+  <button id="export" data-testid="fakecraft-export" type="button">Export PDF</button>
+  <div id="status" data-testid="fakecraft-status"></div>
+  <div id="dialog" role="dialog" data-testid="fakecraft-save-dialog">
+    <p>Save As</p>
+    <button id="dialog-ok" data-testid="fakecraft-save-ok" type="button">OK</button>
+    <button id="dialog-cancel" data-testid="fakecraft-save-cancel" type="button">Cancel</button>
+  </div>
+</main>
+<script src="./fakecraft.js"></script>
+<script>dispatchEvent(new CustomEvent("TrunkApplicationStarted"));</script>
+</body>
+</html>

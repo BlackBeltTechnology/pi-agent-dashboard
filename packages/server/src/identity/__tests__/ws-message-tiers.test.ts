@@ -22,6 +22,13 @@ describe("WS_MESSAGE_TIERS", () => {
     expect(wsMessageTier("__proto__")).toBe("operate");
   });
 
+  it("craft-web live-control claim / result / gone messages fail closed at operate (observe and control sockets cannot claim)", () => {
+    for (const t of ["craft-web/control-claim", "craft-web/control-result", "craft-web/control-gone"]) {
+      expect(Object.hasOwn(WS_MESSAGE_TIERS, t), t).toBe(false);
+      expect(wsMessageTier(t), t).toBe("operate");
+    }
+  });
+
   it("matches the REST tiers of the equivalent routes", () => {
     expect(wsMessageTier("subscribe")).toBe("observe");
     expect(wsMessageTier("send_prompt")).toBe("control"); // POST /api/session/:id/prompt
