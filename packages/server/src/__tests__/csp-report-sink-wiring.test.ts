@@ -3,7 +3,8 @@
  * surfaced in `/api/health`, flushed on graceful stop. The vitest `setup-home` file isolates HOME,
  * so the counter file lands under a throwaway `~/.pi/dashboard/`.
  *
- * See change: harden-cors-and-csp-reporting (D8, test-plan WX3 L1 counterpart).
+ * See change: harden-cors-and-csp-reporting (D8, test-plan WX3 L1 counterpart);
+ * add-trusted-types-shadow-enforce (test-plan #E22).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -38,5 +39,18 @@ describe("createServer wires the CSP report sink", () => {
     handle = undefined;
     const file = path.join(os.homedir(), ".pi", "dashboard", "csp-reports.json");
     expect(JSON.parse(fs.readFileSync(file, "utf8")).counts.strict["script-src-elem"].count).toBe(1);
+  }, 60_000);
+
+  it("E22: the shadow aggregate of a client report reaches /api/health (store built before the routes)", async () => {
+    handle = await createTestServer();
+    const base = `http://127.0.0.1:${handle.httpPort}`;
+    const post = await fetch(`${base}/api/csp-violations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ entries: [], shadow: { "would-block-script": 1 } }),
+    });
+    expect(post.status).toBe(200);
+    const health = (await (await fetch(`${base}/api/health`)).json()) as { cspReports?: { ttShadow?: Record<string, number> } };
+    expect(health.cspReports?.ttShadow?.["would-block-script"]).toBe(1);
   }, 60_000);
 });

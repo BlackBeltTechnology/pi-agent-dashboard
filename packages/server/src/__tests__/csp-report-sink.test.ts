@@ -18,6 +18,7 @@ import { registerCspReportSink } from "../auth/csp-report-sink.js";
 import {
   CSP_DIRECTIVE_ALLOW_SET,
   CspReportStore,
+  SHADOW_OUTCOMES,
   strictScriptSrcMeasure,
 } from "../auth/csp-report-store.js";
 import { registerCspReportParsers } from "../live-server/live-csp-report.js";
@@ -82,7 +83,7 @@ async function build(o: BuildOpts = {}): Promise<Ctx> {
     log: (m) => logs.push(m),
   });
   if (o.live === "after") liveRoute();
-  registerCspViolationRoutes(app, { networkGuard: async () => {}, principalOf: () => "p" });
+  registerCspViolationRoutes(app, { networkGuard: async () => {}, principalOf: () => "p", recordShadow: (o, n) => store.recordShadow(o, n) });
   if (o.spaFallback) app.setNotFoundHandler((_req, reply) => reply.code(200).type("text/html").send("<html>spa</html>"));
   await app.ready();
   return { app, store, file, clock, logs, warns, handle };
@@ -608,6 +609,26 @@ describe("persistence, reset, restart", () => {
     expect(sumCounts(c)).toBe(0);
   });
 
+  it("E20: reset zeroes the shadow block and aligns the shadow `since` with the core `since`; the operate-tier gate is WE32", async () => {
+    const c = await build();
+    await post(c, "strict", report());
+    c.store.recordShadow("would-alter-html", 4);
+    c.store.recordShadow("shadow-error", 1);
+    c.clock.t += 5_000;
+    const denied = await c.app.inject({ method: "POST", url: "/api/csp-reports/reset" });
+    expect(denied.statusCode).toBe(401);
+    expect(c.store.snapshot().ttShadow["would-alter-html"]).toBe(4);
+    const res = await c.app.inject({ method: "POST", url: "/api/csp-reports/reset", headers: { "x-auth": "op" } });
+    expect(res.statusCode).toBe(200);
+    const { success, since } = res.json() as { success: boolean; since: string };
+    expect(success).toBe(true);
+    const snap = c.store.snapshot();
+    expect(snap.since).toBe(since);
+    expect(snap.ttShadow.since).toBe(since);
+    for (const o of SHADOW_OUTCOMES) expect(snap.ttShadow[o], o).toBe(0);
+    expect(sumCounts(c)).toBe(0);
+  });
+
   describe("fake clock", () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
@@ -665,6 +686,44 @@ describe("persistence, reset, restart", () => {
       expect(JSON.parse(fs.readFileSync(c.file, "utf8")).counts.strict["script-src-elem"].count).toBe(4);
     });
 
+    it("E18: a shadow count is on disk within 5 s; reload keeps it and both `since`s; policy counters and the strict measure are untouched", async () => {
+      const c = await build({ clock: dateClock() });
+      await post(c, "strict", report("img-src"));
+      await vi.advanceTimersByTimeAsync(5_000);
+      const coreBefore = JSON.parse(fs.readFileSync(c.file, "utf8")).counts;
+      const measureBefore = strictScriptSrcMeasure(c.store.snapshot());
+      c.store.recordShadow("would-alter-html", 4);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(JSON.parse(fs.readFileSync(c.file, "utf8")).ttShadow?.counts?.["would-alter-html"]).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      const onDisk = JSON.parse(fs.readFileSync(c.file, "utf8"));
+      expect(onDisk.ttShadow.counts["would-alter-html"].count).toBe(4);
+      expect(onDisk.counts).toEqual(coreBefore);
+      expect(strictScriptSrcMeasure(c.store.snapshot())).toBe(measureBefore);
+      const again = new CspReportStore({ filePath: c.file, now: () => Date.now() + 60_000 });
+      expect(again.snapshot().ttShadow).toEqual(c.store.snapshot().ttShadow);
+      expect(again.snapshot().ttShadow["would-alter-html"]).toBe(4);
+      expect(again.snapshot().since).toBe(c.store.snapshot().since);
+    });
+
+    it("X1: a counter-file write fault never fails the route; memory keeps the count; exactly one warning", async () => {
+      const c = await build({ clock: dateClock() });
+      vi.spyOn(fs, "writeFileSync").mockImplementation((() => {
+        throw Object.assign(new Error("fault"), { code: "EACCES" });
+      }) as typeof fs.writeFileSync);
+      const res = await c.app.inject({
+        method: "POST",
+        url: "/api/csp-violations",
+        headers: { "content-type": "application/json" },
+        payload: { entries: [], shadow: { "would-block-script": 1 } },
+      });
+      expect(res.statusCode).toBe(200);
+      await vi.advanceTimersByTimeAsync(5_000);
+      c.store.flush();
+      expect(c.store.snapshot().ttShadow["would-block-script"]).toBe(1);
+      expect(c.warns).toHaveLength(1);
+    });
+
     it("WP4: a concurrent reader never sees a torn counter file; the file equals memory after quiesce", async () => {
       const c = await build({ clock: dateClock() });
       const { stop } = startTornReadWatcher(c.file);
@@ -698,5 +757,62 @@ describe("persistence, reset, restart", () => {
         expect(JSON.parse(fs.readFileSync(file, "utf8")).counts.strict["script-src-elem"].count).toBe(1);
       },
     );
+  });
+
+  describe("E19: the shadow block at boot (missing / malformed / unknown key)", () => {
+    const CORE_SINCE = "2026-01-01T00:00:00.000Z";
+    const SHADOW_SINCE = "2026-02-01T00:00:00.000Z";
+    const core = (extra: Record<string, unknown> = {}) => ({
+      version: 1,
+      since: CORE_SINCE,
+      dropped: 2,
+      counts: { baseline: {}, strict: { "script-src-elem": { count: 3, firstSeen: CORE_SINCE, lastSeen: CORE_SINCE } }, "trusted-types": {} },
+      documents: { baseline: {}, strict: {}, "trusted-types": {} },
+      ...extra,
+    });
+    const START = Date.parse("2026-03-01T00:00:00.000Z");
+    const boot = async (content: unknown) => {
+      const file = path.join(dir, "csp-reports.json");
+      fs.writeFileSync(file, JSON.stringify(content));
+      return { file, c: await build({ file, clock: { t: START } }) };
+    };
+
+    it("a core-only file (first upgrade / older-server rewrite) keeps the core and starts a new shadow `since`", async () => {
+      const { c } = await boot(core());
+      const snap = c.store.snapshot();
+      expect(snap.since).toBe(CORE_SINCE);
+      expect(snap.dropped).toBe(2);
+      expect(snap.counts.strict["script-src-elem"]).toBe(3);
+      expect(snap.ttShadow.since).toBe(new Date(START).toISOString());
+      for (const o of SHADOW_OUTCOMES) expect(snap.ttShadow[o]).toBe(0);
+      expect(c.warns).toHaveLength(0);
+    });
+
+    it.each([
+      ["a non-object block", []],
+      ["a known key with a negative count", { since: SHADOW_SINCE, counts: { "would-alter-html": { count: -1, firstSeen: SHADOW_SINCE, lastSeen: SHADOW_SINCE } } }],
+    ])("%s → core kept, no .corrupt file, zero shadow with a new `since`, one warning", async (_n, block) => {
+      const { c, file } = await boot(core({ ttShadow: block }));
+      const snap = c.store.snapshot();
+      expect(fs.existsSync(`${file}.corrupt`)).toBe(false);
+      expect(snap.since).toBe(CORE_SINCE);
+      expect(snap.counts.strict["script-src-elem"]).toBe(3);
+      expect(snap.ttShadow.since).toBe(new Date(START).toISOString());
+      for (const o of SHADOW_OUTCOMES) expect(snap.ttShadow[o]).toBe(0);
+      expect(c.warns).toHaveLength(1);
+    });
+
+    it("an unknown outcome key is ignored: known counts and the shadow `since` survive, the unknown key is gone after the next write", async () => {
+      const bucket = (n: number) => ({ count: n, firstSeen: SHADOW_SINCE, lastSeen: SHADOW_SINCE });
+      const { c, file } = await boot(core({ ttShadow: { since: SHADOW_SINCE, counts: { "would-alter-html": bucket(5), "would-foo": bucket(9) } } }));
+      const snap = c.store.snapshot();
+      expect(snap.ttShadow.since).toBe(SHADOW_SINCE);
+      expect(snap.ttShadow["would-alter-html"]).toBe(5);
+      expect(c.warns).toHaveLength(0);
+      c.store.recordShadow("shadow-error", 1);
+      c.store.flush();
+      const onDisk = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(Object.keys(onDisk.ttShadow.counts).sort()).toEqual(["shadow-error", "would-alter-html"]);
+    });
   });
 });

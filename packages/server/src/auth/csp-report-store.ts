@@ -16,7 +16,15 @@
  * continues in memory with one warning per fault episode. A file that is unparseable at boot is
  * moved to `csp-reports.json.corrupt` and counting starts at zero with a new `since`.
  *
- * See change: harden-cors-and-csp-reporting (D8).
+ * A separate fixed-key `ttShadow` block (six Trusted Types shadow outcomes, own `since`) is
+ * persisted in the same file. It is fed only by {@link CspReportStore.recordShadow} — never through
+ * the `policy × directive` path, so shadow text cannot reach `other` or the strict measure. Its
+ * `since` is renewed whenever the shadow evidence restarts from zero other than by an operator reset
+ * (fresh store, block missing after a rollback, malformed block), so lost evidence shows as a later
+ * window start, never as a zero. A malformed block restarts only the shadow counters and is never
+ * "file corruption" (no `.corrupt` move, core counters kept).
+ *
+ * See change: harden-cors-and-csp-reporting (D8); add-trusted-types-shadow-enforce (D7, D8).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -67,11 +75,31 @@ export function normalizeDirective(raw: string): string {
   return ALLOWED.has(d) ? d : OTHER_KEY;
 }
 
+/**
+ * The six Trusted Types shadow outcomes the client classifies in report mode. The client keeps its own
+ * copy of this list (`packages/client/src/lib/security/trusted-types.ts`); keep both in step.
+ */
+export const SHADOW_OUTCOMES = [
+  "would-block-script",
+  "would-block-script-url",
+  "would-alter-html",
+  "would-throw-html",
+  "not-evaluated",
+  "shadow-error",
+] as const;
+export type ShadowOutcome = (typeof SHADOW_OUTCOMES)[number];
+const SHADOW_SET: ReadonlySet<string> = new Set(SHADOW_OUTCOMES);
+export const isShadowOutcome = (v: string): v is ShadowOutcome => SHADOW_SET.has(v);
+
+/** Shadow counts plus the start of their evidence window (flat form: counts only, no per-key timestamps). */
+type TtShadowSnapshot = { since: string } & Record<ShadowOutcome, number>;
+
 /** Counts only — no URL, path or report content. Shape served as `cspReports` in `/api/health`. */
 export interface CspReportsSnapshot {
   since: string;
   dropped: number;
   counts: Record<CspReportPolicy, Record<string, number>>;
+  ttShadow: TtShadowSnapshot;
 }
 
 /** The strict `script-src*` measure the follow-up soak gate reads (`strict` counters starting `script-src`). */
@@ -115,6 +143,8 @@ export class CspReportStore {
   private dropped = 0;
   private counts = emptyPolicyMap<Bucket>();
   private documents = emptyPolicyMap<number>();
+  private shadow = new Map<ShadowOutcome, Bucket>();
+  private shadowSince = "";
   private dirty = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private warned = false;
@@ -152,12 +182,27 @@ export class CspReportStore {
     this.markDirty();
   }
 
-  /** Zero every counter incl. `dropped`; returns the new `since` (ISO-8601). */
+  /** Add `n` (a validated 1..1,000,000 count) to one shadow outcome. Never touches the policy counters. */
+  recordShadow(outcome: ShadowOutcome, n: number): void {
+    const at = new Date(this.now()).toISOString();
+    const bucket = this.shadow.get(outcome);
+    if (bucket) {
+      bucket.count = Math.min(Number.MAX_SAFE_INTEGER, bucket.count + n);
+      bucket.lastSeen = at;
+    } else {
+      this.shadow.set(outcome, { count: n, firstSeen: at, lastSeen: at });
+    }
+    this.markDirty();
+  }
+
+  /** Zero every counter incl. `dropped` and the shadow block; returns the new `since` (ISO-8601). */
   reset(): string {
     this.counts = emptyPolicyMap();
     this.documents = emptyPolicyMap();
     this.dropped = 0;
     this.since = new Date(this.now()).toISOString();
+    this.shadow = new Map();
+    this.shadowSince = this.since;
     this.markDirty();
     return this.since;
   }
@@ -167,7 +212,9 @@ export class CspReportStore {
     for (const policy of CSP_REPORT_POLICIES) {
       for (const [d, b] of this.counts[policy]) counts[policy][d] = b.count;
     }
-    return { since: this.since, dropped: this.dropped, counts };
+    const ttShadow = { since: this.shadowSince } as TtShadowSnapshot;
+    for (const o of SHADOW_OUTCOMES) ttShadow[o] = this.shadow.get(o)?.count ?? 0;
+    return { since: this.since, dropped: this.dropped, counts, ttShadow };
   }
 
   /** Bounded per-policy document-path breakdown (operator/soak review; not served over health). */
@@ -231,7 +278,8 @@ export class CspReportStore {
       counts[policy] = Object.fromEntries(this.counts[policy]);
       documents[policy] = Object.fromEntries(this.documents[policy]);
     }
-    return { version: 1, since: this.since, dropped: this.dropped, counts, documents };
+    const ttShadow = { since: this.shadowSince, counts: Object.fromEntries(this.shadow) };
+    return { version: 1, since: this.since, dropped: this.dropped, counts, documents, ttShadow };
   }
 
   private load(): void {
@@ -241,6 +289,7 @@ export class CspReportStore {
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") this.warn(`[csp] counter file unreadable (${(err as NodeJS.ErrnoException)?.code ?? "error"}); starting at zero`);
       this.since = new Date(this.now()).toISOString();
+      this.shadowSince = this.since;
       return;
     }
     if (this.parse(raw)) return;
@@ -249,12 +298,35 @@ export class CspReportStore {
     this.documents = emptyPolicyMap();
     this.dropped = 0;
     this.since = new Date(this.now()).toISOString();
+    this.shadow = new Map();
+    this.shadowSince = this.since;
     try {
       fs.renameSync(this.file, `${this.file}.corrupt`);
     } catch {
       /* best effort — the next flush replaces the file anyway */
     }
     this.warn("[csp] counter file corrupt; moved to csp-reports.json.corrupt and restarted counting");
+  }
+
+  /**
+   * Populate the shadow block. Absent (first upgrade, or an older-server rewrite) or malformed → zero counts
+   * with a new `since` (malformed also warns once); the core counters are never affected. Unknown outcome keys
+   * are ignored, so a newer version's extra key does not invalidate the block.
+   */
+  private loadShadow(v: unknown): void {
+    const restart = () => {
+      this.shadow = new Map();
+      this.shadowSince = new Date(this.now()).toISOString();
+    };
+    if (v === undefined) return restart();
+    const block = parseShadow(v);
+    if (!block) {
+      restart();
+      this.warn("[csp] counter file shadow block malformed; restarted the shadow counters");
+      return;
+    }
+    this.shadow = block.counts;
+    this.shadowSince = block.since;
   }
 
   /** Populate from the file text; `false` when malformed (state is only replaced on success). */
@@ -272,6 +344,7 @@ export class CspReportStore {
       this.dropped = j.dropped as number;
       this.counts = counts;
       this.documents = documents;
+      this.loadShadow(j.ttShadow);
       return true;
     } catch {
       return false;
@@ -280,6 +353,7 @@ export class CspReportStore {
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object";
+const isPlainObject = (v: unknown): v is Record<string, unknown> => isRecord(v) && !Array.isArray(v);
 
 /** One persisted bucket, or `null` when malformed. */
 function parseBucket(b: unknown): Bucket | null {
@@ -314,4 +388,19 @@ function parseDocuments(v: unknown): PolicyMap<number> | null {
     }
   }
   return out;
+}
+
+/** Validate the persisted `ttShadow` block; `null` = malformed. Unknown outcome keys are dropped. */
+function parseShadow(v: unknown): { since: string; counts: Map<ShadowOutcome, Bucket> } | null {
+  if (!isPlainObject(v)) return null;
+  const { since, counts } = v;
+  if (typeof since !== "string" || Number.isNaN(Date.parse(since)) || !isPlainObject(counts)) return null;
+  const out = new Map<ShadowOutcome, Bucket>();
+  for (const [k, b] of Object.entries(counts)) {
+    if (!isShadowOutcome(k)) continue;
+    const bucket = parseBucket(b);
+    if (!bucket) return null;
+    out.set(k, bucket);
+  }
+  return { since, counts: out };
 }

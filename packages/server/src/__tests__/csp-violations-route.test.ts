@@ -3,16 +3,20 @@
  * (change: harden-client-sinks, design D8, test-plan #E24).
  */
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerCspViolationRoutes } from "../routes/csp-violations-routes.js";
 
 let now = 1_000_000;
 let app: FastifyInstance;
 const logged: string[] = [];
 
+const recordShadow = vi.fn();
+
 async function build() {
   app = Fastify({ logger: false });
+  recordShadow.mockClear();
   registerCspViolationRoutes(app, {
+    recordShadow,
     // Stand-in for the network guard: only requests carrying x-auth are admitted.
     networkGuard: async (req, reply) => {
       if (!req.headers["x-auth"]) await reply.code(401).send({ success: false, error: "unauthorized" });
@@ -114,5 +118,65 @@ describe("POST /api/csp-violations (#E24)", () => {
     const counters = res.json().counters as { directive: string; sink: string; source: string; count: number }[];
     expect(counters.find((c) => c.sink === "Element innerHTML")?.count).toBe(5);
     expect(counters.find((c) => c.sink === "overflow")?.count).toBe(2);
+  });
+});
+
+const shadowEntry = (sink = "would-block-script-url", source = "https://h/a.js:1") => ({ directive: "trusted-types-shadow", sink, source, count: 1 });
+
+describe("shadow aggregate (#E15, #E16, #E17; change: add-trusted-types-shadow-enforce)", () => {
+  it("E15: known keys feed recordShadow, unknown are ignored, record() paths untouched; detail-only → no call", async () => {
+    await build();
+    const res = await post({ entries: [shadowEntry()], shadow: { "would-block-script-url": 2, "would-foo": 3 } });
+    expect(res.statusCode).toBe(200);
+    expect(recordShadow).toHaveBeenCalledTimes(1);
+    expect(recordShadow).toHaveBeenCalledWith("would-block-script-url", 2);
+    await post({ entries: [shadowEntry()] }, "bob");
+    expect(recordShadow).toHaveBeenCalledTimes(1);
+  });
+
+  it("E15: a report with only a shadow aggregate and no entries is accepted", async () => {
+    await build();
+    expect((await post({ entries: [], shadow: { "would-alter-html": 1 } })).statusCode).toBe(200);
+    expect(recordShadow).toHaveBeenCalledWith("would-alter-html", 1);
+  });
+
+  it("E16: valid counts 1 and 1,000,000 pass", async () => {
+    await build();
+    expect((await post({ entries: [], shadow: { "would-block-script": 1 } }, "a")).statusCode).toBe(200);
+    expect((await post({ entries: [], shadow: { "would-block-script": 1_000_000 } }, "b")).statusCode).toBe(200);
+    expect(recordShadow).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([[0], [1_000_001], [1.5], ["2"], [-1]])("E16: invalid count %j → 400, nothing recorded", async (bad) => {
+    await build();
+    expect((await post({ entries: [], shadow: { "would-alter-html": bad } })).statusCode).toBe(400);
+    expect(recordShadow).not.toHaveBeenCalled();
+  });
+
+  it.each([[[]], ["x"], [5], [null]])("E16: non-object shadow %j → 400, nothing recorded", async (bad) => {
+    await build();
+    expect((await post({ entries: [], shadow: bad })).statusCode).toBe(400);
+    expect(recordShadow).not.toHaveBeenCalled();
+  });
+
+  it("E16: a burst-excess report → 429 and recordShadow is not called for it", async () => {
+    await build();
+    for (let i = 0; i < 3; i++) await post({ entries: [], shadow: { "would-alter-html": 1 } });
+    recordShadow.mockClear();
+    expect((await post({ entries: [], shadow: { "would-alter-html": 1 } })).statusCode).toBe(429);
+    expect(recordShadow).not.toHaveBeenCalled();
+  });
+
+  it("E17: 501 distinct shadow-detail entries never evict a violation counter", async () => {
+    await build();
+    await post({ entries: [entry("Element innerHTML")] }, "v");
+    for (let i = 0; i < 501; i += 50) {
+      const entries = Array.from({ length: Math.min(50, 501 - i) }, (_, j) => shadowEntry("would-alter-html", `https://h/s${i + j}.js:1`));
+      expect((await post({ entries }, `p${i}`)).statusCode).toBe(200);
+    }
+    const res = await app.inject({ method: "GET", url: "/api/csp-violations", headers: { "x-auth": "op" } });
+    const counters = res.json().counters as { sink: string; directive: string }[];
+    expect(counters.some((c) => c.sink === "Element innerHTML")).toBe(true);
+    expect(counters.filter((c) => c.directive === "trusted-types-shadow")).toHaveLength(500);
   });
 });

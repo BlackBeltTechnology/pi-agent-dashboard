@@ -16,6 +16,9 @@ import { MERMAID_GALLERY_DIAGRAMS, MERMAID_GALLERY_MD } from "./helpers/tt-fixtu
 // under TT `enforce`, median of 5 runs, ≤ 20 ms — on the mermaid gallery and on
 // a session chat that renders mermaid. Over budget → the phase blocks (no silent
 // `htmlLabels:false`). Exemplar: tests/e2e/csp.spec.ts.
+// The `report`-mode variants below (change: add-trusted-types-shadow-enforce,
+// test-plan #P1) run the same metric with shadow evaluation active: the sum of
+// `default`-callback time now includes the shadow classifier.
 
 test.use({ serviceWorkers: "block", launchOptions: { args: TT_LAUNCH_ARGS } });
 
@@ -61,6 +64,44 @@ test.describe("Trusted Types default-policy cost (P1)", () => {
       samples.push((await readTtProbe(page)).defaultMs);
     }
     console.log(`[tt-perf] chat default-policy ms: ${samples.map((s) => s.toFixed(1)).join(", ")}`);
+    expect(median(samples)).toBeLessThanOrEqual(BUDGET_MS);
+  });
+});
+
+test.describe("Trusted Types default-policy cost with shadow evaluation (P1, report mode)", () => {
+  test("mermaid gallery: median default-policy time ≤ 20 ms", async ({ page }) => {
+    test.setTimeout(300_000);
+    await installTtProbe(page);
+    await ensureGitSession(page);
+    await forceTtMode(page, "report");
+    const samples: number[] = [];
+    for (let i = 0; i < RUNS; i++) {
+      await page.goto(fileViewUrl(GALLERY));
+      await expect(page.locator(".mermaid-diagram-inner")).toHaveCount(MERMAID_GALLERY_DIAGRAMS.length, { timeout: 60_000 });
+      await page.waitForTimeout(500);
+      samples.push((await readTtProbe(page)).defaultMs);
+    }
+    console.log(`[tt-perf] report-mode gallery default-policy ms: ${samples.map((s) => s.toFixed(1)).join(", ")}`);
+    expect(median(samples)).toBeLessThanOrEqual(BUDGET_MS);
+  });
+
+  test("session chat with mermaid: median default-policy time ≤ 20 ms", async ({ page }) => {
+    test.setTimeout(300_000);
+    await installTtProbe(page);
+    const card = await spawnFreshGitSession(page);
+    const sid = await card.getAttribute("data-session-id");
+    await card.click();
+    await sendPrompt(page, "[[faux:mermaid-sanitize-types]] go");
+    await expect(page.locator(".mermaid-diagram svg")).toHaveCount(4, { timeout: 45_000 });
+    await forceTtMode(page, "report");
+    const samples: number[] = [];
+    for (let i = 0; i < RUNS; i++) {
+      await page.goto(`/session/${sid}`);
+      await expect(page.locator(".mermaid-diagram svg")).toHaveCount(4, { timeout: 45_000 });
+      await page.waitForTimeout(500);
+      samples.push((await readTtProbe(page)).defaultMs);
+    }
+    console.log(`[tt-perf] report-mode chat default-policy ms: ${samples.map((s) => s.toFixed(1)).join(", ")}`);
     expect(median(samples)).toBeLessThanOrEqual(BUDGET_MS);
   });
 });

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { readCspReports } from "./helpers/csp-strict.js";
 import { fileViewUrl, installTtProbe, readTtProbe, removeFile, seedFile, type TtProbe } from "./helpers/trusted-types.js";
 import { MERMAID_GALLERY_MD } from "./helpers/tt-fixtures.js";
 import { REPO_ROOT } from "./lifecycle.js";
@@ -17,6 +18,12 @@ import { REPO_ROOT } from "./lifecycle.js";
 // budget. Any page showing the server-offline state fails the run.
 // Re-record: PI_TT_BUDGET_RECORD=1 npm run test:e2e -- trusted-types-budget.
 // Exemplar: tests/e2e/csp.spec.ts.
+//
+// Shadow evaluation (change: add-trusted-types-shadow-enforce, test-plan #F1/#F2):
+// the routes above run with shadow evaluation active (report mode), so zero
+// violations and unchanged `default`-hit budgets prove it adds neither; the last
+// test proves the end-to-end evidence path (client outcome → persisted counter →
+// /api/health + /api/csp-violations).
 
 test.use({ serviceWorkers: "block" });
 
@@ -118,5 +125,38 @@ test.describe("Trusted Types budget (report mode)", () => {
       d.innerHTML = "<b>control</b>";
     });
     await expect.poll(async () => (await readTtProbe(page)).violations.length - before, { timeout: 5_000 }).toBe(1);
+  });
+
+  test("F2: shadow outcomes reach /api/health and /api/csp-violations without changing the rendered input", async ({ page }) => {
+    test.setTimeout(90_000);
+    await installTtProbe(page);
+    await gotoDashboard(page);
+    const before = readCspReports()?.ttShadow;
+    const base = (k: string) => Number(before?.[k] ?? 0);
+    await page.evaluate(() => {
+      document.body.insertAdjacentHTML("beforeend", "<img src=x onerror=f()>");
+      try {
+        new Worker("/plugin-assets/x/abc/worker.js").terminate();
+      } catch {
+        /* the URL is not served; only the default-policy call matters */
+      }
+    });
+    // Report neutrality: the unsafe markup keeps its handler.
+    await expect(page.locator("body > img[src='x'][onerror]")).toHaveCount(1);
+    // `pagehide` forces the final keepalive flush.
+    await page.goto("about:blank");
+    await expect
+      .poll(() => Number(readCspReports()?.ttShadow?.["would-alter-html"] ?? 0) - base("would-alter-html"), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(1);
+    await expect
+      .poll(() => Number(readCspReports()?.ttShadow?.["would-block-script-url"] ?? 0) - base("would-block-script-url"), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(1);
+    // The operator list sits behind the network guard, so read it with the page's authenticated context.
+    await gotoDashboard(page);
+    const res = await page.request.get("/api/csp-violations");
+    expect(res.ok()).toBe(true);
+    const counters = ((await res.json()) as { counters: { directive: string; sink: string }[] }).counters;
+    const rows = counters.filter((c) => c.directive === "trusted-types-shadow");
+    expect(rows.map((r) => r.sink)).toEqual(expect.arrayContaining(["would-alter-html", "would-block-script-url"]));
   });
 });

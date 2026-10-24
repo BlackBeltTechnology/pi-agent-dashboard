@@ -80,7 +80,14 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // bearer_expired re-pair live in `lib/pairing/device-auth.ts`, which installs the global fetch wrapper at boot, so it
 // cannot be lazy. 607,837 B on CI, 605 B over the old cap; 594 KiB (608,256 B) leaves ~420 B. Smallest KiB step that
 // clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 594 * 1024;
+// add-trusted-types-shadow-enforce (2026-10-24): 594 -> 596 KiB. The shadow classifier lives in the Trusted
+// Types `default` policy, which `bootClient` installs synchronously before first render, so it cannot split:
+// the six-outcome classifier (memo + per-window budget + two-pass HTML test) and the shadow aggregate
+// transport (clamp/carry, byte-bounded priority report) are unavoidably in the entry (+~1 KB gz alone:
+// 607,648 B vs the 593 KiB cap before merging harden-auth-credentials). Merged with develop: 608,974 B in this
+// test's own gzip, 718 B over the 594 KiB cap; 595 KiB (609,280 B) would leave ~300 B, so 596 KiB
+// (610,304 B, ~1.3 KB headroom for CI's compressor variance). Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 596 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

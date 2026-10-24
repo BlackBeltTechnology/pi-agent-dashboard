@@ -2724,11 +2724,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPiRetryRoutes(fastify, { networkGuard, reloadConnectedSessions });
   // Trusted Types / CSP violation counters (authenticated, rate-limited, counters
   // only). See change: harden-client-sinks (D8).
-  registerCspViolationRoutes(fastify, { networkGuard, log: { warn: (m) => fastify.log.warn(m) } });
+  // The store is built first: the violation route feeds its persisted `ttShadow` aggregate.
+  // See change: add-trusted-types-shadow-enforce (D6).
+  const cspReportStore = new CspReportStore();
+  registerCspViolationRoutes(fastify, {
+    networkGuard,
+    log: { warn: (m) => fastify.log.warn(m) },
+    recordShadow: (outcome, count) => cspReportStore.recordShadow(outcome, count),
+  });
   // Baseline CSP report sink (`POST /__pi/csp-report/:policy`, public to the OAuth gate), its
   // persisted counter (`~/.pi/dashboard/csp-reports.json`) and the operator reset
   // (`POST /api/csp-reports/reset`, operate). See change: harden-cors-and-csp-reporting (D8).
-  const cspReportStore = new CspReportStore();
   registerCspReportSink(fastify, { store: cspReportStore, networkGuard });
   // Signed navigation intents for operator-opened route-backed overlays
   // (per-process key: a restart invalidates them). See change: harden-client-sinks (D10).

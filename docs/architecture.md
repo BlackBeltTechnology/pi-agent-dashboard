@@ -8849,6 +8849,17 @@ flowchart LR
 - `POST /api/csp-violations`: network guard, 8 KiB cap, per-principal burst 3 / 12 per min → 429, counters only, LRU 500.
 - `GET /api/csp-violations` (operate tier): returns counters.
 - Unrelated to live-preview `/__pi/csp-report`.
+- Shadow aggregate: `shadow: {<outcome>: n}` per report. Outside 50-key cap and `overflow`. Report mode only.
+- Shadow totals clamp 1,000,000 per report. Remainder carried to next report.
+- Totals-only report sent when shadow totals non-empty.
+- Totals subtracted on 2xx. Kept on failure except 400: discarded + 1 `shadow-error` added.
+- Body priority: violations → default hits → per-source `trusted-types-shadow` detail.
+- Body ≤ 7,168 B. Every `source` cut to 512 UTF-16 units.
+- `pagehide` keepalive send not retried. Residual: last ≤ 30 s lost.
+- Server `parseReport`: `shadow` non-object or bad known count → 400. Unknown keys ignored.
+- Server after schema + limiter: `recordShadow` → persisted `ttShadow`. Never `record()`.
+- Shadow detail: own in-memory LRU 500. Never evicts violation keys.
+- See change: add-trusted-types-shadow-enforce.
 
 ### URL policy
 - `packages/shared/src/url-policy.ts` `classifyUrl(raw, origin|null)` → `internal|loopback|external|mailto|blocked`.
@@ -8902,6 +8913,39 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 - Differing modes → other header kind carries TT directive alone, labelled `trusted-types` → `/__pi/csp-report/trusted-types`.
 - TT violations count in `require-trusted-types-for` bucket. Never in strict `script-src*` measure.
 - Client counters `/api/csp-violations` (in-memory, harden-client-sinks) untouched. Distinct namespace.
+
+#### Shadow enforce (report mode)
+
+- Runs only in `default` policy, `report` mode (`packages/client/src/lib/security/trusted-types.ts`). `off` / `enforce`: no shadow work.
+- Returns input unchanged. Output and `defaultHit` counts unchanged. Never throws into sink.
+- Outcomes (`SHADOW_OUTCOMES`): `would-block-script`, `would-block-script-url`, `would-alter-html`, `would-throw-html`, `not-evaluated`, `shadow-error`.
+- `would-block-script`: every report-mode `createScript` call.
+- `would-block-script-url`: `createScriptURL` failing `isAllowedScriptUrl`.
+- `inShadow` flag: nested `default` call returns input, counts nothing.
+- HTML tag-free input (no `<`): no outcome, no work.
+- HTML uses separate `DOMPurify(window)` instance. Shared instance untouched.
+- Parse policy `pi-shadow-parse`: module-private, never exported, never a document sink.
+- Shared `enforceProfileFor(s)` picks profile for both enforce and classifier.
+- Pass 1: enforce profile. `removed > 0` → `would-alter-html`.
+- Pass 2: only if pass 1 clean and input leads with `style|link|meta|title|base|script|noscript|template`. `FORCE_BODY`. Output differs → `would-alter-html`.
+- Throw in `assertPurify` or pass 1 → `would-throw-html`. Other throw → `shadow-error`.
+- Memo: exact-string LRU. 512 entries / 4 Mi UTF-16 units.
+- Budget per 30 s window: 200 classifications / 2 Mi UTF-16 units / 50 ms (`performance.now()`).
+- Over budget: `not-evaluated` once per distinct input per window. Not memoized.
+- Perf gate: report-mode variant of `tests/e2e/trusted-types-perf.spec.ts`. Median of 5 runs ≤ 20 ms.
+
+#### Shadow persistence, health and flip gate
+
+- Store: `ttShadow: {since, counts: {<outcome>: {count, firstSeen, lastSeen}}}` in `csp-reports.json`. `version` stays `1`.
+- `ttShadow.since` renewed on: fresh store; missing block (older-server rewrite after rollback); malformed block (1 warning, core kept, no `.corrupt`).
+- `POST /api/csp-reports/reset`: zeroes `ttShadow`, sets its `since` to core `since`.
+- In-memory per-source shadow rows not cleared by reset. Split view until restart.
+- Crash loses ≤ 5 s of shadow counts.
+- Health: `cspReports.ttShadow` = `{since, <6 outcome counts>}`. Flat. Zeros included. No per-key timestamps. Absent = server predates change.
+- Flip gate (`enforce-trusted-types-default`): evidence valid only from `ttShadow.since`.
+- Flip gate: `not-evaluated` and `shadow-error` = 0.
+- Flip gate: `would-alter-html` = 0 necessary, not sufficient. Visual spec under enforce stays a gate.
+- See change: add-trusted-types-shadow-enforce.
 
 ### Nonce lifecycle
 
