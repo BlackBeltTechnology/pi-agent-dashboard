@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+// pi-blender launcher.
+//
+// Checkout: run `src/bin/blender.ts` through tsx (the working tree, not a stale `dist/`).
+// Published install: tsx is a devDependency and absent, so run the esbuild bundle
+// `dist/blender.js` in a `node` subprocess. Neither → say how to build. Arguments, stdio, exit
+// code and signals pass through.
+//
+// Unlike `pi-craft`, the entry is spawned with an IPC channel. The entry (and, in turn, the
+// Blender host it starts) exits on IPC `disconnect`, so killing this launcher — even with
+// SIGKILL — tears down every descendant. See change: add-blender-wasm-mcp (design D1).
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const srcCli = join(pkgRoot, "src", "bin", "blender.ts");
+const distCli = join(pkgRoot, "dist", "blender.js");
+
+function resolveTsx() {
+  try {
+    return createRequire(import.meta.url).resolve("tsx");
+  } catch {
+    return undefined;
+  }
+}
+
+const args = process.argv.slice(2);
+const tsx = existsSync(srcCli) ? resolveTsx() : undefined;
+
+let argv;
+if (tsx) argv = ["--import", pathToFileURL(tsx).href, srcCli, ...args]; // a file URL: a raw path breaks on Windows
+else if (existsSync(distCli)) argv = [distCli, ...args];
+else {
+  console.error("[pi-blender] neither src/bin/blender.ts (with tsx) nor dist/blender.js is available — run `node scripts/build.mjs` in this package");
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, argv, { stdio: ["inherit", "inherit", "inherit", "ipc"] });
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => child.kill(sig));
+child.on("error", (e) => {
+  console.error(`[pi-blender] failed to launch: ${e.message}`);
+  process.exit(1);
+});
+child.on("exit", (code, signal) => {
+  if (signal) process.exit(signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1);
+  process.exit(code ?? 1);
+});

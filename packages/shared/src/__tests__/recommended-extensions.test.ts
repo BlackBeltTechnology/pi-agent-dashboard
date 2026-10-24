@@ -43,6 +43,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
 				"@blackbelt-technology/pi-dashboard-craft-apps",
+				"@blackbelt-technology/pi-dashboard-blender",
 				"@blackbelt-technology/pi-untrusted-content-guard",
 				"@blackbelt-technology/pi-dashboard-deck3d",
 				"@blackbelt-technology/pi-dashboard-music-production",
@@ -216,6 +217,7 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-video-production",
 				"@blackbelt-technology/pi-dashboard-nano-banana",
 				"@blackbelt-technology/pi-dashboard-craft-apps",
+				"@blackbelt-technology/pi-dashboard-blender",
 				"@blackbelt-technology/pi-untrusted-content-guard",
 				"@blackbelt-technology/pi-dashboard-deck3d",
 				"@blackbelt-technology/pi-dashboard-music-production",
@@ -234,6 +236,19 @@ describe("craft-apps entry", () => {
 		expect(entry?.unlocks.join(" ")).toMatch(/per-app skills/);
 		expect(entry?.unlocks.join(" ")).toMatch(/pi-craft CLI/);
 		expect(RECOMMENDED_EXTENSIONS.some((e) => e.id === "@blackbelt-technology/pi-dashboard-photocraft")).toBe(false);
+	});
+});
+
+describe("blender entry", () => {
+	it("E66 is optional, npm-sourced and unlocks the blender skill, the pi-blender CLI and the blender-wasm MCP server", () => {
+		const entry = RECOMMENDED_EXTENSIONS.find((e) => e.id === "@blackbelt-technology/pi-dashboard-blender");
+		expect(entry).toBeDefined();
+		expect(entry?.status).toBe("optional");
+		expect(entry?.source).toBe("npm:@blackbelt-technology/pi-dashboard-blender");
+		const unlocks = entry?.unlocks.join(" ") ?? "";
+		expect(unlocks).toMatch(/\bblender skill/);
+		expect(unlocks).toMatch(/pi-blender CLI/);
+		expect(unlocks).toMatch(/blender-wasm MCP server/);
 	});
 });
 

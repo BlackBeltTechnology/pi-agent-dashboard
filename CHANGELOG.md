@@ -80,6 +80,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Headless Blender for agents, with no native install.** New optional package `@blackbelt-technology/pi-dashboard-blender`
+  (`pi-blender` CLI, `blender` skill, `blender-wasm` stdio MCP server) runs the published Blender WebAssembly build
+  (`@knervous/blender-web` 0.0.5) inside Node 24 (WebAssembly JSPI). The runtime (~175 MB, GPL-3.0-or-later, never bundled)
+  downloads on first use, verified against a sha512 pin in source, and is cached under `<pi agent dir>/tools/blender-wasm/`
+  (`BLENDER_WASM_DIR` serves offline installs). Five tools (`blender_python`, `blender_scene`, `blender_import`,
+  `blender_export`, `blender_reset`) work in one persistent scene; file access is confined to the project root with
+  all-or-nothing output commits, agent Python gets an in-memory filesystem with no network or subprocess, and a timed-out,
+  crashed or idle session is killed and rebooted (`sessionReset: true` reports the lost scene). Registration is opt-in:
+  `pi-blender mcp --register`. On Node 22 the tools answer `jspi-unavailable` and nothing downloads.
+
 - **Agents can now edit a document that is open in an editor pane, live (`craft_control`).** The craft-web plugin adds a
   `craft_control({path, method, params?, instance?})` pi tool that runs one command in the editor tab the user is looking
   at (VectorCraft `.svg` first, VectorCraft web build 0.16.0), with a `craft-live-edit` skill. One request reaches at most
