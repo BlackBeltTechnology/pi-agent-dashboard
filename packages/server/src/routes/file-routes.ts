@@ -909,7 +909,7 @@ export function registerFileRoutes(
     // `allowGrant: false` — a read grant must NOT authorize launching a local
     // application or revealing in the file manager. Those are a different
     // capability from reading, so the two spawn routes keep the pre-change
-    // `isAllowed`-only decision (task 4.5 review gate, blocking #2).
+    // layers ①/② only decision (task 4.5 review gate, blocking #2).
     const gate = await gateFilePath(cwd, rawPath, routeAdmission, {
       allowGrant: false,
       disclosure: canDiscloseAccessPosture(request),

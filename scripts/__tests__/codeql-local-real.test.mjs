@@ -136,7 +136,7 @@ app.get("/a", async (req: any) => { const resolved = path.resolve("/base", req.q
 app.get("/b", async (req: any) => { const resolved = path.resolve("/base", req.query.path); await evaluateContainment(resolved, ["/base"]); return fs.readFileSync(resolved); /*B*/ });
 app.get("/c", async (req: any) => { const a = path.resolve("/base", req.query.path); const b = path.resolve("/base", req.query.other); const d = await evaluateContainment(a, ["/base"]); if (!containmentAllows(d, a)) return null; return fs.readFileSync(b); /*C*/ });
 app.get("/d", async (req: any) => { const resolved = path.resolve("/base", req.query.path); const d = await evaluateContainment(resolved, ["/base"]); containmentAllows(d, resolved); return fs.readFileSync(resolved); /*D*/ });
-app.get("/f", async (req: any) => { const matches: { path: string }[] = req.query.m; return Promise.all(matches.map(async (m) => { const r = path.resolve("/base", m.path); const d = await decidePassive(r, ["/base"]); if (containmentAllows(d, r)) return fs.readFileSync(r); /*F*/ return null; })); });
+app.get("/f", async (req: any) => { const matches: { path: string }[] = req.query.m; return Promise.all(matches.map(async (m) => { const r = path.resolve("/base", m.path); const d = await decidePassive(r, ["/base"], { allowGrant: true }); if (containmentAllows(d, r)) return fs.readFileSync(r); /*F*/ return null; })); });
 app.get("/g", async (req: any) => { const g = await gate(req.query.path); if ("code" in g) return null; return readIt(g.resolved); });
 app.get("/h", async (req: any) => { const resolved = path.resolve("/base", req.query.path); const d = await evaluateContainment(resolved, ["/base"]); if (!(containmentAllows(d, resolved) || isArtifact(resolved))) return null; return fs.readFileSync(resolved); /*H*/ });
 app.listen({ port: 1 });
@@ -149,7 +149,7 @@ app.listen({ port: 1 });
     files["packages/server/src/gate.ts"] =
       `import type { PathDecision } from "${CONTAINMENT_GUARD_IMPORT}";\n` +
       "export async function evaluateContainment(resolved: string, anchors: string[]): Promise<PathDecision> { return { allowed: anchors.length > Date.now() % 2, viaGrant: false, resolved }; }\n" +
-      "export async function decidePassive(resolved: string, anchors: string[]): Promise<PathDecision> { return evaluateContainment(resolved, anchors); }\n";
+      "export async function decidePassive(resolved: string, anchors: string[], opts: { allowGrant: boolean }): Promise<PathDecision> { return evaluateContainment(resolved, opts.allowGrant ? anchors : []); }\n";
     files["packages/server/src/lib/sinks.ts"] = 'import fs from "node:fs";\nexport function readIt(p: string) { return fs.readFileSync(p); /*G*/ }\n';
     return { files, probe };
   };

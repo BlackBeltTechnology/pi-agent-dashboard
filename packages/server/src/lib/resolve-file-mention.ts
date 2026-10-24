@@ -8,7 +8,7 @@
  *  - `cwd` is untrusted request input — the ENDPOINT gates it against the
  *    known-session set BEFORE calling this resolver. This function assumes the
  *    caller already trusts `cwd`.
- *  - Containment (`isAllowed`) runs BEFORE any `fs.stat`, anchored on
+ *  - Containment (`decidePassive` → `isAllowed` / grants, then `containmentAllows`) runs BEFORE any `fs.stat`, anchored on
  *    `cwd` + a FIXED, server-derived `<os.homedir()>/.pi` allowlist. git-common
  *    -root widening is supplied by `isAllowed`'s layer ② (symlink-safe realpath),
  *    so a plain (logical) git-root anchor is deliberately NOT added here.
@@ -74,7 +74,7 @@ export async function resolveFileMention(
   candidate = path.resolve(candidate);
 
   // Containment BEFORE stat (design D2). Anchors: cwd + fixed `~/.pi`; git-root
-  // widening comes from isAllowed's layer ②.
+  // widening comes from the layer ② of `isAllowed` (via `decidePassive`).
   // Consumes grants; returns null rather than a body, so it can never
   // originate a grant (design D12).
   // The canonical cwd joins the request spelling when it differs (core-file-cwd-admission D2), so a

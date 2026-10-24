@@ -335,7 +335,7 @@ export async function evaluateContainment(
  * The decision of a PASSIVE site: one that filters or returns nothing instead of refusing with a
  * body, and so never originates a denial (`grep-routes.ts` result filter, `resolve-file-mention.ts`,
  * the raw-image pre-check in `file-routes.ts`). Layers ①/② first, then — only with `allowGrant` —
- * the grant layer. No dashboard-state check, no denial record, no hold: exactly the
+ * the grant layer. No denial record, no hold, and no refusal of its own beyond what `isAllowed` / `isGrantAdmitted` already enforce (both refuse dashboard-state paths): exactly the
  * `isAllowed` / `isGrantAdmitted` pair these sites called by hand before, now bound to the path.
  * `grantSubjects` lets a loop hoist the store read (design D16: no N × store read per match).
  * See change: codeql-file-containment-barrier.
