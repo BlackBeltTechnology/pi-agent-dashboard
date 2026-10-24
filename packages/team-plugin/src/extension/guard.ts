@@ -4,9 +4,9 @@
  * the filesystem is only read to canonicalise path arguments.
  * See change: add-team-plugin, add-team-skill-access.
  */
-import fs from "node:fs";
 import path from "node:path";
 import { parseSkillBlock, parseSkillCommand } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import { canonicalizeTarget, isPathWithinRoots } from "@blackbelt-technology/pi-dashboard-shared/tool-path-resolve.js";
 
 export type Preset = "chat" | "files" | "full";
 
@@ -75,26 +75,22 @@ export function policyFromEnv(env: Record<string, string | undefined> = process.
   return { preset: tools, root, skills };
 }
 
-function canonicalize(p: string): string {
-  const abs = path.resolve(p);
-  let head = abs;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = fs.realpathSync(head);
-      return tail.length ? path.join(real, ...tail.reverse()) : real;
-    } catch {
-      const parent = path.dirname(head);
-      if (parent === head) return abs;
-      tail.push(path.basename(head));
-      head = parent;
-    }
+/**
+ * Canonicalise via the shared resolver: realpath the nearest existing ancestor and
+ * follow DANGLING symlinks component-wise (hop-bounded). A loop / unresolvable link
+ * throws there; mapped to `null` so the caller fails closed. See issue #971.
+ */
+function canonicalize(p: string): string | null {
+  try {
+    return canonicalizeTarget(path.resolve(p));
+  } catch {
+    return null;
   }
 }
 
+/** Component-wise containment (shared resolver; never a string prefix). */
 function inside(root: string, p: string): boolean {
-  const rel = path.relative(root, p);
-  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  return isPathWithinRoots(p, [root]);
 }
 
 /** Mirror pi's path normalisation (`@` prefix, unicode spaces) before resolving. */
@@ -118,6 +114,7 @@ export function decideToolCall(toolName: unknown, input: unknown, policy: TeamPo
   if (!PATH_TOOLS.has(toolName)) return { allow: true };
   const args = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
   const root = canonicalize(policy.root);
+  if (root === null) return { allow: false, reason: "policy_unavailable" };
   for (const key of ["path", "file_path"]) {
     const v = args[key];
     if (v === undefined) continue;
@@ -125,9 +122,15 @@ export function decideToolCall(toolName: unknown, input: unknown, policy: TeamPo
     const n = normalise(v);
     if (n === null) return { allow: false, reason: "invalid_path" };
     const target = canonicalize(path.isAbsolute(n) ? n : path.join(root, n));
+    if (target === null) return { allow: false, reason: "invalid_path" };
     if (!inside(root, target)) {
       // D9: outside the target root, a read-only tool may still reach into an effective skill root.
-      const inSkillRoot = READONLY_TOOLS.has(toolName) && policy.skills.some((s) => inside(canonicalize(s.root), target));
+      const inSkillRoot =
+        READONLY_TOOLS.has(toolName) &&
+        policy.skills.some((s) => {
+          const sr = canonicalize(s.root);
+          return sr !== null && inside(sr, target);
+        });
       if (!inSkillRoot) return { allow: false, reason: "path_outside_root" };
     }
     if (WRITE_TOOLS.has(toolName) && path.relative(root, target).split(path.sep).some((seg) => PROTECTED_SEGMENTS.has(seg))) {
@@ -152,6 +155,7 @@ export function grantedSkillFilter(policy: TeamPolicy | null): (entry: unknown) 
     const { name, filePath } = entry as Record<string, unknown>;
     if (typeof name !== "string" || typeof filePath !== "string") return false;
     const canonical = canonicalize(filePath);
+    if (canonical === null) return false;
     const slot = slots.find((s) => !s.used && s.name === name && s.canonical === canonical);
     if (!slot) return false;
     slot.used = true;
@@ -172,7 +176,11 @@ export function isRefusedInput(text: unknown, policy: TeamPolicy | null): boolea
   const envelope = parseSkillBlock(text);
   if (envelope) {
     const location = canonicalize(envelope.location);
-    return !policy?.skills.some((s) => inside(canonicalize(s.root), location));
+    if (location === null) return true;
+    return !policy?.skills.some((s) => {
+      const sr = canonicalize(s.root);
+      return sr !== null && inside(sr, location);
+    });
   }
   return false;
 }
