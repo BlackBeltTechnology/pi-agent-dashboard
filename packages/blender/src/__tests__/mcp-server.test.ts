@@ -387,6 +387,9 @@ describe("lazy start and concurrency", () => {
     const a = mcp.send("tools/call", { name: "blender_python", arguments: { code: "1" } });
     const b = mcp.send("tools/call", { name: "blender_python", arguments: { code: "2" } });
     await Promise.all([a.response, b.response]);
+    // The fake host appends "sentN" to its log just after sending the result; on a slow runner the line can land
+    // a moment after the server's response, so poll for the full log instead of reading it once.
+    expect(await waitUntil(() => h.logEntries().filter((e) => e.type !== "boot").length >= 4, 5000, 10)).toBe(true);
     const log = h.logEntries().filter((e) => e.type !== "boot");
     expect(log.map((e) => `${e.type}${e.n}`)).toEqual(["op0", "sent0", "op1", "sent1"]);
     expect(log[2].t).toBeGreaterThanOrEqual(log[1].t);
