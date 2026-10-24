@@ -143,6 +143,10 @@ async function main(): Promise<void> {
     process.stdout.write(`${JSON.stringify({ jspi, node: process.version })}\n`);
     process.exit(0);
   }
+  // Registered before the (up to 120 s, possibly wedged) boot: if the server or an ancestor dies meanwhile, the
+  // host must not live on with ~1 GB. A disconnect that already happened is caught by the `connected` check.
+  process.on("disconnect", () => process.exit(0));
+  if (process.send && !process.connected) process.exit(0);
   const dir = argValue("--runtime-dir");
   if (!dir) die("host: --runtime-dir is required");
   const href = pathToFileURL(path.resolve(dir, "runtime")).href;
@@ -155,7 +159,6 @@ async function main(): Promise<void> {
   const session = mod.createBlenderSession({ runtimeUrl, threads: false });
   await session.boot();
   const version = runtimeVersion(dir);
-  process.on("disconnect", () => process.exit(0));
   let chain: Promise<void> = Promise.resolve();
   process.on("message", (msg: HostRequest) => {
     if (msg?.type !== "op") return;

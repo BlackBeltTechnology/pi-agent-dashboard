@@ -8,6 +8,7 @@
  *
  * See change: add-blender-wasm-mcp (design D7, task 5.2).
  */
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,9 +93,15 @@ export function registerMcp(partial: Partial<RegisterDeps> = {}): number {
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // Write beside the target and rename: a crash never leaves a truncated mcp.json.
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`);
-  fs.renameSync(tmp, file);
+  // Unpredictable name + `wx`: the open fails if anything (including a planted symlink) already sits there.
+  const tmp = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { flag: "wx" });
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
 
   deps.stderr(`${prog}: registered "${SERVER_NAME}" in ${file}\n`);
   deps.stderr("  note: the entry holds absolute paths and is machine-specific (do not commit it for a team).\n");

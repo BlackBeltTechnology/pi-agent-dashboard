@@ -15,6 +15,9 @@ import type { Limits } from "./workspace.js";
 export const SUPPORTED_PROTOCOL_VERSIONS = ["2024-11-05", "2025-03-26", "2025-06-18"] as const;
 export const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[SUPPORTED_PROTOCOL_VERSIONS.length - 1];
 
+/** How long a closed server waits for calls that cannot be aborted (probe/provision) before exiting. */
+const SHUTDOWN_GRACE_MS = 2000;
+
 export interface ServerDeps {
   stdin: Readable;
   stdout: Writable;
@@ -133,6 +136,16 @@ export async function runServer(deps: ServerDeps): Promise<number> {
   });
   await new Promise<void>((resolve) => rl.once("close", resolve));
   await deps.supervisor.shutdown();
-  await Promise.allSettled([...pending]);
+  // A cancelled call writes no reply. A call still inside probe/provision has no abort hook, so wait for the
+  // pending calls only briefly: the client is gone and the process exit ends any in-flight download.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.allSettled([...pending]),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, SHUTDOWN_GRACE_MS);
+      timer.unref?.();
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
   return 0;
 }
