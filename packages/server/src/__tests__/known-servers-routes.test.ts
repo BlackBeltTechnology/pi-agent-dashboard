@@ -184,6 +184,8 @@ describe("known-servers routes (identity pinning)", () => {
       fetchImpl?: typeof fetch;
       timeouts?: { challengeMs?: number; dnsMs?: number; httpMs?: number } | null;
       log?: (m: string) => void;
+      /** This server's own fingerprint (harden-peer-address-identity). */
+      own?: string;
     } = {},
   ): Promise<Ctx> {
     const app = Fastify();
@@ -226,6 +228,7 @@ describe("known-servers routes (identity pinning)", () => {
       lookup,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       moves,
+      ...(opts.own ? { ownFingerprint: () => opts.own } : {}),
       log: opts.log ?? (() => {}),
       ...(opts.timeouts === null ? {} : { timeouts: opts.timeouts ?? { challengeMs: 100, dnsMs: 100, httpMs: 80 } }),
     });
@@ -333,6 +336,56 @@ describe("known-servers routes (identity pinning)", () => {
       expect(r.json()).toMatchObject({ error: "identity_changed", expected: F, proven: G });
       expect(entries()[0].fingerprint).toBe(F);
     });
+  });
+
+  // See change: harden-peer-address-identity (test-plan #E11 #E12)
+  describe("#E11 self_address: an address that reaches this very dashboard", () => {
+    const OWN = "sha256:OWNOWN";
+
+    it("operator add whose address proves this server's own fingerprint ⇒ 409 self_address, nothing stored", async () => {
+      await mkCtx({ own: OWN });
+      ctx.answers["192.168.64.1:8000"] = { proven: OWN };
+      const r = await operator("POST", "/api/known-servers", { host: "192.168.64.1", port: 8000 });
+      expect(r.statusCode).toBe(409);
+      expect(r.json()).toMatchObject({ success: false, error: "self_address" });
+      expect(entries()).toEqual([]);
+    });
+
+    it("self_address takes precedence over identity_changed (a pinned entry whose address now answers as this server)", async () => {
+      seed([{ host: "192.168.64.1", port: 8000, addedAt: T0, fingerprint: F }]);
+      await mkCtx({ own: OWN });
+      ctx.answers["192.168.64.1:8000"] = { proven: OWN };
+      const r = await operator("POST", "/api/known-servers", { host: "192.168.64.1", port: 8000 });
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error).toBe("self_address");
+      expect(entries()[0].fingerprint).toBe(F);
+    });
+
+    it("a non-operator add is refused by the guard and never contacts the target", async () => {
+      await mkCtx({ own: OWN });
+      ctx.answers["192.168.64.1:8000"] = { proven: OWN };
+      const r = await trustedPeer("POST", "/api/known-servers", { host: "192.168.64.1", port: 8000 });
+      expect(r.statusCode).toBeGreaterThanOrEqual(401);
+      expect(ctx.prove).not.toHaveBeenCalled();
+    });
+
+    it("a pinned entry whose address proves a THIRD identity is still identity_changed", async () => {
+      seed([{ host: "a.local", port: 8000, addedAt: T0, fingerprint: F }]);
+      await mkCtx({ own: OWN });
+      ctx.answers["a.local:8000"] = { proven: G };
+      const r = await operator("POST", "/api/known-servers", { host: "a.local", port: 8000 });
+      expect(r.statusCode).toBe(409);
+      expect(r.json()).toMatchObject({ error: "identity_changed", expected: F, proven: G });
+    });
+  });
+
+  it("#E12 backfill never pins this server's own fingerprint", async () => {
+    const OWN = "sha256:OWNOWN";
+    seed([{ host: "192.168.64.1", port: 8000, addedAt: T0 }]);
+    await mkCtx({ own: OWN });
+    ctx.answers["192.168.64.1:8000"] = { proven: OWN };
+    await operator("POST", "/api/known-servers/probe", { host: "192.168.64.1", port: 8000 });
+    expect(entries()[0].fingerprint).toBeUndefined();
   });
 
   it("rejects a host that is not a DNS name / IP literal before any outbound challenge", async () => {

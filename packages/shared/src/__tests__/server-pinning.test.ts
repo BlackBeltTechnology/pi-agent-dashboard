@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   challengePinnedServer,
+  classifyProof,
   decidePinnedIdentity,
   fingerprintFromPublicKeyB64,
   type ServerPin,
@@ -436,5 +437,42 @@ describe("proveServerIdentity over https (#X3)", () => {
         await new Promise<void>((resolve) => plain.close(() => resolve()));
       }
     });
+  });
+});
+
+// See change: harden-peer-address-identity (test-plan #E1)
+describe("classifyProof (#E1)", () => {
+  const F = "sha256:F";
+  const L = "sha256:L";
+  const P = "sha256:P";
+  const invalid = { refused: "signature invalid", identityFailure: true } as const;
+  const transport = { refused: "challenge failed" } as const;
+
+  it.each([
+    [{ proven: F }, L],
+    [{ proven: F }, undefined],
+    [{ proven: F }, "none"],
+  ] as const)("the pin is ok for every localFp (%j, %s)", (proven, localFp) => {
+    expect(classifyProof(proven, { pin: F, localFp })).toBe("ok");
+  });
+
+  it("own fingerprint is self", () => {
+    expect(classifyProof({ proven: L }, { pin: F, localFp: L })).toBe("self");
+  });
+  it("another fingerprint is foreign", () => {
+    expect(classifyProof({ proven: P }, { pin: F, localFp: L })).toBe("foreign");
+  });
+  it("an invalid signature is foreign", () => {
+    expect(classifyProof(invalid, { pin: F, localFp: L })).toBe("foreign");
+  });
+  it("a non-pin proof is unverified while localFp is unresolved", () => {
+    expect(classifyProof({ proven: L }, { pin: F, localFp: undefined })).toBe("unverified");
+    expect(classifyProof({ proven: P }, { pin: F, localFp: undefined })).toBe("unverified");
+  });
+  it("without a local server there is no self", () => {
+    expect(classifyProof({ proven: L }, { pin: F, localFp: "none" })).toBe("foreign");
+  });
+  it("a transport refusal proves nothing", () => {
+    expect(classifyProof(transport, { pin: F, localFp: L })).toBe("unverified");
   });
 });

@@ -100,6 +100,7 @@ import { afterEach } from "vitest";
 import { Service } from "bonjour-service";
 import {
   deriveAdvertisedNames,
+  isLocalService,
   resolveAdvertisedAddresses,
   type AdvertisePublishConfig,
 } from "../mdns-discovery.js";
@@ -453,5 +454,58 @@ describe("advertised TXT carries only fp for identity (#E13)", () => {
     for (const value of Object.values(txt)) {
       expect(value).not.toMatch(/zrok|https?:\/\/|example\.org/i);
     }
+  });
+});
+
+// ── virtual-bridge exclusion + locality by fingerprint ──
+// See change: harden-peer-address-identity (test-plan #E9, #E10)
+describe("resolveAdvertisedAddresses skips macOS virtual bridges (#E10)", () => {
+  const ifaces = () =>
+    ({
+      en0: [{ address: "192.168.16.31", family: "IPv4", internal: false, mac: "aa:bb:cc:dd:ee:01" }],
+      utun3: [{ address: "100.83.1.2", family: "IPv4", internal: false, mac: "00:00:00:00:00:01" }],
+      docker0: [{ address: "172.17.0.1", family: "IPv4", internal: false, mac: "02:42:00:00:00:01" }],
+      bridge102: [{ address: "192.168.64.1", family: "IPv4", internal: false, mac: "aa:bb:cc:dd:ee:02" }],
+      vmnet1: [{ address: "172.16.184.1", family: "IPv4", internal: false, mac: "aa:bb:cc:dd:ee:03" }],
+      vboxnet0: [{ address: "192.168.56.1", family: "IPv4", internal: false, mac: "0a:00:27:00:00:00" }],
+    }) as never;
+
+  it("advertises only en0 and utun", async () => {
+    expect(await resolveAdvertisedAddresses("0.0.0.0", { interfaces: ifaces, lookup: async () => [] })).toEqual([
+      "192.168.16.31",
+      "100.83.1.2",
+    ]);
+  });
+});
+
+describe("isLocalService fingerprint veto (#E9)", () => {
+  const LOCAL = "192.168.64.1";
+  const own = (fp: string | undefined) => () => fp;
+  const svc = (fp: string | undefined, addresses: string[]) =>
+    ({ host: "peer.local", port: 8000, addresses, txt: fp ? { fp } : {} }) as never;
+
+  beforeEach(() => {
+    vi.spyOn(os, "networkInterfaces").mockReturnValue({
+      bridge102: [{ address: LOCAL, family: "IPv4", internal: false, mac: "aa:bb:cc:dd:ee:02" }],
+    } as never);
+    vi.spyOn(os, "hostname").mockReturnValue("this-mac");
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("a differing advert fp vetoes address overlap", () => {
+    expect(isLocalService(svc("sha256:P", [LOCAL]), own("sha256:L"))).toBe(false);
+  });
+  it("a matching fp with no address overlap is not local (clone listed)", () => {
+    expect(isLocalService(svc("sha256:L", ["10.1.1.1"]), own("sha256:L"))).toBe(false);
+  });
+  it("a matching fp with overlap is local", () => {
+    expect(isLocalService(svc("sha256:L", [LOCAL]), own("sha256:L"))).toBe(true);
+  });
+  it("unknown own fp falls back to the address heuristic", () => {
+    expect(isLocalService(svc("sha256:P", [LOCAL]), own(undefined))).toBe(true);
+    expect(isLocalService(svc("sha256:P", [LOCAL]))).toBe(true);
+  });
+  it("an advert without fp falls back to the address heuristic", () => {
+    expect(isLocalService(svc(undefined, [LOCAL]), own("sha256:L"))).toBe(true);
   });
 });

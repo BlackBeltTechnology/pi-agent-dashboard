@@ -5,3 +5,7 @@
 ## group-servers-by-identity
 
 Approval stores delivered routes before `done`; `PairingTarget.source`. See change: group-servers-by-identity.
+
+## harden-peer-address-identity
+
+`PairingTarget.alternatives` (≤ 8 literals); deps `lookup`, `localFp`. Primary + alternatives (http names resolved) are proven in order: `ok` binds the literal (knock, poll, saved host), `self` skips (logged), `foreign` ⇒ mismatch, none ⇒ `unreachable` (a self seen) / `unverifiable`. See change: harden-peer-address-identity.

@@ -87,6 +87,16 @@ describe("Which machine", () => {
     expect(calls.some((c) => c.url.includes("/api/known-servers/probe"))).toBe(false);
   });
 
+  it("self_address: the address reaches this dashboard — an inline error, the task is not stopped, no probe", async () => {
+    const { calls } = withServers([], [], { "POST /api/known-servers": [409, { success: false, error: "self_address" }] });
+    renderDialog({ run: task() });
+    fireEvent.change(await screen.findByTestId("remote-access-machine-input"), { target: { value: "192.168.64.1:8000" } });
+    fireEvent.click(screen.getByTestId("remote-access-machine-continue"));
+    await screen.findByText(/reaches this dashboard itself/);
+    expect(screen.queryByTestId("remote-access-machine-stopped")).toBeNull();
+    expect(calls.some((c) => c.url.includes("/api/known-servers/probe"))).toBe(false);
+  });
+
   it("X9: an identity change stops the task, names it, and sends no probe", async () => {
     const { calls } = withServers([], [], { "POST /api/known-servers": [409, { success: false, error: "identity_changed" }] });
     renderDialog({ run: task() });

@@ -11,6 +11,8 @@
  * See change: add-electron-server-windows (D3, D6, D10).
  */
 import crypto from "node:crypto";
+import net from "node:net";
+import type { NetworkInterfaceInfo } from "node:os";
 import { sanitizeDisplayName } from "@blackbelt-technology/pi-dashboard-shared/display-name.js";
 import { createBrowser, type DashboardBrowser, type DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 
@@ -100,13 +102,105 @@ export interface Candidate {
   source: "stored" | "discovered";
 }
 
-/** Discovery candidates are capped (a malicious LAN peer cannot make us probe unboundedly). */
-const DISCOVERY_CANDIDATE_CAP = 3;
-const HOST_SELECTION_DEADLINE_MS = 5000;
+/** Challenges run in ordered batches of this size until one proves the pin or the deadline passes. */
+const CANDIDATE_BATCH_SIZE = 12;
+/** At most this many literals are kept per hostname (a hostile name cannot fan out the probing). */
+export const LITERALS_PER_NAME_CAP = 8;
+/** A hostname that has not resolved by now counts as unreachable (inside the 5 s selection deadline). */
+const LOOKUP_TIMEOUT_MS = 2000;
+export const HOST_SELECTION_DEADLINE_MS = 5000;
+
+/** Resolve a hostname to its address literals (`dns.promises.lookup({ all: true })` in production). */
+export type LookupFn = (hostname: string) => Promise<string[]>;
 
 const sameRef = (a: HostRef, b: HostRef): boolean => a.scheme === b.scheme && a.host === b.host && a.port === b.port;
 
-/** Preference order: stored https → stored http → discovered (deduplicated, discovery capped). */
+/**
+ * Resolve an `http` hostname ref to its address literals (≤ 8, deduplicated); an
+ * `https` ref, an IP literal, or a missing `lookup` keeps the ref as is. A
+ * lookup that fails or stalls past `timeoutMs` yields no literals (unreachable).
+ *
+ * See change: harden-peer-address-identity (D1).
+ */
+export async function expandRef(ref: HostRef, lookup?: LookupFn, timeoutMs: number = LOOKUP_TIMEOUT_MS): Promise<HostRef[]> {
+  if (!lookup || ref.scheme === "https" || net.isIP(ref.host)) return [ref];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const addrs = await Promise.race([
+      lookup(ref.host),
+      new Promise<string[]>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("lookup timeout")), timeoutMs);
+      }),
+    ]);
+    const unique = Array.from(new Set(addrs.filter((a) => typeof a === "string" && net.isIP(a) !== 0)));
+    return unique.slice(0, LITERALS_PER_NAME_CAP).map((host) => ({ ...ref, host }));
+  } catch {
+    return [];
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+type Ifaces = NodeJS.Dict<NetworkInterfaceInfo[]>;
+
+const stripZone = (addr: string): string => addr.split("%")[0] ?? addr;
+
+/** Prefix length of an interface address: its `cidr` suffix, else the bit count of its `netmask`. */
+function prefixLength(info: NetworkInterfaceInfo): number | null {
+  const fromCidr = Number(info.cidr?.split("/")[1]);
+  if (Number.isInteger(fromCidr) && fromCidr >= 0) return fromCidr;
+  if (!info.netmask) return null;
+  const bits = info.family === "IPv6" ? 128 : 32;
+  let count = 0;
+  const parts = info.netmask.includes(":")
+    ? info.netmask.split(":").map((h) => (h === "" ? 0 : Number.parseInt(h, 16)))
+    : info.netmask.split(".").map(Number);
+  for (const part of parts) {
+    if (!Number.isFinite(part)) return null;
+    for (let v = part; v > 0; v >>= 1) count += v & 1;
+  }
+  return count <= bits ? count : null;
+}
+
+/**
+ * Order discovered literals: addresses inside a local interface's own prefix
+ * (netmask/cidr, IPv4 and IPv6, never a fixed /64) first, this machine's own
+ * addresses last, the rest between; stable inside each class, nothing dropped.
+ *
+ * See change: harden-peer-address-identity (D5).
+ */
+export function orderByLocality(literals: string[], interfaces: Ifaces): string[] {
+  const { own, onLink } = interfaceSets(interfaces);
+  const rank = (lit: string): number => {
+    const addr = stripZone(lit);
+    if (own.has(addr)) return 2;
+    const family = net.isIPv6(addr) ? "ipv6" : net.isIPv4(addr) ? "ipv4" : null;
+    return family && onLink.check(addr, family) ? 0 : 1;
+  };
+  return literals
+    .map((lit, i) => ({ lit, i, r: rank(lit) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.lit);
+}
+
+/** This machine's own addresses and the subnets its (non-internal) interfaces sit on. */
+function interfaceSets(interfaces: Ifaces): { own: Set<string>; onLink: net.BlockList } {
+  const own = new Set<string>();
+  const onLink = new net.BlockList();
+  for (const info of Object.values(interfaces).flatMap((infos) => infos ?? [])) {
+    own.add(stripZone(info.address));
+    const prefix = info.internal ? null : prefixLength(info);
+    if (prefix === null) continue;
+    try {
+      onLink.addSubnet(stripZone(info.address), prefix, info.family === "IPv6" ? "ipv6" : "ipv4");
+    } catch {
+      /* malformed interface entry — not used for locality */
+    }
+  }
+  return { own, onLink };
+}
+
+/** Preference order: stored https → stored http → discovered (deduplicated; batching bounds the probing, not a cap). */
 export function buildCandidates(stored: HostRef[], discovered: HostRef[]): Candidate[] {
   const out: Candidate[] = [];
   const add = (ref: HostRef, source: Candidate["source"]) => {
@@ -114,64 +208,73 @@ export function buildCandidates(stored: HostRef[], discovered: HostRef[]): Candi
   };
   for (const ref of stored.filter((r) => r.scheme === "https")) add(ref, "stored");
   for (const ref of stored.filter((r) => r.scheme !== "https")) add(ref, "stored");
-  let discoveredAdded = 0;
-  for (const ref of discovered) {
-    if (discoveredAdded >= DISCOVERY_CANDIDATE_CAP) break;
-    const before = out.length;
-    add(ref, "discovered");
-    if (out.length > before) discoveredAdded++;
-  }
+  for (const ref of discovered) add(ref, "discovered");
   return out;
 }
 
 /**
- * Challenge every candidate concurrently; the most-preferred accepting one wins.
- * Resolves as soon as the best remaining candidate is decided, and always by
+ * Challenge one batch concurrently. Resolves with the most-preferred accepting candidate as soon as every
+ * more-preferred one has settled, or `null` once all are rejected. `onAccepted` sees the best accepted so far.
+ */
+function decideBatch(
+  batch: Candidate[],
+  challenge: (origin: string, signal: AbortSignal) => Promise<boolean>,
+  signal: AbortSignal,
+  onAccepted: (c: Candidate) => void,
+): Promise<Candidate | null> {
+  return new Promise((resolve) => {
+    // undefined = pending, true = accepted, false = rejected/failed
+    const settled: Array<boolean | undefined> = batch.map(() => undefined);
+    const check = () => {
+      const best = settled.findIndex((v) => v === true);
+      if (best === -1) return settled.every((v) => v === false) ? resolve(null) : undefined;
+      onAccepted(batch[best]!);
+      if (!settled.slice(0, best).some((v) => v === undefined)) resolve(batch[best]!);
+    };
+    batch.forEach((c, i) => {
+      const done = (ok: boolean) => {
+        settled[i] = ok;
+        check();
+      };
+      challenge(serverOrigin(c.ref), signal).then((ok) => done(ok === true), () => done(false));
+    });
+  });
+}
+
+/**
+ * Challenge candidates in ordered batches of {@link CANDIDATE_BATCH_SIZE}, each batch concurrently; the
+ * most-preferred accepting one wins. A batch that accepts nothing starts the next. Always resolves by
  * `deadlineMs` (then the most-preferred accepted so far, else `null`).
  */
-export function pickVerifiedHost(
+export async function pickVerifiedHost(
   candidates: Candidate[],
   challenge: (origin: string, signal: AbortSignal) => Promise<boolean>,
   deadlineMs: number = HOST_SELECTION_DEADLINE_MS,
+  batchSize: number = CANDIDATE_BATCH_SIZE,
 ): Promise<Candidate | null> {
-  return new Promise((resolve) => {
-    if (candidates.length === 0) return resolve(null);
-    const ac = new AbortController();
-    // undefined = pending, true = accepted, false = rejected/failed
-    const settled: Array<boolean | undefined> = candidates.map(() => undefined);
-    let done = false;
-    const finish = (c: Candidate | null) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      ac.abort();
-      resolve(c);
-    };
-    const best = (): number => settled.findIndex((s) => s === true);
-    const check = () => {
-      const b = best();
-      const limit = b === -1 ? settled.length : b;
-      const earlierPending = settled.slice(0, limit).some((s) => s === undefined);
-      if (b !== -1 && !earlierPending) return finish(candidates[b] ?? null);
-      if (b === -1 && settled.every((s) => s === false)) return finish(null);
-    };
-    const timer = setTimeout(() => {
-      const b = best();
-      finish(b === -1 ? null : (candidates[b] ?? null));
-    }, deadlineMs);
-    candidates.forEach((c, i) => {
-      challenge(serverOrigin(c.ref), ac.signal).then(
-        (ok) => {
-          settled[i] = ok === true;
-          check();
-        },
-        () => {
-          settled[i] = false;
-          check();
-        },
-      );
-    });
+  if (candidates.length === 0) return null;
+  const ac = new AbortController();
+  let accepted: Candidate | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const batches = async (): Promise<Candidate | null> => {
+    for (let start = 0; start < candidates.length && !ac.signal.aborted; start += batchSize) {
+      const best = await decideBatch(candidates.slice(start, start + batchSize), challenge, ac.signal, (c) => {
+        accepted = c;
+      });
+      if (best) return best;
+    }
+    return null;
+  };
+  // The deadline answers with whatever the running batch already accepted.
+  const deadline = new Promise<Candidate | null>((resolve) => {
+    timer = setTimeout(() => resolve(accepted), deadlineMs);
   });
+  try {
+    return await Promise.race([batches(), deadline]);
+  } finally {
+    clearTimeout(timer);
+    ac.abort();
+  }
 }
 
 // ── Discovered list (D10) ────────────────────────────────────────────────────
@@ -239,6 +342,8 @@ export interface ServerDiscoveryDeps {
   createBrowser?: () => DashboardBrowser;
   /** Prove the local dashboard's identity (local mode only); returns the fingerprint or undefined. */
   proveLocal?: () => Promise<string | undefined>;
+  /** False in remote mode (no local server ⇒ no `self`). Evaluated lazily; default: `proveLocal` present. */
+  hasLocalServer?: () => boolean;
   isPaired: (fp: string) => boolean;
   onChange?: () => void;
 }
@@ -249,7 +354,9 @@ export interface ServerDiscovery {
   resolveLocalFp(): Promise<void>;
   /** True once the local dashboard's fingerprint is known. */
   hasLocalFp(): boolean;
-  /** Raw adverts matching a fingerprint (for host healing). */
+  /** This machine's own fingerprint: proven, `"none"` (no local server — nothing is `self`), or `undefined` while unresolved. */
+  localFp(): string | "none" | undefined;
+  /** Adverts carrying a fingerprint (locality flag ignored; adverts of this machine's own fingerprint excluded). */
   advertsFor(fp: string): DiscoveredServer[];
   /** Raw adverts (for known-host checks). */
   raw(): DiscoveredServer[];
@@ -258,8 +365,8 @@ export interface ServerDiscovery {
 
 /** Start browsing (call at `app.whenReady`); `stop()` at quit. */
 export function createServerDiscovery(deps: ServerDiscoveryDeps): ServerDiscovery {
-  const browser = (deps.createBrowser ?? createBrowser)();
   let localFp: string | undefined;
+  const browser = (deps.createBrowser ?? (() => createBrowser({ ownFingerprint: () => localFp })))();
   const notify = () => deps.onChange?.();
   browser.on("server-up", notify);
   browser.on("server-update", notify);
@@ -276,7 +383,13 @@ export function createServerDiscovery(deps: ServerDiscoveryDeps): ServerDiscover
       notify();
     },
     hasLocalFp: () => localFp !== undefined,
-    advertsFor: (fp) => Array.from(browser.servers.values()).filter((s) => !s.isLocal && s.fingerprint === fp),
+    localFp: () => {
+      if (localFp !== undefined) return localFp;
+      return deps.proveLocal && (deps.hasLocalServer?.() ?? true) ? undefined : "none";
+    },
+    // Selection never uses the locality flag: an advert falsely claiming this machine's fingerprint
+    // can only hide itself, never the pinned server's adverts (D3).
+    advertsFor: (fp) => Array.from(browser.servers.values()).filter((s) => s.fingerprint === fp && s.fingerprint !== localFp),
     raw: () => Array.from(browser.servers.values()).filter((s) => !s.isLocal),
     stop: () => browser.stop(),
   };

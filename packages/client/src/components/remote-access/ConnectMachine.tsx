@@ -138,6 +138,9 @@ export function MachineBody({ ctx, cm }: { ctx: StepCtx; cm: ConnectMachine }) {
       case "identity-changed":
         cm.setStopped(t("remoteAccess.machine.identityChanged", undefined, "The server at that address is not the one this dashboard knew — its identity changed. Stopped."));
         return;
+      case "self-address":
+        setError(t("remoteAccess.machine.selfAddress", undefined, "That address reaches this dashboard itself, not another machine."));
+        return;
       case "refused":
         setError(t("remoteAccess.err.refused", undefined, "This browser is not allowed to make the change."));
         return;

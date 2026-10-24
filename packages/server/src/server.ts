@@ -3414,6 +3414,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     localTrust,
     hostAdmission: () => getHostGateCtx().admission,
     moves: knownServerMoves,
+    ownFingerprint: () => serverIdentity.fingerprint,
   });
   registerLocalProofRoutes(fastify, { codes: localProofCodes, ctx: localTrust });
   registerPairingRoutes(fastify, {
@@ -5115,7 +5116,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         if (mdnsDisabled) {
           // skip peer discovery entirely
         } else {
-        mdnsBrowser = createBrowser();
+        mdnsBrowser = createBrowser({ ownFingerprint: () => serverIdentity.fingerprint });
         wirePeerServers({
           browser: mdnsBrowser,
           peers: peerServers,

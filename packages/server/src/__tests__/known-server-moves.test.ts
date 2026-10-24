@@ -195,3 +195,33 @@ describe("route-aware move suggestions", () => {
     expect(prove).not.toHaveBeenCalled();
   });
 });
+
+// ── harden-peer-address-identity (test-plan #E13): walk the advert's addresses ──
+describe("#E13 move suggestion walks the advert's eligible addresses", () => {
+  const L = "sha256:" + "L".repeat(43);
+  it("skips an address that proves this machine and suggests the one that proves F", async () => {
+    const e = pinned();
+    const { moves } = mk([e], { "192.168.16.31:8000": { proven: L }, "192.168.16.203:8000": { proven: F } });
+    // 192.168.16.31 is this machine's own interface address (on-link); .203 is the peer
+    await moves.onPeer(peer({ addresses: ["192.168.16.31", "192.168.16.203"] }));
+    expect(moves.suggestionFor(e)).toEqual({ host: "192.168.16.203", port: 8000 });
+  });
+
+  it("challenges at most 4 addresses: F only at the 5th ⇒ no suggestion", async () => {
+    const e = pinned();
+    const addrs = ["192.168.16.51", "192.168.16.52", "192.168.16.53", "192.168.16.54", "192.168.16.55"];
+    const { moves, prove } = mk([e], { "192.168.16.55:8000": { proven: F } });
+    await moves.onPeer(peer({ addresses: addrs }));
+    expect(moves.suggestionFor(e)).toBeUndefined();
+    // 1 stored-address challenge + exactly 4 advert addresses
+    expect(prove).toHaveBeenCalledTimes(1 + 4);
+    expect(prove.mock.calls.map(([u]) => String(u))).not.toContain("http://192.168.16.55:8000");
+  });
+
+  it("never suggests an address that proves another identity", async () => {
+    const e = pinned();
+    const { moves } = mk([e], { "192.168.16.31:8000": { proven: L } });
+    await moves.onPeer(peer({ addresses: ["192.168.16.31"] }));
+    expect(moves.suggestionFor(e)).toBeUndefined();
+  });
+});

@@ -145,8 +145,12 @@ export function deriveAdvertisedNames(fingerprint: string, port: number): { inst
 
 type Ifaces = NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 
-/** Container/virtual bridge interfaces reuse addresses across machines. */
-const BRIDGE_IFACE = /^(docker|br-|veth|virbr|cni|flannel)/i;
+/**
+ * Container/virtual bridge interfaces reuse addresses across machines
+ * (macOS Virtualization `bridgeN`, vmnet, VirtualBox host-only…). Best-effort
+ * noise reduction only: correctness rests on proven identity, not this list.
+ */
+const BRIDGE_IFACE = /^(docker|br-|veth|virbr|cni|flannel|bridge\d|vmnet|vboxnet)/i;
 
 function isIpv6LinkLocal(addr: string): boolean {
   return /^fe[89ab][0-9a-f]:/i.test(addr);
@@ -410,8 +414,18 @@ export function stopAdvertising(): void {
 
 /**
  * Check if a discovered service is running on the local machine.
+ *
+ * Address/hostname heuristic, vetoed by identity: when the advert carries `fp`,
+ * `ownFingerprint()` is known and they differ, the advert is NOT local (a
+ * shared virtual-bridge address must not hide another machine). A matching
+ * `fp` never creates locality on its own (a clone stays listed as a clone).
+ *
+ * See change: harden-peer-address-identity (D3).
  */
-export function isLocalService(service: Service): boolean {
+export function isLocalService(service: Service, ownFingerprint?: () => string | undefined): boolean {
+  const advertFp = (service.txt as Record<string, string> | undefined)?.fp;
+  const own = ownFingerprint?.();
+  if (advertFp && own && advertFp !== own) return false;
   const hostname = os.hostname();
   const host = service.host ?? "";
 
@@ -497,7 +511,10 @@ export function serviceToServer(service: Service, isLocal: boolean): DiscoveredS
  * One-shot discovery: browse for dashboard servers with timeout.
  * Returns localhost servers first, then remote.
  */
-export async function discoverDashboard(timeout = 2000): Promise<DiscoveredServer[]> {
+export async function discoverDashboard(
+  timeout = 2000,
+  opts: { ownFingerprint?: () => string | undefined } = {},
+): Promise<DiscoveredServer[]> {
   return new Promise((resolve) => {
     const servers: DiscoveredServer[] = [];
     // Use a fresh Bonjour instance to avoid conflicts with the
@@ -519,7 +536,7 @@ export async function discoverDashboard(timeout = 2000): Promise<DiscoveredServe
 
     const browser = bonjour.find({ type: SERVICE_TYPE });
     browser.on("up", (service: Service) => {
-      const isLocal = isLocalService(service);
+      const isLocal = isLocalService(service, opts.ownFingerprint);
       servers.push(serviceToServer(service, isLocal));
       // Resolve early once a local server is found
       if (isLocal) {
@@ -609,6 +626,8 @@ export interface BrowserDeps {
   sweepIntervalMs?: number;
   /** Interval seam; returns a cancel function. */
   schedule?: (fn: () => void, ms: number) => () => void;
+  /** This machine's own fingerprint, when known (locality veto, D3). */
+  ownFingerprint?: () => string | undefined;
 }
 
 export const SWEEP_INTERVAL_MS = 60_000;
@@ -655,7 +674,7 @@ export function createBrowser(deps: BrowserDeps = {}): DashboardBrowser {
 
   /** Insert or refresh a peer; emits up (new) or update (changed). */
   const upsert = (service: Service): void => {
-    const server = serviceToServer(service, isLocalService(service));
+    const server = serviceToServer(service, isLocalService(service, deps.ownFingerprint));
     const key = peerKey(server);
     misses.set(key, 0);
     const existing = emitter.servers.get(key);
