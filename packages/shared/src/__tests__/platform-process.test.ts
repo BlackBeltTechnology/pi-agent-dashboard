@@ -225,8 +225,10 @@ describe("killProcess \u2014 group-aware on Unix (#912)", () => {
 describe.skipIf(process.platform === "win32")("killProcess \u2014 real detached group (#912)", () => {
   it("kills the leader AND a child that ignores SIGTERM", async () => {
     const { leader, worker } = await spawnGroup(true);
-    const result = await killProcess(leader, { timeoutMs: 1000 });
-    expect(result.forced).toBe(true);
+    // Do not assert `forced`: the worker may not have installed its SIGTERM trap yet
+    // on a slow runner. A single-pid kill never reaches the worker either way, so the
+    // worker being gone is what proves the group kill.
+    await killProcess(leader, { timeoutMs: 1000 });
     expect(groupAlive(leader)).toBe(false);
     expect(isProcessAlive(worker)).toBe(false);
   }, 15_000);

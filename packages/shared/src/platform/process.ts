@@ -185,8 +185,11 @@ export interface KillProcessResult {
   forced: boolean;
 }
 
-/** Own process-group id, cached for the default `exec` only; null = unknown. */
-let ownPgidCache: number | null | undefined;
+/**
+ * Own process-group id, cached for the default `exec` only. Only a VALID pgid is
+ * cached: a failed lookup (null) is retried on the next call.
+ */
+let ownPgidCache: number | undefined;
 
 function readOwnPgid(exec: ExecFn): number | null {
   const cacheable = exec === defaultExec;
@@ -198,7 +201,7 @@ function readOwnPgid(exec: ExecFn): number | null {
   } catch {
     pgid = null;
   }
-  if (cacheable) ownPgidCache = pgid;
+  if (cacheable && pgid !== null) ownPgidCache = pgid;
   return pgid;
 }
 
