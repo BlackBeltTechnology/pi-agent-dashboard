@@ -4,7 +4,7 @@
 
 A Craft app open in the editor pane cannot be driven by the session it belongs to. Today an agent can only edit the file headlessly (`pi-craft <app> run`) and the pane must reload. A reload loses the user's cursor, scroll position, undo history and any unsaved edits, and every save/reload round trip goes through the file format. The user wants to say "bold the header row" while the spreadsheet is open, see the change land live, and be able to Ctrl+Z it.
 
-A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the full desktop control protocol inside their web builds. It runs every frame on the same `control_rx` channel the desktop TCP control server feeds; only a web transport is missing:
+A spike (2026-10-24; scratch workspace since deleted, evidence in storytold/photocraft#6450 and wordcraft#1589 comments) showed the Craft apps already contain the full desktop control protocol inside their web builds. It runs every frame on the same `control_rx` channel the desktop TCP control server feeds; only a web transport is missing:
 
 - **VectorCraft ≥ 0.14** ships that transport upstream as `window.vectorcraft` (`request`, `execute`, `commands`, `inspect`, `screenshot`). We pin web 0.13.1.
 - **LightCraft** (including our pinned 0.9.1) ships a narrower page API: `globalThis.lightcraft.command(id, jsonText) → Promise<jsonText>`, covering engine and UI commands only.
