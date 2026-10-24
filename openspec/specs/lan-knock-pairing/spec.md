@@ -234,7 +234,7 @@ A client that knocks a server on a different origin than its own (for example a 
 
 #### Scenario: Impostor on a discovered address is not knocked
 - **GIVEN** discovery advertised fingerprint F for `192.168.16.204:8000`
-- **WHEN** the challenge at that address proves fingerprint G ≠ F
+- **WHEN** the challenge at that address proves fingerprint G ≠ F, and G is not the client's own local fingerprint
 - **THEN** the client SHALL NOT post to `/api/pair/request` and SHALL show an identity-mismatch error
 
 #### Scenario: Manual address knocks only after user confirmation
