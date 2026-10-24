@@ -7,6 +7,7 @@ A Craft app open in the editor pane cannot be driven by the session it belongs t
 A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the full desktop control protocol inside their web builds. It runs every frame on the same `control_rx` channel the desktop TCP control server feeds; only a web transport is missing:
 
 - **VectorCraft ≥ 0.14** ships that transport upstream as `window.vectorcraft` (`request`, `execute`, `commands`, `inspect`, `screenshot`). We pin web 0.13.1.
+- **LightCraft** (including our pinned 0.9.1) ships a narrower page API: `globalThis.lightcraft.command(id, jsonText) → Promise<jsonText>`, covering engine and UI commands only.
 - **FilmCraft (≥ 0.5) and EffectCraft (≥ 0.8)** ship the same page API (`window.filmcraft`, `window.effectcraft`). Neither has an editor-pane claim yet; their project files are owned by `add-craft-web-media-projects`.
 - **GridCraft 0.11.1** (patched `host.rs`, ~70 lines) and **WordCraft 0.10.0** (new `control_bridge.rs`, ~90 lines), both built with trunk:
   - Embedded in our production sandbox and CSP; WordCraft also ran behind our real post-install shim.
@@ -22,15 +23,20 @@ A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the fu
 
 - **Agent tool `craft_control`** (plugin bridge entry): runs one control-protocol method against the Craft document the session has open in a dashboard editor pane. The document is addressed by workspace path. Results come back as tool output. When no viewer has the file open, the tool fails with a clear "not open in the dashboard" error. It does not fall back to headless editing, so the agent chooses `pi-craft` deliberately.
 - **Request routing** (plugin server): resolves a request to exactly one live editor instance of that session's file across connected browsers, and returns its reply or a bounded error (`not-open`, `ambiguous`, `busy`, `timeout`, `unsupported`).
-- **Frame relay** (client host + shim v3): a nonce-bound `control` / `control-result` message pair between `CraftFrameHost` and the shim. The shim forwards each request to the app's in-page control API (`page-api` profile kind, e.g. `window.vectorcraft.request`). Other transports (such as the proposed upstream `craft:control` message) are added in a follow-up once upstream ships them.
+- **Frame relay** (client host + shim v3): a nonce-bound `control` / `control-result` message pair between `CraftFrameHost` and the shim. The shim forwards each request to the app's in-page control API. Two profile kinds:
+  - `page-api`: `window.<app>.request(method, params)` (VectorCraft, FilmCraft, EffectCraft);
+  - `page-command`: `command(id, jsonText)`, LightCraft. `engine.execute` maps onto it; every other method answers `unsupported`.
+
+  Other transports are added in a follow-up if upstream ships them.
 - **Agent edits behave like user edits:**
   - they mark the tab unsaved, so close, eviction and reload guards apply;
   - agent saves take exactly the user's save routing (save-target choice, first-overwrite notice, sibling question, conflicts); the agent reads the outcome afterwards (`host.state`) instead of waiting on dialogs;
   - a device download with no recent user input in the editor asks the user first, so agent-triggered exports never land silently, while the user's own exports work as before.
 - **Per-app opt-in** via a new profile field `control`. It includes a per-app allowlist of nested commands, valid only for the verified build version. Apps without it report `unsupported`. Every app is enabled only through the same per-app gate (re-spike under the production sandbox, derived allowlist, e2e rows). Rollout waves:
   - **W1, VectorCraft** (web ≥ 0.14, pin bump from 0.13.1). This gate blocks the change: if it fails, nothing ships.
+  - **W1, LightCraft** (`page-command`, no upstream dependency). Its own gate, which does not block the change: it ends enabled or pending.
   - **W2, FilmCraft and EffectCraft**: their page APIs already exist. Each is enabled once `add-craft-web-media-projects` has shipped its `.fcproj` / `.ecproj` edit claim (see Dependencies).
-  - **W3, the other ten apps** (GridCraft, WordCraft, PhotoCraft, LightCraft, PdfCraft, DesignCraft, SoundCraft, DeckCraft, CADCraft, FigCraft): each is enabled once upstream releases `window.<app>.request`. FigCraft also needs an editor-pane claim, which is out of scope here.
+  - **W3, the other nine apps** (GridCraft, WordCraft, PhotoCraft, PdfCraft, DesignCraft, SoundCraft, DeckCraft, CADCraft, FigCraft): each is enabled once upstream releases `window.<app>.request`. FigCraft also needs an editor-pane claim, which is out of scope here.
   - A W2/W3 gate whose prerequisite is absent when the change ships ends as a recorded "pending" row (prerequisite + upstream issue URL), so the change does not wait on upstream. Enabling it later is a small follow-up using the same gate.
 - **User visibility:** the tab shows a non-blocking "agent is editing" indicator while a request is in flight, and every agent request is listed in a per-tab activity log. Edits stay undoable by the user through the app.
 - **Skill `craft-live-edit`** (shipped with the craft-web plugin, next to its tool):
@@ -63,7 +69,11 @@ A spike (2026-10-24, `/tmp/spikeB`) showed the Craft apps already contain the fu
 - Shim v3 plus a `control` entry in an app's frame profile → that app re-prepares, which its version bump forces anyway. FilmCraft and EffectCraft get their entry together with their new claims. Other apps keep their current trees and `minShimVersion`.
 - `docs/craft-web-plugin.md`: a live-control status table for all 13 apps (state, prerequisite, upstream issue).
 - No core changes: uses existing seams (request/reply lane, operate-tier plugin browser messages, session-scoped broadcast). The server never sends on a raw socket.
-- Upstream dependency (not code here): a `window.<app>` page API, as VectorCraft, FilmCraft and EffectCraft already ship, for the ten W3 apps, plus WordCraft caret rebasing. A page API runs inside the frame, so it needs no cross-origin support. Draft issue: `/tmp/spikeB/upstream/ISSUE.md`.
+- Upstream dependency (not code here): a `window.<app>` page API for the nine W3 apps, plus WordCraft caret rebasing. A page API runs inside the frame, so it needs no cross-origin support. The ask already exists upstream:
+  - storytold/photocraft#6450, the cross-app request for `window.<app>`;
+  - gridcraft#1274, wordcraft#1589 and deckcraft#714, postMessage variants.
+
+  Our spike evidence and the caret note were posted 2026-10-24 as comments on photocraft#6450 and wordcraft#1589. No new issues were filed.
 
 ## Dependencies
 

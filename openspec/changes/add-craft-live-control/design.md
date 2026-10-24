@@ -13,7 +13,7 @@ See proposal.md (Why) for motivation and spike evidence. Current state relevant 
 - **Shim compatibility.** Profiles set `minShimVersion` 1 (WordCraft, `app-profiles.ts:125`) or 2 (`app-profiles.ts:221`). An older supported shim stays usable with `shimUpdate:true` (`src/server/service.ts:248-256`). The client status parser exposes `shimUpdate` but not `shimVersion` (`src/client/status-types.ts:51-59`).
 - **Frame profile.** The shim sees only `window.__CRAFT_PROFILE__ = frameProfile(p)`; its hash keys the prepared tree (`app-profiles.ts:282-290`, `post-install.ts:54-58`).
 - **Craft control protocol.** It is compiled into every Craft wasm build. VectorCraft ≥ 0.14 exposes it in-page as `window.vectorcraft.request(method, params) → Promise`, plus convenience wrappers; `screenshot` is `request("ui.screenshot")` (upstream `apps/vectorcraft-web/src/api.rs`). Requests run on the app's UI loop. A queued request cannot be cancelled from the page.
-- **Page APIs upstream (checked 2026-10-24).** `window.vectorcraft` (VectorCraft ≥ 0.14), `window.filmcraft` (FilmCraft ≥ 0.5, installed from wasm) and `window.effectcraft` (EffectCraft ≥ 0.8, wrapped by the app's `web/index.html`; EffectCraft needs `?nosw` and its worker trampoline). The other ten apps have no web transport. Their wasm contains the protocol, but nothing feeds `control_rx`. GridCraft and CADCraft have a `?host=parent` bridge for open/save/dirty only, and it works only for same-origin parents.
+- **Page APIs upstream (checked 2026-10-24).** `window.vectorcraft` (VectorCraft ≥ 0.14), `window.filmcraft` (FilmCraft ≥ 0.5, installed from wasm) and `window.effectcraft` (EffectCraft ≥ 0.8, wrapped by the app's `web/index.html`; EffectCraft needs `?nosw` and its worker trampoline). LightCraft (pinned 0.9.1 and latest 0.13.0) sets `globalThis.lightcraft = { command }` from its inline module in `index.html`: `command(id, paramsJsonText) → Promise<resultJsonText>`. It runs engine and UI commands through `app.run`, plus `web.stats`, but has no `document.inspect` or `ui.screenshot`. The other nine apps have no web transport. Their wasm contains the protocol, but nothing feeds `control_rx`. GridCraft and CADCraft have a `?host=parent` bridge for open/save/dirty only, and it works only for same-origin parents.
 - **Plugin seams.**
   - Bridge → server request lane `requestPluginServer` / `registerPiRequestHandler`: sessionId from the socket key, 256 KiB caps, 15 s (`docs/plugin-seams.md` "Request/reply lane").
   - Browser → server `registerBrowserHandler(type, (msg, ws))` (`packages/dashboard-plugin-runtime/src/server/server-context.ts:156`). Plugin-registered message types are unlisted, so they need tier `operate`, fail-closed (`packages/shared/src/ws-message-tiers.ts:14`); an observe-only socket cannot send them.
@@ -31,7 +31,7 @@ See proposal.md (Why) for motivation and spike evidence. Current state relevant 
 - Opening a workspace file in the pane for the agent.
 - Collaborative-editing semantics (OT, caret rebasing, separate undo stacks): upstream, documented in the skill.
 - Subscriptions or change streams. Request/reply only.
-- Any control transport other than `page-api`. We ask upstream for a page API (three apps already ship one). If an app ships a different transport instead, a follow-up adds a profile kind for it.
+- Any control transport other than `page-api` and `page-command`. Upstream already tracks a page-API request (photocraft#6450). If an app ships a different transport, a follow-up adds a profile kind for it.
 - Cancelling a request inside the app after a timeout. Not possible through the page API.
 
 ## Decisions
@@ -121,7 +121,11 @@ New messages, nonce-bound:
 
 The frame profile gains only `control: { kind: "page-api", global: "<name>" }`. This changes the enabled app's profile hash, so its tree is re-prepared, which its `webVersion` bump (or, for W2, its new claim) forces anyway. The policy lists (D4) stay host-side so that editing them never forces a re-prepare.
 
-The shim calls `window[global].request(method, params)` and settles on resolve or reject:
+Profile kinds:
+- `page-api`: the shim calls `window[global].request(method, params)`.
+- `page-command`: only `engine.execute {command, params?}` is relayed. The shim calls `window[global].command(command, JSON.stringify(params ?? {}))` and `JSON.parse`s the resolved text. A parse failure becomes `app_error`, and any other method becomes `unsupported` naming the kind. Screenshot and `document.inspect` are therefore unavailable; the gate records the app's own read command (D8) in their place. `host.state` is host-implemented, so it works for both kinds.
+
+Either way, the shim settles on resolve or reject:
 - before `opened` → `not-ready`;
 - global absent after opened (bounded 2 s wait) → `unsupported`, naming the expected version and "Settings → Update".
 
@@ -208,7 +212,8 @@ An app gets a `control` entry only after its web build, at the version being pin
 - the existing per-app e2e rows;
 - the control rows, under the production sandbox and after the real post-install (for EffectCraft: `window.effectcraft` survives the post-install `index.html` rewrite and `?nosw`);
 - `allowedCommands` and the read-only marks derived from, and checked against, its `engine.commands`;
-- each read-only command leaves the document unchanged (a `document.inspect` digest before and after is equal);
+- each read-only command leaves the document unchanged: a digest taken before and after is equal. The digest comes from `document.inspect`, or for `page-command` apps from a state-read command the gate records;
+- for EffectCraft and LightCraft, the API global survives the post-install rewrite of the app's `index.html`;
 - the app's own-file save path through the app. Where it has none, D6's "never clears" path is the documented behaviour.
 
 A `control` entry is valid only for an app that has an edit claim in the pane (profile check), so it cannot be added ahead of its claim.
@@ -216,8 +221,9 @@ A `control` entry is valid only for an app that has an edit claim in the pane (p
 | Wave | Apps | Prerequisite | If absent at ship time |
 |---|---|---|---|
 | W1 | VectorCraft | web ≥ 0.14 (pin bump from 0.13.1) | Implementation stops (`SHIP_IT_BLOCKED.md`). No machinery ships without an enabled app. |
+| W1 (non-blocking) | LightCraft | `page-command` kind; the API exists in the pinned 0.9.1 | Recorded as pending |
 | W2 | FilmCraft, EffectCraft | `add-craft-web-media-projects` has shipped the `.fcproj` / `.ecproj` claim; the page API already exists | Recorded as pending |
-| W3 | GridCraft, WordCraft, PhotoCraft, LightCraft, PdfCraft, DesignCraft, SoundCraft, DeckCraft, CADCraft | An upstream release with `window.<app>.request` | Recorded as pending with the issue URL |
+| W3 | GridCraft, WordCraft, PhotoCraft, PdfCraft, DesignCraft, SoundCraft, DeckCraft, CADCraft | An upstream release with `window.<app>.request` | Recorded as pending with the issue URL (photocraft#6450, plus the per-repo issue where one exists) |
 | W3 | FigCraft | The above, plus an editor-pane claim (separate change) | Recorded as pending |
 
 "Recorded as pending" is a row in the live-control status table (`docs/craft-web-plugin.md`): app, state, prerequisite, issue URL. A gate task is done either way, so upstream timing never blocks this change. A later enablement is a follow-up change that runs the same gate.

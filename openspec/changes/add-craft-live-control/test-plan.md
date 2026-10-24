@@ -31,12 +31,13 @@ Test doubles:
 | E15 | Untrusted replies (screenshot) | BVA | L1 | automated | screenshot PNGs: 4000×4000 (16 MP), 4001×4000, 2560×1600, and noisy 1280×800 content | host screenshot pipeline | 4001×4000 → refused before decode; others re-encoded JPEG q80 with long edge 1280, stepping to 960/640 until ≤ 192 KiB; when 640 still exceeds it → `reply_too_large` naming 640×400 |
 | E16 | Pinned follow-ups | state-transition | L1 | automated | `instance` handle from an earlier reply; the instance then closes; separately the tab becomes inactive | `craft_control({instance, method:"engine.execute"…})` and `host.state` | no probe broadcast is sent; after close → `not-open`; inactive tab → mutation `not-visible`, `host.state` still answered |
 | E17 | Shim relay | state-transition | L1 | automated | shim v3 with profile `control:{kind:"page-api", global:"fakecraft"}`; messages before `opened`, after `opened`, with wrong nonce, with `event.source` ≠ parent; global absent for 2 s; profile without `control` | host posts `control` | `not-ready`; relays `request` resolve/reject as `ok:true/false`; ignored; ignored; `unsupported` naming the expected version and "Settings → Update"; `unsupported` |
+| E27 | Shim relay (`page-command`) | decision-table | L1 | automated | shim v3 with profile `control:{kind:"page-command",global:"lightcraft"}`; stub `command` | host posts `engine.execute{command:"library.info",params:{a:1}}`, then `engine.execute{command:"x"}`, then `ui.screenshot`; the stub resolves `"{\"n\":2}"`, then `"not json"` | 1st calls `command("library.info","{\"a\":1}")` → `ok:true, result:{n:2}`; 2nd calls `command("x","{}")` → `app_error`; `ui.screenshot` → `unsupported` naming `page-command`, `command` not called |
 | E18 | Shim announces | EP | L1 | automated | shim v3 loads in a frame | `ready` sent | `ready` carries `shimVersion:3` and `control:true` (or `false` without a profile entry); `save` carries numeric `msSinceInput` |
 | E19 | Opt-in per app (kill switch) | EP | L1 | automated | `plugins['craft-web'].liveControl=false` | tool request | `disabled`, no probe broadcast |
 | E20 | Profile drift | decision-table | L1 | automated | profile table with `control` entries | `manifest.test.ts` | every `control` profile has `verifiedVersion` = registry `webVersion`, non-empty `allowedCommands`, read-only marks ⊆ `allowedCommands`, and no allowlisted command matches `/open\|import\|new\|close\|revert\|quit\|print\|url\|script\|macro\|batch/i`; frame profile contains only `{kind, global}` |
 | E21 | Fixture gate | EP | L1 | automated | server start without `PI_DASHBOARD_FIXTURE_PLUGINS`; with it set to `1` | craft-web registers | without the flag no fakecraft mount, profile or claim exists; with it they do |
 | E22 | Exactly one instance (two devices) | decision-table | L3 | automated | fakecraft doc open and visible in session S in two browser contexts; context A focused last | `craft_control` mutation | only A's document changes (`document.inspect` digest); B unchanged |
-| E23 | Agent addresses by path (happy), per enabled app | EP | L3 | automated | each control-enabled app's e2e fixture document open and visible (VectorCraft: `logo.svg`); user selection made by a real click | `craft_control engine.execute` with the app's gate-recorded create command (VectorCraft: add a rectangle) | created object present in `document.inspect`; selection unchanged; no frame reload (`ready` count stays 1) |
+| E23 | Agent addresses by path (happy), per enabled app | EP | L3 | automated | each control-enabled app's e2e fixture document open and visible (VectorCraft: `logo.svg`); user selection made by a real click | `craft_control engine.execute` with the app's gate-recorded create command (VectorCraft: add a rectangle) | change visible in the gate-recorded digest (`document.inspect`, or the `page-command` app's state-read command); selection unchanged; no frame reload (`ready` count stays 1) |
 | E24 | Agent addresses by path (not open) | EP | L3 | automated | session S with no editor on `report.docx` | `craft_control` | `not-open`; file sha unchanged |
 | E26 | Opt-in per app (claim first) | decision-table | L1 | automated | profile tables: `control` on an app with an edit claim; on an app with no claim (FilmCraft before media projects, FigCraft); on a view-only claim | `profileErrors` | first valid; the other two report "control requires an edit claim" |
 | E25 | Opt-in per app | EP | L3 | automated | WordCraft `report.docx` open (no `control`) | `craft_control` | `unsupported`; no `control` message reaches the frame (frame message log) |
@@ -86,9 +87,9 @@ Test doubles:
 ## Coverage summary
 
 - Requirements covered: 10/10 (craft-live-control) + 1/1 (craft-web-editor delta, via X13, E17, E25)
-- Scenarios by class: edge 26 · perf 2 · frontend 7 · error 16
-- Scenarios by level: L1 31 · L3 19 · manual 1
-- Scenarios by disposition: automated 50 · manual-only 1
+- Scenarios by class: edge 27 · perf 2 · frontend 7 · error 16
+- Scenarios by level: L1 32 · L3 19 · manual 1
+- Scenarios by disposition: automated 51 · manual-only 1
 
 ## New infra needed
 

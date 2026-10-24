@@ -28,7 +28,7 @@ Exemplars used below:
 ## 2. Profiles
 
 - [ ] 2.1 Add `control` to `CraftAppProfile` (`src/shared/app-profiles.ts`):
-  - `{kind:"page-api", global, verifiedVersion, allowedCommands, readOnlyCommands, saveParamNames}`;
+  - `{kind:"page-api"|"page-command", global, verifiedVersion, allowedCommands, readOnlyCommands, saveParamNames, digestCommand?}` (`digestCommand` required for `page-command`);
   - `frameProfile()` projects only `{kind, global}`;
   - profile rule checks: `global` matches `^[a-z][a-z0-9-]{1,31}$`, `readOnlyCommands ⊆ allowedCommands`, and `control` only on an app with an edit claim.
 
@@ -47,6 +47,7 @@ Exemplars used below:
 - [ ] 3.1 Implement the shim v3 relay in `craft-shim.js` and bump `SHIM_VERSION` to 3:
   - `control` → `window[global].request`;
   - `control-result`;
+  - `page-command` kind: `engine.execute` → `window[global].command(command, JSON.stringify(params ?? {}))`, reply text `JSON.parse`d (failure → `app_error`), other methods → `unsupported`;
   - `ready` adds `shimVersion` and `control`;
   - `save` adds `msSinceInput`, from `markInput`.
 
@@ -58,8 +59,12 @@ Exemplars used below:
   - wrong `event.source` → ignored;
   - global absent for 2 s → `unsupported`, naming the version and "Settings → Update";
   - profile without `control` → `unsupported`.
-- [ ] 3.3 Test, announcements (test-plan #E18). Exemplar: `craft-shim.test.ts`. When the shim v3 frame loads, `ready` carries `shimVersion:3` and `control:true` (`false` without a profile entry), and every `save` carries a numeric `msSinceInput`.
-- [ ] 3.4 Update `craft-shim.js.AGENTS.md`, and the protocol tables in `docs/craft-web-plugin.md` §6 via DocScribe. Verify: both list `control`, `control-result`, `ready.shimVersion/control` and `save.msSinceInput`.
+- [ ] 3.3 Test, `page-command` relay (test-plan #E27). Exemplar: `craft-shim.test.ts`. With profile `control:{kind:"page-command",global:"lightcraft"}` and a stub `command`:
+  - `engine.execute{command:"library.info",params:{a:1}}` calls `command("library.info","{\"a\":1}")`, and the resolved `"{\"n\":2}"` → `ok:true, result:{n:2}`;
+  - `engine.execute{command:"x"}` calls `command("x","{}")`, and the resolved `"not json"` → `app_error`;
+  - `ui.screenshot` → `unsupported` naming `page-command`, and `command` is not called.
+- [ ] 3.4 Test, announcements (test-plan #E18). Exemplar: `craft-shim.test.ts`. When the shim v3 frame loads, `ready` carries `shimVersion:3` and `control:true` (`false` without a profile entry), and every `save` carries a numeric `msSinceInput`.
+- [ ] 3.5 Update `craft-shim.js.AGENTS.md`, and the protocol tables in `docs/craft-web-plugin.md` §6 via DocScribe. Verify: both list `control`, `control-result`, `ready.shimVersion/control` and `save.msSinceInput`.
 
 ## 4. Client host: relay, policy, unsaved state, saves, visibility
 
@@ -220,11 +225,15 @@ Exemplars used below:
 
 ## 9. Upstream
 
-- [ ] 9.1 After the user has reviewed `/tmp/spikeB/upstream/ISSUE.md`, file the page-API request on each W3 repo: `storytold/{gridcraft,wordcraft,photocraft,lightcraft,pdfcraft,designcraft,soundcraft,deckcraft,cadcraft,figcraft}`. The ask is a `window.<app>` global with `request`, `execute`, `commands` and `screenshot`, as VectorCraft, FilmCraft and EffectCraft already ship; for WordCraft add the caret-rebasing note. Record the URLs in the status table (10.1). Verify: ten URLs are recorded.
+- [x] 9.1 Upstream ask. It already existed: photocraft#6450 (cross-app `window.<app>`), gridcraft#1274, wordcraft#1589, deckcraft#714. The user reviewed our evidence and approved it; it was posted as comments on 2026-10-24 instead of 10 duplicate issues:
+  - https://github.com/storytold/photocraft/issues/6450#issuecomment-6383791154 (spike evidence, page-API shape, VectorCraft correction);
+  - https://github.com/storytold/wordcraft/issues/1589#issuecomment-6383791347 (caret rebasing).
+
+  The status table (10.1) cites #6450 for every W3 app, plus the per-repo issue where one exists.
 
 ## 10. Further apps (W2, W3)
 
-Each gate task below ends in one of two recorded states, so none waits on upstream:
+Each gate task below ends in one of two recorded states, so none waits on upstream (LightCraft has no upstream prerequisite):
 - **enabled**: run the D8 gate at the newest upstream release (re-spike under the production sandbox with the real post-install, derive `allowedCommands` and the read-only marks, record the create command for 8.3), bump `webVersion`, add the `control` entry. Rows 8.3 and 8.20 then cover the app.
 - **pending**: the prerequisite is absent. Write the status-table row with the prerequisite and the upstream issue URL.
 
@@ -236,7 +245,12 @@ Verify for every gate task: the app's status-table row says `enabled <version>` 
 - [ ] 10.4 Gate GridCraft (W3). Prerequisite: an upstream release with `window.gridcraft.request`. Check the shared undo hazard and toggles (spike B) in the skill examples.
 - [ ] 10.5 Gate WordCraft (W3). Prerequisite: an upstream release with `window.wordcraft.request`. Record whether caret rebasing landed. If not, the skill's caret rule stays mandatory for WordCraft.
 - [ ] 10.6 Gate PhotoCraft (W3). Prerequisite: an upstream release with `window.photocraft.request`.
-- [ ] 10.7 Gate LightCraft (W3). Prerequisite: an upstream release with `window.lightcraft.request`.
+- [ ] 10.7 Gate LightCraft (W1, non-blocking, `page-command`). There is no upstream prerequisite: `globalThis.lightcraft.command` exists in the pinned 0.9.1 and in 0.13.0.
+  - Check that the global survives the post-install externalization of the inline module.
+  - Record a `digestCommand` (a state-read command) and the create command for 8.3.
+  - Check how an agent-triggered save reaches the shim.
+
+  Ends `enabled` (at the pinned or a bumped version) or `pending` with the reason.
 - [ ] 10.8 Gate PdfCraft (W3). Prerequisite: an upstream release with `window.pdfcraft.request`.
 - [ ] 10.9 Gate DesignCraft (W3). Prerequisite: an upstream release with `window.designcraft.request`.
 - [ ] 10.10 Gate SoundCraft (W3). Prerequisite: an upstream release with `window.soundcraft.request`.

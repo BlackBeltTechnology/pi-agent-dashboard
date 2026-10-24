@@ -66,6 +66,10 @@ Only apps whose verified web build provides a control transport SHALL accept req
 - **WHEN** the agent targets a `.docx` open in WordCraft, whose verified build has no control transport
 - **THEN** the tool returns `unsupported` and nothing is sent to the editor
 
+#### Scenario: Method the app's transport does not offer
+- **WHEN** the agent requests `ui.screenshot` from an app whose page API runs engine commands only
+- **THEN** the tool returns `unsupported` and nothing is sent to the editor
+
 #### Scenario: Outdated installed build
 - **WHEN** the profile enables live control but the installed build predates the app's control transport
 - **THEN** the tool returns `unsupported` with a message naming the update
