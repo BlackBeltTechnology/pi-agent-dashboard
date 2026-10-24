@@ -98,6 +98,15 @@ describe("provider-auth-storage", () => {
     expect(data["test-remove"]).toBeUndefined();
   });
 
+  it("removeCredential calls onRemoved exactly once, and only when a stored credential was deleted (B18)", async () => {
+    const { writeCredential, removeCredential } = await import("../auth/provider-auth-storage.js");
+    await writeCredential("test-on-removed", { type: "api_key" as const, key: "x" });
+    const hits: string[] = [];
+    await removeCredential("test-on-removed", undefined, { onRemoved: () => hits.push("first") });
+    await removeCredential("test-on-removed", undefined, { onRemoved: () => hits.push("second") });
+    expect(hits).toEqual(["first"]);
+  });
+
   // pi removed google-gemini-cli + google-antigravity as built-in providers.
   // See change: adopt-pi-071-072-073-features. The SET is now whatever the
   // resolved pi runtime bundles (change: delegate-provider-oauth-to-pi-ai).

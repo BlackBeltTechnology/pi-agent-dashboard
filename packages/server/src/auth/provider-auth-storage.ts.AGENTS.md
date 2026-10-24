@@ -1,3 +1,5 @@
 # provider-auth-storage.ts — index
 
 Reads/writes `~/.pi/agent/auth.json` for pi provider credentials via `proper-lockfile` + atomic write. Async writers, bounded `ELOCKED`-only retry, `realpath:false` preserved. Exported `LOCK_OPTIONS` stale 30 s (= pi); sync-only `withLock`; compromise contained; `readCredentialLocked`/`writeRefreshedOAuth(…, signal?)` CAS for OAuth refresh; `readStoredCredentialLocked(id, signal?)` (type-agnostic), `readAuthJsonLocked(signal?)`, `readAuthSnapshotLocked(signal?)` (reports `corrupt`), `writeCredentialIfAbsent(id,cred)` (check+write in one lock), `tryReadAuthJson()` (non-quarantining), `removeCredential(id, kind?, {createIfMissing, signal})`. OAuth rows = registry ∪ stored `{type:"oauth"}` ids. → see `provider-auth-storage.ts.AGENTS.md` `getAuthStatus()` async; `resolveCatalogue()` falls back to the runtime catalogue. See change: fix-provider-catalogue-first-run.
+
+`removeCredential(provider, kind?, {onRemoved})`: `onRemoved` fires once inside the lock only when a stored credential was deleted; DELETE route audits `removed` from it. See change: harden-auth-credentials (B18).

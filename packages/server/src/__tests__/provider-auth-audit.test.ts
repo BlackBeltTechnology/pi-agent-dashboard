@@ -11,12 +11,21 @@
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { writeCredential, removeCredential, auth } = vi.hoisted(() => ({
-  writeCredential: vi.fn(async () => {}),
-  removeCredential: vi.fn(async () => {}),
-  // What `readAuthJson()` reports as stored (the DELETE route audits only a removal of an existing credential).
-  auth: { data: {} as Record<string, unknown> },
-}));
+const { writeCredential, removeCredential, auth } = vi.hoisted(() => {
+  // What the fake store holds: the DELETE route audits only a removal of an existing credential, signalled by the
+  // storage layer's `onRemoved` hook (it fires inside the real storage lock).
+  const auth = { data: {} as Record<string, unknown> };
+  return {
+    writeCredential: vi.fn(async () => {}),
+    removeCredential: vi.fn(async (provider: string, _kind?: string, opts?: { onRemoved?: () => void }) => {
+      if (auth.data[provider] !== undefined) {
+        delete auth.data[provider];
+        opts?.onRemoved?.();
+      }
+    }),
+    auth,
+  };
+});
 
 vi.mock("../auth/provider-auth-storage.js", () => ({
   CredentialTypeConflictError: class CredentialTypeConflictError extends Error {},

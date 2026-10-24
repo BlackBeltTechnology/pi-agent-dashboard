@@ -337,10 +337,11 @@ export function registerProviderAuthRoutes(
         // api-key row (X2).
         const isOAuthRow = oauthIdSet().has(rawId);
         const authJsonKey = resolveAuthJsonKey(rawId);
-        const existed = readAuthJson()[authJsonKey] !== undefined;
-        await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key");
-        // Audit a real removal only: DELETE stays idempotent for an absent provider.
-        if (existed) auditLine("provider-auth", "removed", { provider: auditPrefix(authJsonKey, 64), ...auditRequestFields(request) });
+        // Audit a real removal only (DELETE stays idempotent for an absent provider); `onRemoved` runs inside
+        // the storage lock, so two concurrent DELETEs log exactly one `removed`.
+        let removed = false;
+        await removeCredential(authJsonKey, isOAuthRow ? "oauth" : "api_key", { onRemoved: () => { removed = true; } });
+        if (removed) auditLine("provider-auth", "removed", { provider: auditPrefix(authJsonKey, 64), ...auditRequestFields(request) });
       } catch (err: any) {
         if (err instanceof CredentialTypeConflictError) {
           return reply.code(409).send({
