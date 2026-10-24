@@ -1,3 +1,5 @@
 blocked_by:
   - change: harden-cors-and-csp-reporting
-    reason: "This change flips the CSP default from report to enforce. It needs everything harden-cors-and-csp-reporting (S3b) ships: the baseline report sink, the persisted violation and dropped counters used as soak evidence, the strict nonce policy, and the enforce-mode semantics. The soak gate (>=14 consecutive days, zero strict script-src* violations, zero dropped reports, >=1 release, strict-enforced E2E green) can only start once that change is released."
+    reason: "Needs everything harden-cors-and-csp-reporting (S3b) ships: report sink, persisted violation and dropped counters, strict nonce policy, enforce semantics. This edge is satisfied by the archive; the live gate is tasks 1.1: a release tag containing commit f426a45b5 must exist before the >=14-day soak can start, and no code changes before the soak gate passes."
+related:
+  - enforce-trusted-types-default
