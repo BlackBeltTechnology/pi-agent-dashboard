@@ -16,6 +16,8 @@ scrolling it to center, and applying a transient flash highlight.
 The reveal SHALL be triggerable repeatedly for the same session (each activation
 re-fires, even when the session is already selected).
 
+The read-only archived view (`/session/<id>?archived=1`) has no live sidebar card, so the header SHALL NOT render the Reveal in sidebar control (button or title-menu item) for it.
+
 The Reveal in sidebar control SHALL be presented on desktop only. When the viewport is in the
 mobile layout (the sidebar is a separate overlay), the control SHALL NOT be
 rendered.
@@ -43,6 +45,11 @@ rendered.
 - **AND** the user activates the Reveal in sidebar control again
 - **THEN** the fold-ancestors SHALL expand and the card SHALL scroll into view
   again
+
+#### Scenario: No reveal control in the read-only archived view
+
+- **WHEN** an archived session is opened read-only via `/session/<id>?archived=1`
+- **THEN** neither the Reveal in sidebar button nor its title-menu item SHALL appear in the session header
 
 ### Requirement: Ancestor chain resolves from session identity alone
 
