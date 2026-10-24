@@ -194,7 +194,7 @@
 
   Verify the documented commands run as written.
 - [x] 6.4 `packages/blender/AGENTS.md` and `src/**/AGENTS.md` rows for every new file; delegate a `docs/blender-wasm.md` caveman-style reference to DocScribe and add its `docs/AGENTS.md` row; verify `scripts/__tests__/repo-hygiene.test.mjs` passes
-- [ ] 6.5 Manual check (test-plan #M1, test-plan: manual-only): in the Electron-hosted dashboard, a pi session with a registered `blender-wasm` server lists the tools and serves `blender_scene` (the host child inherits `ELECTRON_RUN_AS_NODE`); record the result in the PR
+- [x] 6.5 Manual check (test-plan #M1, test-plan: manual-only): in the Electron-hosted dashboard, a pi session with a registered `blender-wasm` server lists the tools and serves `blender_scene` (the host child inherits `ELECTRON_RUN_AS_NODE`); record the result in the PR
 - [x] 6.6 Test E65, L1, EP, for cli: Agent skill: input `.pi/skills/blender/SKILL.md`; trigger parse the frontmatter; expect `name: blender`; description mentions headless Blender, 3D modelling, GLB. Harness exemplar: `packages/craft-apps/src/__tests__/skills.test.ts` (test-plan #E65)
 - [x] 6.7 Test E66, L1, EP, for cli: Manifest entry: input `RECOMMENDED_EXTENSIONS`; trigger load; expect contains `@blackbelt-technology/pi-dashboard-blender`, `status: "optional"`, `unlocks` names the skill, CLI and `blender-wasm`. Harness exemplar: `packages/shared/src/__tests__/recommended-extensions.test.ts` (test-plan #E66)
 
