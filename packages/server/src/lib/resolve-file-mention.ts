@@ -8,7 +8,7 @@
  *  - `cwd` is untrusted request input — the ENDPOINT gates it against the
  *    known-session set BEFORE calling this resolver. This function assumes the
  *    caller already trusts `cwd`.
- *  - Containment (`isAllowed`) runs BEFORE any `fs.stat`, anchored on
+ *  - Containment (`decidePassive` → `isAllowed` / grants, then `containmentAllows`) runs BEFORE any `fs.stat`, anchored on
  *    `cwd` + a FIXED, server-derived `<os.homedir()>/.pi` allowlist. git-common
  *    -root widening is supplied by `isAllowed`'s layer ② (symlink-safe realpath),
  *    so a plain (logical) git-root anchor is deliberately NOT added here.
@@ -24,8 +24,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { grantedSubjects } from "../access/access-grants.js";
-import { isAllowed, isGrantAdmitted } from "./path-containment.js";
+import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
+import { decidePassive } from "../access/containment-gate.js";
 
 export type MentionKind = "abs" | "tilde" | "relative";
 
@@ -74,15 +74,13 @@ export async function resolveFileMention(
   candidate = path.resolve(candidate);
 
   // Containment BEFORE stat (design D2). Anchors: cwd + fixed `~/.pi`; git-root
-  // widening comes from isAllowed's layer ②.
+  // widening comes from the layer ② of `isAllowed` (via `decidePassive`).
   // Consumes grants; returns null rather than a body, so it can never
   // originate a grant (design D12).
   // The canonical cwd joins the request spelling when it differs (core-file-cwd-admission D2), so a
   // mention resolved here opens through the same anchor set as `/api/file`.
   const anchors = canonCwd !== undefined && canonCwd !== cwd ? [cwd, canonCwd, homePiAnchor()] : [cwd, homePiAnchor()];
-  if (!(await isAllowed(candidate, { anchors }))) {
-    if (!(await isGrantAdmitted(candidate, grantedSubjects()))) return null;
-  }
+  if (!containmentAllows(await decidePassive(candidate, anchors, { allowGrant: true }), candidate)) return null;
   try {
     await fs.stat(candidate);
   } catch {

@@ -32,7 +32,7 @@ Fixture notation: **K** = temp git repo that is a session cwd; `K/a.txt`, `K/b.t
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | R1 | model recognises the guard | probe pair | L1 (real CodeQL) | automated | mini monorepo with the repo model file; handler: `evaluateContainment` → `if (!containmentAllows(d, resolved)) return` → `fs.readFile(resolved)` | `codeql-local.mjs` analysis | the guarded read is not reported |
-| R2 | twins still reported | negative probes | L1 (real CodeQL) | automated | (b) unguarded twin; (c) decision for path A, sink on path B; (d) decision never branched on | same | all three reported as `js/path-injection` |
+| R2 | twins still reported | negative probes | L1 (real CodeQL) | automated | (b) unguarded twin; (c) decision and predicate for path A, sink on path B; (d) decision never branched on | same | all three reported as `js/path-injection` |
 | R3 | filter shape | probe | L1 (real CodeQL) | automated | `if (containmentAllows(d, p)) return m` filter then use | same | outcome recorded: silent, or listed as expected residue in `evidence/codeql.md` (the test asserts the recorded outcome, not a hoped one) |
 | R4 | cross-function shape | probe | L1 (real CodeQL) | automated | guarded `resolved` returned from a gate helper and read in another module | same | outcome recorded as above |
 | R5 | raw `||` shape | probe | L1 (real CodeQL) | automated | `if (!(containmentAllows(d, p) \|\| isArtifactRoot(p))) return` then sink | same | outcome recorded as above; if reported, the raw site is residue |
