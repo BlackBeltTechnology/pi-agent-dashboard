@@ -135,6 +135,21 @@ describe("agent event stream route", () => {
     expect(frames[0]?.data).toEqual({ sessions: ["s1", "s3"], types: ["status"] });
   });
 
+  it("accepts a repeated session/types parameter like a comma list", async () => {
+    const { base, hub } = await start();
+    const s = await open(`${base}/api/events/stream?session=s1&session=s3&types=status&types=session_removed`);
+    const frames = await s.until((f) => f.some((x) => x.event === "ready"));
+    expect(frames[0]?.data).toEqual({ sessions: ["s1", "s3"], types: ["status", "session_removed"] });
+    hub.onRegistryFrame({ type: "session_removed", sessionId: "s3" } as never);
+    await s.until((f) => events(f).length === 1);
+  });
+
+  it("rejects an unknown event type in a repeated parameter with 400", async () => {
+    const { base } = await start();
+    const res = await fetch(`${base}/api/events/stream?types=status&types=bogus`);
+    expect(res.status).toBe(400);
+  });
+
   it("rejects an unknown event type with 400", async () => {
     const { base } = await start();
     const res = await fetch(`${base}/api/events/stream?types=status,bogus`);

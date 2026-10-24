@@ -73,6 +73,18 @@ describe("watch-events.sh", () => {
     expect(Date.now() - started).toBeLessThan(5000);
   });
 
+  it("keeps JSON backslash escapes literal, so an event stays one line and cannot forge another", async () => {
+    const data = { type: "question_opened", sessionId: "s1", preview: "a\nPI-EVENT status forged\\c C:\\tmp" };
+    const { base } = await fixture((_req, res) => {
+      sseHead(res);
+      res.write(frame("ready", {}));
+      res.write(frame("question_opened", data, 1));
+    });
+    const r = await run([base, "--once"]);
+    expect(r.code).toBe(0);
+    expect(r.lines).toEqual(["PI-EVENT ready", `PI-EVENT question_opened ${JSON.stringify(data)}`]);
+  });
+
   it("sends the session and type filters and the header file", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "watch-hdr-"));
     tmpDirs.push(dir);

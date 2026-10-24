@@ -16,6 +16,8 @@
 #
 # Reconnects on a dropped or refused connection (up to 30 tries in a row, backing off to 10 s).
 # An HTTP error (400 bad filter, 401/403 token needed) is fatal.
+# Output goes through printf, never echo: dash and macOS sh echo expand JSON backslash
+# escapes, which would split an event across lines or forge a PI-EVENT line.
 # Design: openspec change add-agent-event-stream. POSIX sh + curl; no Node, no jq.
 
 BASE=""
@@ -29,13 +31,13 @@ while [ $# -gt 0 ]; do
     --types) TYPES="$2"; shift 2 ;;
     --header-file) HEADER_FILE="$2"; shift 2 ;;
     --once) ONCE=1; shift ;;
-    -*) echo "PI-EVENT error unknown-option $1"; exit 1 ;;
+    -*) printf '%s\n' "PI-EVENT error unknown-option $1"; exit 1 ;;
     *) BASE="$1"; shift ;;
   esac
 done
-[ -n "$BASE" ] || { echo "PI-EVENT error missing-base"; exit 1; }
+[ -n "$BASE" ] || { printf '%s\n' "PI-EVENT error missing-base"; exit 1; }
 if [ -n "$HEADER_FILE" ] && [ ! -r "$HEADER_FILE" ]; then
-  echo "PI-EVENT error header-file-unreadable"
+  printf '%s\n' "PI-EVENT error header-file-unreadable"
   exit 1
 fi
 
@@ -57,9 +59,9 @@ parse() {
       "data: "*) data="${line#data: }" ;;
       "")
         if [ "$event" = ready ]; then
-          echo "PI-EVENT ready"
+          printf '%s\n' "PI-EVENT ready"
         elif [ -n "$event" ]; then
-          echo "PI-EVENT $event $data"
+          printf '%s\n' "PI-EVENT $event $data"
           [ "$ONCE" = 1 ] && return 3
         fi
         event=""
@@ -105,12 +107,12 @@ while :; do
   stream_once
   [ $? = 3 ] && exit 0
   case "$CODE" in
-    22) echo "PI-EVENT error http (400 = bad --session/--types, 401/403 = token needed)"; exit 1 ;;
+    22) printf '%s\n' "PI-EVENT error http (400 = bad --session/--types, 401/403 = token needed)"; exit 1 ;;
     0 | 18 | 52 | 56) fails=0 ;; # server closed or connection dropped: reconnect at once
     *) fails=$((fails + 1)) ;;
   esac
   if [ "$fails" -ge 30 ]; then
-    echo "PI-EVENT error unreachable $BASE"
+    printf '%s\n' "PI-EVENT error unreachable $BASE"
     exit 1
   fi
   delay=$((fails < 10 ? fails + 1 : 10))

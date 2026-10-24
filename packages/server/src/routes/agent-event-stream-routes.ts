@@ -31,8 +31,11 @@ export interface AgentEventStreamRouteDeps {
   heartbeatMs?: number;
 }
 
-const listOf = (raw: string | undefined): string[] | undefined => {
-  const items = raw
+type ListParam = string | string[] | undefined;
+
+/** Comma list; a repeated parameter (`?types=a&types=b`, parsed as an array) joins the same way. */
+const listOf = (raw: ListParam): string[] | undefined => {
+  const items = (Array.isArray(raw) ? raw.join(",") : raw)
     ?.split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -43,7 +46,7 @@ type Owner = { iss: string; sub: string };
 type Filter = { sessions?: string[]; types?: string[] };
 
 /** Parsed `session` / `types` query, or the 400 message for an unknown type. */
-function parseFilter(query: { session?: string; types?: string }): Filter | { error: string } {
+function parseFilter(query: { session?: ListParam; types?: ListParam }): Filter | { error: string } {
   const sessions = listOf(query.session);
   const types = listOf(query.types);
   const unknown = types?.filter((t) => !AGENT_EVENT_TYPES.includes(t as AgentEventType)) ?? [];
@@ -106,7 +109,7 @@ export function registerAgentEventStreamRoutes(fastify: FastifyInstance, deps: A
     for (const close of [...open]) close();
   });
 
-  fastify.get<{ Querystring: { session?: string; types?: string } }>(
+  fastify.get<{ Querystring: { session?: ListParam; types?: ListParam } }>(
     "/api/events/stream",
     { preHandler: deps.networkGuard },
     async (request, reply) => {

@@ -16,9 +16,11 @@ describe("agent event stream (integration)", () => {
   let server: DashboardServer;
   const sockets: WebSocket[] = [];
   const aborts: AbortController[] = [];
+  const pumps: Promise<void>[] = [];
 
   afterEach(async () => {
     for (const a of aborts.splice(0)) a.abort();
+    await Promise.all(pumps.splice(0));
     for (const s of sockets.splice(0)) s.close();
     await server.stop();
   });
@@ -31,7 +33,7 @@ describe("agent event stream (integration)", () => {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let text = "";
-    void (async () => {
+    const pump = (async () => {
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -42,6 +44,7 @@ describe("agent event stream (integration)", () => {
         /* aborted */
       }
     })();
+    pumps.push(pump);
     const events = () =>
       text
         .split("\n\n")
