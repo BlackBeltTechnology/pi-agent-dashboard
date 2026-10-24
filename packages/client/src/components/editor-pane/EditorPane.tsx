@@ -353,7 +353,7 @@ export function EditorPane() {
             <div data-testid="editor-pane-cwd-pending" className="p-4 text-sm text-[var(--text-tertiary)]">
               {cwdUnavailable
                 ? t("session.archivedUnavailable", undefined, "Archived session unavailable")
-                : t("session.archivedLoading", undefined, "Loading archived session…")}
+                : t("session.resolving", undefined, "Loading session…")}
             </div>
           ) : changeDetection && baselineReadyKey !== viewerKey ? (
             // Baseline first (D2): the digest round-trip is the price of the
@@ -673,15 +673,18 @@ export function EditorPane() {
                       add-change-summary-table). Absent when no changes. */}
                   <ChangesRailSection sessionOnly={sessionOnly} onSessionOnlyChange={setSessionOnly} />
                   <div className="min-h-0 flex-1 overflow-hidden">
-                    <EditorFileTree
-                      cwd={cwd}
-                      treeOpenRoots={state.treeOpenRoots}
-                      onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
-                      onOpenFile={(relPath) => openInSplit(relPath)}
-                      onOpenDiff={(relPath) => openDiffTab(relPath)}
-                      activePath={activePath}
-                      sessionOnly={sessionOnly}
-                    />
+                    {/* No folder yet → no `/api/file/tree?cwd=` request (D4). */}
+                    {cwd && (
+                      <EditorFileTree
+                        cwd={cwd}
+                        treeOpenRoots={state.treeOpenRoots}
+                        onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
+                        onOpenFile={(relPath) => openInSplit(relPath)}
+                        onOpenDiff={(relPath) => openDiffTab(relPath)}
+                        activePath={activePath}
+                        sessionOnly={sessionOnly}
+                      />
+                    )}
                   </div>
                 </>
               )}

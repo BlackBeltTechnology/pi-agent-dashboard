@@ -43,4 +43,4 @@
 - [x] 4.1 Targeted vitest (`npm run test:parallel -- <files>`), client typecheck, Biome on changed files
 - [x] 4.2 L3 spec green against the docker harness (`npm run test:e2e -- archived-session-view`)
 - [x] 4.3 DOX rows updated for every touched file (`App.tsx`, `EditorPane.tsx`, `SplitWorkspaceContext.tsx`, `CappedViewer.tsx`, the two lib modules, the new tests)
-- [x] 4.4 Manual: narrow embed pane check (test-plan: manual-only) — in the Claude desktop embed pane, `/session/<id>?archived=1&embed=1` with a stale tab; header and archived notice read cleanly at narrow width (test-plan #M1)
+- [x] 4.4 Manual (deferred to post-merge): narrow embed pane check (test-plan: manual-only) — in the Claude desktop embed pane, `/session/<id>?archived=1&embed=1` with a stale tab; header and archived notice read cleanly at narrow width (test-plan #M1)

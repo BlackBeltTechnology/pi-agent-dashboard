@@ -24,6 +24,7 @@ vi.mock("../../diff/DiffPanel.js", () => ({
 import type { SessionDiffResponse } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { GRANT_CHANNEL_HEADER } from "../../../lib/access-grants/grant-channel.js";
 import { EDITOR_PANE_KEY_PREFIX } from "../../../lib/layout/editor-pane-state.js";
+import { saveTreeVisible } from "../../../lib/util/tree-visible.js";
 import { __resetArchiveCache } from "../../../lib/openspec/archive-cache.js";
 import { __resetEditorLimitsConfig, hydrateEditorLimitsConfig } from "../../../lib/preview/editor-limits-config.js";
 import { SessionDiffContext, type SessionDiffContextValue } from "../../diff/SessionDiffContext.js";
@@ -335,5 +336,23 @@ describe("EditorPane with an empty cwd", () => {
     expect(calls.filter((c) => c.url.includes("/api/file?")).length).toBe(0);
     expect(screen.queryByTestId("viewer-markdown")).toBeNull();
     expect(screen.getByTestId("editor-pane-cwd-pending")).toBeTruthy();
+  });
+
+  it("mounts no file-tree request while cwd is empty (rail visible), and uses neutral loading text", async () => {
+    stubFetch([]);
+    saveTreeVisible("s1", true);
+    localStorage.setItem(
+      `${EDITOR_PANE_KEY_PREFIX}s1`,
+      JSON.stringify({ openFiles: [{ path: "src/ok.ts", viewer: "monaco" }], activeIndex: 0, treeOpenRoots: [] }),
+    );
+    render(
+      <SplitWorkspaceProvider sessionId="s1" cwd="" orientation="h">
+        <EditorPane />
+      </SplitWorkspaceProvider>,
+    );
+    await flush();
+    expect(calls.filter((c) => c.url.includes("/api/file")).length).toBe(0);
+    // An ordinary (non-archived) tab must not claim an archived session is loading.
+    expect(screen.getByTestId("editor-pane-cwd-pending").textContent).toBe("Loading session…");
   });
 });
