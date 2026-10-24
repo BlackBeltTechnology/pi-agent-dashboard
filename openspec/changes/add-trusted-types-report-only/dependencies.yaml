@@ -1,0 +1,3 @@
+blocked_by:
+  - change: harden-cors-and-csp-reporting
+    reason: "Needs the baseline CSP report sink (/__pi/csp-report/:policy) and persisted violation counter built by harden-cors-and-csp-reporting (S3b). Note: this change's premise is partly stale - the Trusted Types directive already ships via harden-client-sinks (PI_DASHBOARD_TRUSTED_TYPES, auth/csp.ts); rebase the 'Mode-dependent header emission' block on harden-cors-and-csp-reporting's text after it archives. TT reports are counted under the trusted-types label, never toward the strict script-src* soak measure."
