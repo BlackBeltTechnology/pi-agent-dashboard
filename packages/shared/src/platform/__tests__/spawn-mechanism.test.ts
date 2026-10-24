@@ -88,6 +88,13 @@ describe("sessionFlagsToArgv capability-scope", () => {
     ]);
   });
 
+  it("E3: excludeTools glob patterns stay in the one comma-joined arg (leaf-only-helpers WO-A)", () => {
+    expect(sessionFlagsToArgv({ excludeTools: ["Agent", "agent_*", "workflow_*"] })).toEqual([
+      "--exclude-tools",
+      "Agent,agent_*,workflow_*",
+    ]);
+  });
+
   it("E4: --skill repeats once per entry", () => {
     const argv = sessionFlagsToArgv({ skills: ["/a/skill.md", "/b/skill.md"] });
     expect(argv).toEqual(["--skill", "/a/skill.md", "--skill", "/b/skill.md"]);
