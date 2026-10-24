@@ -69,7 +69,13 @@ function installBrowserGlobals(runtimeUrl: string): void {
     const bytes = await fs.promises.readFile(u);
     return new Response(bytes, { headers: { "content-type": contentType(u.pathname), "content-length": String(bytes.length) } });
   };
-  for (const name of ["WebSocket", "EventSource", "XMLHttpRequest", "WebSocketStream"]) delete g[name];
+  for (const name of ["WebSocket", "EventSource", "XMLHttpRequest", "WebSocketStream"]) {
+    try {
+      delete g[name];
+    } catch {
+      /* non-configurable on this Node: the worker deletes them again and the X4/X5 guard tests would catch a leak */
+    }
+  }
 
   const bootPath = fileURLToPath(new URL("./worker-boot.cjs", import.meta.url));
   class ThreadWorker {

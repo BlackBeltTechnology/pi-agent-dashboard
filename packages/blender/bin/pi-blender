@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcCli = join(pkgRoot, "src", "bin", "blender.ts");
@@ -31,7 +31,7 @@ const args = process.argv.slice(2);
 const tsx = existsSync(srcCli) ? resolveTsx() : undefined;
 
 let argv;
-if (tsx) argv = ["--import", tsx, srcCli, ...args];
+if (tsx) argv = ["--import", pathToFileURL(tsx).href, srcCli, ...args]; // a file URL: a raw path breaks on Windows
 else if (existsSync(distCli)) argv = [distCli, ...args];
 else {
   console.error("[pi-blender] neither src/bin/blender.ts (with tsx) nor dist/blender.js is available — run `node scripts/build.mjs` in this package");

@@ -14,9 +14,8 @@
  *
  * See change: add-blender-wasm-mcp (design D6, task 3.4).
  */
-import type { ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { type ChildProcess, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { ToolError } from "../errors.js";
 import { type ProvisionDeps, type ProvisionResult, provision, repairAfterBootFailure } from "../provision.js";
 import { hostArgv, JSPI_FLAG } from "./entry.js";
@@ -275,7 +274,7 @@ export class Supervisor {
       this.live = false;
       this.armIdle();
     });
-    child.on("error", (e) => this.stderr.push(`spawn error: ${e.message}`));
+    child.on("error", (e) => this.stderr.push(`could not start the Blender host: ${e.message}`));
     return child;
   }
 
