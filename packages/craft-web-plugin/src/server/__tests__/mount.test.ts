@@ -167,3 +167,41 @@ describe("PhotoCraft split-wasm assets (extend-craft-web-to-all-apps)", () => {
     await host.fastify.close();
   });
 });
+
+describe("live control registration (add-craft-live-control, tasks 5.1, 5.2)", () => {
+  it("registers the request lane and the claim / result / gone browser handlers", async () => {
+    const host = makeHost();
+    const piHandlers = new Map<string, (p: unknown, m: { sessionId: string }) => unknown>();
+    const browserHandlers = new Map<string, (m: unknown, ws: unknown) => void>();
+    const sent: unknown[] = [];
+    Object.assign(host.ctx, {
+      registerPiRequestHandler: (t: string, h: never) => void piHandlers.set(t, h),
+      registerBrowserHandler: (t: string, h: never) => void browserHandlers.set(t, h),
+      broadcastToSubscribers: (m: unknown) => void sent.push(m),
+      sessionManager: { getSession: () => ({ cwd: "/tmp/w" }) },
+    });
+    await registerPlugin(host.ctx);
+    expect([...piHandlers.keys()]).toEqual(["craft-web/control"]);
+    expect([...browserHandlers.keys()].sort()).toEqual(["craft-web/control-claim", "craft-web/control-gone", "craft-web/control-result"]);
+    // kill switch is read live from the plugin config
+    host.config.liveControl = false;
+    expect(await piHandlers.get("craft-web/control")?.({ path: "a.svg", method: "ui.inspect" }, { sessionId: "S" })).toMatchObject({ ok: false, code: "disabled" });
+    expect(sent).toHaveLength(0);
+    // the outcome is logged through the shared telemetry limiter
+    expect(host.logger.warn.mock.calls.some((c) => /telemetry vectorcraft control outcome=disabled ms=\d+/.test(String(c[0])))).toBe(true);
+    await host.fastify.close();
+  });
+
+  it("the telemetry line carries the outcome and duration (ok → info, errors → warn)", async () => {
+    const host = makeHost();
+    await registerPlugin(host.ctx);
+    const { createCraftWebService } = await import("../service.js");
+    const logger = host.logger;
+    const service = createCraftWebService({ dataDir: host.dataDir, logger, getConfig: () => ({}), provisionWeb: vi.fn() as never, isMounted: () => true });
+    expect(service.reportTelemetry("vectorcraft", { kind: "control", outcome: "ok", ms: 12.4 })).toBe(true);
+    expect(service.reportTelemetry("vectorcraft", { kind: "control", outcome: "denied", ms: 3 })).toBe(true);
+    expect(logger.info.mock.calls.some((c) => String(c[0]) === "telemetry vectorcraft control outcome=ok ms=12")).toBe(true);
+    expect(logger.warn.mock.calls.some((c) => String(c[0]) === "telemetry vectorcraft control outcome=denied ms=3")).toBe(true);
+    await host.fastify.close();
+  });
+});

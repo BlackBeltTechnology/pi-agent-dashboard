@@ -173,7 +173,9 @@ record_step() { # record_step NN-step "upstream ids comma-separated" verify-repo
 
 Driving the desktop GUIs (`--bridge`, `--connect`, `ui_*` tools, `app` subcommands) is not supported: the
 proxy rejects those options and you must never launch a desktop app to "see" a result — verify files
-instead. Image/video *generation* belongs to ArtCraft Studio and `pi-nano-banana`, not to these apps.
+instead. The one exception is a document the user has **open and visible in a dashboard editor pane**:
+the `craft_control` tool (skill `craft-live-edit`, shipped with the craft-web plugin) edits that live tab; it
+never launches anything and never opens a file. For any file that is not open, use `pi-craft`. Image/video *generation* belongs to ArtCraft Studio and `pi-nano-banana`, not to these apps.
 
 ## Setup notes
 

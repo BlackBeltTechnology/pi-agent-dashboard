@@ -33,6 +33,7 @@ interface FrameProfile {
   openedFallbackMs: number | null;
   cleanOnAckedSave: boolean;
   saveName: "stem" | "inner-title";
+  control?: { kind: "page-api" | "page-command"; global: string };
 }
 interface ShimModule {
   SHIM_VERSION: number;
@@ -142,7 +143,7 @@ describe("version + exports", () => {
     expect(win.RTCPeerConnection).toBeUndefined();
     win.dispatchEvent(new win.Event("TrunkApplicationStarted"));
     while (queue.length) queue.shift()?.();
-    expect(out).toEqual([{ type: "ready", nonce: NONCE }]);
+    expect(out).toEqual([{ type: "ready", nonce: NONCE, shimVersion: mod.SHIM_VERSION, control: false }]);
     dom.window.close();
   });
 });
@@ -183,7 +184,7 @@ describe("ready ordering", () => {
     window.dispatchEvent(new Event("TrunkApplicationStarted"));
     expect(sent("ready")).toHaveLength(0); // needs one more animation frame
     flushRaf();
-    expect(sent("ready")).toEqual([{ type: "ready", nonce: NONCE }]);
+    expect(sent("ready")).toEqual([{ type: "ready", nonce: NONCE, shimVersion: mod.SHIM_VERSION, control: false }]);
     window.dispatchEvent(new Event("TrunkApplicationStarted"));
     flushRaf();
     expect(sent("ready")).toHaveLength(1);
@@ -925,5 +926,150 @@ describe("E11 start-failed detector", () => {
     window.dispatchEvent(new ErrorEvent("error", { error: new TypeError("x is undefined"), message: "x is undefined" }));
     console.error("failed to load favicon");
     expect(sent("start-failed")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Shim v3 — live control relay (change: add-craft-live-control, D3)
+// ---------------------------------------------------------------------------------------------------
+
+describe("shim v3 live control", () => {
+  const FAKE: FrameProfile = {
+    appId: "fakecraft",
+    title: null,
+    openedFallbackMs: 1000,
+    cleanOnAckedSave: true,
+    saveName: "stem",
+    control: { kind: "page-api", global: "fakecraft" },
+  };
+  const control = (id: number, method: string, params?: unknown) => hostSend({ type: "control", nonce: NONCE, id, method, params });
+  const results = () => sent("control-result");
+
+  /** A shim for `profile` whose document is open (no-title fallback). */
+  async function openWith(profile: FrameProfile) {
+    makeProfiledShim(profile);
+    document.body.innerHTML = "<canvas></canvas>";
+    hostSend({ type: "open", nonce: NONCE, name: "doc.fake", bytes: bytesOf(1) });
+    await vi.advanceTimersByTimeAsync(3000);
+    flushRaf();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(sent("opened")).toHaveLength(1);
+  }
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete w.fakecraft;
+    delete w.lightcraft;
+  });
+
+  it("E17 before opened → not-ready, nothing is called", async () => {
+    const request = vi.fn();
+    w.fakecraft = { request };
+    makeProfiledShim(FAKE);
+    control(1, "ui.inspect");
+    expect(results()).toEqual([{ type: "control-result", nonce: NONCE, id: 1, ok: false, code: "not-ready", error: expect.any(String) }]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("E17 after opened → resolve/reject of request relays as ok:true/false", async () => {
+    await openWith(FAKE);
+    w.fakecraft = { request: vi.fn((m: string) => (m === "boom" ? Promise.reject(new Error("bad thing")) : Promise.resolve({ m }))) };
+    control(2, "ui.inspect");
+    control(3, "boom");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(results().find((r) => r.id === 2)).toMatchObject({ ok: true, result: { m: "ui.inspect" } });
+    expect(results().find((r) => r.id === 3)).toMatchObject({ ok: false, error: "bad thing" });
+    expect(results().find((r) => r.id === 3)?.code).toBeUndefined();
+  });
+
+  it("E17 a wrong nonce or a foreign event source is ignored", async () => {
+    await openWith(FAKE);
+    const request = vi.fn(() => Promise.resolve(1));
+    w.fakecraft = { request };
+    hostSend({ type: "control", nonce: "other", id: 4, method: "x" });
+    hostSend({ type: "control", nonce: NONCE, id: 5, method: "x" }, {});
+    await vi.advanceTimersByTimeAsync(10);
+    expect(request).not.toHaveBeenCalled();
+    expect(results()).toHaveLength(0);
+  });
+
+  it("E17 a page API that never appears → unsupported after 2 s; a late global within 2 s still answers", async () => {
+    await openWith(FAKE);
+    control(6, "ui.inspect");
+    await vi.advanceTimersByTimeAsync(1900);
+    expect(results()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(results()).toEqual([expect.objectContaining({ id: 6, ok: false, code: "unsupported" })]);
+    control(7, "ui.inspect");
+    await vi.advanceTimersByTimeAsync(500);
+    w.fakecraft = { request: () => Promise.resolve("late") };
+    await vi.advanceTimersByTimeAsync(200);
+    expect(results().find((r) => r.id === 7)).toMatchObject({ ok: true, result: "late" });
+  });
+
+  it("E17 a profile without control → unsupported", async () => {
+    await openWith({ ...FAKE, control: undefined });
+    control(8, "ui.inspect");
+    expect(results()).toEqual([expect.objectContaining({ id: 8, ok: false, code: "unsupported" })]);
+  });
+
+  it("E17 a non-cloneable reply becomes an error, never a throw", async () => {
+    await openWith(FAKE);
+    w.fakecraft = { request: () => Promise.resolve({ f: () => 1 }) };
+    const real = window.postMessage as unknown as ReturnType<typeof vi.fn>;
+    real.mockImplementationOnce(() => {
+      throw new DOMException("could not be cloned", "DataCloneError");
+    });
+    control(9, "x");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(results().find((r) => r.id === 9)).toMatchObject({ ok: false, error: expect.stringMatching(/not serializable/) });
+  });
+
+  describe("E27 page-command", () => {
+    const LIGHT: FrameProfile = { ...FAKE, appId: "lightcraft", control: { kind: "page-command", global: "lightcraft" } };
+
+    it("engine.execute → command(id, JSON text) → parsed reply; bad JSON → app_error; other methods → unsupported", async () => {
+      await openWith(LIGHT);
+      const command = vi.fn((id: string) => Promise.resolve(id === "x" ? "not json" : '{"n":2}'));
+      w.lightcraft = { command };
+      control(10, "engine.execute", { command: "library.info", params: { a: 1 } });
+      control(11, "engine.execute", { command: "x" });
+      control(12, "ui.screenshot");
+      await vi.advanceTimersByTimeAsync(10);
+      expect(command).toHaveBeenNthCalledWith(1, "library.info", '{"a":1}');
+      expect(command).toHaveBeenNthCalledWith(2, "x", "{}");
+      expect(command).toHaveBeenCalledTimes(2);
+      expect(results().find((r) => r.id === 10)).toMatchObject({ ok: true, result: { n: 2 } });
+      expect(results().find((r) => r.id === 11)).toMatchObject({ ok: false, error: expect.any(String) });
+      expect(results().find((r) => r.id === 11)?.code).toBeUndefined();
+      expect(results().find((r) => r.id === 12)).toMatchObject({ ok: false, code: "unsupported", error: expect.stringMatching(/page-command/) });
+    });
+  });
+
+  it("E18 ready announces shimVersion and control; saves carry numeric msSinceInput", async () => {
+    makeProfiledShim(FAKE);
+    document.body.innerHTML = "<canvas></canvas>";
+    window.dispatchEvent(new Event("TrunkApplicationStarted"));
+    await vi.advanceTimersByTimeAsync(100); // fake timers also fake requestAnimationFrame
+    expect(sent("ready")).toEqual([{ type: "ready", nonce: NONCE, shimVersion: 3, control: true }]);
+    const ws = await (await w.showSaveFilePicker({ suggestedName: "a.txt" })).createWritable();
+    await ws.write(new Uint8Array([1]));
+    void ws.close();
+    await vi.advanceTimersByTimeAsync(10);
+    const noInput = sent("save")[0].msSinceInput;
+    expect(typeof noInput).toBe("number");
+    expect(noInput).toBeGreaterThan(2000); // never touched → far beyond the 2 s confirmation threshold
+    // trusted pointer input, then a save 500 ms later
+    window.dispatchEvent(trusted(new Event("pointerdown", { bubbles: true })));
+    await vi.advanceTimersByTimeAsync(500);
+    const ws2 = await (await w.showSaveFilePicker({ suggestedName: "b.txt" })).createWritable();
+    await ws2.write(new Uint8Array([2]));
+    void ws2.close();
+    await vi.advanceTimersByTimeAsync(10);
+    const after = sent("save")[1].msSinceInput;
+    expect(after).toBeGreaterThanOrEqual(500);
+    expect(after).toBeLessThan(1500);
   });
 });

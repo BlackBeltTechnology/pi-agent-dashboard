@@ -11,6 +11,7 @@
  */
 import { HANDLER_MAX_BYTES } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
 import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { VECTORCRAFT_ALLOWED_COMMANDS, VECTORCRAFT_CONTROL_VERSION, VECTORCRAFT_READ_ONLY_COMMANDS, VECTORCRAFT_SAVE_COMMANDS } from "./vectorcraft-control.js";
 
 /** How the post-install hook makes the app's loader dispatch `TrunkApplicationStarted` (D3). */
 type CraftReadyHook =
@@ -37,6 +38,30 @@ export interface CraftClaimProfile {
 
 /** Why a `latestChannel:false` app's version is fixed (settings hint, D8/D11). */
 type FixedChannelReason = "unverified-latest" | "latest-fails-to-start";
+
+/**
+ * Live agent control of an app's open document (add-craft-live-control D3, D4, D8). Only `{kind, global}`
+ * reaches the frame; the policy lists stay host-side, so editing them never forces a re-prepare.
+ * `page-api`: the shim calls `window[global].request(method, params)`. `page-command`: only
+ * `engine.execute` is relayed, as `window[global].command(id, JSON.stringify(params))`.
+ */
+export interface CraftControlProfile {
+  kind: "page-api" | "page-command";
+  /** `window.<global>` of the page API; `^[a-z][a-z0-9-]{1,31}$`. */
+  global: string;
+  /** Upstream web build the lists below were verified against; must equal the registry `webVersion`. */
+  verifiedVersion: string;
+  /** `engine.execute` commands the host forwards (exact match, fail closed). */
+  allowedCommands: readonly string[];
+  /** Subset of `allowedCommands` that leaves the document unchanged (never marks the tab unsaved). */
+  readOnlyCommands: readonly string[];
+  /** Commands (⊆ `allowedCommands`) that save or export: their reply carries `saveRequested` / `saveSeq` (D5). */
+  saveCommands: readonly string[];
+  /** Params keys the host strips from every forwarded command: the save target is decided by save routing. */
+  saveParamNames: readonly string[];
+  /** `page-command` only: state-read command whose reply is the e2e digest (the app has no `document.inspect`). */
+  digestCommand?: string;
+}
 
 export interface CraftAppProfile {
   /** `craft-apps` registry id; status/prepare/config/mount key. */
@@ -68,6 +93,8 @@ export interface CraftAppProfile {
   latestChannel: boolean;
   /** Settings hint for a fixed channel. */
   fixedReason?: FixedChannelReason;
+  /** Live agent control (add-craft-live-control); only valid on an app with an edit claim. */
+  control?: CraftControlProfile;
   /** Oldest shim whose prepared build still loads (older → `shim-outdated`). */
   minShimVersion: number;
   /** Approximate gzip download before the first prepare. */
@@ -220,6 +247,15 @@ export const CRAFT_APP_PROFILES: readonly CraftAppProfile[] = [
     fixedReason: "unverified-latest",
     minShimVersion: 2,
     approxDownloadBytes: 23_500_000,
+    control: {
+      kind: "page-api",
+      global: "vectorcraft",
+      verifiedVersion: VECTORCRAFT_CONTROL_VERSION,
+      allowedCommands: VECTORCRAFT_ALLOWED_COMMANDS,
+      readOnlyCommands: VECTORCRAFT_READ_ONLY_COMMANDS,
+      saveCommands: VECTORCRAFT_SAVE_COMMANDS,
+      saveParamNames: ["path"],
+    },
     claims: [claim("vectorcraft", [".svg"], { siblingExtensions: [".vectorcraft"] })],
   },
   {
@@ -277,6 +313,8 @@ export interface FrameProfile {
   openedFallbackMs: number | null;
   cleanOnAckedSave: boolean;
   saveName: "stem" | "inner-title";
+  /** Present only for a control-enabled app, so every other app's profile hash is unchanged. */
+  control?: { kind: CraftControlProfile["kind"]; global: string };
 }
 
 export function frameProfile(p: CraftAppProfile): FrameProfile {
@@ -286,5 +324,6 @@ export function frameProfile(p: CraftAppProfile): FrameProfile {
     openedFallbackMs: p.openedFallbackMs ?? null,
     cleanOnAckedSave: p.cleanOnAckedSave,
     saveName: p.saveName,
+    ...(p.control ? { control: { kind: p.control.kind, global: p.control.global } } : {}),
   };
 }

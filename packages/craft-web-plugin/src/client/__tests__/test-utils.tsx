@@ -7,6 +7,7 @@
  */
 import type { FileHandlerProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { act, render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { type MockInstance, vi } from "vitest";
 import { CraftFrameHost } from "../CraftFrameHost.js";
 import { CRAFT_WEB_APPS, type CraftWebApp } from "../craft-apps-table.js";
@@ -122,11 +123,12 @@ export interface Mounted {
 
 /** Mounts the host with a ready status + working renderer; resolves once the iframe is in the DOM. */
 export async function mountFrame(
-  o: { app?: CraftWebApp; fh?: FakeFh; renderer?: { gpu: boolean; webgl2: boolean } } = {},
+  o: { app?: CraftWebApp; fh?: FakeFh; renderer?: { gpu: boolean; webgl2: boolean }; wrap?: (children: ReactNode) => ReactNode } = {},
 ): Promise<Mounted> {
   stubRenderer(o.renderer ?? { gpu: true, webgl2: true });
   const fh = o.fh ?? makeFh();
-  const r = render(<CraftFrameHost app={o.app ?? CRAFT_WEB_APPS.wordcraft} {...fh} />);
+  const wrap = o.wrap ?? ((c: ReactNode) => c);
+  const r = render(wrap(<CraftFrameHost app={o.app ?? CRAFT_WEB_APPS.wordcraft} {...fh} />));
   await flush();
   const iframe = r.getByTestId("craft-frame") as HTMLIFrameElement;
   const post = vi.spyOn(iframe.contentWindow as Window, "postMessage") as unknown as PostSpy;
@@ -137,7 +139,7 @@ export async function mountFrame(
     container: r.container,
     getByTestId: r.getByTestId,
     queryByTestId: r.queryByTestId,
-    rerenderApp: () => r.rerender(<CraftFrameHost app={o.app ?? CRAFT_WEB_APPS.wordcraft} {...fh} />),
+    rerenderApp: () => r.rerender(wrap(<CraftFrameHost app={o.app ?? CRAFT_WEB_APPS.wordcraft} {...fh} />)),
   };
 }
 

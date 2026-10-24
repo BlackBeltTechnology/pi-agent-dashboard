@@ -379,3 +379,37 @@ describe("csp reports (4.5)", () => {
     expect(logger.warn.mock.calls.some((c) => /csp-report wordcraft directive=script-src/.test(String(c[0])))).toBe(true);
   });
 });
+
+describe("shim v3 compatibility (add-craft-live-control D3)", () => {
+  /** A prepared `<version>-s<shim>` tree of `app` (`current` → it). */
+  function treeOf(dataDir: string, app: string, version: string, shim: number, profile: string | undefined): void {
+    const root = path.join(dataDir, `${app}-web`);
+    const key = `${version}-s${shim}`;
+    fs.mkdirSync(path.join(root, key), { recursive: true });
+    fs.writeFileSync(path.join(root, key, "craft-build.json"), JSON.stringify({ app, version, shimVersion: shim, sizeGzip: 5, ...(profile ? { profileHash: profile } : {}) }));
+    fs.symlinkSync(key, path.join(root, "current"));
+  }
+  const hashOf = (app: string) => profileHash(profileFor(app) as NonNullable<ReturnType<typeof profileFor>>);
+
+  it("another app's v2 tree keeps loading under shim 3 with an update offered (its profile is unchanged)", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(3);
+    treeOf(r.dataDir, "gridcraft", "0.8.0", 2, hashOf("gridcraft"));
+    // gridcraft's minShimVersion is 1 or 2: a v2 tree is still supported
+    expect(r.service.status().apps.gridcraft).toMatchObject({ shimVersion: 2, shimUpdate: true });
+  });
+
+  it("the control-enabled app's tree prepared before the profile gained `control` → shim-outdated (re-prepare)", () => {
+    const r = rig({ env: { CRAFT_HOME: "x" } });
+    r.setShim(3);
+    const version = "0.16.0";
+    treeOf(r.dataDir, "vectorcraft", version, 3, "0000000000");
+    expect(r.service.status().apps.vectorcraft).toMatchObject({ status: "shim-outdated", shimVersion: 3 });
+  });
+
+  it("minShimVersion of every profile stays below 3, so no other app's older tree is forced out by the bump", () => {
+    for (const p of (profileFor("wordcraft") ? ["wordcraft", "gridcraft", "vectorcraft", "photocraft"] : [])) {
+      expect(profileFor(p)?.minShimVersion).toBeLessThan(3);
+    }
+  });
+});

@@ -28,3 +28,5 @@ export const VectorCraftHandler = bind("vectorcraft");
 export const DeckCraftHandler = bind("deckcraft");
 export const DeckCraftNativeHandler = bind("deckcraft-native");
 export const LightCraftHandler = bind("lightcraft");
+/** Test fixture (add-craft-live-control D8): live only when the server runs with PI_DASHBOARD_FIXTURE_PLUGINS=1. */
+export const FakeCraftHandler = bind("fakecraft");

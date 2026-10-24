@@ -16,8 +16,9 @@ describe("shim version", () => {
 
   it("the packaged shim exists and declares a version", () => {
     expect(fs.existsSync(SHIM_SOURCE_PATH)).toBe(true);
-    // v2 = adapter profiles (change extend-craft-web-to-all-apps, D4); bump on every behaviour change
-    expect(createShimVersionReader()()).toBe(2);
+    // v2 = adapter profiles (change extend-craft-web-to-all-apps, D4); v3 = live control relay (add-craft-live-control, D3);
+    // bump on every behaviour change
+    expect(createShimVersionReader()()).toBe(3);
   });
 
   it("re-reads when the file changes", () => {

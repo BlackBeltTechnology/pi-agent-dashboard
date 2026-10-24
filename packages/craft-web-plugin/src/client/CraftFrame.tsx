@@ -15,6 +15,7 @@ import type {
   FileHandlerSnapshot,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type AgentLogRow, useControlInstance } from "./control-registry.js";
 import type { CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
 import {
@@ -38,6 +39,8 @@ interface Run {
   attempt: number;
   nonce: string;
   webgl: boolean;
+  /** Live-control handle of this run (CSPRNG; opaque to everyone but the router). */
+  instanceId: string;
 }
 
 export interface CraftFrameProps {
@@ -49,6 +52,8 @@ export interface CraftFrameProps {
   webglCapable: boolean;
   /** Hands over the preflight snapshot once, then fresh ones (Retry/Resume). */
   takeSnapshot: () => Promise<FileHandlerSnapshot>;
+  /** Installed web build version (status), when known: live control needs the verified one. */
+  buildVersion?: string;
 }
 
 /** Mutable "latest" values the long-lived session reads without re-creating the effect. */
@@ -58,7 +63,7 @@ function useLatest<T>(value: T) {
   return ref;
 }
 
-export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }: CraftFrameProps) {
+export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot, buildVersion }: CraftFrameProps) {
   const t = useCraftT();
   const tRef = useLatest(t);
   const fhRef = useLatest(fh);
@@ -69,7 +74,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
 
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const sessionRef = useRef<FrameSession | null>(null);
-  const [run, setRun] = useState<Run>(() => ({ attempt: 0, nonce: makeNonce(), webgl: initialWebgl }));
+  const [run, setRun] = useState<Run>(() => ({ attempt: 0, nonce: makeNonce(), webgl: initialWebgl, instanceId: makeNonce() }));
   const [phase, setPhase] = useState<Phase>("starting");
   const [lostEdits, setLostEdits] = useState(false);
   const [snapMsg, setSnapMsg] = useState("");
@@ -80,6 +85,9 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
   const [exhausted, setExhausted] = useState<SiblingExhausted | null>(null);
   const [offer, setOffer] = useState<DownloadOffer | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [downloadConfirm, setDownloadConfirm] = useState<{ name: string } | null>(null);
+  const buildVersionRef = useLatest(buildVersion);
+  const agent = useControlInstance({ instanceId: run.instanceId, app, fh, session: () => sessionRef.current, frame: () => frameRef.current });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a session is keyed by `run` (fresh nonce per mount); the rest is read through refs
   useEffect(() => {
@@ -91,7 +99,9 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
       takeSnapshot: () => takeRef.current(),
       saveTarget: () => getSaveTarget(saveKeyRef.current),
       t: () => tRef.current,
-      ui: { setPhase, setLostEdits, setSnapMsg, setBlocked, setNav, setSaveAs, setSibling, setExhausted, setOffer, setSaveError },
+      instanceId: run.instanceId,
+      buildVersion: buildVersionRef.current,
+      ui: { setPhase, setLostEdits, setSnapMsg, setBlocked, setNav, setSaveAs, setSibling, setExhausted, setOffer, setSaveError, setDownloadConfirm },
     });
     sessionRef.current = session;
     session.start();
@@ -100,7 +110,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
 
   const restart = useCallback((webgl: boolean) => {
     setPhase("starting");
-    setRun((r) => ({ attempt: r.attempt + 1, nonce: makeNonce(), webgl }));
+    setRun((r) => ({ attempt: r.attempt + 1, nonce: makeNonce(), webgl, instanceId: makeNonce() }));
   }, []);
 
   const showFrame = phase === "starting" || phase === "opening" || phase === "open";
@@ -108,7 +118,8 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="craft-frame-host" data-app={app.id} data-phase={phase}>
-      <Toolbar app={app} file={baseName(fh.path)} target={target} onTarget={(v) => setSaveTarget(saveKey, v)} t={t} />
+      <Toolbar app={app} file={baseName(fh.path)} target={target} onTarget={(v) => setSaveTarget(saveKey, v)} t={t} agentActive={agent.active} />
+      {app.profile.control && <AgentLog t={t} log={agent.log} />}
       <Notices
         t={t}
         app={app}
@@ -141,6 +152,9 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot }
         {sibling && (
           <SiblingDialog t={t} app={app} prompt={sibling} file={baseName(fh.path)} onPick={(c) => sessionRef.current?.pickSibling(c)} />
         )}
+        {downloadConfirm && (
+          <DownloadConfirmDialog t={t} name={downloadConfirm.name} onPick={(allow) => sessionRef.current?.pickDownload(allow)} />
+        )}
         {saveAs && (
           <SaveAsDialog t={t} app={app} name={saveAs.name} file={baseName(fh.path)} onPick={(c) => sessionRef.current?.pickSaveAs(c)} />
         )}
@@ -168,6 +182,8 @@ function frameSrc(app: CraftWebApp, webgl: boolean, nonce: string): string {
 }
 
 interface ToolbarProps {
+  /** Method of the agent request running right now (live control), or `null`. */
+  agentActive?: string | null;
   app: CraftWebApp;
   /** Base name of the tab's file. */
   file: string;
@@ -181,12 +197,17 @@ interface ToolbarProps {
  * target; a claim with a native sibling format states the file Ctrl+S creates, and its save-target toggle
  * applies to exports in the tab's own format.
  */
-function Toolbar({ app, file, target, onTarget, t }: ToolbarProps) {
+function Toolbar({ app, file, target, onTarget, t, agentActive }: ToolbarProps) {
   const sibling = app.siblingExtensions[0];
   const { stem, ext } = splitName(file);
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--border-primary)] px-2 py-1">
       <span className="text-xs font-semibold text-[var(--text-primary)]">{app.label}</span>
+      {agentActive && (
+        <span className={CHIP} role="status" data-testid="craft-agent-active">
+          {t("agentActive", { method: agentActive })}
+        </span>
+      )}
       {app.mode === "preview" ? (
         <span className={CHIP} data-testid="craft-preview-chip">
           {t("previewChip")}
@@ -289,6 +310,52 @@ function NavOffer({ t, app, url, onClose }: { t: Translate; app: CraftWebApp; ur
       <button type="button" className={BTN} data-testid="craft-nav-dismiss" onClick={onClose}>
         {t("dismiss")}
       </button>
+    </div>
+  );
+}
+
+/** Agent activity of this instance: what ran, how it ended, how big the reply was, a short preview (D4 audit). */
+function AgentLog({ t, log }: { t: Translate; log: readonly AgentLogRow[] }) {
+  if (log.length === 0) return null;
+  return (
+    <details className="shrink-0 border-b border-[var(--border-primary)] px-2 py-1 text-xs" data-testid="craft-agent-log">
+      <summary className="cursor-pointer text-[var(--text-secondary)]">{t("agentLogTitle", { count: log.length })}</summary>
+      <ul className="mt-1 flex max-h-40 flex-col gap-0.5 overflow-auto">
+        {[...log].reverse().map((r) => (
+          <li key={`${r.at}-${r.method}-${r.bytes}-${r.preview.length}`} data-testid="craft-agent-log-row" className="flex flex-wrap gap-x-2 text-[var(--text-primary)]">
+            <span className="font-mono">{r.method}</span>
+            <span>{r.outcome}</span>
+            <span className="text-[var(--text-secondary)]">{t("agentLogBytes", { bytes: r.bytes })}</span>
+            <span className="truncate text-[var(--text-secondary)]">{r.preview}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** An export the agent triggered (no user input just before) asks before it downloads to this device. */
+function DownloadConfirmDialog({ t, name, onPick }: { t: Translate; name: string; onPick: (allow: boolean) => void }) {
+  const title = t("downloadConfirmTitle", { name });
+  return (
+    <div className="absolute inset-0 z-raised flex items-center justify-center bg-[var(--bg-primary)]/80 p-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid="craft-download-confirm"
+        className="flex max-w-md flex-col gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--text-primary)]"
+      >
+        <p>{title}</p>
+        <div className="flex flex-wrap gap-2">
+          <ChoiceButton testId="craft-download-allow" primary onPick={() => onPick(true)}>
+            {t("downloadAllow")}
+          </ChoiceButton>
+          <ChoiceButton testId="craft-download-block" onPick={() => onPick(false)}>
+            {t("downloadBlock")}
+          </ChoiceButton>
+        </div>
+      </div>
     </div>
   );
 }
