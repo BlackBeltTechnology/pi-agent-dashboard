@@ -1205,6 +1205,8 @@ export type RemoveKnownServerRequest = { host: string; port: number; scheme?: Ro
 export interface PairPollApproved {
   status: "approved";
   token: string;
+  /** Epoch ms the bearer expires; present only when the pairing declared `holder:"browser"`. */
+  expiresAt?: number;
   routes?: string[];
 }
 

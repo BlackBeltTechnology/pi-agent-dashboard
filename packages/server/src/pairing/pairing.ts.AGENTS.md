@@ -9,3 +9,5 @@ QR/copy-string pairing manager (D6/D12). `PairingManager({registry,getFingerprin
 Knock surface. `knock()` admits a LAN request as a pending device; `liveKnocks()` filters by comparing `expiresAt` itself (never a cached liveness flag); `onKnockResolved(cb)` fires on `denied`/`locked_out`/`approved`/`expired`. `normalizeRequesterName` strips Cc/Cf, trims, caps 64 UTF-8 bytes. `PendingDeviceView` gains `provenance`/`requesterName`/`unencrypted`. See change: add-lan-knock-pairing.
 
 `INVISIBLE_OR_SEPARATOR` moved to `shared/src/terminal-safe.ts` (imported here; behaviour unchanged). See change: fix-pairing-approval-credential.
+
+`RedeemMeta.holder` (redeem + knock body) and `poll(pendingId, holder?)`: only exact `"browser"` counts; `PendingDevice.browserHolder`/`deviceId`; `approve` passes holder to `registry.add`; late poll declaration converts the uncollected row via `registry.browserExpiryFor`. `PollResult.approved` gains `expiresAt?` (epoch ms, expiring rows only). See change: harden-auth-credentials.

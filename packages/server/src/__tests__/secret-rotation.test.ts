@@ -63,6 +63,7 @@ describe("rotateSecretsOnce (E22)", () => {
     expect(t1).not.toBe(t0);
     expect(s1).not.toBe(s0);
     expect(first.newSecret).toBe(s1);
+    expect(s1).toMatch(/^[0-9a-f]{64}$/); // 32 random bytes, like every other mint (harden-auth-credentials B17)
     expect(Number(fs.readFileSync(epochFile(), "utf-8"))).toBe(REQUIRED_ROTATION_EPOCH);
     expect(fs.existsSync(lockFile())).toBe(false);
     if (process.platform !== "win32") expect(fs.statSync(tokenFile()).mode & 0o777).toBe(0o600);

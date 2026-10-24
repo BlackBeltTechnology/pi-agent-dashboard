@@ -5,6 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `approval-refusal.ts` | `describeApprovalRefusal(request, {loginAvailable, configPort, hostAdmitted, localTrust?})`: pure; `null`… → see `approval-refusal.ts.AGENTS.md` |
+| `audit-log.ts` | Shared sanitising audit emitter. `sanitizeAuditValue` (chars outside `[\w.:-]` → `_`), `auditPrefix(v,len=8)` (sanitize THEN cut), `formatAuditLine(area,verb,fields)`, `auditLine(area,verb,fields)` (`console.log`; never throws — fail-open), `auditActor(request)` (`session:<sub8>`\|`device:<id8>`\|`local`), `auditRequestFields(request)` → `{actor, ip}`; `ip` = `request.ip` socket peer only. Callers pass ids/codes, never secrets. See change: harden-auth-credentials. |
 | `auth-plugin.ts` | `registerAuthPlugin` now returns `{hasUsableOAuthProvider}` (live, non-empty `clientId`; exists even on the… → see `auth-plugin.ts.AGENTS.md` |
 | `auth.ts` | OAuth2 core: providers (GitHub, Google, Keycloak, generic OIDC via `.well-known` discovery), JWT sign/verify,… → see `auth.ts.AGENTS.md` |
 | `bearer-auth.ts` | Bearer device-auth branch (D5/D7). `registerBearerAuth(fastify,{registry})` adds an `onRequest` hook… → see… → see `bearer-auth.ts.AGENTS.md` |
@@ -46,6 +47,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `request-principal.ts` | `requestPrincipalKey(request)` → `identity:<iss>\0<sub>` | `device:<id>` | `session:<sha256>` | `local-operator`. See change: harden-client-sinks. |
 | `runtime-provider-catalogue.ts` | `buildRuntimeCatalogue(source, {customIds, authData, env})` → `ProviderInfo[]` from the server runtime's… → see `runtime-provider-catalogue.ts.AGENTS.md` |
 | `secret-rotation.ts` | `rotateSecretsOnce()` at start of `createServer` (after `decideBootTrustMode`): link-claimed… → see `secret-rotation.ts.AGENTS.md` |
+| `secure-origin.ts` | `isSecureOrigin(request, baseIsHttps)`: ONE `Secure`-cookie predicate for `pi_dash_oauth_state`, `pi_dash_token`, `pi_dash_device`. True if socket TLS \|\| https base \|\| loopback SOCKET peer + `Host` == https `liveTunnelOrigins()` entry (`canonicalOrigin` compare; host-char allowlist). Never reads a forwarding header; throwing/garbage tunnel list or bad `Host` → false. `pi_dash_local` unchanged. See change: harden-auth-credentials. |
 | `serve-app-host.ts` | Host side of `ctx.serveApp`. `readBundledPluginDirs()` (server `package.json#piDashboard.bundledPlugins`,… → see `serve-app-host.ts.AGENTS.md` |
 | `spawn-token.ts` | Spawn correlation token. Exports `mintSpawnToken()` (UUIDv4), `SPAWN_TOKEN_ENV_VAR =… → see `spawn-token.ts.AGENTS.md` |
 | `test-env-guard.ts` | Exports `isUnsafeTestHomeScan()` — defense-in-depth against destructive PID-registry sweeps during vitest… → see `test-env-guard.ts.AGENTS.md` |

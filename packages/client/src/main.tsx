@@ -16,9 +16,11 @@ import "./index.css";
 import { UiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { hasLiveToken, setAccessToken, setIdToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
 import { LoginGate } from "./components/identity/LoginGate.js";
+import { deriveApiBase } from "./lib/api/api-context.js";
 import { installFetchWrappers } from "./lib/api/install-fetch-wrappers.js";
+import { getInitialWsUrl } from "./lib/api/server-switch.js";
 import { bootClient } from "./lib/boot/client-boot.js";
-import { migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
+import { migrateLegacyDeviceBearer, startDeviceBearerRotation } from "./lib/pairing/device-auth.js";
 import { createHostPrimitiveRegistry } from "./lib/plugins/host-primitives.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
 import { installTrustedTypes } from "./lib/security/trusted-types.js";
@@ -54,9 +56,11 @@ const primitiveRegistry = createHostPrimitiveRegistry();
 // `/api/` fetches follow the selected server (fix-remote-relative-api-fetch).
 // Installed before any fetch fires.
 installFetchWrappers();
-// Move a legacy localStorage device bearer into the httpOnly cookie (same-origin only).
-// See change: harden-trust-and-credential-boundaries (D5).
+// Discard the legacy global device bearer slot (never exchanged, sent or copied), then
+// rotate the saved cross-origin server's browser-held bearer once at startup.
+// See change: harden-auth-credentials (D5).
 void migrateLegacyDeviceBearer();
+void startDeviceBearerRotation(deriveApiBase(getInitialWsUrl()) || undefined);
 
 // D22 dashboard-UI login: consume the login plugin's return (`#pi_handoff`,
 // `#pi_login_error`, `?pi_signed_out=1`) BEFORE <App/> mounts, stripping it from

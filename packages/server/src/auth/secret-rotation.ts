@@ -221,7 +221,7 @@ export async function rotateSecretsOnce(deps: RotationDeps = {}): Promise<Rotati
       if (fs.existsSync(configFile)) {
         const parsed = JSON.parse(fs.readFileSync(configFile, "utf-8")) as { auth?: { secret?: unknown } } | null;
         if (parsed && typeof parsed === "object" && parsed.auth && typeof parsed.auth.secret === "string" && parsed.auth.secret) {
-          newSecret = crypto.randomBytes(16).toString("hex");
+          newSecret = crypto.randomBytes(32).toString("hex"); // 32 bytes, as `ensureAuthSecret` (harden-auth-credentials B17)
           parsed.auth.secret = newSecret;
           writeConfig(configFile, `${JSON.stringify(parsed, null, 2)}\n`);
         }

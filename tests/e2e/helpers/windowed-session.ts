@@ -70,7 +70,7 @@ export const scroller = (page: Page): Locator => page.getByTestId("chat-scroll-c
  * through `PUT /api/config` (or straight to `config.json`) survives. That is
  * what makes a per-spec windowed server reachable at all.
  */
-async function restartDashboard(): Promise<void> {
+export async function restartDashboard(): Promise<void> {
   await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(
     () => undefined,
   );

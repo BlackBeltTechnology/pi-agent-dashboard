@@ -136,7 +136,7 @@ import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
 import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
 import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
-import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "./lib/pairing/device-auth.js";
+import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket, onDeviceBearerNotice } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
 import { hydrateEditorLimitsConfig } from "./lib/preview/editor-limits-config.js";
 import { hydrateMermaidRepairConfig } from "./lib/preview/mermaid-repair-config.js";
@@ -505,6 +505,24 @@ export default function App() {
   // See change: add-plugin-activation-ui.
   usePluginEnabledSet(_pluginRegistry);
   const { messages: toastMessages, showToast, dismissToast } = useToast();
+  // A rotated device bearer that could not be persisted: one warning per page session.
+  // See change: harden-auth-credentials (D5).
+  useEffect(
+    () =>
+      onDeviceBearerNotice(() =>
+        showToast(
+          t(
+            "pairing.bearerNotPersisted",
+            undefined,
+            "This browser couldn't save its renewed access. It works until you close this tab; pair again if you are asked to.",
+          ),
+          "warning",
+          { key: "device-bearer-not-persisted", noAutoDismiss: true },
+        ),
+      ),
+    // biome-ignore lint/correctness/useExhaustiveDependencies: subscribe once; showToast identity changes per render
+    [],
+  );
   const apiBase = useMemo(() => {
     const base = deriveApiBase(wsUrl) || VITE_API_URL;
     setGlobalApiBase(base);

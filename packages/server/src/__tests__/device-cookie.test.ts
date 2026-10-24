@@ -12,6 +12,7 @@ import { DEVICE_COOKIE, registerBearerAuth, registerDeviceSessionRoutes } from "
 import { createNetworkGuardHook } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import * as rot from "./helpers/bearer-rotation-app.js";
 
 let tmp: string;
 let reg: PairedDeviceRegistry;
@@ -175,5 +176,116 @@ describe("#E22 device cookie Secure matrix", () => {
   it("http base + loopback peer → no Secure (global rule unchanged)", async () => {
     const r = await exchange({ httpsBase: false, peer: "127.0.0.1" });
     expect(r.cookie).not.toMatch(/;\s*Secure/i);
+  });
+});
+
+// ── Browser bearer expiry / rotation over the device-cookie surface (change: harden-auth-credentials, D5) ──
+// AE46, AE52, AE53, AP2, AP4. Fake clock: Date only.
+describe("browser bearer rotation — cookie surface", () => {
+  let a: rot.RotationApp;
+  let clock: ReturnType<typeof rot.fakeClock>;
+  const j = (r: { json: () => unknown }) => r.json() as Record<string, unknown>;
+
+  beforeEach(async () => {
+    clock = rot.fakeClock();
+    a = await rot.mkRotationApp({ open: "loopback" });
+  });
+  afterEach(async () => {
+    await a.close();
+    clock.restore();
+  });
+
+  it("AE46 an expired bearer is refused with bearer_expired on every bearer-admitted route; no cookie is set", async () => {
+    const d = a.reg.add("L", "pairing", "operate", "browser");
+    clock.at(rot.T0 + 604_801_000);
+    const calls: Array<["GET" | "POST", string]> = [
+      ["GET", "/api/sessions"],
+      ["POST", "/api/ws-ticket"],
+      ["POST", "/api/device-session"],
+      ["POST", "/api/paired-devices/rotate"],
+    ];
+    for (const [method, url] of calls) {
+      const res = await a.app.inject({ method, url, remoteAddress: rot.REMOTE, headers: rot.bearer(d.token) });
+      expect(res.statusCode, url).toBe(401);
+      expect(j(res).code, url).toBe("bearer_expired");
+      expect(res.headers["set-cookie"], url).toBeUndefined();
+    }
+  });
+
+  describe("AE52 rotation requires the bearer itself", () => {
+    const cases: Array<[string, (d: { token: string; id: string }) => Record<string, string>]> = [
+      ["only the pi_dash_device cookie", (d) => ({ cookie: `${DEVICE_COOKIE}=${d.token}` })],
+      ["only a valid local-proof header from loopback", () => ({ "x-pi-local-token": "valid-local-token" })],
+      ["only a pi_dash_token operator session cookie", () => ({ cookie: "pi_dash_token=operator-session" })],
+      ["nothing", () => ({})],
+      ["Authorization: Basic abc", () => ({ authorization: "Basic abc" })],
+      ["Authorization: Bearer (empty)", () => ({ authorization: "Bearer " })],
+    ];
+    it.each(cases)("%s → 401 bearer_required, nothing issued, registry unchanged", async (_name, mk) => {
+      const d = a.reg.add("L", "pairing", "operate", "browser");
+      const before = await rot.settledBytes(a, d.token);
+      const res = await a.app.inject({
+        method: "POST",
+        url: "/api/paired-devices/rotate",
+        remoteAddress: rot.LOOPBACK,
+        headers: mk({ token: d.token, id: d.device.id }),
+      });
+      expect(res.statusCode).toBe(401);
+      expect(j(res).code).toBe("bearer_required");
+      expect(j(res).token).toBeUndefined();
+      expect(a.bytes()).toBe(before);
+    });
+  });
+
+  it("AE53 bearer wins over a co-presented cookie: only the bearer's device rotates", async () => {
+    const x = a.reg.add("A", "pairing", "operate", "browser");
+    const y = a.reg.add("B", "pairing", "operate", "browser");
+    const rowOf = (id: string) => JSON.stringify((JSON.parse(a.bytes()) as Array<{ id: string }>).find((r) => r.id === id));
+    const yBefore = rowOf(y.device.id);
+    const xBefore = rowOf(x.device.id);
+    const res = await rot.rotate(a, x.token, undefined, rot.REMOTE, { cookie: `${DEVICE_COOKIE}=${y.token}` });
+    expect(res.statusCode).toBe(200);
+    expect(rowOf(y.device.id)).toBe(yBefore);
+    expect(rowOf(x.device.id)).not.toBe(xBefore);
+  });
+
+  it("AP2 the limiter is per device, not per IP: 2 devices × 10 behind one tunnel peer; an 11th from another IP is refused", async () => {
+    const devs = [a.reg.add("A", "pairing", "operate", "browser"), a.reg.add("B", "pairing", "operate", "browser")];
+    const cur = devs.map((d) => d.token);
+    for (let i = 0; i < 10; i++) {
+      for (const k of [0, 1]) {
+        const res = await rot.rotate(a, cur[k], undefined, rot.LOOPBACK);
+        expect(res.statusCode).toBe(200);
+        cur[k] = j(res).token as string;
+      }
+    }
+    const eleventh = await rot.rotate(a, cur[0], undefined, rot.REMOTE);
+    expect(eleventh.statusCode).not.toBe(200);
+    expect(j(eleventh).token).toBeUndefined();
+  });
+
+  it("AP4 the 11th rotation in a sliding 60 s window → 429 + Retry-After; the window slides at t=61 s", async () => {
+    const d = a.reg.add("L", "pairing", "operate", "browser");
+    let cur = d.token;
+    for (let i = 0; i < 10; i++) {
+      clock.at(rot.T0 + i * 1000);
+      const res = await rot.rotate(a, cur);
+      expect(res.statusCode).toBe(200);
+      cur = j(res).token as string;
+    }
+    for (const [t, retry] of [
+      [10_000, "50"],
+      [59_000, "1"],
+    ] as const) {
+      clock.at(rot.T0 + t);
+      const before = await rot.settledBytes(a, cur);
+      const res = await rot.rotate(a, cur);
+      expect(res.statusCode).toBe(429);
+      expect(res.headers["retry-after"]).toBe(retry);
+      expect(j(res).token).toBeUndefined();
+      expect(a.bytes()).toBe(before);
+    }
+    clock.at(rot.T0 + 61_000);
+    expect((await rot.rotate(a, cur)).statusCode).toBe(200);
   });
 });

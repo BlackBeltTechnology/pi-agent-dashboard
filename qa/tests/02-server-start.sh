@@ -762,6 +762,50 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "#WX3: cspReports (counts, dropped, since) identical across a restart"
 
+    # --- Minted auth secret persisted and reused across restart (test-plan #AE12) --
+    # See change: harden-auth-credentials (D1).
+    #
+    # A config with an OAuth provider and NO auth.secret makes the first start
+    # mint a 32-byte (64-hex) secret and persist it; a second start must keep it
+    # byte-identical (a re-mint would sign every user out) and the secret value
+    # must never reach server.log. Only a real boot proves the persistence path.
+    read_auth_secret() {
+      node -e "try{const j=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(String((j.auth&&j.auth.secret)||''))}catch{}" "$CONFIG_PATH"
+    }
+    AE12_CONFIG='{"port":8000,"auth":{"providers":{"github":{"clientId":"ae12-client-id","clientSecret":"ae12-client-secret"}}}}'
+    if ! boot_with_config "$AE12_CONFIG"; then
+      echo "FAIL (#AE12): server did not come up for the minted-secret check"
+      exit 1
+    fi
+    AE12_SECRET1=$(read_auth_secret)
+    if ! printf '%s' "$AE12_SECRET1" | grep -qE '^[0-9a-f]{64}$'; then
+      echo "FAIL (#AE12): after the first start auth.secret is not 64 lower-case hex chars (length ${#AE12_SECRET1})"
+      exit 1
+    fi
+    pi-dashboard stop >/dev/null 2>&1 || true
+    sleep 2
+    pi-dashboard start >/dev/null 2>&1 &
+    waited=0
+    while [ $waited -lt 15 ]; do
+      curl -fsS http://localhost:8000/api/health >/dev/null 2>&1 && break
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if ! curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then
+      echo "FAIL (#AE12): server did not come back up for the second start"
+      exit 1
+    fi
+    AE12_SECRET2=$(read_auth_secret)
+    if [ "$AE12_SECRET1" != "$AE12_SECRET2" ]; then
+      echo "FAIL (#AE12): the second start changed auth.secret (a re-mint signs every user out)"
+      exit 1
+    fi
+    if grep -qF "$AE12_SECRET1" "$LOG_PATH"; then
+      echo "FAIL (#AE12): server.log contains the auth.secret value"
+      exit 1
+    fi
+    echo "#AE12: first start minted a 64-hex auth.secret; the second start kept it; server.log never printed it"
+
     restore_config
 
     # =========================================================================

@@ -12,6 +12,17 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **Browser-held device bearers now expire and rotate.** A bearer a browser keeps in its own storage (cross-origin
+  ServerSelector use) now expires 7 days after issue (never later than 30 days after pairing) and the client rotates
+  it before then via the new `POST /api/paired-devices/rotate` (authenticated by the bearer alone, tier `observe`, 10 per
+  minute per device). The previous bearer stays valid for 60 seconds, then dies; an expired bearer gets
+  `401 {"code":"bearer_expired"}` from every peer, including loopback and trusted networks. Electron, CLI and manual
+  MCP tokens never declare a browser holder and stay non-expiring; revoke still kills a device immediately.
+  **Compatibility:** cross-origin browsers re-pair once (the old global `pi-dashboard:device-bearer` slot is discarded,
+  never exchanged or sent), and a browser idle for more than 7 days, or past 30 days from pairing, re-pairs.
+  Same-origin browsers are unaffected. Old clients against a new server keep non-expiring rows; registry rows gain
+  optional `expiresAt`/`pairedAt`/`previousHash`/`previousExpiresAt` fields (a server rollback ignores them and the
+  rows become non-expiring).
 - **BREAKING (security): a container can no longer drive the dashboard through the host loopback.** A container
   that reaches the host's `127.0.0.1` (Docker Desktop's `host.docker.internal`, `--network host`, a relay) used to be
   indistinguishable from a local tool, so it could mint device tokens and bridge tickets, read `/api/config` and

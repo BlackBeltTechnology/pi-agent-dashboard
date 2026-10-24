@@ -26,7 +26,7 @@ revoke any registry row, including its own, regardless of the caller's network
 position — a device bearer arriving over loopback SHALL be refused on the
 strength of the credential alone.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Browser-declared row is the only expiring kind
 - **WHEN** a pairing code is redeemed with a browser-holder declaration, and another with none
@@ -108,7 +108,7 @@ trust mode is `"legacy"`**; in `"pair"` mode a network match grants no tier
 exemption. The gate SHALL only refuse; it SHALL NOT admit a request that
 existing admission rules reject.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Observe bearer cannot restart
 - **WHEN** a request bearing an `observe` device token calls `POST /api/restart`

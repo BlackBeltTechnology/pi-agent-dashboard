@@ -397,6 +397,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pair/redeem", tier: "operate" },
   { method: "POST", path: "/api/pair/request", tier: "operate" },
   { method: "POST", path: "/api/paired-devices", tier: "operate" },
+  // A browser-held bearer rotates ITSELF (bearer-only auth; observe so every device can).
+  // See change: harden-auth-credentials (D5).
+  { method: "POST", path: "/api/paired-devices/rotate", tier: "observe" },
   { method: "POST", path: "/api/pi-core/update", tier: "operate" },
   // Runtime overlay mutations: stage / activate / roll back the dashboard
   // runtime (Electron-only). See change: electron-runtime-overlay-updates.
