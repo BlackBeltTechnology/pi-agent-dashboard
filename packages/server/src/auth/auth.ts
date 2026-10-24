@@ -132,14 +132,32 @@ async function resolveProvider(
 
 // ─── Auth Secret Management ─────────────────────────────────────────────────
 
+/** Minimum recommended `auth.secret` length in characters (32 hex = 16 bytes of entropy at worst). */
+const MIN_SECRET_LENGTH = 32;
+/** Module-level once flag: the short-secret warning prints once per process. */
+let shortSecretWarned = false;
+
 /**
- * Ensure the auth config has a secret. If missing, generate one and persist.
+ * Ensure the auth config has a secret. If missing, generate one (32 random
+ * bytes, 64 hex chars) and persist. An existing non-empty secret is ALWAYS
+ * kept byte-identical (no forced logout); one shorter than 32 characters logs a
+ * single startup warning recommending rotation and never prints the value.
  * Returns the secret string.
+ * See change: harden-auth-credentials (D1).
  */
 export function ensureAuthSecret(authConfig: AuthConfig): string {
-  if (authConfig.secret) return authConfig.secret;
+  if (authConfig.secret) {
+    if (authConfig.secret.length < MIN_SECRET_LENGTH && !shortSecretWarned) {
+      shortSecretWarned = true;
+      console.warn(
+        `⚠️  auth.secret is shorter than ${MIN_SECRET_LENGTH} characters; consider rotating it ` +
+          "(replace it with a random 64-hex value — rotation signs out existing sessions).",
+      );
+    }
+    return authConfig.secret;
+  }
 
-  const secret = crypto.randomBytes(16).toString("hex"); // 32-char hex
+  const secret = crypto.randomBytes(32).toString("hex"); // 64-char hex
   authConfig.secret = secret;
 
   // Persist back to config file
@@ -178,7 +196,9 @@ export function signToken(user: AuthUser, secret: string): string {
 
 export function verifyToken(token: string, secret: string): TokenPayload | null {
   try {
-    const payload = jwt.verify(token, secret) as TokenPayload;
+    // Pin HS256: reject `none` and every other alg (algorithm confusion).
+    // See change: harden-auth-credentials (D1).
+    const payload = jwt.verify(token, secret, { algorithms: ["HS256"] }) as TokenPayload;
     // A present-but-unknown tier is never widened to `operate`: reject the
     // token outright (fail closed). See change: add-passkey-user-auth (D4).
     if (payload.tier !== undefined && !isTier(payload.tier)) return null;

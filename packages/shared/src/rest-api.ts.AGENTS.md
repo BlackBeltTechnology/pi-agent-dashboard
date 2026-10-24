@@ -13,3 +13,5 @@ Add-ons catalog types: `AddonFeature`, `AddonFeatureKind`, `AddonOrigin`, `Addon
 ## group-servers-by-identity
 
 Known-servers types carry `routes`, `scheme?`, `fingerprint?`; `RemoveKnownServerRequest` = route | `{fingerprint}`; `PairPollApproved.routes?` https origins. See change: group-servers-by-identity.
+
+`PairPollApproved.expiresAt?` (epoch ms; present only for a `holder:"browser"` pairing). See change: harden-auth-credentials.

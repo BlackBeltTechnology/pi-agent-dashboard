@@ -20,6 +20,8 @@ import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.j
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { describeApprovalRefusal } from "../auth/approval-refusal.js";
+import { auditLine, auditPrefix, auditRequestFields } from "../auth/audit-log.js";
+import { parseBearerHeader, ROTATE_ROUTE } from "../auth/bearer-auth.js";
 import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admission.js";
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
@@ -212,6 +214,64 @@ function createApprovalGuard(deps: {
   };
 }
 
+/**
+ * `POST /api/paired-devices/rotate` — a browser-held device bearer rotates ITSELF.
+ *
+ * Authenticated ONLY by `Authorization: Bearer`: a cookie, local proof, operator
+ * session or nothing is 401 `bearer_required`, and any device id in the body is
+ * ignored (the bearer identifies the row). Deliberately no `networkGuard`: the
+ * bearer is the sole credential, so no network position can stand in for it.
+ * The registry does the work synchronously (no await between verify and write),
+ * so two same-tick rotations with one bearer serialise (second → 409
+ * `bearer_superseded`). Success returns `{token, expiresAt}` with `no-store`.
+ * An EXPIRED bearer is refused earlier by the bearer hook (401 `bearer_expired`).
+ * See change: harden-auth-credentials (D5).
+ */
+export function registerBearerRotateRoute(fastify: FastifyInstance, deps: { registry: PairedDeviceRegistry }): void {
+  const { registry } = deps;
+  fastify.post<{ Body: unknown }>(ROTATE_ROUTE, async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    const presented = parseBearerHeader(request.headers.authorization);
+    if (!presented) {
+      reply.code(401);
+      return { success: false, error: "bearer_required", code: "bearer_required" };
+    }
+    const body = request.body;
+    // Only the exact string "browser" is a declaration; anything else is none (A-G11).
+    const declared =
+      body !== null && typeof body === "object" && (body as Record<string, unknown>).holder === "browser";
+    const result = registry.rotate(presented, declared);
+    if (result.ok) {
+      auditLine("pairing", "rotated", { id: auditPrefix(result.id), ip: request.ip });
+      return { token: result.token, expiresAt: result.expiresAt };
+    }
+    const refuse = (status: number, code: string) => {
+      if (result.id !== undefined) {
+        auditLine("pairing", "rotate_refused", { id: auditPrefix(result.id), reason: code, ip: request.ip });
+      }
+      reply.code(status);
+      return { success: false, error: code, code };
+    };
+    switch (result.reason) {
+      case "expired":
+        return refuse(401, "bearer_expired");
+      case "superseded":
+        return refuse(409, "bearer_superseded");
+      case "holder_declaration_required":
+        return refuse(409, "holder_declaration_required");
+      case "persist_failed":
+        return refuse(500, "rotation_failed");
+      case "rate_limited":
+        reply.header("Retry-After", String(result.retryAfterS ?? 60));
+        return refuse(429, "rate_limited");
+      default:
+        // Unknown / revoked / superseded-after-grace: a plain 401, byte-equal to every other route's.
+        reply.code(401);
+        return { success: false, error: "unauthorized" };
+    }
+  });
+}
+
 export function registerPairingRoutes(
   fastify: FastifyInstance,
   deps: {
@@ -310,7 +370,7 @@ export function registerPairingRoutes(
   );
 
   // ── Device: redeem a code → pending device + confirm code (public) ─────
-  fastify.post<{ Body: { code?: string } }>(
+  fastify.post<{ Body: { code?: string; holder?: unknown } }>(
     "/api/pair/redeem",
     async (request, reply): Promise<ApiResponse<{ pendingId: string; confirmCode: string }>> => {
       const code = request.body?.code;
@@ -325,6 +385,8 @@ export function registerPairingRoutes(
         host: headerString(request.headers.host),
         remoteAddress: request.ip,
         forwardedFor: headerString(request.headers["x-forwarded-for"]),
+        // Only the exact string "browser" is a holder declaration (the manager enforces it).
+        holder: request.body?.holder,
       });
       if (!result.ok) {
         reply.code(result.error === "rate_limited" ? 429 : 400);
@@ -341,7 +403,7 @@ export function registerPairingRoutes(
   // semantics), the LAN gates, the switch and the limits. Admission uses the
   // SOCKET peer address — never `request.ip` — and that same address is recorded
   // as the pending device's remote address.
-  fastify.post<{ Body: { name?: unknown } | null }>(
+  fastify.post<{ Body: { name?: unknown; holder?: unknown } | null }>(
     "/api/pair/request",
     async (
       request,
@@ -387,6 +449,7 @@ export function registerPairingRoutes(
           userAgent: headerString(request.headers["user-agent"]),
           host: headerString(request.headers.host),
           remoteAddress: decision.sourceKey,
+          holder: request.body?.holder,
         },
       });
       return {
@@ -512,7 +575,7 @@ export function registerPairingRoutes(
   );
 
   // ── Device: poll for approval + collect the bearer token (public) ──────
-  fastify.post<{ Body: { pendingId?: string } }>(
+  fastify.post<{ Body: { pendingId?: string; holder?: unknown } }>(
     "/api/pair/poll",
     async (request, reply): Promise<ApiResponse<PairPollData>> => {
       const pendingId = request.body?.pendingId;
@@ -520,12 +583,21 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: "pendingId required" };
       }
-      const result = pairing.poll(pendingId);
+      const result = pairing.poll(pendingId, request.body?.holder);
       // Route delegation (D7): the one approved answer that carries the token also
       // names the server's https origins. Filtered here, not in PairingManager.poll,
       // so knock and QR redemption both get it and the QR payload `urls` stay as minted.
       if (result.status === "approved") {
-        return { success: true, data: { status: "approved", token: result.token, routes: httpsOrigins(pairing.reachableUrls()) } };
+        return {
+          success: true,
+          data: {
+            status: "approved",
+            token: result.token,
+            // Present only for a browser-held (expiring) row; epoch ms.
+            ...(result.expiresAt !== undefined ? { expiresAt: result.expiresAt } : {}),
+            routes: httpsOrigins(pairing.reachableUrls()),
+          },
+        };
       }
       return { success: true, data: result };
     },
@@ -551,9 +623,14 @@ export function registerPairingRoutes(
         reply.code(404);
         return { success: false, error: "device not found" };
       }
+      // Audit: id prefix + actor + socket peer only — never a bearer or hash (D2).
+      auditLine("pairing", "revoked", { id: auditPrefix(request.params.id), ...auditRequestFields(request) });
       return { success: true };
     },
   );
+
+  // ── Browser device: rotate its own bearer (bearer-only credential) ────
+  registerBearerRotateRoute(fastify, { registry });
 
   // ── Dashboard: mint a device token for an MCP client (operator-only) ──
   // Deliberately NOT in PUBLIC_PAIRING_PREFIXES: this route issues durable
@@ -585,7 +662,13 @@ export function registerPairingRoutes(
       // The plaintext token rides this ONE response and is never retrievable
       // again (D4) — same plaintext-once semantics as the pairing ceremony.
       // No tier → the manual source default (`observe`, D1).
-      return { success: true, data: registry.add(trimmed, "manual", isTier(tier) ? tier : undefined) };
+      const minted = registry.add(trimmed, "manual", isTier(tier) ? tier : undefined);
+      auditLine("pairing", "minted", {
+        id: auditPrefix(minted.device.id),
+        tier: minted.device.tier,
+        ...auditRequestFields(request),
+      });
+      return { success: true, data: minted };
     },
   );
 

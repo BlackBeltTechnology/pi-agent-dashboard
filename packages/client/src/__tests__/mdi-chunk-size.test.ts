@@ -76,7 +76,11 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // serializer (chat-selection-copy), the document copy listener + toast wiring in ChatView and the swipe
 // guard. 606,473 B on CI, 1,289 B over the old cap; 592 KiB would still be 265 B short, so 593 KiB
 // (607,232 B) leaves ~750 B. Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 593 * 1024;
+// harden-auth-credentials (2026-10-24): 593 -> 594 KiB. The per-origin browser-bearer slots, rotation scheduler and
+// bearer_expired re-pair live in `lib/pairing/device-auth.ts`, which installs the global fetch wrapper at boot, so it
+// cannot be lazy. 607,837 B on CI, 605 B over the old cap; 594 KiB (608,256 B) leaves ~420 B. Smallest KiB step that
+// clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 594 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

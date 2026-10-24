@@ -21,7 +21,7 @@
 //
 // See change: config-override-oauth-redirect-base (design D14, test-plan S1/S2).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { validateWsUpgrade } from "../auth/auth-plugin.js";
 import { createNetworkGuard, isBypassedHost } from "../auth/localhost-guard.js";
 
@@ -135,5 +135,29 @@ describe("S2: WS upgrade authorizes on the same address as REST", () => {
 
     expect(rest.statusCode).toBe(403);
     expect(ws).toBe(false);
+  });
+});
+
+// AE23 — forwarding headers never grant trust; `trustProxy` stays off, so `request.ip`
+// is the socket peer. See change: harden-auth-credentials (D3, B16r).
+describe("AE23: forwarding headers never grant network trust", () => {
+  it("an untrusted peer claiming a trusted X-Forwarded-For is refused, and request.ip is the peer", async () => {
+    const { default: Fastify } = await import("fastify");
+    const app = Fastify();
+    const handler = vi.fn(async () => ({ ok: true }));
+    await app.register(async (scope) => {
+      scope.addHook("preHandler", createNetworkGuard(["192.168.16.0/24"]));
+      scope.get("/api/guarded", handler);
+    });
+    app.get("/echo-ip", async (request) => ({ ip: request.ip }));
+    const headers = { "x-forwarded-for": "192.168.16.20" };
+    const guarded = await app.inject({ method: "GET", url: "/api/guarded", remoteAddress: "203.0.113.9", headers });
+    const echo = await app.inject({ method: "GET", url: "/echo-ip", remoteAddress: "203.0.113.9", headers });
+    await app.close();
+
+    expect(guarded.statusCode).toBe(403);
+    expect(handler).not.toHaveBeenCalled();
+    expect(echo.json().ip).toBe("203.0.113.9");
+    expect(echo.json().ip).not.toBe("192.168.16.20");
   });
 });

@@ -1,8 +1,10 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import jwt from "jsonwebtoken";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AuthUser,
   buildAuthorizeUrl,
@@ -47,6 +49,74 @@ describe("signToken / verifyToken", () => {
 
   it("should return null for garbage string", () => {
     expect(verifyToken("not.a.jwt", secret)).toBeNull();
+  });
+});
+
+// ─── B17 JWT algorithm pin (harden-auth-credentials, AE1/AE4/AE5/AE6) ──────
+
+describe("verifyToken — HS256 pin (harden-auth-credentials)", () => {
+  const S = crypto.randomBytes(32).toString("hex");
+  const b64 = (v: unknown) => Buffer.from(typeof v === "string" ? v : JSON.stringify(v)).toString("base64url");
+  const nowS = () => Math.floor(Date.now() / 1000);
+  const payload = () => ({ sub: "u@example.com", name: "U", username: "u", provider: "github", exp: nowS() + 3600 });
+  /** Hand-built JWT so the header `alg` is exactly what the case needs. */
+  const build = (header: unknown, sigAlg: "sha256" | "sha384" | "sha512" | null, secret = S) => {
+    const signing = `${b64(header)}.${b64(payload())}`;
+    const sig = sigAlg ? crypto.createHmac(sigAlg, secret).update(signing).digest("base64url") : "";
+    return `${signing}.${sig}`;
+  };
+
+  it.each([
+    ["HS256", "sha256", true],
+    ["HS384", "sha384", false],
+    ["HS512", "sha512", false],
+    ["none", null, false],
+  ] as const)("AE1 alg %s → %s accepted=%s", (alg, sigAlg, accepted) => {
+    const token = build({ alg, typ: "JWT" }, sigAlg);
+    let out: ReturnType<typeof verifyToken> | undefined;
+    expect(() => {
+      out = verifyToken(token, S);
+    }).not.toThrow();
+    if (accepted) expect(out?.sub).toBe("u@example.com");
+    else expect(out).toBeNull();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("AE4 default expiry is 7 days: valid at T+604799s, null at T+604801s", () => {
+    const T = 1_700_000_000_000;
+    vi.useFakeTimers({ now: T });
+    const user: AuthUser = { sub: "u@example.com", name: "U", username: "u", provider: "github" };
+    const token = signToken(user, S);
+    vi.setSystemTime(T + 604_799_000);
+    const ok = verifyToken(token, S);
+    expect(ok).not.toBeNull();
+    expect(ok!.exp).toBe(T / 1000 + 604_800);
+    vi.setSystemTime(T + 604_801_000);
+    expect(verifyToken(token, S)).toBeNull();
+  });
+
+  it("AE5 a token minted before the pin (jsonwebtoken default HS256) still verifies", () => {
+    const legacy = jwt.sign({ sub: "u@example.com", name: "U", username: "u", provider: "github" }, S);
+    const out = verifyToken(legacy, S);
+    expect(out).toMatchObject({ sub: "u@example.com", name: "U", username: "u", provider: "github" });
+  });
+
+  it.each([
+    ["alg absent", build({ typ: "JWT" }, "sha256")],
+    ["alg lower-case hs256", build({ alg: "hs256", typ: "JWT" }, "sha256")],
+    ["alg array", build({ alg: ["HS256"], typ: "JWT" }, "sha256")],
+    ["header not base64 JSON", `${b64("not json")}.${b64(payload())}.sig`],
+    ["empty string", ""],
+    ["two segments", "a.b"],
+  ])("AE6 malformed header (%s) → null, never throws", (_name, token) => {
+    let out: ReturnType<typeof verifyToken> | undefined;
+    expect(() => {
+      out = verifyToken(token, S);
+    }).not.toThrow();
+    expect(out).toBeNull();
   });
 });
 
@@ -150,10 +220,11 @@ describe("ensureAuthSecret", () => {
     };
     const secret = ensureAuthSecret(config);
 
-    expect(secret).toHaveLength(32);
+    // AE7 (harden-auth-credentials): 32 random bytes = 64 hex chars (was 16 bytes / 32).
+    expect(secret).toHaveLength(64);
     expect(config.secret).toBe(secret);
     // Secret should be hex
-    expect(/^[0-9a-f]{32}$/.test(secret)).toBe(true);
+    expect(/^[0-9a-f]{64}$/.test(secret)).toBe(true);
   });
 
   it("should generate different secrets each time", () => {

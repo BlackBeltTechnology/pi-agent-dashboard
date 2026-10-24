@@ -15,8 +15,11 @@ vi.mock("../../lib/pairing/pair-protocol.js", () => ({
 }));
 
 const storeDeviceBearer = vi.fn();
+let holderBody: { holder?: "browser" } = {};
 vi.mock("../../lib/pairing/device-auth.js", () => ({
   storeDeviceBearer: (...a: any[]) => storeDeviceBearer(...a),
+  // Same-origin by default; a cross-origin API adds `{holder:"browser"}` (device-auth-cookie.test.ts AE54).
+  browserHolderBody: () => holderBody,
   // The cookie exchange is covered in device-auth-cookie.test.ts; here it just stores.
   finishDevicePairing: async (...a: any[]) => storeDeviceBearer(...a),
 }));
@@ -47,6 +50,7 @@ beforeEach(() => {
   postJson.mockReset();
   storeDeviceBearer.mockReset();
   requestAccess.mockReset();
+  holderBody = {};
   window.location.hash = "";
 });
 afterEach(() => cleanup());
@@ -77,6 +81,21 @@ describe("PairLanding", () => {
     // Redeem carried the one-time code from the payload.
     expect(postJson).toHaveBeenCalledWith("https://relay.example.io", "/api/pair/redeem", { code: "482913" });
     await waitFor(() => expect(screen.getByTestId("pair-landing-done")).toBeDefined());
+  });
+
+  it("AE54/AE76 cross-origin: redeem and poll declare holder:browser and the poll's expiresAt reaches the slot store", async () => {
+    holderBody = { holder: "browser" };
+    setHash(PAYLOAD);
+    challengeIdentity.mockResolvedValue({ fingerprint: "sha256:server-fp", publicKey: "pk", verified: true });
+    postJson.mockImplementation(async (_base: string, path: string) =>
+      path === "/api/pair/redeem"
+        ? { pendingId: "p1", confirmCode: "77 88 99" }
+        : { status: "approved", token: "T1", expiresAt: 1_900_000_000_000 },
+    );
+    render(<PairLanding onPaired={vi.fn()} />);
+    await waitFor(() => expect(storeDeviceBearer).toHaveBeenCalledWith("T1", 1_900_000_000_000));
+    expect(postJson).toHaveBeenCalledWith("https://relay.example.io", "/api/pair/redeem", { code: "482913", holder: "browser" });
+    expect(postJson).toHaveBeenCalledWith("https://relay.example.io", "/api/pair/poll", { pendingId: "p1", holder: "browser" });
   });
 
   it("5.2 refuses to redeem when the server fingerprint does not match the pinned payload.id", async () => {

@@ -14,8 +14,19 @@ vi.mock("../auth/auth.js", async (orig) => ({
   fetchUserInfo: async () => ({ email: "u@example.com", name: "U", username: "u" }),
 }));
 
+// Live-tunnel stub for the B16r `Secure` predicate (AE21, AX9): default = no tunnel,
+// i.e. identical to the real module with nothing connected.
+// See change: harden-auth-credentials (D3).
+const tunnel = { urls: [] as string[] };
+vi.mock("../tunnel/tunnel.js", async (orig) => ({
+  ...(await orig<typeof import("../tunnel/tunnel.js")>()),
+  getTunnelUrl: () => tunnel.urls[0] ?? null,
+  liveTunnelOrigins: () => tunnel.urls,
+}));
+
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { registerAuthPlugin, sanitizeReturnUrl } from "../auth/auth-plugin.js";
+import { isSecureOrigin } from "../auth/secure-origin.js";
 
 const SECRET = "test-secret-32-chars-long-abcdef";
 
@@ -37,6 +48,7 @@ afterEach(async () => {
   await app?.close();
   app = null;
   exchange.mockClear();
+  tunnel.urls = [];
 });
 
 const stateOf = (loc: string) => JSON.parse(Buffer.from(new URL(loc).searchParams.get("state")!, "base64url").toString());
@@ -183,5 +195,127 @@ describe("callback state verification (X1-X4)", () => {
     expect(exchange).toHaveBeenCalledTimes(1);
     expect(setCookies(res).some((c) => c.startsWith("pi_dash_token="))).toBe(true);
     expect(setCookies(res).some((c) => /pi_dash_oauth_state=;/.test(c))).toBe(true);
+  });
+});
+
+// ─── B16r: `Secure` on the state + session cookies (AE13, AE21, AX9) ────────
+// See change: harden-auth-credentials (D3).
+
+describe("B16r: cookie Secure decision table (AE13)", () => {
+  /** Run /auth/start/github then the OAuth callback; return both Set-Cookie attributes. */
+  async function flow(opts: { base: string; peer: string; tls?: boolean; headers?: Record<string, string> }) {
+    const { default: Fastify } = await import("fastify");
+    const a = Fastify();
+    if (opts.tls) {
+      // light-my-request builds the socket; mark it TLS the way node:tls does.
+      a.addHook("onRequest", async (r) => {
+        (r.raw.socket as unknown as { encrypted: boolean }).encrypted = true;
+      });
+    }
+    await registerAuthPlugin(a, {
+      authConfig: { secret: SECRET, providers: github, redirectBaseUrl: opts.base } as AuthConfig,
+      port: 8000,
+    });
+    await a.ready();
+    try {
+      const headers = opts.headers ?? {};
+      const start = await a.inject({ method: "GET", url: "/auth/start/github", remoteAddress: opts.peer, headers });
+      const state = new URL(start.headers.location as string).searchParams.get("state")!;
+      const sc = stateCookie(start);
+      const cb = await a.inject({
+        method: "GET",
+        url: `/auth/callback/github?code=c&state=${state}`,
+        remoteAddress: opts.peer,
+        headers: { ...headers, cookie: sc.split(";")[0]! },
+      });
+      const token = setCookies(cb).find((c) => c.startsWith("pi_dash_token="));
+      return { stateCookie: sc, tokenCookie: token };
+    } finally {
+      await a.close();
+    }
+  }
+  const secure = (c: string | undefined) => /;\s*Secure/i.test(c ?? "");
+
+  it.each([
+    ["203.0.113.9", "external"],
+    ["127.0.0.1", "loopback"],
+  ])("AE13 rows (a)–(d), %s peer", async (peer) => {
+    // (a) https base, plain-http hop → Secure
+    const a = await flow({ base: "https://pi.example.com", peer });
+    expect(secure(a.stateCookie)).toBe(true);
+    expect(secure(a.tokenCookie)).toBe(true);
+    // (b) http base, TLS socket → Secure
+    const b = await flow({ base: "http://pi.internal", peer, tls: true });
+    expect(secure(b.stateCookie)).toBe(true);
+    expect(secure(b.tokenCookie)).toBe(true);
+    // (c) http base, plain http → not Secure
+    const c = await flow({ base: "http://pi.internal", peer });
+    expect(c.tokenCookie).toBeDefined();
+    expect(secure(c.stateCookie)).toBe(false);
+    expect(secure(c.tokenCookie)).toBe(false);
+    // (d) http base, plain http + X-Forwarded-Proto: https → still not Secure (headers never decide)
+    const d = await flow({ base: "http://pi.internal", peer, headers: { "x-forwarded-proto": "https" } });
+    expect(d.tokenCookie).toBeDefined();
+    expect(secure(d.stateCookie)).toBe(false);
+    expect(secure(d.tokenCookie)).toBe(false);
+  });
+
+  it("B16r a live https tunnel Host from a loopback peer also makes the session cookie Secure", async () => {
+    tunnel.urls = ["https://pi.share.example"];
+    const r = await flow({ base: "http://pi.internal", peer: "127.0.0.1", headers: { host: "pi.share.example" } });
+    expect(secure(r.stateCookie)).toBe(true);
+    expect(secure(r.tokenCookie)).toBe(true);
+  });
+});
+
+describe("B16r: pi_dash_local is unchanged by the predicate (AE21)", () => {
+  it("AE21 live https tunnel + matching Host: pi_dash_local has no Secure attribute", async () => {
+    const { default: Fastify } = await import("fastify");
+    const fastifyCookie = (await import("@fastify/cookie")).default;
+    const { createLocalTrustContext, LocalProofCodeStore } = await import("../auth/local-proof.js");
+    const { registerLocalProofRoutes } = await import("../routes/local-proof-routes.js");
+    tunnel.urls = ["https://pi.share.example"];
+    const codes = new LocalProofCodeStore(() => 1_000_000);
+    const a = Fastify();
+    await a.register(fastifyCookie);
+    registerLocalProofRoutes(a, { codes, ctx: createLocalTrustContext("local-token-ae21", () => false) });
+    await a.ready();
+    const res = await a.inject({
+      method: "GET",
+      url: `/auth/local-proof?code=${codes.mint()}`,
+      remoteAddress: "127.0.0.1",
+      headers: { host: "pi.share.example" },
+    });
+    await a.close();
+    const c = setCookies(res).find((x) => x.startsWith("pi_dash_local="))!;
+    expect(c).toBeDefined();
+    expect(c).toMatch(/HttpOnly/i);
+    expect(c).toMatch(/SameSite=Strict/i);
+    expect(c).toMatch(/Path=\//);
+    expect(c).not.toMatch(/;\s*Secure/i);
+  });
+});
+
+describe("B16r: malformed / hostile Host never breaks the predicate (AX9)", () => {
+  const HOSTS = ["", "[", "pi.share.example:abc", "pi.share.example:99999", "pi.share.example:443:443", "pi.share.example@evil.test", "pi.share.example/x"];
+
+  it.each(HOSTS)("AX9 isSecureOrigin(Host=%j) is false and does not throw", (host) => {
+    tunnel.urls = ["https://pi.share.example"];
+    const fake = { raw: { socket: { remoteAddress: "127.0.0.1" } }, headers: { host } } as never;
+    let out: boolean | undefined;
+    expect(() => {
+      out = isSecureOrigin(fake, false);
+    }).not.toThrow();
+    expect(out).toBe(false);
+  });
+
+  it("AX9 end to end: state-cookie request per hostile Host → 302, cookie lacks Secure", async () => {
+    tunnel.urls = ["https://pi.share.example"];
+    app = await makeApp(github, "http://pi.internal");
+    for (const host of HOSTS) {
+      const res = await app.inject({ method: "GET", url: "/auth/start/github", remoteAddress: "127.0.0.1", headers: { host } });
+      expect(res.statusCode, `Host ${JSON.stringify(host)}`).toBe(302);
+      expect(stateCookie(res), `Host ${JSON.stringify(host)}`).not.toMatch(/;\s*Secure/i);
+    }
   });
 });

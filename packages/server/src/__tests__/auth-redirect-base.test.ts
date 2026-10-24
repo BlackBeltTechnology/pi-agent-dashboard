@@ -23,8 +23,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Module-scoped tunnel stub. `getTunnelUrl` is a plain named import inside
 // `auth.ts`, so this is the only seam that can simulate an active tunnel.
 const tunnelUrl = { value: null as string | null };
+// `liveTunnelOrigins` (B16r): defaults to the single primary tunnel; a test sets
+// `liveTunnels.value` to model several/garbage entries, or `.throws` a fault.
+// See change: harden-auth-credentials (D3).
+const liveTunnels = { value: null as string[] | null, throws: false };
 vi.mock("../tunnel/tunnel.js", () => ({
   getTunnelUrl: () => tunnelUrl.value,
+  liveTunnelOrigins: () => {
+    if (liveTunnels.throws) throw new Error("tunnel module fault");
+    return liveTunnels.value ?? (tunnelUrl.value ? [tunnelUrl.value] : []);
+  },
 }));
 
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -37,6 +45,8 @@ const PORT = 8000;
 
 beforeEach(() => {
   tunnelUrl.value = null;
+  liveTunnels.value = null;
+  liveTunnels.throws = false;
 });
 
 // ─── Precedence (E1, E2) ─────────────────────────────────────────────────────
@@ -675,5 +685,152 @@ describe("S7: a mid-flow base change is diagnosable", () => {
     // "Token exchange failed" is attributable instead of a blank screen.
     expect(logs.some((l) => l.includes("https://moved.example.com") && l.includes("auth.redirectBaseUrl")))
       .toBe(true);
+  });
+});
+
+// ─── B16r: Secure follows the live https tunnel (AE14–AE18, AE22, AX10) ─────
+// One predicate `isSecureOrigin(request)`: socket TLS || resolved base https ||
+// (loopback SOCKET peer && Host == an https live-tunnel origin). Never
+// `trustProxy`, never a forwarding header. See change: harden-auth-credentials (D3).
+
+describe("B16r: tunnel-Host rule for the OAuth state cookie", () => {
+  const TUNNEL_HOST = "https://pi.share.example";
+  const INTERNAL = "http://pi.internal";
+
+  /** `pi_dash_oauth_state` Set-Cookie of `GET /auth/start/github`, or undefined. */
+  async function stateCookieFor(
+    base: string | undefined,
+    opts: { peer?: string; host?: string; headers?: Record<string, string> },
+  ): Promise<string | undefined> {
+    const app = await makeApp(base);
+    try {
+      const res = await app.inject({
+        method: "GET",
+        url: "/auth/start/github",
+        remoteAddress: opts.peer ?? "127.0.0.1",
+        headers: { ...(opts.host !== undefined ? { host: opts.host } : {}), ...(opts.headers ?? {}) },
+      });
+      expect(res.statusCode).toBe(302);
+      return ([] as string[])
+        .concat((res.headers["set-cookie"] as string[] | string | undefined) ?? [])
+        .find((c) => c.startsWith("pi_dash_oauth_state="));
+    } finally {
+      await app.close();
+    }
+  }
+  const isSecure = (c: string | undefined) => /;\s*Secure/i.test(c ?? "");
+
+  it.each([
+    ["pi.share.example", true],
+    ["PI.share.example.", true],
+    ["pi.share.example:443", true],
+    ["pi.share.example:8443", false],
+    ["pi.share.example:80", false],
+    ["evil.share.example", false],
+    ["pi.share.example.evil.test", false],
+    ["xpi.share.example", false],
+  ])("AE14 Host %s from a loopback peer → Secure=%s", async (host, secure) => {
+    tunnelUrl.value = TUNNEL_HOST;
+    expect(isSecure(await stateCookieFor(INTERNAL, { host }))).toBe(secure);
+  });
+
+  it.each([
+    ["pi.share.example:8443", true],
+    ["pi.share.example", false],
+    ["pi.share.example:443", false],
+    ["pi.share.example:8444", false],
+  ])("AE15 non-default-port tunnel: Host %s → Secure=%s", async (host, secure) => {
+    tunnelUrl.value = "https://pi.share.example:8443";
+    expect(isSecure(await stateCookieFor(INTERNAL, { host }))).toBe(secure);
+  });
+
+  it("AE16 (i) an http-only tunnel origin never qualifies", async () => {
+    liveTunnels.value = ["http://pi.share.example"];
+    expect(isSecure(await stateCookieFor(INTERNAL, { host: "pi.share.example" }))).toBe(false);
+  });
+
+  it("AE16 (ii) an https entry among several qualifies", async () => {
+    liveTunnels.value = ["http://pi.share.example", "https://pi.share.example"];
+    expect(isSecure(await stateCookieFor(INTERNAL, { host: "pi.share.example" }))).toBe(true);
+  });
+
+  it.each([
+    ["127.0.0.1", true],
+    ["127.255.255.255", true],
+    ["::1", true],
+    ["::ffff:127.0.0.1", true],
+    ["126.255.255.255", false],
+    ["128.0.0.1", false],
+    ["192.168.16.20", false],
+    ["::2", false],
+  ])("AE17 socket peer %s → Secure=%s", async (peer, secure) => {
+    tunnelUrl.value = TUNNEL_HOST;
+    expect(isSecure(await stateCookieFor(INTERNAL, { peer, host: "pi.share.example" }))).toBe(secure);
+  });
+
+  it("AE18 (a) loopback peer + matching Host (+ forwarding headers) → Secure", async () => {
+    tunnelUrl.value = TUNNEL_HOST;
+    const c = await stateCookieFor(INTERNAL, {
+      host: "pi.share.example",
+      headers: {
+        "x-forwarded-for": "198.51.100.4",
+        "x-forwarded-host": "pi.share.example",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(isSecure(c)).toBe(true);
+  });
+
+  it("AE18 (b) forwarding headers alone (Host is the internal one) → not Secure", async () => {
+    tunnelUrl.value = TUNNEL_HOST;
+    const c = await stateCookieFor(INTERNAL, {
+      host: "pi.internal:8000",
+      headers: { "x-forwarded-host": "pi.share.example", forwarded: "proto=https;host=pi.share.example" },
+    });
+    expect(isSecure(c)).toBe(false);
+  });
+
+  it("AE18 (c) a non-loopback peer with the tunnel Host → not Secure", async () => {
+    tunnelUrl.value = TUNNEL_HOST;
+    expect(isSecure(await stateCookieFor(INTERNAL, { peer: "203.0.113.9", host: "pi.share.example" }))).toBe(false);
+  });
+
+  it("AE22 Secure follows the live tunnel on one server instance, no rebuild", async () => {
+    const app = await makeApp(INTERNAL);
+    try {
+      const probe = async () => {
+        const res = await app.inject({
+          method: "GET",
+          url: "/auth/start/github",
+          remoteAddress: "127.0.0.1",
+          headers: { host: "pi.share.example" },
+        });
+        return isSecure(
+          ([] as string[]).concat((res.headers["set-cookie"] as string[] | string) ?? []).find((c) => c.startsWith("pi_dash_oauth_state=")),
+        );
+      };
+      tunnelUrl.value = null;
+      expect(await probe()).toBe(false);
+      tunnelUrl.value = TUNNEL_HOST;
+      expect(await probe()).toBe(true);
+      tunnelUrl.value = null;
+      expect(await probe()).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each([
+    ["http://pi.internal", false],
+    ["https://pi.example.com", true],
+  ])("AX10 garbage tunnel entries never qualify; base %s → Secure=%s", async (base, secure) => {
+    tunnelUrl.value = "not a url";
+    liveTunnels.value = ["not a url", "", "ftp://x"];
+    expect(isSecure(await stateCookieFor(base, { host: "pi.share.example" }))).toBe(secure);
+  });
+
+  it("AX10 a throwing tunnel module is treated as no live tunnel (no 500)", async () => {
+    liveTunnels.throws = true;
+    expect(isSecure(await stateCookieFor(INTERNAL, { host: "pi.share.example" }))).toBe(false);
   });
 });

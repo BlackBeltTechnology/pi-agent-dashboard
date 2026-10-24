@@ -336,7 +336,11 @@ export async function readAuthSnapshotLocked(signal?: AbortSignal): Promise<{ da
 export async function removeCredential(
   provider: string,
   expectedKind?: AuthCredential["type"],
-  opts: Pick<WithLockOptions, "createIfMissing" | "signal"> = {},
+  opts: Pick<WithLockOptions, "createIfMissing" | "signal"> & {
+    /** Called inside the lock, once, only when a stored credential was actually deleted (the DELETE
+     *  route audits from it, so the audit decision is atomic with the removal). */
+    onRemoved?: () => void;
+  } = {},
 ): Promise<void> {
   // `createIfMissing: false` (the runtime credential store's delete) leaves an
   // absent auth.json absent: nothing to remove, nothing written.
@@ -352,6 +356,7 @@ export async function removeCredential(
     if (opts.createIfMissing === false && !stored && !checked.corrupt) return;
     delete data[provider];
     writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
+    if (stored) opts.onRemoved?.();
   }, opts);
 }
 

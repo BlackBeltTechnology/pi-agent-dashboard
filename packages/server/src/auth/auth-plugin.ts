@@ -40,6 +40,7 @@ import { noteNetworkOnlyAdmission } from "./network-trust-telemetry.js";
 import { renderLoginPasskeySection } from "./passkey/passkey-pages.js";
 import { registerPasskeyRoutes } from "./passkey/passkey-routes.js";
 import { PASSKEY_PROVIDER, type PasskeyService } from "./passkey/passkey-service.js";
+import { isSecureOrigin } from "./secure-origin.js";
 import type { CoreWsRouteScope, TicketConsumption } from "./ws-ticket.js";
 
 // Re-exported so the existing `auth-plugin.js` import surface is unchanged; the
@@ -304,13 +305,13 @@ export async function registerAuthPlugin(
   if (!fastify.hasRequestDecorator?.("cookies")) await fastify.register(cookie);
 
   // Set the signed OAuth state cookie and return the nonce to embed in `state`.
-  const issueState = (reply: FastifyReply): string => {
+  const issueState = (request: FastifyRequest, reply: FastifyReply): string => {
     const nonce = crypto.randomBytes(16).toString("hex");
     const { base } = resolveRedirectBase(port, authState.redirectBaseUrl);
     reply.setCookie(STATE_COOKIE, `${nonce}.${stateMac(authState.secret, nonce)}`, {
       path: "/auth/",
       httpOnly: true,
-      secure: base.startsWith("https:"),
+      secure: isSecureOrigin(request, base.startsWith("https:")),
       sameSite: "lax", // the IdP callback is a cross-site top-level GET
       maxAge: 600,
     });
@@ -324,12 +325,15 @@ export async function registerAuthPlugin(
   // the resolved public origin, which is operator-stated config that no
   // request header can influence.
   // See change: config-override-oauth-redirect-base (design D14).
-  const setSessionCookie = (reply: FastifyReply, token: string): void => {
+  // `Secure` = `isSecureOrigin(request, …)`: TLS socket || https base || loopback
+  // socket peer + Host equal to a live https tunnel origin (never a header).
+  // See change: harden-auth-credentials (D3).
+  const setSessionCookie = (request: FastifyRequest, reply: FastifyReply, token: string): void => {
     const { base: publicBase } = resolveRedirectBase(port, authState.redirectBaseUrl);
     reply.setCookie(COOKIE_NAME, token, {
       path: "/",
       httpOnly: true,
-      secure: publicBase.startsWith("https:"),
+      secure: isSecureOrigin(request, publicBase.startsWith("https:")),
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
     });
@@ -348,6 +352,7 @@ export async function registerAuthPlugin(
       service: passkeys,
       issueSession: (reply, user) =>
         setSessionCookie(
+          reply.request,
           reply,
           signToken({ sub: user.id, name: user.name, username: user.name, provider: PASSKEY_PROVIDER, tier: user.tier }, authState.secret),
         ),
@@ -371,7 +376,7 @@ export async function registerAuthPlugin(
       const p = providers[0];
       const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
       const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
-      const state = encodeState(returnUrl, issueState(reply));
+      const state = encodeState(returnUrl, issueState(request, reply));
       const url = buildAuthorizeUrl(p, redirectUri, state);
       return reply.redirect(url);
     }
@@ -390,7 +395,7 @@ export async function registerAuthPlugin(
     }
     const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
     const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
-    const state = encodeState(returnUrl, issueState(reply));
+    const state = encodeState(returnUrl, issueState(request, reply));
     const url = buildAuthorizeUrl(provider, redirectUri, state);
     return reply.redirect(url);
   });
@@ -454,7 +459,7 @@ export async function registerAuthPlugin(
     );
 
     const { returnUrl } = decoded;
-    setSessionCookie(reply, token);
+    setSessionCookie(request, reply, token);
 
     return reply.redirect(returnUrl);
   });

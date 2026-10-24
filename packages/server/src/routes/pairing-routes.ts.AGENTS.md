@@ -27,3 +27,11 @@ Passes `getKnockEligibleNetworks` (raw trusted list) into `knockPeerDeps`/`Knock
 ## group-servers-by-identity
 
 Approved `POST /api/pair/poll` carries `routes` = https origins of `reachableUrls()`, once, with token. See change: group-servers-by-identity.
+
+## harden-auth-credentials (B18)
+
+`DELETE /api/paired-devices/:id` (only when a row was removed) → `[pairing] revoked id=<8> actor= ip=`; `POST /api/paired-devices` → `[pairing] minted id=<8> tier= actor= ip=`. 404 unknown-id revoke + refused callers not audited. Via `auth/audit-log.ts` (sanitised, `ip` = socket peer, fail-open). Tests: `__tests__/pairing-audit.test.ts`. See change: harden-auth-credentials.
+
+## harden-auth-credentials (B4r)
+
+`registerBearerRotateRoute` (called from `registerPairingRoutes`): `POST /api/paired-devices/rotate`, tier `observe`, NO `networkGuard`, auth ONLY by `Authorization: Bearer` (else 401 `bearer_required`; body id ignored). Exact `holder:"browser"` = declaration. 200 `{token, expiresAt}` + `Cache-Control: no-store`; 409 `bearer_superseded|holder_declaration_required`; 429 + `Retry-After` (10/60s per device); 500 `rotation_failed`; plain 401 for unknown/revoked/superseded-after-grace. Audit `[pairing] rotated id= ip=` / `rotate_refused id= reason= ip=`. `/api/pair/redeem|request|poll` accept `holder`; poll data gains `expiresAt` for browser rows. Tests: `__tests__/bearer-auth.test.ts`, `device-cookie.test.ts`, `pairing.test.ts` (AE75), `route-tier-gate.test.ts` (AE50). See change: harden-auth-credentials.

@@ -7,3 +7,7 @@ OAuth2 core: providers (GitHub, Google, Keycloak, generic OIDC via `.well-known`
 `AuthUser.tier?`; `signToken` adds `tier` when set; `verifyToken` rejects a present-but-invalid tier; `resolveGroupTier(groups, groupTiers)` (unconfigured ⇒ operate, highest match, none ⇒ null); `fetchUserInfo` returns OIDC `groups`. See change: add-passkey-user-auth.
 
 `exchangeCode` now returns `{accessToken, idToken?} | null`; `idTokenGroups(idToken, clientId)` reads the back-channel id_token `groups` claim (aud must include the client id; claims only). Callback merges id_token ∪ userinfo groups before `resolveGroupTier`. See change: add-passkey-user-auth.
+
+## harden-auth-credentials (B17)
+
+`verifyToken` pins `algorithms:["HS256"]` (non-HS256/`none`/malformed header → null). `ensureAuthSecret` mints `randomBytes(32)` (64 hex); any existing non-empty secret (whitespace included) kept byte-identical; `length < 32` chars → one `console.warn` per process (module flag `shortSecretWarned`), never prints the secret. See change: harden-auth-credentials.

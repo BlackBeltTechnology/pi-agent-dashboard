@@ -2,8 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardCredentialStore } from "../auth/dashboard-credential-store.js";
+import { applyLegacyCredentialActions } from "../auth/pi-legacy-credentials.js";
 import {
   _setRegistryRuntimeForTests,
   oauthRegistryReady,
@@ -14,6 +15,7 @@ import {
   _resetForTests as resetCatalogueCache,
   setCatalogueForSession,
 } from "../package/provider-catalogue-cache.js";
+import { readPiSettings } from "../pi-agent-settings.js";
 import { createRealRuntime, registerCapturingProvider } from "./helpers/pi-models-fixture.js";
 
 /**
@@ -94,6 +96,15 @@ describe("provider-auth-storage", () => {
     await removeCredential("test-remove");
     const data = readAuthJson();
     expect(data["test-remove"]).toBeUndefined();
+  });
+
+  it("removeCredential calls onRemoved exactly once, and only when a stored credential was deleted (B18)", async () => {
+    const { writeCredential, removeCredential } = await import("../auth/provider-auth-storage.js");
+    await writeCredential("test-on-removed", { type: "api_key" as const, key: "x" });
+    const hits: string[] = [];
+    await removeCredential("test-on-removed", undefined, { onRemoved: () => hits.push("first") });
+    await removeCredential("test-on-removed", undefined, { onRemoved: () => hits.push("second") });
+    expect(hits).toEqual(["first"]);
   });
 
   // pi removed google-gemini-cli + google-antigravity as built-in providers.
@@ -236,5 +247,78 @@ describe("DashboardCredentialStore over auth.json", () => {
     const store = new DashboardCredentialStore();
     await store.delete("anthropic");
     expect(JSON.parse(fs.readFileSync(authPath, "utf-8"))).toEqual({ openai: { type: "api_key", key: "o" } });
+  });
+});
+
+/**
+ * B18 — system writers are attributed (test-plan AE32). No request exists, so
+ * the audit line carries `actor=system` and no `ip=`.
+ * See change: harden-auth-credentials (D2).
+ */
+describe("AE32 — system credential writers are attributed", () => {
+  const authDir = path.join(os.homedir(), ".pi", "agent");
+  const authPath = path.join(authDir, "auth.json");
+  let agentDir: string;
+  let captured: string[];
+
+  beforeEach(() => {
+    fs.mkdirSync(authDir, { recursive: true });
+    fs.rmSync(authPath, { force: true });
+    agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ae32-"));
+    captured = [];
+    for (const m of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, m).mockImplementation((...args: unknown[]) => {
+        captured.push(args.map(String).join(" "));
+      });
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(agentDir, { recursive: true, force: true });
+    fs.rmSync(authPath, { force: true });
+  });
+
+  it("AE32: legacy migration and an OAuth refresh write each emit one `actor=system` line without ip= or secrets", async () => {
+    const LEGACY_KEY = "sk-ant-LEGACY-CANARY-0123456789abcdef";
+    fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ anthropicApiKey: LEGACY_KEY }));
+    const deps = { agentDirEnv: agentDir };
+    const moved = await applyLegacyCredentialActions(
+      [{ key: "anthropicApiKey", action: "move" }],
+      readPiSettings(deps).etag,
+      deps,
+    );
+    expect(moved.ok).toBe(true);
+    const migrated = captured.filter((l) => l.startsWith("[provider-auth]") && l.includes("actor=system"));
+    expect(migrated).toEqual(["[provider-auth] legacy_migrated provider=anthropic actor=system"]);
+
+    captured.length = 0;
+    const REFRESH = "refresh-CANARY-REFRESH";
+    const ACCESS = "access-CANARY-NEW";
+    fs.writeFileSync(
+      authPath,
+      JSON.stringify({ openrouter: { type: "oauth", access: "old", refresh: "r0", expires: Date.now() - 1000 } }),
+      { mode: 0o600 },
+    );
+    const store = new DashboardCredentialStore();
+    await store.modify("openrouter", async (cur) => ({
+      ...(cur as object),
+      type: "oauth",
+      access: ACCESS,
+      refresh: REFRESH,
+      expires: Date.now() + 3_600_000,
+    }) as never);
+    const refreshed = captured.filter((l) => l.startsWith("[provider-auth]") && l.includes("actor=system"));
+    expect(refreshed).toEqual(["[provider-auth] oauth_refreshed provider=openrouter actor=system"]);
+
+    for (const line of [...migrated, ...refreshed]) expect(line).not.toContain("ip=");
+    const all = captured.join("\n");
+    for (const secret of [LEGACY_KEY, REFRESH, ACCESS]) expect(all).not.toContain(secret);
+
+    captured.length = 0;
+    await store.delete("openrouter");
+    expect(captured.filter((l) => l.includes("actor=system"))).toEqual([
+      "[provider-auth] removed provider=openrouter actor=system",
+    ]);
   });
 });

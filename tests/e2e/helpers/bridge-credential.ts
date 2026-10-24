@@ -82,13 +82,25 @@ async function postJson(
   return res.json();
 }
 
-/** Pair once and return the durable device bearer. */
-export async function pairDeviceBearer(dashboardBase: string): Promise<string> {
+/** Options for a pairing that is not the default keyring-style (non-expiring) one. */
+export interface PairOptions {
+  /** Declare the bearer will be kept in browser storage (a 7 d expiring, rotating row). */
+  holder?: "browser";
+  /** Registry label (default `e2e-bridge`); a unique label lets a spec find its own row. */
+  label?: string;
+}
+
+/** Pair once; the bearer plus, for a `holder:"browser"` pairing, its `expiresAt` (epoch ms). */
+async function pairDevice(
+  dashboardBase: string,
+  opts: PairOptions = {},
+): Promise<{ token: string; expiresAt?: number }> {
   const payload = await (await fetch(`${dashboardBase}/api/pair/payload`)).json();
   const code = payload?.data?.code;
   if (!code) throw new Error(`pairing payload had no code: ${JSON.stringify(payload)}`);
+  const holder = opts.holder ? { holder: opts.holder } : {};
 
-  const redeemed = await postJson(dashboardBase, "/api/pair/redeem", { code });
+  const redeemed = await postJson(dashboardBase, "/api/pair/redeem", { code, ...holder });
   const { pendingId, confirmCode } = redeemed?.data ?? {};
   if (!pendingId) throw new Error(`redeem failed: ${JSON.stringify(redeemed)}`);
 
@@ -98,16 +110,36 @@ export async function pairDeviceBearer(dashboardBase: string): Promise<string> {
     {
       code,
       confirmCode,
-      label: "e2e-bridge",
+      label: opts.label ?? "e2e-bridge",
     },
     operatorHeaders(),
   );
   if (!approved?.success) throw new Error(`approve failed: ${JSON.stringify(approved)}`);
 
-  const polled = await postJson(dashboardBase, "/api/pair/poll", { pendingId });
+  const polled = await postJson(dashboardBase, "/api/pair/poll", { pendingId, ...holder });
   const token = polled?.data?.token;
   if (!token) throw new Error(`poll returned no token: ${JSON.stringify(polled)}`);
-  return token;
+  const expiresAt = polled?.data?.expiresAt;
+  return { token, ...(typeof expiresAt === "number" ? { expiresAt } : {}) };
+}
+
+/** Pair once and return the durable device bearer. */
+export async function pairDeviceBearer(dashboardBase: string): Promise<string> {
+  return (await pairDevice(dashboardBase)).token;
+}
+
+/**
+ * Pair once declaring `holder:"browser"` and return the 7 d bearer with its `expiresAt`
+ * (epoch ms) — what a cross-origin browser client keeps in its per-origin slot.
+ * See change: harden-auth-credentials (D5).
+ */
+export async function pairBrowserBearer(
+  dashboardBase: string,
+  opts: Omit<PairOptions, "holder"> = {},
+): Promise<{ token: string; expiresAt: number }> {
+  const paired = await pairDevice(dashboardBase, { ...opts, holder: "browser" });
+  if (typeof paired.expiresAt !== "number") throw new Error(`browser pairing returned no expiresAt for ${dashboardBase}`);
+  return { token: paired.token, expiresAt: paired.expiresAt };
 }
 
 /**

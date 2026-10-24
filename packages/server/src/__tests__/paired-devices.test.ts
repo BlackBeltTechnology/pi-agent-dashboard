@@ -2,8 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { PairingManager } from "../pairing/pairing.js";
+import { DAY_MS, get, mkRotationApp, rotate, T0, writeRegistryRows } from "./helpers/bearer-rotation-app.js";
 
 let tmpDir: string;
 let regPath: string;
@@ -166,5 +168,171 @@ describe("tier on the registry (E1–E5)", () => {
     const { token } = reg.add("explicit", "manual", "control");
     const reg2 = new PairedDeviceRegistry(regPath);
     expect(reg2.verify(token)).toEqual(expect.objectContaining({ tier: "control" }));
+  });
+});
+
+// ── Browser-held bearer expiry (change: harden-auth-credentials, D5) ──
+// AE34, AE45, AE51, AE72, AP1, AP5. Fake clock: Date only.
+describe("browser bearer expiry — registry", () => {
+  const sha = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
+  const rows = () => JSON.parse(fs.readFileSync(regPath, "utf8")) as Array<Record<string, unknown>>;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("AE34 holder:browser pairing → expiresAt = T+604 800 s and pairedAt = T; a plain pairing never expires", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    const mgr = new PairingManager({ registry: reg, getFingerprint: () => "fp", getReachableUrls: () => ["https://a.example"] });
+    const pair = (holder?: string) => {
+      const p = mgr.createPayload()!;
+      const r = mgr.redeem(p.code, holder === undefined ? {} : { holder });
+      if (!r.ok) throw new Error("redeem failed");
+      expect(mgr.approve(p.code, r.confirmCode, holder ?? "plain").ok).toBe(true);
+      const polled = mgr.poll(r.pendingId);
+      if (polled.status !== "approved") throw new Error("poll failed");
+      return polled;
+    };
+    const browser = pair("browser");
+    const plain = pair();
+    const byLabel = (l: string) => rows().find((r) => r.label === l) as Record<string, unknown>;
+    expect(byLabel("browser")).toMatchObject({ expiresAt: T0 + 604_800_000, pairedAt: T0 });
+    expect("expiresAt" in byLabel("plain")).toBe(false);
+    expect(browser.expiresAt).toBe(T0 + 604_800_000);
+    expect(plain.expiresAt).toBeUndefined();
+    vi.setSystemTime(T0 + 400 * DAY_MS);
+    expect(reg.verify(plain.token)).not.toBe(null);
+    expect(reg.verify(browser.token)).toBe(null);
+  });
+
+  it("AE45 rows written by pre-change code never expire (absent, null, pairedAt-only)", async () => {
+    const a = await mkRotationApp({
+      seed: (f) =>
+        writeRegistryRows(f, [
+          { token: "t-none" },
+          { token: "t-null", expiresAt: null },
+          { token: "t-paired", pairedAt: T0 - 400 * DAY_MS },
+        ]),
+    });
+    try {
+      vi.setSystemTime(T0 + 400 * DAY_MS);
+      for (const t of ["t-none", "t-null", "t-paired"]) {
+        const res = await get(a, t);
+        expect(res.statusCode).toBe(200);
+        expect(res.json().code).toBeUndefined();
+      }
+    } finally {
+      await a.close();
+    }
+  });
+
+  it("AE51 plaintext is returned once: file 0600 and free of A/B, list has no hash fields", async () => {
+    const a = await mkRotationApp();
+    try {
+      const d = a.reg.add("L", "pairing", "operate", "browser");
+      const res = await rotate(a, d.token);
+      const B = res.json().token as string;
+      const file = a.bytes();
+      expect(file).not.toContain(d.token);
+      expect(file).not.toContain(B);
+      if (process.platform !== "win32") expect(fs.statSync(a.file).mode & 0o777).toBe(0o600);
+      const listJson = JSON.stringify(a.reg.list());
+      expect(listJson).not.toContain(d.token);
+      expect(listJson).not.toContain(B);
+      expect(listJson).not.toMatch(/tokenHash|previousHash|previousExpiresAt/);
+      // Rotating again hands out a NEW bearer; nothing ever re-serves B.
+      const again = await rotate(a, B);
+      expect(again.json().token).not.toBe(B);
+      expect(again.body).not.toContain(B);
+    } finally {
+      await a.close();
+    }
+  });
+
+  it("AE72 malformed expiresAt / pairedAt fail closed (401 bearer_expired); null stays non-expiring; load keeps rows", async () => {
+    const bad: unknown[] = ["garbage", "-1", -1, 0, "", {}, true];
+    const good = { pairedAt: T0, expiresAt: T0 + DAY_MS };
+    const specs: Array<{ token: string } & Record<string, unknown>> = [];
+    bad.forEach((v, i) => {
+      specs.push({ token: `exp-${i}`, ...good, expiresAt: v });
+      specs.push({ token: `paired-${i}`, ...good, pairedAt: v });
+    });
+    specs.push({ token: "control", expiresAt: null });
+    const a = await mkRotationApp({ seed: (f) => writeRegistryRows(f, specs) });
+    try {
+      const loaded = a.bytes();
+      expect(a.reg.list()).toHaveLength(specs.length);
+      for (const spec of specs.filter((x) => x.token !== "control")) {
+        const res = await get(a, spec.token);
+        expect(res.statusCode, spec.token).toBe(401);
+        expect(res.json().code, spec.token).toBe("bearer_expired");
+      }
+      expect((await get(a, "control")).statusCode).toBe(200);
+      // Malformed rows are neither dropped nor rewritten (only last-seen of the valid control row may move).
+      const after = JSON.parse(a.bytes()) as Array<Record<string, unknown>>;
+      const before = JSON.parse(loaded) as Array<Record<string, unknown>>;
+      expect(after.filter((r) => r.label === "legacy")).toHaveLength(specs.length);
+      for (const [i, r] of before.entries()) {
+        if (i === specs.length - 1) continue;
+        expect(after[i]).toEqual(r);
+      }
+    } finally {
+      await a.close();
+    }
+  });
+
+  it("AP1 1000 rotations accumulate no state: file size is constant, only the newest two bearers verify", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    const first = reg.add("L", "pairing", "operate", "browser");
+    const issued: string[] = [first.token];
+    let sizeAfterFirst = 0;
+    for (let i = 1; i <= 1000; i++) {
+      vi.setSystemTime(T0 + i * 61_000);
+      const res = reg.rotate(issued[i - 1], false);
+      if (!res.ok) throw new Error(`rotation ${i}: ${res.reason}`);
+      issued.push(res.token);
+      if (i === 1) sizeAfterFirst = fs.statSync(regPath).size;
+    }
+    expect(fs.statSync(regPath).size).toBe(sizeAfterFirst);
+    const [row] = rows();
+    expect(Object.keys(row).filter((k) => k.startsWith("previous")).sort()).toEqual(["previousExpiresAt", "previousHash"]);
+    expect(reg.verify(issued[1000])).not.toBe(null);
+    expect(reg.verify(issued[999])).not.toBe(null);
+    for (let i = 0; i <= 998; i++) expect(reg.verify(issued[i])).toBe(null);
+    expect(sha(issued[1000])).toBe(row.tokenHash);
+  });
+
+  it("AP5 verifies run on in-memory state: 0 sync file reads/writes/renames across 10 000 mixed verifies", () => {
+    const reg = new PairedDeviceRegistry(regPath);
+    vi.setSystemTime(T0 - 8 * DAY_MS);
+    const expiring = reg.add("exp", "pairing", "operate", "browser"); // expired by T0
+    vi.setSystemTime(T0);
+    const legacy = reg.add("legacy", "manual", "observe");
+    const live = reg.add("live", "pairing", "operate", "browser");
+    const old = reg.add("old", "pairing", "operate", "browser");
+    const rotated = reg.rotate(old.token, false);
+    if (!rotated.ok) throw new Error("rotate failed");
+    vi.setSystemTime(T0 + 30_000); // grace window for `old`
+    // Warm the pre-existing throttled last-seen write (once per device per 60 s) so only the
+    // verify hot path is measured; rows are registry-loaded state either way.
+    for (const t of [legacy.token, live.token, rotated.token]) reg.verify(t);
+    const reads = vi.spyOn(fs, "readFileSync");
+    const writes = vi.spyOn(fs, "writeFileSync");
+    const renames = vi.spyOn(fs, "renameSync");
+    const mix = [legacy.token, live.token, old.token /* grace */, expiring.token /* expired */, "unknown"];
+    try {
+      for (let i = 0; i < 10_000; i++) reg.verify(mix[i % mix.length]);
+      expect(reads).not.toHaveBeenCalled();
+      expect(writes).not.toHaveBeenCalled();
+      expect(renames).not.toHaveBeenCalled();
+    } finally {
+      reads.mockRestore();
+      writes.mockRestore();
+      renames.mockRestore();
+    }
   });
 });
