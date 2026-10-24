@@ -185,10 +185,40 @@ export interface KillProcessResult {
   forced: boolean;
 }
 
+/** Own process-group id, cached for the default `exec` only; null = unknown. */
+let ownPgidCache: number | null | undefined;
+
+function readOwnPgid(exec: ExecFn): number | null {
+  const cacheable = exec === defaultExec;
+  if (cacheable && ownPgidCache !== undefined) return ownPgidCache;
+  let pgid: number | null = null;
+  try {
+    const n = Number(String(exec(`ps -o pgid= -p ${process.pid}`, { encoding: "utf-8" })).trim());
+    pgid = Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    pgid = null;
+  }
+  if (cacheable) ownPgidCache = pgid;
+  return pgid;
+}
+
+/**
+ * POSIX: does `pid` lead its own process group, and is that group NOT ours?
+ * Unknown own pgid ⇒ false (fall back to single-pid; never risk our own group).
+ */
+function leadsForeignGroup(pid: number, kill: KillFn, exec: ExecFn): boolean {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  if (signalZero(-pid, { kill }) === "esrch") return false;
+  const own = readOwnPgid(exec);
+  return own !== null && own !== pid;
+}
+
 /**
  * Terminate a process, cross-platform:
  *   - win32: `taskkill /F /T /PID <pid>` (tree kill, immediate)
- *   - unix:  SIGTERM → wait up to `timeoutMs` → SIGKILL if still alive
+ *   - unix, `pid` leads its own (foreign) process group: {@link killProcessGroup}
+ *     — SIGTERM → `timeoutMs` → SIGKILL to `-pid`, so children die with it (#912)
+ *   - unix, otherwise: SIGTERM → wait up to `timeoutMs` → SIGKILL if still alive
  *
  * Returns `{ ok, forced }`. `ok` is true if the process was terminated (or
  * was already dead); `forced` is true if SIGKILL was needed on Unix.
@@ -212,6 +242,8 @@ export async function killProcess(
       return { ok: false, forced: false };
     }
   }
+
+  if (leadsForeignGroup(pid, kill, exec)) return killProcessGroup(pid, { ...opts, timeoutMs });
 
   try {
     kill(pid, "SIGTERM");
