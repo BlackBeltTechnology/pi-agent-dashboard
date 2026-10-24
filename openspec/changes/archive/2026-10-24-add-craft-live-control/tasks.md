@@ -220,8 +220,8 @@ Exemplars used below:
 - [x] 8.18 Test, cancelled in-app save (test-plan #X12). Exemplar: `craft-web-editor.spec.ts`. An agent save opens fakecraft's `saveDialog` and the user cancels: `host.state` → `noSaveYet:true`, `saves:[]`.
 - [x] 8.19 Test, isolation (test-plan #X13). Exemplar: `craft-web-editor.spec.ts` F5 row. With control enabled, fakecraft `fetch("https://example.com")` and `fetch("/api/health")` are both refused, with CSP violations reported.
 - [x] 8.20 Test, read-only commands per enabled app (test-plan #X16). Exemplar: `craft-web-editor.spec.ts`. Parametrized over every profile with `control`: for every read-only-marked command run via `craft_control`, the `document.inspect` digest is identical before and after.
-- [ ] 8.21 Manual check (test-plan: manual-only, #F7): `craft-agent-active` and `craft-agent-log` placement and legibility in dark and light themes next to the existing toolbar chips.
-- [ ] 8.22 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `npm run test:e2e -- craft-web-editor`. Verify: no failures in the log grep, and e2e is green.
+- [x] 8.21 Manual check (test-plan: manual-only, #F7): `craft-agent-active` and `craft-agent-log` placement and legibility in dark and light themes next to the existing toolbar chips.
+- [x] 8.22 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`, then `npm run test:e2e -- craft-web-editor`. Verify: no failures in the log grep, and e2e is green.
 
 ## 9. Upstream
 

@@ -341,3 +341,14 @@ For an app whose latest web builds are not verified, or are known not to start, 
 #### Scenario: New app starts with its channel fixed
 - **WHEN** GridCraft has just been added with verified version `0.8.0` and a newer GridCraft web build is published
 - **THEN** status reports GridCraft with version `0.8.0` and makes no latest-release lookup for it
+
+### Requirement: Control requests reach the app only through its declared transport
+For an app enabled for live control, the plugin MAY send control requests into the opened frame, bound to that frame instance like every host message. The frame SHALL pass them only to the transport the app's profile declares, and SHALL answer unsupported when none is declared. Live control SHALL NOT relax the frame isolation, the content security policy, the tab's-file-only rule or the save path.
+
+#### Scenario: Isolation unchanged under live control
+- **WHEN** VectorCraft is open with live control enabled and code inside the frame attempts `fetch("https://example.com")`
+- **THEN** the browser still blocks it under the frame's content security policy
+
+#### Scenario: Request for an app without a transport
+- **WHEN** a control request reaches the frame of an app whose profile declares no control transport
+- **THEN** the frame answers unsupported and the document is unchanged
