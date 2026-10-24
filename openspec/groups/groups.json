@@ -8,156 +8,156 @@
       "order": 0
     },
     {
+      "id": "codeql-debt",
+      "name": "CodeQL Debt",
+      "color": "#f97316",
+      "order": 1
+    },
+    {
       "id": "github-bug-fixes",
       "name": "GitHub Bug Fixes",
       "color": "#ef4444",
-      "order": 1
+      "order": 2
     },
     {
       "id": "artcraft-craft-apps",
       "name": "ArtCraft Craft Apps",
-      "order": 2
+      "order": 3
     },
     {
       "id": "addons-hub",
       "name": "Addons Hub",
       "color": "#8b5cf6",
-      "order": 3
+      "order": 4
     },
     {
       "id": "project-workflows",
       "name": "Project Workflows",
       "color": "#14b8a6",
-      "order": 4
+      "order": 5
     },
     {
       "id": "update-to-node-26",
       "name": "Update to Node 26",
       "color": "#3b82f6",
-      "order": 5
+      "order": 6
     },
     {
       "id": "vault",
       "name": "Vault",
       "color": "#f97316",
-      "order": 6
+      "order": 7
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 7
+      "order": 8
     },
     {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 8
+      "order": 9
     },
     {
       "id": "customer-web-chat",
       "name": "Customer Web Chat",
-      "order": 9
+      "order": 10
     },
     {
       "id": "fix-mermaid",
       "name": "Fix mermaid",
       "color": "#3b82f6",
-      "order": 10
+      "order": 11
     },
     {
       "id": "unify-context-manager",
       "name": "Unify Context Manager",
       "color": "#06b6d4",
-      "order": 11
+      "order": 12
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 12
+      "order": 13
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 13
+      "order": 14
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 14
+      "order": 15
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 15
+      "order": 16
     },
     {
       "id": "retro-ui",
       "name": "Retro UI",
       "color": "#3b82f6",
-      "order": 16
+      "order": 17
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 17
+      "order": 18
     },
     {
       "id": "pi-trust-mirror",
       "name": "Pi Trust Mirror",
       "color": "#0ea5e9",
-      "order": 18
+      "order": 19
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 19
+      "order": 20
     },
     {
       "id": "lan-pairing-trust",
       "name": "LAN Pairing & Trust",
       "color": "#14b8a6",
-      "order": 20
+      "order": 21
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 21
+      "order": 22
     },
     {
       "id": "browser-agent",
       "name": "Browser Agent",
       "color": "#14b8a6",
-      "order": 22
+      "order": 23
     },
     {
       "id": "openspec-workflow",
       "name": "OpenSpec Workflow",
       "color": "#22c55e",
-      "order": 23
+      "order": 24
     },
     {
       "id": "automation-scheduler",
       "name": "Automation Scheduler",
       "color": "#eab308",
-      "order": 24
+      "order": 25
     },
     {
       "id": "gmail",
       "name": "Gmail",
       "color": "#ea4335",
-      "order": 25
-    },
-    {
-      "id": "codeql-debt",
-      "name": "CodeQL Debt",
-      "color": "#f97316",
       "order": 26
     }
   ],
@@ -513,33 +513,34 @@
     "add-editor-pane-file-handlers": "artcraft-craft-apps",
     "edit-office-in-pane-with-craft-web": "artcraft-craft-apps",
     "harden-raw-svg-responses": "ui",
-    "add-craft-web-media-projects": "ui",
-    "prove-vault-bridge-tls": "ui",
-    "electron-attach-version-skew": "ui"
+    "add-craft-web-media-projects": "artcraft-craft-apps",
+    "electron-attach-version-skew": "ui",
+    "declutter-sidebar-header": "ui",
+    "polish-sidebar-header-controls": "ui",
+    "close-residual-audit-findings": "ui",
+    "harden-client-sinks": "ui",
+    "add-trusted-types-report-only": "ui",
+    "composer-dock-collapse-and-file-open": "ui",
+    "scope-anchor-editor-pane-controls": "ui",
+    "core-file-cwd-admission": "codeql-debt",
+    "fix-remote-bridge-ticket-origin": "ui",
+    "group-servers-by-identity": "ui",
+    "bump-runtime-security-advisories": "ui",
+    "harden-auth-credentials": "ui",
+    "harden-bridge-inbound-and-discovery": "ui",
+    "harden-cors-and-csp-reporting": "ui",
+    "harden-git-terminal-plugin-boundaries": "ui",
+    "harden-media-and-electron-args": "ui"
   },
   "changeOrder": {
-    "__ungrouped__": [
-      "add-kb-eval-regularized-gate",
-      "add-microservice-pattern-selection-skill",
-      "add-ntfy-push-transport",
-      "add-social-login-broker",
-      "add-srt-translation-pass",
-      "electron-local-link-node-compat",
-      "implement-it",
-      "retest-plain-language-hard-battery",
-      "ab-test-rlm-delegation-claim",
-      "fix-npm12-remote-tarball-install",
-      "close-residual-audit-findings"
-    ],
+    "__ungrouped__": [],
     "ui": [
-      "fix-worktree-init-chip-overflow",
-      "fix-windows-bundled-bash-exe",
-      "fix-folder-card-pill-contrast",
-      "add-composer-dock",
-      "prove-vault-bridge-tls",
-      "add-craft-web-media-projects",
+      "harden-auth-credentials",
       "add-meeting-bot-attendee",
-      "electron-attach-version-skew"
+      "add-trusted-types-report-only",
+      "close-residual-audit-findings",
+      "fix-folder-card-pill-contrast",
+      "bump-runtime-security-advisories"
     ],
     "addons-hub": [
       "addons-hub-feature-catalog",
@@ -564,7 +565,6 @@
     ],
     "security": [
       "security-boundary-audit",
-      "sanitize-untrusted-rendered-content",
       "harden-server-capability-bounds",
       "harden-electron-renderer-boundary",
       "add-supervised-tool-approval"
@@ -655,12 +655,8 @@
       "add-path-containment-guard-extension"
     ],
     "artcraft-craft-apps": [
-      "add-craft-apps-core",
-      "add-craft-media-workflows",
-      "add-craft-office-workflows",
-      "add-artcraft-studio",
-      "add-editor-pane-file-handlers",
-      "edit-office-in-pane-with-craft-web"
+      "add-craft-web-media-projects",
+      "add-artcraft-studio"
     ],
     "customer-web-chat": [
       "add-plugin-spawn-worktree",
@@ -701,9 +697,10 @@
       "colorize-actions-menus"
     ],
     "codeql-debt": [
-      "codeql-model-pack-and-mirror",
       "core-cwd-admission",
-      "triage-codeql-alert-debt"
+      "core-file-cwd-admission",
+      "triage-codeql-alert-debt",
+      "codeql-model-pack-and-mirror"
     ]
   }
 }
