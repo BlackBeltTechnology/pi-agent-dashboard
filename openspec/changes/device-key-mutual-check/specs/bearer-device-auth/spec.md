@@ -10,7 +10,8 @@ authenticated operator (`source: "manual"`). Both paths SHALL accept a tier;
 when omitted, `pairing` SHALL default to `operate` (a paired browser drives
 the whole dashboard) and `manual` SHALL default to `observe`. Both paths
 SHALL return the
-plaintext token exactly once and store only a hash. The token SHALL be revocable per device regardless of source or tier: revoking SHALL move the device into the held revoked state defined by "Revoked devices are held, refused and restorable" and the token SHALL stop verifying at once; the device is deleted for good only after the retention period or an explicit delete-now. The tier SHALL be fixed at issuance; changing a device's tier SHALL
+plaintext token exactly once per issuance or rotation and store only a hash. A row issued with a browser-holder declaration SHALL carry an expiry and rotate as stated in "Browser-held device bearers expire and rotate"; every other row SHALL have no expiry. The token SHALL be
+revocable per device regardless of source or tier: revoking SHALL move the device into the held revoked state defined by "Revoked devices are held, refused and restorable" and every bearer of the device, including one still in a rotation grace window, SHALL stop verifying at once; the device is deleted for good only after the retention period or an explicit delete-now. The tier SHALL be fixed at issuance; changing a device's tier SHALL
 require revoking it and issuing a new token. Registry rows written before
 `source` existed SHALL read as `"pairing"`; rows written before `tier` existed
 SHALL read as `"operate"` (the access they were issued with). Rewriting the
@@ -24,7 +25,12 @@ revoke any registry row, including its own, regardless of the caller's network
 position — a device bearer arriving over loopback SHALL be refused on the
 strength of the credential alone.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
+
+#### Scenario: Browser-declared row is the only expiring kind
+- **WHEN** a pairing code is redeemed with a browser-holder declaration, and another with none
+- **THEN** only the first row SHALL carry an expiry
+- **AND** the second row's token SHALL NOT expire
 
 #### Scenario: Token issued and recorded
 - **WHEN** a device successfully redeems a pairing code
@@ -79,6 +85,10 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 - **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of B>` from `127.0.0.1` with no forwarding headers
 - **THEN** the server SHALL respond `401` and device B's row SHALL remain
 
+#### Scenario: Plaintext returned once per issuance or rotation
+- **WHEN** a bearer is issued or rotated
+- **THEN** the plaintext SHALL appear only in that response and SHALL NOT be retrievable afterwards from the registry or any list route
+
 #### Scenario: Operator revokes over a tunnel
 - **WHEN** a request carrying an authenticated dashboard login session sends `DELETE /api/paired-devices/<id>` from a non-local address
 - **THEN** the device SHALL leave the active registry and be held as revoked, and the server SHALL respond `200`
@@ -89,7 +99,7 @@ Every `/api/*` route SHALL have a tier from a single route→tier map in
 request admitted via a paired-device bearer SHALL be refused with HTTP 403,
 `WWW-Authenticate: Bearer error="insufficient_scope" scope="<tier>"` and a
 logged refusal when the route's tier exceeds the row's tier. `/api/ws-ticket`
-SHALL require `operate`. Principals admitted by other means (browser cookie
+SHALL require `operate`. `POST /api/paired-devices/rotate` SHALL be entered in that map at tier `observe`, so any valid browser-held bearer, of any tier, may rotate itself; the route SHALL authenticate by that bearer and SHALL rotate only the device that bearer belongs to. Principals admitted by other means (browser cookie
 session, local token) SHALL see no change. A bearer presented from a genuinely
 local address SHALL NOT be tier-refused. A bearer presented from a
 trusted-network address SHALL NOT be tier-refused **only when the effective
@@ -107,7 +117,7 @@ caller: a device of every tier SHALL be able to run the identity challenge, the
 device check and the key binding against its own server. The other public
 pairing routes keep their existing tier.
 
-When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+When `requireLocalProof` is in effect (the default: absent or `true`), the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`. Only with it explicitly `false` is this requirement unchanged; a scenario below that says `requireLocalProof` is disabled means it is explicitly `false`.
 
 #### Scenario: Observe bearer cannot restart
 - **WHEN** a request bearing an `observe` device token calls `POST /api/restart`
@@ -136,6 +146,15 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 - **THEN** it SHALL NOT be tier-refused when the effective trust mode is `"legacy"`
 - **AND** it SHALL be refused with 403 `scope="operate"` when the effective trust mode is `"pair"`
 
+#### Scenario: Observe bearer may rotate itself
+- **WHEN** a request bearing an unexpired `observe` browser bearer calls `POST /api/paired-devices/rotate`
+- **THEN** the request SHALL NOT be refused on tier grounds
+- **AND** the rotated bearer SHALL belong to the same device and carry tier `observe`
+
+#### Scenario: Rotation never touches another device
+- **WHEN** a bearer for device A calls `POST /api/paired-devices/rotate`, whatever its body
+- **THEN** only device A's row SHALL be rotated and no other device's bearer SHALL change
+
 #### Scenario: Unlisted route fails closed
 - **WHEN** a route with no entry in the route→tier map is called with a `control` bearer
 - **THEN** the server SHALL respond 403 with `scope="operate"`
@@ -152,7 +171,7 @@ When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarde
 ## ADDED Requirements
 
 ### Requirement: Revoked devices are held, refused and restorable
-Revoking a device SHALL record who revoked it and when, keep the whole device record (bearer hash, tier, source, label, keys and companions) in a revoked store separate from the active registry file, and remove it from the active registry in the same operation. From that moment every credential of the device SHALL be refused — bearer, device cookie, WebSocket ticket minting, and a bridge reconnect — its live WebSocket connections SHALL be closed, and the device-key check SHALL answer `revoked` for its keys. Listing paired devices SHALL show active devices only. An operator SHALL be able to restore a revoked device, which SHALL return its id, bearer hash, tier, label, source, keys and companions so its original bearer works again without re-pairing (its last-seen time and any audit counters then continue from their current values); restore SHALL accept only an operator credential, by the same admission rule as revocation. Listing revoked devices, restoring and deleting now SHALL each accept only an operator credential and answer `401` to a paired-device bearer. Restoring or deleting an id that is not in the revoked store SHALL be answered `404`, and an id that is currently active `409`, changing nothing. Revoking an id that is unknown or already revoked SHALL be answered `404`, changing nothing. A revoked store that parses as JSON but has the wrong shape SHALL be treated like an unparseable one. A revoked device SHALL be deleted for good once 90 days have passed since its revocation (age of 90 days or more), or at once by an operator's delete-now; afterwards its token and keys are unknown and the check answers `unknown`. Expired records SHALL be purged at server start and whenever the revoked list is read or checked. The revoked store SHALL be a separate `0600` file, so a build that predates it keeps treating a revoked device as deleted. If a device id is found in both files at start, the revoked record SHALL win. If the revoked store cannot be parsed at start, the server SHALL set the file aside under a distinct name, log an error and start with an empty revoked list, and the revoked-devices listing SHALL carry a warning that Settings shows as "Revoked-device list unreadable — revoked devices may be purged early"; because a revoked device's active row was removed when it was revoked, no revoked device is re-admitted.
+Revoking a device SHALL record who revoked it and when, keep the whole device record (bearer hash, tier, source, label, keys, companions, and its expiry and rotation fields: `expiresAt`, `pairedAt`, and the previous-bearer hash with its `previousExpiresAt` when a rotation grace window exists) in a revoked store separate from the active registry file, and remove it from the active registry in the same operation. From that moment every credential of the device SHALL be refused — every bearer of the device including the previous bearer of a rotation grace window, the device cookie, WebSocket ticket minting, and a bridge reconnect — its live WebSocket connections SHALL be closed, and the device-key check SHALL answer `revoked` for its keys. Listing paired devices SHALL show active devices only. An operator SHALL be able to restore a revoked device, which SHALL return its id, bearer hash, tier, label, source, keys, companions and expiry and rotation fields exactly as held, so its original bearer works again without re-pairing for as long as that bearer is still within its original expiry (its last-seen time and any audit counters then continue from their current values). Restore SHALL NOT extend the 7-day expiry or the 30-day absolute lifetime, SHALL NOT restart a rotation grace window (a previous bearer is valid again only for what remains of its original grace), and a device whose bearer expired while it was held SHALL come back active but expired, its bearer answered `401` with `bearer_expired` and its keys answering `expired` to the device check; restore SHALL accept only an operator credential, by the same admission rule as revocation. Listing revoked devices, restoring and deleting now SHALL each accept only an operator credential and answer `401` to a paired-device bearer. Restoring or deleting an id that is not in the revoked store SHALL be answered `404`, and an id that is currently active `409`, changing nothing. Revoking an id that is unknown or already revoked SHALL be answered `404`, changing nothing. A revoked store that parses as JSON but has the wrong shape SHALL be treated like an unparseable one. A revoked device SHALL be deleted for good once 90 days have passed since its revocation (age of 90 days or more), or at once by an operator's delete-now; afterwards its token and keys are unknown and the check answers `unknown`. Expired records SHALL be purged at server start and whenever the revoked list is read or checked. Revoke, restore, delete-now and purge SHALL each write one audit line in the shape of the existing revoke line (`[pairing] <verb> id=<8-character prefix>`, with `actor=` and `ip=` when a request caused it, values sanitised by the shared audit emitter; verbs `revoked`, `restored`, `deleted`, `purged`), SHALL NOT audit a call that changes nothing (`404`, `409`), and SHALL NEVER write a token, hash, key, nonce or cookie. The revoked store SHALL be a separate `0600` file, so a build that predates it keeps treating a revoked device as deleted. If a device id is found in both files at start, the revoked record SHALL win. If the revoked store cannot be parsed at start, the server SHALL set the file aside under a distinct name, log an error and start with an empty revoked list, and the revoked-devices listing SHALL carry a warning that Settings shows as "Revoked-device list unreadable — revoked devices may be purged early"; because a revoked device's active row was removed when it was revoked, no revoked device is re-admitted.
 
 #### Scenario: Revoked bearer is refused everywhere
 - **GIVEN** device A holds bearer `T` and an open WebSocket
@@ -164,8 +183,36 @@ Revoking a device SHALL record who revoked it and when, keep the whole device re
 - **THEN** A SHALL NOT appear in the active list and SHALL appear in the revoked list with its revoke time and the time it will be deleted
 
 #### Scenario: Undo restores the device
-- **WHEN** an operator restores revoked device A within 90 days
+- **WHEN** an operator restores revoked device A within 90 days, and A's bearer is still inside its original expiry
 - **THEN** A SHALL be active again with the same id, bearer hash, label, tier, source, keys and companions, and its original bearer SHALL authenticate without re-pairing
+
+#### Scenario: Revoke kills the grace-window bearer while held
+- **GIVEN** device A rotated its bearer 10 seconds ago, so the previous bearer is still in its 60-second grace window
+- **WHEN** an operator revokes A
+- **THEN** neither the new bearer nor the previous bearer SHALL authenticate, and the held record SHALL keep both hashes and the previous bearer's original grace end
+
+#### Scenario: Undo does not restart the grace window
+- **GIVEN** A was revoked 10 seconds after a rotation, and restored 5 minutes later
+- **WHEN** the previous bearer is presented
+- **THEN** it SHALL be refused with a plain `401`, because its original grace window ended; the current bearer SHALL authenticate
+
+#### Scenario: Undo never extends the expiry
+- **GIVEN** a browser device whose bearer expires in 2 days and whose 30-day lifetime ends in 20 days
+- **WHEN** it is revoked for 1 day and then restored
+- **THEN** its `expiresAt` and absolute lifetime SHALL be unchanged and the bearer SHALL authenticate for about 1 more day
+
+#### Scenario: Device that expired while revoked returns expired
+- **GIVEN** a browser device revoked 1 day before its bearer's expiry, and restored 3 days later
+- **WHEN** its bearer is presented
+- **THEN** the response SHALL be `401` with `bearer_expired`, and the device check for its key SHALL answer `expired`
+
+#### Scenario: Restore and delete-now are audited like revoke
+- **WHEN** an operator restores a revoked device, deletes one now, or the server purges one at 90 days
+- **THEN** one line `[pairing] restored id=<8> actor=<actor> ip=<peer>`, `[pairing] deleted id=<8> actor=<actor> ip=<peer>`, or `[pairing] purged id=<8>` SHALL be written, and no line SHALL contain a token, hash, key, nonce or cookie
+
+#### Scenario: Unchanged calls are not audited
+- **WHEN** restore or delete-now is refused with `404` or `409`, or a revoke of an unknown or already-revoked id is refused with `404`
+- **THEN** no audit line SHALL be written
 
 #### Scenario: Paired device cannot restore or delete
 - **WHEN** a request authenticated only by a paired-device bearer restores or deletes a revoked device
