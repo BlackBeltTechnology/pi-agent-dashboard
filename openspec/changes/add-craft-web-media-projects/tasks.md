@@ -31,9 +31,9 @@ Unit tests for the pure media-project module go in `packages/craft-web-plugin/sr
 - [x] 3.12 Shim fallback: 2 media then project, no title signal — observable: no `opened` before the project drop (test-plan #F2); see `craft-shim.test.ts`
 - [x] 3.13 Shim ignores `open-media` for an app without `mediaProject` — observable: no drop, no ack (test-plan #F3); see `craft-shim.test.ts`
 - [x] 3.14 User drop during media delivery still refused — observable: refused, host drops unaffected (test-plan #F4); see `craft-shim.test.ts`
-- [x] 3.15 Media read gate: 200/403/404/network error — observable: one delivered, three counted missing, open completes with a "3 missing" notice (test-plan #F5); see `packages/craft-web-plugin/src/client/__tests__/protocol.test.tsx`
-- [x] 3.16 Sequential delivery: 4 media, ack delayed 500 ms — observable: at most one buffer held, project order, project last (test-plan #F6); see `protocol.test.tsx`
-- [x] 3.17 Save restore point: save naming `/files/clip.mp4` — observable: `workspaceSave` gets the original path, validator runs on final bytes, rejection leaves disk unchanged (test-plan #F7); see `packages/craft-web-plugin/src/client/__tests__/save.test.tsx`
+- [x] 3.15 Media read gate: 200/403/404/network error — observable: one delivered, three counted missing, open completes with a "3 missing" notice (test-plan #F5); see `packages/craft-web-plugin/src/client/__tests__/media-project.test.tsx`
+- [x] 3.16 Sequential delivery: 4 media, ack delayed 500 ms — observable: at most one buffer held, project order, project last (test-plan #F6); see `media-project.test.tsx`
+- [x] 3.17 Save restore point: save naming `/files/clip.mp4` — observable: `workspaceSave` gets the original path, validator runs on final bytes, rejection leaves disk unchanged (test-plan #F7); see `packages/craft-web-plugin/src/client/__tests__/media-project.test.tsx`
 - [ ] 3.18 e2e missing medium: fixture with `clips/gone.mp4` and `clips/a.mp4`, Edit in FilmCraft then save — observable: "1 missing" notice, both paths verbatim on disk (test-plan #X1); see `tests/e2e/craft-web-editor.spec.ts`
 - [ ] 3.19 e2e escaping reference: fixture referencing `../secret.txt` — observable: no `/api/file/raw` request for it, counted missing (test-plan #X2); see `tests/e2e/craft-web-editor.spec.ts`
 - [ ] 3.20 e2e round trip: `edit/story.fcproj`, edit, Ctrl/Cmd+S — observable: FilmCraft JSON on disk naming `clips/a.mp4`, differs from fixture, no document data in frame URL (test-plan #R1); see `tests/e2e/craft-web-editor.spec.ts`

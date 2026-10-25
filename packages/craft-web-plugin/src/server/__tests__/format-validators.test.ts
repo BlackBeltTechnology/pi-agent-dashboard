@@ -122,7 +122,9 @@ describe("E20 Wave 2 formats", () => {
     const good = '{"format":"filmcraft.project","schema_version":15,"generator":"FilmCraft 0.12.0","project":{"name":"p","items":{}}}';
     ok(bytes(good), ".fcproj");
     ok(bytes(`${good.slice(0, 30)}\n  ${good.slice(30)}\n`), ".fcproj");
+    ok(bytes('{"schema_version":15,"project":{"name":"p"},"format":"filmcraft.project"}'), ".fcproj");
     bad(bytes("hello"), ".fcproj");
+    bad(bytes('["filmcraft.project"]'), ".fcproj");
     bad(bytes('{"format":"other","schema_version":15,"project":{}}'), ".fcproj");
     bad(bytes('{"format":"filmcraft.project","schema_version":15}'), ".fcproj");
     bad(bytes('{"format":"filmcraft.project","schema_version":15,"project":{"name":'), ".fcproj");
