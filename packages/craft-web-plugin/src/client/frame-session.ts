@@ -349,7 +349,7 @@ export class FrameSession {
       const out = rewriteProject(json, delivered);
       this.mediaMap = out.map;
       bytes = out.bytes.slice().buffer as ArrayBuffer;
-      if (missing > 0) this.d.ui.setMediaMissing?.(missing);
+      this.d.ui.setMediaMissing?.(missing); // also 0: a retry whose media are now online clears the old notice
     }
     this.postOpen(bytes);
   }

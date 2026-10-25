@@ -105,6 +105,29 @@ describe("#F5 media read gate", () => {
   });
 });
 
+describe("missing-media notice across a retry", () => {
+  it("a Retry whose media are now present clears the stale notice", async () => {
+    const files: Record<string, RawReply> = {}; // nothing readable on the first run
+    stubWorkspace(files);
+    const m = await mountFilm(["a.mp4"]);
+    await shimSend(m.iframe, { type: "ready" });
+    await flush();
+    expect(m.getByTestId("craft-media-missing").textContent).toMatch(/1/);
+    // the frame is lost (duplicate ready) → Resume starts a fresh session with the file now readable
+    await shimSend(m.iframe, { type: "ready" });
+    files["edit/a.mp4"] = "ok";
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.click(m.getByTestId("craft-reloaded-retry"));
+    await flush();
+    const frame2 = m.getByTestId("craft-frame") as HTMLIFrameElement;
+    await shimSend(frame2, { type: "ready" });
+    await flush();
+    await shimSend(frame2, { type: "open-media-ack", name: "a.mp4" });
+    await flush();
+    expect(m.queryByTestId("craft-media-missing")).toBeNull();
+  });
+});
+
 describe("#F6 sequential delivery", () => {
   it("one read and one open-media at a time, in project order; the project is last", async () => {
     const log: string[] = [];
