@@ -484,6 +484,18 @@ describe("bootstrap lock", () => {
     expect(fs.readdirSync(lockDir(ctx, port))).toEqual([]);
   });
 
+  it("E32b: a fresh lock whose holder file is still empty (mid-write) counts as live → busy, lock untouched", async () => {
+    const ctx = sandbox();
+    const port = await freePort();
+    fs.mkdirSync(lockDir(ctx, port));
+    fs.writeFileSync(path.join(lockDir(ctx, port), "holder"), "");
+    const r = await ctx.run([], { PI_DASHBOARD_PORT: String(port), PIDB_TEST_LOCK_WAIT_S: "3" });
+    expect(r.stdout).toBe("STATUS=busy\n");
+    expect(r.status).toBe(3);
+    noLaunch(ctx);
+    expect(fs.readdirSync(lockDir(ctx, port))).toEqual(["holder"]);
+  });
+
   it("E33: a holder-less lock older than a minute is reclaimed", async () => {
     const ctx = sandbox();
     const port = await freePort();
