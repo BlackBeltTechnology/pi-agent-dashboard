@@ -63,6 +63,23 @@ export interface CraftControlProfile {
   digestCommand?: string;
 }
 
+/**
+ * Media-project apps: the project file names media by disk path, the web build resolves only its own in-app
+ * paths, so the host delivers the referenced media before the project (`open-media`) and rewrites the paths.
+ * `format` is the claimed project extension without the dot. See change: add-craft-web-media-projects (D5, D7).
+ */
+interface CraftMediaProjectProfile {
+  format: "fcproj";
+  /** Largest project file parsed. */
+  projectMaxBytes: number;
+  /** Largest single medium. */
+  mediaMaxBytes: number;
+  /** Total media bytes per project. */
+  mediaMaxTotalBytes: number;
+  /** Most media delivered per project. */
+  mediaMaxFiles: number;
+}
+
 export interface CraftAppProfile {
   /** `craft-apps` registry id; status/prepare/config/mount key. */
   appId: string;
@@ -95,6 +112,8 @@ export interface CraftAppProfile {
   fixedReason?: FixedChannelReason;
   /** Live agent control (add-craft-live-control); only valid on an app with an edit claim. */
   control?: CraftControlProfile;
+  /** Host-delivered media for project files (add-craft-web-media-projects); only valid on an app with an edit claim. */
+  mediaProject?: CraftMediaProjectProfile;
   /** Oldest shim whose prepared build still loads (older → `shim-outdated`). */
   minShimVersion: number;
   /** Approximate gzip download before the first prepare. */
@@ -288,6 +307,23 @@ export const CRAFT_APP_PROFILES: readonly CraftAppProfile[] = [
     approxDownloadBytes: 22_400_000,
     claims: [claim("lightcraft", [".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2"], { mode: "preview" })],
   },
+
+  // ---- Media projects: the project's media are delivered before it. Custom loader (`filmcraftLoad.readyMs`).
+  // FilmCraft 0.12.0 reports no viewport title. See change: add-craft-web-media-projects.
+  {
+    appId: "filmcraft",
+    label: "FilmCraft",
+    ready: { kind: "load-ready-ms", global: "filmcraftLoad" },
+    openedFallbackMs: 5000,
+    cleanOnAckedSave: true,
+    saveName: "stem",
+    latestChannel: false,
+    fixedReason: "unverified-latest",
+    mediaProject: { format: "fcproj", projectMaxBytes: 16 * 1024 * 1024, mediaMaxBytes: 64 * 1024 * 1024, mediaMaxTotalBytes: 256 * 1024 * 1024, mediaMaxFiles: 64 },
+    minShimVersion: 4,
+    approxDownloadBytes: 5_200_000,
+    claims: [claim("filmcraft", [".fcproj"])],
+  },
 ];
 
 const BY_APP = new Map(CRAFT_APP_PROFILES.map((p) => [p.appId, p]));
@@ -315,6 +351,8 @@ export interface FrameProfile {
   saveName: "stem" | "inner-title";
   /** Present only for a control-enabled app, so every other app's profile hash is unchanged. */
   control?: { kind: CraftControlProfile["kind"]; global: string };
+  /** Present only for a media-project app, so every other app's profile hash is unchanged. */
+  mediaProject?: true;
 }
 
 export function frameProfile(p: CraftAppProfile): FrameProfile {
@@ -325,5 +363,6 @@ export function frameProfile(p: CraftAppProfile): FrameProfile {
     cleanOnAckedSave: p.cleanOnAckedSave,
     saveName: p.saveName,
     ...(p.control ? { control: { kind: p.control.kind, global: p.control.global } } : {}),
+    ...(p.mediaProject ? { mediaProject: true as const } : {}),
   };
 }

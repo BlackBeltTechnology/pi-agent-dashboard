@@ -35,12 +35,40 @@ Source of truth: `packages/craft-web-plugin/README.md`, `packages/craft-web-plug
 | LightCraft | 0.9.1 | `lightcraft` | `.dng .cr2 .cr3 .nef .arw .raf .orf .rw2` | preview | none (exports download to device) |
 
 Not claimed:
-- FilmCraft 0.9.0, EffectCraft 0.11.1: no claim. Media-project spike deferred to `add-craft-web-media-projects`.
+- EffectCraft 0.16.0: no claim. Media-project spike no-go (see Media projects (FilmCraft) + row in W2 table); upstream ask recorded.
 - FigCraft 0.7.0: no claim. Ignores dropped `.svg`.
 
 Dropped formats (gate failed, not claimed):
 - `.dwg` (CADCraft): web build refuses DWG on open. Save would suggest `.dxf`, device download only.
 - `.odt`, `.rtf` (WordCraft): open on drop, but Ctrl+S always writes `.docx`. In-place gate fails. Validators kept in dispatcher, unused.
+
+### Media projects (FilmCraft)
+
+- FilmCraft 0.12.0. Claim id `filmcraft`, app `filmcraft`. Edit claim on `.fcproj`.
+- Ready hook: `load-ready-ms` global `filmcraftLoad`. No title signal. `openedFallbackMs` 5000. `minShimVersion` 4. Fixed channel at verified `0.12.0`.
+- `.fcproj` = JSON `{"format":"filmcraft.project","schema_version":15,...}`.
+- Media path: `project.items.<id>.kind.Media.media.File.path`. CLI writes absolute disk paths.
+- FilmCraft web resolves media only as `/files/<name>`. Absolute and relative paths show offline.
+- Offline message: "media offline … files from an earlier browser session must be imported again".
+- 0.12.0 glue exports only `start`. No `window.filmcraft`. Media drop is the only route.
+- Host flow:
+  1. Parse project (≤ 16 MiB).
+  2. Plan media: `packages/craft-web-plugin/src/shared/media-project.ts`.
+  3. Read each file via `GET /api/file/raw`, one at a time. Only from project folder and subfolders. No `..` escape.
+  4. Post shim `open-media{name,bytes}`. Wait `open-media-ack` (15 s).
+  5. Post `open` with delivered paths rewritten to `/files/<vfsName>`.
+  6. Same-name media get `<n>-<base>` (e.g. `2-a.mp4`).
+- Undelivered media stay unchanged. Counted: "Media not delivered, shown offline: N" (testid `craft-media-missing`).
+- Save: `FrameSession.routeAndSave` restores original path strings.
+- Validator `.fcproj` (`server/validators/fcproj.mjs`) is reject-only.
+- Bounds (profile `mediaProject`): project 16 MiB, medium 64 MiB, total 256 MiB, 64 files.
+- Bounds survivor rule: document order of first reference decides which media survive.
+- Shim v4 adds `open-media` / `open-media-ack`. Opened fallback armed only by project `open`.
+- Spike 2026-10-25 (sandboxed frame + real post-install + shim + production CSP):
+  - Two clips (2 s, 3 s), both `a.mp4` in different folders. Online as `a.mp4`, `2-a.mp4`.
+  - Ctrl+S emits `/files/a.mp4`, `/files/2-a.mp4`.
+  - Restore returns original absolute paths.
+  - Recovery/autosave to OPFS fails in sandbox. Logged, not fatal.
 
 ### Version channels
 
@@ -404,7 +432,7 @@ Harness `/tmp/craftweb-spike/` (not committed). Real `createPostInstall`, produc
 | VectorCraft 0.16.0 | Trunk | `.svg` | in-app Save As, default `.vectorcraft` | `name — VectorCraft` | B |
 | DeckCraft 0.8.0 / 0.7.0 | Trunk | 0.8.0 panics on start; 0.7.0 opens `.pptx` | `.deckcraft` (zip) | none | B (pin 0.7.0) |
 | LightCraft 0.9.1 | custom, `start(font)` | `.jpg` into demo library | nothing (non-destructive) | `LightCraft` | C |
-| FilmCraft 0.9.0 | custom, `filmcraftLoad.readyMs`; 2nd inline | media into demo project | `<project>.fcproj` | none | C (deferred) |
+| FilmCraft 0.12.0 | custom, `filmcraftLoad.readyMs`; 2nd inline | media dropped before project | `<project>.fcproj` | none | C (shipped, media project) |
 | EffectCraft 0.11.1 | custom, `effectcraftLoad.readyMs`; SW; module workers | media into demo project | `<project>.ecproj` | `EffectCraft - name *` | C (deferred) |
 | FigCraft 0.7.0 | Trunk | ignores dropped `.svg` | not reached | none | D |
 
@@ -450,7 +478,7 @@ Environment findings:
 - FilmCraft 0.9.0: `load-ready-ms` hook works; several synthetic drops accepted (media → `/files/<name>`); projects reference media only by VFS paths.
 - Dropped-project-resolves-media not distinguishable from demo project. OPFS recovery writes fail (logged).
 - EffectCraft: `window.effectcraft.addFile` = more direct route.
-- No FilmCraft/EffectCraft claim. Follow-up `add-craft-web-media-projects` starts from-scratch project spike.
+- Wave 4 (historic): no claim shipped; follow-up `add-craft-web-media-projects` shipped FilmCraft `.fcproj` (media dropped first, path rewrite), EffectCraft no-go.
 
 ### 14.6 Observability
 
@@ -530,8 +558,8 @@ See change: add-craft-live-control
 |---|---|---|---|---|---|
 | VectorCraft | W1 | enabled 0.16.0 | — (gate §14.8 go) | `window.vectorcraft` (page-api) | upstream shipped (≥ 0.14) |
 | LightCraft | W1 (non-blocking) | pending | view-only (preview claim); control requires edit claim. API exists: `globalThis.lightcraft.command` (page-command; 0.9.1 pinned, 0.13.0 latest) | `globalThis.lightcraft` | none needed |
-| FilmCraft | W2 | pending | `add-craft-web-media-projects` ships `.fcproj` edit claim (still active change) | `window.filmcraft` (in 0.12.0 index.html) | none needed |
-| EffectCraft | W2 | pending | same change ships `.ecproj` claim | `window.effectcraft` (0.16.0 index.html; needs `?nosw` + worker trampoline; check post-install survival at enablement) | none needed |
+| FilmCraft | W2 | enabled 0.12.0 | shipped by `add-craft-web-media-projects` (`.fcproj` edit claim, see Media projects) | none (0.12.0 has no `window.filmcraft`; drops only) | none needed |
+| EffectCraft | W2 | no-go (0.16.0, unclaimed) | `.ecproj` drop stores in VFS only (does not open). `window.effectcraft.execute("file.open",{path})` opens it, but `file.importProject` reports `missingMedia` for `clip.mp4` and `/clip.mp4` even after `addFile("/clip.mp4")`. Upstream ask: project-load API accepting media, or documented footage path resolution against VFS | `window.effectcraft` (0.16.0 index.html; needs `?nosw` + worker trampoline) | none needed |
 | GridCraft | W3 | pending | upstream release with `window.gridcraft.request` (latest 0.11.1: none) | — | https://github.com/storytold/gridcraft/issues/1274; photocraft#6450 comment https://github.com/storytold/photocraft/issues/6450#issuecomment-6383791154 |
 | WordCraft | W3 | pending | `window.wordcraft.request` + caret rebasing (latest 0.10.0: none) | — | https://github.com/storytold/wordcraft/issues/1589 (comment https://github.com/storytold/wordcraft/issues/1589#issuecomment-6383791347); photocraft#6450 comment |
 | PhotoCraft | W3 | pending | `window.photocraft.request` (latest 0.15.1: none) | — | https://github.com/storytold/photocraft/issues/6450 (comment https://github.com/storytold/photocraft/issues/6450#issuecomment-6383791154) |

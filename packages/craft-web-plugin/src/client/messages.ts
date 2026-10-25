@@ -38,6 +38,7 @@ export const EN = {
   reloaded: "Editor reloaded",
   resume: "Resume",
   blockedToast: "Open other files from the dashboard",
+  mediaMissing: "Media not delivered, shown offline: {count}",
   navigateOffer: "{app} tried to open {url}. Open it in a new tab?",
   navigateUnsafe: "{app} tried to leave the page; the address was not opened.",
   openNewTab: "Open in new tab",

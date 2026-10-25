@@ -13,6 +13,8 @@ Spike 2026-10-25 (`/tmp/mp-spike`, pristine builds, unsandboxed, synthetic drops
 
 **Not covered by the spike (verified by tasks, not assumed):** behaviour inside `sandbox="allow-scripts"` with the real shim, the save round trip of `.fcproj` through the shim, name collisions between media in different folders.
 
+**Implementation spike (2026-10-25, real post-install + shim v4 + production CSP + `sandbox="allow-scripts"`, FilmCraft 0.12.0; tasks 1.1-1.3).** Two media named `a.mp4` from different folders were delivered one at a time; each ack arrived ~0.5 s after its drop (the first after the 3 s title-less gate); both came up online (0:02 and 0:03) as `a.mp4` and `2-a.mp4`; the project opened with `opened{confirmed:false}`. Ctrl+S produced a `save` whose bytes name `/files/a.mp4` and `/files/2-a.mp4`; restoring gave back the original path strings and an otherwise identical project. Recovery/autosave to OPFS fails in the sandbox (logged, not fatal). The only CSP report was the favicon (`img-src`), as for every other app.
+
 ## Goals / Non-Goals
 
 Goals: open a `.fcproj` from the workspace in FilmCraft with its media online; save back to the same file with paths as the user's tool expects.
