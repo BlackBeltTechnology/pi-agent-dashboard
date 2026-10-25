@@ -129,4 +129,4 @@ Plugin context `pluginCredentials` builds `createPluginCredentialStore(id, {code
 
 ## encrypt-credentials-at-rest (vault store)
 
-`createVaultStore({codec: getCredentialCodec("vault")})` at the vault wiring. Locked vault ⇒ hub `vault-unavailable`, routes 409 `vault_locked`, ACME `credential vault unavailable`. Startup ordering (`initCredentialKey` before the stores) is wave C. See change: encrypt-credentials-at-rest.
+`createVaultStore({codec: getCredentialCodec("vault")})` at the vault wiring. Locked vault ⇒ hub `vault-unavailable`, routes 409 `vault_locked`, ACME `credential vault unavailable`. Startup ordering: `createServer` awaits `initCredentialKey(config.credentialKey)` then `migrateCredentialFiles(...)` right after secret rotation, before bridge-extension registration, vault store, ACME runtime, plugin load, `listen`. `ServerConfig.credentialKey` = test seam (`InitCredentialKeyOptions`: key-file env, stub keychain, `log`, `homeDir`); unset in production. Neither call throws: a keychain failure leaves stores locked, boot continues. See change: encrypt-credentials-at-rest.

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { _resetCredentialKeyForTests, getCredentialCodec, initCredentialKey } from "../auth/credential-key.js";
+import { _resetCredentialKeyForTests } from "../auth/credential-key.js";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
 import { proofFetch } from "../test-support/local-credential-stamp.js";
 import { createBinding } from "../vault/vault-bindings.js";
@@ -21,6 +21,12 @@ import { testVaultCodec } from "./helpers/vault-test-codec.js";
 const baseConfig: ServerConfig = {
   port: 0, piPort: 0, host: "127.0.0.1", gatewayTcp: true, dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
 };
+
+/** `createServer`'s credential-key seam: the data key comes from a key file, never a keychain. */
+const keyFileInit = (key: Buffer): NonNullable<ServerConfig["credentialKey"]> => ({
+  env: { PI_DASHBOARD_DATA_KEY_FILE: writeKeyFile(b64(key)) },
+  log: logSink().log,
+});
 
 describe("vault delivery wiring", () => {
   let server: DashboardServer;
@@ -40,14 +46,13 @@ describe("vault delivery wiring", () => {
   });
 
   it("answers a sync request with the granted values, advertises the feature, and pushes a rotation", async () => {
-    // The server's vault store reads through the process data key: resolve it from a key file (no keychain).
-    await initCredentialKey({ env: { PI_DASHBOARD_DATA_KEY_FILE: writeKeyFile(b64(KEY_1)) }, log: logSink().log });
-    const store = createVaultStore({ codec: getCredentialCodec("vault") }); // default path: under the per-file tmp $HOME
+    // Seed through a test codec over KEY_1; `createServer` resolves the same key itself, from a key file (no keychain).
+    const store = createVaultStore({ codec: testVaultCodec(KEY_1) }); // default path: under the per-file tmp $HOME
     const acc = await store.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
     await createBinding(store, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
     await createGrant(store, { subject: dirSubject("hub", tmp), bindingName: "GEMINI_API_KEY" });
 
-    server = await createServer({ ...baseConfig });
+    server = await createServer({ ...baseConfig, credentialKey: keyFileInit(KEY_1) });
     await server.start();
     ws = new WebSocket(`ws://127.0.0.1:${server.piPort()}`);
     const frames: any[] = [];
@@ -82,9 +87,8 @@ describe("vault delivery wiring", () => {
     const acc = await seed.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
     await createBinding(seed, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
     await createGrant(seed, { subject: dirSubject("hub", tmp), bindingName: "GEMINI_API_KEY" });
-    await initCredentialKey({ env: { PI_DASHBOARD_DATA_KEY_FILE: writeKeyFile(b64(KEY_1)) }, log: logSink().log });
 
-    server = await createServer({ ...baseConfig });
+    server = await createServer({ ...baseConfig, credentialKey: keyFileInit(KEY_1) });
     await server.start();
     ws = new WebSocket(`ws://127.0.0.1:${server.piPort()}`);
     const frames: any[] = [];

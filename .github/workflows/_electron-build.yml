@@ -583,6 +583,32 @@ jobs:
             -c.linux.artifactName='PI-Dashboard-${version}-${{ matrix.arch }}.${ext}' \
             --publish never
 
+      - name: Assert the bundled Node can load the OS-keychain binding (macOS)
+        # The credential data key is read through @napi-rs/keyring, loaded by the
+        # BUNDLED Node (Resources/node/bin/node). The darwin .node is signed by a
+        # third-party team, so the hardened runtime refuses it unless that Node
+        # carries com.apple.security.cs.disable-library-validation (spike row 10).
+        # GitHub macOS runners have SIP disabled and load the binding even
+        # without DLV (CI spike C14/C15), so the gate is STATIC and runs on EVERY
+        # darwin leg: `codesign -d --entitlements -` must list DLV, and
+        # `codesign --verify` must pass on the .node. The load round-trip is a
+        # smoke: blocking when APPLE_IDENTITY is set, advisory without a signing
+        # identity. Hand-off to macos-notarization: Resources/node/bin/node MUST
+        # be signed with DLV. See change: encrypt-credentials-at-rest (D5, E90).
+        if: matrix.platform == 'darwin'
+        shell: bash
+        # APPLE_IDENTITY is not wired into this reusable workflow yet (no secret is
+        # declared under workflow_call); the macos-notarization change adds it, which
+        # flips the smoke from advisory to blocking with no edit here.
+        run: |
+          set -euo pipefail
+          cd packages/electron
+          APP_PATH=$(find out -maxdepth 2 -name '*.app' -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Forge .app not found under out/"; exit 1
+          fi
+          node scripts/assert-mac-bundled-node-keyring.mjs "$APP_PATH" --arch=${{ matrix.arch }}
+
       - name: Gate the macOS update stream on the minimum supported OS
         # Raising the macOS floor strands already-shipped 10.15/11 clients. Left
         # ungated they still read latest-mac.yml, download the new artifact,

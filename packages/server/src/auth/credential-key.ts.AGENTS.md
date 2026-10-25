@@ -10,3 +10,4 @@ Process-wide credential data key (32 B, one per OS user). Held only in memory; n
 - Log (D11): `[credential-key] source= state= reason= kid= created=`; `created source=… kid=…`; `keychain detail: <short>`.
 - Seams (D9): `entryFactory` (in-process provider), `workerEntry`/`workerData`/`workerFactory` (stub worker), `filesProbe`, `homeDir`, `platform`, `lockTarget`, `deadlineMs`, `keychainService`/`keychainAccount` (spike), `log`. Under `VITEST` with nothing injected ⇒ `keychain_unavailable`, binding never loaded.
 See change: encrypt-credentials-at-rest (D4, D5, D6, D9, D11).
+- `resetCredentialKeyState()` drops the singleton (cached failure included); production caller: CLI `credentials reset` before creating a fresh key. `_resetCredentialKeyForTests` delegates to it.

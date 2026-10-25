@@ -9,7 +9,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: |
 | `__tests__/build-runtime-canary.test.mjs` | Builds canary + variants via SDK preset; artifact shape (#E95). → see `build-runtime-canary.mjs.AGENTS.md` |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection vi… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
-| `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independ… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
+| `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases)… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
 | `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
@@ -25,7 +25,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN`… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). → see `__tests__/codeql-local-real.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-mirror.test.mjs` | `--mirror-dismissal` vs fake `codeql` + fake `gh` (#M1-#M17). See change: codeql-model-pack-and-mirror. |
-| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1; #E11, #E13,… → see `__tests__/codeql-local.test.mjs.AGENTS.md` |
+| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17,… → see `__tests__/codeql-local.test.mjs.AGENTS.md` |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. Also E22 (keycloak dep dropped) and E… → see `__tests__/client-isolate-gate.test.mjs.AGENTS.md` |
@@ -78,8 +78,9 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/ship-it-no-weakening.test.mjs` | Vitest unit tests for ship-it `no-weakening.ts` assertNoWeakening. → see `__tests__/ship-it-no-weakening.test.mjs.AGENTS.md` |
 | `__tests__/skill-frontmatter.test.mjs` | Vitest guard over every repo `**/SKILL.md` (skips node_modules/dist/worktrees). → see `__tests__/skill-frontmatter.test.mjs.AGENTS.md` |
 | `__tests__/spec-collateral.test.mjs` | L1 for `spec-collateral.mjs` (E1–E26, P1–P2, X1–X5). → see `__tests__/spec-collateral.test.mjs.AGENTS.md` |
-| `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table over temp dirs — no-op (des… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
-| `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules in verify-r… → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
+| `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
+| `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules… → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
+| `__tests__/verify-release-deps-keyring-floor.test.mjs` | E87 `@napi-rs/keyring` floor. → see `__tests__/verify-release-deps-keyring-floor.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
 | `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
 | `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
@@ -96,7 +97,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `build.sh` | Type-check + build dashboard. Flags: --check-only (tsc --noEmit only), --client-only (Vite build only). Auto-runs npm install if node_modules absent. |
 | `build-runtime-asset.mjs` | Per-platform runtime asset. → see `build-runtime-asset.mjs.AGENTS.md` |
 | `__tests__/verify-published-imports.test.mjs` | Tests for `verify-published-imports.mjs`. Fixtures built i… → see `__tests__/verify-published-imports.test.mjs.AGENTS.md` |
-| `__tests__/patch-vendor-specifiers.test.mjs` | Tests for `patch-vendor-specifiers.mjs` (E6: 4-specifier rewrite, byte-identical tree… → see `__tests__/patch-vendor-specifiers.test.mjs.AGENTS.md` |
+| `__tests__/patch-vendor-specifiers.test.mjs` | Tests for `patch-vendor-specifiers.mjs` (E6: 4-specifier… → see `__tests__/patch-vendor-specifiers.test.mjs.AGENTS.md` |
 | `__tests__/root-packaging.test.mjs` | ci-level root tarball exclusion check (E14/E15). → see `__tests__/root-packaging.test.mjs.AGENTS.md` |
 | `__tests__/release-lock.test.mjs` | Tests for release-lock rebase/audit/fetch/lint + post-bundle assertion (E1–E12, E18, E19, X1, X2). See change: pin-electron-bundle-dependency-tree. |
 | `__tests__/runtime-release.test.mjs` | Runtime release tests. → see `__tests__/runtime-release.test.mjs.AGENTS.md` |

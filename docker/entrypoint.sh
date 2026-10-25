@@ -2,6 +2,8 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard container entrypoint.
 #
+#   0. Resolve the credential data key file (PI_DASHBOARD_DATA_KEY_FILE) and,
+#      on a fresh state, generate it under /home/pi/.pi-key (never in argv).
 #   1. Seed ~/.pi/agent/auth.json from *_API_KEY env vars (first run only).
 #   2. Seed spawn strategy into config.json (first run only).
 #   3. Start a tmux server (for the tmux spawn strategy).
@@ -19,6 +21,55 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEED_AUTH="${SCRIPT_DIR}/../docker/scripts/seed-auth.js"
 # When installed to /usr/local/bin the script dir differs; fall back to /app.
 [ -f "${SEED_AUTH}" ] || SEED_AUTH="/app/docker/scripts/seed-auth.js"
+
+# 0. Credential data key file (change: encrypt-credentials-at-rest, design D6, G9).
+#    The plugin-credential store and the vault are encrypted at rest; in a
+#    container there is no OS keychain, so the key lives in a 0600 file on its
+#    OWN volume (/home/pi/.pi-key), separate from the pi-state volume: a copy of
+#    the state volume (backup, sync) then carries no key.
+#      - PI_DASHBOARD_DATA_KEY_FILE unset  -> export the default path below.
+#      - the key file is generated ONLY at that default path (a preset custom
+#        path is the operator's: never generated, never overridden), ONLY when it
+#        is absent AND neither credential file already holds an envelope (a fresh
+#        key over an existing envelope would only turn `key_file_missing` into
+#        `key_mismatch`). With an envelope present it refuses, prints the
+#        restore remedy and starts the server anyway, which reports the files
+#        locked.
+#      - the key goes from /dev/urandom to the file by redirect under umask 077:
+#        never in argv, an env var, or a log line.
+# >>> credential-data-key
+DEFAULT_DATA_KEY_DIR="/home/pi/.pi-key"
+DEFAULT_DATA_KEY_FILE="${DEFAULT_DATA_KEY_DIR}/data-key"
+if [ -z "${PI_DASHBOARD_DATA_KEY_FILE:-}" ]; then
+  export PI_DASHBOARD_DATA_KEY_FILE="${DEFAULT_DATA_KEY_FILE}"
+fi
+if [ "${PI_DASHBOARD_DATA_KEY_FILE}" = "${DEFAULT_DATA_KEY_FILE}" ]; then
+  # A dedicated mount keeps the key out of the state volume and out of the
+  # container layer. The Dockerfile VOLUME only creates an ANONYMOUS volume
+  # (`docker compose down -v` or a fresh `docker run` loses it); a Docker anonymous
+  # volume's source is /volumes/<64 hex>/_data in mountinfo.
+  if ! awk -v d="${DEFAULT_DATA_KEY_DIR}" '$5 == d { found = 1 } END { exit !found }' /proc/self/mountinfo 2>/dev/null; then
+    echo "[entrypoint] WARNING: ${DEFAULT_DATA_KEY_DIR} is not a mounted volume: the data key will be lost with this container. Mount a named volume at ${DEFAULT_DATA_KEY_DIR} (see docker/README.md)."
+  elif awk -v d="${DEFAULT_DATA_KEY_DIR}" '$5 == d { print $4 }' /proc/self/mountinfo 2>/dev/null | grep -Eq '/volumes/[0-9a-f]{64}/_data$'; then
+    echo "[entrypoint] WARNING: ${DEFAULT_DATA_KEY_DIR} is an anonymous volume: docker compose down -v or a new docker run loses the data key. Mount a NAMED volume at ${DEFAULT_DATA_KEY_DIR} (see docker/README.md)."
+  fi
+  if [ ! -e "${DEFAULT_DATA_KEY_FILE}" ]; then
+    has_envelope=0
+    for cred_file in "${HOME:-/home/pi}/.pi/agent/plugin-credentials.json" "${HOME:-/home/pi}/.pi/dashboard/vault.json"; do
+      if [ -f "${cred_file}" ] && head -c 23 "${cred_file}" 2>/dev/null | grep -q '^pi-dashboard-encrypted:'; then
+        has_envelope=1
+      fi
+    done
+    if [ "${has_envelope}" = "1" ]; then
+      echo "[entrypoint] REFUSING to generate a data key: an encrypted credential file exists but ${DEFAULT_DATA_KEY_FILE} is missing. A new key could not decrypt it. Restore ${DEFAULT_DATA_KEY_FILE} (mode 0600) from your backup of the key volume; starting anyway, the files are reported locked (key_file_missing). See docker/README.md."
+    elif ( umask 077 && mkdir -p "${DEFAULT_DATA_KEY_DIR}" && head -c 32 /dev/urandom | base64 > "${DEFAULT_DATA_KEY_FILE}" ) 2>/dev/null; then
+      echo "[entrypoint] generated credential data key at ${DEFAULT_DATA_KEY_FILE} (mode 0600)"
+    else
+      echo "[entrypoint] could not create ${DEFAULT_DATA_KEY_FILE}; credential writes will be refused until a key file exists"
+    fi
+  fi
+fi
+# <<< credential-data-key
 
 # 1. Seed auth.json (no-op if it already exists in the pi-state volume).
 node "${SEED_AUTH}"

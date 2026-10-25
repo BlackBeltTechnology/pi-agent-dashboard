@@ -5,3 +5,5 @@ Multi-stage. base: `node:24-bookworm-slim` + tmux/jq/git/curl/ripgrep/fd-find/po
 `ARG PI_DASHBOARD_FIXTURE_PLUGINS=""` before the build RUN (empty = deployment unchanged). See change: expose-plugin-credential-and-oauth-seams.
 
 Creates `/srv/fixtures-outside/{a,b}.txt` (owned by pi) before `USER pi` — out-of-root fixtures for the agent path gate e2e. See change: ask-agent-file-access-in-chat.
+
+Credential data key: `mkdir`/`chown pi:pi`/`chmod 0700` `/home/pi/.pi-key` next to the `.pi`/`.zrok2` mkdir, and `/home/pi/.pi-key` joins `VOLUME` (its own volume: a copy of the state volume carries no key). The build RUN asserts `/app/node_modules/@napi-rs/keyring-linux-*-gnu/LICENSE.third-party.md` exists (statically linked libdbus licence; nothing prunes it). See change: encrypt-credentials-at-rest.

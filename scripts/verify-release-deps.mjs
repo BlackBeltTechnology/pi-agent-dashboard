@@ -135,6 +135,18 @@ const RULES = [
       "jiti/tsx loader contract used by packages/server/bin/pi-dashboard.mjs.",
     minVersion: "4.21.0",
   },
+  {
+    pkgPath: "packages/server/package.json",
+    dep: "@napi-rs/keyring",
+    kind: "dependencies",
+    evidence:
+      "change: encrypt-credentials-at-rest (D5) — the OS-keychain binding that holds the " +
+      "credential data key. Floor 2.1.2 is the version the delivery spike measured " +
+      "(spike/keyring-delivery/FINDINGS.md). Removing or downgrading it ships a server whose " +
+      "credential files are locked `keychain_unavailable`. The Electron bundle step also " +
+      "asserts the platform package version equals this one (skew loads silently).",
+    minVersion: "2.1.2",
+  },
   ...["vite", "@vitejs/plugin-react", "@tailwindcss/vite", "tailwindcss"].map((dep) => ({
     pkgPath: "packages/client/package.json",
     dep,

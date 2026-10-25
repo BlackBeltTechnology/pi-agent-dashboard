@@ -94,7 +94,8 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
-import { getCredentialCodec } from "./auth/credential-key.js";
+import { getCredentialCodec, type InitCredentialKeyOptions, initCredentialKey } from "./auth/credential-key.js";
+import { migrateCredentialFiles } from "./auth/credential-migration.js";
 import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
@@ -407,6 +408,12 @@ import { createVaultStore } from "./vault/vault-store.js";
 import { createWatchFilesHandler, type WatchFilesMessage } from "./watch-files-handler.js";
 
 export interface ServerConfig {
+  /**
+   * Test seam for the credential data key (key file env, stub keychain, log sink, home dir).
+   * Production leaves it unset: `initCredentialKey()` then reads `process.env` and the real home.
+   * See change: encrypt-credentials-at-rest (D4, D9).
+   */
+  credentialKey?: InitCredentialKeyOptions;
   port: number;
   piPort: number;
   /**
@@ -645,6 +652,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
     throw err;
   }
+  // Resolve the credential data key BEFORE anything builds or reads a credential store
+  // (vault, ACME runtime, plugin load) and before `listen`, then migrate plaintext
+  // credential files to envelopes. One 10 s total deadline bounds init; a keychain failure
+  // only leaves the stores locked, it never stops the server from booting. Neither call throws.
+  // See change: encrypt-credentials-at-rest (D4, D7, D11).
+  await initCredentialKey(config.credentialKey);
+  await migrateCredentialFiles({ home: config.credentialKey?.homeDir, log: config.credentialKey?.log });
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //

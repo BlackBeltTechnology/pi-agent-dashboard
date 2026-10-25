@@ -127,8 +127,18 @@ export function getCredentialKeyState(): CredentialKeyState {
 }
 
 /** Test seam: forget the process key and state. */
-export function _resetCredentialKeyForTests(): void {
+/**
+ * Drop the process-wide key state so the next `initCredentialKey` resolves again
+ * (a cached failure such as `key_missing` included). Production use: the CLI
+ * `credentials reset`, which renames the locked files and then creates a fresh
+ * key in the same process.
+ */
+export function resetCredentialKeyState(): void {
   current = undefined;
+}
+
+export function _resetCredentialKeyForTests(): void {
+  resetCredentialKeyState();
 }
 
 // ── helpers ──────────────────────────────────────────────────────────
