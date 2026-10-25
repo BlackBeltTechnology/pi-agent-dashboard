@@ -95,6 +95,22 @@ describe("#E3 unknown type / duplicate id rejected", () => {
   });
 });
 
+describe("#E17 Accept bridges switch (prove-vault-bridge-tls)", () => {
+  it("rejects a non-boolean with 400 (config unchanged) and merges a boolean write without dropping other tls keys", async () => {
+    await boot({ enabled: false, port: 9443, sources: [{ type: "fake" }] });
+    const before = fs.readFileSync(cfgFile(), "utf8");
+    const bad = await put({ tls: { acceptBridges: "yes" } });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error).toContain("tls.acceptBridges must be a boolean");
+    expect(fs.readFileSync(cfgFile(), "utf8")).toBe(before);
+    const good = await put({ tls: { acceptBridges: true } });
+    expect(good.status).toBe(200);
+    expect(readCfg().tls).toMatchObject({ port: 9443, sources: [{ type: "fake" }], acceptBridges: true });
+    expect(validateTlsConfigWrite({ tls: { acceptBridges: 1 } }, {})).toContain("acceptBridges");
+    expect(validateTlsConfigWrite({ tls: { acceptBridges: false } }, {})).toBeNull();
+  });
+});
+
 describe("#E42 pluggable source types + id rules", () => {
   it("validates through the registered type; ids follow the pattern; tailscale id defaults", async () => {
     await boot({ enabled: false });

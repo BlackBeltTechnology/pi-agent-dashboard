@@ -118,6 +118,18 @@ describe("E20 Wave 2 formats", () => {
     bad(zip({ mimetype: ["application/vnd.storyteller.deckcraft+zip", 0] }), ".deckcraft");
   });
 
+  it(".fcproj (FilmCraft 0.12.0 JSON): format + schema_version + project ok; other / truncated / empty rejected (#E9)", () => {
+    const good = '{"format":"filmcraft.project","schema_version":15,"generator":"FilmCraft 0.12.0","project":{"name":"p","items":{}}}';
+    ok(bytes(good), ".fcproj");
+    ok(bytes(`${good.slice(0, 30)}\n  ${good.slice(30)}\n`), ".fcproj");
+    ok(bytes('{"schema_version":15,"project":{"name":"p"},"format":"filmcraft.project"}'), ".fcproj");
+    bad(bytes("hello"), ".fcproj");
+    bad(bytes('["filmcraft.project"]'), ".fcproj");
+    bad(bytes('{"format":"other","schema_version":15,"project":{}}'), ".fcproj");
+    bad(bytes('{"format":"filmcraft.project","schema_version":15}'), ".fcproj");
+    bad(bytes('{"format":"filmcraft.project","schema_version":15,"project":{"name":'), ".fcproj");
+    bad(bytes(""), ".fcproj");
+  });
   it(".vectorcraft (VectorCraft 0.13.1 JSON): format + version ok; other JSON / truncated rejected", () => {
     ok(bytes('{\n  "format": "vectorcraft",\n  "version": 4,\n  "generator": "VectorCraft 0.13.1",\n  "document": {}\n}\n'), ".vectorcraft");
     bad(bytes('{"format": "other", "version": 1}'), ".vectorcraft");

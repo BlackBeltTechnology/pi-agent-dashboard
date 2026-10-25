@@ -115,6 +115,24 @@
       },
       {
         "slot": "editor-pane-file-handler",
+        "component": "FilmCraftHandler",
+        "module": "./src/client/handlers.tsx",
+        "id": "filmcraft",
+        "extensions": [
+          ".fcproj"
+        ],
+        "mode": "edit",
+        "label": "Edit in FilmCraft",
+        "keepAlive": {
+          "max": 3
+        },
+        "maxBytes": 134217728,
+        "firstOverwriteNotice": "FilmCraft does not report which file it opened. Check that it shows this file before overwriting. FilmCraft rewrites the project when it saves; media are delivered from the project's folder and keep their original paths. A copy is the safe way to compare.",
+        "copySuffix": "filmcraft",
+        "validator": true
+      },
+      {
+        "slot": "editor-pane-file-handler",
         "component": "CADCraftHandler",
         "module": "./src/client/handlers.tsx",
         "id": "cadcraft",

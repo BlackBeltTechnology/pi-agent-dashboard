@@ -187,11 +187,54 @@ sequenceDiagram
 
 ### Trust gate
 
-- Allowed: hub-local (device id `hub`), or remote paired device over TLS.
-- Remote delivery currently OFF. Hub cannot prove TLS: gateway is plain `ws`, TLS at proxy. `X-Forwarded-Proto` is client-settable, not evidence.
-- Remote sessions get `transport-insecure`. Hub-local unaffected.
-- Enabling remote needs gateway TLS termination or trusted-proxy allowlist. Follow-up change.
+- Hub observes proof itself. `decideVaultTrust` reads per-session channel record bound at register. Proxy-asserted headers (`X-Forwarded-Proto`) are never evidence.
+- Hub-local (device id `hub`) needs local admission: unix socket, local credential proof, or in-process connection.
+- Loopback address alone no longer qualifies (legacy token, tokenless grace, deviceless/device ticket). L4 forwarder looks identical. Cause `local-unproven`.
+- Remote paired device gets delivery only when ALL hold:
+  - upgrade arrived on hub's own TLS socket, no forwarding header (proven TLS, `isProvenTls`).
+  - ticket minted same way.
+  - device active (not revoked, held, expired).
+  - bearer never seen off a proven channel (exposure record `plaintextSeenAt`).
+  - bridge declares `certValidation: "enforced"`.
+  - `tls.enabled && tls.acceptBridges` live-true.
+- Proven channel = proven TLS, or valid local credential proof.
+- Bridges reach TLS listener at `/ws/bridge` only when `tls.acceptBridges` on (Gateway → Built-in HTTPS → Accept bridges). Default off. Ticket-only auth. Ticket-admitted connection always attributed to its device.
 - Refusal order: config switch → trust → vault health → project.
+
+#### Refusal causes (`trustDetail`)
+
+Session vault chip, token-issue dialog, server log show cause + fix.
+
+| `trustDetail` | Outcome | Fix |
+|---|---|---|
+| `unattributed` | `untrusted` | Connect as paired device: `PI_DASHBOARD_TOKEN`, tier `operate` |
+| `local-unproven` | `untrusted` | Update pi-dashboard on hub machine. Bridge must use local socket or local proof |
+| `device-inactive` | `untrusted` | Device revoked, held or expired. Pair again |
+| `plain-transport` | `transport-insecure` | Enable Built-in HTTPS + Accept bridges. `PI_DASHBOARD_URL=wss://<name>:<tlsPort>` |
+| `bearer-exposed` | `transport-insecure` | Token used without TLS. Issue new token from dashboard opened over HTTPS. Connect only over `wss` |
+| `history-unknown` | `transport-insecure` | Token predates TLS tracking. Issue new token as above |
+| `ticket-plain` | `transport-insecure` | Use `wss://` endpoint + `https://` `PI_DASHBOARD_HTTP_URL` |
+| `bridge-outdated` | `transport-insecure` | Update pi-dashboard on device. Bridge lacks `certValidation: "enforced"` |
+
+- Decision order: `unattributed` → `local-unproven` → `device-inactive` → `plain-transport` → `bearer-exposed` → `history-unknown` → `ticket-plain` → `bridge-outdated` → allow.
+- Outcome enum unchanged. `detail` optional, added.
+- Log: `[vault] trust session=<id> device=<prefix> outcome=<o> detail=<d>`. One line per change of outcome/detail, never per sync. No value, no bearer.
+- `/api/health` → `pairing.exposureWritePending: true` = exposure record write failed. Refuses ALL remote delivery (`bearer-exposed` marked device, `history-unknown` rest). Logged at error level.
+
+#### Deactivation withdraws
+
+- Registry `onChange` → `vaultDelivery.schedulePush()` (150 ms debounce). Affected sessions get `denied`. Bridge withdraws delivered values.
+- Revoke, hold, exposure → withdraw ≤ 5 s (~150 ms).
+- Expiry → withdraw ≤ 60 s. 30 s sweep pushes only when device left active set.
+- Accept bridges off (or `tls.enabled` off) → TLS-admitted bridge sockets closed, `denied` pushed.
+
+#### Non-goals
+
+- Proxy-terminated TLS (zrok, cloudflared, Tailscale Serve, anything adding a forwarding header) stays `plain-transport`.
+- TLS on `piPort` (`:9999`) listener. Not added.
+- Paired devices before this change read `history-unknown`. Need new token.
+
+See change: prove-vault-bridge-tls.
 
 ## 6. Offline grace, downgrade, emergency off
 

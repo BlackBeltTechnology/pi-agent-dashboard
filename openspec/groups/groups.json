@@ -164,6 +164,7 @@
   "assignments": {
     "external-dashboard-plugins": "next-phase",
     "automate-windows-remote-qa": "future",
+    "repair-windows-qa-suite": "future",
     "unify-pi-core-into-package-queue": "future",
     "spec-file-git-history-header": "future",
     "skip-rpc-probes-in-event-forwarder": "future",
@@ -620,6 +621,7 @@
       "spec-file-git-history-header",
       "skip-rpc-probes-in-event-forwarder",
       "automate-windows-remote-qa",
+      "repair-windows-qa-suite",
       "add-android-server-host",
       "add-release-video-pipeline"
     ],

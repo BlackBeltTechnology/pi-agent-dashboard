@@ -13,10 +13,12 @@ import type {
   FileHandlerSnapshot,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { DOWNLOAD_CONFIRM_MS } from "../shared/control-protocol.js";
+import { MediaBudget, type MediaRef, parseProject, planMedia, projectDirOf, restoreProject, rewriteProject } from "../shared/media-project.js";
 import { ControlHost, type SaveOutcome } from "./control-host.js";
 import { type OpenOutcome, reportCsp, reportTelemetry } from "./craft-api.js";
 import { CRAFT_WEB_APPS, type CraftWebApp } from "./craft-apps-table.js";
 import { downloadToDevice } from "./device-download.js";
+import { type ReadMedia, readMedia } from "./media-read.js";
 import type { Translate } from "./messages.js";
 import { baseName, routeSave, saveNameKey, siblingName, splitName } from "./save-routing.js";
 import type { SaveTarget } from "./save-target-store.js";
@@ -24,6 +26,8 @@ import { type HostMessage, parseShimMessage, type ShimMessage, safeNavigateUrl }
 
 export const READY_TIMEOUT_MS = 60_000;
 export const OPENED_TIMEOUT_MS = 15_000;
+/** Longest wait for one `open-media-ack` before the remaining media count as missing. */
+export const MEDIA_ACK_TIMEOUT_MS = 15_000;
 const BLOCKED_NOTICE_MS = 6_000;
 /** Per-mount CSP report budget: one POST per directive per window, bounded overall. */
 const CSP_WINDOW_MS = 10_000;
@@ -72,6 +76,8 @@ interface SessionUi {
   setExhausted(info: SiblingExhausted | null): void;
   setOffer(offer: DownloadOffer | null): void;
   setSaveError(message: string | null): void;
+  /** Media project: how many referenced media were not delivered (shown offline). */
+  setMediaMissing?(count: number): void;
   /** Live control: an export the agent triggered without user input asks before it downloads (D4). */
   setDownloadConfirm?(prompt: { name: string } | null): void;
 }
@@ -89,6 +95,8 @@ export interface SessionDeps {
   instanceId?: string;
   /** Installed web build version when known (a mismatch with the control profile's `verifiedVersion` → unsupported). */
   buildVersion?: string;
+  /** Workspace read of one referenced medium (test seam; default `GET /api/file/raw`). */
+  readMedia?: ReadMedia;
 }
 
 type SaveMsg = Extract<ShimMessage, { type: "save" }>;
@@ -124,6 +132,9 @@ export class FrameSession {
   /** Live agent control of this instance (policy, busy, replies, unsaved flag, save records). */
   readonly control: ControlHost;
   private downloadResolve: ((allow: boolean) => void) | null = null;
+  /** Media project: `/files/<name>` → original path string of every delivered medium (restored on save). */
+  private mediaMap: ReadonlyMap<string, string> | null = null;
+  private mediaAck: { name: string; resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(deps: SessionDeps) {
     this.d = deps;
@@ -170,6 +181,7 @@ export class FrameSession {
     this.saveAsResolve?.("cancel");
     this.siblingResolve?.("cancel");
     this.downloadResolve?.(false);
+    this.settleMediaAck(false);
     this.control.dispose();
     window.removeEventListener("message", this.listener);
     this.d.frame?.removeEventListener("load", this.loadListener);
@@ -237,6 +249,7 @@ export class FrameSession {
     this.saveAsResolve?.("cancel");
     this.siblingResolve?.("cancel");
     this.downloadResolve?.(false);
+    this.settleMediaAck(false);
     this.control.resetCaps();
     if (next === "reloaded") {
       this.d.ui.setLostEdits(this.reported !== false);
@@ -272,6 +285,8 @@ export class FrameSession {
         return this.onOpened(m.confirmed !== false);
       case "start-failed":
         return this.onStartFailed();
+      case "open-media-ack":
+        return this.settleMediaAck(true, m.name);
       case "dirty":
         return this.onDirty(m.value);
       case "save":
@@ -294,15 +309,72 @@ export class FrameSession {
     clearTimeout(this.readyTimer);
     this.d.ui.setPhase("opening");
     this.snapP?.then(
-      (snap) => this.postOpen(snap),
+      (snap) => (this.d.app.profile.mediaProject ? void this.openWithMedia(snap) : this.postOpen(snap.bytes)),
       (err: unknown) => this.onSnapshotError(err),
     );
   }
 
-  private postOpen(snap: FileHandlerSnapshot): void {
+  /**
+   * Media project: deliver the referenced media one at a time (read → `open-media` → ack), then the project
+   * with the delivered paths rewritten. Undeliverable media stay in the project unchanged and are counted.
+   * See change: add-craft-web-media-projects (D1, D2, D5, D6).
+   */
+  private async openWithMedia(snap: FileHandlerSnapshot): Promise<void> {
+    const mp = this.d.app.profile.mediaProject;
+    let bytes = snap.bytes;
+    const fh = this.d.fh();
+    const dir = projectDirOf(fh.cwd, fh.path);
+    const json = mp && dir !== null ? parseProject(new Uint8Array(snap.bytes), mp.projectMaxBytes) : null;
+    if (mp && json && dir !== null) {
+      const plan = planMedia(json, dir, fh.cwd, mp);
+      const budget = new MediaBudget(mp);
+      const read = this.d.readMedia ?? readMedia;
+      const delivered: MediaRef[] = [];
+      let missing = plan.missing;
+      for (let i = 0; i < plan.refs.length; i++) {
+        const ref = plan.refs[i];
+        const media = await read(fh.cwd, ref.readPath, budget.limit());
+        if (this.dropped) return;
+        if (!media || !budget.admit(media.byteLength)) {
+          missing++;
+          continue;
+        }
+        if (!(await this.postMedia(ref.vfsName, media))) {
+          if (this.dropped) return;
+          missing += plan.refs.length - i; // the app stopped answering: this and the rest stay offline
+          break;
+        }
+        delivered.push(ref);
+      }
+      const out = rewriteProject(json, delivered);
+      this.mediaMap = out.map;
+      bytes = out.bytes.slice().buffer as ArrayBuffer;
+      this.d.ui.setMediaMissing?.(missing); // also 0: a retry whose media are now online clears the old notice
+    }
+    this.postOpen(bytes);
+  }
+
+  /** One medium → `open-media`; resolves true on its ack, false on timeout or when the session ends. */
+  private postMedia(name: string, bytes: ArrayBuffer): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => this.settleMediaAck(false), MEDIA_ACK_TIMEOUT_MS);
+      this.mediaAck = { name, resolve, timer };
+      this.post({ type: "open-media", nonce: this.d.nonce, name, bytes }, [bytes]);
+    });
+  }
+
+  private settleMediaAck(ok: boolean, name?: string): void {
+    const a = this.mediaAck;
+    if (!a || (name !== undefined && name !== a.name)) return;
+    clearTimeout(a.timer);
+    this.mediaAck = null;
+    a.resolve(ok);
+  }
+
+  private postOpen(bytes: ArrayBuffer): void {
     if (this.dropped || this.openPosted) return;
     this.openPosted = true;
-    this.post({ type: "open", nonce: this.d.nonce, name: baseName(this.d.fh().path), bytes: snap.bytes }, [snap.bytes]);
+    this.post({ type: "open", nonce: this.d.nonce, name: baseName(this.d.fh().path), bytes }, [bytes]);
     this.openTimer = setTimeout(() => {
       if (this.opened) return;
       this.reportOutcome("timeout");
@@ -381,7 +453,16 @@ export class FrameSession {
     }
   }
 
+  /** Media project: put the original media path strings back into the saved bytes (design D4). */
+  private restoreMedia(m: SaveMsg): SaveMsg {
+    if (!this.mediaMap || this.mediaMap.size === 0) return m;
+    const input = new Uint8Array(m.bytes);
+    const out = restoreProject(input, this.mediaMap);
+    return out === input ? m : { ...m, bytes: out.slice().buffer as ArrayBuffer };
+  }
+
   private async routeAndSave(m: SaveMsg, mark: number): Promise<SaveOutcome> {
+    m = this.restoreMedia(m);
     const route = routeSave({
       suggestedName: m.suggestedName,
       tabPath: this.d.fh().path,

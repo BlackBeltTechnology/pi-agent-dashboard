@@ -59,7 +59,7 @@ function entrySubject(p: VaultProjectView): string | undefined {
 
 const blockedReason = (blocked: NonNullable<VaultProjectView["blocked"]>): string =>
   blocked === "transport-insecure"
-    ? i18nT("vault.blocked.transportInsecure", undefined, "Sessions on other devices get no keys yet: remote delivery is off (transport-insecure).")
+    ? i18nT("vault.blocked.transportInsecure", undefined, "This session has no proven TLS connection, so it gets no keys (transport-insecure).")
     : i18nT("vault.blocked.untrusted", undefined, "This session is not trusted, so it gets no keys.");
 
 function whereLine(p: VaultProjectView): string {

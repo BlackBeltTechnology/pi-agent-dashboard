@@ -17,6 +17,9 @@ import {
   TIERS,
   type Tier,
 } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { TLS_ONLY_TOKEN_PREFIX, isTlsOnlyToken } from "@blackbelt-technology/pi-dashboard-shared/tls-only-token.js";
+import { auditLine, auditPrefix } from "../auth/audit-log.js";
+import { type BearerChannel, isProvenChannel } from "../auth/proven-tls.js";
 import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
 const REGISTRY_FILENAME = "paired-devices.json";
@@ -67,12 +70,34 @@ export interface PairedDevice {
   previousHash?: string;
   /** End of the previous bearer's grace: `min(rotation + 60 s, its own expiresAt)`, epoch ms. */
   previousExpiresAt?: number;
+  /**
+   * Bearer exposure record. Absent on rows written before it existed
+   * (`history-unknown`). `plaintextSeenAt` is the first time the bearer was
+   * presented or handed out off a proven channel; it is permanent (never cleared).
+   * See change: prove-vault-bridge-tls (D4).
+   */
+  exposure?: { trackedSince: string; plaintextSeenAt?: string };
+}
+
+/** What the vault trust gate may do with a device. See change: prove-vault-bridge-tls (D4). */
+export type DeviceTrust = "eligible" | "inactive" | "exposed" | "history-unknown";
+
+/** Why an `add` was refused (no row is created). */
+export const BRIDGE_TOKEN_REQUIRES_HTTPS = "bridge_token_requires_https";
+
+export interface AddOptions {
+  /** The channel that DELIVERS the token. Absent = no exposure decision (QR `approve()`, collected later by `markDelivered`). */
+  channel?: BearerChannel;
+  /** `"bridge"` mints a TLS-only `pi_tls_` token and requires a proven channel. */
+  purpose?: "bridge";
 }
 
 /** Outcome of resolving a presented bearer against the in-memory registry. */
 export type BearerVerdict =
   | { status: "ok"; id: string; tier: Tier; superseded: boolean }
   | { status: "expired"; id: string }
+  /** A `pi_tls_` bearer presented off a proven channel: marked exposed, then refused. */
+  | { status: "tls_only_refused"; id: string }
   | { status: "invalid" };
 
 export type RotateResult =
@@ -85,7 +110,8 @@ export type RotateResult =
         | "superseded"
         | "holder_declaration_required"
         | "rate_limited"
-        | "persist_failed";
+        | "persist_failed"
+        | "tls_only_untrusted_channel";
       /** Device id when the bearer resolved to a row (for audit). */
       id?: string;
       retryAfterS?: number;
@@ -131,6 +157,9 @@ export class PairedDeviceRegistry {
   private lastPersistedAt = new Map<string, number>();
   /** Per-device epoch ms of recent successful rotations (sliding limiter; in-memory only). */
   private rotations = new Map<string, number[]>();
+  /** Device ids whose first-exposure mark has not reached the disk yet (in memory only). */
+  private pendingExposure = new Set<string>();
+  private listeners: Array<() => void> = [];
 
   constructor(filePath = defaultRegistryPath()) {
     this.filePath = filePath;
@@ -146,12 +175,81 @@ export class PairedDeviceRegistry {
 
   private persist(): void {
     writeJsonFile(this.filePath, this.devices);
+    // Every row (incl. any pending exposure mark) is on disk now.
+    this.pendingExposure.clear();
     // Enforce 0600 (json-store writes with default umask).
     try {
       fs.chmodSync(this.filePath, 0o600);
     } catch {
       /* best-effort; chmod is a no-op / may throw on some FS (e.g. Windows) */
     }
+  }
+
+  /** Subscribe to registry changes: add, revoke, rotation and a first exposure. Returns an unsubscribe. */
+  onChange(listener: () => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private emitChange(): void {
+    for (const l of [...this.listeners]) {
+      try {
+        l();
+      } catch {
+        /* a listener fault never reaches the registry */
+      }
+    }
+  }
+
+  /** True while a first-exposure write has not reached the disk (the hub cannot prove its record is durable). */
+  exposurePending(): boolean {
+    return this.pendingExposure.size > 0;
+  }
+
+  /**
+   * Record the first off-channel use of a tracked row's bearer. The in-memory mark is set BEFORE the
+   * write and stays when the write fails (fail closed while running); the next successful persist
+   * clears the pending state. Written once per row. Legacy rows (no `exposure`) are already
+   * `history-unknown` and are left alone.
+   */
+  private markExposed(row: PairedDevice, channel: BearerChannel): void {
+    if (isProvenChannel(channel) || !row.exposure || row.exposure.plaintextSeenAt) return;
+    row.exposure.plaintextSeenAt = new Date().toISOString();
+    this.pendingExposure.add(row.id);
+    auditLine("pairing", "bearer-exposed", { id: auditPrefix(row.id), channel });
+    try {
+      this.persist();
+    } catch (err) {
+      console.error(`[pairing] exposure write failed id=${auditPrefix(row.id)}: ${(err as Error)?.name ?? "error"}`);
+    }
+    this.emitChange();
+  }
+
+  /** Mark a collected token's delivery channel (QR/knock `poll()`); no re-mint, holder and expiry unchanged. */
+  markDelivered(id: string, channel: BearerChannel): void {
+    const row = this.devices.find((d) => d.id === id);
+    if (row) this.markExposed(row, channel);
+  }
+
+  /** Is `token` any bearer this registry knows (current, or previous within its grace)? No side effects. */
+  isKnownBearer(token: string | undefined | null): boolean {
+    return !!token && this.resolve(token, Date.now()).status !== "invalid";
+  }
+
+  /** Ids of devices that are not expired now (revoked rows are gone). Feeds the expiry sweep. */
+  activeIds(): Set<string> {
+    const now = Date.now();
+    return new Set(this.devices.filter((d) => this.currentVerdict(d, now).status === "ok").map((d) => d.id));
+  }
+
+  /** The vault's view of a device: active + tracked + never off a proven channel → `eligible`. */
+  deviceTrust(id: string | undefined): DeviceTrust {
+    const row = id ? this.devices.find((d) => d.id === id) : undefined;
+    if (!row || this.currentVerdict(row, Date.now()).status !== "ok") return "inactive";
+    if (!row.exposure) return "history-unknown";
+    return row.exposure.plaintextSeenAt ? "exposed" : "eligible";
   }
 
   /**
@@ -173,21 +271,31 @@ export class PairedDeviceRegistry {
     source: "pairing" | "manual" = "pairing",
     tier?: Tier,
     holder?: unknown,
+    opts: AddOptions = {},
   ): { device: PairedDeviceView; token: string; expiresAt?: number } {
     if (tier !== undefined && !isTier(tier)) {
       throw new Error(`invalid tier: ${String(tier)} (expected one of ${TIERS.join(", ")})`);
     }
-    const resolvedTier: Tier = tier ?? defaultTierForSource(source);
-    const token = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+    const bridge = opts.purpose === "bridge";
+    if (bridge && !(opts.channel && isProvenChannel(opts.channel))) throw new Error(BRIDGE_TOKEN_REQUIRES_HTTPS);
+    const resolvedTier: Tier = bridge ? "operate" : (tier ?? defaultTierForSource(source));
+    const token = (bridge ? TLS_ONLY_TOKEN_PREFIX : "") + crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+    const createdAt = new Date().toISOString();
     const device: PairedDevice = {
       id: crypto.randomUUID(),
       label: label.trim() || "device",
       tokenHash: hashToken(token),
-      createdAt: new Date().toISOString(),
+      createdAt,
       lastSeen: null,
       source,
       tier: resolvedTier,
+      exposure: { trackedSince: createdAt },
     };
+    // Issued over a non-proven channel: the row is born exposed (the bearer travelled in the clear).
+    if (opts.channel && !isProvenChannel(opts.channel)) {
+      device.exposure = { trackedSince: createdAt, plaintextSeenAt: createdAt };
+      auditLine("pairing", "bearer-exposed", { id: auditPrefix(device.id), channel: opts.channel });
+    }
     if (holder === "browser") {
       const now = Date.now();
       device.pairedAt = now;
@@ -195,6 +303,7 @@ export class PairedDeviceRegistry {
     }
     this.devices.push(device);
     this.persist();
+    this.emitChange();
     return {
       device: this.toView(device),
       token,
@@ -234,7 +343,7 @@ export class PairedDeviceRegistry {
    * after which it is plain `invalid` (indistinguishable from a never-issued
    * bearer). Constant-time hash comparison.
    */
-  private resolve(token: string, now: number): (BearerVerdict & { row?: PairedDevice }) {
+  private resolve(token: string, now: number): (Exclude<BearerVerdict, { status: "tls_only_refused" }> & { row?: PairedDevice }) {
     const presented = hashToken(token);
     for (const d of this.devices) {
       if (timingSafeEqualHex(presented, d.tokenHash)) {
@@ -250,7 +359,7 @@ export class PairedDeviceRegistry {
     return { status: "invalid" };
   }
 
-  private currentVerdict(d: PairedDevice, now: number): BearerVerdict & { row?: PairedDevice } {
+  private currentVerdict(d: PairedDevice, now: number): Exclude<BearerVerdict, { status: "tls_only_refused" }> & { row?: PairedDevice } {
     if (d.expiresAt !== undefined && d.expiresAt !== null) {
       let ceiling: number;
       if (d.pairedAt !== undefined && d.pairedAt !== null) {
@@ -272,11 +381,17 @@ export class PairedDeviceRegistry {
    * returns the verdict. The tier is read from the row on EVERY call (no
    * caching), so a tier change takes effect on the next request.
    */
-  verifyDetailed(token: string | undefined | null): BearerVerdict {
+  verifyDetailed(token: string | undefined | null, channel: BearerChannel): BearerVerdict {
     if (!token) return { status: "invalid" };
     const now = Date.now();
     const v = this.resolve(token, now);
-    if (v.status !== "ok") return v.status === "expired" ? { status: "expired", id: v.id } : v;
+    if (v.status === "invalid") return v;
+    // Any resolving row (ok, superseded, expired) presented off a proven channel is marked exposed, in memory first.
+    const row = this.devices.find((x) => x.id === v.id);
+    if (row) this.markExposed(row, channel ?? "plain");
+    // A TLS-only bearer is never honoured off a proven channel (the hub cannot tell a relayed request from a sniffed one).
+    if (isTlsOnlyToken(token) && !isProvenChannel(channel ?? "plain")) return { status: "tls_only_refused", id: v.id };
+    if (v.status !== "ok") return { status: "expired", id: v.id };
     const d = v.row as PairedDevice;
     if (!v.superseded) {
       // Update last-seen in memory always; persist to disk at most once per
@@ -297,8 +412,8 @@ export class PairedDeviceRegistry {
   }
 
   /** `{id, tier}` for a valid bearer (expired / unknown → null). */
-  verify(token: string | undefined | null): { id: string; tier: Tier } | null {
-    const v = this.verifyDetailed(token);
+  verify(token: string | undefined | null, channel: BearerChannel): { id: string; tier: Tier } | null {
+    const v = this.verifyDetailed(token, channel);
     return v.status === "ok" ? { id: v.id, tier: v.tier } : null;
   }
 
@@ -311,10 +426,15 @@ export class PairedDeviceRegistry {
    * converts only with `declaredBrowser` (30 d then counts from conversion).
    * Persist failure → in-memory state restored, `persist_failed`.
    */
-  rotate(token: string, declaredBrowser: boolean): RotateResult {
+  rotate(token: string, declaredBrowser: boolean, opts: { channel: BearerChannel } = { channel: "plain" }): RotateResult {
     const now = Date.now();
     const v = this.resolve(token, now);
     if (v.status === "invalid") return { ok: false, reason: "invalid" };
+    // The exposure mark is persisted on its own, BEFORE the rotation mutates anything, and a failed
+    // rotation never reverts it.
+    const marked = this.devices.find((x) => x.id === v.id);
+    if (marked) this.markExposed(marked, opts.channel);
+    if (isTlsOnlyToken(token) && !isProvenChannel(opts.channel)) return { ok: false, reason: "tls_only_untrusted_channel", id: v.id };
     if (v.status === "expired") return { ok: false, reason: "expired", id: v.id };
     if (v.superseded) return { ok: false, reason: "superseded", id: v.id };
     const row = v.row as PairedDevice;
@@ -334,7 +454,8 @@ export class PairedDeviceRegistry {
     const pairedAt = expiring ? (isValidMs(row.pairedAt) ? row.pairedAt : Date.parse(row.createdAt)) : now;
     const expiresAt = Math.min(now + BROWSER_BEARER_TTL_MS, pairedAt + BROWSER_BEARER_CEILING_MS);
     const before = { ...row };
-    const newToken = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+    // The new token keeps the old token's form.
+    const newToken = (isTlsOnlyToken(token) ? TLS_ONLY_TOKEN_PREFIX : "") + crypto.randomBytes(TOKEN_BYTES).toString("base64url");
     row.previousHash = row.tokenHash;
     row.previousExpiresAt = Math.min(now + ROTATION_GRACE_MS, isValidMs(row.expiresAt) ? row.expiresAt : Number.POSITIVE_INFINITY);
     row.tokenHash = hashToken(newToken);
@@ -349,6 +470,7 @@ export class PairedDeviceRegistry {
     }
     recent.push(now);
     this.rotations.set(row.id, recent);
+    this.emitChange();
     return { ok: true, id: row.id, token: newToken, expiresAt };
   }
 
@@ -358,7 +480,9 @@ export class PairedDeviceRegistry {
     this.devices = this.devices.filter((d) => d.id !== id);
     if (this.devices.length === before) return false;
     this.rotations.delete(id);
+    this.pendingExposure.delete(id);
     this.persist();
+    this.emitChange();
     return true;
   }
 

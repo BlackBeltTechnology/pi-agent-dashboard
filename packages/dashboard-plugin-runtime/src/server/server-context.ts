@@ -493,14 +493,15 @@ function isSafeEnvString(v: unknown): v is string {
 }
 
 /**
- * Keep a single `extensionConfig` value: a NUL-free string (verbatim) OR an
- * array of such strings (invalid elements dropped; the whole entry dropped
- * when nothing valid remains). Anything else ⇒ `undefined` (dropped).
+ * Keep a single `extensionConfig` value: a NUL-free string (verbatim, empty
+ * allowed) OR an array of NON-EMPTY NUL-free strings (invalid or empty
+ * elements dropped; the whole entry dropped when nothing valid remains).
+ * Anything else ⇒ `undefined` (dropped). See issue #972.
  */
 function sanitizeConfigValue(value: unknown): string | string[] | undefined {
   if (isSafeEnvString(value)) return value;
   if (Array.isArray(value)) {
-    const cleaned = value.filter(isSafeEnvString);
+    const cleaned = value.filter((e): e is string => isSafeEnvString(e) && e !== "");
     if (cleaned.length > 0) return cleaned;
   }
   return undefined;

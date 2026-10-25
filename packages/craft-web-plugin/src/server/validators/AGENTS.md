@@ -6,7 +6,8 @@ Worker-run (core validator pool), plain ESM, node built-ins only, reject-only, b
 |------|---------|
 | `dwg.mjs` | `validateDwg`: `AC10xx` at offset 0, R13–R2018 set (`AC1012 AC1014 AC1015 AC1018 AC1021 AC1024 AC1027 AC1032`), ≥ 128 bytes. |
 | `dxf.mjs` | `validateDxf`: binary sentinel `AutoCAD Binary DXF\r\n\x1a\0`; ASCII: first non-`999` pair `0/SECTION`, ≤256 head pairs with integer codes, tail ends `0/EOF`. Head ≤1 MiB, tail 4 KiB. |
-| `index.mjs` | Dispatcher. `ROUTES` ext → check (`.docx .xlsx .pptx` OOXML, `.odt`, `.rtf`, `.pdf`, `.dxf`, `.dwg`, `.designcraft`, `.scraftz`, `.deckcraft`, `.psd`, raster set, `.svg`, `.vectorcraft`); `validate(bytes, ext)` rejects unknown ext + empty bytes. Drift test pins every edit/sibling ext to a route. `index.d.mts` types. |
+| `index.mjs` | Dispatcher. `ROUTES` ext → check (`.docx .xlsx .pptx` OOXML, `.odt`, `.rtf`, `.pdf`, `.dxf`, `.dwg`, `.designcraft`, `.scraftz`, `.deckcraft`, `.psd`, raster set, `.svg`, `.vectorcraft`, `.fcproj`); `validate(bytes, ext)` rejects unknown ext + empty bytes. Drift test pins every edit/sibling ext to a route. `index.d.mts` types. |
+| `fcproj.mjs` | `validateFcproj`: FilmCraft 0.12.0 JSON — starts `{`; `"format":"filmcraft.project"`, `schema_version`, `"project":{` (any order) within 4 KiB; ends `}`. No JSON parse. See change: add-craft-web-media-projects. |
 | `odf-text.mjs` | `validateOdfText`: first member (local offset 0) STORED `mimetype` = `application/vnd.oasis.opendocument.text`, `content.xml` present. No XML parsed. |
 | `ooxml.mjs` | Moved from `server/ooxml-validator.mjs`, behaviour unchanged (edit-office-in-pane-with-craft-web D5); zip reading via `zip.mjs`. `ooxml.d.mts` types. |
 | `pdf.mjs` | `validatePdf`: `%PDF-1.[0-7]`/`2.0` in first 1 KiB, `%%EOF` in last 2 KiB. |

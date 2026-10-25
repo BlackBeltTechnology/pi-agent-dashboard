@@ -605,6 +605,8 @@ export function registerSessionStart(inst: BridgeInstance): void {
       // fresh session, did not.
       // See change: fix-tmux-session-shutdown-leak (D6).
       pid: process.pid,
+      // See change: prove-vault-bridge-tls (D7).
+      ...(inst.connection.certValidation ? { certValidation: "enforced" as const } : {}),
       // The spawn correlation token, echoed back so the server can match THIS
       // register to the spawn that produced it. This is a fresh session's FIRST
       // register, and it omitted the token entirely: tier-1 correlation never

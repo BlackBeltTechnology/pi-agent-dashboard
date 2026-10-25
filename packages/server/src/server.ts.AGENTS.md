@@ -35,6 +35,8 @@ See change: fix-trusted-network-tunnel-bypass — no-auth WS upgrade branch trus
 
 providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)` (behaviour unchanged). See change: promote-model-roles-settings.
 
+Wires registry `onChange` + expiry sweep → `vaultDelivery.schedulePush()`, hub channel/trust deps, gateway `onRoutingChanged`, `routeBridgeUpgrade` in `onUpgrade`, `tlsBridgesLive` live read. See change: prove-vault-bridge-tls.
+
 ## electron-runtime-overlay-updates
 
 D8: `PI_DASHBOARD_EXTENSION_DIR` (Electron) overrides `findBundledExtension` for boot self-registration; `extensionReloadGuard` wired via `wireEvents({onBridgeRegister})` → `dispatchReload`; logs `[runtime-overlay] bridge register … outcome=`. See change: electron-runtime-overlay-updates.

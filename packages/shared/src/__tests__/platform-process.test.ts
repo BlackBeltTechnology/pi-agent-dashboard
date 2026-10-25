@@ -153,7 +153,9 @@ describe("killProcess", () => {
 
   it("sends SIGTERM on Unix and reports clean stop when process dies", async () => {
     let aliveCount = 0;
-    const kill = vi.fn().mockImplementation((_pid, sig) => {
+    const kill = vi.fn().mockImplementation((pid, sig) => {
+      // Not a group leader: the -pid probe finds no group (#912).
+      if (pid < 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       // isProcessAlive pre-check (signal 0) must succeed once to enter the branch
       if (sig === 0) {
         aliveCount++;
@@ -169,7 +171,8 @@ describe("killProcess", () => {
   });
 
   it("forces SIGKILL when process survives SIGTERM", async () => {
-    const kill = vi.fn().mockImplementation((_pid, sig) => {
+    const kill = vi.fn().mockImplementation((pid, sig) => {
+      if (pid < 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" }); // not a group leader
       if (sig === 0) return; // always alive during polling
       if (sig === "SIGTERM" || sig === "SIGKILL") return;
     });
@@ -177,6 +180,58 @@ describe("killProcess", () => {
     expect(kill).toHaveBeenCalledWith(12345, "SIGKILL");
     expect(result).toEqual({ ok: true, forced: true });
   });
+});
+
+// \u2500\u2500 #912: killProcess targets the process group on Unix when pid leads one. \u2500\u2500
+describe("killProcess \u2014 group-aware on Unix (#912)", () => {
+  const esrch = () => Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+  /** Fake world: a group led by 4242 that dies on SIGTERM; our own pgid via injected `ps`. */
+  function world(ownPgid: string | Error) {
+    let groupUp = true;
+    const signals: Array<[number, unknown]> = [];
+    const kill = vi.fn((pid: number, sig: NodeJS.Signals | number) => {
+      if (sig !== 0) signals.push([pid, sig]);
+      if (!groupUp) throw esrch();
+      if (sig === "SIGTERM" || sig === "SIGKILL") groupUp = false;
+    });
+    const exec = vi.fn((cmd: string) => {
+      if (!/^ps -o pgid= -p \d+$/.test(cmd)) throw new Error(`unexpected exec ${cmd}`);
+      if (ownPgid instanceof Error) throw ownPgid;
+      return ownPgid;
+    });
+    return { kill, exec, signals };
+  }
+
+  it("pid leads a foreign group \u2192 SIGTERM goes to -pid", async () => {
+    const { kill, exec, signals } = world(" 777\n");
+    const result = await killProcess(4242, { platform: "linux", kill, exec, timeoutMs: 500 });
+    expect(signals).toEqual([[-4242, "SIGTERM"]]);
+    expect(result).toEqual({ ok: true, forced: false });
+  });
+
+  it("pid leads OUR own group \u2192 single-pid only (never signal our own group)", async () => {
+    const { kill, exec, signals } = world("4242\n");
+    await killProcess(4242, { platform: "darwin", kill, exec, timeoutMs: 500 });
+    expect(signals).toEqual([[4242, "SIGTERM"]]);
+  });
+
+  it("own pgid unknown (ps fails) \u2192 single-pid fallback", async () => {
+    const { kill, exec, signals } = world(new Error("no ps"));
+    await killProcess(4242, { platform: "linux", kill, exec, timeoutMs: 500 });
+    expect(signals).toEqual([[4242, "SIGTERM"]]);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("killProcess \u2014 real detached group (#912)", () => {
+  it("kills the leader AND a child that ignores SIGTERM", async () => {
+    const { leader, worker } = await spawnGroup(true);
+    // Do not assert `forced`: the worker may not have installed its SIGTERM trap yet
+    // on a slow runner. A single-pid kill never reaches the worker either way, so the
+    // worker being gone is what proves the group kill.
+    await killProcess(leader, { timeoutMs: 1000 });
+    expect(groupAlive(leader)).toBe(false);
+    expect(isProcessAlive(worker)).toBe(false);
+  }, 15_000);
 });
 
 describe("killPidWithGroup", () => {

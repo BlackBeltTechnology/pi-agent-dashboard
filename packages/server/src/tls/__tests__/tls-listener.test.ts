@@ -55,7 +55,7 @@ beforeEach(() => {
   requests = [];
   src = new FakeSource({ names: [] });
   registerCertSourceType({ type: "fake", defaultId: "fake", validate: () => null, create: () => src });
-  cfg = { enabled: true, port: 0, host: "127.0.0.1", sources: [{ type: "fake" }] };
+  cfg = { enabled: true, port: 0, host: "127.0.0.1", sources: [{ type: "fake" }], acceptBridges: false };
   listener = makeListener();
 });
 
@@ -77,7 +77,7 @@ async function up(names: string[]): Promise<number> {
 
 describe("#E1 disabled by default", () => {
   it("binds nothing and reports only {enabled,bound}", async () => {
-    cfg = { enabled: false, port: 0, host: "127.0.0.1", sources: [] };
+    cfg = { enabled: false, port: 0, host: "127.0.0.1", sources: [], acceptBridges: false };
     await listener.markReady();
     expect(listener.isBound).toBe(false);
     expect(listener.status(true)).toEqual({ enabled: false, bound: false });
@@ -87,7 +87,7 @@ describe("#E1 disabled by default", () => {
 
 describe("#E2 enabled without sources", () => {
   it("does not bind and reports the no-sources gate", async () => {
-    cfg = { enabled: true, port: 0, host: "127.0.0.1", sources: [] };
+    cfg = { enabled: true, port: 0, host: "127.0.0.1", sources: [], acceptBridges: false };
     await listener.markReady();
     expect(listener.isBound).toBe(false);
     const st = listener.status(true);
@@ -230,7 +230,7 @@ describe("#X1 bind failure is isolated and reported", () => {
     const blocker = net.createServer();
     await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", () => r()));
     const busy = (blocker.address() as net.AddressInfo).port;
-    cfg = { enabled: true, port: busy, host: "127.0.0.1", sources: [{ type: "fake" }] };
+    cfg = { enabled: true, port: busy, host: "127.0.0.1", sources: [{ type: "fake" }], acceptBridges: false };
     await listener.markReady();
     const st = listener.status(true);
     expect(st).toMatchObject({ enabled: true, bound: false });
@@ -263,7 +263,7 @@ describe("#X11 bind retried until the address exists", () => {
       return fake;
     }) as typeof https.createServer);
 
-    cfg = { enabled: true, port: 0, host: "127.0.0.1", sources: [{ type: "fake" }] };
+    cfg = { enabled: true, port: 0, host: "127.0.0.1", sources: [{ type: "fake" }], acceptBridges: false };
     await listener.markReady();
     expect(attempts).toBe(1);
     expect(listener.status(true)).toMatchObject({ bound: false, bindError: expect.stringContaining("EADDRNOTAVAIL") });
@@ -292,7 +292,7 @@ describe("#X11 bind retried until the address exists", () => {
 
 describe("#E22–#E25 endpoints", () => {
   async function upAdvertised(host: string, names: string[], advertise: boolean[] = names.map(() => true)): Promise<void> {
-    cfg = { enabled: true, port: 0, host, sources: [{ type: "fake" }] };
+    cfg = { enabled: true, port: 0, host, sources: [{ type: "fake" }], acceptBridges: false };
     src.namesValue = names;
     src.obtainImpl = async (name) => {
       const f = name === "*.b.test" ? fixture("b.test") : name === "*.example.com" ? fixture("wildcard.example.com") : fixture(name as "a.test");

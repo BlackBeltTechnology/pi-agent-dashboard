@@ -18,6 +18,8 @@ curl -s -X POST BASE/api/session/spawn -H 'Content-Type: application/json' -d '{
 
 Take `ID` from `GET /api/sessions`. Replace `BASE` with the literal URL every time.
 
+To be notified when a session asks a question or finishes a run instead of polling, use the `pi-dashboard-watch` skill.
+
 ## View a session in the browser
 
 To show a session to the user, list sessions and open that row's `uiUrl` (or `diffUrl` for the changes view) in your browser pane:

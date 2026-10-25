@@ -10,6 +10,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Added
+
+- **Edit FilmCraft projects (`.fcproj`) in the editor pane with their media.** The craft-web plugin now opens a
+  FilmCraft project together with the media it references from the project's own folder (up to 64 files, 64 MiB each,
+  256 MiB in total), shows how many media could not be delivered, and saves the project back with its original media
+  paths. EffectCraft projects stay unsupported (its web build cannot resolve project media yet).
+
 ### Security
 
 - **Plugin credentials and the credential vault are now encrypted at rest.** `~/.pi/agent/plugin-credentials.json`

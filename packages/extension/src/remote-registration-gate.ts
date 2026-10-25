@@ -13,7 +13,7 @@
  * See change: add-pi-gateway-transport-identity (D8), fix-remote-bridge-ticket-origin (D2).
  */
 import type { PinVerdict, ServerPin } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
-import { challengePinnedServer } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
+import { challengePinnedServer, TLS_VERIFY_ENV, tlsVerifyDisabled } from "@blackbelt-technology/pi-dashboard-shared/server-pinning.js";
 import { resolveDashboardHttpOrigin } from "./dashboard-http-origin.js";
 import type { PinnedServer, ServerPinStore } from "./server-pin-store.js";
 import { resolvePinForEndpoint } from "./server-pin-store.js";
@@ -49,8 +49,6 @@ export interface GateInput {
   challenge?: (baseUrl: string, pin: ServerPin) => Promise<PinVerdict>;
 }
 
-const defaultChallenge = (baseUrl: string, pin: ServerPin) => challengePinnedServer({ baseUrl, pin });
-
 /**
  * Decide whether this bridge may register over `endpoint`.
  *
@@ -85,7 +83,16 @@ export async function gateRemoteRegistration(input: GateInput): Promise<GateResu
   if (!origin.ok) {
     return { allow: false, cause: origin.cause, reason: `refused: ${origin.reason}` };
   }
-  const verdict = await (input.challenge ?? defaultChallenge)(origin.origin, pin);
+  // TLS origin with validation disabled in the process: no request at all (D7).
+  if (/^https:/i.test(origin.origin) && tlsVerifyDisabled(input.env)) {
+    return {
+      allow: false,
+      cause: "tls-verify-disabled",
+      reason: `refused: ${TLS_VERIFY_ENV}=0 disables certificate validation; ${origin.origin} is not contacted (trust a private CA with NODE_EXTRA_CA_CERTS instead)`,
+    };
+  }
+  const challenge = input.challenge ?? ((baseUrl: string, p: ServerPin) => challengePinnedServer({ baseUrl, pin: p, env: input.env }));
+  const verdict = await challenge(origin.origin, pin);
   return {
     allow: verdict.accept,
     cause: verdict.cause,

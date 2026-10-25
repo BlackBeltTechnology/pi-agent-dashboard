@@ -2,166 +2,240 @@
 
 ### Requirement: Remote QA harness location and structure
 
-The system SHALL provide a remote-Windows QA harness under `qa/remote/` consisting of a POSIX driver script and a set of PowerShell remote scripts. The harness MUST NOT modify any file outside `qa/remote/`, `qa/Makefile`, `qa/README.md`, or `.gitignore`.
+The system SHALL provide a remote-Windows QA harness under `qa/remote/` consisting of a POSIX driver `run.sh` and the PowerShell scripts `remote-preflight.ps1`, `remote-cycle.ps1` and `remote-clean.ps1`, plus `config.example.json` and `AGENTS.md`. `qa/remote/config.json`, `qa/remote/logs/` and `qa/remote/.known_hosts` SHALL be gitignored. The change SHALL NOT modify production source, build configuration or CI workflows.
 
-#### Scenario: Harness layout exists after change is applied
+#### Scenario: Harness layout exists after the change is applied
 - **WHEN** the change is applied to a clean checkout
-- **THEN** the following files exist:
-  - `qa/remote/run.sh` — orchestrator driver, executable
-  - `qa/remote/remote-clean.ps1`
-  - `qa/remote/remote-deploy-zip.ps1`
-  - `qa/remote/remote-deploy-portable.ps1`
-  - `qa/remote/remote-deploy-npm.ps1`
-  - `qa/remote/remote-run-tests.ps1`
-  - `qa/remote/config.example.json`
-- **AND** `qa/remote/config.json` and `qa/remote/logs/` are listed in `.gitignore`
+- **THEN** `qa/remote/run.sh` exists and is executable
+- **AND** `qa/remote/remote-preflight.ps1`, `qa/remote/remote-cycle.ps1`, `qa/remote/remote-clean.ps1`, `qa/remote/config.example.json` and `qa/remote/AGENTS.md` exist
+- **AND** `.gitignore` lists `qa/remote/config.json`, `qa/remote/logs/` and `qa/remote/.known_hosts`
 
-#### Scenario: Production code is untouched
-- **WHEN** the change is applied
-- **THEN** no files outside `qa/remote/`, `qa/Makefile`, `qa/README.md`, `.gitignore` are added or modified
+#### Scenario: Diff scope
+- **WHEN** the change is applied as a commit set
+- **THEN** every changed path matches one of `qa/remote/**`, `qa/tests/*.ps1`, `qa/Makefile`, `qa/README.md`, `qa/AGENTS.md`, `.gitignore`, `packages/shared/src/__tests__/qa-windows-ps1-compat.test.ts`, `packages/shared/src/__tests__/qa-remote-run-config.test.ts`, `openspec/changes/automate-windows-remote-qa/**`
 
-### Requirement: SSH transport with public-key auth
+### Requirement: SSH transport, script files only
 
-The harness SHALL drive the target Windows host exclusively via OpenSSH using public-key authentication. The harness MUST NOT require WinRM, PSRemoting, SMB shares, or password prompts.
+The harness SHALL drive the target exclusively via OpenSSH `ssh`/`scp` with public-key authentication, `BatchMode=yes`, `StrictHostKeyChecking=accept-new` and a repo-local `UserKnownHostsFile`. It SHALL NOT require WinRM, PSRemoting, SMB, a password prompt, or any particular OpenSSH `DefaultShell`. Every remote step SHALL run a script file via `powershell -NoProfile -ExecutionPolicy Bypass -File <script> <args>`, in the invocation form preflight selected; no inline remote commands.
 
-#### Scenario: SSH key path is read from config
-- **WHEN** the operator runs `qa/remote/run.sh`
-- **THEN** the driver reads `sshKey` from `qa/remote/config.json`
-- **AND** every `ssh` and `scp` invocation passes that key via `-i`
+#### Scenario: Key and options on every call
+- **WHEN** the driver performs any `ssh` or `scp` call
+- **THEN** it passes the configured `sshKey` via `-i`, the configured `sshPort` via `-p`/`-P`, and `-o BatchMode=yes -o StrictHostKeyChecking=accept-new`
 
-#### Scenario: No password prompt
-- **WHEN** the SSH key is valid and pre-installed in the target's `authorized_keys`
-- **THEN** the driver completes a full clean-deploy-test-clean cycle without any interactive prompt
+#### Scenario: Restricted execution policy on the target
+- **WHEN** the target's Windows PowerShell `LocalMachine` execution policy is `Restricted` (the Windows 10/11 client default)
+- **THEN** every harness phase still runs, because each remote script is launched with `-ExecutionPolicy Bypass -File`
 
-### Requirement: Configuration via `qa/remote/config.json`
+### Requirement: Orchestrator needs only stock tooling
 
-The harness SHALL read its configuration from `qa/remote/config.json`. A committed `qa/remote/config.example.json` SHALL document the schema. The real `config.json` MUST be gitignored.
+On the orchestrator, `run.sh` SHALL need only bash 3.2 or newer, `ssh`, `scp` and `node`. It SHALL NOT require `jq` or other extra tools.
 
-#### Scenario: Required fields are validated before any remote call
-- **WHEN** `qa/remote/run.sh` starts and `config.json` is missing or lacks `host`, `user`, `sshKey`, or `mode`
-- **THEN** the driver exits non-zero with a message naming the missing field
+#### Scenario: Stock macOS orchestrator
+- **WHEN** the driver runs under macOS `/bin/bash` 3.2 with no `jq` on `PATH`
+- **THEN** config parsing and validation work (config is read with `node -e`)
+
+### Requirement: Preflight selects an exit-code-preserving invocation form
+
+Before staging or cleaning, the driver SHALL copy `remote-preflight.ps1` into the remote user's home directory and run it. The script exits with the sentinel code 7. The driver SHALL first try the plain `-File` form. If it observes 1, it SHALL retry with the PowerShell-shell form (`…-File <script> <args>; exit $LASTEXITCODE`). It SHALL use whichever form returned 7 for every later remote call, and abort when neither does. Preflight SHALL abort when free space on `C:` is under 3 GB.
+
+#### Scenario: Stock cmd DefaultShell
+- **WHEN** the target uses its stock `cmd` default shell
+- **THEN** the plain form returns 7 and is used for the run
+
+#### Scenario: PowerShell DefaultShell (repo Packer image)
+- **WHEN** the target's OpenSSH `DefaultShell` is `powershell.exe`, as `qa/packer/scripts/provision-windows.ps1` sets it
+- **THEN** the plain form returns 1, the suffixed form returns 7, and the suffixed form is used for the run
+- **AND** a later script exiting with code 21 is observed by the driver as 21
+
+#### Scenario: Neither form relays
+- **WHEN** neither form returns 7
+- **THEN** the driver exits non-zero before any staging or clean step, printing both observed codes and naming `HKLM:\SOFTWARE\OpenSSH\DefaultShell`
+
+#### Scenario: Low disk
+- **WHEN** `C:` has less than 3 GB free
+- **THEN** preflight fails and nothing is staged or cleaned
+
+### Requirement: Configuration is validated before any remote call
+
+The driver SHALL read `qa/remote/config.json`, apply CLI overrides (`--mode`, `--artifact`, `--npm-version`), and validate the result before invoking `ssh` or `scp`. Every value that reaches a remote command line SHALL be checked against an allowlist or a regex.
+
+#### Scenario: Missing field
+- **WHEN** `config.json` is missing or lacks `host`, `user`, `sshKey` or `mode`
+- **THEN** the driver exits non-zero naming the missing field
 - **AND** no `ssh` or `scp` is invoked
 
-#### Scenario: Mode field selects deploy script
-- **WHEN** `config.json` has `mode: "zip"` (resp. `"portable"`, `"npm"`)
-- **THEN** the driver invokes `remote-deploy-zip.ps1` (resp. `-portable`, `-npm`) on the target
+#### Scenario: Unknown or retired mode
+- **WHEN** `mode` is `portable` or any value other than `zip`, `nsis`, `npm`
+- **THEN** the driver exits non-zero listing the three valid modes, without contacting the host
 
-#### Scenario: Unknown mode rejected
-- **WHEN** `config.json` has a `mode` value other than `zip`, `portable`, or `npm`
-- **THEN** the driver exits non-zero with a message listing the three valid modes
+#### Scenario: Artifact required for file-based modes
+- **WHEN** `mode` is `zip` or `nsis` and `artifactPath` is absent or does not exist locally
+- **THEN** the driver exits non-zero without contacting the host
 
-### Requirement: Three artifact deploy modes
+#### Scenario: npmVersion defaults and format
+- **WHEN** `mode = "npm"` and `npmVersion` is absent
+- **THEN** `latest` is used
+- **AND** any provided value must match `^(latest|next|[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?)$`
 
-The harness SHALL support three deploy modes, each producing a runnable dashboard server on the target host.
+#### Scenario: Injection-shaped value rejected
+- **WHEN** `npmVersion` is `1.0.0; Remove-Item C:\ -Recurse`, or the artifact basename contains a space, quote or `;`
+- **THEN** the driver exits non-zero before any `ssh` or `scp`
+
+### Requirement: Fresh staging tree per run
+
+The driver SHALL recreate `C:\pi-dashboard-qa\harness`, `tests`, `art` and `logs` on the target by running `remote-preflight.ps1 -Stage`, which takes no config-derived arguments. It SHALL do this before uploading `qa/remote/*.ps1` to `harness\`, `qa/tests/` to `tests\` and the artifact to `art\<basename>`.
+
+#### Scenario: Re-run does not nest uploaded trees
+- **WHEN** the harness runs twice in a row against the same host
+- **THEN** after the second staging, `C:\pi-dashboard-qa\tests\run-all.ps1` exists
+- **AND** `C:\pi-dashboard-qa\tests\tests` does not exist
+
+### Requirement: Single-session cycle per artifact mode
+
+The driver SHALL run deploy, health gate, suite and log capture in exactly one ssh invocation of `remote-cycle.ps1`, because processes started in an OpenSSH session on Windows are killed when that session ends. The health gate SHALL poll `http://127.0.0.1:<port>/api/health` for at most `healthTimeoutSec` seconds (config, default 180).
 
 #### Scenario: ZIP mode
-- **WHEN** `mode = "zip"` and `artifactPath` points to a valid `PI-Dashboard-win32-x64-*.zip`
-- **THEN** the driver scp's the ZIP to `C:\Temp\pi-dashboard-qa\`
-- **AND** `remote-deploy-zip.ps1` extracts it to `C:\Temp\pi-dashboard-test\`
-- **AND** launches `PI Dashboard.exe` from the extracted directory
-- **AND** confirms the server responds on `http://localhost:8000/api/health` within 60 s
+- **WHEN** `mode = "zip"` with an artifact `PI-Dashboard-win32-<arch>.zip`
+- **THEN** `remote-cycle.ps1` extracts it under `C:\pi-dashboard-qa\app\` and launches the contained `pi-dashboard.exe`
+- **AND** the health gate passes only when `/api/health` reports `launchSource = "electron"`
+- **AND** unless `--smoke-only`, the zip is staged at `C:\qa-artifacts\PI-Dashboard-win32-x64.zip`, the deployed app is stopped, and `tests\run-all.ps1` runs
 
-#### Scenario: Portable mode
-- **WHEN** `mode = "portable"` and `artifactPath` points to a valid `PI-Dashboard-portable.exe`
-- **THEN** the driver scp's the executable to `C:\Temp\pi-dashboard-qa\`
-- **AND** `remote-deploy-portable.ps1` launches it directly (no extraction step)
-- **AND** confirms the server responds on `http://localhost:8000/api/health` within 60 s
+#### Scenario: NSIS mode
+- **WHEN** `mode = "nsis"` with an artifact `PI-Dashboard-Setup-<v>-<arch>.exe`
+- **THEN** `remote-cycle.ps1` runs `windows-nsis-install.ps1 -Setup`, `windows-nsis-no-permachine.ps1`, `windows-nsis-branding.ps1 -Setup`, `windows-nsis-launch.ps1` and `windows-nsis-uninstall.ps1`, in that order
+- **AND** stops at the first non-zero script and exits with that script's code
 
-#### Scenario: NPM mode
-- **WHEN** `mode = "npm"` with optional `npmVersion` (default `latest`)
-- **THEN** `remote-deploy-npm.ps1` runs `npm i -g @blackbelt-technology/pi-dashboard@<npmVersion>`
-- **AND** runs `pi-dashboard start`
-- **AND** confirms the server responds on `http://localhost:8000/api/health` within 60 s
+#### Scenario: npm mode
+- **WHEN** `mode = "npm"` with `npmVersion = V`
+- **THEN** `remote-cycle.ps1` runs `npm i -g @blackbelt-technology/pi-agent-dashboard@V` and `pi-dashboard start`
+- **AND** the health gate passes only when `launchSource = "standalone"` and, if `V` is a semver, `version = V`
+- **AND** unless `--smoke-only`, it stops the server and runs `tests\run-all.ps1` with `QA_NPM_SPEC=@blackbelt-technology/pi-agent-dashboard@V`
 
-### Requirement: Idempotent remote cleanup
+#### Scenario: Exit codes
+- **WHEN** `remote-cycle.ps1` finishes
+- **THEN** it exits `0` on pass, `20` when deploy failed, `21` when the health gate timed out, `22` on bad arguments, and otherwise with the suite's exit code
 
-The `remote-clean.ps1` script SHALL leave the target host in a known-clean state regardless of prior state. The script MUST be safe to run repeatedly without error.
+#### Scenario: Smoke-only
+- **WHEN** the driver is given `--smoke-only`
+- **THEN** `remote-cycle.ps1` runs deploy and the health gate, skips the suite, and still writes logs and `summary.json`
 
-#### Scenario: Clean from running state
-- **WHEN** the dashboard server is currently running and ports 8000/9999 are in use
-- **AND** `remote-clean.ps1` is invoked
-- **THEN** processes named `PI Dashboard`, `pi-dashboard`, `node`, `electron` are stopped
-- **AND** any remaining process owning ports 8000 or 9999 is stopped
-- **AND** the script exits zero
+#### Scenario: Server started in an earlier ssh call is not relied on
+- **WHEN** any verdict-producing phase runs
+- **THEN** no phase depends on a process launched by a previous ssh invocation
 
-#### Scenario: Clean from already-clean state
-- **WHEN** no dashboard processes are running and no state directories exist
-- **AND** `remote-clean.ps1` is invoked
-- **THEN** the script exits zero with no errors and no warnings about missing items
+### Requirement: Logs and summary round-trip on every outcome
 
-#### Scenario: User state is fully removed
-- **WHEN** `remote-clean.ps1` runs successfully
-- **THEN** the following paths are absent on the target:
-  - `%USERPROFILE%\.pi`
-  - `%USERPROFILE%\.pi-dashboard`
-  - `%APPDATA%\pi-agent-dashboard`
-  - `%LOCALAPPDATA%\pi-agent-dashboard`
-- **AND** no `%LOCALAPPDATA%\Temp\*pi-dashboard*` or `*PI-Dashboard*` directories remain
+`remote-cycle.ps1` SHALL write into `C:\pi-dashboard-qa\logs\`: a PowerShell transcript, copies of `%USERPROFILE%\.pi\dashboard\server.log` and `%TEMP%\pi-dashboard-electron.log` when present, and a `summary.json` containing `mode`, `artifact`, `version`, `launchSource`, `healthSec`, `suiteRc`, `exitCode`, `startedAt` and `finishedAt`. The driver SHALL copy `logs\` to `qa/remote/logs/<host>-<UTC timestamp>/` from an exit trap, before post-clean, and print the local path.
 
-#### Scenario: Cleanup runs at start and end of every cycle
-- **WHEN** `qa/remote/run.sh` executes a full cycle
-- **THEN** `remote-clean.ps1` is invoked once before deploy and once after the test phase finishes
-- **AND** the post-run clean executes even if the test phase exits non-zero
+#### Scenario: Logs on failure
+- **WHEN** the cycle exits non-zero (deploy, health gate or suite)
+- **THEN** `qa/remote/logs/<host>-<timestamp>/summary.json` exists locally with the same `exitCode`
+- **AND** the driver prints that directory before exiting
 
-### Requirement: Test execution reuses existing PowerShell suite
+#### Scenario: One-time secrets are redacted
+- **WHEN** the Electron stdout log contains `http://localhost:8000/auth/local-proof?code=AbC123`
+- **THEN** the collected copy contains `local-proof?code=<redacted>` and not `AbC123`
 
-The harness SHALL run the existing `qa/tests/run-all.ps1` against the deployed install. The harness MUST NOT duplicate or modify test assertions defined in `qa/tests/`.
+#### Scenario: Unreachable host during collection
+- **WHEN** the host becomes unreachable after the cycle started
+- **THEN** the driver warns that collection failed and still exits with the cycle's code (or 255 when the cycle produced none)
 
-#### Scenario: Tests are scp'd before execution
-- **WHEN** `remote-run-tests.ps1` is about to run
-- **THEN** the contents of `qa/tests/` are copied to `C:\Temp\pi-dashboard-qa\tests\` on the target
-- **AND** `run-all.ps1` is invoked from that directory
+### Requirement: Idempotent, footprint-complete remote cleanup
 
-#### Scenario: Test exit code propagates
-- **WHEN** `qa/tests/run-all.ps1` exits with code N on the target
-- **THEN** `qa/remote/run.sh` exits with code N on the orchestrator (after log collection and post-clean)
+`remote-clean.ps1` SHALL return the target to a state with no pi-dashboard installation, process, listener or user state, regardless of prior state. It SHALL exit 0 when clean and 3 when residue remains, printing each residue item. It SHALL NOT delete `C:\pi-dashboard-qa\logs`.
 
-### Requirement: Log collection back to orchestrator
+#### Scenario: Clean from a running NSIS install
+- **WHEN** an NSIS per-user install is present and its app is running with ports 8000 and 9999 listening
+- **AND** `remote-clean.ps1` runs
+- **THEN** the app is stopped and the installer's own uninstaller runs silently
+- **AND** afterwards none of these remain: `%LOCALAPPDATA%\Programs\PI Dashboard`, `%LOCALAPPDATA%\@blackbelt-technologypi-dashboard-electron-updater`, `%APPDATA%\pi-dashboard`, `%USERPROFILE%\.pi`, `%USERPROFILE%\.pi-dashboard`, the Start-Menu and Desktop `PI Dashboard.lnk`, an HKCU Uninstall entry whose `DisplayName` is `PI Dashboard`, `HKCU:\Software\BlackBelt Technology`, a listener on 8000/8112/9999
+- **AND** the script exits 0
 
-The harness SHALL collect test and server logs from the target before the post-run cleanup deletes them.
+#### Scenario: Clean from an npm-global install
+- **WHEN** `@blackbelt-technology/pi-agent-dashboard` is installed globally and its server is running
+- **AND** `remote-clean.ps1` runs
+- **THEN** the server is stopped, the package is absent from `npm root -g`, and the script exits 0
 
-#### Scenario: Logs round-trip on success
-- **WHEN** the test phase exits zero
-- **THEN** `qa/remote/run.sh` scp's `C:\Temp\pi-dashboard-qa\logs\` to `qa/remote/logs/<host>-<timestamp>/` on the orchestrator before invoking post-clean
+#### Scenario: Clean from an already-clean host
+- **WHEN** nothing pi-dashboard related exists on the host
+- **AND** `remote-clean.ps1` runs three times in a row
+- **THEN** each run exits 0 and writes nothing to stderr
 
-#### Scenario: Logs round-trip on failure
-- **WHEN** the test phase exits non-zero
-- **THEN** logs are still collected to `qa/remote/logs/<host>-<timestamp>/` before post-clean
-- **AND** the orchestrator prints the local log path before propagating the non-zero exit
+#### Scenario: Cleanup brackets every cycle
+- **WHEN** `run.sh` executes a full cycle
+- **THEN** `remote-clean.ps1` runs once after preflight and staging and before the cycle, and once from the exit trap after log collection, even when the cycle failed
+- **AND** a passing cycle whose post-clean exits 3 makes the driver exit 3
 
-### Requirement: Makefile targets
+### Requirement: Makefile entry points
 
-`qa/Makefile` SHALL expose four targets that wrap the driver script.
+`qa/Makefile` SHALL expose `test-windows-remote-zip`, `test-windows-remote-nsis`, `test-windows-remote-npm` and `clean-windows-remote`. Each SHALL invoke `qa/remote/run.sh` and propagate its exit code. `test-windows-remote-nsis` SHALL keep its `SETUP=` guard. No `test-windows-remote-portable` target SHALL exist.
 
-#### Scenario: Mode-specific test targets
-- **WHEN** the operator runs `make -C qa test-windows-remote-zip` (resp. `-portable`, `-npm`)
-- **THEN** `qa/remote/run.sh` is invoked with the corresponding mode
-- **AND** the Makefile's exit code matches the driver's exit code
+#### Scenario: NSIS target wired to the harness
+- **WHEN** the operator runs `make -C qa test-windows-remote-nsis SETUP=path/to/PI-Dashboard-Setup-0.10.0-x64.exe`
+- **THEN** `qa/remote/run.sh --mode nsis --artifact <SETUP>` runs and make's exit code equals the driver's
 
-#### Scenario: Standalone clean target
+#### Scenario: NSIS target without SETUP
+- **WHEN** `SETUP` is not given
+- **THEN** make prints usage and exits 2 without contacting any host
+
+#### Scenario: Standalone clean
 - **WHEN** the operator runs `make -C qa clean-windows-remote`
-- **THEN** `remote-clean.ps1` is invoked on the configured host without any deploy or test step
+- **THEN** only preflight, staging and `remote-clean.ps1` run
 
-### Requirement: README documentation
+### Requirement: Windows QA scripts load under Windows PowerShell 5.1
 
-`qa/README.md` SHALL include a "Remote Windows host" section covering one-time setup, configuration, and troubleshooting.
+Every `qa/tests/*.ps1` and `qa/remote/*.ps1` file SHALL be UTF-8 with a byte-order mark. PowerShell web cmdlets (`Invoke-WebRequest`, `Invoke-RestMethod`) in those files SHALL NOT target `http://localhost`; they SHALL use `127.0.0.1`. `qa/tests/01-install.ps1` SHALL install `$env:QA_NPM_SPEC`, defaulting to `@blackbelt-technology/pi-agent-dashboard`. A vitest guard SHALL enforce all three on POSIX CI.
 
-#### Scenario: One-time setup is documented
-- **WHEN** the operator reads `qa/README.md` after the change is applied
-- **THEN** the section documents OpenSSH server enablement, firewall rule for port 22, public-key install in both per-user `authorized_keys` and `C:\ProgramData\ssh\administrators_authorized_keys`, and the `DefaultShell` registry tweak to PowerShell
+#### Scenario: Non-ASCII script without BOM is rejected
+- **WHEN** a `qa/tests/*.ps1` file is committed without a UTF-8 BOM
+- **THEN** `packages/shared/src/__tests__/qa-windows-ps1-compat.test.ts` fails and names the file
 
-#### Scenario: Config layout is documented
-- **WHEN** the operator reads `qa/README.md`
-- **THEN** the section documents the schema of `qa/remote/config.json` with one example per mode (zip, portable, npm)
+#### Scenario: localhost health probe is rejected
+- **WHEN** a `qa/tests/*.ps1` file contains `Invoke-WebRequest -Uri "http://localhost:8000/api/health"`
+- **THEN** the guard test fails and names the file and line
+- **AND** an `Origin: http://localhost:8000` header value does not trigger the guard
 
-#### Scenario: Troubleshooting covers AV quarantine and stale state
-- **WHEN** the operator reads `qa/README.md`
-- **THEN** the section calls out: portable.exe AV quarantine and the Defender exclusion path; the consequence of co-resident `node.exe` from other tools being killed; how to recover from a stuck SSH session.
+#### Scenario: Wrong npm package name is rejected
+- **WHEN** `qa/tests/01-install.ps1` installs `@blackbelt-technology/pi-dashboard` (no `-agent`)
+- **THEN** the guard test fails
 
-### Requirement: No production code changes
+### Requirement: README documents setup and destructive scope
 
-This change SHALL NOT modify any file under `src/`, `packages/`, `scripts/` (root), `forge.config.ts`, or any production configuration.
+`qa/README.md` SHALL include a "Remote Windows host" section that lets an operator set up a target, configure and run the harness, and troubleshoot it. The section SHALL warn that the target must be QA-dedicated.
 
-#### Scenario: Diff scope check
-- **WHEN** the change is applied as a single commit
-- **THEN** every changed path matches one of: `qa/remote/**`, `qa/Makefile`, `qa/README.md`, `.gitignore`, `openspec/changes/automate-windows-remote-qa/**`
+#### Scenario: Setup content
+- **WHEN** an operator reads the section
+- **THEN** it covers OpenSSH Server enablement, sshd start, the firewall rule, admin key placement in `C:\ProgramData\ssh\administrators_authorized_keys` with an Administrators+SYSTEM-only ACL (per-user `authorized_keys` for non-admins), and leaving `DefaultShell` unset
+
+#### Scenario: Usage and troubleshooting content
+- **WHEN** an operator reads the section
+- **THEN** it documents the config schema with one example per mode, the CLI flags, the log layout, and recovery from a preflight rc mismatch, a host-key change and residue exit 3
+
+#### Scenario: Destructive scope is explicit
+- **WHEN** an operator reads the section
+- **THEN** a bold warning states that cleanup deletes `%USERPROFILE%\.pi` and kills every `node.exe`, so the host must be QA-dedicated
+
+#### Scenario: Operator can set up a target from the README alone
+- **WHEN** an operator follows the section on a fresh Windows 11 machine
+- **THEN** `make -C qa clean-windows-remote` passes preflight without any step not written in the README
+
+### Requirement: One run per target at a time
+
+`remote-preflight.ps1 -Stage` SHALL refuse to stage while `C:\pi-dashboard-qa\.lock` exists and is younger than 2 hours. It SHALL then write the lock with the orchestrator's host name and a UTC timestamp. The driver SHALL remove the lock from its exit trap after post-clean. A lock older than 2 hours SHALL be treated as stale and replaced, with a warning.
+
+#### Scenario: Concurrent run refused
+- **WHEN** a second operator starts a run against a host whose lock is 10 minutes old
+- **THEN** the second driver exits non-zero, naming the lock owner and age, without cleaning or deploying anything
+
+#### Scenario: Stale lock replaced
+- **WHEN** the lock is older than 2 hours
+- **THEN** staging proceeds and prints a stale-lock warning
+
+### Requirement: Optional Mark-of-the-Web emulation
+
+With `--motw`, the harness SHALL write a `Zone.Identifier` alternate data stream (`ZoneId=3`) on the staged artifact before deploy, so Windows treats it like a browser download (SmartScreen and attachment-execution checks). Without `--motw`, the README SHALL state that scp'd artifacts carry no Mark-of-the-Web and therefore do not reproduce download-time SmartScreen behaviour.
+
+#### Scenario: MOTW applied
+- **WHEN** the driver runs with `--motw`
+- **THEN** `Get-Content <artifact> -Stream Zone.Identifier` on the target returns a block containing `ZoneId=3` before deploy starts
+- **AND** `summary.json` records `motw: true`
