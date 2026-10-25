@@ -9,7 +9,10 @@ import os from "node:os";
 import path from "node:path";
 import type { TlsConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WebSocket } from "ws";
+import { type ClientOptions, WebSocket } from "ws";
+
+/** `ws` passes these through to `https.request`; `servername` is the SNI name the fixture leaf is issued for. */
+type TlsClientOptions = ClientOptions & import("node:https").RequestOptions;
 import { mintBridgeTicket, WsTicketStore } from "../auth/ws-ticket.js";
 import { createPiGateway, type PiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
@@ -123,7 +126,8 @@ interface Outcome {
 /** Dial `/ws/bridge` over TLS (or plain) and report whether the upgrade was admitted or what status refused it. */
 function dial(ticket: string | null, via: "tls" | "plain" = "tls"): Promise<Outcome> {
   const url = via === "tls" ? `wss://127.0.0.1:${tlsPort}/ws/bridge` : `ws://127.0.0.1:${plainPort}/ws/bridge`;
-  const ws = new WebSocket(ticket ? `${url}?ticket=${ticket}` : url, via === "tls" ? { ca: CA_PEM, servername: NAME, checkServerIdentity: () => undefined } : {});
+  const tlsOptions: TlsClientOptions = { ca: CA_PEM, servername: NAME };
+  const ws = new WebSocket(ticket ? `${url}?ticket=${ticket}` : url, via === "tls" ? tlsOptions : {});
   clients.push(ws);
   const frames: any[] = [];
   ws.on("message", (raw) => frames.push(JSON.parse(String(raw))));
@@ -205,12 +209,12 @@ describe("E15 bridge admission over the TLS listener", () => {
     // Exercised end to end through the gateway's own hand-off: provenTls comes from `isProvenTls(req)`.
     const t = mintBridgeTicket(tickets, "dev-a", encrypted);
     const out = await new Promise<Outcome>((resolve) => {
-      const ws = new WebSocket(`wss://127.0.0.1:${tlsPort}/ws/bridge?ticket=${t}`, {
+      const forwardedOptions: TlsClientOptions = {
         ca: CA_PEM,
         servername: NAME,
-        checkServerIdentity: () => undefined,
         headers: { "x-forwarded-for": "198.51.100.7" },
-      });
+      };
+      const ws = new WebSocket(`wss://127.0.0.1:${tlsPort}/ws/bridge?ticket=${t}`, forwardedOptions);
       clients.push(ws);
       const frames: any[] = [];
       ws.once("open", () => resolve({ opened: true, ws, frames, closed: new Promise<void>((r) => ws.once("close", () => r())) }));

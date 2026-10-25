@@ -51,7 +51,7 @@ describe("vault delivery wiring", () => {
     // Hub vault delivery needs LOCAL admission (a verified local credential proof here), not just a loopback address.
     const bridgeProof = mintProof({
       token: readLocalTokenIfPresent() as string,
-      binding: canonicalBinding("127.0.0.1", server.piPort()),
+      binding: canonicalBinding("127.0.0.1", server.piPort() as number),
       purpose: BRIDGE_PURPOSE,
     });
     ws = new WebSocket(`ws://127.0.0.1:${server.piPort()}`, { headers: { [LOCAL_PROOF_HEADER]: bridgeProof.header } });
