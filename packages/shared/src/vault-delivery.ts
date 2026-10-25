@@ -36,6 +36,21 @@ export type VaultDeliveryOutcome =
   | "no-project"
   | "vault-unavailable";
 
+/**
+ * Which proof a refused remote session is missing (never a value). Carried on the
+ * session vault state next to `VaultDeliveryOutcome`, which is unchanged.
+ * See change: prove-vault-bridge-tls (D5, D8).
+ */
+export type VaultTrustDetail =
+  | "unattributed"
+  | "local-unproven"
+  | "device-inactive"
+  | "plain-transport"
+  | "bearer-exposed"
+  | "history-unknown"
+  | "ticket-plain"
+  | "bridge-outdated";
+
 // ── Env name rule ───────────────────────────────────────────────────────────
 //
 // One definition for the hub (at binding creation and snapshot building) and

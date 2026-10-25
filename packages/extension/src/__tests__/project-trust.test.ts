@@ -804,3 +804,42 @@ describe("remote live query targets the dashboard HTTP origin (fix-remote-bridge
     }
   });
 });
+
+describe("remote live query TLS checks (prove-vault-bridge-tls D7, D9)", () => {
+  const signal = () => new AbortController().signal;
+  const run = async (endpoint: string, env: Record<string, string>) => {
+    const fetchImpl = vi.fn(async () => ({ status: 404 }) as unknown as Response);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const query = createHttpLiveQuery({
+        endpoint: () => endpoint,
+        env: { PI_DASHBOARD_TOKEN: "plain-token", ...env },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      });
+      const out = await query({ cwdKey: "/x", remote: true, signal: signal() });
+      return { out, fetchImpl, lines: err.mock.calls.map((c) => c.join(" ")) };
+    } finally {
+      err.mockRestore();
+    }
+  };
+
+  it("validation disabled on a wss endpoint: no request, named cause", async () => {
+    const { out, fetchImpl, lines } = await run("wss://dash.example:8443", { NODE_TLS_REJECT_UNAUTHORIZED: "0" });
+    expect(out).toEqual({ kind: "error" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(lines.some((l) => l.includes("tls-verify-disabled"))).toBe(true);
+  });
+
+  it("a pi_tls_ token with a plaintext origin: no request, named cause, token never logged", async () => {
+    const { out, fetchImpl, lines } = await run("ws://dash.example:9999", { PI_DASHBOARD_TOKEN: "pi_tls_secret" });
+    expect(out).toEqual({ kind: "error" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(lines.some((l) => l.includes("tls-only-token"))).toBe(true);
+    expect(lines.join("\n")).not.toContain("pi_tls_secret");
+  });
+
+  it("plain ws with a plain token still queries while validation is disabled", async () => {
+    const { fetchImpl } = await run("ws://dash.example:9999", { NODE_TLS_REJECT_UNAUTHORIZED: "0" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

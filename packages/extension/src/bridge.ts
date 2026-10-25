@@ -1122,6 +1122,7 @@ function initBridge(pi: ExtensionAPI) {
   const vaultDelivery = createVaultDelivery({
     send: (m) => inst.connection.sendIfOpen(m),
     sessionId: () => inst.sessionId ?? "",
+    certValidation: () => inst.connection.certValidation,
     log: (line) => console.log(line),
   });
   inst.vaultDelivery = vaultDelivery;
@@ -1698,6 +1699,7 @@ function initBridge(pi: ExtensionAPI) {
                 source: "tui",
                 pid: process.pid,
                 provisional: true,
+                ...(targetManager?.certValidation ? { certValidation: "enforced" as const } : {}),
               });
             },
           });

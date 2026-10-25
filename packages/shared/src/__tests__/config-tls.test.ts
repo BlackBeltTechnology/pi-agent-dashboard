@@ -31,11 +31,11 @@ function write(value: unknown): void {
 describe("tls config loader", () => {
   it("absent block → disabled, port 8443, loopback host, no sources", () => {
     write({});
-    expect(loadConfig().tls).toEqual({ enabled: false, port: 8443, host: "127.0.0.1", sources: [] });
+    expect(loadConfig().tls).toEqual({ enabled: false, port: 8443, host: "127.0.0.1", sources: [], acceptBridges: false });
   });
 
   it("no config.json → same defaults", () => {
-    expect(loadConfig().tls).toEqual({ enabled: false, port: 8443, host: "127.0.0.1", sources: [] });
+    expect(loadConfig().tls).toEqual({ enabled: false, port: 8443, host: "127.0.0.1", sources: [], acceptBridges: false });
   });
 
   it("host is independent of bindHost", () => {
@@ -52,6 +52,7 @@ describe("tls config loader", () => {
       port: 9443,
       host: "100.83.0.1",
       sources: [{ type: "tailscale" }],
+      acceptBridges: false,
     });
   });
 
@@ -69,7 +70,13 @@ describe("parseTlsConfig tolerance", () => {
       port: 8443,
       host: "127.0.0.1",
       sources: [],
+      acceptBridges: false,
     });
+  });
+
+  it("acceptBridges is true only for the literal boolean true (a trust switch is never coerced)", () => {
+    expect(parseTlsConfig({ acceptBridges: true }).acceptBridges).toBe(true);
+    for (const v of ["true", 1, "yes", null, undefined]) expect(parseTlsConfig({ acceptBridges: v }).acceptBridges).toBe(false);
   });
 
   it("drops non-object source entries but keeps unknown-type objects (validated later)", () => {

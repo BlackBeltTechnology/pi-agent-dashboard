@@ -40,6 +40,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `plugin-credential-store.ts` | `createPluginCredentialStore(pluginId, path?)` over `~/.pi/agent/plugin-credentials.json`… → see `plugin-credential-store.ts.AGENTS.md` |
 | `plugin-server-trust.ts` | `isPluginServerTrusted(id, entries)` (entry with `server:true`), `readServerTrustEntries()` (loose read of… → see `plugin-server-trust.ts.AGENTS.md` |
 | `plugin-trust-store.ts` | The ONE reader/writer of `auth.trustedPlugins`. `readTrustedPlugins()` (typed, live), `findTrustEntry`,… → see `plugin-trust-store.ts.AGENTS.md` |
+| `proven-tls.ts` | Proven-TLS channel classifier. `isProvenTls(req)` = `socket.encrypted` and none of `PROVEN_TLS_DISQUALIFYING_HEADERS` (extended forwarding headers). `bearerChannelOf(req)` → `tls|local-proof|plain`; `isProvenChannel`. See change: prove-vault-bridge-tls. |
 | `provider-auth-adapter.ts` | `AuthInteraction` adapter + in-memory flow store. `notify` sets sticky `authUrl` / `device_code` pending /… → see `provider-auth-adapter.ts.AGENTS.md` |
 | `provider-auth-handlers.ts` | Barrel re-export: `OAuthRegistryEntry` type + `getOAuthRegistry` from `provider-auth-registry.ts`. Keeps the storage/routes import surface stable. → see `provider-auth-handlers.ts.AGENTS.md` |
 | `provider-auth-registry.ts` | OAuth provider registry built from the server's SINGLE `ModelRuntime`, injected via… → see `provider-auth-registry.ts.AGENTS.md` |

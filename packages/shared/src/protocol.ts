@@ -148,6 +148,12 @@ export interface SessionRegisterMessage {
   cwd: string;
   name?: string;
   source: SessionSource;
+  /**
+   * Declared by a bridge that enforced TLS certificate validation on this (TLS)
+   * connection. Absent on plain `ws`, the local socket and old bridges.
+   * See change: prove-vault-bridge-tls (D7).
+   */
+  certValidation?: "enforced";
   /** Bridge extension identity (D8). Absent on pre-overlay bridges. */
   extensionIdentity?: BridgeExtensionIdentity;
   model?: string;
@@ -907,6 +913,8 @@ export interface VaultSyncRequestMessage {
   origin?: string;
   tracked: string[];
   reason: "connect" | "startup" | "reload" | "new" | "resume" | "fork";
+  /** See `SessionRegisterMessage.certValidation`. See change: prove-vault-bridge-tls (D7). */
+  certValidation?: "enforced";
 }
 
 /**
@@ -923,6 +931,8 @@ export interface VaultSnapshotMessage {
   /** Present only when `status === "ok"`. */
   entries: Array<{ name: string; value: string }>;
   graceHours: number;
+  /** Which proof a refused (`denied`) session is missing; never a value. See change: prove-vault-bridge-tls (D8). */
+  trustDetail?: import("./vault-delivery.js").VaultTrustDetail;
 }
 
 /** Bridge → server: how each granted name was applied (names and outcomes only). */

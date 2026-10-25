@@ -4739,3 +4739,54 @@ Yes. `piTrustMirror.sources.yolo` default `true`. YOLO roots count as pi-trusted
 Turn off: `piTrustMirror.sources.yolo=false` in `~/.pi/dashboard/config.json`. Other live sources stay. Disable all live trust: `piTrustMirror.liveQuery=false`. Disable whole mirror: `piTrustMirror.enabled=false`.
 
 See change: mirror-dashboard-trust-live-remote.
+
+## How do I get vault keys on a paired device?
+
+Remote vault delivery needs hub-proven TLS. Bridge must connect to hub's native TLS listener. Full proof rules: [credential-vault.md](credential-vault.md) "Trust gate".
+
+Steps:
+1. Gateway page → Built-in HTTPS → switch on. Bind to reachable (non-loopback) host, e.g. Tailscale IP. Loopback bind = this machine only.
+2. Same page → switch on Accept bridges (`tls.acceptBridges`). Default off.
+3. Open dashboard over HTTPS (`https://<name>:<tlsPort>`). Token issue over plain HTTP refused (403 `bridge_token_requires_https`).
+4. Settings → device token → purpose "Bridge on another machine". Token prefix `pi_tls_`, tier `operate`.
+5. On device set `PI_DASHBOARD_TOKEN=<token>` and `PI_DASHBOARD_URL=wss://<name>:<tlsPort>`.
+6. Start pi. Session vault chip shows delivery state or named cause.
+
+Notes:
+- Bridge on hub host uses local unix socket. No token or TLS needed.
+- Device paired before this change reads `history-unknown`. Issue new token (step 4).
+- Token used once over plain `ws`/`http` reads `bearer-exposed`. Issue new token.
+- Proxy-terminated TLS (zrok, cloudflared) stays `plain-transport`. Connect to native listener.
+- Server log: `[vault] trust session=… device=… outcome=… detail=…`.
+- `/api/health` → `pairing.exposureWritePending: true` = all remote delivery refused until write recovers.
+
+See change: prove-vault-bridge-tls.
+
+## Bridge logs `tls-verify-disabled` — why does it refuse TLS?
+
+Bridge refuses `wss:` dial and `https:` credential calls (ticket mint, identity challenge, trust query) when `NODE_TLS_REJECT_UNAUTHORIZED=0` in its process. Sends no bearer. Checked at each call.
+
+Fix:
+- Unset `NODE_TLS_REJECT_UNAUTHORIZED`.
+- Private CA: `NODE_EXTRA_CA_CERTS=<ca.pem>`.
+
+Plain `ws://` / `http://` endpoints unaffected. Never vault-eligible.
+
+See change: prove-vault-bridge-tls.
+
+## Bridge logs `tls-only-token` / `tls-only-token-relayed` — what now?
+
+`pi_tls_` token = TLS-only. Bridge never sends it to non-`https` origin. Active MITM on plaintext path never sees it.
+
+`tls-only-token`:
+- Bridge would send `pi_tls_` token to non-`https` origin. Refused. No dial.
+- Fix: `PI_DASHBOARD_URL=wss://<name>:<tlsPort>` + `PI_DASHBOARD_HTTP_URL=https://<name>:<tlsPort>`.
+
+`tls-only-token-relayed`:
+- Hub answers 401 `tls_only_token_untrusted_channel`.
+- Request reached hub through HTTPS-terminating proxy (zrok, cloudflared, Tailscale Serve in front of `:8000`). Hub also marks token exposed.
+- Fix: connect to native TLS listener directly. Token marked exposed → issue new token over HTTPS.
+
+Other clients (MCP, curl) reusing `pi_tls_` token: hub refuses + marks on any non-proven channel. MCP and QR tokens stay plain.
+
+See change: prove-vault-bridge-tls.

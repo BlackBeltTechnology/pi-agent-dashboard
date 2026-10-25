@@ -14,3 +14,5 @@ See change: fix-replay-fabricates-orphan-end-for-live-calls — exports `isLive(
 `consumeSpawnToken` re-exported from `spawn-token.ts` (token scrubbed at activation, consumed once). See change: mirror-dashboard-trust-to-pi.
 
 `replaySessionEntries` marks every replayed `event_forward` `replay: true`. `branchFingerprint(sessionManager)` → `{eventCount,leafEntryId}` (last branch entry id). `sendStateSync(bc,getFlowsList,{liveTailOpen})` sends `leafEntryId` + `liveTailOpen`; `handleSessionChange` sends `liveTailOpen:false` and keeps its closed-tail replay. See change: fix-large-session-resume-replay.
+
+Declares `certValidation: "enforced"` on `session_register` when the TLS checks applied. See change: prove-vault-bridge-tls.

@@ -7,6 +7,7 @@
  *
  * See change: add-credential-vault (D6).
  */
+import type { VaultTrustDetail } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { getApiBase } from "../api/api-context.js";
 import { ApiHttpError, fetchJsonResponse } from "../api/fetch-json.js";
 import { t as i18nT } from "../i18n/i18n.js";
@@ -66,6 +67,8 @@ export interface SessionBindingState {
   bindings: SessionBindingRow[];
   lastContactAt?: number;
   outcome?: string;
+  /** Which proof a refused remote session is missing. See change: prove-vault-bridge-tls (D8). */
+  trustDetail?: VaultTrustDetail;
   project?: { deviceId: string; dir: string; repoKey?: string };
   /** Env-binding names with no grant for this session's project. Only sent to callers that may manage the vault. */
   ungranted?: string[];
