@@ -550,6 +550,7 @@
         "src/server/index.ts",
         "src/bridge/index.ts",
         "src/server/ooxml-validator.mjs",
+        "src/server/fixtures/fakecraft/fakecraft.js",
         "src/shim/craft-shim.js",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
@@ -749,6 +750,7 @@
       "entry": [
         "bin/pi-dashboard.mjs",
         "src/cli.ts",
+        "src/lib/grep-worker.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

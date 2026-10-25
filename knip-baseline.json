@@ -1,8 +1,8 @@
 {
-  "_comment": "Debt ceiling, not a target. Per-class so a drop in one class cannot mask a regression in another. Lower it as cleanup lands; raising it is rejected by `node scripts/knip-ratchet.mjs --check-baseline-diff`. Lowered by change close-e2e-tooling-followups (#510): config-gap roots (identity/identity-matrix playwright global setup/teardown, deck3d fixtures ignored), 5 dead files deleted, EmlPreview/PdfPreview duplicate aliases dropped, 10 unused exports un-exported. files 10->4, exports 234->231, types 193->189; duplicates stays 12. Established by change add-knip-dead-code-oracle.",
+  "_comment": "Debt ceiling, not a target. Per-class so a drop in one class cannot mask a regression in another. Lower it as cleanup lands; raising it is rejected by `node scripts/knip-ratchet.mjs --check-baseline-diff`. Lowered by change close-e2e-tooling-followups (#510): config-gap roots (identity/identity-matrix playwright global setup/teardown, deck3d fixtures ignored), 5 dead files deleted, EmlPreview/PdfPreview duplicate aliases dropped, 10 unused exports un-exported. files 10->4, exports 234->231, types 193->189; duplicates stays 12. Lowered by fix-knip-ratchet: grep-worker.ts and fakecraft.js (runtime-spawned by path) registered as knip entries, files 4->3. Established by change add-knip-dead-code-oracle.",
   "measuredAt": "2026-10-12",
   "counts": {
-    "files": 4,
+    "files": 3,
     "exports": 231,
     "types": 189,
     "duplicates": 12,
