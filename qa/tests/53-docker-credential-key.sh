@@ -45,6 +45,8 @@ cleanup() {
   compose down -v >/dev/null 2>&1 || true
   for c in "${EXTRA[@]:-}"; do [ -n "$c" ] && docker rm -f "$c" >/dev/null 2>&1 || true; done
   for v in "${EXTRA_VOLUMES[@]:-}"; do [ -n "$v" ] && docker volume rm -f "$v" >/dev/null 2>&1 || true; done
+  # `compose down -v` with no project containers left can keep the named volumes: drop them by name.
+  docker volume rm -f "${PROJECT}_pi-state" "${PROJECT}_pi-key" >/dev/null 2>&1 || true
 }
 EXTRA_VOLUMES=()
 trap cleanup EXIT
@@ -132,7 +134,7 @@ compose down >/dev/null 2>&1
 P83=$((PORT + 3)); G83=$((GATEWAY + 3))
 N83="${PROJECT}-e83"; EXTRA+=("$N83")
 docker run -d --name "$N83" -v "${PROJECT}_pi-state:/home/pi/.pi" -e PI_DASHBOARD_DATA_KEY_FILE=/run/k/key \
-  -e DASHBOARD_PORT="$P83" -e PI_GATEWAY_PORT="$G83" -e TUNNEL_ENABLED=0 -p "$P83:$P83" "$IMAGE" >/dev/null
+  -e DASHBOARD_PORT="$P83" -e PI_GATEWAY_PORT="$G83" -e TUNNEL_ENABLED=0 -e PI_DASHBOARD_HOST=0.0.0.0 -e PI_GATEWAY_TCP=1 -p "$P83:$P83" "$IMAGE" >/dev/null
 wait_health "$P83" || { docker logs "$N83" 2>&1 | tail -20; fail "E83: the dashboard never answered"; }
 docker exec "$N83" test -e /run/k/key && fail "E83: a key file appeared at the preset path"
 docker exec "$N83" test -e "$KEY_FILE" && fail "E83: a key file appeared at the default path"
@@ -146,7 +148,7 @@ echo "    env kept, nothing created, vault $ST"
 echo "--- E82: docker run without a /home/pi/.pi-key mount"
 P82=$((PORT + 2)); G82=$((GATEWAY + 2))
 N82="${PROJECT}-e82"; EXTRA+=("$N82")
-docker run -d --name "$N82" -e DASHBOARD_PORT="$P82" -e PI_GATEWAY_PORT="$G82" -e TUNNEL_ENABLED=0 -p "$P82:$P82" "$IMAGE" >/dev/null
+docker run -d --name "$N82" -e DASHBOARD_PORT="$P82" -e PI_GATEWAY_PORT="$G82" -e TUNNEL_ENABLED=0 -e PI_DASHBOARD_HOST=0.0.0.0 -e PI_GATEWAY_TCP=1 -p "$P82:$P82" "$IMAGE" >/dev/null
 wait_health "$P82" || { docker logs "$N82" 2>&1 | tail -20; fail "E82: /api/health did not answer 200"; }
 docker logs "$N82" 2>&1 | grep -q '/home/pi/.pi-key' || fail "E82: the log never names /home/pi/.pi-key"
 docker logs "$N82" 2>&1 | grep -q 'WARNING' || echo "    note: no WARNING line (volume not recognised as anonymous on this Docker); the log still names /home/pi/.pi-key"
