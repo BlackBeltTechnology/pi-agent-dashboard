@@ -62,4 +62,7 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   "src/__tests__/secret-rotation-concurrent.test.ts",
   // exec — E54 spawns a real node child and reads its env through a file.
   "src/services/__tests__/secrets.test.ts",
+  // exec — X6: two real node children race credential key creation on one HOME.
+  // See change: encrypt-credentials-at-rest.
+  "src/__tests__/credential-key-concurrent.test.ts",
 ];

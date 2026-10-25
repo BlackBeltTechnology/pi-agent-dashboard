@@ -50,6 +50,7 @@ Files in this directory. One row per source file.
 | `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` `requireLocalProof` defaults TRUE; parse is boolean-strict (missing/non-boolean → true). See change: close-container-loopback-impersonation (D1). |
 | `containment-guard.ts` | `containmentAllows(decision, resolved)`: sync, strict-equality path-bound predicate over the branded `PathDecision`; modelled as a `js/path-injection` barrier guard. See change: codeql-file-containment-barrier. |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
+| `credential-encryption.ts` | Import-free leaf. Keychain `CREDENTIAL_KEYCHAIN_SERVICE`/`_ACCOUNT`, `DATA_KEY_FILE_ENV`, `CredentialFileId`, envelope magic, `CredentialKeyFailureReason`/`CredentialLockReason`, `CREDENTIAL_REASON_REMEDY`, `credentialRemedy()`. See change: encrypt-credentials-at-rest. |
 | `cwd-guard.ts` | Plugin cwd guard: `isAllowedCwd`, async `admitCwd`. → see `cwd-guard.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
 | `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` |

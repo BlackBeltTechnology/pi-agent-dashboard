@@ -14,6 +14,10 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import type {
+  CredentialFileId,
+  CredentialLockReason,
+} from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
 
 const _require = createRequire(import.meta.url);
 const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
@@ -63,7 +67,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * would stall every HTTP request and WebSocket frame for the whole wait.
  * See change: fix-provider-auth-lock-contention.
  */
-async function acquireLock(
+export async function acquireLock(
   filePath: string,
   budgetMs: number,
   onCompromised: (err: Error) => void,
@@ -86,6 +90,34 @@ async function acquireLock(
   }
 }
 
+// ── Opt-in codec seam ─────────────────────────────────────────────────
+//
+// Only the two credential stores pass a codec (design D1); every other caller
+// keeps byte-identical plain-JSON behaviour. See change: encrypt-credentials-at-rest.
+
+/** What a codec makes of the bytes on disk. */
+export type CodecReadResult =
+  | { kind: "absent" }
+  /** `encrypted:false` = a valid plaintext JSON object (readable; encrypted by the next write). */
+  | { kind: "document"; data: Record<string, unknown>; encrypted: boolean }
+  /** An envelope this process cannot read. NEVER quarantined, NEVER overwritten. */
+  | { kind: "locked"; reason: CredentialLockReason }
+  | { kind: "corrupt" };
+
+/** Encode/decode seam for `readJsonChecked` / `writeJsonAtomic` / `withLockedJsonFile`. */
+export interface JsonFileCodec {
+  readonly fileId: CredentialFileId;
+  decode(bytes: Buffer): CodecReadResult;
+  /**
+   * Bytes to write for `data`. `existing` = the bytes currently on disk (if
+   * any). Throws (`code: "credential_locked"`) when no key is available or the
+   * existing bytes are a locked envelope: a locked file is never overwritten.
+   */
+  encode(data: unknown, existing?: Buffer): Buffer;
+  /** The key-failure reason while no key is available (writes are refused), else `undefined`. */
+  unavailableReason(): CredentialLockReason | undefined;
+}
+
 /** Rejects promise-like results at the type level (see `withLockedJsonFile`). */
 export type NotPromise<T> = T extends PromiseLike<unknown> ? never : unknown;
 
@@ -98,6 +130,11 @@ export interface LockedJsonFileOptions {
   logTag?: string;
   /** Abort the lock-retry wait. Checked before every attempt; never interrupts `fn`. */
   signal?: AbortSignal;
+  /**
+   * Credential codec. With one, no plaintext `{}` placeholder is pre-created:
+   * the file first appears already encoded, on the first successful write.
+   */
+  codec?: JsonFileCodec;
 }
 
 /**
@@ -117,13 +154,13 @@ export interface LockedJsonFileOptions {
 export async function withLockedJsonFile<T>(
   filePath: string,
   fn: () => T & NotPromise<T>,
-  { budgetMs = LOCK_RETRY_BUDGET_MS, createIfMissing = true, logTag = "locked-json", signal }: LockedJsonFileOptions = {},
+  { budgetMs = LOCK_RETRY_BUDGET_MS, createIfMissing = true, logTag = "locked-json", signal, codec }: LockedJsonFileOptions = {},
 ): Promise<T> {
   signal?.throwIfAborted();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   // With `realpath: false` proper-lockfile only `mkdir`s `<file>.lock`, so the
   // target need not exist; the placeholder is for interactive writers.
-  if (createIfMissing && !fs.existsSync(filePath)) {
+  if (createIfMissing && !codec && !fs.existsSync(filePath)) {
     // 0600 explicitly: without it the placeholder lands at 0666 & ~umask
     // (≈0644) and writeJsonAtomic's permission preservation carries that onto
     // every later write. See change: fix-corrupt-auth-json-500.
@@ -165,6 +202,10 @@ export interface CheckedJsonRead<T> {
   corrupt: boolean;
   /** A backup of these exact bytes exists on disk (this call, or a dedup hit). */
   quarantined: boolean;
+  /** Codec reads only: the file is an envelope this process cannot read. `data` is `{}`; nothing was quarantined. */
+  locked?: CredentialLockReason;
+  /** Codec reads only: `true` = decoded from an envelope, `false` = valid plaintext (to be encrypted by the next write). */
+  encrypted?: boolean;
 }
 
 /** In-process dedup of quarantined content: path → sha256 hex set, recorded only on a successful copy. */
@@ -239,6 +280,7 @@ function parseJsonObject(raw: string, name: string): Record<string, unknown> {
 export function readJsonChecked<T extends object = Record<string, unknown>>(
   filePath: string,
   logTag = "locked-json",
+  codec?: JsonFileCodec,
 ): CheckedJsonRead<T> {
   let bytes: Buffer;
   try {
@@ -246,6 +288,14 @@ export function readJsonChecked<T extends object = Record<string, unknown>>(
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { data: {} as T, corrupt: false, quarantined: false };
     throw err;
+  }
+  if (codec) {
+    const out = codec.decode(bytes);
+    if (out.kind === "document") return { data: out.data as T, corrupt: false, quarantined: false, encrypted: out.encrypted };
+    if (out.kind === "locked") return { data: {} as T, corrupt: false, quarantined: false, locked: out.reason };
+    if (out.kind === "absent") return { data: {} as T, corrupt: false, quarantined: false };
+    // corrupt: today's byte-exact quarantine
+    return { data: {} as T, corrupt: true, quarantined: quarantineCorruptFile(filePath, bytes, logTag) };
   }
   try {
     return { data: parseJsonObject(bytes.toString("utf-8"), path.basename(filePath)) as T, corrupt: false, quarantined: false };
@@ -294,10 +344,22 @@ export function corruptUnbackedRefusal(filePath: string): Error {
  * Atomic tmp+rename write. Preserves the existing mode with group/world bits
  * cleared, or 0600 for a new file; `forceMode` overrides (corrupt-file repair).
  */
-export function writeJsonAtomic(filePath: string, data: unknown, forceMode?: number): void {
+export function writeJsonAtomic(filePath: string, data: unknown, forceMode?: number, codec?: JsonFileCodec): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmp = filePath + ".tmp";
-  const content = JSON.stringify(data, null, 2) + "\n";
+  const tmp = `${filePath}.tmp`;
+  let content: string | Buffer;
+  if (codec) {
+    let existing: Buffer | undefined;
+    try {
+      existing = fs.readFileSync(filePath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    // Throws before any byte is written when no key is available or the file is a locked envelope.
+    content = codec.encode(data, existing);
+  } else {
+    content = `${JSON.stringify(data, null, 2)}\n`;
+  }
 
   let mode = 0o600;
   if (forceMode !== undefined) {
