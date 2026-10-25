@@ -41,6 +41,16 @@ function oneProfile(p: CraftAppProfile): string[] {
     for (const sc of c.saveCommands) if (!allowed.has(sc)) at(`control saveCommands lists ${sc}, which is not in allowedCommands`);
     for (const r of c.readOnlyCommands) if (!allowed.has(r)) at(`control readOnlyCommands lists ${r}, which is not in allowedCommands`);
   }
+  if (p.mediaProject) {
+    const m = p.mediaProject;
+    const edit = p.claims.find((cl) => cl.mode === "edit" && cl.extensions.includes(`.${m.format}`));
+    if (!edit) at(`mediaProject needs an edit claim for .${m.format}`);
+    for (const k of ["projectMaxBytes", "mediaMaxBytes", "mediaMaxTotalBytes", "mediaMaxFiles"] as const) {
+      if (!Number.isInteger(m[k]) || m[k] < 1) at(`mediaProject ${k} ${m[k]} must be a positive integer`);
+    }
+    if (edit && m.projectMaxBytes > edit.maxBytes) at(`mediaProject projectMaxBytes ${m.projectMaxBytes} exceeds claim ${edit.id} maxBytes`);
+    if (m.mediaMaxBytes > m.mediaMaxTotalBytes) at("mediaProject mediaMaxBytes exceeds mediaMaxTotalBytes");
+  }
   for (const c of p.claims) {
     if (c.maxBytes > HANDLER_MAX_BYTES) at(`claim ${c.id} maxBytes ${c.maxBytes} exceeds HANDLER_MAX_BYTES`);
     for (const e of [...c.extensions, ...(c.siblingExtensions ?? [])]) if (!EXT_RE.test(e)) at(`claim ${c.id} extension "${e}" is not lower-case with a leading dot`);

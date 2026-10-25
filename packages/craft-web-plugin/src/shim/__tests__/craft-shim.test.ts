@@ -34,6 +34,7 @@ interface FrameProfile {
   cleanOnAckedSave: boolean;
   saveName: "stem" | "inner-title";
   control?: { kind: "page-api" | "page-command"; global: string };
+  mediaProject?: true;
 }
 interface ShimModule {
   SHIM_VERSION: number;
@@ -1053,7 +1054,7 @@ describe("shim v3 live control", () => {
     document.body.innerHTML = "<canvas></canvas>";
     window.dispatchEvent(new Event("TrunkApplicationStarted"));
     await vi.advanceTimersByTimeAsync(100); // fake timers also fake requestAnimationFrame
-    expect(sent("ready")).toEqual([{ type: "ready", nonce: NONCE, shimVersion: 3, control: true }]);
+    expect(sent("ready")).toEqual([{ type: "ready", nonce: NONCE, shimVersion: 4, control: true }]);
     const ws = await (await w.showSaveFilePicker({ suggestedName: "a.txt" })).createWritable();
     await ws.write(new Uint8Array([1]));
     void ws.close();
@@ -1071,5 +1072,89 @@ describe("shim v3 live control", () => {
     const after = sent("save")[1].msSinceInput;
     expect(after).toBeGreaterThanOrEqual(500);
     expect(after).toBeLessThan(1500);
+  });
+});
+
+describe("open-media (add-craft-web-media-projects #F1 #F2 #F3 #F4)", () => {
+  const FILM: FrameProfile = { appId: "filmcraft", title: null, openedFallbackMs: 5000, cleanOnAckedSave: true, saveName: "stem", mediaProject: true };
+  const PLAIN: FrameProfile = { ...FILM, appId: "pdfcraft", mediaProject: undefined };
+  let dropped: string[];
+  const onDrop = (e: any) => dropped.push(e.dataTransfer?.files?.[0]?.name);
+  const profiled = (p: FrameProfile) => {
+    shim.dispose();
+    shim = mod.createShim(window, document, { isTrusted: (e) => (e as any).__trusted === true, profile: p });
+    shim.start();
+  };
+  const media = (name: string) => hostSend({ type: "open-media", nonce: NONCE, name, bytes: bytesOf(1, 2) });
+  const acks = () => sent("open-media-ack").map((m) => m.name);
+  beforeEach(() => {
+    document.body.innerHTML = "<canvas></canvas>";
+    dropped = [];
+    window.addEventListener("drop", onDrop);
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    window.removeEventListener("drop", onDrop);
+    vi.useRealTimers();
+  });
+
+  it("#F1 one drop and one ack per medium, in order; the project drop is last and not delayed again", async () => {
+    profiled(FILM);
+    media("a.mp4");
+    await vi.advanceTimersByTimeAsync(3100); // no title signal: first drop waits the fallback delay
+    await settleDrop();
+    expect(dropped).toEqual(["a.mp4"]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(acks()).toEqual(["a.mp4"]);
+    media("b.wav");
+    await settleDrop();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(dropped).toEqual(["a.mp4", "b.wav"]);
+    expect(acks()).toEqual(["a.mp4", "b.wav"]);
+    hostSend({ type: "open", nonce: NONCE, name: "p.fcproj", bytes: bytesOf(1) });
+    await settleDrop(); // the gate is already open: no second 3 s wait
+    expect(dropped).toEqual(["a.mp4", "b.wav", "p.fcproj"]);
+    expect(sent("blocked")).toHaveLength(0);
+  });
+
+  it("#F2 media drops alone never report the document opened, even past openedFallbackMs", async () => {
+    profiled(FILM);
+    media("a.mp4");
+    await vi.advanceTimersByTimeAsync(3100);
+    await settleDrop();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(dropped).toEqual(["a.mp4"]);
+    expect(sent("opened")).toHaveLength(0);
+    hostSend({ type: "open", nonce: NONCE, name: "p.fcproj", bytes: bytesOf(1) });
+    await settleDrop();
+    await vi.advanceTimersByTimeAsync(5100);
+    expect(sent("opened")).toHaveLength(1);
+  });
+
+  it("#F3 an app without mediaProject ignores open-media; a wrong nonce or source is ignored too", async () => {
+    profiled(PLAIN);
+    media("a.mp4");
+    await vi.advanceTimersByTimeAsync(4000);
+    await settleDrop();
+    profiled(FILM);
+    hostSend({ type: "open-media", nonce: "bad", name: "x.mp4", bytes: bytesOf(1) });
+    hostSend({ type: "open-media", nonce: NONCE, name: "y.mp4", bytes: bytesOf(1) }, null);
+    await vi.advanceTimersByTimeAsync(4000);
+    await settleDrop();
+    expect(dropped).toEqual([]);
+    expect(acks()).toEqual([]);
+  });
+
+  it("#F4 a trusted user drop during media delivery is still refused; the host drop still lands", async () => {
+    profiled(FILM);
+    media("a.mp4");
+    const ev = trusted(new Event("drop", { bubbles: true, cancelable: true }));
+    Object.defineProperty(ev, "dataTransfer", { value: { files: [new File([new Uint8Array(1)], "evil.mp4")], types: ["Files"] } });
+    document.querySelector("canvas")!.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(sent("blocked").map((m) => m.what)).toEqual(["drop-files"]);
+    await vi.advanceTimersByTimeAsync(3100);
+    await settleDrop();
+    expect(dropped).toEqual(["a.mp4"]);
   });
 });

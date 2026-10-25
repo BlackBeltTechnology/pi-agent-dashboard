@@ -12,19 +12,26 @@ Result: no claim ships in `extend-craft-web-to-all-apps`. This change owns the f
 
 ## What Changes
 
-- Spike first, with a project built from scratch (not the demo): push the referenced media (session-cwd confined, size-bounded) before the project, then open the project; for EffectCraft use `addFile`.
-- If media resolve: a profile option for host-pushed sibling media (shim: more than one drop per mount; host: resolve and read referenced files under the project folder), FilmCraft/EffectCraft edit claims for `.fcproj` / `.ecproj` with validators, and per-app e2e rows.
-- If not: record a no-go and upstream asks (a project-load API that accepts media).
+Spike done 2026-10-25 (details in `design.md` Context):
+
+- **FilmCraft: go.** A from-scratch `.fcproj` resolves its media when they are dropped first and the project names them `/files/<name>`; absolute or relative paths stay offline.
+- **EffectCraft: no-go here.** `.ecproj` drops are not opened, and `file.importProject` reports media missing even when the media were added with `addFile`. Upstream ask recorded; no claim.
+
+Scope:
+
+- A profile option for host-delivered media (shim: several drops per mount; client: resolve + read referenced media through `/api/file/raw`, rewrite paths to `/files/<name>` on open, restore them on save).
+- A FilmCraft `.fcproj` edit claim with a validator, bounds on media count and size, and per-app e2e rows.
+- Modifies the claims table (adds `.fcproj`; `.ecproj` stays unclaimed).
 
 ## Capabilities
 
 ### Modified Capabilities
 
-- `craft-web-editor`: media-project claims (only after the spike passes).
+- `craft-web-editor`: FilmCraft `.fcproj` claim, media-project open and save requirements.
 
 ## Impact
 
-`packages/craft-web-plugin` (profiles, shim, host), possibly core read limits for pushed media. No change ships before the spike result.
+`packages/craft-web-plugin` (profiles, shim, host), possibly core read limits for pushed media. The spike gaps in design.md (sandboxed re-run, save round trip, name collisions) are tasks 1.x and gate the rest.
 
 ## Discipline Skills
 

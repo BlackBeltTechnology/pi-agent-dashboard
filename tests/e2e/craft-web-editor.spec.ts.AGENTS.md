@@ -9,3 +9,5 @@ Shim-driven steps (F3 Save As, F4 Export PDF, F6 link, F8 open) call shim-stubbe
 F5: both frame fetches reject; server-side signal = status `apps.wordcraft.cspViolations` grows. F9 `webgl` leg hides `Navigator.prototype.gpu` via `addInitScript`; both legs assert IndexedDB refused. P1/P2 measure-only (console.log + `test.info().annotations`).
 
 Summary (moved from directory AGENTS.md row): L3 WordCraft F1–F9, X7, P1/P2.
+
+FilmCraft media project (add-craft-web-media-projects): `MEDIA_ROW` (not in `ROWS`) + `describe("craft-web FilmCraft media project …")` — X1 (missing medium counted, save keeps both original paths), X2 (`../secret.txt` never requested via `/api/file/raw`), R1 (round trip: FilmCraft JSON, original paths, no document data in URL), P1 (one tab, 3 × 64 MiB zero-filled stand-ins delivered, no crash; 4 do not fit the 256 MiB `/fixtures` tmpfs; the two-tab/keepAlive case stays manual). Fixtures `docker/fixtures/sample-git/craft/story.fcproj` + `clips/a.mp4`, seeded to the workspace root and `clips/`; cleaned in `afterEach`. Selector `craft-media-missing`.
