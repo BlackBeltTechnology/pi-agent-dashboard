@@ -146,6 +146,7 @@ import {
   type CoreWsRouteScope,
   extractTicket,
   isCoreWsRouteScope,
+  mintBridgeTicket,
   routeScopeForUrl,
   setPluginScopeResolver,
   type WsRouteScope,
@@ -249,6 +250,10 @@ import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
+import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
+import { createDeviceTokenServices } from "./pairing/device-token-services.js";
+import { onTlsBridgeSwitchChanged, routeBridgeUpgrade } from "./tls/tls-bridge-route.js";
+import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { stampSocketLocality } from "./pairing/socket-locality.js";
@@ -1284,7 +1289,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   /** This process's place in the per-HOME rendezvous (task 2.0a). */
   let homeRendezvous: import("./lifecycle/home-rendezvous.js").HomeRendezvous | null = null;
 
+  /** Live `tls.enabled && tls.acceptBridges`: the one read behind bridge routing, vault trust and the switch hook. */
+  const tlsBridgesLive = (): boolean => {
+    const live = loadConfig().tls;
+    return live.enabled && live.acceptBridges;
+  };
+  // The vault hub is created further down; the gateway reports routing changes through this late binding.
+  let onVaultRoutingChanged: ((sessionId: string, declared?: { certValidation?: "enforced" }) => void) | undefined;
   const piGateway = createPiGateway(sessionManager, {
+    onRoutingChanged: (sessionId, declared) => onVaultRoutingChanged?.(sessionId, declared),
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
     // The identity a move TARGET announces on `provisional_accepted`, so the
     // mover can prove it reached the instance it named (D14). Unset, every
@@ -1723,9 +1736,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `onRequest` hook — `/mcp` deliberately does not trust
   // `request.isAuthenticated`, so it needs the registry directly.
   // See change: add-dashboard-mcp-server.
+  const deviceTokenServices = createDeviceTokenServices(pairedDeviceRegistry);
   pluginServiceRegistry.set(
     "host.verifyDeviceToken",
-    (token: string): string | null => pairedDeviceRegistry.verify(token)?.id ?? null,
+    // The request is optional (the plugin host services receive none today): absent → non-proven, fail closed.
+    deviceTokenServices.verifyDeviceToken,
   );
   // Tier-aware service board entry (change: expand-mcp-tiered-surface, D1).
   // A NEW key, not a signature change to the old one: `mcp-server-plugin` is
@@ -1734,7 +1749,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `host.verifyDeviceToken` with `tier: "operate"`.
   pluginServiceRegistry.set(
     "host.verifyDeviceTokenTier",
-    (token: string) => pairedDeviceRegistry.verify(token),
+    deviceTokenServices.verifyDeviceTokenTier,
   );
   // Prefers the BOUND port, falls back to the CONFIGURED one.
   //
@@ -1877,6 +1892,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isSessionConnected: (sessionId) => piGateway.getConnectedSessionIds().includes(sessionId),
     isDeliveryEnabled: () => loadConfig().vault.deliveryEnabled,
     getGraceHours: () => loadConfig().vault.offlineGraceHours,
+    // What the hub itself observed about each socket, and the registry's view of the device behind it
+    // (prove-vault-bridge-tls D3-D5). A TLS-admitted channel also needs the switch live-on.
+    getChannel: (sessionId) => piGateway.channelOf(sessionId),
+    getDeviceTrust: (deviceId) => pairedDeviceRegistry.deviceTrust(deviceId),
+    isTlsBridgesLive: tlsBridgesLive,
+    exposurePending: () => pairedDeviceRegistry.exposurePending(),
+  });
+  onVaultRoutingChanged = (sessionId, declared) => vaultDelivery.handleRegister(sessionId, declared);
+  // Revoke, rotation, add and a first plaintext exposure withdraw within the push debounce (~150 ms).
+  pairedDeviceRegistry.onChange(() => vaultDelivery.schedulePush());
+  // Time-based expiry has no event: a 30 s sweep pushes only when a device LEFT the active set.
+  const stopDeviceExpirySweep = startDeviceExpirySweep({
+    activeIds: () => pairedDeviceRegistry.activeIds(),
+    onLeft: () => vaultDelivery.schedulePush(),
   });
   wireEvents({
     replayState,
@@ -3020,7 +3049,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     live: () => piTrustMirror.live,
     readSnapshot: () => piTrustMirror.readSnapshot(),
   });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), onTlsBridgeSwitchChanged: () => onTlsBridgeSwitchChanged({ acceptBridges: tlsBridgesLive, push: () => void vaultDelivery.pushNow(), gateway: piGateway }), exposureWritePending: () => pairedDeviceRegistry.exposurePending(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3362,7 +3391,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   registerLiveServerProxy(fastify, liveServerManager, {
-    isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+    isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
+    isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
     grantedOrigins: (grant) => previewEgress.grantedFor(grant),
     onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
     reservedHandler: createReservedHandler({
@@ -3435,6 +3465,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
+    // Named in a refused bridge-token issue (HTTP → the native HTTPS address).
+    getTlsListenerUrls: () => tlsListener.tlsListenerUrls().map((e) => e.url),
     getPort: () => {
       const addr = fastify.server.address();
       return typeof addr === "object" && addr !== null ? addr.port : config.port;
@@ -3481,7 +3513,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           ip: request.ip,
           headers: request.headers as Record<string, unknown>,
           localTrust,
-          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
+          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token, bearerChannelOf(request.raw)),
         });
         if (!verdict.allow) {
           reply.code(403);
@@ -3491,7 +3523,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // registers ATTRIBUTABLE sessions (origin gate, #E15).
         return {
           success: true as const,
-          data: { ticket: wsTicketStore.mint(scope, verdict.deviceId) },
+          data: {
+            ticket: mintBridgeTicket(wsTicketStore, verdict.deviceId, request.raw),
+          },
         };
       }
       // Non-bridge scope: bind the human principal resolved by the identity
@@ -4789,16 +4823,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // the dashboard port would silently burn its ticket and see a bare TCP
         // close (@review Audit, minor).
         if (scope === "bridge") {
-          wsUpgradeRejectLog.log({
-            status: 400,
-            scope,
-            remoteAddress,
-            headers: request.headers as unknown as Record<string, unknown>,
-            // Presence only — read from the URL/protocol header, never consumed.
-            ticketPresent: extractTicket(request.url, secWsProtocol) !== null,
-          });
-          socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-          socket.destroy();
+          // The native TLS listener may admit a paired device's bridge (opt-in `tls.acceptBridges`); every
+          // other case keeps the 400 without consuming the ticket. See change: prove-vault-bridge-tls (D2).
+          routeBridgeUpgrade(
+            {
+              acceptBridges: tlsBridgesLive,
+              gateway: piGateway,
+              rejectLog: ({ status, reason }) =>
+                wsUpgradeRejectLog.log({
+                  status,
+                  scope,
+                  remoteAddress,
+                  headers: request.headers as unknown as Record<string, unknown>,
+                  // Presence only — read from the URL/protocol header, never consumed.
+                  ticketPresent: extractTicket(request.url, secWsProtocol) !== null,
+                  ...(reason ? { reason } : {}),
+                }),
+            },
+            request,
+            socket,
+            head,
+          );
           return;
         }
         const ticket = extractTicket(request.url, secWsProtocol);
@@ -4970,7 +5015,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
               socket.once("close", cancelExpiry);
               handleLiveServerUpgrade(liveServerManager, request, socket, head, {
-                isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+                isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
+                isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
                 capabilityPrefix: liveCapPrincipal && liveCap ? liveCap.prefix : undefined,
               });
             });
@@ -5458,6 +5504,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       pendingForkRegistry.dispose();
       pairingManager.dispose();
+      stopDeviceExpirySweep();
       vaultDelivery.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).

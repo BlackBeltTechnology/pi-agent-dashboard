@@ -27,6 +27,7 @@
 
 import { hasProxyForwardingHeaders } from "../auth/localhost-guard.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
+import type { BridgeAdmission } from "./bridge-channel.js";
 
 export interface BridgeUpgradeInput {
   transport: "unix" | "tcp";
@@ -72,7 +73,17 @@ type BridgeRefusalCause =
   | "browser-origin";
 
 export type BridgeUpgradeVerdict =
-  | { allow: true; reason: string; deprecated?: boolean; deviceId?: string; viaProof?: boolean }
+  | {
+      allow: true;
+      reason: string;
+      deprecated?: boolean;
+      deviceId?: string;
+      viaProof?: boolean;
+      /** How the upgrade was admitted (the hub's own observation, see `bridge-channel.ts`). */
+      admission: BridgeAdmission;
+      /** A consumed ticket was minted on a proven-TLS request. */
+      ticketTls?: boolean;
+    }
   | { allow: false; reason: string; cause: BridgeRefusalCause };
 
 /** Loopback in every form Node reports it, including IPv4-mapped IPv6. */
@@ -107,7 +118,7 @@ function ticketFrom(input: BridgeUpgradeInput): string | null {
 
 export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVerdict {
   if (input.transport === "unix") {
-    return { allow: true, reason: "unix socket: authorised by file mode (D5)" };
+    return { allow: true, reason: "unix socket: authorised by file mode (D5)", admission: "unix" };
   }
 
   // A bridge never sends `Origin`; a browser always does. So on TCP the mere
@@ -144,6 +155,8 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
       allow: true,
       reason: "tcp: valid single-use bridge ticket",
       deviceId: consumption.deviceId,
+      admission: consumption.deviceId ? "device-ticket" : "local-ticket",
+      ticketTls: consumption.provenTls === true,
     };
   }
 
@@ -154,13 +167,14 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
   // flagged deprecated. Checked before the grace so an authorised bridge is
   // logged as credentialed, not as a deprecation.
   if (loopback && input.localCredential === "valid") {
-    return { allow: true, viaProof: true, reason: "tcp loopback: valid local credential proof (D6)" };
+    return { allow: true, viaProof: true, reason: "tcp loopback: valid local credential proof (D6)", admission: "local-proof" };
   }
   if (loopback && input.localCredential === "legacy") {
     return {
       allow: true,
       deprecated: true,
       reason: "tcp loopback: legacy raw local token (deprecated; send X-Pi-Local-Proof)",
+      admission: "legacy-token",
     };
   }
 
@@ -171,6 +185,7 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
       reason:
         `tcp loopback: accepted WITHOUT a bridge ticket (${consumption.reason}) ` +
         `under the deprecation window — this will be refused from 1.0.0`,
+      admission: "grace",
     };
   }
 

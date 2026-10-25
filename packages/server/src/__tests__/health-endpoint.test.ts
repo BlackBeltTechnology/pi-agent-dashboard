@@ -90,6 +90,8 @@ describe("GET /api/health", () => {
     expect(body.pid).toBe(process.pid);
     expect(typeof body.uptime).toBe("number");
     expect(body.uptime).toBeGreaterThanOrEqual(0);
+    // A first plaintext-exposure registry write has not failed to persist. See change: prove-vault-bridge-tls (D4).
+    expect(body.pairing).toEqual({ exposureWritePending: false });
     // Additive event-loop stall retention buffer. See change:
     // attribute-openspec-poll-eventloop-stalls.
     expect(Array.isArray(body.eventLoopSpikes)).toBe(true);

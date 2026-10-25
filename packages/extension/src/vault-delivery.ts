@@ -97,6 +97,11 @@ export interface VaultDeliveryDeps {
   /** Resolve the session cwd to its real path and raw origin. Undefined = unusable. */
   resolveProject?: (cwd: string) => Promise<VaultProject | undefined>;
   identityTimeoutMs?: number;
+  /**
+   * `"enforced"` while the connection carries the TLS checks (read per sync); declared
+   * on `vault_sync_request`. See change: prove-vault-bridge-tls (D7).
+   */
+  certValidation?: () => "enforced" | undefined;
   log?: (line: string) => void;
 }
 
@@ -277,6 +282,7 @@ export function createVaultDelivery(deps: VaultDeliveryDeps): VaultDelivery {
         ...(origin ? { origin } : {}),
         tracked: [...registry.tracked.keys()],
         reason,
+        ...(deps.certValidation?.() === "enforced" ? { certValidation: "enforced" as const } : {}),
       });
     } catch { /* the next connect re-syncs */ }
   };

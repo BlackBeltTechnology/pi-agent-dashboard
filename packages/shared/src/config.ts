@@ -625,6 +625,12 @@ export interface TlsConfig {
   host: string;
   /** Certificate sources, in ownership-priority order. */
   sources: TlsSourceEntry[];
+  /**
+   * Route `/ws/bridge` upgrades arriving on this listener into the pi gateway
+   * (ticket-only, paired devices only). Default `false`.
+   * See change: prove-vault-bridge-tls (D2).
+   */
+  acceptBridges: boolean;
 }
 
 export const DEFAULT_TLS_PORT = 8443;
@@ -635,6 +641,7 @@ export const DEFAULT_TLS: TlsConfig = {
   port: DEFAULT_TLS_PORT,
   host: DEFAULT_TLS_HOST,
   sources: [],
+  acceptBridges: false,
 };
 
 /** Tolerant loader for the `tls` block: bad fields fall back to their defaults. */
@@ -655,6 +662,7 @@ export function parseTlsConfig(raw: unknown): TlsConfig {
     port,
     host: typeof r.host === "string" && r.host.trim() ? r.host.trim() : DEFAULT_TLS_HOST,
     sources,
+    acceptBridges: r.acceptBridges === true,
   };
 }
 

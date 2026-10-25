@@ -329,3 +329,114 @@ describe("#E52 status converges without a reload", () => {
     expect(getStatus.mock.calls.length).toBeGreaterThan(before);
   });
 });
+
+// ── F6 (test-plan prove-vault-bridge-tls): Accept bridges switch ──────────
+
+describe("F6 — Accept bridges switch", () => {
+  const BRIDGE_NAME = "dash.example.ts.net";
+  const reachable = base({
+    port: 9443,
+    host: IPV4,
+    certs: [cert({ name: BRIDGE_NAME })],
+  });
+  const loopback = base({
+    port: 9443,
+    host: "127.0.0.1",
+    gates: [{ id: "bind-reachable", ok: false }],
+    certs: [cert({ name: BRIDGE_NAME })],
+  });
+
+  beforeEach(() => {
+    getConfig.mockResolvedValue({
+      enabled: true,
+      port: 9443,
+      host: IPV4,
+      sources: [{ type: "tailscale" }],
+      acceptBridges: false,
+    });
+  });
+
+  const sw = () => screen.getByTestId("gateway-tls-accept-bridges");
+
+  it("(a) reachable bind: writes exactly {tls:{acceptBridges:true}} and shows wss://<name>:<port> with a copy button", async () => {
+    status = reachable;
+    mount();
+    await screen.findByTestId("gateway-tls-accept-bridges");
+    expect(sw().getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByTestId("gateway-tls-bridge-url")).toBeNull();
+    fireEvent.click(sw());
+    await waitFor(() => expect(putConfig).toHaveBeenCalledTimes(1));
+    expect(putConfig).toHaveBeenCalledWith({ tls: { acceptBridges: true } });
+    await waitFor(() => expect(sw().getAttribute("aria-checked")).toBe("true"));
+    expect(screen.getByTestId("gateway-tls-bridge-url").textContent).toBe(`wss://${BRIDGE_NAME}:9443`);
+    expect(screen.getByTestId("gateway-tls-bridge-copy")).toBeDefined();
+    // The vault-eligibility note rides next to the switch.
+    expect(screen.getByTestId("gateway-tls-bridge-eligibility").textContent).toMatch(/vault/i);
+  });
+
+  it("the copy button copies the wss endpoint", async () => {
+    status = reachable;
+    getConfig.mockResolvedValue({ enabled: true, port: 9443, host: IPV4, sources: [{ type: "tailscale" }], acceptBridges: true });
+    const clip = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: clip }, configurable: true });
+    mount();
+    fireEvent.click(await screen.findByTestId("gateway-tls-bridge-copy"));
+    await waitFor(() => expect(clip).toHaveBeenCalledWith(`wss://${BRIDGE_NAME}:9443`));
+  });
+
+  it("(b) loopback bind: no wss:// text anywhere, the bind-reachable fix is shown", async () => {
+    status = loopback;
+    mount();
+    await screen.findByTestId("gateway-tls-accept-bridges");
+    fireEvent.click(sw());
+    await waitFor(() => expect(putConfig).toHaveBeenCalledWith({ tls: { acceptBridges: true } }));
+    await waitFor(() => expect(sw().getAttribute("aria-checked")).toBe("true"));
+    expect(screen.queryByTestId("gateway-tls-bridge-url")).toBeNull();
+    expect(screen.getByTestId("gateway-tls").textContent).not.toMatch(/wss:\/\//);
+    expect(screen.getByTestId("gateway-tls-gate-bind-reachable")).toBeDefined();
+    expect(screen.getByTestId("gateway-tls-bridge-bind-note")).toBeDefined();
+  });
+
+  it("(c) failed write: the switch returns to off and an inline alert is shown", async () => {
+    status = reachable;
+    putConfig.mockRejectedValue(new Error("HTTP 500"));
+    mount();
+    await screen.findByTestId("gateway-tls-accept-bridges");
+    fireEvent.click(sw());
+    const alert = await screen.findByTestId("gateway-tls-bridges-error");
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toContain("HTTP 500");
+    await waitFor(() => expect(sw().getAttribute("aria-checked")).toBe("false"));
+    expect(putConfig).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("gateway-tls-bridge-url")).toBeNull();
+  });
+
+  it("turning it off writes {tls:{acceptBridges:false}} and hides the endpoint", async () => {
+    status = reachable;
+    getConfig.mockResolvedValue({ enabled: true, port: 9443, host: IPV4, sources: [{ type: "tailscale" }], acceptBridges: true });
+    mount();
+    await waitFor(() => expect(sw().getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(sw());
+    await waitFor(() => expect(putConfig).toHaveBeenCalledWith({ tls: { acceptBridges: false } }));
+    await waitFor(() => expect(sw().getAttribute("aria-checked")).toBe("false"));
+    expect(screen.queryByTestId("gateway-tls-bridge-url")).toBeNull();
+  });
+
+  it("an unreadable stored config reads as off (never invented as on)", async () => {
+    status = reachable;
+    getConfig.mockRejectedValue(new Error("HTTP 500"));
+    mount();
+    await screen.findByTestId("gateway-tls-accept-bridges");
+    expect(sw().getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("text stays at 12 px or larger and the switch has a label", async () => {
+    status = reachable;
+    mount();
+    await screen.findByTestId("gateway-tls-accept-bridges");
+    const block = screen.getByTestId("gateway-tls-bridges");
+    expect(block.innerHTML).not.toMatch(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/);
+    expect(sw().getAttribute("aria-labelledby")).toBeTruthy();
+    expect(sw().getAttribute("role")).toBe("switch");
+  });
+});

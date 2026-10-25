@@ -119,7 +119,9 @@ describe("E21 — a refused session is shown, not offered", () => {
     const radio = (await screen.findByRole("radio", { name: /edge-lab/ })) as HTMLInputElement;
     expect(radio.disabled).toBe(true);
     const label = radio.closest("label");
-    expect(label?.textContent).toMatch(/remote delivery is off/);
+    // F5 (prove-vault-bridge-tls): the line names the missing proof, not a global "off".
+    expect(label?.textContent).toMatch(/no proven TLS connection/);
+    expect(label?.textContent).not.toMatch(/remote delivery is off/);
     expect(label?.textContent).not.toMatch(/github\.com/);
     fireEvent.click(radio);
     expect(radio.checked).toBe(false);

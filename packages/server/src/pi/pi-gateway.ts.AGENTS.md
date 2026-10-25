@@ -9,6 +9,8 @@ Owns the host-pressure signal. `PiGatewayOptions.onHostPressure(sessionId, press
 
 Forwards `session_register.usageSeed` to `register` via `normalizeUsageSeed` (finite non-negative numbers, else dropped). See change: count-non-message-usage.
 
+`channelOf(sessionId)` follows the routing entry. `handleTlsUpgrade` (ticket-only, device tickets only, 503 when gateway not started). `closeTlsBridges()`. `onRoutingChanged` option. Channel stored on every transport. See change: prove-vault-bridge-tls.
+
 ## Loopback fallback (fix-gateway-socket-stale-owner)
 
 - `startLoopbackFallback(port, reason)` binds `127.0.0.1:<port>`, requires local token or ticket (no tokenless grace, per-listener `requireLocalCredential`), awaits `listening`/`error`; needs `bridgeAuth`.

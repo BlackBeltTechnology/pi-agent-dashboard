@@ -15,9 +15,11 @@ class MockWebSocket {
   onmessage: ((ev: { data: string }) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
   sentMessages: string[] = [];
+  options?: Record<string, unknown>;
 
-  constructor(url: string) {
+  constructor(url: string, options?: Record<string, unknown>) {
     this.url = url;
+    this.options = options;
     MockWebSocket.instances.push(this);
   }
 
@@ -61,6 +63,52 @@ describe("ConnectionManager", () => {
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0].url).toBe("ws://localhost:9999");
     cm.disconnect();
+  });
+
+  describe("TLS dial (prove-vault-bridge-tls D7)", () => {
+    it("a remote wss dial validates the certificate and a path-less endpoint dials /ws/bridge", () => {
+      const cm = new ConnectionManager({ url: "wss://dash.example:8443", WebSocketImpl: MockWebSocket as any });
+      cm.connect();
+      expect(MockWebSocket.instances[0].url).toBe("wss://dash.example:8443/ws/bridge");
+      expect(MockWebSocket.instances[0].options).toMatchObject({ rejectUnauthorized: true });
+      cm.disconnect();
+    });
+
+    it("keeps the ticket query and an explicit path", async () => {
+      const cm = new ConnectionManager({
+        url: "wss://proxy.example/pi",
+        WebSocketImpl: MockWebSocket as any,
+        prepareConnect: async () => ({ url: "wss://proxy.example/pi?ticket=t1" }),
+      });
+      cm.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(MockWebSocket.instances[0].url).toBe("wss://proxy.example/pi?ticket=t1");
+      expect(MockWebSocket.instances[0].options).toMatchObject({ rejectUnauthorized: true });
+      cm.disconnect();
+
+      const cm2 = new ConnectionManager({
+        url: "wss://dash.example:8443",
+        WebSocketImpl: MockWebSocket as any,
+        prepareConnect: async () => ({ url: "wss://dash.example:8443?ticket=t2" }),
+      });
+      cm2.connect();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(MockWebSocket.instances.at(-1)?.url).toBe("wss://dash.example:8443/ws/bridge?ticket=t2");
+      cm2.disconnect();
+    });
+
+    it("plain ws and a loopback wss get no rejectUnauthorized option", () => {
+      const plain = new ConnectionManager({ url: "ws://dash.example:9999", WebSocketImpl: MockWebSocket as any });
+      plain.connect();
+      expect(MockWebSocket.instances[0].options).toBeUndefined();
+      expect(MockWebSocket.instances[0].url).toBe("ws://dash.example:9999");
+      plain.disconnect();
+
+      const loop = new ConnectionManager({ url: "wss://localhost:8443", WebSocketImpl: MockWebSocket as any });
+      loop.connect();
+      expect(MockWebSocket.instances[1].options?.rejectUnauthorized).toBeUndefined();
+      loop.disconnect();
+    });
   });
 
   it("should send buffered messages after connecting", () => {

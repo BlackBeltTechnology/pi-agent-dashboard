@@ -21,7 +21,7 @@
 import { hasTlsDetail, type TlsGate, type TlsStatusDetail } from "@blackbelt-technology/pi-dashboard-shared/tls-status.js";
 import { mdiAlert, mdiCheck, mdiContentCopy, mdiInformationOutline, mdiLockOutline, mdiOpenInNew, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { putConfig } from "../../lib/gateway/gateway-api.js";
 import { getStoredTlsConfig, issueTlsNow } from "../../lib/gateway/tls-api.js";
 import { deriveTlsPill, describeApplyError, isHeld, planApply } from "../../lib/gateway/tls-view.js";
@@ -52,6 +52,7 @@ function ipv4Of(status: TlsStatusDetail): string | null {
 }
 
 const certUrl = (name: string, port: number): string => `https://${name}${port === 443 ? "" : `:${port}`}`;
+const bridgeUrl = (name: string, port: number): string => `wss://${name}${port === 443 ? "" : `:${port}`}`;
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one view shell over the status; the pill, row, apply-error and validation rules live in `lib/gateway/tls-view.ts`
 export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
@@ -68,6 +69,22 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Accept bridges (change: prove-vault-bridge-tls, D2): stored value, an in-flight target, an inline error.
+  const [acceptStored, setAcceptStored] = useState(false);
+  const [pendingAccept, setPendingAccept] = useState<boolean | null>(null);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [bridgeCopied, setBridgeCopied] = useState(false);
+
+  // An unreadable config reads as off here: the write path below never depends on this read.
+  useEffect(() => {
+    let alive = true;
+    getStoredTlsConfig()
+      .then((c) => alive && setAcceptStored(c.acceptBridges === true))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const detail: TlsStatusDetail | null = status && hasTlsDetail(status) ? status : null;
   const enabled = pendingEnabled ?? status?.enabled ?? false;
@@ -92,6 +109,23 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
       setSwitchError(errorMessage(e, t("gateway.tls.err.saveFailed", undefined, "Could not save this setting")));
     } finally {
       setPendingEnabled(null);
+      void refresh(true);
+    }
+  };
+
+  /** Immediate write of `tls.acceptBridges` only (the server merges partial writes); reverts on failure. */
+  const toggleAcceptBridges = async () => {
+    if (pendingAccept !== null) return;
+    const next = !acceptStored;
+    setPendingAccept(next);
+    setAcceptError(null);
+    try {
+      await putConfig({ tls: { acceptBridges: next } });
+      setAcceptStored(next);
+    } catch (e) {
+      setAcceptError(errorMessage(e, t("gateway.tls.err.saveFailed", undefined, "Could not save this setting")));
+    } finally {
+      setPendingAccept(null);
       void refresh(true);
     }
   };
@@ -145,6 +179,13 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
     } finally {
       setApplying(false);
       void refresh(true);
+    }
+  };
+
+  const copyBridgeAddress = async (url: string) => {
+    if (await copyText(url)) {
+      setBridgeCopied(true);
+      setTimeout(() => setBridgeCopied(false), 1200);
     }
   };
 
@@ -286,7 +327,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
 
   if (!status) {
     return (
-      <section aria-labelledby={`${ids}-h`} data-testid="gateway-tls">
+      <section id="gateway-built-in-https" aria-labelledby={`${ids}-h`} data-testid="gateway-tls">
         {head}
         {lead}
         <p className={HELP} role={readFailed ? "status" : undefined} data-testid="gateway-tls-checking">
@@ -304,6 +345,10 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
   const heldCerts = detail ? detail.certs.filter((c) => isHeld(c, clock)) : [];
   const advertised = heldCerts.find((c) => c.advertise) ?? heldCerts[0];
   const showAddress = !!(detail && advertised && detail.bound && !detail.bindError && !anyUnmet);
+  // The bridge endpoint is advertised only while the bind is reachable from other devices and a name is held.
+  const bindReachable = !!detail && detail.bound && !detail.bindError && !detail.gates.some((g) => g.id === "bind-reachable" && !g.ok);
+  const acceptOn = pendingAccept ?? acceptStored;
+  const bridgeEndpoint = acceptOn && bindReachable && advertised && detail ? bridgeUrl(advertised.name, detail.port) : null;
   const portValue = portDraft ?? String(detail?.port ?? "");
   const hostValue = hostDraft ?? detail?.host ?? "";
   const bindErr = detail?.bindError ?? "";
@@ -322,7 +367,7 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
   const dirty = (portDraft !== null && portDraft !== String(detail?.port ?? "")) || (hostDraft !== null && hostDraft !== (detail?.host ?? ""));
 
   return (
-    <section aria-labelledby={`${ids}-h`} data-testid="gateway-tls" className="space-y-3">
+    <section id="gateway-built-in-https" aria-labelledby={`${ids}-h`} data-testid="gateway-tls" className="space-y-3">
       <div>
         {head}
         {lead}
@@ -499,6 +544,83 @@ export function GatewayTlsSection({ onSetupRequested, now = Date.now }: Props) {
               </button>
               <span className={META}>{t("gateway.tls.applyHint", undefined, "Restarts only the HTTPS listener.")}</span>
             </div>
+          </div>
+
+          {/* Accept bridges: writes tls.acceptBridges immediately; reverts with an inline error on a failed write. */}
+          <div className={INSET} data-testid="gateway-tls-bridges">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <span id={`${ids}-bl`} className={LABEL}>
+                  {t("gateway.tls.acceptBridges", undefined, "Accept bridges")}
+                </span>
+                <p id={`${ids}-bd`} className={HELP}>
+                  {t("gateway.tls.acceptBridgesHint", undefined, "Let pi sessions on other machines connect over this HTTPS listener. Off by default.")}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={acceptOn}
+                aria-labelledby={`${ids}-bl`}
+                aria-describedby={`${ids}-bd`}
+                aria-busy={pendingAccept !== null || undefined}
+                disabled={pendingAccept !== null}
+                data-testid="gateway-tls-accept-bridges"
+                onClick={() => void toggleAcceptBridges()}
+                className="focus-ring inline-flex min-h-[44px] flex-none cursor-pointer items-center gap-2 rounded-md px-1.5 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-[32px]"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`relative h-5 w-10 flex-none rounded-full border ${
+                    acceptOn ? "border-[var(--accent-solid)] bg-[var(--accent-solid)]" : "border-[var(--border-strong)] bg-[var(--bg-surface)]"
+                  }`}
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full transition-transform motion-reduce:transition-none ${
+                      acceptOn ? "translate-x-5 bg-white" : "translate-x-0 bg-[var(--text-secondary)]"
+                    }`}
+                  />
+                </span>
+                <span aria-hidden="true" className="min-w-[2em] text-xs font-semibold text-[var(--text-secondary)]">
+                  {acceptOn ? t("gateway.tls.on", undefined, "On") : t("gateway.tls.off", undefined, "Off")}
+                </span>
+              </button>
+            </div>
+            {acceptError && (
+              <p role="alert" data-testid="gateway-tls-bridges-error" className="mt-1 text-xs text-[var(--severity-error-fg)]">
+                {acceptError}
+              </p>
+            )}
+            {acceptOn && bridgeEndpoint && (
+              <div className="mt-2">
+                <p className={LABEL}>{t("gateway.tls.bridgeAddress", undefined, "Bridge address")}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <code className="min-w-0 flex-[1_1_220px] break-all font-mono text-xs text-[var(--text-primary)]" data-testid="gateway-tls-bridge-url">
+                    {bridgeEndpoint}
+                  </code>
+                  <button type="button" className={BTN_SMALL} data-testid="gateway-tls-bridge-copy" onClick={() => void copyBridgeAddress(bridgeEndpoint)}>
+                    <Icon path={bridgeCopied ? mdiCheck : mdiContentCopy} size={0.5} aria-hidden="true" />
+                    {bridgeCopied ? t("gateway.tls.copied", undefined, "Copied") : t("gateway.tls.copy", undefined, "Copy")}
+                  </button>
+                </div>
+              </div>
+            )}
+            {acceptOn && !bridgeEndpoint && (
+              <p className={`mt-2 ${HELP}`} data-testid="gateway-tls-bridge-bind-note">
+                {t(
+                  "gateway.tls.bridgeBindNote",
+                  undefined,
+                  "The bridge address appears here once HTTPS listens on an address other devices can reach and holds a certificate. See the fix above.",
+                )}
+              </p>
+            )}
+            <p className={`mt-2 ${HELP}`} data-testid="gateway-tls-bridge-eligibility">
+              {t(
+                "gateway.tls.bridgeEligibility",
+                undefined,
+                "Vault values reach a bridge only when it connects here with a token issued over HTTPS and validates this certificate. Bridges on this machine use the local socket.",
+              )}
+            </p>
           </div>
 
           {/* Certificates, grouped by source. */}

@@ -17,3 +17,5 @@ See change: fix-replay-fabricates-orphan-end-for-live-calls — onReconnect repl
 Activation captures `dashboardSpawned` via `captureSpawnTokenAtActivation()` (scrubs env). See change: mirror-dashboard-trust-to-pi.
 
 Follow-up drain: `drainFollowupQueue()` (no `retryCount`, no idle-retry loop) keeps the `isDraining` lock and wires the pure `drainOneFollowup` (`followup-drain.ts`); a false `isIdle()` returns, the next `agent_settled` drains (trigger in `bridge-handlers/forwarders.ts`). `enqueueSystemFollowup` ships at once when idle, else on the next settle. See change: update-pi-core-1-3-adopt-apis.
+
+Declares `certValidation: "enforced"` on `session_register` and `vault_sync_request` when the TLS checks applied. See change: prove-vault-bridge-tls.
