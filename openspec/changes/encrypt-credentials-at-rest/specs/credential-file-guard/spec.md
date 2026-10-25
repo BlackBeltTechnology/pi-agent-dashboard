@@ -106,7 +106,7 @@ Indirection and encoded strings are not detected; the guard is bypassable.
 - **THEN** the call is blocked
 
 #### Scenario: Linux keychain lookup blocked
-- **WHEN** the agent runs `bash` with `secret-tool lookup service pi-dashboard-credential-key account data-key-v1`
+- **WHEN** the agent runs `bash` with `secret-tool lookup service pi-dashboard-credential-key username data-key-v1`
 - **THEN** the call is blocked
 
 #### Scenario: Decrypt command blocked

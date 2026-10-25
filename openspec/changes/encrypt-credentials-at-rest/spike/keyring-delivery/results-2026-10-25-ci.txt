@@ -1,0 +1,157 @@
+# CI keyring-delivery spike — @napi-rs/keyring@2.1.2 — GitHub Actions
+# run 40180184596 (windows, containers): https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/40180184596
+# run 40180638544 (linux, macos):        https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/40180638544
+windows (windows-latest, 24.22.0)	probe	2026-10-25T09:20:08.0479679Z PKGS keyring keyring-win32-x64-msvc | os-arch=AMD64 | user=runneradmin
+windows (windows-latest, 24.22.0)	probe	2026-10-25T09:20:08.1696666Z RESULT win-native {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":27},"worker":{"ok":true,"ms":15.4}}
+windows (windows-latest, 24.22.0)	probe	2026-10-25T09:20:08.2341277Z RESULT win-inspect-set {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":13.5}}
+windows (windows-latest, 24.22.0)	probe	2026-10-25T09:20:08.2846728Z CMDKEY  > Target: LegacyGeneric:target=data-key-v1.pi-dashboard-credential-key Type: Generic User: data-key-v1 
+windows (windows-latest, 24.22.0)	probe	2026-10-25T09:20:08.3306636Z RESULT win-inspect-del {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":4.5}}
+containers	probe (shipped Docker base + alpine, x64, no session bus)	2026-10-25T09:19:58.7926966Z PKGS node:24-bookworm-slim keyring keyring-linux-x64-gnu 
+containers	probe (shipped Docker base + alpine, x64, no session bus)	2026-10-25T09:19:58.8599368Z RESULT docker-node:24-bookworm-slim {"node":"v24.22.1","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: PermissionDenied","root":"PermissionDenied","ms":3.5},"worker":{"err":"Couldn't access platform storage: PermissionDenied","root":"PermissionDenied","ms":2.9}}
+containers	probe (shipped Docker base + alpine, x64, no session bus)	2026-10-25T09:20:03.2703398Z PKGS node:22-alpine keyring keyring-linux-x64-musl 
+containers	probe (shipped Docker base + alpine, x64, no session bus)	2026-10-25T09:20:03.3567047Z RESULT docker-node:22-alpine {"node":"v22.23.4","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: PermissionDenied","root":"PermissionDenied","ms":4.6},"worker":{"err":"Couldn't access platform storage: PermissionDenied","root":"PermissionDenied","ms":3.8}}
+containers	probe (shipped Docker base + alpine, x64, no session bus)	2026-10-25T09:20:07.6213498Z PKGS node:24-alpine keyring keyring-linux-x64-musl 
+containers	probe (shipped Docker base + alpine, x64, no session bus)	2026-10-25T09:20:07.7096583Z RESULT docker-node:24-alpine {"node":"v24.22.1","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: PermissionDenied","root":"PermissionDenied","ms":5.3},"worker":{"err":"Couldn't access platform storage: PermissionDenied","root":"PermissionDenied","ms":4.7}}
+windows (windows-11-arm, 24.22.0) | PKGS keyring keyring-win32-arm64-msvc | os-arch=ARM64 | user=runneradmin
+windows (windows-11-arm, 24.22.0) | RESULT win-native {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":54.5},"worker":{"ok":true,"ms":18.1}}
+windows (windows-11-arm, 24.22.0) | RESULT win-inspect-set {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":20.9}}
+windows (windows-11-arm, 24.22.0) | CMDKEY  > Target: LegacyGeneric:target=data-key-v1.pi-dashboard-credential-key Type: Generic User: data-key-v1 
+windows (windows-11-arm, 24.22.0) | RESULT win-inspect-del {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":8.4}}
+windows (windows-11-arm, 24.22.0) | RESULT win-arm-x64node-arm64binding {"node":"v24.22.0","arch":"x64","napi":"10","main":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"Cannot find module './keyring.win32-x64-msvc.node' Require stack: - C:\\a\\_temp\\w\\node_modules\\@napi-rs\\keyring\\index.js - C:\\a\\_temp\\w\\probe.cjs","ms":80.6},"worker":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"Cannot find module './keyring.win32-x64-msvc.node' Require stack: - C:\\a\\_temp\\w\\node_modules\\@napi-rs\\keyring\\index.js - C:\\a\\_temp\\w\\probe.cjs","ms":17}}
+windows (windows-11-arm, 24.22.0) | PKGS-x64 keyring keyring-win32-x64-msvc
+windows (windows-11-arm, 24.22.0) | RESULT win-arm-x64node-x64binding {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":178.5},"worker":{"ok":true,"ms":30.3}}
+windows (windows-latest, 22.19.0)	probe	2026-10-25T09:20:12.4850714Z PKGS keyring keyring-win32-x64-msvc | os-arch=AMD64 | user=runneradmin
+windows (windows-latest, 22.19.0)	probe	2026-10-25T09:20:12.6155258Z RESULT win-native {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":27.2},"worker":{"ok":true,"ms":16.1}}
+windows (windows-latest, 22.19.0)	probe	2026-10-25T09:20:12.6908985Z RESULT win-inspect-set {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":19.2}}
+windows (windows-latest, 22.19.0)	probe	2026-10-25T09:20:12.7554549Z CMDKEY  > Target: LegacyGeneric:target=data-key-v1.pi-dashboard-credential-key Type: Generic User: data-key-v1 
+windows (windows-latest, 22.19.0)	probe	2026-10-25T09:20:12.8079412Z RESULT win-inspect-del {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":6.2}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:28.2369904Z PKGS keyring keyring-linux-x64-gnu  | ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43 | BUS=unset
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:28.3356496Z RESULT linux-runner-env {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":37},"worker":{"ok":true,"ms":4.5}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:28.3405117Z EXIT linux-runner-env 0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:28.4087667Z RESULT linux-no-bus {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":5.3},"worker":{"ok":true,"ms":4.3}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:28.4136894Z EXIT linux-no-bus 0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:36.8417667Z DBUS_LAUNCH_PRESENT=none
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:36.8792644Z RESULT linux-nobus-set {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":5.3}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:36.8906018Z KEYCTL_USER  21845727 --alswrv 1001 65534 keyring: _uid.1001 
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:36.8958434Z KEYCTL_SESSION  799754226 --alswrv 1001 1001 keyring: _ses  546844873 ----s-rv 0 0 \_ user: invocation_id  181481010 --alswrv 1001 1001 \_ user: keyring:data-key-v1@pi-dash-spike-ku  232742918 ---lswrv 1001 65534 \_ keyring: _persistent.1001  181481010 --alswrv 1001 1001 \_ user: keyring:data-key-v1@pi-dash-spike-
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:36.9285184Z RESULT linux-nobus-get-same-session {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"value":"16 chars","ms":5.7}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:36.9652740Z RESULT linux-nobus-get-new-session {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"value":"16 chars","ms":5.3}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:37.0029697Z RESULT linux-nobus-del {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":5.3}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:37.0790465Z RESULT linux-nobus-pinned-secret-service {"node":"v24.22.0","arch":"x64","napi":"10","main":{"err":"Platform failure: DBus error: The name org.freedesktop.secrets was not provided by any .service files","root":"The name org.freedesktop.secrets was not provided by any .service files","ms":5.3},"worker":{"err":"Platform failure: DBus error: The name org.freedesktop.secrets was not provided by any .service files","root":"The name org.freedesktop.secrets was not provided by any .service files","ms":4.9}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:37.0842044Z EXIT linux-nobus-pinned 0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:50.8697448Z DBUS_LAUNCH_PRESENT_AFTER=/usr/bin/dbus-launch
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:50.9613543Z RESULT linux-no-bus-after-dbus-x11 {"node":"v24.22.0","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: no result found","root":"Secret Service: no result found","ms":19.7},"worker":{"err":"Couldn't access platform storage: Secret Service: no result found","root":"Secret Service: no result found","ms":9}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:50.9667622Z EXIT linux-no-bus-after-dbus-x11 0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.0874303Z RESULT linux-ss-unlocked-pinned {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":14.7},"worker":{"ok":true,"ms":13.3}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.4531116Z RESULT linux-ss-not-unlocked-pinned {"node":"v24.22.0","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":258.4},"worker":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":25.3}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.5591854Z RESULT linux-ss-unlocked {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":14.2},"worker":{"ok":true,"ms":13.4}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.6029443Z RESULT linux-ss-inspect-set {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":11.9}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.6189785Z SECRETTOOL_ATTRS label = keyring:data-key-v1@pi-dashboard-credential-key attribute.service = pi-dashboard-credential-key attribute.username = data-key-v1 
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.6293072Z LOOKUP service+account bytes=0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.6401680Z LOOKUP service+username bytes=16
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.6747688Z RESULT linux-ss-inspect-del {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":10.4}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.6794209Z EXIT linux-ss 0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.8093510Z RESULT linux-ss-not-unlocked {"node":"v24.22.0","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":25.7},"worker":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":29.4}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.8183154Z EXIT linux-ss-not-unlocked 0
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.9201590Z RESULT linux-noexec {"node":"v24.22.0","arch":"x64","napi":"10","main":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"/mnt/nx/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node: failed to map segment from shared object","ms":3},"worker":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"/mnt/nx/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node: failed to map segment from shared object","ms":2.8}}
+linux (ubuntu-latest, 24.22.0)	probe	2026-10-25T09:26:51.9249298Z EXIT linux-noexec 0
+macos (macos-14, arm64) | PKGS keyring keyring-darwin-arm64  | 14.8.9 |     "/Users/runner/Library/Keychains/login.keychain-db" | Keychain "<NULL>" no-timeout
+macos (macos-14, arm64) | BINDING_SIG CodeDirectory v=20500 size=1216 flags=0x10000(runtime) hashes=32+2 location=embedded TeamIdentifier=K3VT49H83Y 
+macos (macos-14, arm64) | RESULT mac-setup-node {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":240.7},"worker":{"ok":true,"ms":20.8}}
+macos (macos-14, arm64) | EXIT mac-setup-node 0
+macos (macos-14, arm64) | BUNDLED_SIG CodeDirectory v=20500 size=949840 flags=0x10000(runtime) hashes=29672+7 location=embedded TeamIdentifier=HX7739G8FX  DLV=1
+macos (macos-14, arm64) | RESULT mac-bundled-node {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":30.9},"worker":{"ok":true,"ms":23}}
+macos (macos-14, arm64) | EXIT mac-bundled-node 0
+macos (macos-14, arm64) | SIP System Integrity Protection status: disabled.  | AMFI_BOOTARGS=boot-args	 
+macos (macos-14, arm64) | ENT_CHECK full_DLV=1 nodlv_DLV=0 nodlv_runtime=1
+macos (macos-14, arm64) | RESULT mac-resigned-full-ent {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":34.8},"worker":{"ok":true,"ms":14.6}}
+macos (macos-14, arm64) | EXIT mac-resigned-full-ent 0
+macos (macos-14, arm64) | RESULT mac-resigned-no-dlv {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":28.2},"worker":{"ok":true,"ms":12.8}}
+macos (macos-14, arm64) | EXIT mac-resigned-no-dlv 0
+macos (macos-14, arm64) | RESULT mac-inspect-set {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":39}}
+macos (macos-14, arm64) | SECURITY_ATTRS keychain: "/Users/runner/Library/Keychains/login.keychain-db" class: "genp"  "acct"<blob>="data-key-v1"  "svce"<blob>="pi-dashboard-credential-key" 
+macos (macos-14, arm64) | ACL security-w exit=142 (142=timeout/prompt)
+macos (macos-14, arm64) | RESULT mac-acl-bundled-node {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"value":"16 chars","ms":23}}
+macos (macos-14, arm64) | EXIT mac-acl-bundled-node 0
+macos (macos-14, arm64) | EXIT mac-acl-adhoc-node 142
+macos (macos-14, arm64) | RESULT mac-inspect-del {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":27.6}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:30.8956163Z PKGS keyring keyring-linux-arm64-gnu  | ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39 | BUS=unset
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:30.9849096Z RESULT linux-runner-env {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":39},"worker":{"ok":true,"ms":4.7}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:30.9888664Z EXIT linux-runner-env 0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:31.0442721Z RESULT linux-no-bus {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":6},"worker":{"ok":true,"ms":4.5}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:31.0479222Z EXIT linux-no-bus 0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.3140972Z DBUS_LAUNCH_PRESENT=none
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.3384382Z RESULT linux-nobus-set {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":5}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.3701609Z KEYCTL_USER  538852617 --alswrv 1001 65534 keyring: _uid.1001 
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.3727052Z KEYCTL_SESSION  830715413 --alswrv 1001 1001 keyring: _ses  51679328 ----s-rv 0 0 \_ user: invocation_id  642743103 --alswrv 1001 1001 \_ user: keyring:data-key-v1@pi-dash-spike-ku 1002565089 ---lswrv 1001 65534 \_ keyring: _persistent.1001  642743103 --alswrv 1001 1001 \_ user: keyring:data-key-v1@pi-dash-spike-k
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.3982130Z RESULT linux-nobus-get-same-session {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"value":"16 chars","ms":5.1}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.4243547Z RESULT linux-nobus-get-new-session {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"value":"16 chars","ms":4.9}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.4502096Z RESULT linux-nobus-del {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":5}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.5075116Z RESULT linux-nobus-pinned-secret-service {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"err":"Platform failure: DBus error: The name org.freedesktop.secrets was not provided by any .service files","root":"The name org.freedesktop.secrets was not provided by any .service files","ms":5.3},"worker":{"err":"Platform failure: DBus error: The name org.freedesktop.secrets was not provided by any .service files","root":"The name org.freedesktop.secrets was not provided by any .service files","ms":5}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:39.5108966Z EXIT linux-nobus-pinned 0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:49.8425239Z DBUS_LAUNCH_PRESENT_AFTER=/usr/bin/dbus-launch
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:49.9147725Z RESULT linux-no-bus-after-dbus-x11 {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: no result found","root":"Secret Service: no result found","ms":17.7},"worker":{"err":"Couldn't access platform storage: Secret Service: no result found","root":"Secret Service: no result found","ms":9.9}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:49.9182554Z EXIT linux-no-bus-after-dbus-x11 0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.0005562Z RESULT linux-ss-unlocked-pinned {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":13.5},"worker":{"ok":true,"ms":13.1}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.1108919Z RESULT linux-ss-not-unlocked-pinned {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":35.9},"worker":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":20.4}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.1957355Z RESULT linux-ss-unlocked {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":14.4},"worker":{"ok":true,"ms":13.4}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.2326956Z RESULT linux-ss-inspect-set {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":12.5}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.2468445Z SECRETTOOL_ATTRS label = keyring:data-key-v1@pi-dashboard-credential-key attribute.service = pi-dashboard-credential-key attribute.username = data-key-v1 
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.2565245Z LOOKUP service+account bytes=0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.2666049Z LOOKUP service+username bytes=16
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.2956087Z RESULT linux-ss-inspect-del {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"ok":true,"ms":11}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.2986204Z EXIT linux-ss 0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.3906670Z RESULT linux-ss-not-unlocked {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":20.8},"worker":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":19.8}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.3944758Z EXIT linux-ss-not-unlocked 0
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.4665132Z RESULT linux-noexec {"node":"v24.22.0","arch":"arm64","napi":"10","main":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"/mnt/nx/node_modules/@napi-rs/keyring-linux-arm64-gnu/keyring.linux-arm64-gnu.node: failed to map segment from shared object","ms":2.8},"worker":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"/mnt/nx/node_modules/@napi-rs/keyring-linux-arm64-gnu/keyring.linux-arm64-gnu.node: failed to map segment from shared object","ms":2.6}}
+linux (ubuntu-24.04-arm, 24.22.0)	probe	2026-10-25T09:26:50.4701665Z EXIT linux-noexec 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:28.8872162Z PKGS keyring keyring-linux-x64-gnu  | ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43 | BUS=unset
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:28.9697991Z RESULT linux-runner-env {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":22.4},"worker":{"ok":true,"ms":4.3}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:28.9747045Z EXIT linux-runner-env 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:29.0441189Z RESULT linux-no-bus {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":5},"worker":{"ok":true,"ms":4.6}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:29.0481302Z EXIT linux-no-bus 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.6117672Z DBUS_LAUNCH_PRESENT=none
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.6398751Z RESULT linux-nobus-set {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":4.9}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.6487165Z KEYCTL_USER  389821402 --alswrv 1001 65534 keyring: _uid.1001 
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.6547080Z KEYCTL_SESSION  350932870 --alswrv 1001 1001 keyring: _ses  383844270 ----s-rv 0 0 \_ user: invocation_id  397369329 --alswrv 1001 1001 \_ user: keyring:data-key-v1@pi-dash-spike-ku  282247032 ---lswrv 1001 65534 \_ keyring: _persistent.1001  397369329 --alswrv 1001 1001 \_ user: keyring:data-key-v1@pi-dash-spike-
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.6825304Z RESULT linux-nobus-get-same-session {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"value":"16 chars","ms":5}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.7139541Z RESULT linux-nobus-get-new-session {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"value":"16 chars","ms":4.8}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.7446505Z RESULT linux-nobus-del {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":4.9}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.8149118Z RESULT linux-nobus-pinned-secret-service {"node":"v22.19.0","arch":"x64","napi":"10","main":{"err":"Platform failure: DBus error: The name org.freedesktop.secrets was not provided by any .service files","root":"The name org.freedesktop.secrets was not provided by any .service files","ms":5.2},"worker":{"err":"Platform failure: DBus error: The name org.freedesktop.secrets was not provided by any .service files","root":"The name org.freedesktop.secrets was not provided by any .service files","ms":4.7}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:33.8191884Z EXIT linux-nobus-pinned 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:43.5356856Z DBUS_LAUNCH_PRESENT_AFTER=/usr/bin/dbus-launch
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:43.6199519Z RESULT linux-no-bus-after-dbus-x11 {"node":"v22.19.0","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: no result found","root":"Secret Service: no result found","ms":18.1},"worker":{"err":"Couldn't access platform storage: Secret Service: no result found","root":"Secret Service: no result found","ms":8.9}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:43.6250343Z EXIT linux-no-bus-after-dbus-x11 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:43.7400697Z RESULT linux-ss-unlocked-pinned {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":13.9},"worker":{"ok":true,"ms":12.7}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:43.9411585Z RESULT linux-ss-not-unlocked-pinned {"node":"v22.19.0","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":106.6},"worker":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":23.2}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.0371500Z RESULT linux-ss-unlocked {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":13.6},"worker":{"ok":true,"ms":12.8}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.0743632Z RESULT linux-ss-inspect-set {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":11.6}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.0898275Z SECRETTOOL_ATTRS label = keyring:data-key-v1@pi-dashboard-credential-key attribute.service = pi-dashboard-credential-key attribute.username = data-key-v1 
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.0995894Z LOOKUP service+account bytes=0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.1103523Z LOOKUP service+username bytes=16
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.1412210Z RESULT linux-ss-inspect-del {"node":"v22.19.0","arch":"x64","napi":"10","main":{"ok":true,"ms":10.1}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.1449864Z EXIT linux-ss 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.2581102Z RESULT linux-ss-not-unlocked {"node":"v22.19.0","arch":"x64","napi":"10","main":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":24.2},"worker":{"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","root":"Secret Service: unlock prompt was dismissed","ms":23.1}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.2639714Z EXIT linux-ss-not-unlocked 0
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.3582804Z RESULT linux-noexec {"node":"v22.19.0","arch":"x64","napi":"10","main":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"/mnt/nx/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node: failed to map segment from shared object","ms":2.7},"worker":{"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Ple","root":"/mnt/nx/node_modules/@napi-rs/keyring-linux-x64-gnu/keyring.linux-x64-gnu.node: failed to map segment from shared object","ms":2.5}}
+linux (ubuntu-latest, 22.19.0)	probe	2026-10-25T09:26:44.3621584Z EXIT linux-noexec 0
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:43.5749690Z PKGS keyring keyring-darwin-x64  | 15.7.9 |     "/Users/runner/Library/Keychains/login.keychain-db" | Keychain "<NULL>" no-timeout
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:43.5825180Z BINDING_SIG CodeDirectory v=20500 size=4446 flags=0x10000(runtime) hashes=133+2 location=embedded TeamIdentifier=K3VT49H83Y 
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:44.2202060Z RESULT mac-setup-node {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":324.5},"worker":{"ok":true,"ms":71.6}}
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:44.2342800Z EXIT mac-setup-node 0
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:48.2258360Z BUNDLED_SIG CodeDirectory v=20500 size=974416 flags=0x10000(runtime) hashes=30440+7 location=embedded TeamIdentifier=HX7739G8FX  DLV=1
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:48.6953730Z RESULT mac-bundled-node {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":143.2},"worker":{"ok":true,"ms":83}}
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:48.6996330Z EXIT mac-bundled-node 0
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:53.3397120Z SIP System Integrity Protection status: disabled.  | AMFI_BOOTARGS=boot-args	preempt=10 
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:53.4482060Z ENT_CHECK full_DLV=1 nodlv_DLV=0 nodlv_runtime=1
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:53.7700170Z RESULT mac-resigned-full-ent {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":75.5},"worker":{"ok":true,"ms":41.1}}
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:53.7778770Z EXIT mac-resigned-full-ent 0
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:54.0874850Z RESULT mac-resigned-no-dlv {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":67.6},"worker":{"ok":true,"ms":40.7}}
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:54.0968460Z EXIT mac-resigned-no-dlv 0
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:54.2526300Z RESULT mac-inspect-set {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":75}}
+macos (macos-15-intel, x64)	probe	2026-10-25T09:26:54.2894180Z SECURITY_ATTRS keychain: "/Users/runner/Library/Keychains/login.keychain-db" class: "genp"  "acct"<blob>="data-key-v1"  "svce"<blob>="pi-dashboard-credential-key" 
+macos (macos-15-intel, x64)	probe	2026-10-25T09:27:24.4202160Z ACL security-w exit=142 (142=timeout/prompt)
+macos (macos-15-intel, x64)	probe	2026-10-25T09:27:24.5507930Z RESULT mac-acl-bundled-node {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"value":"16 chars","ms":40.8}}
+macos (macos-15-intel, x64)	probe	2026-10-25T09:27:24.5570240Z EXIT mac-acl-bundled-node 0
+macos (macos-15-intel, x64)	probe	2026-10-25T09:27:54.6178340Z EXIT mac-acl-adhoc-node 142
+macos (macos-15-intel, x64)	probe	2026-10-25T09:27:54.7388030Z RESULT mac-inspect-del {"node":"v24.22.0","arch":"x64","napi":"10","main":{"ok":true,"ms":41.7}}
