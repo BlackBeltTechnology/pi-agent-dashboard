@@ -1219,8 +1219,8 @@ describe("AE75 pairing response carries expiresAt for a browser holder", () => {
 // ── prove-vault-bridge-tls: QR collection decides exposure at poll(), not approve() (test-plan #E6) ──
 
 describe("E6 — QR/knock collection channel", () => {
-  const collect = (channelApprove: "tls" | "plain", channelPoll: "tls" | "plain", holder?: unknown) => {
-    void channelApprove; // approve() makes no exposure decision: the approving channel is irrelevant by design
+  // approve() makes no exposure decision, so only the COLLECTING channel is a parameter.
+  const collect = (channelPoll: "tls" | "plain", holder?: unknown) => {
     const { mgr, reg } = mkManager();
     const p = mgr.createPayload()!;
     const r = mgr.redeem(p.code);
@@ -1232,14 +1232,14 @@ describe("E6 — QR/knock collection channel", () => {
     return { reg, id: approved.device.id, afterApprove, polled };
   };
 
-  it("(a) approved over TLS, collected from plain LAN → exposed", () => {
-    const { reg, id, afterApprove } = collect("tls", "plain");
+  it("(a) collected from plain LAN → exposed", () => {
+    const { reg, id, afterApprove } = collect("plain");
     expect(afterApprove).toBe("eligible");
     expect(reg.deviceTrust(id)).toBe("exposed");
   });
 
-  it("(b) approved over plain, collected over TLS → unexposed; same token, never pi_tls_", () => {
-    const { reg, id, afterApprove, polled } = collect("plain", "tls");
+  it("(b) collected over TLS → unexposed; same token, never pi_tls_", () => {
+    const { reg, id, afterApprove, polled } = collect("tls");
     expect(afterApprove).toBe("eligible");
     expect(reg.deviceTrust(id)).toBe("eligible");
     if (polled.status !== "approved") throw new Error("not approved");
@@ -1248,7 +1248,7 @@ describe("E6 — QR/knock collection channel", () => {
   });
 
   it("(c) a late holder:browser declaration still returns expiresAt", () => {
-    const { polled, reg, id } = collect("plain", "tls", "browser");
+    const { polled, reg, id } = collect("tls", "browser");
     if (polled.status !== "approved") throw new Error("not approved");
     expect(typeof polled.expiresAt).toBe("number");
     expect(reg.deviceTrust(id)).toBe("eligible");
