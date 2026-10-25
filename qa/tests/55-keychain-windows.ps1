@@ -18,7 +18,9 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== Test: Windows Credential Manager data key ==="
 
-if (-not [Environment]::UserInteractive) {
+# PI_QA_ALLOW_NONINTERACTIVE=1: a service-hosted runner whose account still has a Credential Manager
+# (GitHub windows-latest as runneradmin: CI spike C9 round-tripped there). Opt-in only.
+if (-not [Environment]::UserInteractive -and $env:PI_QA_ALLOW_NONINTERACTIVE -ne "1") {
     Write-Host "SKIP: non-interactive session (Credential Manager needs the user's logon session)"
     exit 77
 }

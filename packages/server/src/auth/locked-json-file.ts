@@ -96,7 +96,7 @@ export async function acquireLock(
 // keeps byte-identical plain-JSON behaviour. See change: encrypt-credentials-at-rest.
 
 /** What a codec makes of the bytes on disk. */
-export type CodecReadResult =
+type CodecReadResult =
   | { kind: "absent" }
   /** `encrypted:false` = a valid plaintext JSON object (readable; encrypted by the next write). */
   | { kind: "document"; data: Record<string, unknown>; encrypted: boolean }

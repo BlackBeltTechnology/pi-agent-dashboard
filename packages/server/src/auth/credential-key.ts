@@ -45,18 +45,18 @@ import {
 } from "./credential-envelope.js";
 import { acquireLock, type JsonFileCodec } from "./locked-json-file.js";
 
-export type { EntryFactory, KeychainEntryLike } from "./credential-key-worker.mjs";
+export type { EntryFactory } from "./credential-key-worker.mjs";
 
 import type { EntryFactory } from "./credential-key-worker.mjs";
 
 /** One total deadline for `initCredentialKey`; a later `ensureCredentialKey` job gets its own. */
-export const KEYCHAIN_DEADLINE_MS = 10_000;
+const KEYCHAIN_DEADLINE_MS = 10_000;
 /** Retry budget for taking `credential-key.lock` (G7). */
 const CREATION_LOCK_BUDGET_MS = 2_000;
 const DEFAULT_WORKER_ENTRY = new URL("./credential-key-worker.mjs", import.meta.url);
 const BASE64_32 = /^[A-Za-z0-9+/]{43}=$/;
 
-export type CredentialKeySource = "keychain" | "key-file";
+type CredentialKeySource = "keychain" | "key-file";
 
 export type CredentialKeyState =
   /** `initCredentialKey` has not run (or is still running). Reads of envelopes are locked `key_uninitialized`. */

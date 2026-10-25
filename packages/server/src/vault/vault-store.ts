@@ -209,7 +209,7 @@ function corruptError(filePath: string): VaultError {
 }
 
 /** A refused write on a locked or key-less vault: non-secret reason, fixed remedy, no file content. */
-export function lockedError(reason: CredentialLockReason): VaultError {
+function lockedError(reason: CredentialLockReason): VaultError {
   return new VaultError("vault_locked", `vault is locked (${reason}). ${credentialRemedy(reason)}`, reason);
 }
 

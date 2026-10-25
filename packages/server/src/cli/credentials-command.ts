@@ -47,7 +47,7 @@ export const CREDENTIALS_USAGE =
   "usage: pi-dashboard credentials status | decrypt [--yes] | reset [--vault] [--plugin-credentials] [--yes]";
 
 /** Exit codes: 0 ok, 1 refused or any file failed, 2 usage. */
-export const CREDENTIALS_EXIT = { ok: 0, failed: 1, usage: 2 } as const;
+const CREDENTIALS_EXIT = { ok: 0, failed: 1, usage: 2 } as const;
 
 const LOCK_BUDGET_MS = 2_000;
 const HEALTH_TIMEOUT_MS = 3_000;

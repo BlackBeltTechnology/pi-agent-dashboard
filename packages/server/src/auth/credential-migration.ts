@@ -28,7 +28,7 @@ import {
 import { getCredentialCodec } from "./credential-key.js";
 import { type JsonFileCodec, withLockedJsonFile, writeJsonAtomic } from "./locked-json-file.js";
 
-export type CredentialFileState = "encrypted" | "plaintext" | "locked" | "absent" | "corrupt";
+type CredentialFileState = "encrypted" | "plaintext" | "locked" | "absent" | "corrupt";
 
 export interface CredentialFileOutcome {
   id: CredentialFileId;
