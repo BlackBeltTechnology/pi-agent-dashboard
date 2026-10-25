@@ -314,10 +314,12 @@ live_wait() { # a server is recorded alive/unknown: wait for it, never launch
 # --- lock ---------------------------------------------------------------------------------
 
 lock_stale() {
-  if [ -f "$L/holder" ]; then
-    hp=$(head -n1 "$L/holder" 2>/dev/null | tr -d ' \t\r\n')
+  hp=""
+  [ -f "$L/holder" ] && hp=$(head -n1 "$L/holder" 2>/dev/null | tr -d ' \t\r\n')
+  if [ -n "$hp" ]; then
     alive "$hp" || return 0
   else
+    # No holder, or one the owner is still writing (the redirect creates it empty first): judge by age.
     [ -n "$(find "$L" -maxdepth 0 -mmin +1 2>/dev/null)" ] && return 0
   fi
   [ -n "$(find "$L" -maxdepth 0 -mmin +11 2>/dev/null)" ] && return 0
