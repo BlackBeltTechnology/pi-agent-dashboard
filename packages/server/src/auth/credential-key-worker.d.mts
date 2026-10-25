@@ -9,8 +9,8 @@ export interface KeychainEntryLike {
   setPassword(password: string): void;
 }
 export type EntryFactory = (service: string, account: string, options?: unknown) => KeychainEntryLike;
-export const ENTRY_OPTIONS: { readonly linux: { readonly store: "secret-service" } };
-export function deepestCauseMessage(err: unknown): string;
-export function shortenDetail(text: unknown): string;
-export function runKeychainJob(job: KeychainJob, entryFactory: EntryFactory): Promise<{ value: string | null; created: boolean }>;
-export function loadEntryFactory(): Promise<EntryFactory>;
+export declare const ENTRY_OPTIONS: { readonly linux: { readonly store: "secret-service" } };
+export declare function deepestCauseMessage(err: unknown): string;
+export declare function shortenDetail(text: unknown): string;
+export declare function runKeychainJob(job: KeychainJob, entryFactory: EntryFactory): Promise<{ value: string | null; created: boolean }>;
+export declare function loadEntryFactory(): Promise<EntryFactory>;

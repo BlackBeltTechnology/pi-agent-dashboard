@@ -86,20 +86,23 @@ export async function loadEntryFactory() {
   return (service, account, options) => new Entry(service, account, options);
 }
 
+/** Run the job named in `workerData` and post exactly one answer on `port`. */
+async function serveJob(port) {
+  let factory;
+  try {
+    factory = await loadEntryFactory();
+  } catch (err) {
+    port.postMessage({ ok: false, stage: "load", detail: shortenDetail(deepestCauseMessage(err)) });
+    return;
+  }
+  try {
+    port.postMessage({ ok: true, ...(await runKeychainJob(workerData.job, factory)) });
+  } catch (err) {
+    port.postMessage({ ok: false, stage: "keychain", detail: shortenDetail(deepestCauseMessage(err)) });
+  }
+}
+
 if (!isMainThread && parentPort && workerData?.job) {
   const port = parentPort;
-  void (async () => {
-    let factory;
-    try {
-      factory = await loadEntryFactory();
-    } catch (err) {
-      port.postMessage({ ok: false, stage: "load", detail: shortenDetail(deepestCauseMessage(err)) });
-      return;
-    }
-    try {
-      port.postMessage({ ok: true, ...(await runKeychainJob(workerData.job, factory)) });
-    } catch (err) {
-      port.postMessage({ ok: false, stage: "keychain", detail: shortenDetail(deepestCauseMessage(err)) });
-    }
-  })();
+  void serveJob(port).catch((err) => port.postMessage({ ok: false, stage: "keychain", detail: shortenDetail(deepestCauseMessage(err)) }));
 }

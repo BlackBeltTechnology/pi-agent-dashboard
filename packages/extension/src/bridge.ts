@@ -8,6 +8,7 @@
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -58,6 +59,7 @@ import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-tok
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { createPathGate } from "./path-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
@@ -1958,6 +1960,16 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     return fanoutAdmission.onToolCall(event);
   }));
+  // Agent credential guard — always on, no setting. Registered BEFORE the path gate so a
+  // blocked call never shows a gate prompt and a grant / YOLO / gate-off cannot override it.
+  // Deliberately NOT wrapped in the fail-open `safe()`: the guard maps an internal error to a
+  // block of that one call. Stale bridge instances (after reload) pass through.
+  // See change: encrypt-credentials-at-rest (D12).
+  const credentialGuardHandler = createCredentialGuardToolCallHandler(
+    createCredentialGuard({ env: process.env, homedir: os.homedir(), log: (line) => console.log(line) }),
+    isActive,
+  );
+  pi.on("tool_call", credentialGuardHandler as any);
   // Agent path gate — registered AFTER the fan-out admission handler (and after the
   // bridge's own forwarder) and deliberately NOT wrapped in the fail-open `safe()`:
   // its own try/catch maps any internal error to a block. Stale bridge instances

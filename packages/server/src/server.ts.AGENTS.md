@@ -122,3 +122,11 @@ Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZro
 ## harden-peer-address-identity
 
 mDNS browser gets `ownFingerprint: serverIdentity.fingerprint`; `registerKnownServersRoutes` gets `ownFingerprint`. See change: harden-peer-address-identity.
+
+## encrypt-credentials-at-rest (plugin store)
+
+Plugin context `pluginCredentials` builds `createPluginCredentialStore(id, {codec: getCredentialCodec("plugin-credentials")})`. Plugin credential store codec is required; locked file ⇒ `store_locked{reason}` rejection to the plugin. See change: encrypt-credentials-at-rest.
+
+## encrypt-credentials-at-rest (vault store)
+
+`createVaultStore({codec: getCredentialCodec("vault")})` at the vault wiring. Locked vault ⇒ hub `vault-unavailable`, routes 409 `vault_locked`, ACME `credential vault unavailable`. Startup ordering (`initCredentialKey` before the stores) is wave C. See change: encrypt-credentials-at-rest.

@@ -47,7 +47,7 @@ describe("keychain deadline (real timers)", () => {
     const t0 = Date.now();
     const check = setTimeout(() => { resolvedAt9900 = resolved; }, 9900);
     const p = initCredentialKey({ env: {}, ...stub({ default: { mode: "hang" } }), workerFactory: workers.factory });
-    void p.then(() => { resolved = true; });
+    void p.then(() => { resolved = true; }).catch(() => { resolved = true; });
     await p;
     const elapsed = Date.now() - t0;
     clearInterval(interval);

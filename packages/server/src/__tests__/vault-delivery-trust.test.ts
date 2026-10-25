@@ -14,6 +14,7 @@ import { createBinding } from "../vault/vault-bindings.js";
 import { createVaultDeliveryHub, decideVaultTrust, type VaultDeliveryHubDeps } from "../vault/vault-delivery-hub.js";
 import { confirmCheckout, createGrant, dirSubject, repoSubject } from "../vault/vault-grants.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
@@ -42,7 +43,7 @@ const req = (over: Partial<VaultSyncRequestMessage> = {}): VaultSyncRequestMessa
 
 beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-hub-"));
-  store = createVaultStore(path.join(dir, "vault.json"));
+  store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
   sent = []; enabled = true; tls = false; connected = true;
   origins = { s1: { local: true }, r1: { local: false, deviceId: "dev-1" }, rx: { local: false, deviceId: UNATTRIBUTED_REMOTE } };
   const a = await store.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });

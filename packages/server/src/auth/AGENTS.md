@@ -40,7 +40,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `operate-required.ts` | `hasOperateAuthority(request, localTrust?)` (operate device bearer, session, principal, or… → see `operate-required.ts.AGENTS.md` |
 | `pi-legacy-credentials.ts` | Plain-text API keys in pi `settings.json`… → see `pi-legacy-credentials.ts.AGENTS.md` |
 | `pi-oauth-types.ts` | Local structural types for the slice of pi-ai's OAuth surface the server drives: `LoginPrompt`… → see `pi-oauth-types.ts.AGENTS.md` |
-| `plugin-credential-store.ts` | `createPluginCredentialStore(pluginId, path?)` over `~/.pi/agent/plugin-credentials.json`… → see `plugin-credential-store.ts.AGENTS.md` |
+| `plugin-credential-store.ts` | `createPluginCredentialStore(pluginId, {codec, path?})` (codec required) over encrypted `~/.pi/agent/plugin-credentials.json`; `store_locked{reason}`. See change: encrypt-credentials-at-rest.… → see `plugin-credential-store.ts.AGENTS.md` |
 | `plugin-server-trust.ts` | `isPluginServerTrusted(id, entries)` (entry with `server:true`), `readServerTrustEntries()` (loose read of… → see `plugin-server-trust.ts.AGENTS.md` |
 | `plugin-trust-store.ts` | The ONE reader/writer of `auth.trustedPlugins`. `readTrustedPlugins()` (typed, live), `findTrustEntry`,… → see `plugin-trust-store.ts.AGENTS.md` |
 | `provider-auth-adapter.ts` | `AuthInteraction` adapter + in-memory flow store. `notify` sets sticky `authUrl` / `device_code` pending /… → see `provider-auth-adapter.ts.AGENTS.md` |

@@ -17,3 +17,5 @@ See change: fix-replay-fabricates-orphan-end-for-live-calls — onReconnect repl
 Activation captures `dashboardSpawned` via `captureSpawnTokenAtActivation()` (scrubs env). See change: mirror-dashboard-trust-to-pi.
 
 Follow-up drain: `drainFollowupQueue()` (no `retryCount`, no idle-retry loop) keeps the `isDraining` lock and wires the pure `drainOneFollowup` (`followup-drain.ts`); a false `isIdle()` returns, the next `agent_settled` drains (trigger in `bridge-handlers/forwarders.ts`). `enqueueSystemFollowup` ships at once when idle, else on the next settle. See change: update-pi-core-1-3-adopt-apis.
+
+- Registers the credential guard as a `tool_call` handler right BEFORE the path gate (`createCredentialGuardToolCallHandler(createCredentialGuard({env,homedir,log}), isActive)`); not `safe()`-wrapped, no config/switch; a blocked call never reaches the gate prompt. Order pinned by `__tests__/credential-guard-wiring.test.ts` (E54). See change: encrypt-credentials-at-rest.

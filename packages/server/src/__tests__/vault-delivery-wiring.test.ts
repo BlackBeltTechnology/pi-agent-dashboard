@@ -9,11 +9,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { _resetCredentialKeyForTests, getCredentialCodec, initCredentialKey } from "../auth/credential-key.js";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 import { createBinding } from "../vault/vault-bindings.js";
 import { createGrant, dirSubject } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
-import { proofFetch } from "../test-support/local-credential-stamp.js";
+import { b64, KEY_1, KEY_2, logSink, resetCredentialFiles, writeKeyFile } from "./helpers/credential-key-kit.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 const baseConfig: ServerConfig = {
   port: 0, piPort: 0, host: "127.0.0.1", gatewayTcp: true, dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
@@ -24,15 +27,22 @@ describe("vault delivery wiring", () => {
   let tmp: string;
   let ws: WebSocket;
 
-  beforeEach(() => { tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ew-vault-"))); });
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ew-vault-")));
+    _resetCredentialKeyForTests();
+    resetCredentialFiles(); // the default-path vault.json is shared by the tests of this file
+  });
   afterEach(async () => {
     ws?.close();
     await server?.stop();
+    _resetCredentialKeyForTests();
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it("answers a sync request with the granted values, advertises the feature, and pushes a rotation", async () => {
-    const store = createVaultStore(); // default path: under the per-file tmp $HOME
+    // The server's vault store reads through the process data key: resolve it from a key file (no keychain).
+    await initCredentialKey({ env: { PI_DASHBOARD_DATA_KEY_FILE: writeKeyFile(b64(KEY_1)) }, log: logSink().log });
+    const store = createVaultStore({ codec: getCredentialCodec("vault") }); // default path: under the per-file tmp $HOME
     const acc = await store.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
     await createBinding(store, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
     await createGrant(store, { subject: dirSubject("hub", tmp), bindingName: "GEMINI_API_KEY" });
@@ -65,5 +75,28 @@ describe("vault delivery wiring", () => {
     await vi.waitFor(() => expect(frames.filter((f) => f.type === "vault_snapshot").at(-1)?.entries?.[0]?.value).toBe("rotated-key-0001"), { timeout: 5_000 });
     const pushed = frames.filter((f) => f.type === "vault_snapshot").at(-1);
     expect(pushed.entries).toEqual([{ name: "GEMINI_API_KEY", value: "rotated-key-0001" }]);
+  });
+  it("X26: a locked vault delivers nothing: vault-unavailable, no value in the frame", async () => {
+    // Seeded under key B, while the process holds key A: the server sees a locked (key_mismatch) vault.
+    const seed = createVaultStore({ codec: testVaultCodec(KEY_2) });
+    const acc = await seed.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
+    await createBinding(seed, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
+    await createGrant(seed, { subject: dirSubject("hub", tmp), bindingName: "GEMINI_API_KEY" });
+    await initCredentialKey({ env: { PI_DASHBOARD_DATA_KEY_FILE: writeKeyFile(b64(KEY_1)) }, log: logSink().log });
+
+    server = await createServer({ ...baseConfig });
+    await server.start();
+    ws = new WebSocket(`ws://127.0.0.1:${server.piPort()}`);
+    const frames: any[] = [];
+    ws.on("message", (raw) => { try { frames.push(JSON.parse(String(raw))); } catch { /* ignore */ } });
+    await new Promise<void>((resolve) => ws.on("open", () => resolve()));
+    ws.send(JSON.stringify({ type: "session_register", sessionId: "s1", cwd: tmp, source: "cli" }));
+    await vi.waitFor(() => expect(frames.find((f) => f.type === "dashboard_identity")).toBeDefined(), { timeout: 5_000 });
+    ws.send(JSON.stringify({ type: "vault_sync_request", sessionId: "s1", cwd: tmp, tracked: [], reason: "connect" }));
+    await vi.waitFor(() => expect(frames.some((f) => f.type === "vault_snapshot")).toBe(true), { timeout: 5_000 });
+    const snap = frames.filter((f) => f.type === "vault_snapshot").at(-1);
+    expect(snap).toMatchObject({ status: "unavailable", outcome: "vault-unavailable" });
+    expect(JSON.stringify(snap)).not.toContain("gemini-key-001");
+    expect(snap.entries ?? []).toEqual([]);
   });
 });

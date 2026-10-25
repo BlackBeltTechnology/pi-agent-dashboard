@@ -27,10 +27,13 @@
  * listings reveal which secrets exist and where they go. This is stricter than
  * `service-secrets`. The session binding-state read sits behind the network guard
  * only, like the rest of a session's own status. No response ever carries a stored value.
+ * A locked or key-less vault answers every write 409 `vault_locked` with a non-secret `reason`
+ * and the shared `remedy`.
  *
  * See change: add-credential-vault (D6); retro-ux-credential-vault (D2, D4, D11).
  */
 
+import { credentialRemedy } from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { LocalTrustContext } from "../auth/local-proof.js";
 import { hasOperateAuthority, sendOperateRequired } from "../auth/operate-required.js";
@@ -97,12 +100,15 @@ const STATUS_FOR: Record<VaultErrorCode, number> = {
   invalid_request: 400,
   not_found: 404,
   vault_corrupt: 409,
+  vault_locked: 409,
   managed_account: 409,
 };
 
 function sendError(reply: FastifyReply, err: unknown): FastifyReply {
   if (err instanceof VaultError) {
-    return reply.code(STATUS_FOR[err.code] ?? 400).send({ success: false, error: err.code, message: err.message });
+    // A locked vault names its non-secret reason and the fixed remedy; never file content.
+    const lock = err.reason ? { reason: err.reason, remedy: credentialRemedy(err.reason) } : {};
+    return reply.code(STATUS_FOR[err.code] ?? 400).send({ success: false, error: err.code, message: err.message, ...lock });
   }
   // Unexpected errors can carry paths or content: log the name only, return a generic body.
   console.warn(`[vault] route error: ${(err as Error)?.name ?? "error"}`);
@@ -271,7 +277,8 @@ export function registerVaultRoutes(fastify: FastifyInstance, deps: VaultRoutesD
     // `ungranted` names bindings, so it follows the manage predicate, not session-read authority.
     if (!(await canManageVault(request, deps))) return { success: true, data: states };
     const { status, doc } = store.readDocument();
-    const ungranted = states.project && status.state !== "corrupt" ? ungrantedBindings(doc, states.project) : [];
+    const unreadable = status.state === "corrupt" || status.state === "locked";
+    const ungranted = states.project && !unreadable ? ungrantedBindings(doc, states.project) : [];
     return { success: true, data: { ...states, ungranted } };
   });
 }

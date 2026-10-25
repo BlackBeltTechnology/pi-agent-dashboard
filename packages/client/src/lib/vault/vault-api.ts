@@ -39,8 +39,34 @@ export interface VaultPluginDeclaration {
   displayName: string;
   declared: string[];
 }
+/**
+ * `locked`: the data key or the envelope is unusable (`reason`). `writable:false` on `ok`: a plaintext
+ * vault is readable but no key can encrypt a write (`reason`). `reason` is open: a code from a newer
+ * server still renders as locked. See change: encrypt-credentials-at-rest (D3).
+ */
+export interface VaultStatus {
+  state: "absent" | "ok" | "corrupt" | "locked";
+  backup?: string;
+  reason?: string;
+  writable?: boolean;
+}
+
+/** Why the vault refuses writes because of the data key, or `null` when it does not. A state this client does not know counts as locked, never `ok`. */
+export function vaultLock(status: VaultStatus): { reason: string } | null {
+  const { state } = status;
+  if (state === "locked") return { reason: status.reason ?? "unknown" };
+  if (state === "ok" && status.writable === false) return { reason: status.reason ?? "unknown" };
+  if (state === "ok" || state === "absent" || state === "corrupt") return null;
+  return { reason: "unknown" };
+}
+
+/** True when the page must disable every write control: corrupt, locked, read-only, or a state this client does not know. */
+export function isVaultWriteBlocked(status: VaultStatus): boolean {
+  return status.state === "corrupt" || vaultLock(status) !== null;
+}
+
 export interface VaultOverview {
-  status: { state: "absent" | "ok" | "corrupt"; backup?: string };
+  status: VaultStatus;
   accounts: VaultAccountView[];
   bindings: VaultBindingView[];
   grants: VaultGrantView[];

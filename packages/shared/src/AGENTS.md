@@ -11,6 +11,7 @@ Files in this directory. One row per source file.
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
 | `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge → see `__tests__/config-pi-trust-mirror.test.ts.AGENTS.md` |
+| `__tests__/credential-encryption-remedy.test.ts` | #E96: every `CREDENTIAL_LOCK_REASONS` entry has a non-empty remedy; `key_missing`/`key_mismatch` name `credentials reset --vault`; keychain_*/key_file_* name `PI_DASHBOARD_DATA_KEY_FILE`; no 43-char key-like token. See change: encrypt-credentials-at-rest. |
 | `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter,… → see `__tests__/pi-trust-mirror.test.ts.AGENTS.md` |

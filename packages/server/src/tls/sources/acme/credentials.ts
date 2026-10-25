@@ -110,7 +110,7 @@ export interface AcmeCredentials {
   readSecret(sourceId: string, label: string): Promise<string | null>;
   /** True only when EVERY label of the solver type is present. False when the vault is unavailable. Reads no value. */
   isConfigured(sourceId: string, solverType: SolverType): Promise<boolean>;
-  /** `unavailable` when the vault file is corrupt or unreadable; an absent vault is `ok`. */
+  /** `unavailable` when the vault file is corrupt, locked (undecryptable envelope) or unreadable; an absent vault is `ok`. */
   vaultState(): "ok" | "unavailable";
   /** Save one solver type's body (`{token}` / `{user,key}`) in one vault update. Throws `AcmeCredentialsError` (400) on a bad body or value. */
   save(sourceId: string, solverType: SolverType, body: Record<string, unknown>): Promise<void>;
@@ -126,7 +126,8 @@ const BAD_VALUE_CODES = new Set(["value_too_short", "value_too_long", "invalid_f
 export function createAcmeCredentials(store: VaultStore): AcmeCredentials {
   const vaultState = (): "ok" | "unavailable" => {
     try {
-      return store.readDocument().status.state === "corrupt" ? "unavailable" : "ok";
+      const { state } = store.readDocument().status;
+      return state === "corrupt" || state === "locked" ? "unavailable" : "ok";
     } catch {
       return "unavailable";
     }
