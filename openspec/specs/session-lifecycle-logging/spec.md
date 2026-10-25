@@ -18,7 +18,7 @@ The pi-gateway SHALL log when a session is unregistered, including the reason fo
 
 #### Scenario: Heartbeat timeout
 - **WHEN** the heartbeat timer fires and the session is unregistered
-- **THEN** it SHALL log `[gateway] session timed out: <sessionId> (no heartbeat for 45s)` to stderr
+- **THEN** it SHALL log `[gateway] session timed out: <sessionId> (no heartbeat for 180000ms)` to stderr
 
 #### Scenario: Sleep recovery failure
 - **WHEN** the sleep-retry heartbeat timer fires and the session is unregistered
