@@ -101,8 +101,8 @@
 
 ## 12. Docs and AGENTS rows
 
-- [ ] 12.1 Use DocScribe to update `docs/plugin-seams.md`, `docs/plugin-seams.agent.md`, `docs/gmail-plugin.md`, `docs/gmail-plugin.agent.md`, `docs/credential-vault.md` and `docs/credential-vault.agent.md`. Each must cover the encrypted-at-rest format, the threat model, the key file, recovery, downgrade, and the guard as "not a sandbox". Add a FAQ entry to `docs/faq.md` on key loss and Docker.
-- [ ] 12.2 Update the AGENTS rows: `packages/server/src/auth/` (new modules; `plugin-credential-store.ts.AGENTS.md`; `locked-json-file`), `packages/server/src/vault/AGENTS.md` (`vault-store.ts`, `vault-routes.ts`, `vault-delivery-hub.ts`), `packages/server/src/services/AGENTS.md` (resolver), `packages/extension/src/` (`credential-guard.ts`, `bridge.ts`) and `packages/server/src/cli.ts.AGENTS.md`. Each gets `See change: encrypt-credentials-at-rest`.
+- [x] 12.1 Use DocScribe to update `docs/plugin-seams.md`, `docs/plugin-seams.agent.md`, `docs/gmail-plugin.md`, `docs/gmail-plugin.agent.md`, `docs/credential-vault.md` and `docs/credential-vault.agent.md`. Each must cover the encrypted-at-rest format, the threat model, the key file, recovery, downgrade, and the guard as "not a sandbox". Add a FAQ entry to `docs/faq.md` on key loss and Docker.
+- [x] 12.2 Update the AGENTS rows: `packages/server/src/auth/` (new modules; `plugin-credential-store.ts.AGENTS.md`; `locked-json-file`), `packages/server/src/vault/AGENTS.md` (`vault-store.ts`, `vault-routes.ts`, `vault-delivery-hub.ts`), `packages/server/src/services/AGENTS.md` (resolver), `packages/extension/src/` (`credential-guard.ts`, `bridge.ts`) and `packages/server/src/cli.ts.AGENTS.md`. Each gets `See change: encrypt-credentials-at-rest`.
 
 ## 13. Cross-change coordination
 

@@ -22,7 +22,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |
 | `craft-apps.md` | ArtCraft craft apps (13) headless via `pi-craft`. Provision `<CRAFT_HOME>/<app>/<v>/`; `<APP>_BIN`/`_VERSION`, `CRAFT_SOURCE`; MCP confinement table; `verify` exit 0/1/2/3. See change: add-craft-apps-core. |
 | `craft-web-plugin.md` | ArtCraft web editors in editor pane. Provision, sandbox/CSP, shim protocol v3, dirty/save mapping, validators, per-app spikes §14 (incl. §14.8 VectorCraft live-control re-spike, §14.9 live-control status table). §15 live agent control: `craft_control` probe→claim→run router, host policy, agentPending, host.state, kill switch liveControl, FakeCraft fixture. See change: edit-office-in-pane-with-craft-web. See change: add-craft-live-control. |
-| `credential-vault.md` | Hub `vault.json` 0600. Env bindings, grants, redaction. See change: add-credential-vault. |
+| `credential-vault.md` | Hub `vault.json` 0600, AES-256-GCM at rest (§12: envelope, key sources, lock reasons, recovery, Docker, guard, threat model). Env bindings, grants, redaction. See change: add-credential-vault, encrypt-credentials-at-rest. |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
 | `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |
@@ -31,13 +31,13 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `electron-session.md` | Implementation session log. 21 phases. Branding/icons, packaging (NSIS/AppImage), `__dirname`/tsx saga, dead… → see `electron-session.md.AGENTS.md` |
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
-| `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery. → see `faq.md.AGENTS.md` |
+| `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery, encrypt-credentials-at-rest. → see `faq.md.AGENTS.md` |
 | `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. See change: scope-anchor-editor-pane-controls. |
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. → see `grammar-checker.md.AGENTS.md` |
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. → see `grammar-model-guidance.md.AGENTS.md` |
 | `gmail-plugin.agent.md` | Pull-only condensed map/companion for `gmail-plugin.md`. Sign-in + error codes, automatic setup run/steps/checkpoints/handoff reasons, lease gates, levels, tools, routes, storage, security. → see `gmail-plugin.md` |
-| `gmail-plugin.md` | Map Gmail setup (manual wizard + automatic run), sign-in, leases, levels, tools, routes, storage, tests, security. See change: add-gmail-plugin, add-gmail-auto-setup. |
+| `gmail-plugin.md` | Map Gmail setup (manual wizard + automatic run), sign-in, leases, levels, tools, routes, storage (encrypted at rest), tests, security. See change: add-gmail-plugin, add-gmail-auto-setup, encrypt-credentials-at-rest. |
 | `identity-auth-plugin-guide.md` | Build dashboard auth plugin. Three-way split; login view + resolver + host access policy; break-glass. → see `identity-auth-plugin-guide.md.AGENTS.md` |
 | `identity-plane.md` | Multi-user identity ref. Gate on `request.principal`/`ws.principal`; owner-equality every session road; break-glass D23; `ctx.identity` D24. → see `identity-plane.md.AGENTS.md` |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
@@ -60,7 +60,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `plugin-apps.md` | Plugin React apps embedded + standalone. `<EmbeddedApp>` (`./embedded-app`), `EmbeddedAppShellProvider`,… → see `plugin-apps.md.AGENTS.md` |
 | `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims; slot-claims invalidation store; badge-gate rule; `shell-headless` slot. See change: auto-hide-empty-session-subcards, add-blackhole-session-pipeline, fix-empty-status-subcard. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
-| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store, ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
+| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store (encrypted at rest), ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
 | `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. → see `plugin-ui-primitives.md.AGENTS.md` |
 | `pnpm-workspace.yaml` | (repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). → see `pnpm-workspace.yaml.AGENTS.md` |
 | `team-plugin.md` | Phase 1 AI Team. `packages/team-plugin` + `packages/team-app`. → see `team-plugin.md.AGENTS.md` |

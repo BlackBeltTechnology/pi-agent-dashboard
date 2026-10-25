@@ -647,6 +647,36 @@ Cross-refs:
 - README.md:178
 - docs/architecture.md:959
 
+## What happens if I lose my data key (keychain reset, new machine, lost key volume)?
+
+Credential files stay locked. Ciphertext untouched. Without a key backup, the data is unrecoverable.
+
+- Locked files: `vault.json` and `plugin-credentials.json` report `key_missing` (keychain), `key_file_missing` (key file) or `key_mismatch`. Writes refused.
+- Restore the key (keychain entry or `PI_DASHBOARD_DATA_KEY_FILE` file from backup), restart the server.
+- Or reset and re-enter:
+  ```bash
+  pi-dashboard credentials status                          # read-only
+  pi-dashboard credentials reset [--vault] [--plugin-credentials] [--yes]   # server stopped
+  ```
+  Locked file renamed to `<file>.undecryptable-<stamp>` (kept). Re-enter credentials on the Vault page or each plugin's settings.
+- Key-file source: `reset` never creates a key. Create first: `openssl rand -base64 32 > <file>; chmod 600 <file>`.
+- Back up the key apart from `~/.pi`. A copy of `~/.pi` carries no key.
+- Reference: [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest). See change: encrypt-credentials-at-rest.
+
+## How does the Docker `pi-key` volume work?
+
+- Data key: `/home/pi/.pi-key/data-key` on named volume `pi-key`, separate from `pi-state` (`/home/pi/.pi`).
+- First start, no encrypted file yet: entrypoint generates the key under `umask 077`. Key never in argv or logs.
+- Key volume missing but encrypted file exists: entrypoint refuses to generate a key. Prints restore remedy. Server starts, files locked `key_file_missing`.
+- Custom Compose or `docker run` must mount it as a named volume:
+  ```bash
+  docker run -v pi-state:/home/pi/.pi -v pi-key:/home/pi/.pi-key ...
+  ```
+  Image `VOLUME` alone creates an anonymous volume. `docker compose down -v` or a fresh `docker run` discards the key. Entrypoint warns.
+- Back up `pi-key` and `pi-state` together. `pi-state` alone needs the key.
+- Own key: `PI_DASHBOARD_DATA_KEY_FILE` → `0600` file. Compose secret (`/run/secrets/…`, mode `0444`) rejected. Copy to a `0600` file first.
+- Reference: `docker/README.md` → Credential key volume.
+
 ## How do I expose the dashboard on my LAN?
 
 Native installs bind `127.0.0.1` (loopback) by default. HTTP + pi gateway both stay local.

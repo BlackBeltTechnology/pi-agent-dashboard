@@ -14,8 +14,11 @@ See change: `expose-plugin-credential-and-oauth-seams`.
 ## Credential store (`ctx.credentials`)
 
 Namespaced, locked, 0600 credential persistence. File
-`~/.pi/agent/plugin-credentials.json`, plaintext at rest — same posture as
-`auth.json`. Deliberately NOT `connector-auth.json` (claimed by
+`~/.pi/agent/plugin-credentials.json`, encrypted at rest (`pi-dashboard-encrypted:v1`,
+AES-256-GCM, AAD `pi-dashboard:v1:plugin-credentials`). Key: OS keychain or
+`PI_DASHBOARD_DATA_KEY_FILE`. Plaintext files migrate in place at startup. Full format,
+key sources, lock states, recovery and threat model: [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest).
+Deliberately NOT `connector-auth.json` (claimed by
 `add-connector-layer` with another schema).
 
 Schema `{ "<pluginId>": { "<key>": <record> } }`. Plugin sees OWN namespace only.
@@ -46,13 +49,18 @@ Reads (`get`/`list`/`snapshot`) unlocked. Safe: file only replaced by atomic
 rename; read never creates file. Writes (`set`/`remove`/`update`) share the
 `locked-json-file.ts` lock with `auth.json`.
 
+Locked store (no usable data key):
+- Encrypted file: `get`/`list`/`snapshot` and writes reject `store_locked`. Error carries `reason`.
+- Plaintext file, no key: reads work. Writes reject `store_locked`.
+- Locked file never overwritten, never quarantined. Remedy text: `credential-vault.md` §12.4.
+
 ### Limits and errors
 
 - Keys 1–200 chars. Reserved keys `__proto__`, `constructor`, `prototype` rejected.
 - Records plain JSON objects ≤ 64 KiB serialized.
 - ≤ 256 keys per namespace. ≤ 2 MiB per namespace.
 - `PluginCredentialError` codes: `invalid_key`, `invalid_record`,
-  `record_too_large`, `too_many_keys`, `namespace_too_large`.
+  `record_too_large`, `too_many_keys`, `namespace_too_large`, `store_locked`.
 
 `update` is the only atomic read-modify-write. Concurrent `get`+`set` races.
 
