@@ -19,11 +19,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const killProcessMock = vi.hoisted(() => vi.fn(async () => ({ ok: true, forced: false })));
 const killPidWithGroupMock = vi.hoisted(() => vi.fn(() => undefined));
 const isProcessAliveMock = vi.hoisted(() => vi.fn(() => true));
+const killProcessGroupMock = vi.hoisted(() => vi.fn(async () => ({ ok: true, forced: false })));
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", () => ({
   killProcess: killProcessMock,
   killPidWithGroup: killPidWithGroupMock,
   isProcessAlive: isProcessAliveMock,
+  killProcessGroup: killProcessGroupMock,
 }));
 
 // eslint-disable-next-line import/first
@@ -46,6 +48,8 @@ describe("headlessPidRegistry.killBySessionId — SIGKILL escalation", () => {
     killProcessMock.mockReset();
     killProcessMock.mockResolvedValue({ ok: true, forced: false });
     killPidWithGroupMock.mockReset();
+    killProcessGroupMock.mockReset();
+    killProcessGroupMock.mockResolvedValue({ ok: true, forced: false });
     isProcessAliveMock.mockReset();
     isProcessAliveMock.mockReturnValue(true);
   });
@@ -106,7 +110,7 @@ describe("headlessPidRegistry.killBySessionId — SIGKILL escalation", () => {
     expect(killProcessMock).toHaveBeenCalledWith(PI_PID, { timeoutMs: 2000 });
   });
 
-  it("keeper mode: keeper-fallback 200 ms SIGTERM still fires via killPidWithGroup", async () => {
+  it("keeper mode: keeper-fallback 200 ms kills the keeper's GROUP via killProcessGroup (#912)", async () => {
     vi.useFakeTimers();
     const reg = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     reg.register(KEEPER_PID, "/proj", mockProcess(), "tok", {
@@ -115,15 +119,17 @@ describe("headlessPidRegistry.killBySessionId — SIGKILL escalation", () => {
     });
     reg.linkByToken("tok", "S1", PI_PID);
 
+    // Even when the keeper already auto-exited, pi's orphaned children still sit in
+    // the keeper's process group: the fallback targets the group, not keeper liveness.
+    // Mark the keeper dead BEFORE any timer runs so a liveness guard would be caught.
+    isProcessAliveMock.mockReturnValue(false);
     const killPromise = reg.killBySessionId("S1");
     await vi.runOnlyPendingTimersAsync();
     await killPromise;
-
-    // Keeper-fallback fires SIGTERM on the keeper PID after 200 ms.
-    isProcessAliveMock.mockReturnValueOnce(true);
     vi.advanceTimersByTime(200);
     await Promise.resolve();
-    expect(killPidWithGroupMock).toHaveBeenCalledWith(KEEPER_PID, "SIGTERM");
+    expect(killProcessGroupMock).toHaveBeenCalledWith(KEEPER_PID, { timeoutMs: 2000 });
+    expect(killPidWithGroupMock).not.toHaveBeenCalled();
   });
 
   it("keeper mode without pi link: escalates keeper directly via killProcess", async () => {
