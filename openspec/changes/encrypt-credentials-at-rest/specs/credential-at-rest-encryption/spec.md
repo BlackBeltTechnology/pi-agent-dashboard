@@ -73,6 +73,15 @@ When `PI_DASHBOARD_DATA_KEY_FILE` is not set, the dashboard SHALL read the data 
 - **THEN** the key state is unavailable with reason `keychain_unavailable` and every credential write is refused
 - **AND** no credential is written in plaintext
 
+
+### Requirement: Linux keychain is Secret Service only
+On Linux the dashboard SHALL read and store the data key only through the Secret Service. It SHALL NOT read or store the data key in the kernel keyring, which does not persist across reboots. A missing or unusable Secret Service SHALL give reason `keychain_unavailable`.
+
+#### Scenario: Linux never falls back to the kernel keyring
+- **WHEN** the dashboard runs on Linux with no Secret Service reachable, no key file configured, and a plaintext credential file to migrate
+- **THEN** the key state is unavailable with reason `keychain_unavailable`
+- **AND** no entry for `pi-dashboard-credential-key` exists in the kernel keyring and the file stays plaintext
+
 ### Requirement: Keychain access never blocks the server
 Every keychain read or write SHALL run off the server's main thread. `initCredentialKey` SHALL be bounded by one total 10 s deadline covering all its keychain jobs (read, creation-lock wait, creation) and SHALL complete before the server starts listening. A job started later by the first credential write has its own 10 s deadline. On expiry the key state SHALL be unavailable with reason `keychain_timeout`, a late answer SHALL be ignored, and the process SHALL NOT retry.
 
