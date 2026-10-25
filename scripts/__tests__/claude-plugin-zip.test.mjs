@@ -51,6 +51,8 @@ describe("zip layout (E44)", () => {
         "skills/pi-dashboard-bootstrap/SKILL.md",
         "skills/pi-dashboard-bootstrap/scripts/ensure-dashboard.sh",
         "skills/pi-dashboard-control/SKILL.md",
+        "skills/pi-dashboard-watch/SKILL.md",
+        "skills/pi-dashboard-watch/scripts/watch-events.sh",
         "README.md",
         "LICENSE",
       ]) {
