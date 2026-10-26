@@ -43,7 +43,7 @@ function Stop-Dash { $env:HOME = $qaHome; $env:USERPROFILE = $qaHome; & $launche
 function Wait-Health([int]$seconds) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
-        try { if ((Invoke-WebRequest -Uri "http://localhost:$port/api/health" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { return $true } } catch { }
+        try { if ((Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/health" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { return $true } } catch { }
         Start-Sleep -Seconds 1
     }
     return $false
