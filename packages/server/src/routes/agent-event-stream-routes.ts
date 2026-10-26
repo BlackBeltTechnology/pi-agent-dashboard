@@ -20,7 +20,7 @@ import { AGENT_EVENT_TYPES, type AgentEvent, type AgentEventHub, type AgentEvent
 import { canAccessSession, sessionPrincipalOf } from "../identity/session-access.js";
 import type { NetworkGuard } from "./route-deps.js";
 
-export const EVENT_STREAM_HEARTBEAT_MS = 20_000;
+const EVENT_STREAM_HEARTBEAT_MS = 20_000;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 export interface AgentEventStreamRouteDeps {
