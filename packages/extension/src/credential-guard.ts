@@ -139,6 +139,20 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
     return out;
   };
 
+  /**
+   * The env-configured paths AS WRITTEN (not resolved). On win32 a POSIX-style value
+   * (`/home/pi/.pi-key/data-key`) resolves to `D:\home\...`, which a command quoting
+   * the configured string never contains; text rules match both forms.
+   */
+  const configuredLexical = (): string[] => {
+    const out: string[] = [];
+    const agentDir = deps.env.PI_CODING_AGENT_DIR;
+    if (agentDir) out.push(`${agentDir.replace(/[\\/]+$/, "")}/${CREDENTIAL_FILE_BASENAMES["plugin-credentials"]}`);
+    const keyFile = deps.env[DATA_KEY_FILE_ENV];
+    if (keyFile) out.push(keyFile);
+    return out;
+  };
+
   const block = (tool: string, rule: CredentialGuardRule): GuardResult => {
     log(`[credential-guard] blocked tool=${safeName(tool)} match=${rule}`);
     return { block: true, reason: `credential_guard: ${safeName(tool)} targets dashboard credential storage` };
@@ -193,6 +207,7 @@ export function createCredentialGuard(deps: CredentialGuardDeps) {
       `.pi/agent/${CREDENTIAL_FILE_BASENAMES["plugin-credentials"]}`,
       `.pi/dashboard/${CREDENTIAL_FILE_BASENAMES.vault}`,
       ...protectedLexical().slice(2).map(norm),
+      ...configuredLexical().map(norm),
     ];
     for (const s of strings) {
       const rule = textRule(s, needles);

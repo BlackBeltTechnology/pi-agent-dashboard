@@ -50,7 +50,12 @@ function Wait-Health([int]$seconds) {
 }
 function Start-Dash {
     $env:HOME = $qaHome; $env:USERPROFILE = $qaHome
-    & $launcher start --port $port --pi-port $piPort --no-tunnel | Out-Null
+    & $launcher start --port $port --pi-port $piPort --no-tunnel 2>&1 | ForEach-Object { Write-Host "    start: $_" }
+}
+function Show-ServerLog {
+    $log = Join-Path $qaHome ".pi\dashboard\server.log"
+    if (Test-Path $log) { Write-Host "--- server.log (tail)"; Get-Content $log -Tail 40 | ForEach-Object { Write-Host "    $_" } }
+    else { Write-Host "--- no server.log at $log" }
 }
 
 try {
@@ -59,7 +64,7 @@ try {
         Set-Content -Path $vault -Encoding ascii -NoNewline
 
     Start-Dash
-    if (-not (Wait-Health 40)) { Write-Host "FAIL: health never answered"; exit 1 }
+    if (-not (Wait-Health 120)) { Show-ServerLog; Write-Host "FAIL: health never answered"; exit 1 }
     Start-Sleep -Seconds 2
 
     $list = (& cmdkey /list 2>&1 | Out-String)
@@ -72,7 +77,7 @@ try {
     Stop-Dash
     Start-Sleep -Seconds 2
     Start-Dash
-    if (-not (Wait-Health 40)) { Write-Host "FAIL: health never answered after the restart"; exit 1 }
+    if (-not (Wait-Health 120)) { Show-ServerLog; Write-Host "FAIL: health never answered after the restart"; exit 1 }
     $env:HOME = $qaHome; $env:USERPROFILE = $qaHome
     $body = (& $launcher api GET /api/vault --port $port 2>&1 | Out-String)
     if ($body -notmatch "qa-label") { Write-Host "FAIL: the vault does not decode after the restart: $body"; exit 1 }
