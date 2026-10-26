@@ -129,7 +129,14 @@ describe("E86: the entrypoint block, executed", () => {
   });
 
   /** Runs the block with `/home/pi/.pi-key` rewritten into a temp dir; returns the env it leaves and its output. */
-  function runBlock(opts: { preset?: string; envelopeIn?: "vault" | "plugin" | "none"; existingKey?: string; plaintextVault?: boolean }) {
+  function runBlock(opts: {
+    preset?: string;
+    envelopeIn?: "vault" | "plugin" | "none";
+    existingKey?: string;
+    plaintextVault?: boolean;
+    /** Review B2: a `head` that fails for the 32-byte key read (the envelope peek still works). */
+    failingKeyRead?: boolean;
+  }) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "entrypoint-key-"));
     dirs.push(root);
     const home = path.join(root, "home");
@@ -142,7 +149,15 @@ describe("E86: the entrypoint block, executed", () => {
     if (opts.plaintextVault) fs.writeFileSync(path.join(home, ".pi", "dashboard", "vault.json"), '{"version":1}');
     if (opts.existingKey) fs.writeFileSync(path.join(keyDir, "data-key"), opts.existingKey, { mode: 0o600 });
     const script = `set -euo pipefail\n${BLOCK.replaceAll(KEY_DIR, keyDir)}\necho "FINAL=\${PI_DASHBOARD_DATA_KEY_FILE:-}"\n`;
-    const env: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: home };
+    let pathPrefix = "";
+    if (opts.failingKeyRead) {
+      const shimDir = path.join(root, "shim");
+      fs.mkdirSync(shimDir);
+      const realHead = spawnSync("bash", ["-c", "command -v head"], { encoding: "utf8" }).stdout.trim();
+      fs.writeFileSync(path.join(shimDir, "head"), `#!/bin/sh\nif [ "$2" = 32 ]; then exit 1; fi\nexec ${realHead} "$@"\n`, { mode: 0o755 });
+      pathPrefix = `${shimDir}:`;
+    }
+    const env: Record<string, string> = { PATH: `${pathPrefix}${process.env.PATH ?? ""}`, HOME: home };
     if (opts.preset) env.PI_DASHBOARD_DATA_KEY_FILE = opts.preset.replaceAll(KEY_DIR, keyDir);
     const r = spawnSync("bash", ["-c", script], { env, encoding: "utf8" });
     return { r, keyDir, keyFile: path.join(keyDir, "data-key"), out: `${r.stdout}${r.stderr}` };
@@ -158,6 +173,17 @@ describe("E86: the entrypoint block, executed", () => {
     // The key content never reaches the log.
     expect(out).not.toContain(body.trim());
     expect(fs.readdirSync(keyDir)).toEqual(["data-key"]);
+  });
+
+  it("review B2: a failed key read leaves NO key file behind, so the next boot generates again", () => {
+    const { r, keyFile, out } = runBlock({ failingKeyRead: true });
+    expect(r.status).toBe(0);
+    expect(out).toContain("could not create");
+    expect(out).not.toContain("generated credential data key");
+    expect(fs.existsSync(keyFile)).toBe(false);
+    // The next boot (a working head) generates a valid key.
+    const again = runBlock({});
+    expect(Buffer.from(fs.readFileSync(again.keyFile, "utf8").trim(), "base64")).toHaveLength(32);
   });
 
   it("E86: an existing key file is left byte-identical", () => {

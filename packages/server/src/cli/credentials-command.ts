@@ -271,21 +271,30 @@ async function confirmed(ctx: Ctx, question: string, yes: boolean): Promise<bool
 
 // ── store locks (plugin-credentials → vault) ────────────────────────
 
-/** Hold BOTH store locks, in file order, for the whole of `fn`. Released in reverse. */
-async function withStoreLocks(ctx: Ctx, fn: () => Promise<number>): Promise<number> {
+/**
+ * Hold BOTH store locks, in file order, for the whole of `fn`. Released in reverse.
+ * `fn` gets a probe naming a store whose lock was reported compromised (stale-stolen by
+ * another process): every write site checks it first and writes nothing more.
+ */
+async function withStoreLocks(ctx: Ctx, fn: (compromised: () => string | undefined) => Promise<number>): Promise<number> {
   const released: Array<() => Promise<void>> = [];
+  let compromised: string | undefined;
   try {
     for (const f of ctx.files) {
       fs.mkdirSync(path.dirname(f.file), { recursive: true });
       try {
-        released.push(await acquireLock(f.file, LOCK_BUDGET_MS, () => {}));
+        released.push(
+          await acquireLock(f.file, LOCK_BUDGET_MS, () => {
+            compromised ??= f.name;
+          }),
+        );
       } catch (e) {
         ctx.err(`[credentials] cannot lock ${f.name} (${codeOf(e)}); is another process writing it? nothing changed`);
         return CREDENTIALS_EXIT.failed;
       }
     }
     await ctx.deps.afterLocked?.();
-    return await fn();
+    return await fn(() => compromised);
   } finally {
     for (const release of released.reverse()) {
       try { await release(); } catch { /* ignore cleanup errors */ }
@@ -383,14 +392,16 @@ async function runDecrypt(ctx: Ctx, parsed: Parsed): Promise<number> {
   }
   // Only envelopes need the key; plaintext-only hosts never touch the keychain here.
   await freshInit(ctx, (c) => (c === "plaintext" ? "absent" : c));
-  return withStoreLocks(ctx, async () => (applyDecrypt(ctx, ctx.files.map(planDecrypt)) ? CREDENTIALS_EXIT.failed : CREDENTIALS_EXIT.ok));
+  return withStoreLocks(ctx, async (compromised) =>
+    applyDecrypt(ctx, ctx.files.map(planDecrypt), compromised) ? CREDENTIALS_EXIT.failed : CREDENTIALS_EXIT.ok,
+  );
 }
 
 /**
  * Report (and, only when EVERY file decoded, write) the plans. All-or-nothing:
  * one blocked file means no write at all. Returns `true` when any file is not decrypted.
  */
-function applyDecrypt(ctx: Ctx, plans: DecryptPlan[]): boolean {
+function applyDecrypt(ctx: Ctx, plans: DecryptPlan[], compromised: () => string | undefined): boolean {
   const blocked = plans.some((p) => p.kind === "blocked");
   let failed = blocked;
   for (const p of plans) {
@@ -401,6 +412,8 @@ function applyDecrypt(ctx: Ctx, plans: DecryptPlan[]): boolean {
       ctx.out(`${p.f.name}: failed ${p.reason}`);
     } else if (blocked) {
       ctx.out(`${p.f.name}: failed not-written`);
+    } else if (lockLost(ctx, p.f, compromised)) {
+      failed = true;
     } else {
       const code = writePlaintext(p.f, p.doc);
       ctx.out(code === null ? `${p.f.name}: decrypted` : `${p.f.name}: failed ${code}`);
@@ -408,6 +421,15 @@ function applyDecrypt(ctx: Ctx, plans: DecryptPlan[]): boolean {
     }
   }
   return failed;
+}
+
+/** True (and reported) when a store lock was compromised: the caller writes nothing for `f`. */
+function lockLost(ctx: Ctx, f: FileSpec, compromised: () => string | undefined): boolean {
+  const lost = compromised();
+  if (!lost) return false;
+  ctx.out(`${f.name}: failed lock-compromised`);
+  ctx.err(`[credentials] ${lost} lock compromised (another process took it); ${f.name} not written`);
+  return true;
 }
 
 // ── reset ───────────────────────────────────────────────────────────
@@ -483,9 +505,13 @@ async function runReset(ctx: Ctx, parsed: Parsed): Promise<number> {
   const stamp = stampOf((ctx.deps.now ?? (() => new Date()))());
   // First pass never creates a key: only an envelope makes the module read the keychain.
   const first = await freshInit(ctx, (c) => (c === "plaintext" ? "absent" : c));
-  const locksCode = await withStoreLocks(ctx, async () => {
+  const locksCode = await withStoreLocks(ctx, async (compromised) => {
     for (const f of ctx.files) {
       if (!inScope(f)) continue;
+      if (lockLost(ctx, f, compromised)) {
+        failed = true;
+        continue;
+      }
       const r = resetFile(ctx, f, stamp);
       ctx.out(r.line);
       if (r.renamed) renamed++;

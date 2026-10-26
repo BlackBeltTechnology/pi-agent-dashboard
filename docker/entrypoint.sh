@@ -62,7 +62,11 @@ if [ "${PI_DASHBOARD_DATA_KEY_FILE}" = "${DEFAULT_DATA_KEY_FILE}" ]; then
     done
     if [ "${has_envelope}" = "1" ]; then
       echo "[entrypoint] REFUSING to generate a data key: an encrypted credential file exists but ${DEFAULT_DATA_KEY_FILE} is missing. A new key could not decrypt it. Restore ${DEFAULT_DATA_KEY_FILE} (mode 0600) from your backup of the key volume; starting anyway, the files are reported locked (key_file_missing). See docker/README.md."
-    elif ( umask 077 && mkdir -p "${DEFAULT_DATA_KEY_DIR}" && head -c 32 /dev/urandom | base64 > "${DEFAULT_DATA_KEY_FILE}" ) 2>/dev/null; then
+    # Write to a temp file and move it into place only when complete: a failed read must
+    # never leave a partial/empty key that later boots treat as present (key_file_invalid).
+    elif ( set -o pipefail; umask 077 && mkdir -p "${DEFAULT_DATA_KEY_DIR}" \
+        && tmp_key="${DEFAULT_DATA_KEY_FILE}.tmp.$$" \
+        && { { head -c 32 /dev/urandom | base64 > "${tmp_key}" && [ -s "${tmp_key}" ] && mv "${tmp_key}" "${DEFAULT_DATA_KEY_FILE}"; } || { rm -f "${tmp_key}"; false; }; } ) 2>/dev/null; then
       echo "[entrypoint] generated credential data key at ${DEFAULT_DATA_KEY_FILE} (mode 0600)"
     else
       echo "[entrypoint] could not create ${DEFAULT_DATA_KEY_FILE}; credential writes will be refused until a key file exists"

@@ -31,12 +31,15 @@ import { readVaultDoc } from "./helpers/vault-test-codec.js";
 
 // E71/E76 lock spy: wrap `acquireLock` (store locks AND the key-creation lock go through it).
 const events = vi.hoisted(() => [] as string[]);
+// Review B1: the `onCompromised` callback of every acquired lock, so a test can report a compromise.
+const compromisers = vi.hoisted(() => [] as Array<(err: Error) => void>);
 vi.mock("../auth/locked-json-file.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/locked-json-file.js")>();
   return {
     ...actual,
     acquireLock: async (...args: Parameters<typeof actual.acquireLock>) => {
       const name = args[0].split(/[\\/]/).pop();
+      compromisers.push(args[2]);
       const release = await actual.acquireLock(...args);
       events.push(`lock ${name}`);
       return async () => {
@@ -550,5 +553,33 @@ describe("E16b: the CLI never writes the key file", () => {
     expect(dec.code).toBe(0);
     expect(sha256(kf)).toBe(sha);
     expect(stat().mtimeMs).toBe(mtime);
+  });
+});
+
+describe("review B1: a store lock compromised while held", () => {
+  const compromise = () => {
+    for (const report of compromisers.splice(0)) report(Object.assign(new Error("lock compromised"), { code: "ECOMPROMISED" }));
+  };
+
+  it("decrypt writes nothing and fails", async () => {
+    const kc = seedEncrypted();
+    const before = [sha256(filePath("plugin-credentials", home)), sha256(filePath("vault", home))];
+    compromisers.length = 0;
+    const r = await run(["decrypt", "--yes"], { ...keyOpts(kc), afterLocked: compromise });
+    expect(r.code).toBe(1);
+    expect([sha256(filePath("plugin-credentials", home)), sha256(filePath("vault", home))]).toEqual(before);
+    expect(r.text).toMatch(/lock compromised/);
+    expect(r.text).not.toContain("SECRET-");
+  });
+
+  it("reset renames nothing and fails", async () => {
+    writeEnvelopeFile("vault", VAULT_DOC, KEY_1);
+    const before = sha256(filePath("vault", home));
+    compromisers.length = 0;
+    const r = await run(["reset", "--vault", "--yes"], { ...keyOpts(stubKeychain(null)), afterLocked: compromise });
+    expect(r.code).toBe(1);
+    expect(sha256(filePath("vault", home))).toBe(before);
+    expect(undecryptable(VAULT)).toHaveLength(0);
+    expect(r.text).toMatch(/lock compromised/);
   });
 });
