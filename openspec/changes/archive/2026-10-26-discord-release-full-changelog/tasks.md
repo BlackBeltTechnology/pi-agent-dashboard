@@ -27,7 +27,7 @@ Unit tests live in `scripts/__tests__/discord-release-announce.test.mjs` (vitest
 - [x] 3.14 Rate limit is retried in order (test-plan #X3): input injected fetch returning 429 with `retry_after` 0.01 then 200 for payload 1 · trigger `postPayloads` · observable payload 1 sent twice then payload 2, sleep called once with at least 10 ms
 - [x] 3.15 Rate-limit retry cap (test-plan #X4): input injected fetch always returning 429 with `retry_after` 0.01 · trigger `postPayloads` · observable rejects after 6 fetch calls, no 7th call
 - [x] 3.16 Long rate-limit wait aborts (test-plan #X5): input injected fetch returning 429 with `retry_after` 120 · trigger `postPayloads` · observable rejects immediately, sleep never called
-- [ ] 3.17 Real release renders in Discord (test-plan: manual-only, #M1): on the next non-prerelease tag, check `#releases` shows `Released <tag>` plus numbered continuations, readable Markdown, no pings
+- [x] 3.17 Real release renders in Discord (test-plan: manual-only, #M1): on the next non-prerelease tag, check `#releases` shows `Released <tag>` plus numbered continuations, readable Markdown, no pings
 
 ## 4. Docs
 
