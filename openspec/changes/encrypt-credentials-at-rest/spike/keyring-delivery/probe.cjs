@@ -26,12 +26,13 @@ function op(kind, svc, acct, value) {
     const opts = process.env.PROBE_OPTS ? JSON.parse(process.env.PROBE_OPTS) : undefined;
     const e = new Entry(svc, acct, opts);
     if (kind === "set") { e.setPassword(value); return { ok: true, ms: ms() }; }
-    if (kind === "get") { const v = e.getPassword(); return { ok: v != null, value: v == null ? null : v.length + " chars", ms: ms() }; }
+    // Only constant literals leave this function: never the secret, nor anything computed from it.
+    if (kind === "get") { const present = e.getPassword() != null ? "present" : "absent"; return { ok: present === "present", value: present, ms: ms() }; }
     if (kind === "del") { e.deletePassword(); return { ok: true, ms: ms() }; }
     e.setPassword("spike-value");
-    const got = e.getPassword();
+    const verdict = e.getPassword() === "spike-value" ? "match" : "mismatch";
     e.deletePassword();
-    return { ok: got === "spike-value", ms: ms() };
+    return { ok: verdict === "match", ms: ms() };
   } catch (err) {
     return { err: String(err && err.message).split("\n")[0].slice(0, 120), root: rootCause(err), ms: ms() };
   }
