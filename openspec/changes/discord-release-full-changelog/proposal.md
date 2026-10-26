@@ -10,6 +10,8 @@ The `discord-announce` job in `.github/workflows/publish.yml` truncates the GitH
 - `docs/release-process.md`: document full-body posting (drop the "truncated at 3800 chars" statement) and partial-failure recovery.
 - `scripts/AGENTS.md`, `.github/workflows/publish.yml.AGENTS.md`: rows for the new script/test; discord-announce description updated.
 
+- Ship-gate repair: drop two unused `export`s added by `663d538a3` (`EVENT_STREAM_HEARTBEAT_MS`, `AgentEventListener`) that pushed the nightly-only knip ratchet over baseline on develop.
+
 Non-goals: role pings on release, auto-crossposting the announcement channel, a manual re-post `workflow_dispatch`, any Discord server administration (done out-of-band).
 
 ## Capabilities

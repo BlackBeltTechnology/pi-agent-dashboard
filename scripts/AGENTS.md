@@ -9,9 +9,10 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: |
 | `__tests__/build-runtime-canary.test.mjs` | Builds canary + variants via SDK preset; artifact shape (#E95). → see `build-runtime-canary.mjs.AGENTS.md` |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection vi… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
-| `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independ… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
+| `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so de… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
 | `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
+| `__tests__/discord-release-announce.test.mjs` | → see `__tests__/discord-release-announce.test.mjs.AGENTS.md` |
 | `__tests__/e2e-canary-seed.test.mjs` | → see `__tests__/e2e-canary-seed.test.mjs.AGENTS.md` |
 | `__tests__/encoded-cwd-oneliner.test.mjs` | #E10 shell one-liner = `encodeFolderPath`. See change: add-session-ui-deep-links-for-agents. |
 | `__tests__/host-api-surface.test.mjs` | Bump-rule table for `host-api-surface.mjs` (#E29), committed snapshot is current, accent-token expansion, unexpanded … |
@@ -25,7 +26,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN`… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). → see `__tests__/codeql-local-real.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-mirror.test.mjs` | `--mirror-dismissal` vs fake `codeql` + fake `gh` (#M1-#M17). See change: codeql-model-pack-and-mirror. |
-| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17, #E19-#E22, #E24, #E29 writer, #P1; #E11, #E13,… → see `__tests__/codeql-local.test.mjs.AGENTS.md` |
+| `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17… → see `__tests__/codeql-local.test.mjs.AGENTS.md` |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/client-isolate-gate.test.mjs` | Client isolate gate. Also E22 (keycloak dep dropped) and E… → see `__tests__/client-isolate-gate.test.mjs.AGENTS.md` |
@@ -34,7 +35,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/e2e-trust-seed.test.mjs` | Runs the `test-entrypoint.sh` config-seed program verbatim (E23-E25). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
-| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-call fake-binary plan, optional fake-`gh` plan… → see `__tests__/fixtures/codeql-harness.mjs.AGENTS.md` |
+| `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-ca… → see `__tests__/fixtures/codeql-harness.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-resolve-extensions.json` | Captured real `codeql resolve extensions` JSON (CLI 2.27.2); `fake-codeql.mjs` substitutes the model file. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
 | `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`,… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
@@ -61,7 +62,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/knip-config.test.mjs` | Entry-point rooting for the dead-code oracle (test-plan #G1, #G2, #G4, #D1, #P2). → see `__tests__/knip-config.test.mjs.AGENTS.md` |
 | `__tests__/knip-harness.test.mjs` | Docker-harness reproducibility for the dead-code oracle (test-plan #H1). → see `__tests__/knip-harness.test.mjs.AGENTS.md` |
 | `__tests__/lint-harness-scoping.test.mjs` | Guards that repo-wide lint harnesses judge git-tracked SOU… → see `__tests__/lint-harness-scoping.test.mjs.AGENTS.md` |
-| `__tests__/knip-ratchet.test.mjs` | Per-class dead-code ratchet (test-plan #R1-#R6). Load-bearing case is #R2: a scalar total lets one deleted… → see `__tests__/knip-ratchet.test.mjs.AGENTS.md` |
+| `__tests__/knip-ratchet.test.mjs` | Per-class dead-code ratchet (test-plan #R1-#R6). Load-beari… → see `__tests__/knip-ratchet.test.mjs.AGENTS.md` |
 | `__tests__/tsc7-wrapper.test.mjs` | E1–E6, E8, E9, E11, X4: wrapper runs TS 7 from any cwd, fo… → see `__tests__/tsc7-wrapper.test.mjs.AGENTS.md` |
 | `__tests__/z-layer-lint.test.mjs` | Overlay z-index ratchet tests (test-plan #E4/#E5): `extractRawZ` matches raw numeric z but not word… → see `__tests__/z-layer-lint.test.mjs.AGENTS.md` |
 | `__tests__/knip-scan.test.mjs` | Live whole-workspace Knip scan assertions (test-plan #G3, #G5, #G6, #D2, #D3, #P1). → see `__tests__/knip-scan.test.mjs.AGENTS.md` |
@@ -73,7 +74,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/repair-meta-source.test.mjs` | Vitest unit tests for repair-meta-source.mjs. Asserts source:"dashboard" → cleaned (o… → see `__tests__/repair-meta-source.test.mjs.AGENTS.md` |
 | `__tests__/review-changes-parser.test.mjs` | Vitest unit tests for parseFindings + splitFindings (.pi/s… → see `__tests__/review-changes-parser.test.mjs.AGENTS.md` |
 | `__tests__/settings-kit-guard.test.mjs` | Settings-kit ratchet tests: per-kind counts + negatives (#… → see `__tests__/settings-kit-guard.test.mjs.AGENTS.md` |
-| `__tests__/severity-literal-guard.test.mjs` | Static guard: no raw `red-<NN(N)>` Tailwind literal (2- or 3-digit shade, so `red-50`… → see `__tests__/severity-literal-guard.test.mjs.AGENTS.md` |
+| `__tests__/severity-literal-guard.test.mjs` | Static guard: no raw `red-<NN(N)>` Tailwind literal (2- or… → see `__tests__/severity-literal-guard.test.mjs.AGENTS.md` |
 | `__tests__/ship-it-manifest.test.mjs` | Vitest unit tests for ship-it `manifest.ts` (`.pi/skills/ship-it/scripts/`). → see `__tests__/ship-it-manifest.test.mjs.AGENTS.md` |
 | `__tests__/ship-it-no-weakening.test.mjs` | Vitest unit tests for ship-it `no-weakening.ts` assertNoWeakening. → see `__tests__/ship-it-no-weakening.test.mjs.AGENTS.md` |
 | `__tests__/skill-frontmatter.test.mjs` | Vitest guard over every repo `**/SKILL.md` (skips node_modules/dist/worktrees). → see `__tests__/skill-frontmatter.test.mjs.AGENTS.md` |
@@ -96,7 +97,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `build.sh` | Type-check + build dashboard. Flags: --check-only (tsc --noEmit only), --client-only (Vite build only). Auto-runs npm install if node_modules absent. |
 | `build-runtime-asset.mjs` | Per-platform runtime asset. → see `build-runtime-asset.mjs.AGENTS.md` |
 | `__tests__/verify-published-imports.test.mjs` | Tests for `verify-published-imports.mjs`. Fixtures built i… → see `__tests__/verify-published-imports.test.mjs.AGENTS.md` |
-| `__tests__/patch-vendor-specifiers.test.mjs` | Tests for `patch-vendor-specifiers.mjs` (E6: 4-specifier rewrite, byte-identical tree… → see `__tests__/patch-vendor-specifiers.test.mjs.AGENTS.md` |
+| `__tests__/patch-vendor-specifiers.test.mjs` | Tests for `patch-vendor-specifiers.mjs` (E6: 4-specifier re… → see `__tests__/patch-vendor-specifiers.test.mjs.AGENTS.md` |
 | `__tests__/root-packaging.test.mjs` | ci-level root tarball exclusion check (E14/E15). → see `__tests__/root-packaging.test.mjs.AGENTS.md` |
 | `__tests__/release-lock.test.mjs` | Tests for release-lock rebase/audit/fetch/lint + post-bundle assertion (E1–E12, E18, E19, X1, X2). See change: pin-electron-bundle-dependency-tree. |
 | `__tests__/runtime-release.test.mjs` | Runtime release tests. → see `__tests__/runtime-release.test.mjs.AGENTS.md` |
@@ -119,9 +120,10 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-vendor-specifiers.mjs` | Static specifier guard for the vendored relay: every import under `relay/vendor/` mus… → see `check-vendor-specifiers.mjs.AGENTS.md` |
 | `codeql-local.mjs` | Local CodeQL ratchet for `ship-it` steps 4.4/4.4b: snapshot → analyse → per-alert baseline ratchet (`codeql-baseline.json`). → see `codeql-local.mjs.AGENTS.md` |
 | `commit-windows-parity.sh` | Stages and commits fix-windows-server-parity + consolidate-platform-handlers work in 5 logical chunks (fix:,… → see `commit-windows-parity.sh.AGENTS.md` |
+| `discord-release-announce.mjs` | Full release notes → Discord webhook. → see `discord-release-announce.mjs.AGENTS.md` |
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |
 | `fix-pty-permissions.cjs` | Postinstall: fix node-pty spawn-helper execute permissions |
-| `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plugin-registry.tsx + plugin-sources.css (both committed). → see `generate-plugin-registry.mjs.AGENTS.md` |
+| `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plug… → see `generate-plugin-registry.mjs.AGENTS.md` |
 | `generate-runtime-lock.mjs` | Server lock gen. → see `generate-runtime-lock.mjs.AGENTS.md` |
 | `lint-runtime-lock.mjs` | `--version X [--lock F]`: runs the bundle's `rebaseRuntimeLock` over the generated lock as a check; non-zero… → see `lint-runtime-lock.mjs.AGENTS.md` |
 | `i18n-lint.mjs` | Hardcoded-UI-string lint. → see `i18n-lint.mjs.AGENTS.md` |
