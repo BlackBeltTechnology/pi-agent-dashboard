@@ -126,7 +126,8 @@ function main() {
     return 2;
   }
   const arch = (argv.find((a) => a.startsWith("--arch=")) ?? `--arch=${process.arch}`).slice("--arch=".length);
-  const p = bundledPaths(appPath, arch);
+  // Absolute: the smoke `require`s the keyring dir by path; a relative `out/...` reads as a package name.
+  const p = bundledPaths(path.resolve(appPath), arch);
   const errors = [entitlementError(p), signatureError(p), smokeError(p)].filter(Boolean);
   for (const e of errors) console.error(`::error::${e}`);
   return errors.length > 0 ? 1 : 0;
