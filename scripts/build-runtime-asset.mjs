@@ -26,7 +26,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, createReadStream, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, createReadStream, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,6 +35,22 @@ import { parseFlags, runNpm, runtimeAssetName, SERVER_PACKAGE } from "./lib/runt
 
 const execFileAsync = promisify(execFile);
 const TAR_OPTS = { maxBuffer: 512 * 1024 * 1024, timeout: 30 * 60_000 };
+
+/**
+ * tar binary. Plain `tar` on a Windows runner PATH resolves to System32 bsdtar
+ * (3.8.9), which dies with STATUS_ACCESS_VIOLATION (0xC0000005, empty stderr)
+ * on large staged trees — seen packing the v0.11.0 win32-x64 runtime asset.
+ * Prefer Git for Windows' GNU tar there; the "no drive letters" rule below is
+ * written for GNU tar anyway. Non-Windows keeps PATH resolution.
+ */
+function tarBin() {
+  if (process.platform === "win32") {
+    for (const c of ["C:\\Program Files\\Git\\usr\\bin\\tar.exe", "C:\\Program Files (x86)\\Git\\usr\\bin\\tar.exe"]) {
+      if (existsSync(c)) return c;
+    }
+  }
+  return "tar";
+}
 
 /**
  * Remove every symlink whose parent dir is `.bin`; throw on any other
@@ -136,7 +152,7 @@ export function stagerDeps(localLock) {
       await runNpm(["pack", `${SERVER_PACKAGE}@${version}`, "--pack-destination", workDir], { cwd: workDir });
       const tgz = readdirSync(workDir).filter((f) => f.endsWith(".tgz"));
       if (tgz.length !== 1) throw new Error(`npm pack produced ${tgz.length} tarballs`);
-      await execFileAsync("tar", ["-xzf", tgz[0], "package/runtime-lock.json"], { ...TAR_OPTS, cwd: workDir });
+      await execFileAsync(tarBin(), ["-xzf", tgz[0], "package/runtime-lock.json"], { ...TAR_OPTS, cwd: workDir });
       return JSON.parse(readFileSync(join(workDir, "package", "runtime-lock.json"), "utf8"));
     },
     fetchGithubAsset: async () => {
@@ -177,7 +193,7 @@ export async function buildRuntimeAsset({ version, outDir, deps = stagerDeps(), 
     let lastTarErr;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        await execFileAsync("tar", ["-czf", join("..", assetName), ...entries], { ...TAR_OPTS, cwd: root });
+        await execFileAsync(tarBin(), ["-czf", join("..", assetName), ...entries], { ...TAR_OPTS, cwd: root });
         lastTarErr = undefined;
         break;
       } catch (err) {
@@ -190,7 +206,9 @@ export async function buildRuntimeAsset({ version, outDir, deps = stagerDeps(), 
     }
     if (lastTarErr) throw lastTarErr;
     const built = join(dirname(root), assetName);
-    const { stdout } = await execFileAsync("tar", ["-tvzf", built], TAR_OPTS);
+    // Verify by LISTING, with a relative path: GNU tar reads an absolute
+    // `C:\...` argument as `host:remote` ("Cannot connect to C: resolve failed").
+    const { stdout } = await execFileAsync(tarBin(), ["-tvzf", basename(built)], { ...TAR_OPTS, cwd: dirname(built) });
     const link = String(stdout).split(/\r?\n/).find((l) => /^[lh]/.test(l));
     if (link) throw new Error(`asset still has a link member: ${link.trim()}`);
 
