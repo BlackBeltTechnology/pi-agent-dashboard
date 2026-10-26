@@ -6,7 +6,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 |------|---------|
 | `CONTRIBUTING.md` | (repo root) Human-facing contribution guide. Spec-first 5-phase pipeline (EXPLORE→PLAN→BUILD→SHIP→CI). 6 Mermaid diagrams + PNGs, cross-ref docs/pipeline-map/. |
 | `acme-dns01-certs.md` | ACME DNS-01 domain cert guide. See change: add-acme-dns01-certs. |
-| `acp-sessions.md` | ACP agent sessions. `acpAgents` + `acp.*` config (`protocolV2`, timeouts, caps); pi-vs-ACP feature matrix; hosts A (in-process, `durable:false`) / B (rpc-keeper, `durable:true`); restart + event-log replay; env allowlist; same-user caveat. See change: add-acp-session-driver. |
+| `acp-sessions.md` | ACP agent sessions: `acpAgents`/`acp.*` config, pi-vs-ACP matrix, hosts A/B, replay. → see `acp-sessions.md.AGENTS.md` |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
 | `architecture.md` | Full architecture reference (bridge + server + client, data flow, protocols). → see `architecture.md.AGENTS.md` |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
@@ -17,17 +17,17 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `chat-motion.md` | Fluid chat motion. `chatMotion` pref (rollback PATCH). Arrival entry, paced reveal, trailing edge, glide follow-scroll attributed as `pin-bottom`, idle/energy bound. See change: add-fluid-chat-motion. |
 | `ci.md` | Affected-test CI. ci.yml parallel jobs (`select`, `ci`, `unit` ×4, `real-process`, `ci-scenarios`, `docker-plugin-load`, `music-pytest`, `ci-result`); `decide()` selection layers; fail-safes; nightly full-suite net. See change: speed-up-ci-affected-tests. |
 | `code-quality.md` | Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. CodeQL ratchet section. → see `code-quality.md.AGENTS.md` |
-| `codeql-baseline.json` | (repo root) CodeQL ratchet baseline. Per-alert debt ceiling keyed rule+file+lineHash with typed reasons. Edit only via `scripts/codeql-local.mjs` incl. `--mirror-dismissal`. See change: add-local-codeql-ratchet. See change: codeql-model-pack-and-mirror. |
+| `codeql-baseline.json` | (repo root) CodeQL ratchet baseline; edit via `scripts/codeql-local.mjs`. → see `codeql-baseline.json.AGENTS.md` |
 | `context-mode-roi-report.md` | ROI analysis. context-mode MCP plugin vs kb extension. Verdict: trim not drop. → see `context-mode-roi-report.md.AGENTS.md` |
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |
 | `craft-apps.md` | ArtCraft craft apps (13) headless via `pi-craft`. Provision `<CRAFT_HOME>/<app>/<v>/`; `<APP>_BIN`/`_VERSION`, `CRAFT_SOURCE`; MCP confinement table; `verify` exit 0/1/2/3. See change: add-craft-apps-core. |
-| `craft-web-plugin.md` | ArtCraft web editors in editor pane. Provision, sandbox/CSP, shim protocol v3, dirty/save mapping, validators, per-app spikes §14 (incl. §14.8 VectorCraft live-control re-spike, §14.9 live-control status table). §15 live agent control: `craft_control` probe→claim→run router, host policy, agentPending, host.state, kill switch liveControl, FakeCraft fixture. See change: edit-office-in-pane-with-craft-web. See change: add-craft-live-control. |
+| `craft-web-plugin.md` | ArtCraft web editors in editor pane. Provision, sandbox/CSP, shim v3, §14 spikes, §15 `craft_control` live agent control. See change: edit-office-in-pane-with-craft-web; add-craft-live-control. → see `craft-web-plugin.md.AGENTS.md` |
 | `credential-vault.md` | Hub `vault.json`: encrypted at rest (§12), bindings, grants, TLS trust gate. → see `credential-vault.md.AGENTS.md` |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
 | `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |
 | `electron-immutable-bundle.md` | Invariant: Electron bundle read-only at runtime. Runtime overlay in `~/.pi/dashboard/runtime/versions/<X>/`… → see `electron-immutable-bundle.md.AGENTS.md` |
-| `electron-server-windows.md` | Paired-server windows. Main-process discovery + knock pairing + fp keyring (`safeStorage`, `0600`); one window per server on its own origin, partition `persist:server-<fp>`, `/api/device-session` cookie. Routes, list/pair bridges, in-app code redeem. See change: add-electron-server-windows; group-servers-by-identity. |
+| `electron-server-windows.md` | Paired-server windows. Main-process discovery + knock pairing + fp keyring; one window per server, partition `persist:server-<fp>`. See change: add-electron-server-windows; group-servers-by-identity. → see `electron-server-windows.md.AGENTS.md` |
 | `electron-session.md` | Implementation session log. 21 phases. Branding/icons, packaging (NSIS/AppImage), `__dirname`/tsx saga, dead… → see `electron-session.md.AGENTS.md` |
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
@@ -79,7 +79,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `research/browser-provider-registry.md` | Research artifact. Explore-mode, no change / no impl. Verdict: named-browsers registry, NOT Chrome extension;… → see `research/browser-provider-registry.md.AGENTS.md` |
 | `research/browser-relay-playwright-extension.md` | Research artifact. Explore-mode, no impl. Verdict: reuse MS Playwright Extension… → see `research/browser-relay-playwright-extension.md.AGENTS.md` |
 | `research/cactus-whistle-hungarian.md` | Research dossier. → see `research/cactus-whistle-hungarian.md.AGENTS.md` |
-| `research/clm-system-one.md` | Research dossier. Can CLM (Contrastive Language Models, Stanford/NVIDIA, Apache-2.0) back System One for `add-system-one-registry`? Same `/v1/systemone` wire → `http` kind unchanged; community MLX/GGUF ports; `ssh -L` loopback off-machine hole. MLX spike measured on M5 Pro. → see `research/clm-system-one.md.AGENTS.md` |
+| `research/clm-system-one.md` | Research dossier. CLM as System One backend. Wire `/v1/systemone`, `http` kind. → see `research/clm-system-one.md.AGENTS.md` |
 | `research/containerized-spawn.md` | Research dossier. Explore-mode, no change / no impl. Container spawn (docker/podman) for pi: A whole-pi-in-container vs B tool delegation (Gondolin-style); runtime mounts; `:O` CWD snapshot; spikes S1–S5 + G. Status OPEN. → see `research/containerized-spawn.md.AGENTS.md` |
 | `research/context-injection-ab-test.md` | A/B non-inferiority experiment: pi context injections. Harness `scripts/ab-context/`. → see `research/context-injection-ab-test.md.AGENTS.md` |
 | `research/dmd-phased-dmd-video-distillation.md` | Research dossier. DMD / DMD2 / Phased DMD (arXiv 2510.27684, CVPR 2026) few-step distillation of video diffusion teachers (Wan2.1/2.2) → requirements, hardware, software, recipes for own distillation run. Plan only, no impl. → see `research/dmd-phased-dmd-video-distillation.md.AGENTS.md` |
@@ -128,7 +128,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `research/user-browser-in-editor-view.md` | Explore-mode research record. `user_browser` tool: agent drives browser, page renders in dashboard editor… → see `research/user-browser-in-editor-view.md.AGENTS.md` |
 | `research/video-upscaling-dossier.md` | Research dossier, verified 2026-10-04 (§12 log). Low-res draft → one-step refine for video-production: SoL-Refiner (refiner, LTX-2 licence gate) + Cosmos 3 / Wan 2.2 / MiniMax-H3 / hosted Wan / Veo (draft generators). Plan only, no impl. → see `research/video-upscaling-dossier.md.AGENTS.md` |
 | `research/webgl-field-and-glass-bands.md` | Implementation record. pi-dashboard.dev visual system: `site/field.js` WebGL slab field + `site/index.html`… → see `research/webgl-field-and-glass-bands.md.AGENTS.md` |
-| `runtime-plugin-clients.md` | Runtime-delivered plugin clients. `bundledPluginIds` rule, import map + `/host/*` shims, `auth.trustedPlugins` hash pin (local-only grant), `/plugin-assets/<id>/<sha>/*`, `GET /api/plugins/runtime-clients`, reload semantics, remote-server limit, CSP. See change: decouple-plugins-from-core. |
+| `runtime-plugin-clients.md` | Runtime-delivered plugin clients: import map, `/host/*` shims, trustedPlugins pin. → see `runtime-plugin-clients.md.AGENTS.md` |
 | `security-map.md` | Security audit entry: trust boundaries, ports/protocols, gate chain, tool-call guards, findings glance. Chapters + register in `security/` → see `security/AGENTS.md`. See change: security-map-audit. |
 | `service-bootstrap.md` | 3 starters (Electron/Bridge/Standalone) × 2 surfaces (GUI/shell). Tool resolution (pi, openspec, node, tsx, bridge). `DASHBOARD_STARTER` env, `launchSource` on `/api/health`. |
 | `session-actions-menu.md` | Desktop session card `⋯` menu. `deriveSessionMenu` → `SessionActionsMenu`; groups… → see `session-actions-menu.md.AGENTS.md` |
@@ -138,5 +138,5 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `system-one.md` | Shared decision registry. `@blackbelt-technology/pi-system-one` library (`predict` over… → see `system-one.md.AGENTS.md` |
 | `ui-contract.md` | (repo root) Cross-screen design control plane. Single source of truth for visual consistency. → see `ui-contract.md.AGENTS.md` |
 | `untrusted-plugin-ui-gap.md` | Read-only gap analysis. Untrusted plugin UI via descriptor protocol vs React path. 53% claims blocked. → see `untrusted-plugin-ui-gap.md.AGENTS.md` |
-| `user-features.md` | End-user feature subset. Curated from docs/features.md. Communicable to end users. Excludes internal plumbing, CI/QA, packaging, refactors. See change: streamline-first-run. First-run Landing (3-step list, create-project, Claude peer auto-install status). |
+| `user-features.md` | End-user feature subset curated from features.md. → see `user-features.md.AGENTS.md` |
 | `vitest.config.ts` | (repo root) Root Vitest config. `defineConfig`. Vitest 4 dropped `vitest.workspace.ts`. → see `vitest.config.ts.AGENTS.md` |
