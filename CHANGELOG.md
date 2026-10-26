@@ -12,80 +12,18 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.11.0] - 2026-10-26
+
+### Added
+
 - **Edit FilmCraft projects (`.fcproj`) in the editor pane with their media.** The craft-web plugin now opens a
   FilmCraft project together with the media it references from the project's own folder (up to 64 files, 64 MiB each,
   256 MiB in total), shows how many media could not be delivered, and saves the project back with its original media
   paths. EffectCraft projects stay unsupported (its web build cannot resolve project media yet).
-
-### Security
-
-- **Browser-held device bearers now expire and rotate.** A bearer a browser keeps in its own storage (cross-origin
-  ServerSelector use) now expires 7 days after issue (never later than 30 days after pairing) and the client rotates
-  it before then via the new `POST /api/paired-devices/rotate` (authenticated by the bearer alone, tier `observe`, 10 per
-  minute per device). The previous bearer stays valid for 60 seconds, then dies; an expired bearer gets
-  `401 {"code":"bearer_expired"}` from every peer, including loopback and trusted networks. Electron, CLI and manual
-  MCP tokens never declare a browser holder and stay non-expiring; revoke still kills a device immediately.
-  **Compatibility:** cross-origin browsers re-pair once (the old global `pi-dashboard:device-bearer` slot is discarded,
-  never exchanged or sent), and a browser idle for more than 7 days, or past 30 days from pairing, re-pairs.
-  Same-origin browsers are unaffected. Old clients against a new server keep non-expiring rows; registry rows gain
-  optional `expiresAt`/`pairedAt`/`previousHash`/`previousExpiresAt` fields (a server rollback ignores them and the
-  rows become non-expiring).
-- **BREAKING (security): a container can no longer drive the dashboard through the host loopback.** A container
-  that reaches the host's `127.0.0.1` (Docker Desktop's `host.docker.internal`, `--network host`, a relay) used to be
-  indistinguishable from a local tool, so it could mint device tokens and bridge tickets, read `/api/config` and
-  restart or shut the server down. `requireLocalProof` now defaults to **`true`**: a bare-loopback caller can read
-  observe-tier routes and nothing else; every other REST route and WebSocket needs local proof (`pi-dashboard open`,
-  the desktop app, the CLI, the bridge, or a signed-in/paired principal). Only an explicit boolean `false` opts out
-  (live, no restart); a missing or non-boolean value is `true` and the server logs a warning once. **Opting out
-  re-exposes the control plane to every container on the host.**
-  - **Before upgrading, stop every dashboard instance.** The first start rotates the local token and `auth.secret`
-    once (a container may already have read them through the `~/.pi` file anchor), so **everyone signs in again once**
-    and every local proof cookie is reissued. A still-running older instance on the same HOME keeps its old token until
-    it restarts. If rotation cannot complete (lock held, disk error) the server exits 1 before listening and names the
-    failed step and the lock and epoch paths.
-  - **Forwarded-loopback users** (`ssh -L`, VS Code port forwarding, WSL) arrive as bare loopback and now see a banner:
-    run `pi-dashboard open` on the server (use `--print` and a same-port forward from another machine) to authorize the
-    browser. `/auth/login` no longer bounces such a tab to an OAuth provider; it shows the same remedy.
-  - **New `pi-dashboard api <METHOD> <path> [--data <json>]`** calls the running dashboard with a freshly minted proof
-    (exit 0 on 2xx, 1 on any other status, 2 on a usage error or when the server is not running); it replaces
-    `curl http://localhost:8000/api/...` for non-observe routes. **An unknown subcommand word now exits 2 with a usage
-    line** instead of silently starting a foreground server (an older binary still falls through, so the minimum
-    version is the one that ships `api`). Slash-command templates get `PI_DASHBOARD_CLI` (use
-    `eval "$PI_DASHBOARD_CLI" api GET /api/config`).
-  - **The dashboard state directory is out of reach of every path-taking route.** `~/.pi/dashboard/local/**` and
-    `identity.key` are refused for every caller in every mode (this is not undone by `requireLocalProof: false`);
-    `config.json` and the rest are refused unless the caller is locally trusted or signed in. `/api/grep` skips the
-    directory. An unauthorized local caller's containment miss no longer raises an operator access prompt.
-  - **The `pi_dash_local` proof cookie is bound to the port that issued it** and expires after 12 h idle (re-signed on
-    use after 1 h; 30-day absolute cap). Browsers send it to every `localhost:<port>` site, so a local web app could
-    capture it; a dedicated loopback host is the planned follow-up.
-  - **Browser relay:** `cdpUrl` and the extension's relay URL now carry a single-use ticket (`?ticket=`, 60 s, bound to
-    the guid and role). Pass the whole `cdpUrl` to `agent-browser connect` unchanged; a client that drops needs a fresh
-    `connect`. Plugin WS scopes may declare `peerCredential: "plugin"` to authenticate their peer themselves.
-  - **A container that mounts `~/.pi` or `$HOME` can still mint proofs**: possession of the token is the credential.
-    Never mount the dashboard directory into a container.
-- **BREAKING (security): a bridge that holds the local token now requires the server's counter-proof on EVERY loopback
-  dial** (`ws:` and `wss:` — the configured endpoint, auto-start, a discovered mDNS advert, a retarget and every
-  reconnect), not only when its spawner set `PI_DASHBOARD_REQUIRE_SERVER_PROOF`. A rogue process on a loopback port
-  that advertises `_pi-dashboard._tcp` and answers `/api/health` can no longer receive a session's data. `ws+unix:` is
-  exempt. A refusal logs `server_proof_missing` or `server_proof_invalid` and backs off. **Version skew:** servers older
-  than 0.10.0 cannot answer a counter-proof and are refused; set `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1` on the
-  bridge to opt out (exactly `1`; logged each dial). A same-user process can still read the token — out of scope.
-- **The paired-device bearer is no longer sent to a discovered host.** The ticket mint goes only to a pinned endpoint:
-  the configured one or a pin-store `lastEndpoint` (canonical `host:port` equality). A lone stored pin no longer pins
-  any other host. Refusal logs `bridge ticket unpinned_discovered_host`.
-- **Bridge inbound bounds.** `server_restarting.quiesceMs` is normalized inside `pauseAutoStart` (invalid ignored,
-  fractions rounded up, capped at 120000 ms). Concurrent `!`/`!!`/exec-template bash is bounded per session
-  (`PI_DASHBOARD_BRIDGE_MAX_BASH`, default 4) and turn-starting inbound commands share one token bucket per bridge process
-  (`PI_DASHBOARD_BRIDGE_PROMPT_RATE=<burst>/<refillPerSec>`, default `30/10`); a refusal is shown inline as a
-  `command_feedback` error, never dropped silently. Invalid values fall back to the default with one log line.
-- **Git remote credentials never leave the bridge.** `https://user:token@host/o/r` is stripped of all userinfo (and
-  `ssh://user:pass@host` of its password) before links are built and before the vault sync origin is sent; the hub
-  strips again on receipt. A remote with userinfo that cannot be parsed yields no origin and no links.
-- **Bash output reaches tunnel viewers by design** — only vault values are masked; there is no pattern redaction
-  (documented in the architecture notes, FAQ and README).
-
-### Added
 
 - **Headless Blender for agents, with no native install.** New optional package `@blackbelt-technology/pi-dashboard-blender`
   (`pi-blender` CLI, `blender` skill, `blender-wasm` stdio MCP server) runs the published Blender WebAssembly build
@@ -120,12 +58,14 @@ see [`docs/release-process.md`](docs/release-process.md).
   snapshot window opens through the id lookup. `?embed=1` shows a session without the session list
   (sticky per tab until `?embed=0`). The Claude plugin's control skill and the API reference document
   the UI routes, `uiUrl`, the `encodedCwd` encoding and embed mode.
+
 - **OBS: unfreeze screen captures after sleep.** On macOS, OBS 31 screen captures stop when the Mac sleeps
   and never restart, so the virtual camera keeps sending a frozen desktop. `pi-obs capture refresh
   [--input <name>]` switches each screen capture to another display and back, restoring its exact
   settings. `pi-obs wake-hook install` adds a LaunchAgent that runs the refresh after every wake
   (`wake-hook uninstall` removes it). `devices list --kind display` no longer reports every display as the
   main one, and now includes each display's position.
+
 - **Live and remote dashboard trust for pi.** A pi session whose folder the dashboard trusts only for as long as the
   server runs (worktree-init trust "until dashboard restarts", session access grants, YOLO roots) now gets that
   trust at `project_trust`, and so does a pi on another machine (paired device, `PI_DASHBOARD_TOKEN`). When the
@@ -165,6 +105,20 @@ see [`docs/release-process.md`](docs/release-process.md).
   discovery. The surface is snapshotted in `host-api-surface.json`; removing a name needs a major
   bump, adding one a minor bump. `shell-overlay-route` claims now also receive a decoded `cwd`.
 
+- **Agent event stream (`GET /api/events/stream`) and the `pi-dashboard-watch` skill.** An external controller can react instead of polling: the observe-tier SSE stream emits compact `status` changes, `question_opened` / `question_closed` and `session_added` / `session_removed`, filtered by session-list visibility, with `?session=` and `?types=` filters (repeatable) and a heartbeat. The Claude plugin's new `pi-dashboard-watch` skill runs `watch-events.sh` (POSIX sh + curl) under the Monitor tool, with a `--once` fallback for a background call. The API reference documents the endpoint.
+
+- **Operator-approved access provisioning for project folders.** A project profile (`.pi/access.json`) can ask for folder access ahead of time via `POST /api/access/provision` (up to 32 folder lines). The request writes nothing: a dialog shows each line's real path, reason and classification (`grantable`, `covered`, `in-root`, `forbidden`, `sensitive`, `missing`, `invalid`), and nothing is preselected. Approved lines become ordinary persisted grants (`via: "provision"`). `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/Library/Keychains` and their ancestors cannot be provisioned. Remote-access goals open the Remote access dialog instead of writing anything. The bridge ships a `project-access` skill (`map` is a read-only report of effective access). Provisioning follows `accessGrants.promptEnabled` and is refused with `prompting-disabled` when it is off.
+
+- **One composer dock above a one-row composer toolbar.** Processes (subagents, running commands, background processes with **Kill**), Changes, OpenSpec, Queue and Context lanes share a single dock, with the YOLO footer below. Below 520 px the lanes fold into one row of summary chips. A **Hide** control collapses the dock into a one-line summary bar (stored per session in `localStorage`), and resting on the bar peeks the dock as an overlay on hover devices (**Pin** expands it again). Changes rows get per-file **Open** (editor pane) and **Diff** (that file's diff tab); a file missing on disk shows `File no longer exists: <path>`.
+
+- **Fluid chat motion.** Newly arriving prompt, steering and tool cards fade and rise in. Streaming text is revealed at a pace that follows the backlog (every received character is visible within 500 ms), with a soft trailing edge and a glide-follow scroll. A completing tool pops its icon in. It is on by default, switchable with the `chatMotion` display preference (Settings chat display, or per session in the View popover). `prefers-reduced-motion: reduce` disables all of it.
+
+- **OpenSpec change dependency graph.** Each change can carry a `dependencies.yaml` (`blocked_by`, `not_blocked_by`, `related`). Edges are also inferred from proposal labels (`Blocked by`, `Depends on`, `Builds on`, `Blocks`), cycles are reported and execution waves are computed in the status poll worker. Read and write through `GET`/`PUT /api/openspec/dependencies` (also MCP tools). The `pi-spec-driven` schema patch v2 adds a `dependencies` artifact.
+
+- **Automatic Gmail OAuth client setup.** Gmail settings get **Set up automatically**, which drives the dedicated agent browser through the Cloud console (project, Gmail API, branding, audience, Desktop OAuth client) and hands the captured client ID and secret to the plugin's existing `PUT /api/plugins/gmail/client`. Run routes are local-only.
+
+- **Desktop app checks for server version skew on attach.** When the app attaches to a server whose `/api/health` version differs from the runtime it would launch, an Electron-launched server gets a **Restart with v<expected>** / **Leave running** prompt (merged into the zombie-adoption prompt when both apply), and an externally launched server gets an informational notice with the matching fix text and **Don't show again for this version pair**. It never stops an external server. No prompt for unpackaged, dev or unknown-version cases, and `--no-zombie-prompt` also suppresses it.
+
 ### Changed
 
 - **Plugins must declare the event types they emit (migration).** `ctx.emitEventToSession` now refuses any event
@@ -179,6 +133,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   `consumeAll` entries gain a `provider` field. In-tree plugins (`flows`, `automation`) are updated; out-of-tree
   plugins that emit events must add `emits` to their manifest. **`pi-dashboard-shared` minor:** additive
   `PluginManifest.emits`. **`dashboard-plugin-runtime` minor:** additive `ConsumeAllFn` `provider` field.
+
 - **Automation and flow-inputs routes need a `cwd` (migration for agents and API callers).** The server's own
   working directory is no longer a fallback folder. Every `cwd` an automation route or `GET
   /api/plugins/flows/flow-inputs` receives must be a known folder (a session cwd, a pinned folder, or one an
@@ -192,6 +147,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   `getplugins_automation_result` now list `cwd` as a required argument (even for `scope: "global"`, where any
   known folder will do); agents that relied on the server-cwd fallback must pass `cwd`. `DELETE
   /api/plugins/automation` also accepts `name`/`scope`/`cwd` in a JSON body, which is what the MCP tool sends.
+
 - **File, package, canvas and resource routes admit the folder the same way (widening and tightening).** The file
   routes (`/api/file*`, `/api/grep`, open-in-system, reveal, editor-pane saves, live preview) used to accept only
   a `cwd` that matched a live session, so a pinned folder or a worktree without a session got "unknown session
@@ -238,27 +194,13 @@ see [`docs/release-process.md`](docs/release-process.md).
   exported by the root. `./context` stays one minor release as a deprecated alias; prefer the root
   for plugin hooks.
 
-- **Craft web editors for ten ArtCraft apps.** The opt-in Craft Web Editors plugin now edits more file
-  types in the editor pane: GridCraft (`.xlsx`), PdfCraft (`.pdf`), CADCraft (`.dxf`), DesignCraft
-  (`.designcraft`) and SoundCraft (`.scraftz`) save in place; PhotoCraft (`.psd`, and `.png .jpg .jpeg
-  .webp .tif .tiff` saved as a `.psd` next to the file), VectorCraft (`.svg` → `.vectorcraft`) and
-  DeckCraft 0.7.0 (`.pptx` → `.deckcraft`, `.deckcraft` in place) save their native format as a new
-  sibling file; LightCraft views camera RAW files (`.dng .cr2 .cr3 .nef .arw .raf .orf .rw2`) without
-  ever changing them. Every save passes a per-format validator (SVG saves are filtered for script). New apps
-  use their verified web build only; an installed WordCraft build keeps loading and is offered an update.
-  The binary-file notice now offers the matching editor. **`pi-dashboard-shared` minor:** additive
-  `siblingExtensions` on `editor-pane-file-handler` claims, `FileHandlerProps.save({target:"sibling", ext})`
-  and optional `FileHandlerProps.openFile(path, claimId?)`; `POST /api/file/write-binary` accepts
-  `mode=copy&siblingExt=<.ext>`. An older runtime drops the claim field (native saves then download).
-
-### Changed
-
 - **Access-grant prompts are now on by default.** `accessGrants.promptEnabled` defaults to `true` when it
   is absent from `config.json`, so a fresh or never-configured install raises the "Allow access?" dialog
   (and the new agent-proposed access requests) instead of silently recording denials. An explicit value
   is kept as written: set `accessGrants.promptEnabled` to `false` (Settings ▸ Access) to turn prompting
   off, or set `PI_DASHBOARD_DISABLE_GRANT_PROMPT=1` in automated environments. No config migration.
   A grant approved from a provisioning request is never evicted by the 200-grant cap.
+
 - **Canvas and live previews: HTML renders as authored, with fail-closed isolation.** A local `.html`
   file now opens as an in-memory, capability-only *static target* of the live-server viewer, so relative
   CSS/JS/images resolve and scripts run inside the opaque-origin sandbox (the old `srcdoc` no-script
@@ -269,12 +211,140 @@ see [`docs/release-process.md`](docs/release-process.md).
   with `Origin: null` or `Sec-Fetch-*`) now returns 404 — use a minted capability path. Agent-declared
   localhost URLs show the confirm chip and are no longer persisted as live-server targets.
 
+- **Servers are grouped by identity.** One row/card per server fingerprint, with its addresses as proven *routes* (loopback, LAN, mDNS name, tunnel, public URL). A route that proves a different identity is shown as refused and never receives a credential. Settings ▸ Servers merges "Known servers" and "Network discovery" into one list. A row with no credential on this device gets **Request access…** or **Pair with code…**. **Compatibility:** `knownServers` entries become `{ fingerprint?, label?, routes[], addedAt }` but keep `host`/`port` mirroring the primary route, so an older build still reads them. `GET /api/known-servers` returns `routes`, `POST` accepts `scheme` and attaches a route to the entry that already holds the proven identity (the `409 already_known` refusal is gone), and `DELETE` can remove one route or a whole identity. An approved `POST /api/pair/poll` answer now carries the server's `https` routes.
+
+- **Session header reorganized.** A 48 px three-zone header: back, title menu and **Reveal in sidebar** on the left; plugin segments in the middle; Modules, Changed files, Resume/Fork, a larger **Chat / Split / Editor** switch and the View menu on the right. The title menu holds Rename (F2), Reveal in sidebar, Edit tags and **Reload transcript**. The pencil button, double-click rename, header Attach button and the context bar row are gone (a context ring replaces it). Mobile gets a one-row header.
+
+- **Editor pane has a pane bar and a document bar.** The pane bar holds the **Files** toggle, the tabs, **`+`** (Terminal, Live preview, Open file…, Cmd-P), **Search tabs** and close. The document bar for a file tab holds a breadcrumb, the handler mode switcher, Reload, Open in default app, Reveal and a `⋯` menu (Show in file tree, Copy full path/relative path/file name). Tabs gain bulk close, and Search is available as a tab and from the rail.
+
+- **Sidebar header decluttered.** A single Appearance dropdown holds the Light/System/Dark mode and the palette list. The server selector becomes a connection chip (status dot, name, chevron). Discord sits next to the logo. The filter row is one search box with a **Sessions / Folders** scope toggle (both queries stay active), and **Include archive** and **Show hidden** move into a filter funnel with a count badge. Header icon buttons share one 28 px size.
+
+- **Add Folders uses a file-manager picker.** Click selects, ⌘/Ctrl-click toggles, Shift-click selects a range, and double-click (touch: tap) opens a folder. Touch long-press enters select mode. Nothing selected adds the browsed folder (never an implicit home). The per-row checkboxes, descend chevrons and the pill basket are removed. **Compatibility:** the old `path-picker-check-*`, `path-picker-open-*` and `add-folders-pill-*` test ids are gone.
+
+- **Gmail setup wizard handles existing projects.** Step 1 offers new or existing project with inline project-ID validation, an optional owner account (`authuser=` on console links, `--account` on `gcloud` commands), and consent copy for both Google consent shapes. An opt-in per-account filters option adds three confirmed Gmail filter tools (list, create, delete; label actions only) and requests `gmail.settings.basic`.
+
+- **Desktop release bundles install from the published runtime lock.** A release build installs the bundled server's third-party tree with `npm ci` from `server@X`'s `runtime-lock.json`, verifies each tarball's integrity and audits the result. The build fails closed instead of falling back to a floating install.
+
 ### Fixed
 
 - **Desktop app: a paired remote server window no longer shows "Server offline".** The app sets the
   device cookie behind the scenes, but the remote page never learned it was paired, so it opened the
   live connection without a ticket and the server refused it. The window now marks the page as paired,
   and a dashboard page on a network address also tries its cookie for a ticket on its own.
+
+- **Killing a process now kills its whole process group on Linux and macOS.** `killProcess` signals the group (SIGTERM then SIGKILL) when the target leads its own group, matching Windows `taskkill /T`, and the headless keeper fallback reaps pi's orphaned children even after the keeper has exited (#912).
+
+- **Port conflicts at startup are reported, not swallowed.** A held pure-TCP pi-gateway port now fails startup with a message naming `host:port` instead of running degraded with no bridge listener (#978), and a foreground `pi-dashboard` whose HTTP port is held reports `PortConflictError` instead of a generic early exit (#977).
+
+- **Remote bridges connect to the dashboard's HTTP port.** A bridge on another machine used to mint its ticket and identity challenge against the gateway port and got `426`, so it never connected. It now uses the dashboard HTTP origin (the new `PI_DASHBOARD_HTTP_URL` pins it explicitly; otherwise the endpoint host with `PI_DASHBOARD_PORT`/8000).
+
+- **Resuming a large session no longer freezes the dashboard, and replayed history no longer looks live.** Replayed events are marked and never raise unread badges, pushes or activity timestamps, and the replay ends on completion, idle or a time cap (#928, #929).
+
+- **Chat selections larger than the render ceiling survive.** The selection is kept, the endpoint rows stay mounted, and copy returns the full span with an announced ceiling. A swipe-back selection guard was added.
+
+- **`list_models` reflects current config.** It re-syncs from the global `providers.json`, `models.json` and `auth.json` on every call (failures degrade to the last catalogue and report `refreshErrors`). An unreadable or keyless `providers.json` no longer unregisters custom providers.
+
+- **Windows: bundled `bash.exe` and `windowsBashSource`.** The bundle now ships `usr/bin/bash.exe`, so pi resolves the bundled bash. The new `windowsBashSource` setting (`"bundled"` default, or `"host"` to prefer the host's first `bash.exe`, such as WSL) is in Settings next to "Git & Bash source". `/api/health` `gitSource` and the Doctor "bash source" row report the shell pi will actually use.
+
+- **Resize drags end on release.** A shared drag hook ends every drag-to-resize on pointer release, cancel or lost capture, and a transparent shield stops embedded iframes from swallowing the release.
+
+- **Read-only archived session view.** The header now shows the archived session, and the editor pane no longer keeps a stale artifact tab or requests a file tree for an empty cwd.
+
+- **Additional fixes.** Concurrent Claude-plugin bootstraps no longer launch a second dashboard when the lock holder is mid-write. The composer dock and its card join as one panel and the quota chips align. The worktree-init chip fits its banner. Folder-card and session-card pills meet light-theme contrast. The session-actions edge pill stays opaque on hover.
+
+### Security
+
+- **BREAKING (security): a container can no longer drive the dashboard through the host loopback.** A container
+  that reaches the host's `127.0.0.1` (Docker Desktop's `host.docker.internal`, `--network host`, a relay) used to be
+  indistinguishable from a local tool, so it could mint device tokens and bridge tickets, read `/api/config` and
+  restart or shut the server down. `requireLocalProof` now defaults to **`true`**: a bare-loopback caller can read
+  observe-tier routes and nothing else; every other REST route and WebSocket needs local proof (`pi-dashboard open`,
+  the desktop app, the CLI, the bridge, or a signed-in/paired principal). Only an explicit boolean `false` opts out
+  (live, no restart); a missing or non-boolean value is `true` and the server logs a warning once. **Opting out
+  re-exposes the control plane to every container on the host.**
+  - **Before upgrading, stop every dashboard instance.** The first start rotates the local token and `auth.secret`
+    once (a container may already have read them through the `~/.pi` file anchor), so **everyone signs in again once**
+    and every local proof cookie is reissued. A still-running older instance on the same HOME keeps its old token until
+    it restarts. If rotation cannot complete (lock held, disk error) the server exits 1 before listening and names the
+    failed step and the lock and epoch paths.
+  - **Forwarded-loopback users** (`ssh -L`, VS Code port forwarding, WSL) arrive as bare loopback and now see a banner:
+    run `pi-dashboard open` on the server (use `--print` and a same-port forward from another machine) to authorize the
+    browser. `/auth/login` no longer bounces such a tab to an OAuth provider; it shows the same remedy.
+  - **New `pi-dashboard api <METHOD> <path> [--data <json>]`** calls the running dashboard with a freshly minted proof
+    (exit 0 on 2xx, 1 on any other status, 2 on a usage error or when the server is not running); it replaces
+    `curl http://localhost:8000/api/...` for non-observe routes. **An unknown subcommand word now exits 2 with a usage
+    line** instead of silently starting a foreground server (an older binary still falls through, so the minimum
+    version is the one that ships `api`). Slash-command templates get `PI_DASHBOARD_CLI` (use
+    `eval "$PI_DASHBOARD_CLI" api GET /api/config`).
+  - **The dashboard state directory is out of reach of every path-taking route.** `~/.pi/dashboard/local/**` and
+    `identity.key` are refused for every caller in every mode (this is not undone by `requireLocalProof: false`);
+    `config.json` and the rest are refused unless the caller is locally trusted or signed in. `/api/grep` skips the
+    directory. An unauthorized local caller's containment miss no longer raises an operator access prompt.
+  - **The `pi_dash_local` proof cookie is bound to the port that issued it** and expires after 12 h idle (re-signed on
+    use after 1 h; 30-day absolute cap). Browsers send it to every `localhost:<port>` site, so a local web app could
+    capture it; a dedicated loopback host is the planned follow-up.
+  - **Browser relay:** `cdpUrl` and the extension's relay URL now carry a single-use ticket (`?ticket=`, 60 s, bound to
+    the guid and role). Pass the whole `cdpUrl` to `agent-browser connect` unchanged; a client that drops needs a fresh
+    `connect`. Plugin WS scopes may declare `peerCredential: "plugin"` to authenticate their peer themselves.
+  - **A container that mounts `~/.pi` or `$HOME` can still mint proofs**: possession of the token is the credential.
+    Never mount the dashboard directory into a container.
+
+- **BREAKING (security): a bridge that holds the local token now requires the server's counter-proof on EVERY loopback
+  dial** (`ws:` and `wss:` — the configured endpoint, auto-start, a discovered mDNS advert, a retarget and every
+  reconnect), not only when its spawner set `PI_DASHBOARD_REQUIRE_SERVER_PROOF`. A rogue process on a loopback port
+  that advertises `_pi-dashboard._tcp` and answers `/api/health` can no longer receive a session's data. `ws+unix:` is
+  exempt. A refusal logs `server_proof_missing` or `server_proof_invalid` and backs off. **Version skew:** servers older
+  than 0.10.0 cannot answer a counter-proof and are refused; set `PI_DASHBOARD_ALLOW_UNPROVEN_LOCAL_SERVER=1` on the
+  bridge to opt out (exactly `1`; logged each dial). A same-user process can still read the token — out of scope.
+
+- **Browser-held device bearers now expire and rotate.** A bearer a browser keeps in its own storage (cross-origin
+  ServerSelector use) now expires 7 days after issue (never later than 30 days after pairing) and the client rotates
+  it before then via the new `POST /api/paired-devices/rotate` (authenticated by the bearer alone, tier `observe`, 10 per
+  minute per device). The previous bearer stays valid for 60 seconds, then dies; an expired bearer gets
+  `401 {"code":"bearer_expired"}` from every peer, including loopback and trusted networks. Electron, CLI and manual
+  MCP tokens never declare a browser holder and stay non-expiring; revoke still kills a device immediately.
+  **Compatibility:** cross-origin browsers re-pair once (the old global `pi-dashboard:device-bearer` slot is discarded,
+  never exchanged or sent), and a browser idle for more than 7 days, or past 30 days from pairing, re-pairs.
+  Same-origin browsers are unaffected. Old clients against a new server keep non-expiring rows; registry rows gain
+  optional `expiresAt`/`pairedAt`/`previousHash`/`previousExpiresAt` fields (a server rollback ignores them and the
+  rows become non-expiring).
+
+- **The paired-device bearer is no longer sent to a discovered host.** The ticket mint goes only to a pinned endpoint:
+  the configured one or a pin-store `lastEndpoint` (canonical `host:port` equality). A lone stored pin no longer pins
+  any other host. Refusal logs `bridge ticket unpinned_discovered_host`.
+
+- **Bridge inbound bounds.** `server_restarting.quiesceMs` is normalized inside `pauseAutoStart` (invalid ignored,
+  fractions rounded up, capped at 120000 ms). Concurrent `!`/`!!`/exec-template bash is bounded per session
+  (`PI_DASHBOARD_BRIDGE_MAX_BASH`, default 4) and turn-starting inbound commands share one token bucket per bridge process
+  (`PI_DASHBOARD_BRIDGE_PROMPT_RATE=<burst>/<refillPerSec>`, default `30/10`); a refusal is shown inline as a
+  `command_feedback` error, never dropped silently. Invalid values fall back to the default with one log line.
+
+- **Git remote credentials never leave the bridge.** `https://user:token@host/o/r` is stripped of all userinfo (and
+  `ssh://user:pass@host` of its password) before links are built and before the vault sync origin is sent; the hub
+  strips again on receipt. A remote with userinfo that cannot be parsed yields no origin and no links.
+
+- **Bash output reaches tunnel viewers by design** — only vault values are masked; there is no pattern redaction
+  (documented in the architecture notes, FAQ and README).
+
+- **Remote vault delivery now needs a hub-proven TLS channel.** Bridges can connect over the built-in HTTPS listener with the opt-in `tls.acceptBridges` switch (off by default, ticket-only auth). A paired device gets remote vault delivery only when its upgrade and ticket both arrived on the hub's own TLS socket, the device is active, its bearer was never exposed off a proven channel, and the bridge enforces certificate validation. Operator tokens issued for a bridge on another machine carry a `pi_tls_` prefix and are never sent to a non-`https` origin. Revoking or holding a device, or turning Accept bridges off, withdraws delivery from its connected sessions within 5 s. Refusals name the cause (`local-unproven`, `plain-transport`, `bearer-exposed`, `history-unknown`, `bridge-outdated`, …) in the session view, the token dialog and the log. **Compatibility:** hub-local vault delivery now requires the unix socket, a local credential proof or the in-process connection, so loopback by address alone no longer qualifies (such sessions report `local-unproven`). Devices paired before this release have unknown bearer history and need a new token for remote delivery.
+
+- **A machine's own address can no longer pass for another server.** Pairing proof is bound to the address literal that proved it (a `.local` name cannot re-resolve to another machine between proof and use). A proof is classified as `self` (this machine's own dashboard, a wrong address and never an alarm) or `foreign` (strict handling). An mDNS advert counts as local only when its fingerprint equals this machine's own. When re-verification fails, the desktop app re-selects another address instead of ending the pairing. Adding a known server whose address proves this server's own fingerprint now returns `409 self_address`. mDNS advertising skips macOS virtual bridge interfaces (`bridgeN`, `vmnet`, `vboxnet`). **Residual:** on plain `http`, address takeover between proof and use is not closed (that needs TLS key pinning).
+
+- **Auth credential hardening.** JWT verification is pinned to `HS256`, and new HMAC secrets are 32 bytes. Existing secrets are kept, and a secret shorter than 32 characters logs one startup warning. The session cookie is `Secure` when the active tunnel's public origin is https, even if the configured base URL is http. Device revocation and provider-credential writes now write audit log lines (device id or actor and source IP, never the secret).
+
+- **CORS and CSP changes.** The `*.share.zrok.io` CORS read path is now off by default. Set `cors.allowZrokWildcard: true` to re-enable it; the live tunnel's own origin stays allowed. Tunnel origins are compared case-, port- and trailing-dot-normalized. The dashboard now ships a strict nonce CSP as a second `Content-Security-Policy-Report-Only` header, and collects violation reports at `POST /__pi/csp-report/:policy` with a persisted counter exposed as `cspReports` in `/api/health`. The default stays report-only. `PI_DASHBOARD_CSP=enforce` enforces the strict policy (opt-in). **Compatibility:** zrok users who relied on the wildcard for non-active tunnels must opt in.
+
+- **Client navigation and HTML sinks are policy-checked.** One URL policy classifies every navigation as internal, loopback, external, mailto or blocked, and all links and `window.open`/`location` sinks go through `SafeLink` / `openUrl()` / `navigateTo()`. Plugins get them from `dashboard-plugin-runtime`. OIDC discovery endpoints must be `https:` (`http:` only for loopback). Trusted Types policies cover sanitized HTML, static SVG and worker URLs. `PI_DASHBOARD_TRUSTED_TYPES` selects the mode and the default stays report. Report mode also counts what enforcement would block or alter (`ttShadow` under `cspReports` in `/api/health`). Operator actions that open a preview use short-lived signed navigation intents (`POST /api/nav-intent`), and agent-declared targets never get one.
+
+- **Git, terminal and plugin boundaries.** Git error responses redact absolute paths, URL userinfo and token shapes. Git routes reject refs that are empty, start with `-` or contain control characters with `400 invalid_ref`. Terminal spawns validate the requested `cwd` against known and pinned folders and answer a refusal as `terminal_error` to the requesting socket only (inline terminals always start in the session's cwd).
+
+- **Media tools and Electron Doctor argument safety.** `maxAudioMb` is now enforced on the audio extracted for transcription, before upload. nano-banana passes the prompt via `--prompt`, so a prompt starting with `-` is not parsed as a flag. On Windows no argument reaches `cmd.exe`, and media paths are resolved to absolute before spawning. The Electron Doctor window is sandboxed with a navigation guard, only `http(s)` links open from it, and the node probe no longer interpolates a shell string.
+
+- **Scriptable files opened directly are sandboxed.** `/api/file/raw` serves `.svg`, `.html` and `.htm` with `Content-Security-Policy: sandbox; default-src 'none'; …` and `X-Content-Type-Options: nosniff`, so a directly opened file renders in an opaque origin and cannot read dashboard cookies or call the API. **Compatibility:** scripts in a directly opened SVG/HTML file no longer run. `<img>` previews and other content types are unchanged.
+
+- **Server capability bounds.** PTY spawns are capped at 32 globally and 16 per owner (`terminals.maxConcurrent`, `terminals.maxPerOwner`). A refused spawn shows a dismissible `terminal_limit_reached` notice, and inline terminals with no attached client for 10 minutes are reaped (tab terminals never are). Folder browse and mkdir requests that are not genuinely local (tunnel, LAN, relayed loopback) are confined to `$HOME`, pinned folders, session cwds, workspace folders and granted folders (`403 path outside allowed roots`). Opt out with `browse.confineRemote: false`. A remote `pin_directory`, `add_folder_to_workspace` or `move_folder_to_workspace` outside those roots is refused. The recovery server binds the configured host (loopback by default) and gates `retry`/`reinstall` on the local token or a same-origin loopback request. **Compatibility:** remote browsers can no longer browse arbitrary server folders.
+
+- **Team plugin guard follows dangling symlinks.** The tool-path guard resolves dangling and relative symlinks component-wise (hop-bounded), so a link pointing out of the root is refused. A symlink loop or unresolvable link now fails closed (`invalid_path` / refused) instead of escaping the root.
 
 ## [0.10.0] - 2026-10-20
 
