@@ -157,6 +157,14 @@ describe("postPayloads", () => {
     expect(err.message).not.toContain("123456");
   });
 
+  it("X2: an error body echoing the webhook URL or token is redacted", async () => {
+    const fetch = vi.fn().mockResolvedValue(respond(400, { message: `bad ${WEBHOOK} token=s3cr3t-t0ken id=123456` }));
+    const err = await postPayloads(payloads, WEBHOOK, { fetch, sleep: vi.fn() }).catch((e) => e);
+    expect(err.message).toContain("400");
+    expect(err.message).not.toContain("s3cr3t-t0ken");
+    expect(err.message).not.toContain("123456");
+  });
+
   it("X2: an unreadable error body still reports the status", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: false, status: 502, json: async () => ({}), text: async () => { throw new Error("no body"); } });
     await expect(postPayloads(payloads, WEBHOOK, { fetch, sleep: vi.fn() })).rejects.toThrow(/502/);

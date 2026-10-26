@@ -102,7 +102,14 @@ export async function postPayloads(payloads, webhookUrl, { fetch = globalThis.fe
         await wait(retryAfter * 1000);
         continue;
       }
-      if (!res.ok) throw new Error(`Discord webhook failed: ${res.status} ${await res.text().catch(() => "")}`);
+      if (!res.ok) {
+        let body = await res.text().catch(() => "");
+        // Never echo the credential: full URL, then its path segments (token, webhook id).
+        for (const secret of [webhookUrl, ...webhookUrl.split("/").slice(-2)]) {
+          if (secret) body = body.split(secret).join("[redacted]");
+        }
+        throw new Error(`Discord webhook failed: ${res.status} ${body}`);
+      }
       break;
     }
   }
