@@ -172,7 +172,23 @@ export async function buildRuntimeAsset({ version, outDir, deps = stagerDeps(), 
     // Relative output path + root entry names: no drive letters (GNU tar on
     // Windows reads `C:` as a remote host) and no `./` member prefix.
     const entries = readdirSync(root).sort();
-    await execFileAsync("tar", ["-czf", join("..", assetName), ...entries], { ...TAR_OPTS, cwd: root });
+    // Windows runners tar a ~1 GB node_modules; a transient file lock (Defender,
+    // esbuild service) can fail one pass. Retry, and surface tar's stderr.
+    let lastTarErr;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await execFileAsync("tar", ["-czf", join("..", assetName), ...entries], { ...TAR_OPTS, cwd: root });
+        lastTarErr = undefined;
+        break;
+      } catch (err) {
+        lastTarErr = err;
+        if (attempt < 3) {
+          log(`tar attempt ${attempt} failed: ${String(err.stderr ?? err.message).slice(0, 300)} — retrying`);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+    }
+    if (lastTarErr) throw lastTarErr;
     const built = join(dirname(root), assetName);
     const { stdout } = await execFileAsync("tar", ["-tvzf", built], TAR_OPTS);
     const link = String(stdout).split(/\r?\n/).find((l) => /^[lh]/.test(l));
