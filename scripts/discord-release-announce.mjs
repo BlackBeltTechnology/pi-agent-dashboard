@@ -22,6 +22,12 @@ const COLOR = 5793266;
 const MAX_RETRIES = 5;
 const MAX_RETRY_AFTER_S = 60;
 
+/** Cut index ≤ `end` that never separates a UTF-16 surrogate pair. */
+function safeCut(text, end) {
+  const code = text.charCodeAt(end - 1);
+  return code >= 0xd800 && code <= 0xdbff ? end - 1 : end;
+}
+
 /**
  * Split `body` into chunks of at most `limit` chars. Chunks break after a
  * newline whenever a line fits; a longer line is hard-split. For a non-empty
@@ -38,8 +44,9 @@ export function splitBody(body, limit = LIMIT) {
     if (cur) chunks.push(cur);
     cur = segment;
     while (cur.length > limit) {
-      chunks.push(cur.slice(0, limit));
-      cur = cur.slice(limit);
+      const cut = safeCut(cur, limit);
+      chunks.push(cur.slice(0, cut));
+      cur = cur.slice(cut);
     }
   }
   if (cur) chunks.push(cur);
@@ -54,7 +61,7 @@ export function buildPayloads(release, tag = "") {
   const longestSuffix = n > 1 ? ` (${n}/${n})`.length : 0;
   const maxName = TITLE_MAX - "Released ".length - longestSuffix;
   let name = release.name || tag;
-  if (name.length > maxName) name = `${name.slice(0, maxName - 1)}…`;
+  if (name.length > maxName) name = `${name.slice(0, safeCut(name, maxName - 1))}…`;
   return chunks.map((description, i) => ({
     username: "pi-dashboard releases",
     allowed_mentions: { parse: [] },
@@ -72,13 +79,20 @@ export async function postPayloads(payloads, webhookUrl, { fetch = globalThis.fe
   const wait = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   for (const payload of payloads) {
     for (let attempt = 0; ; attempt++) {
-      const res = await fetch(`${webhookUrl}?wait=true`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      let res;
+      try {
+        res = await fetch(`${webhookUrl}?wait=true`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch {
+        // Node's fetch errors can embed the URL (= webhook token); never surface them.
+        throw new Error("Discord webhook request failed (network error)");
+      }
       if (res.status === 429) {
-        const { retry_after: retryAfter = 1 } = await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({}));
+        const retryAfter = Number(data.retry_after) > 0 ? Number(data.retry_after) : 1;
         if (retryAfter > MAX_RETRY_AFTER_S) {
           throw new Error(`Discord webhook rate-limited (429): retry_after ${retryAfter}s exceeds ${MAX_RETRY_AFTER_S}s`);
         }
@@ -88,7 +102,7 @@ export async function postPayloads(payloads, webhookUrl, { fetch = globalThis.fe
         await wait(retryAfter * 1000);
         continue;
       }
-      if (!res.ok) throw new Error(`Discord webhook failed: ${res.status} ${await res.text()}`);
+      if (!res.ok) throw new Error(`Discord webhook failed: ${res.status} ${await res.text().catch(() => "")}`);
       break;
     }
   }

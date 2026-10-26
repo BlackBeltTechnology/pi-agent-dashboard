@@ -125,7 +125,8 @@ When a non-prerelease GitHub Release is published, the `discord-announce` job in
 - **THEN** the announcement SHALL be posted as N > 1 messages in order
 - **AND** each message's embed description SHALL be at most 4000 characters
 - **AND** chunks SHALL break after a newline whenever a line fits, each chunk keeping its trailing newline
-- **AND** for a non-empty body, concatenating the descriptions in order with no separator SHALL equal the release body exactly, including CRLF line endings and a trailing newline
+- **AND** for a non-empty body, concatenating the payload descriptions as sent, in order with no separator, SHALL equal the release body exactly, including CRLF line endings and a trailing newline (Discord may trim leading/trailing whitespace of each description when it stores the message; that trimming is outside this guarantee)
+- **AND** no chunk boundary SHALL separate a UTF-16 surrogate pair
 - **AND** message 1 SHALL be titled `Released <name>` and messages 2..N `Released <name> (<i>/<N>)`
 - **AND** every embed SHALL link to the GitHub Release URL
 

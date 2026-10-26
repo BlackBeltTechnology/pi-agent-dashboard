@@ -54,6 +54,17 @@ describe("splitBody", () => {
   it("E6: an empty body yields no chunks", () => {
     expect(splitBody("", 4000)).toEqual([]);
   });
+
+  it("never splits a surrogate pair at a chunk boundary", () => {
+    const body = `${"a".repeat(3999)}\u{1F600}${"b".repeat(10)}`; // emoji occupies code units 3999-4000
+    const chunks = splitBody(body, 4000);
+    expect(chunks.join("")).toBe(body);
+    for (const c of chunks) {
+      expect(c.length).toBeLessThanOrEqual(4000);
+      expect(/[\uD800-\uDBFF]$/.test(c)).toBe(false);
+      expect(/^[\uDC00-\uDFFF]/.test(c)).toBe(false);
+    }
+  });
 });
 
 describe("buildPayloads", () => {
@@ -100,6 +111,19 @@ describe("buildPayloads", () => {
     expect(payloads[0].embeds[0].title.endsWith("…")).toBe(true);
   });
 
+  it("E6: a null body (gh returns null for empty notes) posts one placeholder payload", () => {
+    expect(buildPayloads({ ...release, body: null })[0].embeds[0].description).toBe("_No release notes._");
+  });
+
+  it("never splits a surrogate pair when shortening a long name", () => {
+    const name = `${"n".repeat(245)}\u{1F600}${"m".repeat(50)}`;
+    for (const p of buildPayloads({ ...release, name })) {
+      const { title } = p.embeds[0];
+      expect(title.length).toBeLessThanOrEqual(256);
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(title)).toBe(false);
+    }
+  });
+
   it("E9: every payload suppresses mentions", () => {
     const body = Array.from({ length: 400 }, (_, i) => `- @everyone @here <@123> <@&456> line ${i}`).join("\n");
     const payloads = buildPayloads({ ...release, body });
@@ -123,6 +147,30 @@ describe("postPayloads", () => {
     expect(err.message).not.toContain("s3cr3t-t0ken");
     expect(err.message).not.toContain("123456");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("X2: a rejected request never exposes the webhook URL", async () => {
+    const fetch = vi.fn().mockRejectedValue(new TypeError(`Failed to parse URL from ${WEBHOOK}?wait=true`));
+    const err = await postPayloads(payloads, WEBHOOK, { fetch, sleep: vi.fn() }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).not.toContain("s3cr3t-t0ken");
+    expect(err.message).not.toContain("123456");
+  });
+
+  it("X2: an unreadable error body still reports the status", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 502, json: async () => ({}), text: async () => { throw new Error("no body"); } });
+    await expect(postPayloads(payloads, WEBHOOK, { fetch, sleep: vi.fn() })).rejects.toThrow(/502/);
+  });
+
+  it("X3: a non-numeric retry_after still waits a real interval", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(respond(429, { retry_after: "oops" }))
+      .mockResolvedValue(respond(200, {}));
+    const sleep = vi.fn(async () => {});
+    await postPayloads(payloads, WEBHOOK, { fetch, sleep });
+    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(Number.isFinite(sleep.mock.calls[0][0])).toBe(true);
+    expect(sleep.mock.calls[0][0]).toBeGreaterThan(0);
   });
 
   it("X3: a 429 is retried after retry_after, preserving order", async () => {
