@@ -910,6 +910,10 @@ jobs:
   # secret is read through env only and the step exits 0 when it is unset,
   # so forks and repos without the secret skip cleanly. allowed_mentions is
   # empty so changelog text can never ping @everyone / roles / users.
+  # Full notes post untruncated: scripts/discord-release-announce.mjs splits
+  # long bodies into numbered follow-up messages (≤ 4000 chars each).
+  # No setup-node / cache: runner Node only (release-privileged, no cache).
+  # See change: discord-release-full-changelog.
   # Rollback: delete this job or the secret.
   discord-announce:
     needs: [resolve, github-release]
@@ -920,6 +924,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/discord-release-announce.mjs
+          sparse-checkout-cone-mode: false
       - name: Post release notes to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
@@ -932,17 +940,4 @@ jobs:
             exit 0
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,url,body > release.json
-          # Embed description cap is 4096 chars; keep headroom for the suffix.
-          jq '{
-            username: "pi-dashboard releases",
-            allowed_mentions: { parse: [] },
-            embeds: [{
-              title: ("Released " + (.name // env.TAG)),
-              url: .url,
-              color: 5793266,
-              description: ((.body // "") | if length > 3800 then .[0:3800] + "\n\n… (truncated — see the full release notes)" else . end)
-            }]
-          }' release.json > payload.json
-          curl --fail-with-body -sS -X POST -H "Content-Type: application/json" \
-            --data @payload.json "$DISCORD_WEBHOOK_URL"
-          echo "Announced $TAG on Discord"
+          node scripts/discord-release-announce.mjs release.json "$TAG"

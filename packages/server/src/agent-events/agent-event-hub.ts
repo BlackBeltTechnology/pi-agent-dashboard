@@ -35,7 +35,7 @@ export type AgentEventType = AgentEvent["type"];
 
 export const AGENT_EVENT_TYPES: readonly AgentEventType[] = ["session_added", "status", "session_removed", "question_opened", "question_closed"];
 
-export type AgentEventListener = (event: AgentEvent, owner: Owner | undefined) => void;
+type AgentEventListener = (event: AgentEvent, owner: Owner | undefined) => void;
 
 export interface AgentEventHub {
   onRegistryFrame(msg: ServerToBrowserMessage): void;
