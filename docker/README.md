@@ -15,7 +15,8 @@ open http://localhost:8000
 
 That's it. The dashboard is at `http://localhost:8000`; the pi gateway listens
 on `9999`. State (sessions, auth, preferences) persists in the `pi-state`
-named volume across restarts.
+named volume across restarts; the credential data key lives in the separate
+`pi-key` volume (see [Credential key volume](#credential-key-volume-pi-key)).
 
 You can also skip `.env` keys entirely and add providers later via
 **Settings → Provider Auth** in the dashboard (OAuth or paste a key).
@@ -79,6 +80,43 @@ pin/unpin via the UI, your choices win and the env is ignored.
    CI/CD and throwaway only.
 
 Uncomment one block per named volume in `compose.yml`.
+
+## Credential key volume (`pi-key`)
+
+The vault (`~/.pi/dashboard/vault.json`) and the plugin credential store
+(`~/.pi/agent/plugin-credentials.json`) are **encrypted at rest**. A container
+has no OS keychain, so the data key lives in a `0600` file on its **own**
+volume, mounted at `/home/pi/.pi-key` (default path `/home/pi/.pi-key/data-key`).
+`compose.yml` mounts the named volume `pi-key` there next to `pi-state`.
+
+- **First start.** `entrypoint.sh` exports `PI_DASHBOARD_DATA_KEY_FILE=/home/pi/.pi-key/data-key`
+  and generates 32 random bytes (base64) under `umask 077` when the file is
+  absent and no credential file is encrypted yet. The key never appears in
+  argv, env or logs.
+- **Custom Compose files and plain `docker run` MUST mount `/home/pi/.pi-key`
+  as a named volume.** The image's `VOLUME` line alone creates an *anonymous*
+  volume, which `docker compose down -v` or a fresh `docker run` discards; the
+  entrypoint prints a warning naming `/home/pi/.pi-key` in that case.
+  ```bash
+  docker run -v pi-state:/home/pi/.pi -v pi-key:/home/pi/.pi-key ...
+  ```
+- **Back it up separately.** A copy of `pi-state` alone (backup, sync) carries
+  no key, which is the point; restore both volumes together. If the key volume
+  is lost but `pi-state` holds encrypted files, the entrypoint **refuses to
+  generate** a new key (it could not decrypt them), prints the restore remedy and
+  starts the server anyway: the files are reported locked (`key_file_missing`).
+  Restore `data-key` (mode `0600`) from your backup, or see the FAQ on key loss.
+- **Bring your own key.** Set `PI_DASHBOARD_DATA_KEY_FILE=<abs path>` to a file
+  you created (`openssl rand -base64 32 > <file>; chmod 600 <file>`). A preset
+  path is never overridden and never generated. A Compose file secret
+  (`/run/secrets/...`) is mounted `0444` and is rejected as insecure: copy it
+  into a `0600` file first.
+- **Not a sandbox.** pi sessions run as the same user in the same container, so
+  the key file protects against copies of the `pi-state` volume, not against a
+  process inside the container.
+- **Licence.** The image ships `@napi-rs/keyring`'s Linux
+  `LICENSE.third-party.md` (statically linked `libdbus`, `AFL-2.1 OR GPL-2.0-or-later`)
+  under `/app/node_modules/@napi-rs/keyring-linux-*-gnu/`; the build fails if it is missing.
 
 ## Pi gateway external access
 

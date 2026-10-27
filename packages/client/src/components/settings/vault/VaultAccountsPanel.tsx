@@ -17,6 +17,7 @@ import {
   createBinding,
   describeSubject,
   fetchVault,
+  isVaultWriteBlocked,
   revokeAccount,
   rotateAccount,
   setBindingDefault,
@@ -549,7 +550,7 @@ export function VaultAccountsPanel({
   const [error, setError] = useState<string | null>(null);
   const providerRef = useRef<HTMLInputElement>(null);
   const ids = useId();
-  const disabled = overview.status.state === "corrupt";
+  const disabled = isVaultWriteBlocked(overview.status);
   const f = useAddKeyForm(overview, onChanged, setError);
 
   useEffect(() => {

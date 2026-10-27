@@ -751,6 +751,8 @@
         "bin/pi-dashboard.mjs",
         "src/cli.ts",
         "src/lib/grep-worker.ts",
+        "src/__tests__/helpers/credential-key-child.mjs",
+        "src/__tests__/helpers/stub-keychain-worker.mjs",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

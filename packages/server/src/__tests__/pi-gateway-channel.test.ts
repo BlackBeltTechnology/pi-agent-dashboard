@@ -23,6 +23,7 @@ import { createBinding } from "../vault/vault-bindings.js";
 import { createVaultDeliveryHub } from "../vault/vault-delivery-hub.js";
 import { createGrant, dirSubject } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 const TOKEN = "channel-token-0123456789abcdefghijklmnopqrstuvwxyz";
 let dir: string;
@@ -60,7 +61,7 @@ function open(port: number, headers: Record<string, string> = {}): Promise<{ ws:
 describe("F2 move-commit hands the routing entry (and its channel) to another socket", () => {
   it("channelOf follows the entry and the hub denies without a sync request", async () => {
     const sessions = createMemorySessionManager();
-    const store = createVaultStore(path.join(dir, "vault.json"));
+    const store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
     const acc = await store.addAccount({ provider: "soniox", label: "s", value: "soniox-key-0001" });
     await createBinding(store, { name: "SONIOX_API_KEY", defaultAccountId: acc.id });
     await createGrant(store, { subject: dirSubject("hub", "/work/m"), bindingName: "SONIOX_API_KEY" });

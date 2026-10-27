@@ -9,6 +9,7 @@
  */
 import os from "node:os";
 import path from "node:path";
+import { getCredentialCodec } from "../../../auth/credential-key.js";
 import { readConfigState } from "../../../config-api.js";
 import { createVaultStore } from "../../../vault/vault-store.js";
 import { type AcmeCredentials, createAcmeCredentials } from "./credentials.js";
@@ -37,7 +38,7 @@ export function resetAcmeRuntime(): void {
 
 export function getAcmeRuntime(): AcmeRuntime {
   const credentials =
-    override.credentials ?? (cachedCredentials ??= createAcmeCredentials(createVaultStore()));
+    override.credentials ?? (cachedCredentials ??= createAcmeCredentials(createVaultStore({ codec: getCredentialCodec("vault") })));
   return {
     credentials,
     tlsRoot: override.tlsRoot ?? path.join(os.homedir(), ".pi", "dashboard", "tls"),

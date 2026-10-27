@@ -13,11 +13,13 @@
  *
  * Styling: theme tokens only — no raw hex, no raw px, no z-index.
  */
+
+import { credentialRemedy } from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
 import { mdiAlertCircleOutline, mdiArrowRight, mdiCogOutline, mdiFileImportOutline, mdiFolderOutline, mdiKeyVariant, mdiPlus, mdiRefresh, mdiShieldCheckOutline } from "@mdi/js";
 import { type KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { getApiBase } from "../../../lib/api/api-context.js";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
-import { fetchVault, type ImportCandidate, listImportCandidates, type VaultOverview } from "../../../lib/vault/vault-api.js";
+import { fetchVault, type ImportCandidate, isVaultWriteBlocked, listImportCandidates, type VaultOverview, type VaultStatus, vaultLock } from "../../../lib/vault/vault-api.js";
 import { OperateRequiredCallout } from "./OperateRequiredCallout.js";
 import { VaultAccountsPanel } from "./VaultAccountsPanel.js";
 import { VaultImportPanel } from "./VaultImportPanel.js";
@@ -135,6 +137,26 @@ function tabForKey(key: string, current: TabId): TabId | undefined {
   return key in moves ? TAB_ORDER[moves[key]] : undefined;
 }
 
+/** Names why the vault refuses writes (locked, or plaintext with no key) and the remedy from the shared table. */
+function LockCallout({ status }: { status: VaultStatus }) {
+  const lock = vaultLock(status);
+  if (!lock) return null;
+  const readOnly = status.state === "ok";
+  return (
+    <Callout tone="error" icon={mdiAlertCircleOutline} role="alert" testId={readOnly ? "vault-read-only" : "vault-locked"}>
+      <strong>
+        {readOnly
+          ? i18nT("vault.readOnlyTitle", undefined, "The vault is read-only, so changes are refused.")
+          : i18nT("vault.lockedTitle", undefined, "The vault is locked, so changes are refused.")}
+      </strong>{" "}
+      {i18nT("vault.lockReason", undefined, "Reason:")} <code data-testid="vault-lock-reason">{lock.reason}</code>
+      <p className="m-0 mt-1" data-testid="vault-lock-remedy">
+        {credentialRemedy(lock.reason)}
+      </p>
+    </Callout>
+  );
+}
+
 export function VaultSection() {
   const ids = useId();
   const [overview, setOverview] = useState<VaultOverview | null>(null);
@@ -197,7 +219,8 @@ export function VaultSection() {
   const ready = overview !== null && candidates !== null;
   const loading = !ready && !loadError && !stale && !operateRefusal;
   const corrupt = overview?.status.state === "corrupt";
-  const firstRun = ready && !corrupt && overview.accounts.length === 0 && overview.bindings.length === 0;
+  // Locked and read-only render a reason + remedy (not "first run"); the write controls follow `isVaultWriteBlocked`.
+  const firstRun = ready && !isVaultWriteBlocked(overview.status) && overview.accounts.length === 0 && overview.bindings.length === 0;
   const keyFiles = (candidates ?? []).filter((c) => c.exists).length;
 
   const tabLabel: Record<TabId, { label: string; icon: string; count?: number }> = {
@@ -264,6 +287,8 @@ export function VaultSection() {
           )}
         </Callout>
       )}
+
+      {overview && <LockCallout status={overview.status} />}
 
       {loading && (
         <div data-testid="vault-loading" aria-busy="true" aria-label={i18nT("vault.loading", undefined, "Loading the vault")} className="space-y-2">

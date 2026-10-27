@@ -4,49 +4,63 @@
  * receives a rotation push without asking again.
  * See change: add-credential-vault (tasks 4.15, 4.16).
  */
-import * as fs from "node:fs";
-import nodeFs from "node:fs";
+import nodeFs, * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { BRIDGE_PURPOSE, canonicalBinding, LOCAL_PROOF_HEADER, mintProof } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
+import type { VaultSnapshotMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import type { VaultSnapshotMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { _resetCredentialKeyForTests } from "../auth/credential-key.js";
+import { readLocalTokenIfPresent } from "../auth/local-token.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import type { BridgeChannel } from "../pi/bridge-channel.js";
 import { createServer, type DashboardServer, type ServerConfig } from "../server.js";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 import { startDeviceExpirySweep } from "../vault/device-expiry-sweep.js";
-import { createVaultDeliveryHub } from "../vault/vault-delivery-hub.js";
-import { writeRegistryRows } from "./helpers/bearer-rotation-app.js";
 import { createBinding } from "../vault/vault-bindings.js";
+import { createVaultDeliveryHub } from "../vault/vault-delivery-hub.js";
 import { createGrant, dirSubject } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
-import { BRIDGE_PURPOSE, canonicalBinding, LOCAL_PROOF_HEADER, mintProof } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
-import { readLocalTokenIfPresent } from "../auth/local-token.js";
-import { proofFetch } from "../test-support/local-credential-stamp.js";
+import { writeRegistryRows } from "./helpers/bearer-rotation-app.js";
+import { b64, KEY_1, KEY_2, logSink, resetCredentialFiles, writeKeyFile } from "./helpers/credential-key-kit.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 const baseConfig: ServerConfig = {
   port: 0, piPort: 0, host: "127.0.0.1", gatewayTcp: true, dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
 };
+
+/** `createServer`'s credential-key seam: the data key comes from a key file, never a keychain. */
+const keyFileInit = (key: Buffer): NonNullable<ServerConfig["credentialKey"]> => ({
+  env: { PI_DASHBOARD_DATA_KEY_FILE: writeKeyFile(b64(key)) },
+  log: logSink().log,
+});
 
 describe("vault delivery wiring", () => {
   let server: DashboardServer;
   let tmp: string;
   let ws: WebSocket;
 
-  beforeEach(() => { tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ew-vault-"))); });
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ew-vault-")));
+    _resetCredentialKeyForTests();
+    resetCredentialFiles(); // the default-path vault.json is shared by the tests of this file
+  });
   afterEach(async () => {
     ws?.close();
     await server?.stop();
+    _resetCredentialKeyForTests();
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it("answers a sync request with the granted values, advertises the feature, and pushes a rotation", async () => {
-    const store = createVaultStore(); // default path: under the per-file tmp $HOME
+    // Seed through a test codec over KEY_1; `createServer` resolves the same key itself, from a key file (no keychain).
+    const store = createVaultStore({ codec: testVaultCodec(KEY_1) }); // default path: under the per-file tmp $HOME
     const acc = await store.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
     await createBinding(store, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
     await createGrant(store, { subject: dirSubject("hub", tmp), bindingName: "GEMINI_API_KEY" });
 
-    server = await createServer({ ...baseConfig });
+    server = await createServer({ ...baseConfig, credentialKey: keyFileInit(KEY_1) });
     await server.start();
     // Hub vault delivery needs LOCAL admission (a verified local credential proof here), not just a loopback address.
     const bridgeProof = mintProof({
@@ -81,6 +95,34 @@ describe("vault delivery wiring", () => {
     const pushed = frames.filter((f) => f.type === "vault_snapshot").at(-1);
     expect(pushed.entries).toEqual([{ name: "GEMINI_API_KEY", value: "rotated-key-0001" }]);
   });
+  it("X26: a locked vault delivers nothing: vault-unavailable, no value in the frame", async () => {
+    // Seeded under key B, while the process holds key A: the server sees a locked (key_mismatch) vault.
+    const seed = createVaultStore({ codec: testVaultCodec(KEY_2) });
+    const acc = await seed.addAccount({ provider: "gemini", label: "g", value: "gemini-key-001" });
+    await createBinding(seed, { name: "GEMINI_API_KEY", defaultAccountId: acc.id });
+    await createGrant(seed, { subject: dirSubject("hub", tmp), bindingName: "GEMINI_API_KEY" });
+
+    server = await createServer({ ...baseConfig, credentialKey: keyFileInit(KEY_1) });
+    await server.start();
+    // Same LOCAL admission as the delivery test, so the hub reaches the vault-state check (prove-vault-bridge-tls).
+    const bridgeProof = mintProof({
+      token: readLocalTokenIfPresent() as string,
+      binding: canonicalBinding("127.0.0.1", server.piPort() as number),
+      purpose: BRIDGE_PURPOSE,
+    });
+    ws = new WebSocket(`ws://127.0.0.1:${server.piPort()}`, { headers: { [LOCAL_PROOF_HEADER]: bridgeProof.header } });
+    const frames: any[] = [];
+    ws.on("message", (raw) => { try { frames.push(JSON.parse(String(raw))); } catch { /* ignore */ } });
+    await new Promise<void>((resolve) => ws.on("open", () => resolve()));
+    ws.send(JSON.stringify({ type: "session_register", sessionId: "s1", cwd: tmp, source: "cli" }));
+    await vi.waitFor(() => expect(frames.find((f) => f.type === "dashboard_identity")).toBeDefined(), { timeout: 5_000 });
+    ws.send(JSON.stringify({ type: "vault_sync_request", sessionId: "s1", cwd: tmp, tracked: [], reason: "connect" }));
+    await vi.waitFor(() => expect(frames.some((f) => f.type === "vault_snapshot")).toBe(true), { timeout: 5_000 });
+    const snap = frames.filter((f) => f.type === "vault_snapshot").at(-1);
+    expect(snap).toMatchObject({ status: "unavailable", outcome: "vault-unavailable" });
+    expect(JSON.stringify(snap)).not.toContain("gemini-key-001");
+    expect(snap.entries ?? []).toEqual([]);
+  });
 });
 
 // ── prove-vault-bridge-tls: deactivation withdraws; downgrade, disconnect and persist-failure (D3, D4, D6) ──
@@ -102,7 +144,7 @@ describe("hub ↔ registry ↔ gateway: remote trust over time", () => {
 
   beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-wiring-"));
-    store = createVaultStore(path.join(dir, "vault.json"));
+    store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
     reg = new PairedDeviceRegistry(path.join(dir, "paired.json"));
     sockets = new Map();
     inbox = new Map();

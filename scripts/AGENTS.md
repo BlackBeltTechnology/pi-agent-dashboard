@@ -38,7 +38,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-ca… → see `__tests__/fixtures/codeql-harness.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-resolve-extensions.json` | Captured real `codeql resolve extensions` JSON (CLI 2.27.2); `fake-codeql.mjs` substitutes the model file. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
-| `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL_PLAN`; logs argv, `LGTM_INDEX_FILTERS`,… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
+| `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
 | `__tests__/fixtures/fake-gh.mjs` | Fake `gh` (`PI_CODEQL_GH_BIN` seam). Plan `$FAKE_GH_PLAN` `{log, alerts, exit, stderr, sleepMs}`; logs argv first. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/gh-code-scanning-alert.json` | Recorded real `gh api …/code-scanning/alerts/464` (trimmed); base of `ghAlert()`. See change: codeql-model-pack-and-mirror. |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
@@ -64,6 +64,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/lint-harness-scoping.test.mjs` | Guards that repo-wide lint harnesses judge git-tracked SOU… → see `__tests__/lint-harness-scoping.test.mjs.AGENTS.md` |
 | `__tests__/knip-ratchet.test.mjs` | Per-class dead-code ratchet (test-plan #R1-#R6). Load-beari… → see `__tests__/knip-ratchet.test.mjs.AGENTS.md` |
 | `__tests__/tsc7-wrapper.test.mjs` | E1–E6, E8, E9, E11, X4: wrapper runs TS 7 from any cwd, fo… → see `__tests__/tsc7-wrapper.test.mjs.AGENTS.md` |
+| `__tests__/verify-release-deps-keyring-floor.test.mjs` | E87 `@napi-rs/keyring` floor. → see `__tests__/verify-release-deps-keyring-floor.test.mjs.AGENTS.md` |
 | `__tests__/z-layer-lint.test.mjs` | Overlay z-index ratchet tests (test-plan #E4/#E5): `extractRawZ` matches raw numeric z but not word… → see `__tests__/z-layer-lint.test.mjs.AGENTS.md` |
 | `__tests__/knip-scan.test.mjs` | Live whole-workspace Knip scan assertions (test-plan #G3, #G5, #G6, #D2, #D3, #P1). → see `__tests__/knip-scan.test.mjs.AGENTS.md` |
 | `__tests__/mutation-journal.test.mjs` | Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). → see `__tests__/mutation-journal.test.mjs.AGENTS.md` |
@@ -79,8 +80,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/ship-it-no-weakening.test.mjs` | Vitest unit tests for ship-it `no-weakening.ts` assertNoWeakening. → see `__tests__/ship-it-no-weakening.test.mjs.AGENTS.md` |
 | `__tests__/skill-frontmatter.test.mjs` | Vitest guard over every repo `**/SKILL.md` (skips node_modules/dist/worktrees). → see `__tests__/skill-frontmatter.test.mjs.AGENTS.md` |
 | `__tests__/spec-collateral.test.mjs` | L1 for `spec-collateral.mjs` (E1–E26, P1–P2, X1–X5). → see `__tests__/spec-collateral.test.mjs.AGENTS.md` |
-| `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table over temp dirs — no-op (des… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
-| `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules in verify-r… → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
+| `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
+| `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules… → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
 | `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
 | `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
@@ -152,7 +153,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `migrate-child-process-imports.sh` | One-shot sed migration: rewrites `from "node:child_process"` to platform/exec wrapper. → see `migrate-child-process-imports.sh.AGENTS.md` |
 | `mutation-harness.mjs` | Manifest-driven mutation runner for the promise-rule ladder: breaks a covered behaviour in a real source file… → see `mutation-harness.mjs.AGENTS.md` |
 | `mutation-journal-global-setup.mjs` | Root-level vitest `globalSetup` (registered in the ROOT `v… → see `mutation-journal-global-setup.mjs.AGENTS.md` |
-| `nightly-verdaccio-publish.mjs` | Nightly Verdaccio publish: bump every non-private workspace + root to `<base>-nightly.<YYYYMMDD>.<sha7>` (or… → see `nightly-verdaccio-publish.mjs.AGENTS.md` |
+| `nightly-verdaccio-publish.mjs` | Nightly Verdaccio publish: bump every non-private workspace + root t… → see `nightly-verdaccio-publish.mjs.AGENTS.md` |
 | `nightly-verdaccio-serve.mjs` | Start an ephemeral Verdaccio as a detached background service (spawn detached+unref+stdio:ignore — cross-OS,… → see `nightly-verdaccio-serve.mjs.AGENTS.md` |
 | `plugin-boundary-allowlist.json` | Ratcheting `(from, to)` baseline for `check-plugin-boundary.mjs`: 76 seed rows, each… → see `plugin-boundary-allowlist.json.AGENTS.md` |
 | `probe-harness-memory.mjs` | Out-of-band harness memory probe (host side): `docker exec` reads cgroup v2 `memory.*` + `pids.current` and… → see `probe-harness-memory.mjs.AGENTS.md` |
@@ -176,7 +177,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `sync-versions-spec.js` | Pure helper extracted from sync-versions.js for unit tests. → see `sync-versions-spec.js.AGENTS.md` |
 | `sync-versions.js` | Post-bump release helper. Reads every workspace `package.json`, enforces lockstep versions, rewrites every… → see `sync-versions.js.AGENTS.md` |
 | `test-standalone-npm-install-docker.sh` | Docker smoke: packs workspaces + root, launches clean Linu… → see `test-standalone-npm-install-docker.sh.AGENTS.md` |
-| `test-standalone-npm-install.ps1` | Windows port of standalone-npm-install smoke. Packs workspaces, installs into isolated temp HOME, spawns… → see `test-standalone-npm-install.ps1.AGENTS.md` |
+| `test-standalone-npm-install.ps1` | Windows port of standalone-npm-install smoke. Packs workspaces… → see `test-standalone-npm-install.ps1.AGENTS.md` |
 | `test-standalone-npm-install.sh` | Bash standalone-install smoke: packs workspaces, installs tarballs into isolated temp HOME, spawns… → see `test-standalone-npm-install.sh.AGENTS.md` |
 | `theme-token-baseline.json` | Shrink-only baseline for `theme-token-guard.mjs`: `{fallback,undeclared,accentText}` maps. → see `theme-token-baseline.json.AGENTS.md` |
 | `theme-token-guard.mjs` | Three-arm theme-token ratchet: fallback-form, undeclared colour token, accent-as-text. → see `theme-token-guard.mjs.AGENTS.md` |

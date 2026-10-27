@@ -13,17 +13,19 @@ import { type ClientOptions, WebSocket } from "ws";
 
 /** `ws` passes these through to `https.request`; `servername` is the SNI name the fixture leaf is issued for. */
 type TlsClientOptions = ClientOptions & import("node:https").RequestOptions;
+
 import { mintBridgeTicket, WsTicketStore } from "../auth/ws-ticket.js";
 import { createPiGateway, type PiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { CA_PEM, FakeSource } from "../tls/__tests__/helpers.js";
 import { registerCertSourceType, unregisterCertSourceType } from "../tls/source-registry.js";
 import { onTlsBridgeSwitchChanged, routeBridgeUpgrade } from "../tls/tls-bridge-route.js";
 import { TlsListener } from "../tls/tls-listener.js";
-import { CA_PEM, FakeSource } from "../tls/__tests__/helpers.js";
 import { createBinding } from "../vault/vault-bindings.js";
 import { createVaultDeliveryHub } from "../vault/vault-delivery-hub.js";
 import { createGrant, dirSubject } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 /** Poll gateway.address() until the async listen resolves a port. */
 async function waitForBind(g: { address(): number | string | null }): Promise<number> {
@@ -229,7 +231,7 @@ describe("E15 bridge admission over the TLS listener", () => {
 
 describe("X2 / X3 switching off withdraws and closes", () => {
   async function connectTrusted(sessionId: string) {
-    const store = createVaultStore(path.join(root, "vault.json"));
+    const store = createVaultStore({ codec: testVaultCodec(), path: path.join(root, "vault.json") });
     const acc = await store.addAccount({ provider: "soniox", label: "s", value: "soniox-key-0001" });
     await createBinding(store, { name: "SONIOX_API_KEY", defaultAccountId: acc.id });
     await createGrant(store, { subject: dirSubject("dev-a", "/work/x"), bindingName: "SONIOX_API_KEY" });

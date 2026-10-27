@@ -6,7 +6,7 @@ See change: add-credential-vault. See change: retro-ux-credential-vault (§2, §
 
 ## 1. What it is
 
-- Hub-owned store: `~/.pi/dashboard/vault.json`. Mode `0600` (POSIX). Atomic, locked (`locked-json-file`, `createIfMissing: false`).
+- Hub-owned store: `~/.pi/dashboard/vault.json`. Mode `0600` (POSIX). Encrypted at rest (§12). Atomic, locked (`locked-json-file`, `createIfMissing: false`).
 - Entries: accounts, kind `key`. Several per provider allowed.
 - Min value length: 8 chars. Enforced on entry and import.
 - Env bindings: name → default `key` account. Names validated (see §3, deny list).
@@ -14,6 +14,7 @@ See change: add-credential-vault. See change: retro-ux-credential-vault (§2, §
 - Checkout confirmation per (device, dir, repoKey).
 - Unknown fields and unknown kinds preserved on write (downgrade-safe).
 - Corrupt file: byte-exact backup kept, all writes refused. Error shows backup path only, never `JSON.parse` text.
+- Locked file (envelope, no usable data key, or damaged envelope): nothing overwritten. Writes → `vault_locked` 409 with `reason` + remedy (§12).
 
 ## 2. Settings → Vault page
 
@@ -27,7 +28,7 @@ Path: Settings → Network group → Vault (`SettingsPanel` page `vault`, `Vault
 - Panel testids: `vault-panel-bindings`, `vault-panel-accounts`, `vault-panel-import`.
 - Loading: skeleton, `aria-busy`.
 - First run (no accounts, no bindings): three-step guide replaces tab content. Primary: Import when candidates exist, else `Add a key`.
-- Corrupt: error callout, backup path only. Write controls `disabled`, not hidden.
+- Corrupt: error callout, backup path only. Locked: error callout with `reason` + remedy. Write controls `disabled`, not hidden.
 
 ### Variables tab
 
@@ -241,7 +242,7 @@ See change: prove-vault-bridge-tls.
 - Elapsed = max(monotonic, wall-clock) since last successful snapshot. Sleep cannot extend retention.
 - Grace expired → bridge withdraws delivered values.
 - Hub advertises `vault-delivery` in `dashboard_identity.features`. Bridge holding values connects to hub without feature → withdraw all.
-- Hub vault corrupt → answers `vault-unavailable`, not empty snapshot. Bridge treats as unreachable (keeps values within grace).
+- Hub vault corrupt or locked → answers `vault-unavailable`, not empty snapshot. Bridge treats as unreachable (keeps values within grace).
 - Emergency off: `vault.deliveryEnabled=false` in `config.json`. Checked first. Works while `vault.json` corrupt. Pushes withdrawal to all sessions. Default `true`.
 
 ## 7. Redaction
@@ -320,11 +321,149 @@ Residuals (stated):
 
 ## 11. Rollback
 
+Before any downgrade to a pre-encryption build: stop server, run `pi-dashboard credentials decrypt`, then downgrade (§12).
+
 1. Set `vault.deliveryEnabled=false` in `config.json` (pushes withdrawal).
 2. Delete `vault.json` if needed. Affects nothing else.
 3. Downgraded dashboard: keeps unknown fields. Bridges withdraw on reconnect (no `vault-delivery` feature).
 
 Before change: no accounts → no behaviour change.
+
+## 12. Encryption at rest
+
+Covers `~/.pi/dashboard/vault.json` and `~/.pi/agent/plugin-credentials.json` (plugin `ctx.credentials`).
+Code: `packages/shared/src/credential-encryption.ts` (ids, reason codes, remedy table), `packages/server/src/auth/credential-key.ts` (key sources), `packages/server/src/auth/credential-envelope.ts` (codec), `packages/server/src/cli/credentials-command.ts`, `packages/extension/src/credential-guard.ts`.
+See change: encrypt-credentials-at-rest.
+
+### 12.1 Envelope format
+
+- Line 1: `pi-dashboard-encrypted:v1`.
+- Line 2: one JSON line `{"alg":"A256GCM","kid":"<16 hex>","iv":"<b64 12 B>","tag":"<b64 16 B>","ct":"<b64>"}`.
+- AES-256-GCM. Fresh 12-byte random IV per write.
+- AAD `pi-dashboard:v1:<fileId>`. `fileId` = `plugin-credentials` | `vault`. Swapped ciphertext fails auth.
+- AAD does not bind path. `HOME` moves keep working.
+- `kid` = first 8 bytes of SHA-256(`pi-dashboard-kid\0` ‖ key), hex. Separates `key_mismatch` from damage. Reveals no key.
+- Reader: strips one leading BOM. Accepts `\r\n` and one trailing newline. Prefix check case-sensitive.
+- Any file starting `pi-dashboard-encrypted:` is an envelope. Never classified corrupt, never quarantined, never overwritten.
+- Unknown version (`v2`+) → locked `unsupported_format`. Bad `v1` header/base64/lengths/`alg`/extra line → locked `envelope_damaged`.
+
+### 12.2 Key sources
+
+- `PI_DASHBOARD_DATA_KEY_FILE=<abs path>` set → only source. Keychain never consulted. No fallback either way.
+  - File: base64 of 32 bytes, optional one trailing newline.
+  - Must be owner-only (`checkOwnerOnly`, `chmod 600`).
+  - Server never creates it. Create: `openssl rand -base64 32 > <file>; chmod 600 <file>`.
+- Unset → OS keychain. Service `pi-dashboard-credential-key`, account `data-key-v1`.
+  - macOS Keychain, Windows Credential Manager, Linux Secret Service.
+  - Linux: Secret Service only. Kernel keyring never used (non-persistent, lost at reboot).
+- Key created lazily. Only for plaintext migration or first credential write. Under `~/.pi/dashboard/credential-key.lock`. Never over an envelope.
+- Keychain calls run in a worker thread. One 10 s deadline bounds init → `keychain_timeout`.
+- Keychain failure cached per process: no retry loop, no repeat macOS prompts. Lock contention on creation not cached (that write refused only).
+- Key stays in server process. Not sent to bridge, plugins, client, logs or child env.
+- No plaintext opt-out flag. No keyless fallback to plaintext writes.
+
+### 12.3 Migration
+
+- Startup, after key ready: plaintext JSON object → encrypted in place.
+- Steps: encrypt → decrypt in memory → deep-compare → `writeJsonAtomic` (temp + rename, `0600`). Mismatch aborts, plaintext kept.
+- No plaintext backup kept.
+- Log: `[credential-key] encrypted <basename> (migrated from plaintext)`.
+- Any later write also encrypts. Existing `*.corrupt-*` siblings stay byte-exact.
+
+### 12.4 Lock states
+
+| `reason` | Meaning | Remedy (`CREDENTIAL_REASON_REMEDY`) |
+|---|---|---|
+| `keychain_unavailable` | no keychain, or binding failed to load | set `PI_DASHBOARD_DATA_KEY_FILE`, restart |
+| `keychain_timeout` | keychain silent past 10 s | set `PI_DASHBOARD_DATA_KEY_FILE`, restart |
+| `key_missing` | keychain entry absent | restore key, or `credentials reset`, re-enter |
+| `key_file_missing` | key file absent | create owner-only file, restart |
+| `key_file_invalid` | not base64 32 B, directory, or unreadable | fix file, restart |
+| `key_file_insecure` | readable by other users | `chmod 600`, restart |
+| `key_uninitialized` | key not loaded yet | restart server |
+| `key_mismatch` | `kid` differs or tag fails | restore correct key, or `credentials reset` |
+| `unsupported_format` | newer envelope version | upgrade dashboard |
+| `envelope_damaged` | corrupt envelope | restore from backup, or `credentials reset` |
+
+- Unknown future reason renders as locked, never `ok`.
+- Vault, envelope + not ready: `status` → `{state:"locked", reason}`. Writes → 409 `vault_locked` (`reason`, `remedy`). `getKeyValue` → `undefined`.
+- Vault, plaintext + no key: `status` → `{state:"ok", writable:false, reason}`. Read works. Writes → 409 `vault_locked`. Page disables write controls.
+- Plugin store, envelope + not ready: `get`, `list`, `snapshot` and all writes reject `PluginCredentialError` `store_locked` (carries `reason`).
+- Plugin store, plaintext + no key: reads work. Writes → `store_locked`.
+- Locked never quarantines, never overwrites.
+
+### 12.5 Recovery
+
+- `pi-dashboard credentials status`: read-only. Basenames, state, `reason`, `kid`. Never creates key. Never prints values.
+- `pi-dashboard credentials decrypt [--yes]`: rollback.
+  - Refuses if server live: any HTTP reply on `GET /api/health` (incl. `401`), or live PID / lock metadata of this HOME.
+  - Confirm or `--yes`. Holds `plugin-credentials.json` lock, then `vault.json` lock.
+  - All-or-nothing: decodes every file first. Any locked/damaged file → writes nothing, exit 1.
+  - Writes plaintext `0600`. Idempotent.
+- `pi-dashboard credentials reset [--vault] [--plugin-credentials] [--yes]`: key loss.
+  - Same server check. Same lock order. No flag = both files.
+  - Locked file renamed to `<file>.undecryptable-<YYYYMMDDTHHMMSSZ>` (`-N` on collision). Kept.
+  - Not-locked file (decrypts, plaintext, absent) untouched → `<basename>: not-locked`, exit 0.
+  - Keychain source: creates new key only after store locks released.
+  - Key-file source: never creates a key. Prints `openssl rand -base64 32 > <file>; chmod 600 <file>`, exits non-zero.
+  - Then re-enter credentials: Vault page, or each plugin's settings.
+- Exit codes: `0` ok, `1` refused or failed, `2` usage.
+
+### 12.6 Downgrade
+
+- Run `credentials decrypt` first, server stopped.
+- Skipped, old vault: sees corrupt file, refuses writes. Ciphertext kept.
+- Skipped, old plugin store: writes byte-exact `.corrupt-*` backup, starts fresh plaintext file. Stored credentials sit in backup.
+
+### 12.7 Docker key volume
+
+- Container has no keychain. Key file `/home/pi/.pi-key/data-key` on named volume `pi-key`, separate from `pi-state` (`/home/pi/.pi`).
+- `docker/entrypoint.sh`, when `PI_DASHBOARD_DATA_KEY_FILE` unset: exports default path.
+  - Key absent and no envelope in either file → generates 32 random bytes, base64, `umask 077`. Key never in argv.
+  - Key absent and an envelope exists → does not generate. Prints restore remedy. Server starts. Files locked `key_file_missing`.
+  - Preset custom path → never generated.
+  - `/home/pi/.pi-key` not a mountpoint → warning (anonymous volume).
+- Custom Compose or `docker run` must mount `pi-key:/home/pi/.pi-key`. Details: `docker/README.md`.
+- Copy of `pi-state` alone carries no key.
+- Same user runs pi sessions in same container. Key file guards copies of state, not in-container processes.
+
+### 12.8 Agent credential guard
+
+- `credential_guard`: always on, no switch. Best effort. Not a sandbox.
+- Path tools (`read`, `edit`, `write`, `ls`, `find`, `grep`): blocked on protected paths.
+  - Protected: `plugin-credentials.json`, `vault.json`, `$PI_DASHBOARD_DATA_KEY_FILE` (when set in pi env), plus siblings `<name>.*`.
+  - `grep` also blocked on dir directly containing a protected file.
+- Command fields, any tool: blocked on protected path, keychain service + keychain verb, `security dump-keychain`, `credentials decrypt`.
+- Block result: `{ block: true, reason: "credential_guard: <tool> targets dashboard credential storage" }`.
+- Log: `[credential-guard] blocked tool=<name> match=<rule-id>`. Never command text or content.
+- Bypassable: relative names from other cwd, variable indirection, encoding, script written then run, keyring call from script, any process outside pi.
+
+### 12.9 Threat model
+
+```mermaid
+flowchart LR
+  subgraph same_user[Same OS user]
+    srv[dashboard server] -->|getPassword| kc[(OS keychain entry)]
+    agent[pi agent bash] -.->|Linux or Windows: silent read| kc
+    agent -.->|macOS: silent if same signer, else prompt| kc
+    agent -->|cat or read| files[(credential files: ciphertext)]
+  end
+  backup[backups, iCloud, dotfile sync, copied ~/.pi] --> files
+```
+
+Protects against:
+- Disclosure by agent `cat`, `read`, `grep`: ciphertext only, plus guard.
+- Backups, iCloud or dotfile sync, support bundles, copied `~/.pi`.
+- Stolen disk image without user's keychain.
+
+Does NOT protect against a same-user process that reads the keychain:
+- Linux (Secret Service) and Windows (DPAPI): any same-user process reads the entry.
+- macOS, npm arm: silent when reader is same `node` binary or same signer. Spike C16: any nodejs.org-signed `node` reads an entry created by another nodejs.org `node` with no prompt. `/usr/bin/security` and differently-signed binaries prompt.
+- macOS, Electron: depends on signature (spike 1.1). Silent when ladder falls back to bundled Node.
+- Key file (`PI_DASHBOARD_DATA_KEY_FILE`): owner-only stops other users, not same-user processes. Guard is best effort.
+- Key loss = credentials unrecoverable without backup of key. Keep key backup separate from `pi-state`.
+
+Real fix: agent bash sandboxing, follow-up. See `docs/research/agent-bash-sandboxing.md`.
 
 ## Code map
 

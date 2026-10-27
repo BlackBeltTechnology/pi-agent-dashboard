@@ -285,7 +285,8 @@ See change: improve-gmail-settings-ux.
 
 ## Storage
 
-`~/.pi/agent/plugin-credentials.json` stores plaintext mode 0600 under namespace `gmail`.
+`~/.pi/agent/plugin-credentials.json` stores records under namespace `gmail`, mode 0600, encrypted at rest (AES-256-GCM envelope `pi-dashboard-encrypted:v1`).
+No key available → account reads and writes reject `store_locked` with `reason`. Remedy and recovery: [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest).
 `client` stores Desktop OAuth `clientId`, `clientSecret`, optional `projectId`.
 `acct:<sub>` stores email, alias, tier, scopes, refresh, access, expiry, status, testing hint, added time.
 `AccountStore.upsertFromSignIn` merges re-auth records and keeps alias.
@@ -341,6 +342,7 @@ Request lane stays private but unauthenticated; any user session can lease conne
 Mail content remains attacker-controlled; without `untrusted-content-guard`, only write confirmations protect agent.
 Attachment save rejects traversal and overwrite; symlinked targets/parents refused; parent-directory swap by another local process mid-save remains documented residual TOCTOU.
 Logs contain email, operation, outcome; no tokens.
+Credential file encrypted at rest. Same-user agent bash still reads the keychain on Linux, Windows and some macOS signatures. Threat model: [`credential-vault.md` §12.9](credential-vault.md#129-threat-model).
 Local revoke failure needs manual Google removal at <https://myaccount.google.com/permissions>.
 Automatic setup: start loopback-only (403 `remote_dashboard`); client secret never in run view, logs, errors; `maskSecrets` on logs; downloaded JSON deleted in `finally`; owner sign-in confined to ephemeral private context; redirect guard blocks `accounts.google.com` top-level loads in run tab.
 

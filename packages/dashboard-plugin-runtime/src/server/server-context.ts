@@ -854,14 +854,34 @@ export interface PluginVault {
 export type PluginCredentialRecord = Record<string, unknown>;
 
 /**
+ * The rejection of every `PluginCredentials` operation while the store is locked.
+ * Structural mirror of the server's `PluginCredentialError` with `code: "store_locked"`.
+ * See change: encrypt-credentials-at-rest (D3).
+ */
+export interface PluginCredentialsStoreLockedError extends Error {
+  readonly code: "store_locked";
+  /** Non-secret lock reason, e.g. `key_mismatch`, `keychain_unavailable`, `envelope_damaged`. */
+  readonly reason: string;
+}
+
+/**
  * Namespaced, locked, 0600 credential persistence for a plugin
  * (`~/.pi/agent/plugin-credentials.json`). Bound by the host to the calling
  * plugin's manifest id — a plugin only ever sees its own namespace.
  * Keys 1–200 chars (`__proto__`/`constructor`/`prototype` rejected); records
  * ≤ 64 KiB serialized; ≤ 256 keys and 2 MiB per namespace. Reads return
- * copies and never create the file. Plaintext at rest, like `auth.json`.
+ * copies and never create the file. Encrypted at rest (AES-256-GCM envelope,
+ * data key in the OS keychain or `PI_DASHBOARD_DATA_KEY_FILE`); encryption is
+ * transparent — same API, same results. While the file is locked (wrong or
+ * missing key, damaged or newer envelope) every operation, and while no data key
+ * is available every write (a plaintext file stays readable), rejects with a
+ * `PluginCredentialsStoreLockedError`
+ * (`code: "store_locked"`, non-secret `reason`, remedy in `message`; never any
+ * stored content). Treat it as a user-facing "credentials unavailable" error:
+ * do not retry in a loop — the user must fix the key or reset the file.
  * Structural mirror of the server's `PluginCredentialStore`.
  * See change: expose-plugin-credential-and-oauth-seams (D2).
+ * See change: encrypt-credentials-at-rest (D3).
  */
 export interface PluginCredentials {
   get(key: string): Promise<PluginCredentialRecord | undefined>;
