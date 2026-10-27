@@ -255,7 +255,7 @@ export class ConnectionManager {
   private url: string;
   private WS: any;
   private ws: any | null = null;
-  private buffer: string[] = [];
+  private buffer: { data: string; control: boolean }[] = [];
   private maxBufferSize: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private backoff = 0;
@@ -574,8 +574,31 @@ export class ConnectionManager {
     }
   }
 
+  /**
+   * Session-lifecycle frames that must NEVER be sacrificed to ring-buffer
+   * overflow. A dropped replay event is recovered by reconnect replay, but a
+   * dropped register/unregister/move-commit silently strands the session for
+   * the life of the socket: the server drops every frame from an
+   * unregistered connection, so a large resume whose replay overflows the
+   * ring used to evict exactly these frames (they queue ahead of the replay)
+   * and the session never appeared in the dashboard.
+   * See change: fix-register-evicted-on-replay-overflow.
+   */
+  private static readonly CONTROL_FRAME_TYPES = new Set([
+    "session_register",
+    "session_unregister",
+    "session_move_commit",
+  ]);
+
   send(message: unknown): void {
-    for (const frame of this.outbound(message)) this.sendOne(JSON.stringify(frame));
+    for (const frame of this.outbound(message)) {
+      // Classify each EMITTED frame: the outbound filter can rewrite or split
+      // a message, so the input message's type is not authoritative.
+      const control = ConnectionManager.CONTROL_FRAME_TYPES.has(
+        (frame as { type?: unknown })?.type as string,
+      );
+      this.sendOne(JSON.stringify(frame), control);
+    }
   }
 
   /** Frames to put on the wire for `message`: itself, unless the outbound filter rewrites or adds frames. */
@@ -590,16 +613,16 @@ export class ConnectionManager {
     }
   }
 
-  private sendOne(data: string): void {
+  private sendOne(data: string, control = false): void {
     if (this.ws?.readyState === 1) {
       try {
         this.ws.send(data);
       } catch {
         // Connection died between readyState check and send — buffer instead
-        this.bufferMessage(data);
+        this.bufferMessage(data, control);
       }
     } else {
-      this.bufferMessage(data);
+      this.bufferMessage(data, control);
     }
   }
 
@@ -718,14 +741,20 @@ export class ConnectionManager {
     this.draining = false;
   }
 
-  private bufferMessage(data: string): void {
-    this.buffer.push(data);
+  private bufferMessage(data: string, control = false): void {
+    this.buffer.push({ data, control });
     if (this.buffer.length > this.maxBufferSize) {
-      const evicted = this.buffer.shift();
+      // Evict the oldest NON-CONTROL entry, preserving the survivors' relative
+      // order. In the replay-storm case the head is a replay frame, so this
+      // stays O(1); the all-control fallback (unreachable in practice — a
+      // handful of control frames per session) keeps the buffer bounded.
+      let victim = this.buffer.findIndex((entry) => !entry.control);
+      if (victim === -1) victim = 0;
+      const evicted = this.buffer.splice(victim, 1)[0];
       this.droppedBufferedCount++;
       let droppedType = "unknown";
       try {
-        const parsed = JSON.parse(evicted ?? "");
+        const parsed = JSON.parse(evicted.data);
         if (parsed && typeof parsed.type === "string") droppedType = parsed.type;
       } catch {
         // best-effort: leave "unknown"
@@ -1105,8 +1134,8 @@ export class ConnectionManager {
       // Flush buffer
       const buffered = [...this.buffer];
       this.buffer = [];
-      for (const data of buffered) {
-        this.ws?.send(data);
+      for (const entry of buffered) {
+        this.ws?.send(entry.data);
       }
       this.flushIdentityReports();
 
