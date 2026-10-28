@@ -210,6 +210,8 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     // retire-anthropic-messages-bridge (design D3).
     if (typeof (msg as any).claudeSubscriptionCompat === "boolean") {
       inst.claudeSubscriptionCompat = (msg as any).claudeSubscriptionCompat;
+      // Mirror for subagent children. See change: seed-claude-compat-on-upgrade.
+      inst.shared.claudeSubscriptionCompat = inst.claudeSubscriptionCompat;
     }
     return;
   }

@@ -136,7 +136,7 @@ import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import { isServerTrusted } from "./auth/plugin-server-trust.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
-import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { hasAnthropicCredential, readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
@@ -731,6 +731,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     customEventGroupDefaults: Object.fromEntries(
       customEventGroupsStore.definitions().map((g) => [g.id, g.default]),
     ),
+    // One-time compat-switch seed for upgraders with an anthropic sign-in.
+    // See change: seed-claude-compat-on-upgrade (design D2).
+    hasAnthropicCredential,
   });
   // Single cwd-policy registry (Part B — host-cwd-policy). Recognized workspace
   // roots = pinned directories + every folder in a folder-workspace, evaluated

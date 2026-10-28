@@ -221,6 +221,8 @@ describe("E5: inbound message dispatch — one row per accepted message type", (
     await run({ type: "preferences_update", claudeSubscriptionCompat: true });
     expect(h.inst.autoNameSessions).toBe(false);
     expect(h.inst.claudeSubscriptionCompat).toBe(true);
+    // Mirrored for subagent children (test-plan #P3). See change: seed-claude-compat-on-upgrade.
+    expect(h.inst.shared.claudeSubscriptionCompat).toBe(true);
 
     await run({ type: "preferences_update", autoNameSessions: true, claudeSubscriptionCompat: false });
     expect(h.inst.autoNameSessions).toBe(true);

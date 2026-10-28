@@ -1,16 +1,14 @@
 /**
- * Claude subscription compat — docs-section rewrite (flows-plugin bridge).
- * See change: retire-anthropic-messages-bridge (test-plan #E1 #E2 #E3 #E4 #E6
- * #E7 #E17 #X3 #X4).
+ * Claude subscription compat — docs-section + payload rewrite (shared module,
+ * registered by the dashboard extension on every pi).
+ * See change: retire-anthropic-messages-bridge (test-plan #E1 #E2 #E3 #E4
+ * #E17 #X3), seed-claude-compat-on-upgrade (#P1 #P2 #P3).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CLAUDE_COMPAT_PROBE_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import {
   claudeCompatExtension,
-  readSwitchFromEvents,
   rewriteDocsSection,
-} from "../claude-compat.js";
-import activate, { getClaudeCompatAgentFactory } from "../index.js";
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 
 // pi 1.4.0 `docs` section body (system-prompt.js:88-95), paths shortened.
 const DOCS_BODY = [
@@ -195,101 +193,64 @@ describe("state log (E17)", () => {
   });
 });
 
-describe("readSwitchFromEvents (X4)", () => {
-  it("unanswered probe → off: no rewrite, state logged off", () => {
-    const events = { emit: (_c: string, _d: unknown) => {} };
-    const read = readSwitchFromEvents(events);
-    expect(read()).toBe(false);
-    const pi = fakePi();
-    claudeCompatExtension(read)(pi);
-    const opts: Opts = {};
-    pi.fire(DEFAULT_PROMPT, opts, anthropic);
-    expect(opts.sections?.docs).toBeUndefined();
-    expect(logs.filter((l) => l.includes("state=off"))).toHaveLength(1);
-  });
-
-  it("answered probe → live value; a throwing listener → off", () => {
-    let value = true;
-    const events = {
-      emit: (c: string, d: Record<string, unknown>) => {
-        if (c === CLAUDE_COMPAT_PROBE_CHANNEL) d.claudeSubscriptionCompat = value;
+// pi 1.4 sends a session's FIRST system message as Anthropic's `system` field
+// for the session's whole life; a later `before_agent_start` rewrite only
+// reaches the wire as a mid-conversation patch. The payload hook rewrites the
+// outgoing `system` text so sessions started before the switch are covered.
+// See change: seed-claude-compat-on-upgrade (test-plan #P1 #P2).
+describe("claudeCompatExtension — provider payload (P1, P2)", () => {
+  function payloadPi() {
+    let handler: ((event: unknown, ctx: unknown) => unknown) | undefined;
+    return {
+      on: (name: string, h: (event: unknown, ctx: unknown) => unknown) => {
+        if (name === "before_provider_request") handler = h;
+      },
+      fire(payload: unknown, ctx: Ctx) {
+        return handler?.({ type: "before_provider_request", payload }, ctx);
       },
     };
-    const read = readSwitchFromEvents(events);
-    expect(read()).toBe(true);
-    value = false;
-    expect(read()).toBe(false);
-    const boom = readSwitchFromEvents({ emit: () => { throw new Error("x"); } });
-    expect(boom()).toBe(false);
-  });
-});
-
-function fakeParentPi(switchValue: () => boolean) {
-  const emitted: Array<{ channel: string; data: unknown }> = [];
-  const handlers = new Map<string, Array<(e: unknown, c: unknown) => unknown>>();
-  return {
-    emitted,
-    events: {
-      emit: (channel: string, data: Record<string, unknown>) => {
-        emitted.push({ channel, data });
-        if (channel === CLAUDE_COMPAT_PROBE_CHANNEL) data.claudeSubscriptionCompat = switchValue();
-      },
-      on: () => {},
-    },
-    on: (name: string, h: (e: unknown, c: unknown) => unknown) => {
-      handlers.set(name, [...(handlers.get(name) ?? []), h]);
-    },
-    fire(name: string, event: unknown = {}, ctx: unknown = {}) {
-      for (const h of handlers.get(name) ?? []) h(event, ctx);
-    },
-  };
-}
-
-describe("flows-plugin bridge wiring", () => {
-  it("E6: agent factory reads the PARENT switch and the agent's own model; never emits on the agent bus", () => {
-    for (const [parentOn, provider, expectRewrite] of [
-      [true, "anthropic", true],
-      [true, "openai", false],
-      [false, "anthropic", false],
-      [false, "openai", false],
-    ] as const) {
-      const parent = fakeParentPi(() => parentOn);
-      activate(parent);
-      const factory = getClaudeCompatAgentFactory();
-      const agentEmit = vi.fn();
-      let agentHandler: ((e: unknown, c: unknown) => unknown) | undefined;
-      const agentPi = {
-        events: { emit: agentEmit, on: () => {} },
-        on: (name: string, h: (e: unknown, c: unknown) => unknown) => {
-          if (name === "before_agent_start") agentHandler = h;
-        },
-      };
-      factory(agentPi);
-      const opts: Opts = {};
-      agentHandler?.({ type: "before_agent_start", systemPrompt: DEFAULT_PROMPT, systemPromptOptions: opts }, { model: { provider } });
-      if (expectRewrite) expect(opts.sections?.docs).toContain("the cli itself");
-      else expect(opts.sections?.docs).toBeUndefined();
-      expect(agentEmit).not.toHaveBeenCalled();
-    }
+  }
+  const OAUTH_BLOCK = { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." };
+  const arrayPayload = () => ({
+    model: "claude-opus-5-5",
+    system: [OAUTH_BLOCK, { type: "text", text: DEFAULT_PROMPT, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: "pi itself" }],
   });
 
-  it("E7: registers the same factory on activate and on every session_start", () => {
-    const parent = fakeParentPi(() => true);
-    activate(parent);
-    parent.fire("session_start");
-    parent.fire("session_start");
-    parent.fire("session_start");
-    const regs = parent.emitted.filter((e) => e.channel === "flow:register-agent-extension");
-    expect(regs).toHaveLength(4);
-    const factories = new Set(regs.map((r) => (r.data as { factory: unknown }).factory));
-    expect(factories.size).toBe(1);
+  it("P1: rewrites the docs block in an array `system`, keeps other blocks, cache_control and messages", () => {
+    const pi = payloadPi();
+    claudeCompatExtension(() => true)(pi);
+    const input = arrayPayload();
+    const out = pi.fire(input, anthropic) as ReturnType<typeof arrayPayload>;
+    expect(out).toBeDefined();
+    expect(out.system[0]).toEqual(OAUTH_BLOCK);
+    expect(out.system[1]!.text).toBe(DEFAULT_PROMPT.replace("pi itself", "the cli itself").replace("pi packages", "cli packages"));
+    expect((out.system[1] as { cache_control?: unknown }).cache_control).toEqual({ type: "ephemeral" });
+    expect(out.messages).toBe(input.messages);
+    expect(input.system[1]!.text).toBe(DEFAULT_PROMPT);
   });
 
-  it("main session: activate registers the rewrite on the parent pi", () => {
-    const parent = fakeParentPi(() => true);
-    activate(parent);
-    const opts: Opts = {};
-    parent.fire("before_agent_start", { type: "before_agent_start", systemPrompt: DEFAULT_PROMPT, systemPromptOptions: opts }, anthropic);
-    expect(opts.sections?.docs).toContain("cli packages");
+  it("P1: rewrites a string `system`", () => {
+    const pi = payloadPi();
+    claudeCompatExtension(() => true)(pi);
+    const out = pi.fire({ system: DEFAULT_PROMPT, messages: [] }, anthropic) as { system: string };
+    expect(out.system).toContain("the cli itself");
+    expect(out.system).not.toContain("pi itself");
+    expect(out.system).not.toContain("pi packages");
+  });
+
+  it.each([
+    ["switch off", false, anthropic, () => arrayPayload()],
+    ["not anthropic", true, { model: { provider: "openai" } } as Ctx, () => arrayPayload()],
+    ["no model", true, {} as Ctx, () => arrayPayload()],
+    ["no anchored block", true, anthropic, () => ({ system: "custom SYSTEM.md prompt about pi itself", messages: [] })],
+    ["two anchored blocks", true, anthropic, () => ({ system: `${DEFAULT_PROMPT}\n\n${DEFAULT_PROMPT}`, messages: [] })],
+    ["already rewritten", true, anthropic, () => ({ system: DEFAULT_PROMPT.replace("pi itself", "the cli itself").replace("pi packages", "cli packages"), messages: [] })],
+    ["no system field", true, anthropic, () => ({ messages: [] })],
+    ["non-object payload", true, anthropic, () => "raw"],
+  ])("P2: %s → payload left as is (returns undefined)", (_name, sw, ctx, make) => {
+    const pi = payloadPi();
+    claudeCompatExtension(() => sw as boolean)(pi);
+    expect(pi.fire(make(), ctx as Ctx)).toBeUndefined();
   });
 });

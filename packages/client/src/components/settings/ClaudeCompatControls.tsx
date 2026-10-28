@@ -13,7 +13,6 @@ import { useEffect, useState } from "react";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { claudeCompatStore, useClaudeCompat } from "../../lib/claude-compat/claude-compat-store.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { usePluginAvailability } from "../../lib/plugins/plugin-availability.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 
 /** ui-contract secondary-button recipe (never the primary treatment). */
@@ -91,7 +90,6 @@ export function ClaudeCompatSignInPrompt({
 /** State + switch on the authenticated anthropic subscription row. */
 export function ClaudeCompatRowControl({ onSaveFailed }: { onSaveFailed: () => void }) {
   const { value } = useClaudeCompat();
-  const flowsUnavailable = usePluginAvailability().isUnavailable("flows");
   useEffect(() => {
     void claudeCompatStore.read();
   }, []);
@@ -122,11 +120,6 @@ export function ClaudeCompatRowControl({ onSaveFailed }: { onSaveFailed: () => v
           {on ? i18nT("claudeCompat.stateOn", undefined, "on") : i18nT("claudeCompat.stateOff", undefined, "off")}
         </span>
       </div>
-      {flowsUnavailable && (
-        <span data-testid="claude-compat-needs-flows" className="text-[12px] text-[var(--text-secondary)]">
-          {i18nT("claudeCompat.needsFlows", undefined, "Needs the Flows plugin to take effect.")}
-        </span>
-      )}
     </div>
   );
 }

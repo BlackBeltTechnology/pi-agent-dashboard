@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { claudeCompatExtension } from "../claude-compat.js";
+import { claudeCompatExtension, rewritePayloadSystem } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 
 // The package exports only an ESM "." entry, so resolve it the way Node does:
 // walk up node_modules from this file to the installed package root.
@@ -45,11 +45,22 @@ describe("pi default prompt docs canary (E5)", () => {
 
   it("the compat rewrite applies to the real rendered prompt", () => {
     let handler: ((e: unknown, c: unknown) => unknown) | undefined;
-    claudeCompatExtension(() => true)({ on: (_n, h) => { handler = h; } });
+    claudeCompatExtension(() => true)({ on: (n, h) => { if (n === "before_agent_start") handler = h; } });
     const opts: { sections?: Record<string, string> } = {};
     handler?.({ systemPrompt: prompt, systemPromptOptions: opts }, { model: { provider: "anthropic" } });
     expect(opts.sections?.docs).toBeDefined();
     expect(opts.sections?.docs).not.toContain("pi itself");
     expect(opts.sections?.docs).not.toContain("pi packages");
+  });
+
+  // See change: seed-claude-compat-on-upgrade (test-plan #P1).
+  it("the payload rewrite applies to the real rendered prompt as Anthropic `system`", () => {
+    const out = rewritePayloadSystem({ system: [{ type: "text", text: prompt }], messages: [] }) as
+      | { system: Array<{ text: string }> }
+      | undefined;
+    expect(out).toBeDefined();
+    expect(out!.system[0]!.text).not.toContain("pi itself");
+    expect(out!.system[0]!.text).not.toContain("pi packages");
+    expect(out!.system[0]!.text).toContain("the cli itself");
   });
 });

@@ -3621,7 +3621,6 @@ export const huCatalog: Record<string, string> = {
   "claudeCompat.switchLabel": "Claude-előfizetés kompatibilitás",
   "claudeCompat.stateOn": "be",
   "claudeCompat.stateOff": "ki",
-  "claudeCompat.needsFlows": "A hatáshoz a Flows bővítmény szükséges.",
   "claudeCompat.uninstallTitle": "A pi-anthropic-messages már nem szükséges",
   "claudeCompat.uninstallBody": "A Claude-előfizetés kompatibilitás most már ellátja a feladatát. A pi-anthropic-messages eltávolítható a Bővítmények oldalon.",
   "landing.compatOff": "A Claude-előfizetéses kérések többlethasználatként számlázódhatnak",

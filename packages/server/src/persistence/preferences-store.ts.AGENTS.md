@@ -16,4 +16,4 @@ Focus mode + accordion: `cardSections.focus` loaded through `sanitizeFocusProfil
 
 `chatMotion` backfills to `true` on load AND appears in BOTH `setDisplayPrefs` literals (base literal sets `true` — documented exception to the all-`false` base; merged `partial.chatMotion ?? base.chatMotion`), so a PATCH omitting it preserves the stored value and `PATCH {chatMotion:false}` is the runtime rollback. See change: add-fluid-chat-motion.
 
-`claudeSubscriptionCompat` field: `getClaudeSubscriptionCompat()` / `setClaudeSubscriptionCompat(v)`; absent or non-boolean → `false` (default OFF); written in both persisted literals. See change: retire-anthropic-messages-bridge.
+`claudeSubscriptionCompat` field: `getClaudeSubscriptionCompat()` / `setClaudeSubscriptionCompat(v)`; absent or non-boolean → seeded ONCE via optional `deps.hasAnthropicCredential()` (`true`/`false` stored + dirty on load; `undefined` or no dep → reads `false`, field left unstored, retried next start); a stored boolean is never re-seeded; written in both persisted literals. See change: retire-anthropic-messages-bridge, seed-claude-compat-on-upgrade.

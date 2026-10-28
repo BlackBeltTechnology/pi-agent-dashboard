@@ -89,6 +89,13 @@ export interface BridgeState {
    */
   dashboardSpawned?: boolean;
   /**
+   * Last Claude subscription compat value relayed by the server, mirrored
+   * process-globally so a subagent child (whose `initBridge` returns early on
+   * re-entry) can answer the compat probe on its own `pi.events`.
+   * See change: seed-claude-compat-on-upgrade.
+   */
+  claudeSubscriptionCompat?: boolean;
+  /**
    * Dashboard-attached OpenSpec change name persisted across reload so the
    * `before_agent_start` injector keeps the fragment after `npm run reload`
    * even before the server re-replays on `session_register`. `null`/absent

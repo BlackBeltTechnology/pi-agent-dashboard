@@ -5,6 +5,7 @@
  * forwards all pi events, and relays commands back.
  */
 
+import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
@@ -35,7 +36,6 @@ import {
 } from "./terminal-reload.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
-import { registerCompatPreferenceProbe } from "./compat-preference-probe.js";
 import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
@@ -134,6 +134,13 @@ export default function (pi: ExtensionAPI) {
     // `adopt-model-resolve-handler-and-roles-ownership`; the legacy `flow:`
     // prefix was dropped in `add-agent-role-model-tools` (design D11).
     activateRoleManager(pi);
+
+    // Claude subscription compat rewrite on EVERY pi this extension loads
+    // into — main sessions and subagent children alike — reading the switch
+    // value the connected bridge mirrors process-globally. Runs before the
+    // re-entry guard so children get it too. See change:
+    // seed-claude-compat-on-upgrade.
+    claudeCompatExtension(() => getBridgeState().claudeSubscriptionCompat === true)(pi as never);
 
     // Anthropic-messages payload transforms (system prompt rewrite + tool
     // filter/remap) are handled by the installed @benvargas/pi-claude-code-use
@@ -2032,11 +2039,6 @@ function initBridge(pi: ExtensionAPI) {
     () => ({ sessionId: inst.sessionId, attachedChange: inst.attachedChange }),
     isActive,
   );
-
-  // Claude subscription compat probe: plugin bridges (flows-plugin docs-section
-  // rewrite) read the server-relayed switch value through pi.events.
-  // See change: retire-anthropic-messages-bridge (design D4).
-  registerCompatPreferenceProbe(pi, () => inst.claudeSubscriptionCompat, isActive);
 
   // Pi does NOT forward `queue_update` events to extensions (verified in
   // pi-coding-agent 0.71+ — see _emitExtensionEvent allowlist). Bridge

@@ -137,6 +137,8 @@ describe("sign-in prompt choices (E13)", () => {
 });
 
 describe("anthropic row switch (E15)", () => {
+  // The rewrite no longer depends on the Flows plugin, so no "needs Flows"
+  // notice in either state. See change: seed-claude-compat-on-upgrade.
   it.each([
     [true, false],
     [true, true],
@@ -150,7 +152,7 @@ describe("anthropic row switch (E15)", () => {
     const sw = await screen.findByTestId("claude-compat-switch");
     await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe(String(on)));
     expect(sw.getAttribute("role")).toBe("switch");
-    expect(!!screen.queryByTestId("claude-compat-needs-flows")).toBe(flowsOff);
+    expect(screen.queryByTestId("claude-compat-needs-flows")).toBeNull();
     const rowEl = document.querySelector('[data-row-id="anthropic"]') as HTMLElement;
     expect(within(rowEl).getByText("Sign Out")).toBeTruthy();
   });
