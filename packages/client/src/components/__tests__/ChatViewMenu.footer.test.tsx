@@ -51,6 +51,23 @@ describe("ChatViewMenu footer", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "setSessionDisplayPrefs", override: null }));
   });
 
+  // See change: fix-dock-peek-join-and-view-menu-close (test-plan #T4).
+  it("Reset keeps the popover open", () => {
+    open();
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
+  });
+
+  // test-plan #T5: open after success, no success text in the footer.
+  it("Set as global success keeps the popover open without a status message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    const { send } = open(CHANGED);
+    fireEvent.click(screen.getByTestId("chat-view-set-global"));
+    await waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ override: null })));
+    expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
+    expect(screen.queryByTestId("chat-view-set-global-error")).toBeNull();
+  });
+
   it("disables Reset and Set as global without an override", () => {
     open({});
     expect((screen.getByTestId("chat-view-reset") as HTMLButtonElement).disabled).toBe(true);
@@ -91,6 +108,8 @@ describe("ChatViewMenu footer", () => {
     fireEvent.click(screen.getByTestId("chat-view-set-global"));
     await waitFor(() => expect(screen.getByTestId("chat-view-set-global-error")).toBeTruthy());
     expect(send).not.toHaveBeenCalled();
+    // test-plan #T6
+    expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
   });
 });
 

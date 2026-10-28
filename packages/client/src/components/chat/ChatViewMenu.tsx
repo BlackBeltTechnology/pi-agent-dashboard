@@ -111,8 +111,9 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
   }, [currentOverride, send, sessionId]);
 
   const clearOverride = useCallback(() => {
+    // Keeps the popover open: the user sees the rows return to global.
+    // See change: fix-dock-peek-join-and-view-menu-close.
     send({ type: "setSessionDisplayPrefs", sessionId, override: null });
-    setOpen(false);
   }, [send, sessionId]);
 
   /** Promote this session's effective view to the global default, then drop the override. */
