@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 const PATTERN =
-  /flows-anthropic-bridge|pi-anthropic-messages|anthropic-messages-source|anthropic-peer-names|ANTHROPIC_MESSAGES_SOURCE|PI_ANTHROPIC_MESSAGES|useAnthropicPeerProbe|peer-auto-install-store|PeerAutoInstallStatus|lib\/package\/anthropic-peer/;
+  /flows-anthropic-bridge|pi-anthropic-messages|pi\/anthropic-messages|anthropic-messages-source|anthropic-peer-names|ANTHROPIC_MESSAGES_SOURCE|PI_ANTHROPIC_MESSAGES|useAnthropicPeerProbe|peer-auto-install-store|PeerAutoInstallStatus|lib\/package\/anthropic-peer/;
 
 /** History and generated corpora: never edited by a change. */
 const EXCLUDED_PREFIXES = [

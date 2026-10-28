@@ -21,7 +21,7 @@ CHECKS · FIX ROUTING · DERIVES-FROM** (+ a `<id>.knowledge.hash` sidecar).
 |---|---|
 | `env-node` | Node runtime + OS/platform baseline |
 | `pi-resolution` | every pi install location, divergence + floor |
-| `peers` | pi-flows + anthropic peer, tier-1/tier-2, name-skew |
+| `peers` | pi-flows, tier-1/tier-2, name-skew |
 | `plugins-bridges` | bridge registration (packages[] vs dashboardPluginBridges) + activation |
 | `build-reload` | three-component rebuild/reload gaps |
 | `install-topology` | npm-global / Electron / Docker / dev + topology fixes |
