@@ -824,26 +824,20 @@ JSON
   echo "[test-entrypoint] PI_E2E_SEED: dependency-cascade plugin fixture ready → ${DEPENDENT_DIR}"
 
   # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
-  # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
-  # (non-flow specs run exactly as before). The pi-flows engine + anthropic peer
-  # are baked globally by the Dockerfile; here we selectively wire them so the L3
-  # harness can drive real flows and assert the bridge state machine:
-  #   - pi-flows engine -> settings.json packages[] (pi loads it => flow discovery
-  #     + run) AND a bare `pi-flows` node_modules symlink for the bridge tier-1
-  #     probe. Present in every variant (all variants still run flows).
-  #   - anthropic-messages peer -> a node_modules symlink under the SESSION cwd so
-  #     the bridge's tier-1 `createRequire(cwd).resolve` hits. The symlink NAME
-  #     selects scoped vs legacy resolution.
-  # bad-registration flips the escape hatch so the bridge is NOT mirrored into
-  # packages[] (invisible to pi = the "no sessions reporting" condition).
+  # Variant: both (the name is kept for existing callers). UNSET => skipped
+  # entirely (non-flow specs run exactly as before). The pi-flows engine is baked
+  # globally by the Dockerfile; here it is wired so the L3 harness can drive real
+  # flows: settings.json packages[] (pi loads it => flow discovery + run) AND a
+  # bare `pi-flows` node_modules symlink. The no-am / legacy / bad-registration
+  # variants and the Claude peer package were removed by change:
+  # retire-anthropic-messages-bridge.
   if [ -n "${PI_TEST_PEERS:-}" ]; then
     PF_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-flows"
-    AM_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages"
     SA_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents"
     SESSION_CWD="/fixtures/sample-git"
     NM="${SESSION_CWD}/node_modules"
     SETTINGS="${PI_DIR}/agent/settings.json"
-    mkdir -p "${NM}/@blackbelt-technology" "${NM}/@pi"
+    mkdir -p "${NM}/@blackbelt-technology"
 
     # Pre-trust the session cwd. The .pi/flows resources (project settings +
     # flows/agents) make /fixtures/sample-git "trust-requiring": a headless RPC
@@ -917,23 +911,9 @@ JSON
     case "${PI_TEST_PEERS}" in
       both)
         register_flows
-        ln -sfn "${AM_GLOBAL}" "${NM}/@blackbelt-technology/pi-anthropic-messages"
-        ;;
-      no-am)
-        register_flows
-        # anthropic peer intentionally ABSENT -> bridge parks in waiting_peers
-        ;;
-      legacy)
-        register_flows
-        ln -sfn "${AM_GLOBAL}" "${NM}/@pi/anthropic-messages"   # legacy name only
-        ;;
-      bad-registration)
-        register_flows
-        ln -sfn "${AM_GLOBAL}" "${NM}/@blackbelt-technology/pi-anthropic-messages"
-        export PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1
         ;;
       *)
-        echo "[test-entrypoint] WARN: unknown PI_TEST_PEERS='${PI_TEST_PEERS}' (both|no-am|legacy|bad-registration)" >&2
+        echo "[test-entrypoint] WARN: unknown PI_TEST_PEERS='${PI_TEST_PEERS}' (both)" >&2
         ;;
     esac
 

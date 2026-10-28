@@ -110,7 +110,7 @@ services:
       # "1" engages it; empty = unset. See change: add-access-grant-dialog.
       PI_DASHBOARD_DISABLE_GRANT_PROMPT: "${PI_DASHBOARD_DISABLE_GRANT_PROMPT:-}"
       # Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests):
-      # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
+      # both (wires pi-flows). Empty => test-entrypoint skips
       # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.
       PI_TEST_PEERS: "${PI_TEST_PEERS:-}"
       # Browser-relay e2e faucet (change: add-browser-relay, task 7.61):

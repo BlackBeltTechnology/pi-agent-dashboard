@@ -17,6 +17,7 @@
  * See change: skip-rpc-probes-in-event-forwarder.
  */
 import { describe, expect, it } from "vitest";
+import { registerCompatPreferenceProbe } from "../compat-preference-probe.js";
 import { forwardedBusChannels, registerEventBusForwarding } from "../flow-event-wiring.js";
 import { type BridgeSourceFile, readBridgeSource } from "./helpers/bridge-source.js";
 import { makeDeps, makeHost } from "./helpers/event-bus-host.js";
@@ -35,6 +36,10 @@ const RPC_PROBE_CHANNELS = [
   "roles:preset-save",
   "roles:preset-delete",
   "ui:list-modules",
+  // Claude subscription compat probe + the flows-plugin agent-factory announce
+  // (payload carries a function). See change: retire-anthropic-messages-bridge (#E19).
+  "dashboard:preferences:get",
+  "flow:register-agent-extension",
 ] as const;
 
 /** Source text with `//` and block comments removed; string literals are kept intact. */
@@ -180,6 +185,33 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
         expect(probe.filled, channel).toBe(channel);
       }
     }
+    expect(sent).toHaveLength(0);
+  });
+
+  // See change: retire-anthropic-messages-bridge (test-plan #E19, task 1.9).
+  it("E19: the compat probe is answered from the live value and never forwarded", () => {
+    const host = makeHost();
+    const { deps, sent } = makeDeps();
+    registerEventBusForwarding(host.bridgeEvents, deps);
+    let value = true;
+    let active = true;
+    registerCompatPreferenceProbe({ events: host.bridgeEvents }, () => value, () => active);
+
+    const first: { claudeSubscriptionCompat?: boolean } = {};
+    host.foreignEvents.emit("dashboard:preferences:get", first);
+    expect(first.claudeSubscriptionCompat).toBe(true);
+
+    value = false;
+    const second: { claudeSubscriptionCompat?: boolean } = {};
+    host.foreignEvents.emit("dashboard:preferences:get", second);
+    expect(second.claudeSubscriptionCompat).toBe(false);
+
+    active = false;
+    const stale: { claudeSubscriptionCompat?: boolean } = {};
+    host.foreignEvents.emit("dashboard:preferences:get", stale);
+    expect(stale.claudeSubscriptionCompat).toBeUndefined();
+
+    host.foreignEvents.emit("flow:register-agent-extension", { factory: () => {} });
     expect(sent).toHaveLength(0);
   });
 

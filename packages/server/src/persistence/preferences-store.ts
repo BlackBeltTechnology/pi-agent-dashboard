@@ -119,6 +119,13 @@ interface PreferencesData {
    */
   autoNameSessions?: boolean;
   /**
+   * Global Claude subscription compat switch. Defaults to `false` when absent
+   * or non-boolean. Relayed to bridges via `preferences_update`; when true the
+   * flows-plugin bridge rewrites pi's docs prompt section on anthropic runs.
+   * See change: retire-anthropic-messages-bridge.
+   */
+  claudeSubscriptionCompat?: boolean;
+  /**
    * First-run marker for `PI_DASHBOARD_PIN_DIRS` seeding. Set true the first
    * time the store loads; gates env-driven pin seeding so it never re-seeds
    * after the user has edited pins via the UI (even after unpinning all).
@@ -301,6 +308,11 @@ export interface PreferencesStore {
   getAutoNameSessions(): boolean;
   /** Persists the auto-session-naming toggle. */
   setAutoNameSessions(value: boolean): void;
+  // ── retire-anthropic-messages-bridge ───────────────────────
+  /** Returns the Claude subscription compat switch. Absent → `false`. */
+  getClaudeSubscriptionCompat(): boolean;
+  /** Persists the Claude subscription compat switch. */
+  setClaudeSubscriptionCompat(value: boolean): void;
   // ── live-server-preview (improve-content-editor §6) ────────
   /** Returns the persisted live-server allowlist. Absent → `[]`. */
   getLiveServers(): LiveServerTarget[];
@@ -555,6 +567,8 @@ export function createPreferencesStore(
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
   // Auto-naming toggle. Absent/non-false → true (default ON).
   let autoNameSessions: boolean = data.autoNameSessions !== false;
+  // Claude subscription compat switch. Absent/non-boolean → false (default OFF).
+  let claudeSubscriptionCompat: boolean = data.claudeSubscriptionCompat === true;
   let liveServers: LiveServerTarget[] = Array.isArray(data.liveServers) ? data.liveServers : [];
   // Collapsed folder keys: `pathKey`-folded on load (both write AND read
   // canonicalize), NEVER realpath-resolved — see the invariant in design D3.
@@ -679,7 +693,7 @@ let dirty =
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, expandedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, claudeSubscriptionCompat, pinSeeded, liveServers, collapsedFolders, expandedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -691,7 +705,7 @@ let dirty =
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, expandedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, claudeSubscriptionCompat, pinSeeded, liveServers, collapsedFolders, expandedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
     }
   }
 
@@ -1106,6 +1120,17 @@ let dirty =
       const next = value !== false;
       if (autoNameSessions === next) return;
       autoNameSessions = next;
+      scheduleSave();
+    },
+
+    getClaudeSubscriptionCompat(): boolean {
+      return claudeSubscriptionCompat;
+    },
+
+    setClaudeSubscriptionCompat(value: boolean): void {
+      const next = value === true;
+      if (claudeSubscriptionCompat === next) return;
+      claudeSubscriptionCompat = next;
       scheduleSave();
     },
 

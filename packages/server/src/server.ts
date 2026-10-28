@@ -265,7 +265,7 @@ import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-in
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
-import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingInitialPromptRegistry, type PendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPrincipalOwnerRegistry } from "./pending/pending-principal-owner-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
@@ -335,6 +335,7 @@ import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plug
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPluginRuntimeClientRoutes } from "./routes/plugin-runtime-client-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
+import { registerPreferencesClaudeCompatRoutes } from "./routes/preferences-claude-compat-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
@@ -572,6 +573,13 @@ export interface DashboardServer {
    * See change: fix-dashboard-spawn-correlation-by-token.
    */
   pendingDashboardSpawns: Map<string, number>;
+  /**
+   * Pending initial-prompt intents per cwd. Exposed for in-process tests that
+   * pin register-time ordering (preferences snapshot before `send_prompt`).
+   * Not part of the public API — do not depend on this from production code.
+   * See change: retire-anthropic-messages-bridge.
+   */
+  pendingInitialPromptRegistry: PendingInitialPromptRegistry;
   /**
    * In-process OpenSpec poll cache + discovery service. Exposed for tests
    * that need to stub `getOpenSpecData` (e.g. the deleted-proposal bypass).
@@ -3589,6 +3597,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts
   // `preferences_update` to bridges on change.
   registerPreferencesAutoNameRoutes(fastify, { preferencesStore, piGateway, networkGuard });
+  registerPreferencesClaudeCompatRoutes(fastify, { preferencesStore, piGateway, networkGuard });
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
@@ -3871,6 +3880,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     eventStore,
     browserGateway,
     pendingDashboardSpawns,
+    pendingInitialPromptRegistry,
     directoryService,
     sessionOrderManager,
 

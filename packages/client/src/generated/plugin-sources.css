@@ -11,7 +11,6 @@
 @source "../../../cost-estimator/src/client";
 @source "../../../craft-web-plugin/src/client";
 @source "../../../demo-plugin/src";
-@source "../../../flows-anthropic-bridge-plugin/src";
 @source "../../../flows-plugin/src/client";
 @source "../../../gmail-plugin/src/client";
 @source "../../../goal-plugin/src/client";

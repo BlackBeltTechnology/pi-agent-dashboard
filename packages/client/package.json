@@ -39,7 +39,6 @@
     "@blackbelt-technology/pi-dashboard-craft-web-plugin": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-cost-estimator": "^0.11.0",
-    "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-goal-plugin": "^0.11.0",
     "@blackbelt-technology/pi-dashboard-grammar-plugin": "^0.11.0",

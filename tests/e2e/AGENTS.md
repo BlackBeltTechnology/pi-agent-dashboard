@@ -20,6 +20,7 @@ One row per file.
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `chat-motion.spec.ts` | → `chat-motion.spec.ts.AGENTS.md` |
+| `claude-subscription-compat.spec.ts` | #F1 sign-in prompt → Turn on → row on after reload (real compat route, staged auth reads); #F3 Landing Step ① notice → Turn on → row on. See change: retire-anthropic-messages-bridge. |
 | `composer-dock-collapse.spec.ts` | L3 composer dock collapse/peek/file open (synthetic bridge, stubbed diff/quota): 44 px one-line bar at 375 px (#E5), Open/Diff 44 px targets + truncated folder (#E17), composer card + YOLO footer fixed across expanded/collapsed/peek and `composer-root` border-top 0 (#F17/#F18), fast pass never peeks (#F19), per-session persistence across reload (#F20), Open/Diff land in the editor pane never `/diff` (#F21), portaled menu holds the peek (#F22). See change: composer-dock-collapse-and-file-open. |
 | `composer-dock.spec.ts` | L3 composer dock (synthetic bridge): collapsed default, accordion, compact chips 480 px, Kill (`kill_process`), plugin subagent rows ≥44 px at 375 px, #F16 (767 px canvas hides dock), YOLO footer in `hu` at 375 px, #F18 contrast (base dark/light, nord dark). See change: add-composer-dock. |
 | `composer-liveness-reload.spec.ts` | → `composer-liveness-reload.spec.ts.AGENTS.md` |
@@ -65,7 +66,6 @@ One row per file.
 | `access-provisioning.spec.ts` | → `access-provisioning.spec.ts.AGENTS.md` |
 | `add-folder-file-manager.spec.ts` | → `add-folder-file-manager.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | → `access-grant-dialog.spec.ts.AGENTS.md` |
-| `anthropic-bridge-activation.spec.ts` | → `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | → `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | → `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | → `diagram-preview.spec.ts.AGENTS.md` |

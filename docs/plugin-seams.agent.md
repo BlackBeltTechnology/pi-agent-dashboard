@@ -77,7 +77,7 @@ Pull-only condensed map. Source: docs/plugin-seams.md. Server-entry seams on `Se
 - Lazy: on-demand surfaces, ≳10 KB. Eager: badges, predicates, catalogs, composer-inline, hot sidebar.
 - Rules: no lazy export from main entry; no eager import of `module`; heavy children via `lazy()`.
 - Compat: adopters set engines/peer floor. Old dashboard → `does not export` build error. Rollback: remove `module`, restore barrel exports.
-- First-party lazy adopters: settings-section (apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator, flows, flows-anthropic-bridge, goal, grammar, quota, roles, subagents, system-one); shell-overlay-route (AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim); McpSettingsClaim; PipelineDetailView; BrowserPaneTab; FlowDashboardClaim, FlowYamlPreviewClaim, FlowInputWiringClaim, FlowWriteToolRenderer.
+- First-party lazy adopters: settings-section (apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator, flows, goal, grammar, quota, roles, subagents, system-one); shell-overlay-route (AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim); McpSettingsClaim; PipelineDetailView; BrowserPaneTab; FlowDashboardClaim, FlowYamlPreviewClaim, FlowInputWiringClaim, FlowWriteToolRenderer.
 - Follow-up: `yaml` (~98 KB) still eager.
 
 ## Trust boundary
@@ -91,7 +91,7 @@ Pull-only condensed map. Source: docs/plugin-seams.md. Server-entry seams on `Se
 - `packages/demo-plugin`: `demo/echo`, fake login flow, `ctx.credentials`, `demo_echo` bridge tool.
 
 ## Decoupling seams (decouple-plugins-from-core)
-- Shared contracts in non-plugin pkgs: `shared/dashboard-plugin/{subagent-types,anthropic-peer-names}.ts`, `shared/mcp/verb-tiers.generated.ts`, `packages/mcp-core`. Gate `npm run check:plugin-boundary`.
+- Shared contracts in non-plugin pkgs: `shared/dashboard-plugin/subagent-types.ts`, `shared/mcp/verb-tiers.generated.ts`, `packages/mcp-core`. Gate `npm run check:plugin-boundary`.
 - Manifest `eventTypes` (exact or `prefix_*`) → one `role:"rawEvent"` group row per owned type (`ownedGroup`, payloads cap 50). Availability read at render via `pluginAvailability`, never in reducer.
 - Client entry exports `sessionEventReducer` + `toolRowFinalizers`; shell registers via `./host`, gated by enabled set; heal guards; generic heals stay in core.
 - `tool-renderer` claim: `expandWhileRunning`, `resultPending` (sync predicate export name).

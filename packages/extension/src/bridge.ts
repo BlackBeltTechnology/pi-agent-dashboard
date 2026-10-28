@@ -35,6 +35,7 @@ import {
 } from "./terminal-reload.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
+import { registerCompatPreferenceProbe } from "./compat-preference-probe.js";
 import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
@@ -340,6 +341,7 @@ function initBridge(pi: ExtensionAPI) {
   // Global auto-naming toggle, relayed by the server via `preferences_update`.
   // Default true so a bridge that registers before the first push still names.
   inst.autoNameSessions = true;
+  inst.claudeSubscriptionCompat = false;
   // → inst.autoNamer (BridgeInstance field; unset until assigned)
   // The namer's durable state set is carried across reload as VALUES, never as
   // the namer object: its closures would retain a stale connection, session id
@@ -2030,6 +2032,11 @@ function initBridge(pi: ExtensionAPI) {
     () => ({ sessionId: inst.sessionId, attachedChange: inst.attachedChange }),
     isActive,
   );
+
+  // Claude subscription compat probe: plugin bridges (flows-plugin docs-section
+  // rewrite) read the server-relayed switch value through pi.events.
+  // See change: retire-anthropic-messages-bridge (design D4).
+  registerCompatPreferenceProbe(pi, () => inst.claudeSubscriptionCompat, isActive);
 
   // Pi does NOT forward `queue_update` events to extensions (verified in
   // pi-coding-agent 0.71+ — see _emitExtensionEvent allowlist). Bridge

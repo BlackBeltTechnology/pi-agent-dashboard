@@ -5,8 +5,8 @@
  * The bug this locks: "internal" was decided by NAME SCOPE
  * (`name.startsWith("@blackbelt-technology/")`), but the org publishes
  * packages that are NOT workspace members of this repo — e.g.
- * `@blackbelt-technology/pi-anthropic-messages`, an external dependency
- * pinned at `>=0.3.4`. The gate flagged it as drift and failed every
+ * an org-scoped package published from another repo (an external dependency
+ * pinned with `>=`). The gate flagged it as drift and failed every
  * `tag-and-push` and `_electron-build` run. `scripts/sync-versions.js` had
  * it right all along (`if (!(depName in versionMap)) continue;`) — this
  * script now uses the same definition: membership in the workspace name set.
@@ -105,7 +105,7 @@ describe("verify-lockfile-versions.mjs", () => {
 			deps: {
 				"@blackbelt-technology/pi-dashboard-shared": "^9.9.9",
 				// external, published independently — must not be treated as a cross-ref
-				"@blackbelt-technology/pi-anthropic-messages": ">=0.3.4",
+				"@blackbelt-technology/external-example": ">=0.3.4",
 			},
 		});
 		const r = run(dir);

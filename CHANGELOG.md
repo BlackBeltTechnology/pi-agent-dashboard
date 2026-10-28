@@ -12,7 +12,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Claude subscription compat switch.** Settings › Providers asks "Keep Claude requests on your subscription?" after an Anthropic subscription sign-in, and the `anthropic` row carries a switch (off by default; Landing Step ① shows a notice while it is off). When on, the flows-plugin bridge rewords two lines of pi's built-in docs prompt section ("pi itself", "pi packages") for `anthropic` runs in the main session and in pi-flows agents, so requests count against the Claude subscription instead of extra usage. Tool names are no longer renamed. New routes `GET/PATCH /api/preferences/claude-subscription-compat`.
+
 ### Changed
+
+- **BREAKING:** `pi-anthropic-messages` is no longer a required extension and is no longer installed after an Anthropic sign-in. Once the compat switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages` (a one-time notice reminds you). It also wrote every prompt to a world-readable `/tmp/pi-am.log`.
+- **BREAKING:** the `flows-anthropic-bridge` plugin and its `/api/flows-anthropic-bridge/status` route are removed. A leftover `dashboard-flows-anthropic-bridge` entry in `~/.pi/agent/settings.json` is stale and can be deleted.
 
 ### Fixed
 

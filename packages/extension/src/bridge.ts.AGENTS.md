@@ -20,3 +20,5 @@ Follow-up drain: `drainFollowupQueue()` (no `retryCount`, no idle-retry loop) ke
 
 - Registers the credential guard as a `tool_call` handler right BEFORE the path gate (`createCredentialGuardToolCallHandler(createCredentialGuard({env,homedir,log}), isActive)`); not `safe()`-wrapped, no config/switch; a blocked call never reaches the gate prompt. Order pinned by `__tests__/credential-guard-wiring.test.ts` (E54). See change: encrypt-credentials-at-rest.
 Declares `certValidation: "enforced"` on `session_register` and `vault_sync_request` when the TLS checks applied. See change: prove-vault-bridge-tls.
+
+Inits `inst.claudeSubscriptionCompat = false`; registers `registerCompatPreferenceProbe` next to the context injector. See change: retire-anthropic-messages-bridge.
