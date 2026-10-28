@@ -25,7 +25,6 @@
     "bundledPlugins": [
       "roles-plugin",
       "flows-plugin",
-      "flows-anthropic-bridge-plugin",
       "automation-plugin",
       "goal-plugin",
       "subagents-plugin",

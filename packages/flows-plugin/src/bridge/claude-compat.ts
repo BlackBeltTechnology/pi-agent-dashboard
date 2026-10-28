@@ -27,7 +27,7 @@ const REPLACEMENTS: ReadonlyArray<readonly [string, string]> = [
   ["pi packages", "cli packages"],
 ];
 
-export type CompatState = "applied" | "off" | "not-anthropic" | "custom-or-forced" | "no-match";
+type CompatState = "applied" | "off" | "not-anthropic" | "custom-or-forced" | "no-match";
 
 /** Replace the flagged phrases. Idempotent: rewritten text has none left. */
 export function rewriteDocsSection(text: string): { text: string; replaced: number } {

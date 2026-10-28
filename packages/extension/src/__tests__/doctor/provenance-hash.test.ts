@@ -49,8 +49,8 @@ describe("knowledge-hash semantic tokens", () => {
 	});
 
 	it("changes when a peer is renamed", () => {
-		const before = 'probe("@pi/anthropic-messages")';
-		const after = 'probe("@blackbelt-technology/pi-anthropic-messages")';
+		const before = 'probe("@example-legacy/example-ext")';
+		const after = 'probe("@example/example-ext")';
 		expect(computeKnowledgeHash(extractSemanticTokens(before))).not.toBe(
 			computeKnowledgeHash(extractSemanticTokens(after)),
 		);

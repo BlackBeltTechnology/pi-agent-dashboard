@@ -16,7 +16,6 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 			[
 				"@blackbelt-technology/pi-dashboard-cost-estimator",
 				"@blackbelt-technology/pi-dashboard-mcp-client-plugin",
-				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
 				"@blackbelt-technology/pi-image-fit-extension",
@@ -70,17 +69,6 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				expect(entry.dashboardPlugin.length).toBeGreaterThan(0);
 			}
 		}
-	});
-
-	it("pi-anthropic-messages is marked required and uses the npm: source", () => {
-		// Republished to the @blackbelt-technology npm scope; the source MUST be
-		// the npm spec so sourcesMatch recognizes the npm install. See change:
-		// suppress-hidden-session-auto-navigation (develop regression follow-up).
-		const entry = getRecommendedExtension("pi-anthropic-messages");
-		expect(entry).toBeDefined();
-		expect(entry?.status).toBe("required");
-		expect(entry?.source).toBe("npm:@blackbelt-technology/pi-anthropic-messages");
-		expect(entry?.autowired).toBe(true);
 	});
 
 	it("pi-flows uses the npm source and registers flow-engine tools", () => {
@@ -174,7 +162,9 @@ describe("getRecommendedExtension", () => {
 describe("getRecommendedByStatus", () => {
 	it("filters by required", () => {
 		const required = getRecommendedByStatus("required");
-		expect(required.map((e) => e.id)).toEqual(["pi-anthropic-messages"]);
+		// The former Claude peer was the only required entry; removed by change:
+		// retire-anthropic-messages-bridge.
+		expect(required.map((e) => e.id)).toEqual([]);
 	});
 
 	it("filters by strongly-suggested", () => {
@@ -292,8 +282,6 @@ describe("BUNDLED_EXTENSION_IDS manifest", () => {
 		// Empty: every previously-bundled extension has migrated to an npm:
 		// source and now installs via the recommended-extensions UI, not the
 		// pre-bundle path (which only handles git sources).
-		// - pi-anthropic-messages: npm rescope. See change:
-		//   suppress-hidden-session-auto-navigation (develop regression follow-up).
 		// - @blackbelt-technology/pi-dashboard-subagents: npm: source in v0.2.0.
 		// - pi-flows: not bundled until upstream declares an SPDX license.
 		expect([...BUNDLED_EXTENSION_IDS]).toEqual([]);

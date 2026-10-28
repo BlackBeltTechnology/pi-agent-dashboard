@@ -116,7 +116,9 @@ Pull-only condensed map. Source: docs/faq.md. Question → key answer.
 - Old `~/.pi-dashboard/` after upgrade — left untouched. `detectLegacyManagedDir({homedir})` (`legacy-managed-dir.ts`).
 - `pi-dashboard start` ERR_MODULE_NOT_FOUND in dev checkout — .bin pointed at cli.ts (no TS loader). Fix: `packages/server/bin/pi-dashboard.mjs` resolves native register (`ts-loader-select.mjs`).
 - Server logs `PI_DASHBOARD_TS_LOADER is no longer supported` → unset var. Logs `booted under the jiti TypeScript loader` → `pi-dashboard stop && pi-dashboard start`. No jiti rollback.
-- `/api/flows-anthropic-bridge/status` "no sessions reporting" — pi reads `packages[]` not `dashboardPluginBridges`. 0.5.4+ dual-writes; `reconcilePluginBridgePackages`.
+- Bridge "no sessions reporting" — pi reads `packages[]` not `dashboardPluginBridges`. 0.5.4+ dual-writes; `reconcilePluginBridgePackages`.
+- Claude subscription billed as extra usage — pi docs section "pi itself"/"pi packages". Fix: pref `claudeSubscriptionCompat` (default false; `GET/PATCH /api/preferences/claude-subscription-compat`). Needs flows-plugin. `packages/flows-plugin/src/bridge/claude-compat.ts`. Uninstall `pi-anthropic-messages` after on.
+- Re-check billing — send 1 request w/ subscription OAuth token; header `anthropic-ratelimit-unified-representative-claim`: `five_hour` = subscription; `400 You're out of extra usage` = extra usage. Spike scripts outside repo.
 - Abort slow on parallel flows — pi-flows <0.2.x `Promise.all` didn't race AbortSignal. Fixed 0.2.0+ `raceWithAbort`.
 - Hide reasoning/token bar/tool output — Settings▸General▸Chat display. Per-session ⚙ View popover.
 - Roles UI — Settings→General→Roles (moved from model dropdown 0.5.4). `packages/roles-plugin/`.

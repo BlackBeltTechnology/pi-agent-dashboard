@@ -66,14 +66,6 @@
     },
     {
       "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
-      "to": "flows-anthropic-bridge-plugin",
-      "kind": "test",
-      "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",
-      "disposition": "integration-keep",
-      "removedBy": "never"
-    },
-    {
-      "from": "packages/client/src/__tests__/plugin-settings-consistency.test.tsx",
       "to": "flows-plugin",
       "kind": "test",
       "reason": "Cross-plugin settings consistency test: enumerates every bundled plugin by design.",

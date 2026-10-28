@@ -118,12 +118,11 @@ RUN npm install -g @earendil-works/pi-coding-agent@1.3.0 openspec \
  && { openspec --version || true; }
 
 # 1.4b Flow-plugin e2e peers (change: add-flow-plugin-e2e-tests). The pi-flows
-# engine + the anthropic-messages bridge peer are BAKED here; test-entrypoint.sh
-# selectively wires them per PI_TEST_PEERS (both|no-am|legacy|bad-registration)
-# so the L3 harness can drive real flows + assert the bridge state machine. Kept
-# non-fatal on version probe, fatal on install, same as the pi install above.
+# engine is BAKED here; test-entrypoint.sh wires it per PI_TEST_PEERS (both) so
+# the L3 harness can drive real flows. The Claude peer package is no longer baked
+# (change: retire-anthropic-messages-bridge). Kept non-fatal on version probe,
+# fatal on install, same as the pi install above.
 ARG PI_FLOWS_VERSION=0.8.0
-ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
 # pi-dashboard-subagents is the ONLY producer of `tool_execution_update` for a
 # subagent: its `extensions/agent.ts` drives `createProgressEmitter` ->
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
@@ -132,10 +131,8 @@ ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
 ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.5.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
-      "@blackbelt-technology/pi-anthropic-messages@${PI_ANTHROPIC_MESSAGES_VERSION}" \
       "@blackbelt-technology/pi-dashboard-subagents@${PI_DASHBOARD_SUBAGENTS_VERSION}" \
  && ls -d /usr/local/lib/node_modules/@blackbelt-technology/pi-flows \
-         /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages \
          /usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents
 
 # Enable corepack so `pnpm` resolves to the version pinned by the root

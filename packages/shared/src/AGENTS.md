@@ -38,7 +38,6 @@ Files in this directory. One row per source file.
 | `__tests__/state-replay.test.ts` | L1 for the persisted `compaction` → `session_compact` replay arm (change: replay-compaction-boundary, E1–E7 +… → see `__tests__/state-replay.test.ts.AGENTS.md` |
 | `__tests__/workflow-token-cache-contract.test.ts` | Repo-lint: workflow token permissions + no release-job cache. → see `__tests__/workflow-token-cache-contract.test.ts.AGENTS.md` |
 | `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan #E7): valid values pass; 0/−1/non-numeric/absent coerce to defaults; `capturePiOutput` unaffected. See change: fix-runaway-keeper-log-growth. |
-| `anthropic-messages-source.ts` | `ANTHROPIC_MESSAGES_SOURCE` — install source of the `pi-anthropic-messages` peer, own module so the client… → see `anthropic-messages-source.ts.AGENTS.md` |
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `bind-reachability.ts` | Bind-vs-trust reachability: the ONE predicate + well-known-range table, imported by both client and server so… → see `bind-reachability.ts.AGENTS.md` |
 | `boot-state.ts` | Exit-intent vocabulary for the server boot record. Exports `ExitIntent`… → see `boot-state.ts.AGENTS.md` |

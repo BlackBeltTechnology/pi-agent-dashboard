@@ -4,7 +4,6 @@ Onboarding landing. One ordered list (`<ol>`): connect provider → create first
 
 Step ②: inline `CreateProjectForm` — field prefilled `my-first-project` (`onboarding-step-2-name`), primary `onboarding-step-2-create`, link `onboarding-step-2-cta` ("Use an existing folder…", opens `AddFoldersDialog` via `onOpenPinDialog`). Calls prop `onCreateProject(name)` (App wires `createProjectAndPin`); server validates, `reason` → localized copy (`landing.createError.*`, generic for unknown/404) between label and input, `aria-invalid`, input kept. In flight: ref guard + disabled field/button/link, `aria-busy`, "Creating…". `existed` note is component state (gone on unmount).
 
-Step ① done row: `Step1PeerStatus` mounted only when step ① done AND `anthropicAuthenticated === true` (its only fetches: health probe + recommended). First match: probe `importFailed` warning; probe resolving nothing; store deciding/running/failed → `PeerAutoInstallStatus` (Retry `onboarding-step-1-peer-retry`); installed nothing; entry not `activeInPi` → warning + secondary Install (`onboarding-step-1-peer-install` → `ensureInstall("manual")`, then re-read probe + recommended). Wrapper `onboarding-step-1-peer-status` is `role="status"` `aria-live="polite"`.
 
 Test ids: `onboarding-progress`, `onboarding-step-N`, `onboarding-step-N-cta|done|locked`, `onboarding-step-2-create|name|error|existed`. See changes: align-ui-with-theme-tokens, streamline-first-run.
 

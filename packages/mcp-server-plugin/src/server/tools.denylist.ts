@@ -62,7 +62,6 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/users", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/users/", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
-  { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   // See change: decouple-plugins-from-core (6.11, 6.12).
   { pattern: "/api/plugins/runtime-clients", reason: "runtime plugin client listing for the dashboard page loader; UI-only" },
   { pattern: "/api/plugins/:id/trust", reason: "grants/revokes operator trust of plugin code (client hash pin, pi-package server entry); a host-owner decision, never an MCP/LLM action" },

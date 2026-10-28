@@ -350,7 +350,6 @@ jobs:
             "@blackbelt-technology/pi-dashboard-flows-plugin"
             "@blackbelt-technology/pi-dashboard-plugin-skill"
             "@blackbelt-technology/pi-dashboard-roles-plugin"
-            "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin"
             "@blackbelt-technology/pi-dashboard-subagents-plugin"
             "@blackbelt-technology/pi-dashboard-keycloak-resolver-plugin"
             "@blackbelt-technology/pi-dashboard-goal-plugin"

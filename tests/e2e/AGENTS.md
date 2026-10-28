@@ -64,7 +64,6 @@ One row per file.
 | `access-provisioning.spec.ts` | → `access-provisioning.spec.ts.AGENTS.md` |
 | `add-folder-file-manager.spec.ts` | → `add-folder-file-manager.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | → `access-grant-dialog.spec.ts.AGENTS.md` |
-| `anthropic-bridge-activation.spec.ts` | → `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | → `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | → `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | → `diagram-preview.spec.ts.AGENTS.md` |

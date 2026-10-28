@@ -2996,13 +2996,13 @@ Cross-refs:
 - packages/shared/src/platform/ts-loader-select.mjs
 - See change: replace-tsx-with-jiti, strip-only-native-ts-loader
 
-## Why does `/api/flows-anthropic-bridge/status` show "no sessions reporting"?
+## Why does a bridge show "no sessions reporting"?
 
 pi-coding-agent reads `packages[]`, not `dashboardPluginBridges`. Pre-0.5.4 dashboards wrote bridge entry only to `dashboardPluginBridges` \u2014 invisible to pi. Bridge loaded by dashboard, never invoked by pi runtime.
 
 Fix: dashboard 0.5.4+ writes to both. Restart dashboard \u2014 one-shot `reconcilePluginBridgePackages` runs at server start.
 
-Verify: `curl -s http://localhost:8000/api/health | jq '.plugins[] | select(.id == "flows-anthropic-bridge")'`. Expect `bridgeLoadedFrom: "both"` (or `"packages[]"` post-reconcile). Value `"dashboardPluginBridges"` only = stale install, restart again.
+Verify: `curl -s http://localhost:8000/api/health | jq '.plugins[] | {id, bridgeLoadedFrom}'`. Expect `bridgeLoadedFrom: "both"` (or `"packages[]"` post-reconcile). Value `"dashboardPluginBridges"` only = stale install, restart again.
 
 Escape hatch: env `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` skips `packages[]` write. Legacy key only. Diagnostic flag.
 
@@ -4233,26 +4233,33 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
 
-## Why does Claude chat work but tool calls fall back?
+## Claude subscription requests billed as extra usage?
 
-Peer `@blackbelt-technology/pi-anthropic-messages` missing → bridge stays in `waiting_peers` → tool calls return without executing.
+Anthropic bills subscription requests as extra usage when pi's built-in `docs` system-prompt section contains "pi itself" / "pi packages". Tool names do not matter.
 
-Auto-install runs after Anthropic sign-in (Settings ▸ Providers).
+Fix: Settings ▸ Providers ▸ `anthropic` row ▸ **Claude subscription compat** → on. Or Landing step ① → **Turn on**. Or the prompt after sign-in: "Keep Claude requests on your subscription?" → **Turn on**.
 
-- Failure: warning on Anthropic row and Landing step ① with `Retry install`. Raw installer output under `Details`.
-- Manual install:
-  - Settings ▸ Packages ▸ Recommended extensions
-  - or Landing `Install` (shows when `anthropic` signed in, peer not active)
-- `failed to load` = installed but import broken. Reinstall does not fix. Check Settings ▸ Providers.
-- Applies on next pi session start.
+- Preference: `claudeSubscriptionCompat` in `~/.pi/dashboard/preferences.json`, default `false`. API: `GET/PATCH /api/preferences/claude-subscription-compat` (`{value:boolean}`).
+- Needs the Flows plugin enabled. Row shows "Needs the Flows plugin to take effect." when disabled.
+- How it works: when on, run provider is `anthropic`, and pi default prompt used, `packages/flows-plugin/src/bridge/claude-compat.ts` replaces the `docs` section with pi's text where "pi itself" → "the cli itself" and "pi packages" → "cli packages". Whole prompt never forced. Tool names never renamed. Applies to main session and pi-flows agents.
+- Log: `[flows-plugin] claude-compat: state=<applied|off|not-anthropic|custom-or-forced|no-match>` once per session and on change. No prompt text logged.
+- Old package: `pi-anthropic-messages` is no longer required. After the switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages`. A one-time notice in the dashboard prompts this when the package is still installed.
 
 Cross-refs:
-- docs/user-features.md §First run: connect, create, start
-- packages/client/src/components/shell/LandingPage.tsx
-- packages/client/src/components/settings/PeerAutoInstallStatus.tsx
-- packages/flows-anthropic-bridge-plugin/src/bridge/index.ts
+- docs/user-features.md §Models & providers
+- packages/extension/src/compat-preference-probe.ts
+- packages/flows-plugin/src/bridge/__tests__/pi-docs-canary.test.ts
 
-See change: streamline-first-run.
+See change: retire-anthropic-messages-bridge.
+
+## How do I re-check whether Claude requests bill as subscription or extra usage?
+
+Send one request with the subscription OAuth token. Read the response header `anthropic-ratelimit-unified-representative-claim`:
+
+- `five_hour` → billed to subscription.
+- `400 You're out of extra usage` → billed as extra usage.
+
+Spike scripts kept outside the repo.
 
 ## Server shows "CORS-blocked", "Name not found" or "Moved to …" in the server selector — what does it mean?
 
@@ -4579,7 +4586,7 @@ Follow-up change names. None exist yet. Create via `openspec change new <name>`.
 | queue / image / prompt lifecycle | `followup-image-queue`, `optimistic-prompt`, `pending-prompt-recovery`, `package-queue-visible` | `fix-e2e-prompt-queue` |
 | restart / boot / session lifecycle | `ended-session-endedat`, `status-reconcile`, `durable-session-diff`, `faux-ask`, `keeper-restart-survival`, `tmux-session-shutdown`, `spawn-correlation-recovery` | `fix-e2e-restart-cluster` (CANDIDATE: shares #832 root cause, restart axis) |
 | trust / token surfaces | `mcp-session-token`, `origin-gate` | CANDIDATE: re-check after #832 verdict |
-| misc UI | `folder-actions-menu`, `editor-pane`, `folder-membership-drag`, `terminal`, `inline-terminal-transcript`, `inline-screenshot`, `history-backfill-gap`, `flow-roundtrip`, `flow-live-no-double-render`, `anthropic-bridge-activation`, `automation-fanout`, `acp-automation`, `pi-runtime-picker`, `settings-default-model-catalogue`, `tool-created-files` | `fix-e2e-misc-reds` |
+| misc UI | `folder-actions-menu`, `editor-pane`, `folder-membership-drag`, `terminal`, `inline-terminal-transcript`, `inline-screenshot`, `history-backfill-gap`, `flow-roundtrip`, `flow-live-no-double-render`, `automation-fanout`, `acp-automation`, `pi-runtime-picker`, `settings-default-model-catalogue`, `tool-created-files` | `fix-e2e-misc-reds` |
 
 ### Unquarantine rule
 

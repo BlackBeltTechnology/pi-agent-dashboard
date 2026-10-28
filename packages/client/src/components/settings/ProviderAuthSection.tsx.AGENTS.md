@@ -12,9 +12,7 @@ The section OWNS every flow: auth-code + device-code timers live in `flowsTimers
 
 `handleChanged` is the SINGLE dispatch funnel: exactly ONE `PROVIDER_AUTH_EVENT` (from `hooks/useProvidersReady.js`, zero payload) per successful write from ANY control (api-key save, custom create/edit/remove, sign-out, key removal, flow completion) + section refresh + `onCredentialsChanged` (panel `refetchCatalogue`). NEVER dispatched from `refresh` (a mount must not look like a write). Custom-endpoint writes go through `PATCH`/`DELETE /api/providers/:name` (name percent-encoded, immutable in Edit — rename is DELETE+PATCH), update the list optimistically, and schedule EXACTLY ONE health read `HEALTH_RECONCILE_DELAY_MS = 2000` after the write response (F10); pending rows show the pending pill until that read reconciles. Cross-type refusals render the TRANSLATED message via `conflictMessage` (`err.provider_auth.credential_type_conflict` + `vars.storedType`), never the raw English; a late (post-dismissal) refusal renders inline on the SECTION (`provider-flow-error`) and the provider never shows connected (X6).
 
-## AnthropicPeerHint
 
-Unchanged: inline advisory inside the authenticated Anthropic SUBSCRIPTION row only (`peerMissing && kind === "subscription" && authenticated`). One `useAnthropicPeerProbe()` per section. Explicit post-install LATCH (not `statusFor(...) === "success"`, which auto-clears after 3s), released when the probe reports the peer resolving; `IMPORT_FAILURE_PREFIX` reason withholds the Install control. Tests: `src/__tests__/ProviderAuthSection.peer-hint.test.tsx`.
 
 ## Tests
 
@@ -26,7 +24,6 @@ Radius MCP offer: `finishFlow("radius")` → `fetchRadiusMcpOffer()` (`RadiusMcp
 
 ## streamline-first-run
 
-`finishFlow("anthropic")` fires `peerAutoInstallStore.ensureInstall("sign-in")` detached after `handleChanged()` (never awaited; other flows, API-key/custom saves never trigger). Anthropic subscription row renders one persistent `role="status"` `aria-live="polite"` wrapper (`anthropic-peer-autoinstall-live`) holding `PeerAutoInstallStatus` when `usePeerAutoInstall().outcome` is non-null. Precedence: probe import failure → hint's import-failure form; store outcome → auto-install surface (also hides a stale not-resolving hint); else hint as before. Section effect calls `notifyPeerResolving()` when the probe reports resolving. See change: streamline-first-run.
 
 `CustomEndpointRow` gains **Refresh models** (`RefreshModelsButton`, `provider-refresh-models` testid; outside edit only) → `onRefreshModels` (`refreshProviderModels`). Disabled while `refreshing` or `removePending`; sync `refreshingRef` guard (double click = one request); pill `testing` while in flight; response health → `live`; success → `onRefreshed` = `handleChanged` funnel; failure → inline `provider-refresh-error`; `mountedRef` drops a post-unmount result. i18n `providers.refreshModels` / `providers.refreshModelsHint` (en/hu/zh). Tests: `src/__tests__/ProviderAuthSection.refresh-models.test.tsx`. See change: add-provider-models-refresh.
 
