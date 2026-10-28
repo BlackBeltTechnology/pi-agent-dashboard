@@ -209,6 +209,28 @@ describe("E5: inbound message dispatch — one row per accepted message type", (
     expect(h.inst.autoNameSessions).toBe(false);
   });
 
+  // See change: retire-anthropic-messages-bridge (test-plan #E9).
+  it("E9: preferences_update applies each field only when present and boolean", async () => {
+    h.inst.autoNameSessions = true;
+    h.inst.claudeSubscriptionCompat = false;
+
+    await run({ type: "preferences_update", autoNameSessions: false });
+    expect(h.inst.autoNameSessions).toBe(false);
+    expect(h.inst.claudeSubscriptionCompat).toBe(false);
+
+    await run({ type: "preferences_update", claudeSubscriptionCompat: true });
+    expect(h.inst.autoNameSessions).toBe(false);
+    expect(h.inst.claudeSubscriptionCompat).toBe(true);
+
+    await run({ type: "preferences_update", autoNameSessions: true, claudeSubscriptionCompat: false });
+    expect(h.inst.autoNameSessions).toBe(true);
+    expect(h.inst.claudeSubscriptionCompat).toBe(false);
+
+    await run({ type: "preferences_update", claudeSubscriptionCompat: "x" });
+    expect(h.inst.autoNameSessions).toBe(true);
+    expect(h.inst.claudeSubscriptionCompat).toBe(false);
+  });
+
   it("plugin_reply resolves through the plugin request client", async () => {
     const msg = { type: "plugin_reply", id: "r1" };
     await run(msg);

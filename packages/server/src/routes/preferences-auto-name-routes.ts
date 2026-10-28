@@ -17,6 +17,7 @@ import type { PiGateway } from "../pi/pi-gateway.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
 import { autoNameOutcomes } from "../auto-name-outcome-store.js";
+import { buildPreferencesUpdate } from "../preferences-relay.js";
 
 export function registerPreferencesAutoNameRoutes(
   fastify: FastifyInstance,
@@ -58,8 +59,10 @@ export function registerPreferencesAutoNameRoutes(
         return reply.code(400).send({ error: "Invalid body: expected { value: boolean }" });
       }
       preferencesStore.setAutoNameSessions(body.value);
-      // Relay to every connected bridge so live sessions pick up the change.
-      piGateway.broadcast({ type: "preferences_update", autoNameSessions: body.value });
+      // Relay the full preferences snapshot to every connected bridge so live
+      // sessions pick up the change without resetting other values.
+      // See change: retire-anthropic-messages-bridge (design D3).
+      piGateway.broadcast(buildPreferencesUpdate(preferencesStore));
       return { autoNameSessions: preferencesStore.getAutoNameSessions() };
     },
   );

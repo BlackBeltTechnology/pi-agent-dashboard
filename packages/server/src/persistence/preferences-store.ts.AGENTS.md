@@ -15,3 +15,5 @@ Focus mode + accordion: `cardSections.focus` loaded through `sanitizeFocusProfil
 `onPinsChanged` subscription (pin/unpin/replace/reorder). See change: mirror-dashboard-trust-to-pi.
 
 `chatMotion` backfills to `true` on load AND appears in BOTH `setDisplayPrefs` literals (base literal sets `true` — documented exception to the all-`false` base; merged `partial.chatMotion ?? base.chatMotion`), so a PATCH omitting it preserves the stored value and `PATCH {chatMotion:false}` is the runtime rollback. See change: add-fluid-chat-motion.
+
+`claudeSubscriptionCompat` field: `getClaudeSubscriptionCompat()` / `setClaudeSubscriptionCompat(v)`; absent or non-boolean → `false` (default OFF); written in both persisted literals. See change: retire-anthropic-messages-bridge.

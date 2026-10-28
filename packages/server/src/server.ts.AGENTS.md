@@ -124,3 +124,5 @@ Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZro
 ## harden-peer-address-identity
 
 mDNS browser gets `ownFingerprint: serverIdentity.fingerprint`; `registerKnownServersRoutes` gets `ownFingerprint`. See change: harden-peer-address-identity.
+
+Registers `registerPreferencesClaudeCompatRoutes`. `DashboardServer.pendingInitialPromptRegistry` exposed for in-process tests (not public API). See change: retire-anthropic-messages-bridge.

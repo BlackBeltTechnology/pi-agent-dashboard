@@ -138,6 +138,8 @@ export interface BridgeInstance {
   prStatus: PrStatusScheduler;
   lastSessionName: string | undefined;
   autoNameSessions: boolean;
+  /** Claude subscription compat switch relayed by the server; default false. See change: retire-anthropic-messages-bridge. */
+  claudeSubscriptionCompat: boolean;
   autoNamer: AutoNamer | undefined;
   namerState: PersistedNamerState | undefined;
   cachedHasUI: boolean | undefined;

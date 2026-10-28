@@ -86,6 +86,39 @@ describe("preferences-store", () => {
     });
   });
 
+  // ── retire-anthropic-messages-bridge (test-plan #E8) ────────────────
+  describe("claudeSubscriptionCompat", () => {
+    it("defaults to false when the field is absent", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [] }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getClaudeSubscriptionCompat()).toBe(false);
+      store.dispose();
+    });
+
+    it("reads a persisted true value", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ claudeSubscriptionCompat: true }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getClaudeSubscriptionCompat()).toBe(true);
+      store.dispose();
+    });
+
+    it("treats a non-boolean value as false", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ claudeSubscriptionCompat: "yes" }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getClaudeSubscriptionCompat()).toBe(false);
+      store.dispose();
+    });
+
+    it("persists a toggled value", () => {
+      const store = createPreferencesStore(filePath);
+      store.setClaudeSubscriptionCompat(true);
+      store.flush();
+      const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(raw.claudeSubscriptionCompat).toBe(true);
+      store.dispose();
+    });
+  });
+
   it("should pin and unpin directories", () => {
     const store = createPreferencesStore(filePath);
     store.pinDirectory("/a");
