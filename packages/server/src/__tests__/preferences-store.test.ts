@@ -117,6 +117,49 @@ describe("preferences-store", () => {
       expect(raw.claudeSubscriptionCompat).toBe(true);
       store.dispose();
     });
+
+    // ── seed-claude-compat-on-upgrade (test-plan #S1 #S2) ──────────────
+    const stored = (): unknown => JSON.parse(fs.readFileSync(filePath, "utf-8")).claudeSubscriptionCompat;
+
+    it.each([
+      ["absent", undefined, true, true, true],
+      ["absent", undefined, false, false, false],
+      ["absent", undefined, undefined, false, undefined],
+      ["absent", undefined, "none", false, undefined],
+      ["non-boolean", "yes", true, true, true],
+    ] as const)("S1: field %s (%s) × credential %s → reads %s, stores %s", (_label, field, cred, reads, storedValue) => {
+      fs.writeFileSync(filePath, JSON.stringify(field === undefined ? { pinnedDirectories: [] } : { claudeSubscriptionCompat: field }));
+      const dep = vi.fn(() => cred as boolean | undefined);
+      const store = createPreferencesStore(filePath, cred === "none" ? {} : { hasAnthropicCredential: dep });
+      expect(store.getClaudeSubscriptionCompat()).toBe(reads);
+      store.flush();
+      expect(stored()).toBe(storedValue);
+      if (cred !== "none") expect(dep).toHaveBeenCalledTimes(1);
+      store.dispose();
+    });
+
+    it.each([true, false])("S1: a stored %s is kept and the credential check never runs", (value) => {
+      fs.writeFileSync(filePath, JSON.stringify({ claudeSubscriptionCompat: value }));
+      const dep = vi.fn(() => !value);
+      const store = createPreferencesStore(filePath, { hasAnthropicCredential: dep });
+      expect(store.getClaudeSubscriptionCompat()).toBe(value);
+      expect(dep).not.toHaveBeenCalled();
+      store.dispose();
+    });
+
+    it("S2: the seed runs once; a later user choice survives a restart", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [] }));
+      const first = createPreferencesStore(filePath, { hasAnthropicCredential: () => true });
+      expect(first.getClaudeSubscriptionCompat()).toBe(true);
+      first.setClaudeSubscriptionCompat(false);
+      first.flush();
+      first.dispose();
+      const dep = vi.fn(() => true);
+      const second = createPreferencesStore(filePath, { hasAnthropicCredential: dep });
+      expect(second.getClaudeSubscriptionCompat()).toBe(false);
+      expect(dep).not.toHaveBeenCalled();
+      second.dispose();
+    });
   });
 
   it("should pin and unpin directories", () => {

@@ -503,6 +503,13 @@ export function createPreferencesStore(
      * See change: add-custom-event-group-filters.
      */
     customEventGroupDefaults?: Record<string, boolean>;
+    /**
+     * One-time seed for a never-stored Claude subscription compat switch:
+     * `true`/`false` = whether pi's auth.json holds an `anthropic` credential;
+     * `undefined` = unknown (seed nothing, retry next start).
+     * See change: seed-claude-compat-on-upgrade (design D1).
+     */
+    hasAnthropicCredential?: () => boolean | undefined;
   } = {},
 ): PreferencesStore {
   // Resolved once per process — the groups file is restart-to-apply (design D6).
@@ -567,8 +574,25 @@ export function createPreferencesStore(
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
   // Auto-naming toggle. Absent/non-false → true (default ON).
   let autoNameSessions: boolean = data.autoNameSessions !== false;
-  // Claude subscription compat switch. Absent/non-boolean → false (default OFF).
-  let claudeSubscriptionCompat: boolean = data.claudeSubscriptionCompat === true;
+  // Claude subscription compat switch. Absent/non-boolean → seeded ONCE from
+  // existing anthropic credentials and stored; unknown → reads off, stays
+  // unstored (`undefined` is dropped on write). See change:
+  // seed-claude-compat-on-upgrade (design D1, D3).
+  let claudeSubscriptionCompat: boolean | undefined =
+    typeof data.claudeSubscriptionCompat === "boolean" ? data.claudeSubscriptionCompat : undefined;
+  let claudeCompatSeeded = false;
+  if (claudeSubscriptionCompat === undefined && deps.hasAnthropicCredential) {
+    let seed: boolean | undefined;
+    try {
+      seed = deps.hasAnthropicCredential();
+    } catch {
+      seed = undefined;
+    }
+    if (typeof seed === "boolean") {
+      claudeSubscriptionCompat = seed;
+      claudeCompatSeeded = true;
+    }
+  }
   let liveServers: LiveServerTarget[] = Array.isArray(data.liveServers) ? data.liveServers : [];
   // Collapsed folder keys: `pathKey`-folded on load (both write AND read
   // canonicalize), NEVER realpath-resolved — see the invariant in design D3.
@@ -644,6 +668,7 @@ let dirty =
     // reach disk on THIS load — see the prefsChangedOnLoad comment above.
     prefsChangedOnLoad ||
     cardSectionsChangedOnLoad ||
+    claudeCompatSeeded ||
     expandedFolders.length !== rawExpanded.length ||
     data.pinSeeded !== true ||
     pinnedDirectories.length !== rawPinned.length ||
@@ -1124,7 +1149,7 @@ let dirty =
     },
 
     getClaudeSubscriptionCompat(): boolean {
-      return claudeSubscriptionCompat;
+      return claudeSubscriptionCompat === true;
     },
 
     setClaudeSubscriptionCompat(value: boolean): void {

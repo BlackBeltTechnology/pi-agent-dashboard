@@ -4269,18 +4269,22 @@ Anthropic bills subscription requests as extra usage when pi's built-in `docs` s
 
 Fix: Settings ▸ Providers ▸ `anthropic` row ▸ **Claude subscription compat** → on. Or Landing step ① → **Turn on**. Or the prompt after sign-in: "Keep Claude requests on your subscription?" → **Turn on**.
 
-- Preference: `claudeSubscriptionCompat` in `~/.pi/dashboard/preferences.json`, default `false`. API: `GET/PATCH /api/preferences/claude-subscription-compat` (`{value:boolean}`).
-- Needs the Flows plugin enabled. Row shows "Needs the Flows plugin to take effect." when disabled.
-- How it works: when on, run provider is `anthropic`, and pi default prompt used, `packages/flows-plugin/src/bridge/claude-compat.ts` replaces the `docs` section with pi's text where "pi itself" → "the cli itself" and "pi packages" → "cli packages". Whole prompt never forced. Tool names never renamed. Applies to main session and pi-flows agents.
-- Log: `[flows-plugin] claude-compat: state=<applied|off|not-anthropic|custom-or-forced|no-match>` once per session and on change. No prompt text logged.
+- Preference: `claudeSubscriptionCompat` in `~/.pi/dashboard/preferences.json`. API: `GET/PATCH /api/preferences/claude-subscription-compat` (`{value:boolean}`).
+- Never stored → seeded once at server start: `true` when `~/.pi/agent/auth.json` has an `anthropic` key (OAuth or API key), else `false`.
+- Seeded value stored. Never overrides a later choice. Unparseable `auth.json` → reads off, stays unstored, retried next start.
+- How it works: dashboard extension (`packages/extension/src/bridge.ts`) registers `claudeCompatExtension` (`packages/shared/src/dashboard-plugin/claude-compat.ts`) on every pi it loads into: main sessions, subagent children, pi-flows agents that load the settings packages. No plugin opts in.
+- When on + provider `anthropic` + pi default prompt: `docs` section "pi itself" → "the cli itself", "pi packages" → "cli packages". Whole prompt never forced. Tool names never renamed.
+- Already-open sessions: pi 1.4 replays a session's first system prompt as Anthropic `system` field. `before_provider_request` (`rewritePayloadSystem`) rewrites the docs block in the outgoing `system` too → covered from next request.
+- Log: `[dashboard] claude-compat: state=<applied|off|not-anthropic|custom-or-forced|no-match>` once per pi and on change. No prompt text logged.
 - Old package: `pi-anthropic-messages` is no longer required. After the switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages`. A one-time notice in the dashboard prompts this when the package is still installed.
 
 Cross-refs:
 - docs/user-features.md §Models & providers
-- packages/extension/src/compat-preference-probe.ts
-- packages/flows-plugin/src/bridge/__tests__/pi-docs-canary.test.ts
+- packages/shared/src/dashboard-plugin/claude-compat.ts
+- packages/server/src/auth/provider-auth-storage.ts (`hasAnthropicCredential`)
+- packages/extension/src/__tests__/claude-compat-pi-docs-canary.test.ts
 
-See change: retire-anthropic-messages-bridge.
+See change: retire-anthropic-messages-bridge, seed-claude-compat-on-upgrade.
 
 ## How do I re-check whether Claude requests bill as subscription or extra usage?
 

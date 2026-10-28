@@ -3623,7 +3623,6 @@ export const zhCNCatalog: Record<string, string> = {
   "claudeCompat.switchLabel": "Claude 订阅兼容",
   "claudeCompat.stateOn": "开",
   "claudeCompat.stateOff": "关",
-  "claudeCompat.needsFlows": "需要 Flows 插件才能生效。",
   "claudeCompat.uninstallTitle": "不再需要 pi-anthropic-messages",
   "claudeCompat.uninstallBody": "Claude 订阅兼容现已接管其功能。你可以在扩展中卸载 pi-anthropic-messages。",
   "landing.compatOff": "Claude 订阅请求可能会被计为额外用量",

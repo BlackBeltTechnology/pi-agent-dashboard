@@ -1498,7 +1498,6 @@
   "claudeCompat.switchLabel": "Claude subscription compat",
   "claudeCompat.stateOn": "on",
   "claudeCompat.stateOff": "off",
-  "claudeCompat.needsFlows": "Needs the Flows plugin to take effect.",
   "claudeCompat.uninstallTitle": "pi-anthropic-messages is no longer needed",
   "claudeCompat.uninstallBody": "Claude subscription compat now does its job. You can uninstall pi-anthropic-messages from Extensions.",
   "landing.compatOff": "Claude subscription requests may be billed as extra usage"
