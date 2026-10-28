@@ -93,26 +93,39 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
     };
   }, [open]);
 
+  // Last override sent but not yet echoed back (`undefined` = none in flight). The popover
+  // stays open after Reset, so an edit can follow before the echo; basing it on the sent
+  // value keeps it from resurrecting the cleared override.
+  // See change: fix-dock-peek-join-and-view-menu-close.
+  const sentRef = useRef<PartialDisplayPrefs | null | undefined>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on every server echo
+  useEffect(() => {
+    sentRef.current = undefined;
+  }, [currentOverride]);
+
   const patch = useCallback((delta: DisplayPrefsPatch) => {
+    const base = sentRef.current === undefined ? currentOverride : (sentRef.current ?? undefined);
     const next: PartialDisplayPrefs = {
-      ...(currentOverride ?? {}),
+      ...(base ?? {}),
       ...delta,
     };
     if (delta.toolCalls) {
-      next.toolCalls = { ...(currentOverride?.toolCalls ?? {}), ...delta.toolCalls };
+      next.toolCalls = { ...(base?.toolCalls ?? {}), ...delta.toolCalls };
     }
     if (delta.customEventGroups) {
       next.customEventGroups = {
-        ...(currentOverride?.customEventGroups ?? {}),
+        ...(base?.customEventGroups ?? {}),
         ...delta.customEventGroups,
       };
     }
+    sentRef.current = next;
     send({ type: "setSessionDisplayPrefs", sessionId, override: next });
   }, [currentOverride, send, sessionId]);
 
   const clearOverride = useCallback(() => {
     // Keeps the popover open: the user sees the rows return to global.
     // See change: fix-dock-peek-join-and-view-menu-close.
+    sentRef.current = null;
     send({ type: "setSessionDisplayPrefs", sessionId, override: null });
   }, [send, sessionId]);
 

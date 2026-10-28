@@ -425,6 +425,8 @@ describe("peek joins the bar as one surface", () => {
     expect(cls(dock())).not.toContain("rounded-t-xl");
     expect(cls(region())).toEqual(expect.arrayContaining(["rounded-t-xl", "z-popover"]));
     expect(cls(region())).not.toContain("shadow-lg");
+    // Upward-only shadow: negative y offset + negative spread keeps it off the bar.
+    expect(cls(region()).some((c) => /^shadow-\[0_-\d+px_\d+px_-\d+px_/.test(c))).toBe(true);
     expect(cls(region())).not.toContain("z-raised");
     expect(bar().className).not.toMatch(/(^|\s)hover:bg-/);
   });

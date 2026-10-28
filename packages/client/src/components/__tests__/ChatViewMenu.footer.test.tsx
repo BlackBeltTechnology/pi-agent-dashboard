@@ -58,6 +58,17 @@ describe("ChatViewMenu footer", () => {
     expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
   });
 
+  // The popover stays open, so an edit can follow Reset before the server echo:
+  // it must not resurrect the cleared override.
+  it("an edit right after Reset does not restore the cleared override", () => {
+    const { send } = open(CHANGED);
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    fireEvent.click(screen.getByText("Debug events"));
+    const last = send.mock.calls.at(-1)?.[0];
+    expect(last.override).toBeTruthy();
+    expect(last.override).not.toHaveProperty("reasoning");
+  });
+
   // test-plan #T5: open after success, no success text in the footer.
   it("Set as global success keeps the popover open without a status message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));

@@ -29,4 +29,4 @@ See change: fix-popover-container-clip — reads `usePopoverBoundary()`, passes 
 
 `common.chatMotion` row ("Fluid chat motion"): instant apply through the shared `patch` path, override marker via `isOverridden("chatMotion")`. See change: add-fluid-chat-motion.
 
-Reset + Set as global (success) keep the popover open; `clearOverride` no longer calls `setOpen(false)`; no success text. See change: fix-dock-peek-join-and-view-menu-close.
+Reset + Set as global (success) keep the popover open; `clearOverride` no longer calls `setOpen(false)`; no success text. `sentRef` (last sent, un-echoed override) is the `patch` base so an edit after Reset never resurrects the cleared override. See change: fix-dock-peek-join-and-view-menu-close.
