@@ -69,6 +69,21 @@ describe("ChatViewMenu footer", () => {
     expect(last.override).not.toHaveProperty("reasoning");
   });
 
+  it("a stale echo arriving after Reset does not resurrect the cleared override", () => {
+    const send = vi.fn();
+    const ui = (override: Record<string, unknown> | undefined) => (
+      <DisplayPrefsProvider value={{ global: G, getSessionOverride: () => override as never }}>
+        <ChatViewMenu sessionId="s1" send={send} currentOverride={override as never} />
+      </DisplayPrefsProvider>
+    );
+    const { rerender } = render(ui(CHANGED));
+    fireEvent.click(screen.getByText("View"));
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    rerender(ui({ ...CHANGED })); // older echo, new object, same content
+    fireEvent.click(screen.getByText("Debug events"));
+    expect(send.mock.calls.at(-1)?.[0].override).not.toHaveProperty("reasoning");
+  });
+
   // test-plan #T5: open after success, no success text in the footer.
   it("Set as global success keeps the popover open without a status message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));

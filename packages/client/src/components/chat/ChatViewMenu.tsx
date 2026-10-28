@@ -57,6 +57,17 @@ interface Props {
   iconOnly?: boolean;
 }
 
+/** Order-insensitive identity of an override; `null`, `undefined` and `{}` are all "no override". */
+function overrideKey(o: PartialDisplayPrefs | null | undefined): string {
+  if (!o) return "";
+  const sortDeep = (v: unknown): unknown =>
+    v && typeof v === "object"
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortDeep((v as Record<string, unknown>)[k])]))
+      : v;
+  const s = JSON.stringify(sortDeep(o));
+  return s === "{}" ? "" : s;
+}
+
 export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = false }: Props): React.ReactElement {
   const { global } = useDisplayPrefsContext();
   const prefs = useDisplayPrefs(sessionId);
@@ -97,10 +108,12 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
   // stays open after Reset, so an edit can follow before the echo; basing it on the sent
   // value keeps it from resurrecting the cleared override.
   // See change: fix-dock-peek-join-and-view-menu-close.
+  // Cleared only by the MATCHING echo: an older echo arriving later must not drop it.
   const sentRef = useRef<PartialDisplayPrefs | null | undefined>(undefined);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on every server echo
   useEffect(() => {
-    sentRef.current = undefined;
+    if (sentRef.current !== undefined && overrideKey(currentOverride) === overrideKey(sentRef.current)) {
+      sentRef.current = undefined;
+    }
   }, [currentOverride]);
 
   const patch = useCallback((delta: DisplayPrefsPatch) => {
