@@ -39,6 +39,12 @@ export default defineConfig({
 			// Build-time pi-shell resolution gate: pure helpers + non-win32 no-op.
 			// See change: fix-windows-bundled-bash-exe (X10).
 			"src/__tests__/assert-bundled-bash-resolvable.test.ts",
+			// Bundle GO/NO-GO for @napi-rs/keyring (triple, worker entry, version skew,
+			// Linux licence). Pure fs on a temp dir. See change: encrypt-credentials-at-rest (E88, E89).
+			"src/__tests__/assert-keyring-bundle.test.ts",
+			// macOS static gate for the bundled Node (DLV entitlement parser, paths, smoke policy).
+			// See change: encrypt-credentials-at-rest (E90).
+			"src/__tests__/assert-mac-bundled-node-keyring.test.ts",
 			// Launch-source precedence is shipped contract too, and the resolver
 			// takes every probe by injection (pure). See change:
 			// electron-runtime-overlay-updates (test-plan E4, E23).

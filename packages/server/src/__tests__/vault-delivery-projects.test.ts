@@ -14,6 +14,7 @@ import { UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { createVaultDeliveryHub, type VaultDeliveryHubDeps } from "../vault/vault-delivery-hub.js";
 import { createVaultProjects } from "../vault/vault-projects.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
@@ -50,7 +51,7 @@ const req = (sessionId: string, over: Partial<VaultSyncRequestMessage> = {}): Va
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-hub-projects-"));
-  store = createVaultStore(path.join(dir, "vault.json"));
+  store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
   sent = []; enabled = true; tls = false; disconnected.clear();
   origins = {};
 });

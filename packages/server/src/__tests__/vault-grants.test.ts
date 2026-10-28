@@ -21,12 +21,13 @@ import {
 } from "../vault/vault-grants.js";
 import { approvePluginBinding, createPluginVaultReader } from "../vault/vault-plugin-read.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-grants-"));
-  store = createVaultStore(path.join(dir, "vault.json"));
+  store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

@@ -9,7 +9,7 @@ import { isDeliverableEnvName, isReservedEnvName } from "@blackbelt-technology/p
 import { mdiPlus, mdiPuzzleOutline } from "@mdi/js";
 import { useId, useState } from "react";
 import { t as i18nT } from "../../../lib/i18n/i18n.js";
-import { createBinding, repoSubject, revokeConfirmation, type VaultOverview } from "../../../lib/vault/vault-api.js";
+import { createBinding, isVaultWriteBlocked, repoSubject, revokeConfirmation, type VaultOverview } from "../../../lib/vault/vault-api.js";
 import { PluginApprovalRow, VaultVariableCard } from "./VaultVariableCard.js";
 import {
   BUTTON_CLASS,
@@ -35,7 +35,7 @@ const EXAMPLE_SAFE_NAME = "MY_SERVICE_TOKEN";
 
 export function VaultVariablesTab({ overview, onChanged }: { overview: VaultOverview; onChanged: () => void | Promise<void> }) {
   const ids = useId();
-  const disabled = overview.status.state === "corrupt";
+  const disabled = isVaultWriteBlocked(overview.status);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState("");

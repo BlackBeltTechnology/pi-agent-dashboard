@@ -1,0 +1,3 @@
+# credential-vault-locked.spec.ts — index
+
+L3 F4 locked vault in real UI. Seeds 1 account (`VaultSeed`); `docker exec` swaps `/home/pi/.pi/dashboard/vault.json` for `pi-dashboard-encrypted:v2\n{}` (backup `*.e2e-locked.bak`, `cp -p`, in-place write keeps 0600). Reload → `vault-locked` + `vault-lock-reason`=`unsupported_format`, write controls disabled (`vault-variable-new`, `vault-account-new`, `vault-import-file`); API add → 409 `vault_locked` + `reason`. Restore bytes → `/api/vault` state `ok`, account listed, controls enabled. `restoreVault` idempotent, runs in beforeEach + afterEach (before `seed.reset`). Container via `resolveContainer()`. See change: encrypt-credentials-at-rest.

@@ -120,3 +120,27 @@ describe("candidates and upload", () => {
     expect(screen.getByLabelText(/Or choose a .env or JSON file/)).toBeTruthy();
   });
 });
+
+/** The `data-testid`s of every disabled control under `root`. */
+const disabledIds = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>("button, input, select, textarea")]
+    .filter((el) => (el as HTMLButtonElement).disabled)
+    .map((el) => el.dataset.testid ?? el.tagName)
+    .sort();
+
+describe("F2 — locked disables as corrupt does", () => {
+  const disabledFor = (status: VaultOverview["status"]) => {
+    cleanup();
+    const { container } = render(<VaultImportPanel overview={{ ...overview, status }} candidates={CANDIDATES} onChanged={onChanged} onGoToVariables={onGoToVariables} />);
+    return disabledIds(container);
+  };
+  it("locked and read-only match corrupt; ok disables nothing", () => {
+    stubImport(["A_KEY"]);
+    const corrupt = disabledFor({ state: "corrupt" });
+    expect(corrupt.length).toBeGreaterThan(0);
+    expect(disabledFor({ state: "locked", reason: "key_mismatch" })).toEqual(corrupt);
+    expect(disabledFor({ state: "ok", writable: false, reason: "key_missing" })).toEqual(corrupt);
+    expect(disabledFor({ state: "ok" })).toEqual([]);
+    expect(disabledFor({ state: "ok", writable: true })).toEqual([]);
+  });
+});

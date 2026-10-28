@@ -19,6 +19,7 @@ import {
   createBinding,
   type ImportCandidate,
   type ImportProposal,
+  isVaultWriteBlocked,
   proposeImport,
   type VaultOverview,
 } from "../../../lib/vault/vault-api.js";
@@ -286,7 +287,7 @@ export function VaultImportPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Done | null>(null);
-  const disabled = overview.status.state === "corrupt";
+  const disabled = isVaultWriteBlocked(overview.status);
 
   const open = (p: ImportProposal, source: string) => {
     setProposal({ ...p, source });

@@ -315,7 +315,8 @@ export function createVaultDeliveryHub(deps: VaultDeliveryHubDeps): VaultDeliver
       return msg;
     }
     const { status, doc } = deps.store.readDocument();
-    if (status.state === "corrupt") {
+    // A locked vault (undecryptable envelope) is unavailable exactly like a corrupt one: nothing is delivered.
+    if (status.state === "corrupt" || status.state === "locked") {
       rec.outcome = "vault-unavailable";
       rec.trustDetail = undefined;
       return snapshotMsg("unavailable", "vault-unavailable");

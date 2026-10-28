@@ -258,7 +258,6 @@ flowchart LR
 | `compose.dev.yml` | rw source mount + `5173` publish | `docker/compose.dev.yml:20-28` |
 
 ## Planned (not shipped)
-- `openspec/changes/encrypt-credentials-at-rest/` — proposed (see [credentials-and-secrets.md](credentials-and-secrets.md)). Not shipped.
 - `openspec/changes/add-claude-marketplace-plugins/` — proposes "resolved paths stay inside allowed roots" + symlink-escape refusal for marketplace sources (`openspec/changes/add-claude-marketplace-plugins/specs/claude-marketplace-sources/spec.md`). Not shipped.
 
 ## Findings

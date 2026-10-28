@@ -31,6 +31,7 @@ import {
   waitFor,
   writeCfg,
 } from "./helpers/acme-test-kit.js";
+import { readVaultDoc } from "./helpers/vault-test-codec.js";
 
 let env: AcmeEnv;
 let fake: FakeListener;
@@ -161,7 +162,7 @@ describe("E12 vault account (route half)", () => {
     await boot();
     expect((await putCreds("home", { token: ACME_TOKEN })).statusCode).toBe(200);
     expect((await putCreds("home", { token: "cf-secret-SECOND-9999" })).statusCode).toBe(200);
-    const doc = JSON.parse(fs.readFileSync(vaultFile(), "utf8"));
+    const doc = readVaultDoc(vaultFile()) as { accounts: Array<Record<string, any>> };
     const accounts = doc.accounts.filter((a: any) => a.kind === "tls-solver");
     expect(accounts).toHaveLength(1);
     expect(accounts[0]).toMatchObject({ kind: "tls-solver", namespace: "tls:home", provider: "cloudflare", label: "cloudflareToken", value: "cf-secret-SECOND-9999" });

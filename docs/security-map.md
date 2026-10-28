@@ -194,7 +194,7 @@ No OS sandbox. `bash` runs as operator OS user. Every guard = pi `tool_call`/`to
 
 Coverage gaps:
 - `bash`, `grep`, `find`, `ls`, MCP, custom tools NOT covered by path gate (`packages/extension/src/path-gate/handler.ts:40`).
-- Session MCP token = `control` tier → can answer other sessions' prompts (TOOL-01).
+- Session MCP token = `control` tier → `send_prompt` to other sessions; MCP `prompt_response` mis-bound, cannot answer prompts (TOOL-01, Low).
 - ACP agents bypass pi guards (TOOL-15).
 - Matrix: [tool-call-guards § Tool × guard coverage](security/tool-call-guards.md).
 
@@ -205,9 +205,9 @@ Source: [residual-risks](security/residual-risks.md). Canonical rows after dedup
 | Severity | Count |
 |---|---|
 | Critical | 0 |
-| High | 6 |
+| High | 5 |
 | Medium | 29 |
-| Low | 46 |
+| Low | 47 |
 | Info | 40 |
 | **Total** | **121** |
 
@@ -217,10 +217,11 @@ High findings:
 |---|---|---|
 | HTTP-01 | OAuth with empty `auth.allowedUsers` admits any IdP account at `operate` | [http-gates-and-routes](security/http-gates-and-routes.md#findings) |
 | WS-01 | Tokenless loopback bridge grace open; default transport on win32 | [websocket-and-bridge](security/websocket-and-bridge.md#findings) |
-| TOOL-01 | Agent answers other session's guard prompts via MCP `prompt_response` | [tool-call-guards](security/tool-call-guards.md#findings) |
 | PLUG-01 | Server plugins in-process, full server privilege, no isolation | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | ELEC-04 | Desktop binaries unsigned | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | DEP-01 | File-read routes anchor `~/.pi`; provider credentials readable at `observe` | [deployment-process-supply-chain](security/deployment-process-supply-chain.md#findings) |
+
+TOOL-01 re-rated Low 2026-10-22 (see register Corrections).
 
 Also in the register:
 - Fix order: [Top priorities](security/residual-risks.md#top-priorities).

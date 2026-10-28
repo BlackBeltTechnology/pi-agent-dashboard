@@ -742,15 +742,28 @@ describe("prompt-driven pane — review-gate regressions", () => {
     const pane = await dialog().findByTestId("dialog-flow-waiting");
     // `expiresInSeconds` is the code's TOTAL life, echoed on every poll — a
     // per-render format() of it would read 15:00 forever.
-    expect(pane.textContent).toMatch(/15:00/);
+    // The countdown is set by an effect one render after the pane mounts, and the
+    // suite's `shouldAdvanceTime` clock also moves with real time, so a loaded
+    // runner can add seconds: assert the anchor and the decrements, not wall-clock
+    // literals.
+    const secs = () => {
+      const m = pane.textContent?.match(/expires in (\d+):(\d\d)/i);
+      return m ? Number(m[1]) * 60 + Number(m[2]) : Number.NaN;
+    };
+    await waitFor(() => expect(secs()).toBeGreaterThan(0));
+    const s0 = secs();
+    expect(s0).toBeLessThanOrEqual(900);
+    expect(s0).toBeGreaterThanOrEqual(890);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
-    expect(pane.textContent).toMatch(/14:59/);
+    const s1 = secs();
+    expect(s1).toBeLessThanOrEqual(s0 - 1);
+    // Spans a 2 s poll that re-echoes `expiresInSeconds: 900`: a re-anchor would jump back up.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(pane.textContent).toMatch(/14:57/);
+    expect(secs()).toBeLessThanOrEqual(s1 - 2);
   });
 
   it("AUTH-007: the client flow deadline is only ever EXTENDED, never re-pushed", () => {

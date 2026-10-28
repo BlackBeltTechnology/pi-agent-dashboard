@@ -19,6 +19,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/vault-project-key.js", async 
 import { createVaultDeliveryHub } from "../vault/vault-delivery-hub.js";
 import { createVaultProjects } from "../vault/vault-projects.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
@@ -30,7 +31,7 @@ const req = (sessionId: string, origin: string | undefined): VaultSyncRequestMes
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-hub-cred-"));
-  store = createVaultStore(path.join(dir, "vault.json"));
+  store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
   sent.length = 0;
   normalizeSpy.mockClear();
 });

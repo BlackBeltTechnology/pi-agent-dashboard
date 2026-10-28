@@ -11,7 +11,8 @@
  *
  * See change: add-acme-dns01-certs (design D5, D7).
  */
-import type { FastifyInstance } from "fastify";
+import { credentialRemedy } from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { readConfigState, writeConfigPartial } from "../config-api.js";
 import { resolveSourceId, validateTlsSources } from "../tls/source-registry.js";
 import { getLiveAcmeSource } from "../tls/sources/acme/acme-source.js";
@@ -29,6 +30,17 @@ const isObj = (v: unknown): v is Json => !!v && typeof v === "object" && !Array.
 const SOURCE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 type AcmeListener = Pick<TlsListener, "manager" | "reconcile" | "trigger" | "refreshReadiness">;
+
+/**
+ * A vault refusal on the credentials route. `vault_corrupt` and `vault_locked` are 409; a locked
+ * vault names its non-secret reason and the shared remedy (never file content), other codes are 400.
+ */
+function vaultErrorReply(reply: FastifyReply, err: VaultError): FastifyReply {
+  if (err.code === "vault_locked" && err.reason) {
+    return reply.code(409).send({ success: false, error: err.code, reason: err.reason, remedy: credentialRemedy(err.reason) });
+  }
+  return reply.code(err.code === "vault_corrupt" || err.code === "vault_locked" ? 409 : 400).send({ success: false, error: err.code });
+}
 
 export interface AcmeRoutesDeps {
   networkGuard: NetworkGuard;
@@ -165,9 +177,7 @@ export function registerAcmeRoutes(fastify: FastifyInstance, deps: AcmeRoutesDep
         await getAcmeRuntime().credentials.save(sourceId, solver.type, request.body);
       } catch (err) {
         if (err instanceof AcmeCredentialsError) return reply.code(400).send({ success: false, error: err.message });
-        if (err instanceof VaultError) {
-          return reply.code(err.code === "vault_corrupt" ? 409 : 400).send({ success: false, error: err.code });
-        }
+        if (err instanceof VaultError) return vaultErrorReply(reply, err);
         return fail(reply, err);
       }
       getLiveAcmeSource(sourceId)?.invalidateReadiness();

@@ -21,6 +21,27 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+### Security
+
+- **Plugin credentials and the credential vault are now encrypted at rest.** `~/.pi/agent/plugin-credentials.json`
+  and `~/.pi/dashboard/vault.json` are stored as an AES-256-GCM envelope (`pi-dashboard-encrypted:v1`). The data key
+  lives in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager; service
+  `pi-dashboard-credential-key`) or, when `PI_DASHBOARD_DATA_KEY_FILE` names an owner-only file, only in that file. The
+  key is created lazily (first credential write, or to migrate an existing plaintext file at startup) and never leaves
+  the server process. Without a usable key the host never falls back to plaintext: existing plaintext stays readable,
+  writes are refused (`store_locked`, vault `vault_locked` → 409) with a remedy. On Linux the key is stored only in the
+  Secret Service, never the non-persistent kernel keyring. A new always-on bridge guard blocks agent tool calls that
+  target the credential files, the key file or the keychain entry (`credential_guard`; best effort, not a sandbox).
+  New local CLI: `pi-dashboard credentials status|decrypt|reset`.
+  - **Before downgrading, run `pi-dashboard credentials decrypt`** with the server stopped. An older version sees an
+    encrypted file as corrupt: its vault refuses writes, its plugin store backs the file up and starts a new plaintext
+    one.
+  - **Docker:** mount `/home/pi/.pi-key` as a named volume (`compose.yml` does). The entrypoint generates
+    `/home/pi/.pi-key/data-key` on first start and refuses to generate one while an encrypted file exists (restore the
+    volume instead). A copy of the `/home/pi/.pi` volume alone carries no key.
+  - **Key loss** (keychain reset, restore on a new machine) leaves the files locked; restore the key or run
+    `pi-dashboard credentials reset` and enter the credentials again.
+
 ## [0.11.0] - 2026-10-26
 
 ### Added

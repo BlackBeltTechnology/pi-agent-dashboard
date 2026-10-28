@@ -18,14 +18,29 @@
  * Values never leave through listings: `AccountView` carries no value. The only
  * value reader is `getKeyValue`, for delivery and plugin reads.
  *
- * See change: add-credential-vault (D1), add-acme-dns01-certs (D5).
+ * Encryption at rest: the file is a whole-file envelope behind a REQUIRED codec
+ * (`createVaultStore({ codec, path? })`). An envelope this process cannot read
+ * is LOCKED (`vault_locked`, 409): never quarantined, never overwritten. A
+ * plaintext vault with no data key stays readable but `writable:false`. Before a
+ * write takes the store lock the data key is resolved (`ensureCredentialKeyForWrite`)
+ * whenever the codec has none. Errors and statuses carry a non-secret reason and
+ * the fixed remedy, never file content.
+ *
+ * See change: add-credential-vault (D1), add-acme-dns01-certs (D5), encrypt-credentials-at-rest (D1, D3, D4).
  */
 
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
+  type CredentialLockReason,
+  credentialRemedy,
+} from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { CredentialLockedError } from "../auth/credential-envelope.js";
+import { ensureCredentialKeyForWrite } from "../auth/credential-key.js";
+import {
+  type JsonFileCodec,
   type NotPromise,
   readJsonChecked,
   withLockedJsonFile,
@@ -43,6 +58,7 @@ export type VaultErrorCode =
   | "value_too_long"
   | "invalid_field"
   | "vault_corrupt"
+  | "vault_locked"
   | "not_found"
   | "invalid_binding_name"
   | "invalid_grant"
@@ -51,10 +67,13 @@ export type VaultErrorCode =
 
 export class VaultError extends Error {
   readonly code: VaultErrorCode;
-  constructor(code: VaultErrorCode, message: string) {
+  /** `vault_locked` only: the non-secret lock reason (the remedy comes from the shared table). */
+  readonly reason?: CredentialLockReason;
+  constructor(code: VaultErrorCode, message: string, reason?: CredentialLockReason) {
     super(message);
     this.name = "VaultError";
     this.code = code;
+    if (reason) this.reason = reason;
   }
 }
 
@@ -88,10 +107,13 @@ export interface AccountView {
   label: string;
 }
 
-type VaultStatus =
+export type VaultStatus =
   | { state: "absent" }
-  | { state: "ok" }
-  | { state: "corrupt"; backup?: string };
+  /** `writable:false` + `reason`: a plaintext vault while no data key is available (readable, every write refused). */
+  | { state: "ok"; writable?: false; reason?: CredentialLockReason }
+  | { state: "corrupt"; backup?: string }
+  /** An envelope this process cannot read. Bytes are untouched; every write is refused. */
+  | { state: "locked"; reason: CredentialLockReason };
 
 export interface AddAccountInput {
   provider: string;
@@ -121,7 +143,8 @@ export interface VaultStore {
   readDocument(): { status: VaultStatus; doc: VaultDocument };
   /**
    * Locked read-modify-write. `fn` runs synchronously inside the lock on the raw
-   * document and may mutate it in place. Refused on a corrupt file.
+   * document and may mutate it in place. Refused on a corrupt file (`vault_corrupt`)
+   * and on a locked or key-less vault (`vault_locked`).
    */
   update<T>(fn: (doc: VaultDocument) => T & NotPromise<T>): Promise<T>;
   /** Replace a `key` account's value in place (same id, so bindings and grants stay valid). */
@@ -134,17 +157,24 @@ export interface VaultStore {
   /** INTERNAL: remove every `tls-solver` account of `tls:<sourceId>`. No write when there is none. */
   deleteTlsNamespace(sourceId: string): Promise<void>;
   /**
-   * INTERNAL: the only reader of `tls-solver` values. `null` = absent. Throws `vault_corrupt`
-   * when the vault is unreadable (the caller maps that to "credential vault unavailable").
+   * INTERNAL: the only reader of `tls-solver` values. `null` = absent. Throws `vault_corrupt` or
+   * `vault_locked` when the vault is unreadable (the caller maps that to "credential vault unavailable").
    */
   readTlsSecret(sourceId: string, label: string): Promise<string | null>;
-  /** INTERNAL: source ids that hold at least one `tls-solver` account (for GC). `[]` on a corrupt vault. */
+  /** INTERNAL: source ids that hold at least one `tls-solver` account (for GC). `[]` on a corrupt or locked vault. */
   listTlsNamespaces(): Promise<string[]>;
   /**
    * Subscribe to committed writes. Listeners run after the lock is released and
    * must not throw; a throwing listener is logged and ignored. Returns unsubscribe.
    */
   onChange(listener: () => void): () => void;
+}
+
+export interface CreateVaultStoreOptions {
+  /** REQUIRED. Production: `getCredentialCodec("vault")`; tests: a codec over a fixed key. */
+  codec: JsonFileCodec;
+  /** Default `~/.pi/dashboard/vault.json`. */
+  path?: string;
 }
 
 function defaultVaultPath(): string {
@@ -176,6 +206,11 @@ function corruptError(filePath: string): VaultError {
     "vault_corrupt",
     `vault file is corrupt (backup: ${backup ?? "none"}); fix or remove ${filePath} and try again`,
   );
+}
+
+/** A refused write on a locked or key-less vault: non-secret reason, fixed remedy, no file content. */
+function lockedError(reason: CredentialLockReason): VaultError {
+  return new VaultError("vault_locked", `vault is locked (${reason}). ${credentialRemedy(reason)}`, reason);
 }
 
 export function accountView(a: StoredAccount): AccountView {
@@ -238,7 +273,11 @@ const isTlsAccount = (a: unknown, namespace?: string): a is StoredAccount =>
   a.namespace.startsWith(TLS_NAMESPACE_PREFIX) &&
   (namespace === undefined || a.namespace === namespace);
 
-export function createVaultStore(filePath: string = defaultVaultPath()): VaultStore {
+export function createVaultStore(options: CreateVaultStoreOptions): VaultStore {
+  const codec = options?.codec;
+  // Fail closed before anything touches the file: a store without a codec could write plaintext.
+  if (!codec) throw new Error("createVaultStore requires a credential codec ({ codec, path? })");
+  const filePath = options.path ?? defaultVaultPath();
   const listeners = new Set<() => void>();
   const notify = (): void => {
     for (const l of [...listeners]) {
@@ -246,26 +285,48 @@ export function createVaultStore(filePath: string = defaultVaultPath()): VaultSt
     }
   };
   const readDocument = (): { status: VaultStatus; doc: VaultDocument } => {
-    const checked = readJsonChecked<VaultDocument>(filePath, LOG_TAG);
+    const checked = readJsonChecked<VaultDocument>(filePath, LOG_TAG, codec);
     if (checked.corrupt) {
       return { status: { state: "corrupt", backup: findBackup(filePath) }, doc: {} };
     }
-    return { status: fs.existsSync(filePath) ? { state: "ok" } : { state: "absent" }, doc: checked.data };
+    if (checked.locked) return { status: { state: "locked", reason: checked.locked }, doc: {} };
+    if (!fs.existsSync(filePath)) return { status: { state: "absent" }, doc: checked.data };
+    // Plaintext stays readable without a key, but no write can encrypt it (D3, G2).
+    const reason = checked.encrypted === false ? codec.unavailableReason() : undefined;
+    return { status: reason ? { state: "ok", writable: false, reason } : { state: "ok" }, doc: checked.data };
   };
 
+  /** Map a codec refusal to the vault's own error; anything else propagates unchanged. */
+  const asVaultError = (err: unknown): unknown =>
+    err instanceof CredentialLockedError ? lockedError(err.reason) : err;
+
   const update = async <T>(fn: (doc: VaultDocument) => T & NotPromise<T>): Promise<T> => {
-    const result = await withLockedJsonFile(
-      filePath,
-      (): T & NotPromise<T> => {
-        const checked = readJsonChecked<VaultDocument>(filePath, LOG_TAG);
-        if (checked.corrupt) throw corruptError(filePath);
-        const doc = checked.data;
-        const result = fn(doc);
-        writeJsonAtomic(filePath, doc);
-        return result;
-      },
-      { logTag: LOG_TAG, createIfMissing: false },
-    );
+    // Resolve the data key BEFORE the store lock (D4): the codec cannot await inside the lock callback.
+    // Only `key_uninitialized` can be fixed by resolving (first write while deferred); any other
+    // reason is a cached failure that the check inside the lock refuses with its own reason.
+    if (codec.unavailableReason() === "key_uninitialized") {
+      try { await ensureCredentialKeyForWrite(); } catch (err) { throw asVaultError(err); }
+    }
+    let result: T;
+    try {
+      result = await withLockedJsonFile(
+        filePath,
+        (): T & NotPromise<T> => {
+          const checked = readJsonChecked<VaultDocument>(filePath, LOG_TAG, codec);
+          if (checked.corrupt) throw corruptError(filePath);
+          if (checked.locked) throw lockedError(checked.locked);
+          const unavailable = codec.unavailableReason();
+          if (unavailable) throw lockedError(unavailable);
+          const doc = checked.data;
+          const result = fn(doc);
+          writeJsonAtomic(filePath, doc, undefined, codec);
+          return result;
+        },
+        { logTag: LOG_TAG, createIfMissing: false, codec },
+      );
+    } catch (err) {
+      throw asVaultError(err);
+    }
     notify();
     return result;
   };
@@ -342,6 +403,7 @@ export function createVaultStore(filePath: string = defaultVaultPath()): VaultSt
     async deleteTlsNamespace(sourceId) {
       const { status, doc } = readDocument();
       if (status.state === "corrupt") throw corruptError(filePath);
+      if (status.state === "locked") throw lockedError(status.reason);
       const namespace = tlsNamespace(sourceId);
       if (!(Array.isArray(doc.accounts) ? doc.accounts : []).some((a) => isTlsAccount(a, namespace))) return;
       await update((d) => {
@@ -351,6 +413,7 @@ export function createVaultStore(filePath: string = defaultVaultPath()): VaultSt
     async readTlsSecret(sourceId, label) {
       const { status, doc } = readDocument();
       if (status.state === "corrupt") throw corruptError(filePath);
+      if (status.state === "locked") throw lockedError(status.reason);
       const namespace = tlsNamespace(sourceId);
       const a = (Array.isArray(doc.accounts) ? doc.accounts : []).find((x) => isTlsAccount(x, namespace) && x.label === label);
       return isRecord(a) && typeof a.value === "string" ? a.value : null;

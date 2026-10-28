@@ -227,3 +227,11 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: "size=2g,noatime"
+  # Credential data key volume, tmpfs like pi-state: the key and the encrypted
+  # files vanish together each run. See change: encrypt-credentials-at-rest (D6).
+  pi-key:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=16m,noatime"

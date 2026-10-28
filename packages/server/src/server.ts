@@ -94,6 +94,8 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
+import { getCredentialCodec, type InitCredentialKeyOptions, initCredentialKey } from "./auth/credential-key.js";
+import { migrateCredentialFiles } from "./auth/credential-migration.js";
 import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
@@ -414,6 +416,12 @@ import { createVaultStore } from "./vault/vault-store.js";
 import { createWatchFilesHandler, type WatchFilesMessage } from "./watch-files-handler.js";
 
 export interface ServerConfig {
+  /**
+   * Test seam for the credential data key (key file env, stub keychain, log sink, home dir).
+   * Production leaves it unset: `initCredentialKey()` then reads `process.env` and the real home.
+   * See change: encrypt-credentials-at-rest (D4, D9).
+   */
+  credentialKey?: InitCredentialKeyOptions;
   port: number;
   piPort: number;
   /**
@@ -659,6 +667,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
     throw err;
   }
+  // Resolve the credential data key BEFORE anything builds or reads a credential store
+  // (vault, ACME runtime, plugin load) and before `listen`, then migrate plaintext
+  // credential files to envelopes. One 10 s total deadline bounds init; a keychain failure
+  // only leaves the stores locked, it never stops the server from booting. Neither call throws.
+  // See change: encrypt-credentials-at-rest (D4, D7, D11).
+  await initCredentialKey(config.credentialKey);
+  await migrateCredentialFiles({ home: config.credentialKey?.homeDir, log: config.credentialKey?.log });
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //
@@ -1892,7 +1907,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Credential vault: store + delivery hub. The hub answers bridge sync
   // requests and pushes on every vault write / config change; values travel only
   // on the session-private bridge lane. See change: add-credential-vault.
-  const vaultStore = createVaultStore();
+  const vaultStore = createVaultStore({ codec: getCredentialCodec("vault") });
   // ACME DNS-01 certificate source: solver secrets live in this vault (kind `tls-solver`).
   // GC of orphaned namespaces/account keys runs once at start. See change: add-acme-dns01-certs.
   configureAcmeRuntime({ credentials: createAcmeCredentials(vaultStore) });
@@ -4582,7 +4597,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // the private request lane. Not trust-gated: each is scoped to
               // the calling plugin's manifest id. See change:
               // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
-              pluginCredentials: (id) => createPluginCredentialStore(id),
+              pluginCredentials: (id) =>
+                createPluginCredentialStore(id, { codec: getCredentialCodec("plugin-credentials") }),
               // Declared + user-approved vault reads, bound to this plugin's manifest.
               // See change: add-credential-vault (D4).
               pluginVault: (id) => createPluginVaultReader(vaultStore, id, plugin.manifest.vaultBindings ?? []),
