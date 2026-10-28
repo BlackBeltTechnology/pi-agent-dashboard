@@ -18,8 +18,9 @@ const PATTERN =
 
 /** History and generated corpora: never edited by a change. */
 const EXCLUDED_PREFIXES = [
-  "openspec/changes/archive/",
-  "openspec/changes/retire-anthropic-messages-bridge/",
+  // Planning artifacts of this and other in-flight changes are owned by those
+  // changes (and archived history); a stale mention there is theirs to fix.
+  "openspec/changes/",
   // Main specs are rewritten from this change's deltas at archive time.
   "openspec/specs/",
   "Prompt stories/",
