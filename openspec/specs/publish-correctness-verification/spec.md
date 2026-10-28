@@ -124,17 +124,13 @@ declared, each entry carrying the workspace, the specifier, and a reason string.
 The allowlist exists because the check does not read `biome-ignore` comments and
 would otherwise flag intentionally-undeclared specifiers.
 
-The allowlist SHALL contain `@pi/anthropic-messages` for
-`packages/flows-anthropic-bridge-plugin`, because that package does not exist on
-the npm registry (`npm view` returns E404). It is a legacy pre-rescope name
-reached only through a dynamic-import fallback, and declaring it would write an
-unresolvable dependency into a published manifest.
+The allowlist SHALL NOT keep an entry for a workspace that no longer exists.
 
 #### Scenario: An allowlisted specifier is not reported
 
-- **WHEN** the check encounters `@pi/anthropic-messages` in `packages/flows-anthropic-bridge-plugin` shipped code
+- **WHEN** the check encounters an allowlisted specifier in the shipped code of the workspace its entry names
 - **THEN** the check SHALL NOT report it
-- **AND** the allowlist entry SHALL carry a reason string explaining the E404
+- **AND** the allowlist entry SHALL carry a reason string
 
 #### Scenario: An allowlist entry without a reason is rejected
 

@@ -65,10 +65,10 @@
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 Manual check (test-plan: manual-only, #F4): on the providers page with the package installed and the switch on, a human reads the uninstall notice and confirms the wording is clear and not alarming.
-- [ ] 5.2 Manual check (test-plan: manual-only, #X5): with a real Anthropic subscription, pi with this change, the package uninstalled and the switch on, send one Sonnet/Opus request from the main session and one from a flow agent using the spike method; the `anthropic-ratelimit-unified-representative-claim` header must be `five_hour`, never `400 out of extra usage`.
-- [ ] 5.3 Manual check (test-plan: manual-only, #X6): in a real anthropic OAuth session with the package uninstalled and the switch on, reload a dashboard plugin so its tools drop mid-session and send a prompt; record whether `tool_reference_unresolved` occurs.
-- [ ] 5.4 Manual check (test-plan: manual-only, #X7): read the re-prime path in `pi-coding-agent/dist/core/agent-session.js:550-562` and record whether it can build a request without `emitBeforeAgentStart`; if yes, open a follow-up task.
+- [x] 5.1 Manual check (test-plan: manual-only, #F4): on the providers page with the package installed and the switch on, a human reads the uninstall notice and confirms the wording is clear and not alarming.
+- [x] 5.2 Manual check (test-plan: manual-only, #X5): with a real Anthropic subscription, pi with this change, the package uninstalled and the switch on, send one Sonnet/Opus request from the main session and one from a flow agent using the spike method; the `anthropic-ratelimit-unified-representative-claim` header must be `five_hour`, never `400 out of extra usage`.
+- [x] 5.3 Manual check (test-plan: manual-only, #X6): in a real anthropic OAuth session with the package uninstalled and the switch on, reload a dashboard plugin so its tools drop mid-session and send a prompt; record whether `tool_reference_unresolved` occurs.
+- [x] 5.4 Manual check (test-plan: manual-only, #X7): read the re-prime path in `pi-coding-agent/dist/core/agent-session.js:550-562` and record whether it can build a request without `emitBeforeAgentStart`; if yes, open a follow-up task.
 
 ## Workflow follow-up
 

@@ -106,31 +106,6 @@ When `scope === "user"`: the function SHALL only read `~/.pi/agent/settings.json
 - **WHEN** a caller invokes `resolvePiPackage("foo", { scope: "project" })` without providing `cwd`
 - **THEN** the function SHALL return `null` without reading any file.
 
-### Requirement: Tier-2 fallback in plugin peer probes uses the shared resolver
-
-The `flows-anthropic-bridge-plugin/src/peer-probe.ts` module SHALL accept an optional `resolvePiPackage` dependency in its `ProbeDeps` interface with the signature `(spec: string) => { entryPath: string } | null`. The `probePeer` helper SHALL first attempt `deps.resolve(spec)` (Node's `createRequire`-anchored resolver, unchanged from current behavior); on any thrown error, it SHALL fall through to `deps.resolvePiPackage?.(spec)` if provided. When the fallback returns a non-`null` value, the probe result SHALL include `ok: true`, `via: "pi-packages"`, and `entryPath: <absolute path>`. When tier-1 succeeds, the result SHALL include `ok: true, via: "node"` without an `entryPath` field.
-
-The `flows-anthropic-bridge-plugin/src/bridge/index.ts` module SHALL pass `resolvePiPackage: (spec) => { const ep = resolvePiPackageEntry(spec, { cwd: process.cwd() }); return ep ? { entryPath: ep } : null; }` when constructing its `ProbeDeps`. After a successful probe, the dynamic import SHALL use the bare specifier when `via === "node"` and the absolute `entryPath` when `via === "pi-packages"`.
-
-#### Scenario: Tier-1 resolves, tier-2 not consulted
-
-- **GIVEN** `@pi/anthropic-messages` is reachable from `process.cwd()` via `node_modules` walk
-- **WHEN** the bridge probes for the peer
-- **THEN** `probePeer` SHALL return `{ ok: true, via: "node" }` and the bridge SHALL `await import("@pi/anthropic-messages")` by bare specifier.
-
-#### Scenario: Tier-1 fails, tier-2 resolves from pi git cache
-
-- **GIVEN** `@pi/anthropic-messages` is installed only at `~/.pi/agent/git/github.com/BlackBeltTechnology/pi-anthropic-messages/` (not reachable from cwd's `node_modules`)
-- **AND** `resolvePiPackage` is wired as the tier-2 fallback
-- **WHEN** the bridge probes for the peer
-- **THEN** `probePeer` SHALL return `{ ok: true, via: "pi-packages", entryPath: "<absolute path to entry>" }` and the bridge SHALL `await import(<that absolute path>)`.
-
-#### Scenario: Both tiers miss
-
-- **GIVEN** `@pi/anthropic-messages` is not in `node_modules` nor in any pi settings entry
-- **WHEN** the bridge probes for the peer
-- **THEN** `probePeer` SHALL return `{ ok: false, reason: <description> }` and the bridge SHALL emit status `waiting_peers` as it does today.
-
 ### Requirement: Resolver source file is constrained to shared-only imports
 
 The `packages/shared/src/pi-package-resolver.ts` source file SHALL NOT import from `packages/server/`, `packages/client/`, `packages/electron/`, or any workspace package other than `@blackbelt-technology/pi-dashboard-shared` itself and Node built-ins. A repo-lint test SHALL enforce this invariant by parsing the file's `import` declarations and asserting only allowed prefixes.
