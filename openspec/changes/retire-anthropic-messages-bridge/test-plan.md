@@ -37,7 +37,6 @@ Clarifications C1 (failed switch save → optimistic, then revert + error toast)
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
 | F1 | compat: Sign-in prompt + row (rendered) | state-transition | L3 | automated | docker harness, switch off (fresh `preferences.json`) | complete anthropic subscription sign-in via the provider-add flow, click Turn on | prompt visible → after click the anthropic row shows compat on; reloading the page still shows on; no package-install progress UI appears |
-| F2 | compat: Switch value reaches sessions (rendered → bridge) | convergence | L3 | automated | docker harness with one connected session, switch off | toggle the anthropic row switch on | the session's bridge reports `claudeSubscriptionCompat:true` (via test hook / health) without a session restart |
 | F3 | landing-page-onboarding: Turn on from Landing | state-transition | L3 | automated | harness, anthropic authenticated, switch off, no session selected | click **Turn on** under Step ① | the notice disappears and the anthropic row shows compat on; Step ② stays usable |
 | F4 | compat: uninstall notice copy and placement | visual/subjective | — | manual-only | providers page with the package installed and switch on | human reads the notice | [judgment: wording is clear and the notice is not alarming] |
 
@@ -58,13 +57,13 @@ Clarifications C1 (failed switch save → optimistic, then revert + error toast)
 ## Coverage summary
 
 - Requirements covered: claude-subscription-compat 10/10 · global-preferences 1/1 · landing-page-onboarding 2/2 (MODIFIED empty-state copy is covered by E16/F3) · REMOVED-only and example-only deltas (anthropic-peer-hint, flows-anthropic-bridge-*, flow-plugin-e2e, pi-package-resolver, client-build-config, dashboard-plugin-loader, jiti-cjs-transpile-safety, publish-correctness-verification, plugin-settings-consistency) are covered by E18 (removal gate) plus the existing guard tests the change updates.
-- Scenarios by class: edge 19 · perf 0 · frontend 4 · error 7
-- Scenarios by level: L1 25 · L3 3 · ci 1 · manual 4
-- Scenarios by disposition: automated 26 · manual-only 4
+- Scenarios by class: edge 19 · perf 0 · frontend 3 · error 7
+- Scenarios by level: L1 25 · L3 2 · ci 1 · manual 4
+- Scenarios by disposition: automated 25 · manual-only 4 (F2 re-scoped to E9/E10/E11/E19)
 
 Performance: no spec threshold. The rewrite is one anchored regex over the ~44 KB prompt per run; no perf scenario.
 
 ## New infra needed
 
 - E5 imports pi's internal `dist/core/system-prompt.js` by file path (not a public export). Acceptable for a canary; it fails loudly if pi moves the file.
-- F2 needs a way to read a session bridge's current `claudeSubscriptionCompat` from the harness (existing health/test hook, or a debug field). Check for an existing hook before adding one.
+- None for F2: re-scoped (user decision, ship-it 2026-10-28). The UI → server → live-bridge relay is covered at L1 by E11 (PATCH broadcasts a full snapshot to every connected session), E10 (real server + fake bridge socket), E9 (bridge applies each field) and E19 (probe answers the live value). No per-session compat field is exposed in /api/health.
