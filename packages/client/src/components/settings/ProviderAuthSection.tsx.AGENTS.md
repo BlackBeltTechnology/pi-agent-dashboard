@@ -33,3 +33,5 @@ Radius MCP offer: `finishFlow("radius")` → `fetchRadiusMcpOffer()` (`RadiusMcp
 Refresh result: `health:null` clears `live`; failed health (HTTP 200, `ok:false`) sets red `live` AND inline error. Edit disabled while `refreshing` (late result cannot land on an edited endpoint). See change: add-provider-models-refresh (PR #894 review).
 
 `fetchCatalogueReady()` → `{ready, fallback}` (`fallback` absent on older server = false). `catalogueUnavailable = ready===false && !fallback` keeps the warning + suppresses `providers-empty`. Fallback state renders the normal empty state plus info `InlineMessage` `catalogue-fallback-notice` (i18n `providers.catalogueFallbackTitle/Body`). See change: fix-provider-catalogue-first-run (D5).
+
+Peer probe / auto-install / `AnthropicPeerHint` removed. Anthropic subscription sign-in completion → live `claudeCompatStore.read()`; not `true` → `ClaudeCompatSignInPrompt` (never installs). Section renders `ClaudeCompatUninstallNotice`; anthropic `AuthRow` gets `onCompatSaveFailed` → `ClaudeCompatRowControl`. See change: retire-anthropic-messages-bridge.
