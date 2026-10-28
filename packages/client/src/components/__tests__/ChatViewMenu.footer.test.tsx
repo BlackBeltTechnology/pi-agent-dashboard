@@ -84,6 +84,24 @@ describe("ChatViewMenu footer", () => {
     expect(send.mock.calls.at(-1)?.[0].override).not.toHaveProperty("reasoning");
   });
 
+  it("a pending Reset in one session never leaks into the next session's edits", () => {
+    const send = vi.fn();
+    const ui = (sid: string, override: Record<string, unknown> | undefined) => (
+      <DisplayPrefsProvider value={{ global: G, getSessionOverride: () => override as never }}>
+        <ChatViewMenu sessionId={sid} send={send} currentOverride={override as never} />
+      </DisplayPrefsProvider>
+    );
+    const { rerender } = render(ui("s1", CHANGED));
+    fireEvent.click(screen.getByText("View"));
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    const B = { tokenStatsBar: !G.tokenStatsBar };
+    rerender(ui("s2", B)); // switched before s1's echo
+    fireEvent.click(screen.getByText("Debug events"));
+    const last = send.mock.calls.at(-1)?.[0];
+    expect(last.sessionId).toBe("s2");
+    expect(last.override).toMatchObject(B);
+  });
+
   // test-plan #T5: open after success, no success text in the footer.
   it("Set as global success keeps the popover open without a status message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));

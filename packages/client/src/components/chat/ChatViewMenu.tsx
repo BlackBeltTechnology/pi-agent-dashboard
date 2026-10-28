@@ -110,6 +110,11 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
   // See change: fix-dock-peek-join-and-view-menu-close.
   // Cleared only by the MATCHING echo: an older echo arriving later must not drop it.
   const sentRef = useRef<PartialDisplayPrefs | null | undefined>(undefined);
+  // The menu instance is reused across sessions: a value pending for the old one never applies.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by the bound session
+  useEffect(() => {
+    sentRef.current = undefined;
+  }, [sessionId]);
   useEffect(() => {
     if (sentRef.current !== undefined && overrideKey(currentOverride) === overrideKey(sentRef.current)) {
       sentRef.current = undefined;
