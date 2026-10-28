@@ -586,6 +586,8 @@ Collapsing, peeking and expanding SHALL NOT change the composer card's size or i
 
 On devices matching `(hover: hover) and (pointer: fine)`, resting on the collapsed summary bar SHALL peek the dock. The dwell and speed values are the session actions menu hover strip's: at least 300 ms on the bar, with speed below 0.4 px/ms over the most recent 100 ms. Unlike the strip, the bar button itself arms: the bar is the hover zone the user asked for, and clicking it pins. Leaving the bar first cancels. A peek SHALL show the lane region exactly as when expanded (rows, or chips and sheet in compact mode, with the same open lane), as an overlay that grows upward over the transcript. It SHALL NOT reflow the transcript, move the composer card, move focus, or refetch lane data. The bar SHALL NOT arm without fine hover, while a pointer button is pressed, while a dialog is open, while a dock menu opened by click or keyboard is open, or on a dock that is not live for its session (a frozen transition underlay). A peek SHALL end when the dock binds to another session.
 
+The overlay and the summary bar SHALL read as one joined surface: only the overlay's outer top corners are rounded, the dock's own top edge shows no border or rounded corner while peeking, the overlay's side edges align with the dock's, the seam is a single hairline, no overlay shadow falls on the bar, and the bar shows no hover fill while peeking. The overlay SHALL stack above the chat pane's floating scroll controls, while the composer card keeps covering the dock's lower edge.
+
 #### Scenario: Dwell peeks the dock
 - **WHEN** the dock is collapsed and the pointer rests on the summary bar for 300 ms below the speed cutoff
 - **THEN** the lane region SHALL render as an overlay above the bar
@@ -607,6 +609,17 @@ On devices matching `(hover: hover) and (pointer: fine)`, resting on the collaps
 #### Scenario: Touch never peeks
 - **WHEN** the device has no fine hover and the user taps the summary bar
 - **THEN** the dock SHALL expand without a peek stage
+
+#### Scenario: Peek overlay joins the bar as one surface
+- **WHEN** the collapsed dock is peeked
+- **THEN** the dock root SHALL show no top border and no top rounding
+- **AND** the overlay SHALL carry the top rounding and an upward-only shadow
+- **AND** the bar SHALL show no hover fill
+
+#### Scenario: Peek overlay covers the chat scroll button
+- **WHEN** the collapsed dock is peeked while the chat shows its scroll-to-bottom button behind the overlay
+- **THEN** the overlay SHALL paint above that button
+- **AND** the composer card SHALL still paint above the dock's lower edge
 
 ### Requirement: A peek closes on leave or Escape, never under an open dock menu or focus
 
