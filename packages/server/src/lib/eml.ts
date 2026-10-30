@@ -11,9 +11,9 @@
  */
 
 import type { Stats } from "node:fs";
-import fs from "node:fs/promises";
 import { EML_PROFILE } from "@blackbelt-technology/pi-dashboard-shared/sanitize-profiles.js";
 import { type ParsedMail, simpleParser } from "mailparser";
+import { readFileStateChecked } from "./dashboard-state-guard.js";
 import { loadPurify } from "./purify.js";
 
 // Lazy DOMPurify via shared `loadPurify()` (./purify.ts): a broken jsdom fails a
@@ -98,7 +98,7 @@ export async function loadParsedEml(
     parseCache.unshift(hit);
     return hit.parsed;
   }
-  const parsed = await parseEmlBuffer(await fs.readFile(absPath));
+  const parsed = await parseEmlBuffer(await readFileStateChecked(absPath));
   rememberParsed(key, parsed);
   return parsed;
 }

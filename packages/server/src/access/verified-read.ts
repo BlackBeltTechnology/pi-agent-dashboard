@@ -48,17 +48,23 @@
  * process), so they are handle-verified, not merely asserted. See the note on
  * that function for exactly what it does and does not close.
  *
- * See change: add-access-grants-and-review (D14).
+ * The handle is also rechecked against the always-refused files (`state-file`), so a hard link
+ * inside a granted tree to a pi-agent credential file is refused after open.
+ *
+ * See change: add-access-grants-and-review (D14), close-security-map-high-findings (D1).
  */
 import { constants, promises as fs } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
+import { handleIsAlwaysRefused } from "../lib/dashboard-state-guard.js";
 
 /** Why a grant-admitted byte-serving read was refused. */
 export type VerifiedReadRefusalReason =
   /** The path is not a regular file (directory, FIFO, device, or symlink). */
   | "not-regular"
   /** The opened handle is not the file that was checked — the path was swapped. */
-  | "handle-mismatch";
+  | "handle-mismatch"
+  /** The opened handle is an always-refused file (pi-agent credential, token, identity key): a swapped-in link. */
+  | "state-file";
 
 /**
  * A grant-admitted byte-serving read was refused because the file behind the
@@ -125,6 +131,9 @@ export async function openVerifiedRegularFile(resolved: string): Promise<FileHan
     ) {
       throw new VerifiedReadRefused("handle-mismatch", resolved);
     }
+    // The handle is the checked file, but a grant (or a hard link in the granted tree) must never serve
+    // an always-refused file: recheck its identity. See change: close-security-map-high-findings (D1, F7).
+    if (await handleIsAlwaysRefused(handle)) throw new VerifiedReadRefused("state-file", resolved);
     return handle;
   } catch (err) {
     await handle.close().catch(() => {});

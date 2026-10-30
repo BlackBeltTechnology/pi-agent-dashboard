@@ -137,7 +137,7 @@ describe("G25: top-level trustedNetworks survive an auth reload", () => {
     const app = Fastify();
     const authConfig = {
       secret: "test-secret-32-chars-long-abcdef",
-      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
     };
     await registerAuthPlugin(app, {
       authConfig,
@@ -202,7 +202,7 @@ describe("E8 OAuth bypass-host skip refuses relayed loopback", () => {
     await registerAuthPlugin(a, {
       authConfig: {
         secret: "test-secret-32-chars-long-abcdef",
-        providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+        providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
       },
       port: 8000,
       resolvedTrustedNetworks: bypass,
@@ -347,7 +347,7 @@ describe("OAuth hook — bypass hosts are the live, mode-dependent admission lis
     const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
     const a = Fastify();
     await registerAuthPlugin(a, {
-      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"] },
       port: 8000,
       ...(opts.live === false ? {} : { readAdmissionTrustedNetworks: () => admissionTrustedNetworks() }),
       ...(opts.boot ? { resolvedTrustedNetworks: opts.boot } : {}),
@@ -490,7 +490,7 @@ describe("OAuth hook — serveApp mounts load without sign-in", () => {
     const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
     const a = Fastify();
     await registerAuthPlugin(a, {
-      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"] },
       port: 8000,
     });
     mountApp(
@@ -547,7 +547,7 @@ describe("OAuth hook — the CSP report sink is public, narrowly (WE34)", () => 
     const { CspReportStore } = await import("../auth/csp-report-store.js");
     const a = Fastify();
     await registerAuthPlugin(a, {
-      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"] },
       port: 8000,
     });
     registerCspReportSink(a, {
@@ -611,7 +611,7 @@ describe("OAuth hook — non-HS256 session JWTs are rejected (AE2, AE3)", () => 
     const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
     const a = Fastify();
     await registerAuthPlugin(a, {
-      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } } },
+      authConfig: { secret: AUTH_SECRET, providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"] },
       port: 8000,
     });
     const reached = { n: 0 };

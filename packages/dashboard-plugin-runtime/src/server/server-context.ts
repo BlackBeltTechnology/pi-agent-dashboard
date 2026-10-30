@@ -638,6 +638,9 @@ export type UnregisterCwdPolicyFn = (cwd: string) => void;
  */
 export type MintSpawnTokenFn = () => string;
 
+/** Guarded UTF-8 read: `null` = refused by the host's state/credential guard. See change: close-security-map-high-findings (D1). */
+export type ReadFileGuardedFn = (absPath: string) => Promise<string | null>;
+
 /**
  * Rename a live session: in-memory name update + `session_updated` broadcast
  * + `rename_session` dispatch to the pi session. Gated to first-party /
@@ -1236,6 +1239,15 @@ export interface ServerPluginContext {
    */
   networkGuard: PluginNetworkGuard;
   /**
+   * Read a UTF-8 file through the host's dashboard-state / pi-agent-credential guard (real path, both
+   * tiers, post-open (dev, ino) recheck). Resolves `null` when the guard refuses the path (a credential
+   * file, a symlink or hard link to one, or a trust-gated file for an unproven caller); any other
+   * failure (ENOENT, EISDIR, EACCES) rejects. Not trust-gated: it only narrows what a plugin may read.
+   * Optional — absent on an older host: a plugin route that returns file CONTENT must then refuse
+   * (fail closed) and never fall back to plain `fs`. See change: close-security-map-high-findings (D1, H1).
+   */
+  readFileGuarded?: ReadFileGuardedFn;
+  /**
    * Subscribe to server shutdown (not trust-gated). See change:
    * relocate-goal-product-to-plugin (D1-#8).
    */
@@ -1429,6 +1441,8 @@ export interface ServerContextDeps {
   assignSessionRef: AssignSessionRefFn;
   /** Network-access guard for plugin-registered routes. See change: relocate-goal-product-to-plugin. */
   networkGuard: PluginNetworkGuard;
+  /** Guarded UTF-8 file read (optional). See change: close-security-map-high-findings (D1). */
+  readFileGuarded?: ReadFileGuardedFn;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
   /**
@@ -1556,6 +1570,7 @@ export function createServerPluginContext(
     renameSession: deps.renameSession,
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
+    readFileGuarded: deps.readFileGuarded,
     onShutdown: deps.onShutdown,
     // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
     // does not wire it still exposes a total accessor to plugins.

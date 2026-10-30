@@ -194,7 +194,7 @@ No OS sandbox. `bash` runs as operator OS user. Every guard = pi `tool_call`/`to
 
 Coverage gaps:
 - `bash`, `grep`, `find`, `ls`, MCP, custom tools NOT covered by path gate (`packages/extension/src/path-gate/handler.ts:40`).
-- Session MCP token = `control` tier → `send_prompt` to other sessions; MCP `prompt_response` mis-bound, cannot answer prompts (TOOL-01, Low).
+- Session MCP token = `control` tier → `send_prompt` to other sessions. MCP `prompt_response` + `extension_ui_response` removed (TOOL-01, Low, closed by close-security-map-high-findings). Other prompt-answer roads remain (TOOL-20).
 - ACP agents bypass pi guards (TOOL-15).
 - Matrix: [tool-call-guards § Tool × guard coverage](security/tool-call-guards.md).
 
@@ -215,13 +215,13 @@ High findings:
 
 | ID | Finding | Chapter |
 |---|---|---|
-| HTTP-01 | OAuth with empty `auth.allowedUsers` admits any IdP account at `operate` | [http-gates-and-routes](security/http-gates-and-routes.md#findings) |
+| HTTP-01 | OAuth with empty `auth.allowedUsers` admitted any IdP account at `operate`. **closed by close-security-map-high-findings** | [http-gates-and-routes](security/http-gates-and-routes.md#findings) |
 | WS-01 | Tokenless loopback bridge grace open; default transport on win32 | [websocket-and-bridge](security/websocket-and-bridge.md#findings) |
 | PLUG-01 | Server plugins in-process, full server privilege, no isolation | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | ELEC-04 | Desktop binaries unsigned | [plugins-client-electron](security/plugins-client-electron.md#findings) |
-| DEP-01 | File-read routes anchor `~/.pi`; provider credentials readable at `observe` | [deployment-process-supply-chain](security/deployment-process-supply-chain.md#findings) |
+| DEP-01 | File-read routes anchor `~/.pi`; provider credentials readable at `observe`. **closed by close-security-map-high-findings** | [deployment-process-supply-chain](security/deployment-process-supply-chain.md#findings) |
 
-TOOL-01 re-rated Low 2026-10-22 (see register Corrections).
+TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04 NOT closed. Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). Closed statuses assume the change ships in the same PR — see ship-time instruction in [register](security/residual-risks.md#closed-findings).
 
 Also in the register:
 - Fix order: [Top priorities](security/residual-risks.md#top-priorities).

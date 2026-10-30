@@ -4,6 +4,7 @@
  * stopRun hook succeeds. See change: automation-ui-mockup-parity.
  */
 
+import { readFile } from "node:fs/promises";
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { mountAutomationRoutes } from "../server/routes.js";
@@ -14,7 +15,7 @@ const admittedCwds: string[] = ["/r"];
 
 async function appWith(hooks: Parameters<typeof mountAutomationRoutes>[1]) {
   const app = Fastify();
-  mountAutomationRoutes(app, { knownCwds: () => admittedCwds, ...hooks });
+  mountAutomationRoutes(app, { knownCwds: () => admittedCwds, readFileGuarded: (p) => readFile(p, "utf-8"), ...hooks });
   await app.ready();
   return app;
 }

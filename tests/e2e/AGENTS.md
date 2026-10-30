@@ -10,6 +10,7 @@ One row per file.
 | `acp-session-queue.spec.ts` | → `acp-session-queue.spec.ts.AGENTS.md` |
 | `acp-session.spec.ts` | → `acp-session.spec.ts.AGENTS.md` |
 | `acp-spawn-picker.spec.ts` | → `acp-spawn-picker.spec.ts.AGENTS.md` |
+| `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
@@ -164,6 +165,7 @@ One row per file.
 | `notify-channel.spec.ts` | → `notify-channel.spec.ts.AGENTS.md` |
 | `notify-min-level.spec.ts` | → `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | → `oauth-redirect-base.spec.ts.AGENTS.md` |
+| `oauth-open-enrolment.spec.ts` | L3 (change: close-security-map-high-findings, D3). E110: github session cookie rejected (401 + cleared) while allowlist empty, accepted after. F5: Settings ▸ Security banner + refused login page, cleared after allowlist. F6: open browser + terminal sockets close after reload refuses github; `/auth/status` false. Restores seeded `allowedUsers` in `afterEach`. |
 | `openspec-artifact-dialog.spec.ts` | → `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | → `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | → `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
@@ -280,6 +282,7 @@ One row per file.
 | `tool-output-selection.spec.ts` | → `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | → `trust-mode-pair.spec.ts.AGENTS.md` |
 | `trusted-types-budget.spec.ts` | F3: report-mode budget over core routes, file previews, every plugin settings page and `/apps/team/` — 0 TT violations, default hits ≤ `fixtures/trusted-types-budget.json` (`PI_TT_BUDGET_RECORD=1` re-records); control step proves the directive is active. See change: harden-client-sinks. |
+| `trusted-types-config.spec.ts` | F6: Settings → Security → Trusted Types "Enforce" → Save → `POST /api/restart` → document meta `enforce` + enforcing `require-trusted-types-for`; finally Default (key removed) → restart → `report`. See change: enforce-trusted-types-default. |
 | `trusted-types-enforce.spec.ts` | X6: Monaco / PDF / chat / plugin settings under forced `enforce` — no page error beyond the TT-off baseline; logs violations + default hits per step. See change: harden-client-sinks. |
 | `trusted-types-perf.spec.ts` | P1: median default-policy callback time per load ≤ 20 ms under `enforce` (mermaid gallery + chat). See change: harden-client-sinks. |
 | `trusted-types-visual.spec.ts` | F1/F2: per-diagram pixel parity enforce vs off within off-vs-off variance (+ accent tint); AsciiDoc/KaTeX/mermaid + EML parity, 0 violations, EML frame `sandbox=""`. See change: harden-client-sinks. |

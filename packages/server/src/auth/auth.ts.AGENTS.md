@@ -11,3 +11,7 @@ OAuth2 core: providers (GitHub, Google, Keycloak, generic OIDC via `.well-known`
 ## harden-auth-credentials (B17)
 
 `verifyToken` pins `algorithms:["HS256"]` (non-HS256/`none`/malformed header → null). `ensureAuthSecret` mints `randomBytes(32)` (64 hex); any existing non-empty secret (whitespace included) kept byte-identical; `length < 32` chars → one `console.warn` per process (module flag `shortSecretWarned`), never prints the secret. See change: harden-auth-credentials.
+
+## close-security-map-high-findings (D3)
+
+`PUBLIC_IDP_HOSTS` (accounts.google.com, github.com, gitlab.com, login.microsoftonline.com, appleid.apple.com). `classifyProviderConfig(key, cfg)` → `public`|`non-public` from CONFIG only (never discovery, H8): key `github`/`google`, or exact issuer-host match (URL-parsed, lowercased, one trailing dot stripped, port/scheme ignored); Microsoft only with first path segment `common|consumers|organizations`; unparseable `issuerUrl` ⇒ non-public (G13). `isOpenEnrolment(allowedUsers, groupTiers)` = same emptiness as `isUserAllowed`/`resolveGroupTier`. `openEnrolmentOf(providers, allowedUsers, groupTiers)` → `[{provider, mode: refused|open}]`. See change: close-security-map-high-findings.

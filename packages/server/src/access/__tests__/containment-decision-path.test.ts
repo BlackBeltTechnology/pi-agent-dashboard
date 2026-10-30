@@ -149,3 +149,24 @@ describe("decidePassive (#E6)", () => {
     expect(d).toMatchObject({ allowed: true, viaGrant: true });
   });
 });
+
+// #E26 (close-security-map-high-findings): a refused credential path keeps its `resolved`; passive sites never admit it.
+describe("a refused credential path keeps its decided path (#E26)", () => {
+  it("evaluateContainment / decidePassive refuse with `resolved` intact, no remedy, no denial, no hold, even under a covering grant", async () => {
+    const cred = path.join(out, "x.txt"); // the mocked guard treats this path as an always-refused credential
+    h.secret.add(cred);
+    h.subjects = [out];
+    const evaluated = await evaluateContainment(cred, [out], { site: "t", hold: { request: {} as never, reply: {} as never } });
+    expect(evaluated).toMatchObject({ allowed: false, viaGrant: false, resolved: cred });
+    expect((evaluated as { remedy?: unknown }).remedy).toBeUndefined();
+    const passive = await decidePassive(cred, [out], { allowGrant: true });
+    expect(passive).toMatchObject({ allowed: false, resolved: cred });
+    expect((passive as { remedy?: unknown }).remedy).toBeUndefined();
+    expect(listPathDenials()).toEqual([]);
+    expect(h.hold).not.toHaveBeenCalled();
+    for (const other of [cred, path.join(out, "y.txt"), path.join(k, "a.txt")]) {
+      expect(containmentAllows(evaluated, other)).toBe(false);
+      expect(containmentAllows(passive, other)).toBe(false);
+    }
+  });
+});

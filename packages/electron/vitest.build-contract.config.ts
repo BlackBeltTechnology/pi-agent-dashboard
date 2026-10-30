@@ -45,10 +45,26 @@ export default defineConfig({
 			// macOS static gate for the bundled Node (DLV entitlement parser, paths, smoke policy).
 			// See change: encrypt-credentials-at-rest (E90).
 			"src/__tests__/assert-mac-bundled-node-keyring.test.ts",
+			// Shared bundle prune helper (third-party + first-party rule sets). Pure fs on a
+			// temp dir. See change: slim-windows-install-file-count (E1-E7 X1).
+			"src/__tests__/prune-bundle.test.ts",
+			// Canonical node_modules layout: build-script order, launch helpers, leftover-reader lint.
+			// See change: slim-windows-install-file-count (E9 E10 E15 E16).
+			"src/__tests__/bundle-layout-static.test.ts",
+			// Packaged file-count budget gate (E17-E20).
+			"src/__tests__/assert-bundle-file-budget.test.ts",
+			// Built-bundle layout gate (E8).
+			"src/__tests__/assert-bundle-layout.test.ts",
+			"src/__tests__/docker-make-windows-bundle.test.ts",
 			// Launch-source precedence is shipped contract too, and the resolver
 			// takes every probe by injection (pure). See change:
 			// electron-runtime-overlay-updates (test-plan E4, E23).
 			"src/lib/__tests__/launch-source.test.ts",
+			// Bundled-extension discovery reads the canonical node_modules dir (E12).
+			// See change: slim-windows-install-file-count.
+			"src/lib/__tests__/bridge-register.test.ts",
+			// Doctor reads the bundled server from the node_modules copy (E13).
+			"src/lib/__tests__/doctor-bundled-server.test.ts",
 			// Runtime-overlay state machine + switchRuntime (all process/network I/O
 			// injected; state files in a temp dir) and PID-scoped watchdog
 			// ownership. test-plan E3 E11-E13 P1 X4-X9.

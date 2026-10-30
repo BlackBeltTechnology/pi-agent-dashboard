@@ -133,7 +133,7 @@ Before spawning any runtime (candidate, rollback target, bundle), Electron regis
 
 | Runtime id | Extension path |
 |---|---|
-| `bundled` | `<resourcesPath>/server/packages/extension` |
+| `bundled` | `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-extension` |
 | `local:<realpath>` | `<realpath>/packages/extension` |
 | overlay `X` | `versions/<X>/node_modules/@blackbelt-technology/pi-dashboard-extension` |
 

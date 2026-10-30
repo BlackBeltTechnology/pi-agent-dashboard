@@ -10,3 +10,5 @@ Runtime canary: copies `${HOST_CWD}/.pi-test-canary/plugins/*` into `~/.pi/dashb
 - `PI_E2E_SEED` block seeds `cfg.browse.confineRemote=false` unless `PI_E2E_BROWSE_CONFINEMENT=1` (8th node argv): the harness browser is a remote peer via the port mapping. See change: harden-server-capability-bounds.
 
 `PI_E2E_OAUTH_NO_BYPASS=1` seeds `auth.bypassUrls: []` (real gate) instead of `["/"]`; for `csp-report-sink-oauth.spec.ts` only. See change: harden-cors-and-csp-reporting.
+
+`PI_E2E_OAUTH=1` seed now also writes `auth.allowedUsers: ["e2e-operator@example.com"]` (github is a public IdP: an empty list refuses login and rejects github sessions). See change: close-security-map-high-findings (D3).

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Security page exposes the Trusted Types mode
-The Security settings page SHALL offer a Trusted Types mode control with the choices Default (enforce unless the CSP is off; stores no key), Enforce, Report only and Off, bound to `security.trustedTypes`. The control SHALL save through the panel's Save bar like the other Security fields, and saving a changed value SHALL show the panel's restart-required notice.
+The Security settings page SHALL offer a Trusted Types mode control with the choices Default (report only, or off when the CSP is off; stores no key), Enforce, Report only and Off, bound to `security.trustedTypes`. The control SHALL save through the panel's Save bar like the other Security fields, and saving a changed value SHALL show the panel's restart-required notice.
 
 #### Scenario: Selecting Report only saves the key
 - **WHEN** an operator selects "Report only" on the Security page and saves

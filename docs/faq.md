@@ -1070,7 +1070,8 @@ Add `auth.providers` block to `~/.pi/dashboard/config.json`. Localhost stays ung
 Keys:
 - `auth.secret` — JWT signing secret (auto-generated if omitted)
 - `auth.providers` — provider → `{ clientId, clientSecret, issuerUrl? }`
-- `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Empty = allow all
+- `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Provider-specific when empty: public providers (`github`, `google`, or an `issuerUrl` on a public IdP host) refuse login when `auth.allowedUsers` and `auth.groupTiers` are both empty; unknown-issuer `keycloak`/`oidc` allow all (startup warning)
+- `auth.groupTiers` — group → tier map, config file only; non-empty lifts the public-provider refusal
 - `auth.bypassHosts` — network list (CIDR/wildcard/exact); admits without sign-in only under `network.trustMode: "legacy"`; written by Settings → Security → Network access
 - `auth.bypassUrls` — path-prefix allowlist
 
@@ -2366,7 +2367,7 @@ Pre-fix bug. `spawnDetached` only routed stderr to `logFd`; stdout (where server
 npm package unavailable at release time. Instead: bundle server source + deps as app resource. Wizard installs only external tools (pi, openspec, tsx). Server runs from `resources/server/` inside app package.
 
 Server resolution order:
-1. Packaged: `process.resourcesPath/server/packages/server/src/cli.ts` (always found first)
+1. Packaged: `process.resourcesPath/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts` (always found first)
 2. Dev: relative path `../../server/src/cli.ts`
 3. Managed: fallback `~/.pi-dashboard/node_modules/@blackbelt-technology/...`
 
@@ -2486,7 +2487,7 @@ Bridge extension (`packages/extension/src/bridge.ts`) NOT bundled in DEB/DMG by 
 Solution: Bundle extension + auto-register into pi's package list.
 
 Steps:
-1. `bundle-server.mjs` — adds `packages/extension/` to server bundle + includes in workspace `node_modules/`
+1. `bundle-server.mjs` — ships extension under `node_modules/@blackbelt-technology/pi-dashboard-extension` in server bundle; `packages/<dir>` not shipped after install
 2. `extension-register.ts` (new server module) — detects bundled extension path + adds to `~/.pi/agent/settings.json` (pi's global package discovery list) at server startup
 3. Extension's `package.json` has `"pi"` field → pi discovers extension + loads `src/bridge.ts`
 4. Dependencies resolve via server bundle's workspace `node_modules/` (shared types, `ws`)
@@ -2599,8 +2600,8 @@ Schema:
     "openspec":  "/Users/x/.nvm/versions/node/v22.22.0/bin/openspec",
     "node":      "/Applications/PI Dashboard.app/Contents/Resources/node/bin/node",
     "tsx":       "/Users/x/.pi-dashboard/node_modules/.bin/tsx",
-    "bridge":    "/Applications/PI Dashboard.app/Contents/Resources/server/packages/extension",
-    "serverCli": "/Applications/PI Dashboard.app/Contents/Resources/server/packages/server/src/cli.ts"
+    "bridge":    "/Applications/PI Dashboard.app/Contents/Resources/server/node_modules/@blackbelt-technology/pi-dashboard-extension",
+    "serverCli": "/Applications/PI Dashboard.app/Contents/Resources/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
   }
 }
 ```

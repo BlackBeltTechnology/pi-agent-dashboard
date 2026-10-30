@@ -1,3 +1,5 @@
 # openspec-routes.ts — index
 
 REST routes: openspec-archive, pi-resources (cwd optional → falls back to `process.cwd()` for the global… → see `openspec-routes.ts.AGENTS.md` Adds `POST /api/openspec/init` (unfiltered known-dir validation, openspec/-presence confirm gate, cached `init --help` support probe, per-cwd 409 lock, signature-on-init, forced refresh) + `knownInitTargets()`. See change: add-openspec-init-affordances. Adds `GET /api/pi-resources/commands?cwd=` (400 on missing/relative cwd) → `resolveFolderCommands`; new optional dep `piGateway.isSessionConnected`. See change: redesign-directory-home-split.
+
+`/api/pi-resource-file`: after prefix allowlist, `dashboardStateRefuses` (both tiers, real path) → 403 `path not in allowed resource location`; read via `readFileStateChecked`. Allowlist looseness (`includes("node_modules/")`) = recorded residual. See change: close-security-map-high-findings (D1).

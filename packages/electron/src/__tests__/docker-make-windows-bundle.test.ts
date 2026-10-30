@@ -50,3 +50,31 @@ describe("docker-make.sh Windows bundle", () => {
     );
   });
 });
+
+/**
+ * Canonical node_modules layout (change: slim-windows-install-file-count, E9):
+ * the Docker cross-build must ship the same final layout as bundle-server.mjs —
+ * workspace source once under node_modules, empty `workspaces`, pruned. It runs the
+ * shared helper AFTER its own symlink materialization (which still needs the
+ * `packages/<dir>` link targets).
+ */
+describe("docker-make.sh canonical layout", () => {
+  const text = fs.readFileSync(SCRIPT_PATH, "utf-8");
+
+  it("calls the shared prune helper with --finalize after the symlink materialization", () => {
+    const materialized = text.indexOf("Replaced symlink");
+    const finalize = text.search(/node\s+"\/build\/\$ELECTRON_DIR\/scripts\/lib\/prune-bundle\.mjs"\s+--finalize/);
+    expect(materialized).toBeGreaterThan(-1);
+    expect(finalize).toBeGreaterThan(materialized);
+  });
+
+  it("does not leave a second hand-rolled prune behind", () => {
+    expect(text).not.toMatch(/find\s+node_modules[^\n]*-name\s+['"]?\*\.d\.ts/);
+  });
+
+  it("finalizes before the Windows/Linux branches consume the tree", () => {
+    const finalize = text.indexOf("prune-bundle.mjs");
+    expect(finalize).toBeGreaterThan(-1);
+    expect(finalize).toBeLessThan(text.indexOf('if [ "$PLATFORM" = "linux" ]; then\n  cd "$ELECTRON_DIR"'));
+  });
+});

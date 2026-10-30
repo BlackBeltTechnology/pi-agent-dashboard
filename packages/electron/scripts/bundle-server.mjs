@@ -39,7 +39,6 @@ import {
   renameSync,
   rmSync,
   statSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -55,6 +54,7 @@ import {
 } from "../../shared/src/runtime-overlay/materialize-plugins.mjs";
 // GO/NO-GO for the OS-keychain binding (pure; fixture-tested). See change: encrypt-credentials-at-rest (D5, E88).
 import { checkKeyringBundle, codesignVerify } from "./assert-keyring-bundle.mjs";
+import { dropWorkspaceCopies, pruneBundle } from "./lib/prune-bundle.mjs";
 import {
   auditInstalledTree,
   fetchPublishedLock,
@@ -525,25 +525,7 @@ for (const pkg of BUNDLED_WORKSPACE_PKGS) {
   });
 }
 
-// ── strip cruft from node_modules ────────────────────────────────────────
 const NM = path.join(SERVER_BUNDLE, "node_modules");
-if (existsSync(NM)) {
-  // Files: *.md, *.map, CHANGELOG*, LICENSE*, *.d.ts
-  // Dirs: __tests__, test
-  walkAndPrune(NM, {
-    // LICENSE.third-party.md is a shipped notice, not cruft: @napi-rs/keyring-linux-*
-    // statically links libdbus (AFL-2.1 OR GPL-2.0-or-later) and its licence must travel
-    // with the binary. See change: encrypt-credentials-at-rest (D5; checked below).
-    fileMatch: (n) =>
-      n !== "LICENSE.third-party.md" &&
-      (n.endsWith(".md") ||
-        n.endsWith(".map") ||
-        n.startsWith("CHANGELOG") ||
-        n.startsWith("LICENSE") ||
-        n.endsWith(".d.ts")),
-    dirMatch: (n) => n === "__tests__" || n === "test",
-  });
-}
 
 // ── materialize workspace symlinks under @blackbelt-technology/* ─────────
 // npm workspaces creates symlinks like
@@ -653,6 +635,24 @@ if (clientSrc) {
   }
   console.log("  pi-dashboard-web materialization OK — dist/index.html present");
 }
+
+// ── canonical layout: workspace source ships ONCE, then prune ────────────
+// Materialization above made `node_modules/@blackbelt-technology/<pkg>` a full
+// copy, so `packages/<dir>` is a second copy nothing reads (launch, overlay
+// compat, doctor, bridge registration and the helpers all use the node_modules
+// path). Delete it (keep `packages/dist` = the served client) and empty the
+// synthetic `workspaces` list — the input of an install that already ran. The
+// field stays as `[]`: `findMonorepoRoot` (plugin loader) stops at it, which is how
+// a bundle is its own root; without it a packaged app inside a checkout adopts
+// that checkout as its plugin workspace.
+// ORDER IS LOAD-BEARING: the release-lock `npm ci` + auditInstalledTree need the
+// `packages/<dir>` link targets, so this runs strictly after the install and the
+// materialization. The shared prune runs last so it also sees the materialized
+// first-party trees and `resources/plugins`; the keyring GO/NO-GO below then
+// proves what ships. docker-make.sh applies the same helper.
+// See change: slim-windows-install-file-count (design D1, D2).
+dropWorkspaceCopies(SERVER_BUNDLE);
+pruneBundle(SERVER_BUNDLE);
 
 // ── GO/NO-GO: assert the OS-keychain binding for the TARGET triple ───────
 // change: encrypt-credentials-at-rest (design D5, tasks 11.1; test-plan E88, E89).
@@ -850,59 +850,6 @@ function walkPaths(root, cb) {
         } catch {}
       }
     }
-  }
-}
-
-/**
- * Recursively walk and delete files matching `fileMatch(name)` and
- * directories matching `dirMatch(name)`. Mirrors the original
- * bash `find ... -delete` and `find ... -exec rm -rf {} +` logic.
- */
-/** Sort one directory entry into a prune bucket; true => descend into it. */
-function classifyPruneEntry(entry, full, { fileMatch, dirMatch }, acc) {
-  if (entry.isFile()) {
-    if (fileMatch(entry.name)) acc.fileTargets.push(full);
-    return false;
-  }
-  if (!entry.isDirectory()) return false;
-  if (dirMatch(entry.name)) {
-    acc.dirTargets.push(full);
-    return false;
-  }
-  return true;
-}
-
-function collectPruneTargets(root, matchers) {
-  const acc = { fileTargets: [], dirTargets: [] };
-  const stack = [root];
-  while (stack.length) {
-    const cur = stack.pop();
-    let entries;
-    try {
-      entries = readdirSync(cur, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const e of entries) {
-      const full = path.join(cur, e.name);
-      if (classifyPruneEntry(e, full, matchers, acc)) stack.push(full);
-    }
-  }
-  return acc;
-}
-
-function walkAndPrune(root, matchers) {
-  // Two-pass: collect targets first so deletions don't disturb the walk.
-  const { fileTargets, dirTargets } = collectPruneTargets(root, matchers);
-  for (const f of fileTargets) {
-    try {
-      unlinkSync(f);
-    } catch {}
-  }
-  for (const d of dirTargets) {
-    try {
-      rmSync(d, { recursive: true, force: true });
-    } catch {}
   }
 }
 
