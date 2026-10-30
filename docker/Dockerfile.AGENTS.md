@@ -7,3 +7,5 @@ Multi-stage. base: `node:24-bookworm-slim` + tmux/jq/git/curl/ripgrep/fd-find/po
 Creates `/srv/fixtures-outside/{a,b}.txt` (owned by pi) before `USER pi` — out-of-root fixtures for the agent path gate e2e. See change: ask-agent-file-access-in-chat.
 
 Credential data key: `mkdir`/`chown pi:pi`/`chmod 0700` `/home/pi/.pi-key` next to the `.pi`/`.zrok2` mkdir, and `/home/pi/.pi-key` joins `VOLUME` (its own volume: a copy of the state volume carries no key). The build RUN asserts `/app/node_modules/@napi-rs/keyring-linux-*-gnu/LICENSE.third-party.md` exists (statically linked libdbus licence; nothing prunes it). See change: encrypt-credentials-at-rest.
+
+`PI_FLOWS_VERSION` 0.8.0 → 0.8.1: baked pi-flows no longer writes `.pi/skills/manage-flows` at `session_start`, `setEditFlowFlag` no-ops on unchanged value (L3 `flows-edit-mode-no-project-writes.spec.ts` asserts a clean repo). See change: stop-flows-edit-mode-project-writes.

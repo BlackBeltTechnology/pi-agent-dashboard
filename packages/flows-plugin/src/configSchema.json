@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Flows plugin configuration",
-  "description": "Per-plugin (global) configuration for the flows-plugin. The edit-mode default is reconciled down to each session (via flow:set-edit-mode) when that session's flows plugin becomes available. See change: rework-flows-plugin-for-new-pi-flows.",
+  "description": "Per-plugin (global) configuration for the flows-plugin. The edit-mode default no longer lives here: it is `flows.editFlow` in ~/.pi/agent/settings.json (read/written via /api/plugins/flows/edit-mode-default). See change: stop-flows-edit-mode-project-writes.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "editFlow": {
       "type": "boolean",
       "default": false,
-      "description": "Global default for pi-flows `flows.editFlow`. When on, the main session sees the edit-flow skill and the flow_agents / flow_write authoring tools."
+      "description": "DEPRECATED, ignored. Legacy global edit-mode default; migrated once to ~/.pi/agent/settings.json#flows.editFlow on plugin start, then removed. Kept so stored configs still validate."
     }
   }
 }

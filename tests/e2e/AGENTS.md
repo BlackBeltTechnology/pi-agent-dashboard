@@ -120,6 +120,7 @@ One row per file.
 | `flow-attach-before-run.spec.ts` | → `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | → `flow-live-no-double-render.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | → `flow-roundtrip.spec.ts.AGENTS.md` |
+| `flows-edit-mode-no-project-writes.spec.ts` | → `flows-edit-mode-no-project-writes.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | → `folder-action-banner.spec.ts.AGENTS.md` |
 | `folder-actions-menu.spec.ts` | → `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-collapse-persistence.spec.ts` | → `folder-collapse-persistence.spec.ts.AGENTS.md` |

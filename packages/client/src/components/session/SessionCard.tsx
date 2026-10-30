@@ -1104,8 +1104,11 @@ export function SessionCard({
         // An intent action activated with the keyboard must not strand focus on <body>.
         cardElRef.current?.querySelector<HTMLElement>("[data-testid^='session-actions-trigger-']")?.focus();
       },
+      // Lets mounted claims refresh on open (flows edit-mode state).
+      // See change: stop-flows-edit-mode-project-writes (D4).
+      open: menuOpen,
     }),
-    [setMenuOpen],
+    [setMenuOpen, menuOpen],
   );
 
   const attachedName = session.attachedProposal || undefined;

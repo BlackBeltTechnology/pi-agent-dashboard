@@ -145,15 +145,15 @@ The flows plugin SHALL NOT register `flows.resume` or `flows.cancel` — pi-flow
 ### Requirement: Flow actions and the FLOWS subcard are gated separately
 
 The flows plugin SHALL use two gates:
-- **Actions gate.** Its `session-card-action-bar` claim, which renders Run Flow…, Open flow…, New / Edit… and Delete in the session actions menu, SHALL be gated by flows availability. Flows is available when the pi-flows extension is active in the session's cwd, detected by a command named `flows` or starting with `flows:` in the session's `commandsList`, OR when the session has any flow event (live or replayed). It SHALL NOT gate on `flowsList` length, so a cwd where pi-flows is active but no flows are authored yet still offers New / Edit… in edit mode. The removed `flows:new` command SHALL NOT be used as a signal.
+- **Actions gate.** Its `session-card-action-bar` claim, which renders Run Flow…, Open flow…, New / Edit… and Delete in the session actions menu, SHALL be gated by flows availability. Flows is available when the pi-flows extension is active in the session's cwd, detected by a command named `flows` or starting with `flows:` in the session's `commandsList`, OR when the session has any flow event (live or replayed). It SHALL NOT gate on `flowsList` length, so a cwd where pi-flows is active but no flows are authored yet still offers New / Edit… when the session's effective edit mode is on. The removed `flows:new` command SHALL NOT be used as a signal.
 - **Subcard gate.** The `session-card-flows` claim (the FLOWS subcard, now carrying flow status only) SHALL render only when the session has any flow event (live or replayed).
 
 The availability cache SHALL remain closed by default (unavailable until the first `commandsList` publish for the session) and SHALL recompute on `commandsList` / `flowsList` publishes.
 
-The edit-mode reconcile, which pushes the global edit-flow default to the session once flows are available, SHALL run from the action-bar claim. That claim is mounted for the card's lifetime unless the per-plugin visibility filter hides the flows plugin, so the reconcile runs whether or not the FLOWS subcard or the menu is shown. When the filter hides the plugin, the reconcile does not run; the same holds for the FLOWS-subcard claim today.
+The action-bar claim SHALL NOT send any edit-mode message when it mounts, when flows becomes available, or when it re-renders. Edit mode reaches a session only through the explicit per-project action (see `flows-edit-mode-settings`).
 
 #### Scenario: Active-but-empty flows cwd offers authoring in the menu
-- **WHEN** a session's `commandsList` contains `flows`, its `flowsList` is empty, edit mode is on, and it has no flow events
+- **WHEN** a session's `commandsList` contains `flows`, its `flowsList` is empty, the session's effective edit mode is on, and it has no flow events
 - **THEN** the session actions menu SHALL offer **New / Edit…**
 - **AND** no FLOWS subcard SHALL render
 
@@ -171,4 +171,4 @@ The edit-mode reconcile, which pushes the global edit-flow default to the sessio
 
 #### Scenario: Edit-mode reconcile runs without opening the menu
 - **WHEN** flows becomes available for a session and the menu has never been opened
-- **THEN** the edit-mode reconcile message SHALL be sent once for the current global default
+- **THEN** no `flow_management` `set-edit-mode` message SHALL be sent for that session (the reconcile is removed; this scenario name is kept for delta continuity)

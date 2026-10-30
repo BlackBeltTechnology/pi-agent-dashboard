@@ -173,6 +173,11 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		// spec so sourcesMatch() recognizes the npm install. NOTE: still excluded
 		// from BUNDLED_EXTENSION_IDS until upstream declares an SPDX license — the
 		// pre-bundle path is git-only and license-gated; the npm recommend path is not.
+		// Version floor >= 0.8.1 for a clean git tree: drops pi-flows' own
+		// project-local skill sync at session_start and makes setEditFlowFlag a
+		// no-op on an unchanged value. Documented, not enforced (no extension
+		// version-floor mechanism); the dashboard side is correct with older
+		// pi-flows. See change: stop-flows-edit-mode-project-writes.
 		source: "npm:@blackbelt-technology/pi-flows",
 		displayName: "pi-flows",
 		fallbackDescription:

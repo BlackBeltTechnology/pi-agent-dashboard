@@ -1661,6 +1661,9 @@ importers:
       minimatch:
         specifier: ^10.0.0
         version: 10.2.6
+      proper-lockfile:
+        specifier: ^4.1.2
+        version: 4.1.2
       semver:
         specifier: ^7.7.1
         version: 7.8.5
@@ -1668,6 +1671,9 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
     devDependencies:
+      '@types/proper-lockfile':
+        specifier: ^4.1.4
+        version: 4.1.4
       '@types/semver':
         specifier: ^7.7.0
         version: 7.8.0

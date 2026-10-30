@@ -45,6 +45,7 @@
     ],
     "emits": [
       "flow:run",
+      "flow:set-edit-mode",
       "dashboard-flows:report-files"
     ],
     "i18nCatalog": "catalog",

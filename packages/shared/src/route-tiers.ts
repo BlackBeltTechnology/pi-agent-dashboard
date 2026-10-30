@@ -232,6 +232,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/flows/file", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/files", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/flow-inputs", tier: "observe" },
+  // stop-flows-edit-mode-project-writes: effective edit mode (read-only) and
+  // the global `flows.editFlow` default (PUT writes ~/.pi/agent/settings.json).
+  { method: "GET", path: "/api/plugins/flows/edit-mode-default", tier: "observe" },
+  { method: "GET", path: "/api/plugins/flows/edit-mode-state", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
@@ -524,6 +528,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/pi-settings", tier: "operate" },
   { method: "PUT", path: "/api/pi-settings/raw", tier: "operate" },
   { method: "PUT", path: "/api/plugins/blackhole/config", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/flows/edit-mode-default", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/setup", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
