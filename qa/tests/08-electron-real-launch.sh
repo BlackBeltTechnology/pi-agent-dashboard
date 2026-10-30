@@ -236,7 +236,7 @@ fi
 # bundled reports `client.delivery:"bundled"` (never `runtime`). See change: decouple-plugins-from-core.
 #   a. a bundled server tree found under ~/.pi-dashboard ⇒ `pi-dashboard-mcp-core` sits beside it
 #      (workspace source ships once, under node_modules/@blackbelt-technology/ — see change: slim-windows-install-file-count)
-SERVER_PKG_DIR=$(find "$HOME/.pi-dashboard" -maxdepth 6 -type d -path '*/node_modules/@blackbelt-technology/pi-dashboard-server' 2>/dev/null | head -1 || true)
+SERVER_PKG_DIR=$(find "$HOME/.pi-dashboard" -maxdepth 7 -type d -path '*/node_modules/@blackbelt-technology/pi-dashboard-server' 2>/dev/null | head -1 || true)
 if [ -n "$SERVER_PKG_DIR" ]; then
   if [ ! -d "$(dirname "$SERVER_PKG_DIR")/pi-dashboard-mcp-core" ]; then
     echo "FAIL: bundled server tree $SERVER_PKG_DIR has no sibling pi-dashboard-mcp-core (BUNDLED_WORKSPACE_PKGS regression)"

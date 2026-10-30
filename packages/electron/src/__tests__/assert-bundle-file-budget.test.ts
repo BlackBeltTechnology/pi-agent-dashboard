@@ -80,6 +80,12 @@ describe("assert-bundle-file-budget", () => {
     expect(r.out).toMatch(/\b3\b/);
   });
 
+  it("a missing resources dir exits 2 instead of passing vacuously", () => {
+    const r = run(path.join(os.tmpdir(), "file-budget-no-such-dir"), ["--platform", "win32", "--arch", "x64", "--budget", "10"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("not found");
+  });
+
   it("usage error without a resources dir exits 2", () => {
     const r = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8" });
     expect(r.status).toBe(2);

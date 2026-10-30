@@ -18,11 +18,11 @@
  * Usage: node assert-bundle-file-budget.mjs <resourcesDir> --platform <p> --arch <a> [--budget <n>]
  *   --budget  override the pinned budget (local runs, tests)
  * Exit 0 within budget / no budget pinned; 1 over budget (lists the 20 directories
- * with the most files on stderr-merged stdout); 2 usage.
+ * with the most files); 2 usage or missing resources dir.
  *
  * See change: slim-windows-install-file-count (design D3).
  */
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -88,6 +88,11 @@ export function main(argv, deps = {}) {
     return 2;
   }
   const root = path.resolve(args.resourcesDir);
+  if (!existsSync(root)) {
+    // A mistyped CI path must not read as "0 files, within budget".
+    log(`\u2717 resources dir not found: ${root}`);
+    return 2;
+  }
   const leg = `${args.platform ?? process.platform}-${args.arch ?? process.arch}`;
   const { total, perDir } = countFilesByDir(root);
   const budget = args.budget ?? budgets[leg];

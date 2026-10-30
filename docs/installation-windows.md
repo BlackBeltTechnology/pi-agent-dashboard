@@ -25,7 +25,7 @@ Grab latest Windows artifact from GitHub releases page:
 ### Install size / speed
 
 - NSIS install time scales with file count (NTFS create + Defender scan per file).
-- v0.11.0 win32-x64: 42,298 files. Current build: ~11.6k fewer (-27.5%).
+- v0.11.0 win32-x64: 42,298 files. Estimated ~11.6k fewer files (-27.5%), from v0.11.0 win32-x64 file list; CI measurement pending.
 - Layout: workspace source ships once, under `resources\server\node_modules\@blackbelt-technology\<pkg>`.
 - `resources\server\packages\<dir>` no longer shipped. Only `resources\server\packages\dist` (served client) remains.
 - Upgrade: stale `...\server\packages\extension` bridge registration in `~\.pi\agent\settings.json` dropped automatically on first launch of new version. No manual edit.

@@ -134,7 +134,7 @@ All runtime deps under `<resourcesPath>/server/node_modules/`. Read-only at runt
 pi, openspec, tsx: Bundled (regular npm deps of pi-dashboard-server)
 node:              Bundled (<resourcesPath>/node/bin/node)
 bridge:            Bundled (<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-extension)
-serverCli:         Bundled (<resourcesPath>/server/node_modules/.../packages/server/src/cli.ts)
+serverCli:         Bundled (<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts)
 ```
 
 Update path: electron-updater whole-app replacement. No in-app npm install. Legacy `~/.pi-dashboard/` left untouched; `detectLegacyManagedDir` surfaces Doctor advisory only.
