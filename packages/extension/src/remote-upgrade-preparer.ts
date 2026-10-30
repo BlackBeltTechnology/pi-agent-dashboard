@@ -17,6 +17,7 @@
  * See change: fix-remote-bridge-ticket-origin (D2, D4); harden-bridge-inbound-and-discovery (D19: pinned-only).
  */
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
+import { checkTlsCall } from "./bridge-tls-checks.js";
 import { resolveDashboardHttpOrigin } from "./dashboard-http-origin.js";
 import { isRemoteEndpoint } from "./remote-registration-gate.js";
 
@@ -72,11 +73,21 @@ export function createRemoteUpgradePreparer(deps: RemoteUpgradePreparerDeps): Re
       deps.log.error(`[dashboard] bridge ticket ${resolved.cause}: ${resolved.reason}`);
       throw new Error(resolved.reason);
     }
+    // After `bad-http-url`: `tls-only-token`, then `tls-verify-disabled` (read per
+    // attempt, so a runtime flip is caught on the next reconnect). A refusal sends
+    // no bearer and does not dial. See change: prove-vault-bridge-tls (D7, D9).
+    const token = readDeviceToken(deps.env);
+    const refusal = checkTlsCall({ origin: resolved.origin, token, dialUrl: endpoint, env: deps.env });
+    if (refusal) {
+      deps.log.error(`[dashboard] bridge ticket ${refusal.cause}: ${refusal.reason}`);
+      throw new Error(refusal.reason);
+    }
     const minted = await mintBridgeTicket({
       httpBase: resolved.origin,
-      token: readDeviceToken(deps.env),
+      token,
       originSource: resolved.source,
       fetchImpl: deps.fetchImpl,
+      env: deps.env,
     });
     if (!minted.ok) {
       deps.log.error(`[dashboard] bridge ticket ${minted.cause}: ${minted.reason}`);

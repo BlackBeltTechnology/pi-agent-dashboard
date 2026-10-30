@@ -18,7 +18,6 @@ import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/p
 import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackbelt-technology/pi-dashboard-obs-studio-plugin";
 import { catalog as craft_web_catalog } from "@blackbelt-technology/pi-dashboard-craft-web-plugin";
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
-import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -829,6 +828,24 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             },
             {
                 "slot": "editor-pane-file-handler",
+                "component": "FilmCraftHandler",
+                "module": "./src/client/handlers.tsx",
+                "id": "filmcraft",
+                "extensions": [
+                    ".fcproj"
+                ],
+                "mode": "edit",
+                "label": "Edit in FilmCraft",
+                "keepAlive": {
+                    "max": 3
+                },
+                "maxBytes": 134217728,
+                "firstOverwriteNotice": "FilmCraft does not report which file it opened. Check that it shows this file before overwriting. FilmCraft rewrites the project when it saves; media are delivered from the project's folder and keep their original paths. A copy is the safe way to compare.",
+                "copySuffix": "filmcraft",
+                "validator": true
+            },
+            {
+                "slot": "editor-pane-file-handler",
                 "component": "CADCraftHandler",
                 "module": "./src/client/handlers.tsx",
                 "id": "cadcraft",
@@ -1041,6 +1058,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"wordcraft","extensions":[".docx"],"mode":"edit","label":"Edit in WordCraft","keepAlive":{"max":3},"maxBytes":41943040,"firstOverwriteNotice":"Saves are re-rendered by WordCraft's own writer; formatting of unsupported features may change. A copy is the safe way to compare.","copySuffix":"wordcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "WordCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"gridcraft","extensions":[".xlsx"],"mode":"edit","label":"Edit in GridCraft","keepAlive":{"max":3},"maxBytes":52428800,"firstOverwriteNotice":"Saves are rewritten by GridCraft's own writer; formulas, charts or formatting it does not support may change. A copy is the safe way to compare.","copySuffix":"gridcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "GridCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"pdfcraft","extensions":[".pdf"],"mode":"edit","label":"Edit in PdfCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"PdfCraft does not report which file it opened. Check that it shows this file before overwriting. PdfCraft appends your changes as an incremental update and keeps the original bytes. A copy is the safe way to compare.","copySuffix":"pdfcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "PdfCraftHandler") },
+      { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"filmcraft","extensions":[".fcproj"],"mode":"edit","label":"Edit in FilmCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"FilmCraft does not report which file it opened. Check that it shows this file before overwriting. FilmCraft rewrites the project when it saves; media are delivered from the project's folder and keep their original paths. A copy is the safe way to compare.","copySuffix":"filmcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "FilmCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"cadcraft","extensions":[".dxf"],"mode":"edit","label":"Edit in CADCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"CADCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by CADCraft as DXF R2000; entities it does not support may change. A copy is the safe way to compare.","copySuffix":"cadcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "CADCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"designcraft","extensions":[".designcraft"],"mode":"edit","label":"Edit in DesignCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"DesignCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by DesignCraft with its assets embedded; content it does not support may change. A copy is the safe way to compare.","copySuffix":"designcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "DesignCraftHandler") },
       { pluginId: "craft-web", priority: 400, slot: "editor-pane-file-handler", fileHandler: {"id":"soundcraft","extensions":[".scraftz"],"mode":"edit","label":"Edit in SoundCraft","keepAlive":{"max":3},"maxBytes":134217728,"firstOverwriteNotice":"SoundCraft does not report which file it opened. Check that it shows this file before overwriting. Saves are rewritten by SoundCraft with the session's audio files; content it does not support may change. A copy is the safe way to compare.","copySuffix":"soundcraft","validator":true}, Component: lazyClaim(() => import("../../../craft-web-plugin/src/client/handlers"), "SoundCraftHandler") },
@@ -1100,30 +1118,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "flows-anthropic-bridge",
-        "displayName": "Anthropic Messages Bridge",
-        "priority": 500,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "FlowsAnthropicBridgeSettings",
-                "module": "./src/FlowsAnthropicBridgeSettings.tsx",
-                "tab": "general"
-            }
-        ],
-        "client": "./src/client.tsx",
-        "server": "./src/server/index.ts",
-        "bridge": "./src/bridge/index.ts",
-        "configSchema": "./configSchema.json",
-        "i18nCatalog": "catalog"
-    },
-    claims: [
-      { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../flows-anthropic-bridge-plugin/src/FlowsAnthropicBridgeSettings"), "FlowsAnthropicBridgeSettings") },
-    ],
-    catalog: flows_anthropic_bridge_catalog,
-  },
-  {
-    manifest: {
         "id": "quota",
         "displayName": "Provider Quota",
         "priority": 600,
@@ -1177,4 +1171,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "92e1fd2f90bb532f2abc865a28018ca61d8040373676bb608e7217870b124201";
+export const PLUGIN_REGISTRY_HASH = "c236a90a31a77528dbde437276812a758e7d72170913825e63654d51c1f3a3b1";

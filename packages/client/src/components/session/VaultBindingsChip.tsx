@@ -11,7 +11,23 @@
  * The state is polled while the chip is mounted so a grant or a confirmation converges to
  * `delivered` without a page reload. Everything inside the chip and dialog is at least 12 px.
  */
-import { mdiArrowRight, mdiCheck, mdiClose, mdiCogOutline, mdiPlus, mdiProgressClock, mdiShieldKeyOutline } from "@mdi/js";
+import type { VaultTrustDetail } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
+import {
+  mdiAccountOffOutline,
+  mdiAccountQuestionOutline,
+  mdiArrowRight,
+  mdiCertificateOutline,
+  mdiCheck,
+  mdiClose,
+  mdiCogOutline,
+  mdiHelpCircleOutline,
+  mdiKeyAlertOutline,
+  mdiLinkVariantOff,
+  mdiLockOpenAlertOutline,
+  mdiPlus,
+  mdiProgressClock,
+  mdiShieldKeyOutline,
+} from "@mdi/js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -52,6 +68,99 @@ function ProjectLine({ project, outcome }: { project?: Project; outcome?: string
       {i18nT("vault.projectCheckout", { device: deviceName(project.deviceId) }, "Checkout on {device}:")}{" "}
       <code className="break-all font-mono text-[var(--text-primary)]">{project.dir}</code>
     </p>
+  );
+}
+
+/**
+ * One refused-session cause per missing proof: icon + cause + remedy (design D8). Strings only;
+ * never a value or a bearer. See change: prove-vault-bridge-tls.
+ */
+function trustCopy(detail: VaultTrustDetail): { icon: string; cause: string; remedy: string } | null {
+  switch (detail) {
+    case "unattributed":
+      return {
+        icon: mdiAccountQuestionOutline,
+        cause: i18nT("vault.trust.unattributed.cause", undefined, "This session is not tied to a paired device."),
+        remedy: i18nT("vault.trust.unattributed.remedy", undefined, "Connect as a paired device: set PI_DASHBOARD_TOKEN to an operate-tier token."),
+      };
+    case "local-unproven":
+      return {
+        icon: mdiHelpCircleOutline,
+        cause: i18nT("vault.trust.localUnproven.cause", undefined, "This session did not prove it is local to the hub machine."),
+        remedy: i18nT("vault.trust.localUnproven.remedy", undefined, "Update pi-dashboard on this machine: the bridge must connect over the local socket or with a local proof."),
+      };
+    case "device-inactive":
+      return {
+        icon: mdiAccountOffOutline,
+        cause: i18nT("vault.trust.deviceInactive.cause", undefined, "This device was revoked or has expired."),
+        remedy: i18nT("vault.trust.deviceInactive.remedy", undefined, "Pair the device again."),
+      };
+    case "plain-transport":
+      return {
+        icon: mdiLockOpenAlertOutline,
+        cause: i18nT("vault.trust.plainTransport.cause", undefined, "This session has no proven TLS connection."),
+        remedy: i18nT(
+          "vault.trust.plainTransport.remedy",
+          undefined,
+          "Turn on Built-in HTTPS and Accept bridges, then set PI_DASHBOARD_URL=wss://<name>:<tlsPort> on the device.",
+        ),
+      };
+    case "bearer-exposed":
+      return {
+        icon: mdiKeyAlertOutline,
+        cause: i18nT("vault.trust.bearerExposed.cause", undefined, "This device token was used over plain HTTP."),
+        remedy: i18nT(
+          "vault.trust.bearerExposed.remedy",
+          undefined,
+          "Issue a new token from the dashboard opened over HTTPS and connect only over wss.",
+        ),
+      };
+    case "history-unknown":
+      return {
+        icon: mdiKeyAlertOutline,
+        cause: i18nT("vault.trust.historyUnknown.cause", undefined, "This device token predates TLS tracking."),
+        remedy: i18nT(
+          "vault.trust.historyUnknown.remedy",
+          undefined,
+          "Issue a new token from the dashboard opened over HTTPS and connect only over wss.",
+        ),
+      };
+    case "ticket-plain":
+      return {
+        icon: mdiLinkVariantOff,
+        cause: i18nT("vault.trust.ticketPlain.cause", undefined, "The connection ticket was issued over plain HTTP."),
+        remedy: i18nT(
+          "vault.trust.ticketPlain.remedy",
+          undefined,
+          "Use a wss:// endpoint and an https:// HTTP origin (PI_DASHBOARD_HTTP_URL).",
+        ),
+      };
+    case "bridge-outdated":
+      return {
+        icon: mdiCertificateOutline,
+        cause: i18nT("vault.trust.bridgeOutdated.cause", undefined, "This bridge cannot confirm it validates certificates."),
+        remedy: i18nT("vault.trust.bridgeOutdated.remedy", undefined, "Update pi-dashboard on the device."),
+      };
+    default:
+      return null;
+  }
+}
+
+/** The missing proof of a refused session, as icon + cause + remedy; nothing for an absent or unknown detail. */
+function TrustDetailCallout({ detail }: { detail?: VaultTrustDetail }) {
+  const copy = detail ? trustCopy(detail) : null;
+  if (!detail || !copy) return null;
+  return (
+    <div data-testid="vault-trust-detail" data-detail={detail}>
+      <Callout tone="warning" icon={copy.icon}>
+        <strong className="block text-sm" data-testid="vault-trust-cause">
+          {copy.cause}
+        </strong>
+        <p className="m-0 mt-1 text-xs" data-testid="vault-trust-remedy">
+          {copy.remedy}
+        </p>
+      </Callout>
+    </div>
   );
 }
 
@@ -277,6 +386,7 @@ export function VaultBindingsChip({ sessionId }: { sessionId: string }) {
               </div>
               <div className="space-y-3 overflow-y-auto p-3 text-xs text-[var(--text-primary)]">
                 <ProjectLine project={project} outcome={state.outcome} />
+                <TrustDetailCallout detail={state.trustDetail} />
                 {pending && project?.repoKey && (
                   <ConfirmCallout project={project} count={pendingCount} disabled={unavailable} error={error} onConfirm={() => void confirm()} />
                 )}

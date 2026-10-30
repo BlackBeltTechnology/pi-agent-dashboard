@@ -1073,6 +1073,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "read" },
   },
+  // Agent credential guard (change: encrypt-credentials-at-rest, test-plan F5 / E64):
+  // one `read` of the dashboard plugin-credentials store via the `~/` form (the guard resolves
+  // `~` against the session home; /home/pi in the docker harness). The guard blocks it with a
+  // `credential_guard:` result; the closing text keeps the script finite (a bare tool scenario is
+  // re-issued after its result). Drives tests/e2e/credential-guard-chat.spec.ts.
+  "tool-read-credentials": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "~/.pi/agent/plugin-credentials.json" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("credential read done")]),
+    ],
+    expect: { toolName: "read" },
+  },
   "tool-edit": toolScenario("edit", {
     // A file that REALLY exists in the sample-git fixture. The editor-pane
     // Changes rail renders its per-file rows inline in the DISK-backed file

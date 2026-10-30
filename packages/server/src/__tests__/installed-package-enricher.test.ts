@@ -30,9 +30,9 @@ const FAKE_MANIFEST: readonly RecommendedExtension[] = [
 		toolsRegistered: [],
 	},
 	{
-		id: "pi-anthropic-messages",
-		source: "https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
-		displayName: "pi-anthropic-messages",
+		id: "example-ext",
+		source: "https://github.com/Example/example-ext.git",
+		displayName: "example-ext",
 		fallbackDescription: "Anthropic Messages provider.",
 		status: "required",
 		unlocks: [],
@@ -98,7 +98,7 @@ describe("computeIsBundled", () => {
 	});
 
 	it("returns false when id not in bundledIds", () => {
-		expect(computeIsBundled("pi-flows", "/res", () => true, ["pi-anthropic-messages"])).toBe(false);
+		expect(computeIsBundled("pi-flows", "/res", () => true, ["example-ext"])).toBe(false);
 	});
 
 	it("returns false when bundle dir missing on disk", () => {
@@ -114,7 +114,7 @@ describe("computeIsBundled", () => {
 describe("enrichInstalledRow", () => {
 	const baseDeps = {
 		manifest: FAKE_MANIFEST,
-		bundledIds: ["pi-flows", "pi-anthropic-messages"],
+		bundledIds: ["pi-flows", "example-ext"],
 	};
 
 	it("enriches a recommended npm row with displayName and description from manifest", () => {

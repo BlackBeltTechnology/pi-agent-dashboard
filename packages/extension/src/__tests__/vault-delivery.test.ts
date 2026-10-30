@@ -9,6 +9,8 @@ import { createHash } from "node:crypto";
 import type { VaultSnapshotMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { VAULT_DELIVERED_MARKER_ENV, VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ConnectionManager } from "../connection.js";
+import { sendStateSync } from "../session-sync.js";
 import { createVaultDelivery, createVaultRegistry, type VaultDeliveryDeps, type VaultRegistry } from "../vault-delivery.js";
 
 const sha = (v: string) => createHash("sha256").update(v).digest("hex");
@@ -346,5 +348,116 @@ describe("BE18: a query token never rides the origin", () => {
     const req = sent.filter((m) => m.type === "vault_sync_request").at(-1) as { origin?: string };
     expect(req.origin).toBe("https://github.com/o/r");
     expect(JSON.stringify(sent)).not.toContain("SECRET");
+  });
+});
+
+/**
+ * A bridge that applied the TLS checks to its connection declares it on both
+ * `session_register` and `vault_sync_request`; a plain `ws` or local-socket
+ * bridge declares nothing. See change: prove-vault-bridge-tls (D7; test-plan #E14).
+ */
+describe("E14: certValidation declaration", () => {
+  class FakeWs {
+    static last: FakeWs | undefined;
+    readyState = 0;
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onmessage: unknown = null;
+    onerror: unknown = null;
+    frames: Array<Record<string, unknown>> = [];
+    url: string;
+    constructor(url: string) {
+      this.url = url;
+      FakeWs.last = this;
+    }
+    send(data: string) {
+      this.frames.push(JSON.parse(data));
+    }
+    close() {
+      this.readyState = 3;
+    }
+  }
+
+  const capture = async (url: string) => {
+    vi.stubEnv("NODE_TLS_REJECT_UNAUTHORIZED", "");
+    const cm = new ConnectionManager({ url, WebSocketImpl: FakeWs as never });
+    cm.connect();
+    const ws = FakeWs.last as FakeWs;
+    ws.readyState = 1;
+    ws.onopen?.();
+    const bc = {
+      pi: { getSessionName: () => "n", getCommands: () => [] },
+      connection: cm,
+      sessionId: "s1",
+      cachedCtx: { sessionManager: { getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => [], getEntries: () => [] } },
+      cachedModelRegistry: null,
+      cachedHasUI: true,
+      hasRegisteredOnce: false,
+      dashboardSpawned: false,
+    };
+    sendStateSync(bc as never, () => []);
+    const d = createVaultDelivery({
+      env: {}, platform: "linux", registry: createVaultRegistry(),
+      send: (m) => cm.sendIfOpen(m),
+      sessionId: () => "s1",
+      resolveProject: async (cwd) => ({ dir: cwd, origin: undefined }),
+      certValidation: () => cm.certValidation,
+    });
+    d.onServerMessage({ type: "dashboard_identity", features: [VAULT_DELIVERY_FEATURE] });
+    cm.disconnect();
+    vi.unstubAllEnvs();
+    return {
+      register: ws.frames.find((m) => m.type === "session_register") as Record<string, unknown>,
+      sync: ws.frames.find((m) => m.type === "vault_sync_request") as Record<string, unknown>,
+    };
+  };
+
+  it("(a) a remote wss bridge declares it on both", async () => {
+    const { register, sync } = await capture("wss://dash.example:8443");
+    expect(register).toMatchObject({ certValidation: "enforced" });
+    expect(sync).toMatchObject({ certValidation: "enforced" });
+  });
+
+  it.each([["(b) plain ws", "ws://dash.example:9999"], ["(c) local socket", "ws+unix:///tmp/gw.sock:/"]])(
+    "%s declares nothing",
+    async (_label, url) => {
+      const { register, sync } = await capture(url);
+      expect(register).toBeDefined();
+      expect(sync).toBeDefined();
+      expect(register).not.toHaveProperty("certValidation");
+      expect(sync).not.toHaveProperty("certValidation");
+    },
+  );
+
+  it("a wss bridge whose validation is disabled declares nothing", async () => {
+    vi.stubEnv("NODE_TLS_REJECT_UNAUTHORIZED", "0");
+    const cm = new ConnectionManager({ url: "wss://dash.example:8443", WebSocketImpl: FakeWs as never });
+    expect(cm.certValidation).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});
+
+/**
+ * Deactivating a device withdraws its values: the hub's denial carries a
+ * `trustDetail`, and the bridge withdraws exactly as for any denial.
+ * See change: prove-vault-bridge-tls (D6; test-plan #X7).
+ */
+describe("X7: a device-inactive denial withdraws delivered values", () => {
+  it("an untrusted denial unsets SONIOX_API_KEY and the next sync reports nothing held", async () => {
+    const d = mk();
+    identity(d);
+    d.onServerMessage(snap([["SONIOX_API_KEY", "soniox-secret-1"]]));
+    expect(env.SONIOX_API_KEY).toBe("soniox-secret-1");
+
+    const denial = { ...snap([], { status: "denied", outcome: "untrusted" }), trustDetail: "device-inactive" };
+    d.onServerMessage(denial);
+
+    // The next child command's environment no longer holds the key.
+    expect(env.SONIOX_API_KEY).toBeUndefined();
+    expect(env[VAULT_DELIVERED_MARKER_ENV]).toBeUndefined();
+    expect(registry.tracked.size).toBe(0);
+    // The bridge reports it withdrawn: the next sync names nothing as held.
+    await d.onSessionStart({ reason: "startup", getCwd: () => "/work/p" });
+    expect(sent.filter((m) => m.type === "vault_sync_request").at(-1)).toMatchObject({ tracked: [] });
   });
 });

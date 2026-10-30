@@ -412,3 +412,38 @@ describe("transient", () => {
     expect(isCollapsed()).toBe(true);
   });
 });
+
+// See change: fix-dock-peek-join-and-view-menu-close (test-plan #T1–#T3).
+describe("peek joins the bar as one surface", () => {
+  const cls = (el: Element) => el.className.split(/\s+/);
+
+  it("T1: peeking squares the root's top edge, raises only the overlay, and drops the bar hover fill", () => {
+    renderDock({ session: makeSession(), lanes: [fakeLane("changes")] });
+    peekIt();
+    expect(cls(dock())).toEqual(expect.arrayContaining(["rounded-t-none", "border-t-transparent"]));
+    expect(cls(dock())).not.toContain("z-0");
+    expect(cls(dock())).not.toContain("rounded-t-xl");
+    expect(cls(region())).toEqual(expect.arrayContaining(["rounded-t-xl", "z-popover"]));
+    expect(cls(region())).not.toContain("shadow-lg");
+    // Upward-only shadow: negative y offset + negative spread keeps it off the bar.
+    expect(cls(region()).some((c) => /^shadow-\[0_-\d+px_\d+px_-\d+px_/.test(c))).toBe(true);
+    expect(cls(region())).not.toContain("z-raised");
+    expect(bar().className).not.toMatch(/(^|\s)hover:bg-/);
+  });
+
+  it("T2: collapsed without a peek keeps the root's stacking context and rounding", () => {
+    renderDock({ session: makeSession(), lanes: [fakeLane("changes")] });
+    expect(cls(dock())).toEqual(expect.arrayContaining(["z-0", "rounded-t-xl"]));
+    expect(cls(dock())).not.toContain("border-t-transparent");
+    expect(bar().className).toMatch(/(^|\s)hover:bg-/);
+  });
+
+  it("T3: Pin restores the in-flow root", () => {
+    renderDock({ session: makeSession(), lanes: [fakeLane("changes")] });
+    peekIt();
+    fireEvent.click(screen.getByTestId("composer-dock-pin"));
+    expect(cls(dock())).toEqual(expect.arrayContaining(["z-0", "rounded-t-xl"]));
+    expect(cls(region())).not.toContain("absolute");
+    expect(cls(region())).not.toContain("z-popover");
+  });
+});

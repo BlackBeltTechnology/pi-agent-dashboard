@@ -8,6 +8,7 @@ import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackb
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import type { LocalCredentialVerifier } from "../auth/local-credential.js";
+import { isProvenTls } from "../auth/proven-tls.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
 import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
@@ -25,6 +26,7 @@ import {
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
+import type { BridgeChannel } from "./bridge-channel.js";
 import { decideBridgeUpgrade, isLoopbackAddress } from "./bridge-upgrade-auth.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import { createProvisionalRegistry } from "./provisional-registration.js";
@@ -89,6 +91,13 @@ export interface PiGatewayOptions {
   /** Test seams for the pressure thresholds. */
   hostPressureDegradedMs?: number;
   hostPressureUnresponsiveMs?: number;
+  /**
+   * Fires whenever the routing entry for a session changes to a (possibly different) socket: at
+   * `session_register` (with the register's declared `certValidation`) and at move-commit. The vault hub
+   * re-evaluates trust here so a socket swap never sees the previous socket's channel.
+   * See change: prove-vault-bridge-tls (D3).
+   */
+  onRoutingChanged?: (sessionId: string, declared?: { certValidation?: "enforced" }) => void;
 }
 
 /** How a bridge connection reached the gateway. `local` = in-process virtual socket. */
@@ -111,7 +120,18 @@ export interface LocalGatewaySocket {
 }
 
 export interface PiGateway {
+  /**
+   * Serve bridges over TCP. Synchronous: the bind outcome is observed via
+   * {@link PiGateway.tcpListening}. A failed bind tears the half-started
+   * listener down and never escapes as an uncaught exception. See issue #978.
+   */
   start(port: number, host?: string, opts?: { kind?: "tcp" | "loopback" }): void;
+  /**
+   * Bind outcome of the last `start()`: resolves once listening (or at once when
+   * no TCP listener was started); rejects with the bind error, e.g. `EADDRINUSE`.
+   * See issue #978.
+   */
+  tcpListening(): Promise<void>;
   /**
    * Serve bridges on `127.0.0.1:<port>` because the unix socket cannot be
    * used. Requires the local token or a ticket — no tokenless grace — and
@@ -180,6 +200,19 @@ export interface PiGateway {
   /** Force-close the WebSocket connection for a session */
   closeSession(sessionId: string): boolean;
   /**
+   * The channel of the socket the gateway currently ROUTES `sessionId` to (it changes with the routing
+   * entry at register and at move-commit); `undefined` when unrouted. See change: prove-vault-bridge-tls (D3).
+   */
+  channelOf(sessionId: string): BridgeChannel | undefined;
+  /**
+   * Admit a `/ws/bridge` upgrade that arrived on the native TLS listener: ticket-only, paired devices
+   * only. Hands off to the EXISTING gateway server, or refuses 503 when the gateway has not started.
+   * See change: prove-vault-bridge-tls (D2).
+   */
+  handleTlsUpgrade(req: IncomingMessage, socket: import("node:stream").Duplex, head: Buffer): void;
+  /** Close every socket admitted over the TLS listener (Accept bridges / TLS switched off). */
+  closeTlsBridges(): void;
+  /**
    * Contention records, cumulative refusal counter and rate limiter.
    * See change: fix-duplicate-bridge-registration (D4, D6).
    */
@@ -220,6 +253,19 @@ export function createPiGateway(
    * `WebSocketServer` (D10), and `verifyClient` sees only the request.
    */
   const unixUpgrades = new WeakSet<IncomingMessage>();
+  /**
+   * Upgrades that arrived over the native TLS listener (`handleTlsUpgrade`). `verifyClient` skips them
+   * exactly as it skips `unixUpgrades` (the ticket is consumed once, in `handleTlsUpgrade`), and the
+   * per-connection transport derivation reads this before the attach-time label, so a TLS connection is
+   * never labelled `unix`. See change: prove-vault-bridge-tls (D2).
+   */
+  const tlsUpgrades = new WeakMap<IncomingMessage, BridgeChannel>();
+  /** Channel evidence of TCP upgrades admitted by `verifyClient`. */
+  const tcpChannels = new WeakMap<IncomingMessage, BridgeChannel>();
+  /** Per socket: how it was admitted. `channelOf` follows the routing entry to its socket. */
+  const socketChannels = new WeakMap<WebSocket, BridgeChannel>();
+  /** Sockets admitted over TLS, so `closeTlsBridges()` can close exactly them. */
+  const tlsSockets = new Set<WebSocket>();
   /** Upgrades admitted on a verified proof → the data the counter-proof answers. */
   const proofAdmissions = new WeakMap<IncomingMessage, { binding: string; nonce: string; mac: string }>();
   let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -230,6 +276,8 @@ export function createPiGateway(
   let pendingTeardown: Promise<void> = Promise.resolve();
   /** What the TCP `wss` is for (health, spawn pinning). See D7. */
   let tcpKind: "tcp" | "loopback" | "loopback-fallback" | null = null;
+  /** Bind outcome of the last `start()` (pre-handled; see `tcpListening`). */
+  let tcpBound: Promise<void> = Promise.resolve();
   let fallbackReason: "occupied" | "unsupported" | undefined;
 
   // Map sessionId → WebSocket
@@ -473,14 +521,35 @@ export function createPiGateway(
         // request exists, so without the explicit label it would fail closed to
         // remote. Same-host by construction, attributed like `unix`.
         // See change: add-acp-session-driver (D1).
-        const connTransport: ConnectionTransport = req && unixUpgrades.has(req) ? "unix" : transport;
+        const tlsChannel = req ? tlsUpgrades.get(req) : undefined;
+        const connTransport: ConnectionTransport = tlsChannel
+          ? "tcp"
+          : req && unixUpgrades.has(req)
+            ? "unix"
+            : transport;
+        // The hub's own observation of how this socket was admitted, on EVERY transport.
+        // See change: prove-vault-bridge-tls (D3).
+        const channel: BridgeChannel = tlsChannel
+          ?? (!req
+            ? { admission: "in-process", provenTls: false, ticketTls: false }
+            : unixUpgrades.has(req)
+              ? { admission: "unix", provenTls: false, ticketTls: false }
+              : (tcpChannels.get(req) ?? { admission: "grace", provenTls: false, ticketTls: false }));
+        socketChannels.set(ws, channel);
+        if (tlsChannel) {
+          tlsSockets.add(ws);
+          ws.once("close", () => tlsSockets.delete(ws));
+        }
         const sessionOrigin = attributeOrigin({
           transport: connTransport === "tcp" ? "tcp" : "unix",
+          // A ticket-admitted TLS connection is attributed to its ticket's device as REMOTE, whatever the
+          // peer address: a loopback forwarder in front of the TLS port cannot make it hub-local.
           remote:
             connTransport === "tcp" &&
-            !isLoopbackAddress(
-              options?.peerAddressForTest ?? req?.socket?.remoteAddress ?? undefined,
-            ),
+            (tlsChannel !== undefined ||
+              !isLoopbackAddress(
+                options?.peerAddressForTest ?? req?.socket?.remoteAddress ?? undefined,
+              )),
           deviceId: req ? upgradeDeviceId.get(req) : undefined,
           localInstanceId: options?.instanceId ?? "",
         });
@@ -496,6 +565,8 @@ export function createPiGateway(
         // provisional announces intent and claims nothing, so this socket must
         // stay unrouted for that id until it commits.
         let provisionalSessionId: string | null = null;
+        // What THIS socket declared at register (incl. a provisional one), carried to the move-commit.
+        let declaredCertValidation: "enforced" | undefined;
         // Serializes this socket's messages. The contention decision is async
         // (it may probe the incumbent), and a bridge sends `session_register`
         // immediately followed by events; without this queue a later message
@@ -751,6 +822,7 @@ export function createPiGateway(
                 }
                 resetHeartbeat(movedId);
                 console.log(`[gateway] session move committed: ${movedId}`);
+                options?.onRoutingChanged?.(movedId, { certValidation: declaredCertValidation });
                 // Tell the mover the transfer actually happened. It cannot
                 // infer this from its own send: every refusal above is silent
                 // by design, so no acknowledgement means "assume nothing moved".
@@ -858,6 +930,7 @@ export function createPiGateway(
               },
             });
             provisionalSessionId = msg.sessionId;
+            declaredCertValidation = msg.certValidation === "enforced" ? "enforced" : undefined;
             ws.send(
               JSON.stringify({
                 type: "provisional_accepted",
@@ -955,6 +1028,9 @@ export function createPiGateway(
               onConnection?.();
               onSessionRegistered?.(msg.sessionId, msg.cwd);
               onEvent?.(msg.sessionId, msg);
+              // The routing entry now points at THIS socket: re-evaluate trust against its own channel.
+              declaredCertValidation = msg.certValidation === "enforced" ? "enforced" : undefined;
+              options?.onRoutingChanged?.(msg.sessionId, { certValidation: declaredCertValidation });
           } catch {
             // Ignore malformed messages
           }
@@ -1099,7 +1175,7 @@ export function createPiGateway(
     port: number,
     host: string | undefined,
     tcpOpts: { kind: "tcp" | "loopback" | "loopback-fallback"; requireLocalCredential?: boolean },
-  ) => {
+  ): Promise<void> => {
     // A listener already exists (socket transport): replacing `wss` here
     // would orphan it and silently re-route socket upgrades into the TCP
     // server's client set. Both transports are meant to SHARE one
@@ -1127,7 +1203,7 @@ export function createPiGateway(
           // written for TCP and hardcodes `transport: "tcp"` — running it
           // here would refuse every local bridge in any deployment that also
           // enables TCP, which is the shipped container.
-          if (unixUpgrades.has(info.req)) {
+          if (unixUpgrades.has(info.req) || tlsUpgrades.has(info.req)) {
             done(true);
             return;
           }
@@ -1168,6 +1244,13 @@ export function createPiGateway(
             proofAdmissions.set(info.req, { binding: stamped.binding, nonce: stamped.nonce, mac: stamped.mac });
           }
           if (verdict.deviceId) upgradeDeviceId.set(info.req, verdict.deviceId);
+          // The hub's own observation, on the plain TCP listener: never proven TLS.
+          tcpChannels.set(info.req, {
+            admission: verdict.admission,
+            provenTls: false,
+            ticketTls: verdict.ticketTls === true,
+            ...(verdict.admission === "device-ticket" && verdict.deviceId ? { ticketDeviceId: verdict.deviceId } : {}),
+          });
           done(true);
         }
       : undefined;
@@ -1185,6 +1268,28 @@ export function createPiGateway(
     attachConnectionHandler(wss, "tcp");
     tcpKind = tcpOpts.kind;
     startHeartbeat();
+    // Bind outcome (#978): without an `error` listener a held port surfaced as an
+    // uncaught exception the crash safety net swallowed, leaving no bridge listener.
+    const server = wss;
+    const bound = new Promise<void>((resolve, reject) => {
+      server.once("listening", () => {
+        server.off("error", reject);
+        // Post-bind errors are reported loudly instead of escaping as uncaught.
+        server.on("error", (err) => console.error(`[pi-gateway] TCP listener error on port ${port}: ${String(err)}`));
+        resolve();
+      });
+      server.once("error", reject);
+    }).catch((err: unknown) => {
+      // A refused bind must leave no half-started listener behind.
+      server.close();
+      if (wss === server) {
+        wss = null;
+        tcpKind = null;
+      }
+      throw err;
+    });
+    bound.catch(() => undefined);
+    return bound;
   };
 
   return {
@@ -1264,6 +1369,67 @@ export function createPiGateway(
      * upgrade/connection handler with the TCP listener, so the transport is a
      * per-bridge property rather than a per-server mode (D10).
      */
+    channelOf(sessionId: string): BridgeChannel | undefined {
+      const ws = connections.get(sessionId);
+      return ws ? socketChannels.get(ws) : undefined;
+    },
+    closeTlsBridges() {
+      for (const ws of [...tlsSockets]) {
+        try {
+          ws.close(1008, "tls-bridges-off");
+        } catch {
+          ws.terminate();
+        }
+        // A peer that ignores the close handshake must not keep a withdrawn channel open.
+        const timer = setTimeout(() => ws.terminate(), 2000);
+        timer.unref?.();
+        ws.once("close", () => clearTimeout(timer));
+      }
+    },
+    handleTlsUpgrade(req, socket, head) {
+      const refuseWith = (status: string, cause: string) => {
+        console.warn(`[pi-gateway] tls bridge upgrade refused (${cause})`);
+        socket.write(`HTTP/1.1 ${status}\r\n\r\n`);
+        socket.destroy();
+      };
+      const target = wss;
+      const bridgeAuth = options?.bridgeAuth;
+      // Nothing is created lazily: the gateway's start order is unaffected. No gateway → no admission.
+      if (!target || !bridgeAuth) {
+        refuseWith("503 Service Unavailable", "tls-gateway-not-ready");
+        return;
+      }
+      // Ticket-only: no loopback grace and no local credential on this path.
+      const verdict = decideBridgeUpgrade({
+        transport: "tcp",
+        remoteAddress: req.socket.remoteAddress ?? undefined,
+        headers: req.headers,
+        url: req.url,
+        secWebSocketProtocol: req.headers["sec-websocket-protocol"],
+        requireTicketOnLoopback: true,
+        consumeTicket: bridgeAuth.consumeTicket,
+        localCredential: "absent",
+      });
+      if (!verdict.allow) {
+        refuseWith("401 Unauthorized", verdict.reason);
+        return;
+      }
+      // The TLS path is for paired devices only: a bridge on the hub host uses its local socket.
+      if (verdict.admission !== "device-ticket" || !verdict.deviceId) {
+        refuseWith("401 Unauthorized", "tls-deviceless-ticket");
+        return;
+      }
+      tlsUpgrades.set(req, {
+        admission: "device-ticket",
+        provenTls: isProvenTls(req),
+        ticketTls: verdict.ticketTls === true,
+        ticketDeviceId: verdict.deviceId,
+      });
+      upgradeDeviceId.set(req, verdict.deviceId);
+      target.handleUpgrade(req, socket as never, head, (ws) => {
+        target.emit("connection", ws, req);
+      });
+    },
     attachLocalConnection(socket: LocalGatewaySocket) {
       handleConnection(socket as unknown as WebSocket, undefined, "local");
     },
@@ -1304,26 +1470,17 @@ export function createPiGateway(
       startHeartbeat();
     },
     start(port: number, host?: string, startOpts?: { kind?: "tcp" | "loopback" }) {
-      startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+      tcpBound = startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+    },
+    tcpListening() {
+      return tcpBound;
     },
     async startLoopbackFallback(port: number, reason: "occupied" | "unsupported") {
       if (!options?.bridgeAuth) {
         // Fail closed: the fallback is only defensible behind an auth gate.
         throw new Error("pi-gateway: the loopback fallback requires bridge auth");
       }
-      startTcp(port, "127.0.0.1", { kind: "loopback-fallback", requireLocalCredential: true });
-      const server = wss as WebSocketServer;
-      try {
-        await new Promise<void>((resolve, reject) => {
-          server.once("listening", resolve);
-          server.once("error", reject);
-        });
-      } catch (err) {
-        server.close();
-        wss = null;
-        tcpKind = null;
-        throw err;
-      }
+      await startTcp(port, "127.0.0.1", { kind: "loopback-fallback", requireLocalCredential: true });
       fallbackReason = reason;
     },
     bridgeListeners() {

@@ -19,6 +19,7 @@ function bind(claimId: string) {
 export const WordCraftHandler = bind("wordcraft");
 export const GridCraftHandler = bind("gridcraft");
 export const PdfCraftHandler = bind("pdfcraft");
+export const FilmCraftHandler = bind("filmcraft");
 export const CADCraftHandler = bind("cadcraft");
 export const DesignCraftHandler = bind("designcraft");
 export const SoundCraftHandler = bind("soundcraft");

@@ -430,6 +430,8 @@ describe("PiSettingsPage", () => {
     // server-side per-field errors
     const save = vi.fn().mockRejectedValue(new PiSettingsApiError(400, { success: false, error: "x", errors: [{ field: "steeringMode", message: "steeringMode must be one of" }] }));
     const r2 = await mount({}, { save });
+    // mount() waits for the mode toggle only; the fields render after load resolves.
+    await waitFor(() => expect(r2.getByTestId("pi-settings-field-steeringMode-all")).toBeTruthy());
     pick(r2, "steeringMode", "all");
     await commitFails(r2);
     expect(r2.getByTestId("pi-settings-errors").textContent).toContain("steeringMode must be one of");

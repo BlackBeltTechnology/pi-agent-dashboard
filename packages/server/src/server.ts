@@ -94,6 +94,8 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
+import { getCredentialCodec, type InitCredentialKeyOptions, initCredentialKey } from "./auth/credential-key.js";
+import { migrateCredentialFiles } from "./auth/credential-migration.js";
 import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
@@ -134,7 +136,7 @@ import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import { isServerTrusted } from "./auth/plugin-server-trust.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
-import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { hasAnthropicCredential, readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
@@ -146,6 +148,7 @@ import {
   type CoreWsRouteScope,
   extractTicket,
   isCoreWsRouteScope,
+  mintBridgeTicket,
   routeScopeForUrl,
   setPluginScopeResolver,
   type WsRouteScope,
@@ -249,6 +252,10 @@ import { logPackageHealthAtBoot } from "./package/package-health-scanner.js";
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { createRequestAccessAvailable, type KnockPeerDeps } from "./pairing/knock-admission.js";
+import { bearerChannelOf, isProvenTls } from "./auth/proven-tls.js";
+import { createDeviceTokenServices } from "./pairing/device-token-services.js";
+import { onTlsBridgeSwitchChanged, routeBridgeUpgrade } from "./tls/tls-bridge-route.js";
+import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { stampSocketLocality } from "./pairing/socket-locality.js";
@@ -258,7 +265,7 @@ import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-in
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
-import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingInitialPromptRegistry, type PendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPrincipalOwnerRegistry } from "./pending/pending-principal-owner-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
@@ -283,6 +290,8 @@ import { getRuntimeClientRegistry, installRuntimeClientRegistry, logRuntimeAdmis
 import { createPushService, type PushService } from "./push/push-service.js";
 import type { SessionPresence } from "./questions/question-files.js";
 import { registerQuestionRoutes } from "./questions/question-routes.js";
+import { createAgentEventHub } from "./agent-events/agent-event-hub.js";
+import { registerAgentEventStreamRoutes } from "./routes/agent-event-stream-routes.js";
 import { createQuestionStack, persistedPresence } from "./questions/question-stack.js";
 import { registerAccessPromptRoutes } from "./routes/access-prompt-routes.js";
 import { registerAccessRoutes } from "./routes/access-routes.js";
@@ -326,6 +335,7 @@ import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plug
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPluginRuntimeClientRoutes } from "./routes/plugin-runtime-client-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
+import { registerPreferencesClaudeCompatRoutes } from "./routes/preferences-claude-compat-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
@@ -406,6 +416,12 @@ import { createVaultStore } from "./vault/vault-store.js";
 import { createWatchFilesHandler, type WatchFilesMessage } from "./watch-files-handler.js";
 
 export interface ServerConfig {
+  /**
+   * Test seam for the credential data key (key file env, stub keychain, log sink, home dir).
+   * Production leaves it unset: `initCredentialKey()` then reads `process.env` and the real home.
+   * See change: encrypt-credentials-at-rest (D4, D9).
+   */
+  credentialKey?: InitCredentialKeyOptions;
   port: number;
   piPort: number;
   /**
@@ -558,6 +574,13 @@ export interface DashboardServer {
    */
   pendingDashboardSpawns: Map<string, number>;
   /**
+   * Pending initial-prompt intents per cwd. Exposed for in-process tests that
+   * pin register-time ordering (preferences snapshot before `send_prompt`).
+   * Not part of the public API — do not depend on this from production code.
+   * See change: retire-anthropic-messages-bridge.
+   */
+  pendingInitialPromptRegistry: PendingInitialPromptRegistry;
+  /**
    * In-process OpenSpec poll cache + discovery service. Exposed for tests
    * that need to stub `getOpenSpecData` (e.g. the deleted-proposal bypass).
    * Not part of the public API.
@@ -644,6 +667,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
     throw err;
   }
+  // Resolve the credential data key BEFORE anything builds or reads a credential store
+  // (vault, ACME runtime, plugin load) and before `listen`, then migrate plaintext
+  // credential files to envelopes. One 10 s total deadline bounds init; a keychain failure
+  // only leaves the stores locked, it never stops the server from booting. Neither call throws.
+  // See change: encrypt-credentials-at-rest (D4, D7, D11).
+  await initCredentialKey(config.credentialKey);
+  await migrateCredentialFiles({ home: config.credentialKey?.homeDir, log: config.credentialKey?.log });
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //
@@ -701,6 +731,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     customEventGroupDefaults: Object.fromEntries(
       customEventGroupsStore.definitions().map((g) => [g.id, g.default]),
     ),
+    // One-time compat-switch seed for upgraders with an anthropic sign-in.
+    // See change: seed-claude-compat-on-upgrade (design D2).
+    hasAnthropicCredential,
   });
   // Single cwd-policy registry (Part B — host-cwd-policy). Recognized workspace
   // roots = pinned directories + every folder in a folder-workspace, evaluated
@@ -1284,7 +1317,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   /** This process's place in the per-HOME rendezvous (task 2.0a). */
   let homeRendezvous: import("./lifecycle/home-rendezvous.js").HomeRendezvous | null = null;
 
+  /** Live `tls.enabled && tls.acceptBridges`: the one read behind bridge routing, vault trust and the switch hook. */
+  const tlsBridgesLive = (): boolean => {
+    const live = loadConfig().tls;
+    return live.enabled && live.acceptBridges;
+  };
+  // The vault hub is created further down; the gateway reports routing changes through this late binding.
+  let onVaultRoutingChanged: ((sessionId: string, declared?: { certValidation?: "enforced" }) => void) | undefined;
   const piGateway = createPiGateway(sessionManager, {
+    onRoutingChanged: (sessionId, declared) => onVaultRoutingChanged?.(sessionId, declared),
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
     // The identity a move TARGET announces on `provisional_accepted`, so the
     // mover can prove it reached the instance it named (D14). Unset, every
@@ -1439,6 +1480,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const replayState = createReplayState(config.replayTimings);
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced, undefined, questionStore, browseRoots, replayState);
+  // Transition-only feed behind `GET /api/events/stream` (registry frames + question changes).
+  // See change: add-agent-event-stream.
+  const agentEventHub = createAgentEventHub({
+    listQuestionRows: () => questionStore.listRows(),
+    ownerOf: (sessionId) => sessionManager.get(sessionId)?.principalOwner,
+  });
+  browserGateway.onRegistryFrame(agentEventHub.onRegistryFrame);
+  questionStore.onChange(agentEventHub.onQuestionChange);
   // App-wide pairing approval dialog: a content-free hint on every pending
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
@@ -1723,9 +1772,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `onRequest` hook — `/mcp` deliberately does not trust
   // `request.isAuthenticated`, so it needs the registry directly.
   // See change: add-dashboard-mcp-server.
+  const deviceTokenServices = createDeviceTokenServices(pairedDeviceRegistry);
   pluginServiceRegistry.set(
     "host.verifyDeviceToken",
-    (token: string): string | null => pairedDeviceRegistry.verify(token)?.id ?? null,
+    // The request is optional (the plugin host services receive none today): absent → non-proven, fail closed.
+    deviceTokenServices.verifyDeviceToken,
   );
   // Tier-aware service board entry (change: expand-mcp-tiered-surface, D1).
   // A NEW key, not a signature change to the old one: `mcp-server-plugin` is
@@ -1734,7 +1785,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // `host.verifyDeviceToken` with `tier: "operate"`.
   pluginServiceRegistry.set(
     "host.verifyDeviceTokenTier",
-    (token: string) => pairedDeviceRegistry.verify(token),
+    deviceTokenServices.verifyDeviceTokenTier,
   );
   // Prefers the BOUND port, falls back to the CONFIGURED one.
   //
@@ -1859,7 +1910,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Credential vault: store + delivery hub. The hub answers bridge sync
   // requests and pushes on every vault write / config change; values travel only
   // on the session-private bridge lane. See change: add-credential-vault.
-  const vaultStore = createVaultStore();
+  const vaultStore = createVaultStore({ codec: getCredentialCodec("vault") });
   // ACME DNS-01 certificate source: solver secrets live in this vault (kind `tls-solver`).
   // GC of orphaned namespaces/account keys runs once at start. See change: add-acme-dns01-certs.
   configureAcmeRuntime({ credentials: createAcmeCredentials(vaultStore) });
@@ -1877,6 +1928,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isSessionConnected: (sessionId) => piGateway.getConnectedSessionIds().includes(sessionId),
     isDeliveryEnabled: () => loadConfig().vault.deliveryEnabled,
     getGraceHours: () => loadConfig().vault.offlineGraceHours,
+    // What the hub itself observed about each socket, and the registry's view of the device behind it
+    // (prove-vault-bridge-tls D3-D5). A TLS-admitted channel also needs the switch live-on.
+    getChannel: (sessionId) => piGateway.channelOf(sessionId),
+    getDeviceTrust: (deviceId) => pairedDeviceRegistry.deviceTrust(deviceId),
+    isTlsBridgesLive: tlsBridgesLive,
+    exposurePending: () => pairedDeviceRegistry.exposurePending(),
+  });
+  onVaultRoutingChanged = (sessionId, declared) => vaultDelivery.handleRegister(sessionId, declared);
+  // Revoke, rotation, add and a first plaintext exposure withdraw within the push debounce (~150 ms).
+  pairedDeviceRegistry.onChange(() => vaultDelivery.schedulePush());
+  // Time-based expiry has no event: a 30 s sweep pushes only when a device LEFT the active set.
+  const stopDeviceExpirySweep = startDeviceExpirySweep({
+    activeIds: () => pairedDeviceRegistry.activeIds(),
+    onLeft: () => vaultDelivery.schedulePush(),
   });
   wireEvents({
     replayState,
@@ -2872,6 +2937,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     isResolverActive: identityEnforced,
     ownerOf: (sessionId) => sessionManager.get(sessionId)?.principalOwner,
   });
+  // SSE agent-event feed for external controllers. See change: add-agent-event-stream.
+  registerAgentEventStreamRoutes(fastify, { networkGuard, hub: agentEventHub, isResolverActive: identityEnforced });
   registerAccessPromptRoutes(fastify, {
     networkGuard,
     coordinator: grantCoordinator,
@@ -3028,7 +3095,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     live: () => piTrustMirror.live,
     readSnapshot: () => piTrustMirror.readSnapshot(),
   });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), onTlsBridgeSwitchChanged: () => onTlsBridgeSwitchChanged({ acceptBridges: tlsBridgesLive, push: () => void vaultDelivery.pushNow(), gateway: piGateway }), exposureWritePending: () => pairedDeviceRegistry.exposurePending(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3370,7 +3437,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   registerLiveServerProxy(fastify, liveServerManager, {
-    isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+    isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
+    isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
     grantedOrigins: (grant) => previewEgress.grantedFor(grant),
     onStaticHtmlServed: (grant, real) => previewEgress.noteServed(grant, real),
     reservedHandler: createReservedHandler({
@@ -3443,6 +3511,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     loginAvailable,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
+    // Named in a refused bridge-token issue (HTTP → the native HTTPS address).
+    getTlsListenerUrls: () => tlsListener.tlsListenerUrls().map((e) => e.url),
     getPort: () => {
       const addr = fastify.server.address();
       return typeof addr === "object" && addr !== null ? addr.port : config.port;
@@ -3489,7 +3559,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           ip: request.ip,
           headers: request.headers as Record<string, unknown>,
           localTrust,
-          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
+          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token, bearerChannelOf(request.raw)),
         });
         if (!verdict.allow) {
           reply.code(403);
@@ -3499,7 +3569,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // registers ATTRIBUTABLE sessions (origin gate, #E15).
         return {
           success: true as const,
-          data: { ticket: wsTicketStore.mint(scope, verdict.deviceId) },
+          data: {
+            ticket: mintBridgeTicket(wsTicketStore, verdict.deviceId, request.raw),
+          },
         };
       }
       // Non-bridge scope: bind the human principal resolved by the identity
@@ -3536,6 +3608,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts
   // `preferences_update` to bridges on change.
   registerPreferencesAutoNameRoutes(fastify, { preferencesStore, piGateway, networkGuard });
+  registerPreferencesClaudeCompatRoutes(fastify, { preferencesStore, piGateway, networkGuard });
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
@@ -3818,6 +3891,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     eventStore,
     browserGateway,
     pendingDashboardSpawns,
+    pendingInitialPromptRegistry,
     directoryService,
     sessionOrderManager,
 
@@ -4534,7 +4608,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // the private request lane. Not trust-gated: each is scoped to
               // the calling plugin's manifest id. See change:
               // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
-              pluginCredentials: (id) => createPluginCredentialStore(id),
+              pluginCredentials: (id) =>
+                createPluginCredentialStore(id, { codec: getCredentialCodec("plugin-credentials") }),
               // Declared + user-approved vault reads, bound to this plugin's manifest.
               // See change: add-credential-vault (D4).
               pluginVault: (id) => createPluginVaultReader(vaultStore, id, plugin.manifest.vaultBindings ?? []),
@@ -4797,16 +4872,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // the dashboard port would silently burn its ticket and see a bare TCP
         // close (@review Audit, minor).
         if (scope === "bridge") {
-          wsUpgradeRejectLog.log({
-            status: 400,
-            scope,
-            remoteAddress,
-            headers: request.headers as unknown as Record<string, unknown>,
-            // Presence only — read from the URL/protocol header, never consumed.
-            ticketPresent: extractTicket(request.url, secWsProtocol) !== null,
-          });
-          socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-          socket.destroy();
+          // The native TLS listener may admit a paired device's bridge (opt-in `tls.acceptBridges`); every
+          // other case keeps the 400 without consuming the ticket. See change: prove-vault-bridge-tls (D2).
+          routeBridgeUpgrade(
+            {
+              acceptBridges: tlsBridgesLive,
+              gateway: piGateway,
+              rejectLog: ({ status, reason }) =>
+                wsUpgradeRejectLog.log({
+                  status,
+                  scope,
+                  remoteAddress,
+                  headers: request.headers as unknown as Record<string, unknown>,
+                  // Presence only — read from the URL/protocol header, never consumed.
+                  ticketPresent: extractTicket(request.url, secWsProtocol) !== null,
+                  ...(reason ? { reason } : {}),
+                }),
+            },
+            request,
+            socket,
+            head,
+          );
           return;
         }
         const ticket = extractTicket(request.url, secWsProtocol);
@@ -4978,7 +5064,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
               socket.once("close", cancelExpiry);
               handleLiveServerUpgrade(liveServerManager, request, socket, head, {
-                isDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+                isDeviceBearer: (token, req) => pairedDeviceRegistry.verify(token, bearerChannelOf(req)) !== null,
+                isKnownBearer: (token) => pairedDeviceRegistry.isKnownBearer(token),
                 capabilityPrefix: liveCapPrincipal && liveCap ? liveCap.prefix : undefined,
               });
             });
@@ -5466,6 +5553,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       pendingForkRegistry.dispose();
       pairingManager.dispose();
+      stopDeviceExpirySweep();
       vaultDelivery.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).

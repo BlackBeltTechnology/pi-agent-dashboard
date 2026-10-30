@@ -3,14 +3,15 @@
 Pull-only condensed map. Source: docs/plugin-seams.md. Server-entry seams on `ServerPluginContext` from `@blackbelt-technology/dashboard-plugin-runtime/server`. Example: `packages/demo-plugin`. Consumer: `packages/gmail-plugin`.
 
 ## Credential store (`ctx.credentials`)
-- File `~/.pi/agent/plugin-credentials.json`, plaintext 0600. NOT `connector-auth.json`.
+- File `~/.pi/agent/plugin-credentials.json`, 0600, encrypted at rest (`pi-dashboard-encrypted:v1`, AES-256-GCM, AAD `pi-dashboard:v1:plugin-credentials`). Key: OS keychain or `PI_DASHBOARD_DATA_KEY_FILE`. NOT `connector-auth.json`. Full: `credential-vault.md` §12.
 - Schema `{ "<pluginId>": { "<key>": <record> } }`. Own namespace only, host-bound.
 - `get` clone|undefined. `list` keys. `snapshot` own namespace.
 - `set`/`remove` locked atomic rewrite. `update(key, fn)` atomic RMW; `undefined` deletes.
 - Shares `locked-json-file.ts` lock with `auth.json`. `get`+`set` races; use `update`.
 - Keys 1–200 chars. Reject `__proto__`, `constructor`, `prototype`.
 - Record ≤ 64 KiB. ≤ 256 keys/ns. ≤ 2 MiB/ns.
-- Errors `PluginCredentialError`: `invalid_key`, `invalid_record`, `record_too_large`, `too_many_keys`, `namespace_too_large`.
+- Errors `PluginCredentialError`: `invalid_key`, `invalid_record`, `record_too_large`, `too_many_keys`, `namespace_too_large`, `store_locked` (+`reason`).
+- Locked: envelope + no key → all ops `store_locked`. Plaintext + no key → reads ok, writes `store_locked`. Never overwritten.
 
 ## OAuth (`ctx.oauth.startFlow`)
 - Returns `{ flowId }`, served at `/api/provider-auth/flow/:flowId`.
@@ -76,7 +77,7 @@ Pull-only condensed map. Source: docs/plugin-seams.md. Server-entry seams on `Se
 - Lazy: on-demand surfaces, ≳10 KB. Eager: badges, predicates, catalogs, composer-inline, hot sidebar.
 - Rules: no lazy export from main entry; no eager import of `module`; heavy children via `lazy()`.
 - Compat: adopters set engines/peer floor. Old dashboard → `does not export` build error. Rollback: remove `module`, restore barrel exports.
-- First-party lazy adopters: settings-section (apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator, flows, flows-anthropic-bridge, goal, grammar, quota, roles, subagents, system-one); shell-overlay-route (AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim); McpSettingsClaim; PipelineDetailView; BrowserPaneTab; FlowDashboardClaim, FlowYamlPreviewClaim, FlowInputWiringClaim, FlowWriteToolRenderer.
+- First-party lazy adopters: settings-section (apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator, flows, goal, grammar, quota, roles, subagents, system-one); shell-overlay-route (AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim); McpSettingsClaim; PipelineDetailView; BrowserPaneTab; FlowDashboardClaim, FlowYamlPreviewClaim, FlowInputWiringClaim, FlowWriteToolRenderer.
 - Follow-up: `yaml` (~98 KB) still eager.
 
 ## Trust boundary
@@ -90,7 +91,7 @@ Pull-only condensed map. Source: docs/plugin-seams.md. Server-entry seams on `Se
 - `packages/demo-plugin`: `demo/echo`, fake login flow, `ctx.credentials`, `demo_echo` bridge tool.
 
 ## Decoupling seams (decouple-plugins-from-core)
-- Shared contracts in non-plugin pkgs: `shared/dashboard-plugin/{subagent-types,anthropic-peer-names}.ts`, `shared/mcp/verb-tiers.generated.ts`, `packages/mcp-core`. Gate `npm run check:plugin-boundary`.
+- Shared contracts in non-plugin pkgs: `shared/dashboard-plugin/subagent-types.ts`, `shared/mcp/verb-tiers.generated.ts`, `packages/mcp-core`. Gate `npm run check:plugin-boundary`.
 - Manifest `eventTypes` (exact or `prefix_*`) → one `role:"rawEvent"` group row per owned type (`ownedGroup`, payloads cap 50). Availability read at render via `pluginAvailability`, never in reducer.
 - Client entry exports `sessionEventReducer` + `toolRowFinalizers`; shell registers via `./host`, gated by enabled set; heal guards; generic heals stay in core.
 - `tool-renderer` claim: `expandWhileRunning`, `resultPending` (sync predicate export name).

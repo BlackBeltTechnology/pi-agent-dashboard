@@ -807,8 +807,19 @@ describe("publish.yml — discord-announce contract", () => {
     expect(block).toMatch(/if \[ -z "\$\{DISCORD_WEBHOOK_URL:-\}" \]/);
   });
 
-  it("D6: suppresses mentions so changelog text cannot ping @everyone", () => {
-    expect(block).toMatch(/allowed_mentions:\s*\{\s*parse:\s*\[\]\s*\}/);
+  // Payload building moved into scripts/discord-release-announce.mjs (full
+  // body, split across messages). D6 follows it there. See change:
+  // discord-release-full-changelog (test-plan #E10, #E11).
+  it("D6: posts via the announce script, which suppresses mentions so changelog text cannot ping @everyone", () => {
+    expect(block).toMatch(/node scripts\/discord-release-announce\.mjs release\.json "\$TAG"/);
+    const script = fs.readFileSync(path.join(REPO_ROOT, "scripts", "discord-release-announce.mjs"), "utf8");
+    expect(script).toMatch(/allowed_mentions:\s*\{\s*parse:\s*\[\]\s*\}/);
+  });
+
+  it("D7: restores no dependency cache and installs no toolchain (release-privileged)", () => {
+    expect(block).not.toMatch(/actions\/cache/);
+    expect(block).not.toMatch(/setup-node/);
+    expect(block).not.toMatch(/^\s+cache:/m);
   });
 });
 

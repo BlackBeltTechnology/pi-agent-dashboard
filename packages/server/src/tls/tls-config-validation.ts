@@ -46,6 +46,8 @@ function validateTlsPatch(patch: unknown): string | null {
     return "tls.port must be an integer between 1 and 65535";
   }
   if (patch.host !== undefined && !validTlsHost(patch.host)) return "tls.host must be an IP address or localhost";
+  // A trust switch: boolean only, never coerced. See change: prove-vault-bridge-tls (D2).
+  if (patch.acceptBridges !== undefined && typeof patch.acceptBridges !== "boolean") return "tls.acceptBridges must be a boolean";
   return patch.sources === undefined ? null : validateTlsSources(patch.sources);
 }
 

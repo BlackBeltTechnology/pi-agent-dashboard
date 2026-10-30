@@ -13,5 +13,7 @@ craft-web e2e fixtures (tests/e2e/craft-web-editor.spec.ts ROWS). Each is copied
 | `plan.dxf` | 172 B. Minimal ASCII DXF R12: ENTITIES with one LINE and one CIRCLE (r 20). CADCraft row draws CIRCLE 10,10 r 5. |
 | `sample.dng` | 2.1 MiB. Sigma fp 2K 8-bit DNG (TIFF `II*`). Source: https://raw.pixls.us/data/Sigma/fp/A002_653_20240229_000001_2k_8bit.DNG — raw.pixls.us, licence CC0 1.0. LightCraft view-only row (F10). |
 | `shapes.svg` | 274 B. Hand-written SVG (rect, circle, text). VectorCraft row: Save As → `shapes.vectorcraft` sibling. |
+| `clips/a.mp4` | 29 KiB. 2 s 320×180 H.264+AAC test clip (ffmpeg `testsrc`+`sine`). The one present medium of `story.fcproj`. Seeded to `clips/a.mp4` by the FilmCraft media-project describe. See change: add-craft-web-media-projects. |
+| `story.fcproj` | 2.4 KiB. FilmCraft 0.12.0 project (`filmcraft.project`, schema 15) built with `pi-craft filmcraft exec --save-as`, media paths rewritten relative: `clips/a.mp4` (present) and `clips/gone.mp4` (never seeded). FilmCraft media-project scenarios X1/X2/R1/P1. See change: add-craft-web-media-projects. |
 | `talk.deckcraft` | 8 KiB. DeckCraft 0.7.0 web save of `talk.pptx` (`mimetype` + `presentation.json`). |
 | `talk.pptx` | 29 KiB. Small PowerPoint deck. DeckCraft row: Ctrl+S → `talk.deckcraft` sibling (F7). |

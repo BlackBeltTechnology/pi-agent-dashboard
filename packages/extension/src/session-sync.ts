@@ -167,6 +167,8 @@ export function sendStateSync(
     ...(opts?.liveTailOpen !== undefined ? { liveTailOpen: opts.liveTailOpen } : {}),
     pid: process.pid,
     registerReason,
+    // See change: prove-vault-bridge-tls (D7).
+    ...(bc.connection.certValidation ? { certValidation: "enforced" as const } : {}),
     // Tri-state git-repo signal computed synchronously (no git_info_update
     // arrival race). See change: gate-session-worktree-button-on-git.
     isGitRepo: detectIsGitRepo(process.cwd()),
@@ -311,6 +313,8 @@ export function handleSessionChange(
     liveTailOpen: false,
     pid: process.pid,
     registerReason: "spawn",
+    // See change: prove-vault-bridge-tls (D7).
+    ...(bc.connection.certValidation ? { certValidation: "enforced" as const } : {}),
     // See change: gate-session-worktree-button-on-git.
     isGitRepo: detectIsGitRepo(cwd),
     ...(usageSeed ? { usageSeed } : {}),

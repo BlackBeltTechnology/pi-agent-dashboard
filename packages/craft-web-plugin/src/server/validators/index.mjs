@@ -5,6 +5,7 @@
 // See change: extend-craft-web-to-all-apps.
 import { validateDwg } from "./dwg.mjs";
 import { validateDxf } from "./dxf.mjs";
+import { validateFcproj } from "./fcproj.mjs";
 import { validateOdfText } from "./odf-text.mjs";
 import { validate as validateOoxml } from "./ooxml.mjs";
 import { validatePdf } from "./pdf.mjs";
@@ -36,6 +37,7 @@ export const ROUTES = {
   ...Object.fromEntries(RASTER_EXTENSIONS.map((e) => [e, validateRaster])),
   ".svg": validateSvg,
   ".vectorcraft": validateVectorcraft,
+  ".fcproj": validateFcproj,
 };
 
 /**

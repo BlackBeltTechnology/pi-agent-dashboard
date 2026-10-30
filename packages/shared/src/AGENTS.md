@@ -11,6 +11,7 @@ Files in this directory. One row per source file.
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
 | `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge → see `__tests__/config-pi-trust-mirror.test.ts.AGENTS.md` |
+| `__tests__/credential-encryption-remedy.test.ts` | #E96: every `CREDENTIAL_LOCK_REASONS` entry has a non-empty remedy; `key_missing`/`key_mismatch` name `credentials reset --vault`; keychain_*/key_file_* name `PI_DASHBOARD_DATA_KEY_FILE`; no 43-char key-like token. See change: encrypt-credentials-at-rest. |
 | `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter,… → see `__tests__/pi-trust-mirror.test.ts.AGENTS.md` |
@@ -38,7 +39,6 @@ Files in this directory. One row per source file.
 | `__tests__/state-replay.test.ts` | L1 for the persisted `compaction` → `session_compact` replay arm (change: replay-compaction-boundary, E1–E7 +… → see `__tests__/state-replay.test.ts.AGENTS.md` |
 | `__tests__/workflow-token-cache-contract.test.ts` | Repo-lint: workflow token permissions + no release-job cache. → see `__tests__/workflow-token-cache-contract.test.ts.AGENTS.md` |
 | `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan #E7): valid values pass; 0/−1/non-numeric/absent coerce to defaults; `capturePiOutput` unaffected. See change: fix-runaway-keeper-log-growth. |
-| `anthropic-messages-source.ts` | `ANTHROPIC_MESSAGES_SOURCE` — install source of the `pi-anthropic-messages` peer, own module so the client… → see `anthropic-messages-source.ts.AGENTS.md` |
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `bind-reachability.ts` | Bind-vs-trust reachability: the ONE predicate + well-known-range table, imported by both client and server so… → see `bind-reachability.ts.AGENTS.md` |
 | `boot-state.ts` | Exit-intent vocabulary for the server boot record. Exports `ExitIntent`… → see `boot-state.ts.AGENTS.md` |
@@ -50,6 +50,7 @@ Files in this directory. One row per source file.
 | `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` `requireLocalProof` defaults TRUE; parse is boolean-strict (missing/non-boolean → true). See change: close-container-loopback-impersonation (D1). |
 | `containment-guard.ts` | `containmentAllows(decision, resolved)`: sync, strict-equality path-bound predicate over the branded `PathDecision`; modelled as a `js/path-injection` barrier guard. See change: codeql-file-containment-barrier. |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
+| `credential-encryption.ts` | Import-free leaf. Keychain `CREDENTIAL_KEYCHAIN_SERVICE`/`_ACCOUNT`, `DATA_KEY_FILE_ENV`, `CredentialFileId`, envelope magic, `CredentialKeyFailureReason`/`CredentialLockReason`, `CREDENTIAL_REASON_REMEDY`, `credentialRemedy()`. See change: encrypt-credentials-at-rest. |
 | `cwd-guard.ts` | Plugin cwd guard: `isAllowedCwd`, async `admitCwd`. → see `cwd-guard.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
 | `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` |
@@ -144,6 +145,7 @@ Files in this directory. One row per source file.
 | `state-replay.ts` | Synthesizes dashboard `event_forward` messages from persisted pi session entries for post-reconnect chat… → see `state-replay.ts.AGENTS.md` |
 | `stats-extractor.ts` | Extracts `StatsData` (tokensIn/out, cost, turnUsage, optional contextUsage) from a `turn_end` event's… → see `stats-extractor.ts.AGENTS.md` |
 | `terminal-safe.ts` | `INVISIBLE_OR_SEPARATOR` + `terminalSafe`. → see `terminal-safe.ts.AGENTS.md` |
+| `tls-only-token.ts` | TLS-only bridge token marker. Exports `TLS_ONLY_TOKEN_PREFIX="pi_tls_"`, `isTlsOnlyToken`, `TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL`. Bridge never sends a `pi_tls_` token to a non-https origin; hub refuses and marks it off a proven channel. See change: prove-vault-bridge-tls. |
 | `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter… → see `tls-status.ts.AGENTS.md` |
 | `tool-path-resolve.ts` | Shared pi-parity path resolver: `resolveToolPath`, `resolveReadTarget`, `canonicalizeTarget` (realpath… → see `tool-path-resolve.ts.AGENTS.md` |
 | `trusted-types-mode.ts` | Single Trusted Types mode resolver: `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`, `recognizeTrustedTypesMode(raw)`. Precedence env → `security.trustedTypes` → default (`report`, `off` iff CSP off). Set value trimmed + lowercased; unrecognized → `report` + warning naming source, never the value. Used by server `csp.ts`/`server.ts`, `GET /api/config`, client dev plugin. See change: enforce-trusted-types-default. |

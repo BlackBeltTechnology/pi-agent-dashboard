@@ -1,7 +1,7 @@
 {
   "name": "pi-dashboard",
-  "version": "0.10.0",
-  "description": "Start and drive the local pi-agent-dashboard from Claude Code: bring the dashboard server up without starting a second instance, then list, prompt, abort and spawn pi sessions through its REST API.",
+  "version": "0.11.0",
+  "description": "Start and drive the local pi-agent-dashboard from Claude Code: bring the dashboard server up without starting a second instance, then list, prompt, abort and spawn pi sessions through its REST API, and watch them for questions and status changes.",
   "author": {
     "name": "BlackBelt Technology"
   },

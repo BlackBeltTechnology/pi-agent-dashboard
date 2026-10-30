@@ -5,8 +5,8 @@
  * `ci`-level (`RUN_CI_SCENARIOS=1`): it runs the three groups in a real vitest subprocess and
  * reads per-file durations, which the default parallel run would distort.
  *
- * Groups: `git-checkout-roots` and `ensure-cli` (each split in two halves), `openspec-poller-parity`
- * (three hash-partitioned shards) — split so no file serializes a worker. The assertion counts are the totals before the split.
+ * Groups: `git-checkout-roots` (split in two halves), `ensure-cli` (split in three files: six serial
+ * CLI spawns in one file overran the CI ceiling), `openspec-poller-parity` (three hash-partitioned shards) — split so no file serializes a worker. The assertion counts are the totals before the split.
  *
  * See change: test-trust-audit (design D7).
  */

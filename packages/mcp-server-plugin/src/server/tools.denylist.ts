@@ -62,7 +62,6 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/users", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/users/", reason: "user directory + passkey invites; operator-only, trust-widening" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
-  { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   // See change: decouple-plugins-from-core (6.11, 6.12).
   { pattern: "/api/plugins/runtime-clients", reason: "runtime plugin client listing for the dashboard page loader; UI-only" },
   { pattern: "/api/plugins/:id/trust", reason: "grants/revokes operator trust of plugin code (client hash pin, pi-package server entry); a host-owner decision, never an MCP/LLM action" },
@@ -139,6 +138,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // add-pending-question-stack: answers stay human-in-the-loop.
   { pattern: "/api/questions", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
   { pattern: "/api/questions/", reason: "agent prompt answers stay human-in-the-loop; follow-up" },
+  // add-agent-event-stream: an endless SSE response, not a request/response tool.
+  { pattern: "/api/events/stream", reason: "transport: long-lived SSE stream, not a tool call. See change: add-agent-event-stream" },
   { pattern: "browser_host_connect_result", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_host_ext_close", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "browser_host_ext_data", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

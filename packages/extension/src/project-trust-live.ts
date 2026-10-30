@@ -19,6 +19,7 @@ import { httpProofHeaders, localDialHost } from "@blackbelt-technology/pi-dashbo
 import { isLoopbackEndpoint } from "@blackbelt-technology/pi-dashboard-shared/loopback-host.js";
 import { PI_TRUST_QUERY_PATH } from "@blackbelt-technology/pi-dashboard-shared/pi-trust-live-query.js";
 import { readDeviceToken } from "./bridge-ticket-client.js";
+import { checkTlsCall } from "./bridge-tls-checks.js";
 import { readLocalToken } from "./local-token-header.js";
 import { resolveDashboardHttpOrigin } from "./dashboard-http-origin.js";
 
@@ -90,6 +91,16 @@ function prepareRequest(deps: HttpLiveQueryDeps, remote: boolean, loggedCauses: 
     }
     const token = readDeviceToken(deps.env);
     if (!token) return { early: { kind: "error" } };
+    // `tls-only-token` / `tls-verify-disabled`: no bearer leaves, once per cause.
+    // See change: prove-vault-bridge-tls (D7, D9).
+    const refusal = checkTlsCall({ origin: origin.origin, token, env: deps.env ?? process.env });
+    if (refusal) {
+      if (!loggedCauses.has(refusal.cause)) {
+        loggedCauses.add(refusal.cause);
+        console.error(`[dashboard] live trust query ${refusal.cause}: ${refusal.reason}`);
+      }
+      return { early: { kind: "error" } };
+    }
     headers.authorization = `Bearer ${token}`;
     return { url: `${origin.origin}${PI_TRUST_QUERY_PATH}`, headers };
   }

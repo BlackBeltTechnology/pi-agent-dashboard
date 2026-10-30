@@ -35,6 +35,8 @@ See change: fix-trusted-network-tunnel-bypass — no-auth WS upgrade branch trus
 
 providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)` (behaviour unchanged). See change: promote-model-roles-settings.
 
+Wires registry `onChange` + expiry sweep → `vaultDelivery.schedulePush()`, hub channel/trust deps, gateway `onRoutingChanged`, `routeBridgeUpgrade` in `onUpgrade`, `tlsBridgesLive` live read. See change: prove-vault-bridge-tls.
+
 ## electron-runtime-overlay-updates
 
 D8: `PI_DASHBOARD_EXTENSION_DIR` (Electron) overrides `findBundledExtension` for boot self-registration; `extensionReloadGuard` wired via `wireEvents({onBridgeRegister})` → `dispatchReload`; logs `[runtime-overlay] bridge register … outcome=`. See change: electron-runtime-overlay-updates.
@@ -122,3 +124,17 @@ Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZro
 ## harden-peer-address-identity
 
 mDNS browser gets `ownFingerprint: serverIdentity.fingerprint`; `registerKnownServersRoutes` gets `ownFingerprint`. See change: harden-peer-address-identity.
+
+Registers `registerPreferencesClaudeCompatRoutes`. `DashboardServer.pendingInitialPromptRegistry` exposed for in-process tests (not public API). See change: retire-anthropic-messages-bridge.
+
+## encrypt-credentials-at-rest (plugin store)
+
+Plugin context `pluginCredentials` builds `createPluginCredentialStore(id, {codec: getCredentialCodec("plugin-credentials")})`. Plugin credential store codec is required; locked file ⇒ `store_locked{reason}` rejection to the plugin. See change: encrypt-credentials-at-rest.
+
+## encrypt-credentials-at-rest (vault store)
+
+`createVaultStore({codec: getCredentialCodec("vault")})` at the vault wiring. Locked vault ⇒ hub `vault-unavailable`, routes 409 `vault_locked`, ACME `credential vault unavailable`. Startup ordering: `createServer` awaits `initCredentialKey(config.credentialKey)` then `migrateCredentialFiles(...)` right after secret rotation, before bridge-extension registration, vault store, ACME runtime, plugin load, `listen`. `ServerConfig.credentialKey` = test seam (`InitCredentialKeyOptions`: key-file env, stub keychain, `log`, `homeDir`); unset in production. Neither call throws: a keychain failure leaves stores locked, boot continues. See change: encrypt-credentials-at-rest.
+
+## seed-claude-compat-on-upgrade
+
+`createPreferencesStore(…, { hasAnthropicCredential })` wires the one-time compat-switch seed from `auth/provider-auth-storage.ts`. See change: seed-claude-compat-on-upgrade.

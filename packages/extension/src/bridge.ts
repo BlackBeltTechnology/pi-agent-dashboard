@@ -5,9 +5,11 @@
  * forwards all pi events, and relays commands back.
  */
 
+import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -58,6 +60,7 @@ import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-tok
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { createPathGate } from "./path-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
@@ -131,6 +134,13 @@ export default function (pi: ExtensionAPI) {
     // `adopt-model-resolve-handler-and-roles-ownership`; the legacy `flow:`
     // prefix was dropped in `add-agent-role-model-tools` (design D11).
     activateRoleManager(pi);
+
+    // Claude subscription compat rewrite on EVERY pi this extension loads
+    // into — main sessions and subagent children alike — reading the switch
+    // value the connected bridge mirrors process-globally. Runs before the
+    // re-entry guard so children get it too. See change:
+    // seed-claude-compat-on-upgrade.
+    claudeCompatExtension(() => getBridgeState().claudeSubscriptionCompat === true)(pi as never);
 
     // Anthropic-messages payload transforms (system prompt rewrite + tool
     // filter/remap) are handled by the installed @benvargas/pi-claude-code-use
@@ -338,6 +348,7 @@ function initBridge(pi: ExtensionAPI) {
   // Global auto-naming toggle, relayed by the server via `preferences_update`.
   // Default true so a bridge that registers before the first push still names.
   inst.autoNameSessions = true;
+  inst.claudeSubscriptionCompat = false;
   // → inst.autoNamer (BridgeInstance field; unset until assigned)
   // The namer's durable state set is carried across reload as VALUES, never as
   // the namer object: its closures would retain a stale connection, session id
@@ -1122,6 +1133,7 @@ function initBridge(pi: ExtensionAPI) {
   const vaultDelivery = createVaultDelivery({
     send: (m) => inst.connection.sendIfOpen(m),
     sessionId: () => inst.sessionId ?? "",
+    certValidation: () => inst.connection.certValidation,
     log: (line) => console.log(line),
   });
   inst.vaultDelivery = vaultDelivery;
@@ -1698,6 +1710,7 @@ function initBridge(pi: ExtensionAPI) {
                 source: "tui",
                 pid: process.pid,
                 provisional: true,
+                ...(targetManager?.certValidation ? { certValidation: "enforced" as const } : {}),
               });
             },
           });
@@ -1958,6 +1971,16 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     return fanoutAdmission.onToolCall(event);
   }));
+  // Agent credential guard — always on, no setting. Registered BEFORE the path gate so a
+  // blocked call never shows a gate prompt and a grant / YOLO / gate-off cannot override it.
+  // Deliberately NOT wrapped in the fail-open `safe()`: the guard maps an internal error to a
+  // block of that one call. Stale bridge instances (after reload) pass through.
+  // See change: encrypt-credentials-at-rest (D12).
+  const credentialGuardHandler = createCredentialGuardToolCallHandler(
+    createCredentialGuard({ env: process.env, homedir: os.homedir(), log: (line) => console.log(line) }),
+    isActive,
+  );
+  pi.on("tool_call", credentialGuardHandler as any);
   // Agent path gate — registered AFTER the fan-out admission handler (and after the
   // bridge's own forwarder) and deliberately NOT wrapped in the fail-open `safe()`:
   // its own try/catch maps any internal error to a block. Stale bridge instances

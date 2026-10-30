@@ -614,15 +614,18 @@ Drafts (typed-but-unsent text) are persisted per session in `localStorage` under
 
 ## Recommended extensions
 
-The dashboard integrates tightly with a small, curated set of pi extensions — for custom tool rendering, the Flow dashboard, and anthropic-messages protocol compatibility. The Electron wizard installs them in one go; the **Packages** tab and a top-of-page banner keep them discoverable afterwards.
+The dashboard integrates tightly with a small, curated set of pi extensions — for custom tool rendering and the Flow dashboard. The Electron wizard installs them in one go; the **Packages** tab and a top-of-page banner keep them discoverable afterwards.
 
 | Extension | Source | Status | Unlocks |
 |---|---|---|---|
-| `pi-anthropic-messages` | `npm:@blackbelt-technology/pi-anthropic-messages` | **required** | Tool calls on Claude-model Anthropic OAuth / 9Router `cc/*` / dashboard model proxy providers. Without it, tool calls fall back to Claude Code's built-in `bash_ide` sandbox and fail. |
 | `pi-dashboard-subagents` | `npm:@blackbelt-technology/pi-dashboard-subagents` | optional | `Agent` tool card UI, subagent inspector (inline expand + popout), agent-md path display |
 | `pi-flows` | `npm:@blackbelt-technology/pi-flows` | strongly suggested | Flow dashboard, role aliases (`@planning`, `@coding`, …), subagent / flow_write / flow_results / agent_write / ask_user / skill_read / finish tools |
 | `pi-web-access` | `npm:pi-web-access` | strongly suggested | `web_search`, `code_search`, `fetch_content`, `get_search_content` |
 | `pi-agent-browser` | `npm:pi-agent-browser` | optional | `browser` tool (open, snapshot, click, screenshot) |
+
+**Claude subscription requests.** Anthropic bills subscription requests as extra usage when pi's docs prompt names pi packages. Turn on **Settings ▸ Providers ▸ Claude subscription compat** (global preference `claudeSubscriptionCompat`, default off; needs the Flows plugin). 
+
+**Upgrade note.** `pi-anthropic-messages` is no longer required. After turning on the compat switch, you may uninstall `pi-anthropic-messages`: `pi remove npm:@blackbelt-technology/pi-anthropic-messages`.
 
 Authoritative source: `packages/shared/src/recommended-extensions.ts`. Descriptions, versions, and installed-state are enriched live via `GET /api/packages/recommended` (offline fallback).
 

@@ -31,9 +31,15 @@ export async function startGatewayListeners(
   // TCP first: `startOnSocket` installs the shared WebSocketServer, and
   // `start()` refuses to run after it rather than orphan the listener.
   if (policy.tcp) {
-    gateway.start(policy.tcp.port, policy.tcp.host, {
-      kind: policy.socketPath ? "tcp" : "loopback",
-    });
+    const { port, host } = policy.tcp;
+    try {
+      gateway.start(port, host, { kind: policy.socketPath ? "tcp" : "loopback" });
+      await gateway.tcpListening();
+    } catch (err) {
+      // Fail startup like the socket / fallback paths do, instead of running
+      // degraded with no bridge listener (#978).
+      throw new Error(`gateway TCP port ${host}:${port} could not be bound: ${String(err)}`, { cause: err });
+    }
   }
   if (!policy.socketPath) return;
   const socketPath = policy.socketPath;

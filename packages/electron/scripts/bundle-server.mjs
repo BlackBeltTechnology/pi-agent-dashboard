@@ -53,6 +53,8 @@ import {
   materializeBundledPlugins,
   readBundledPluginIds,
 } from "../../shared/src/runtime-overlay/materialize-plugins.mjs";
+// GO/NO-GO for the OS-keychain binding (pure; fixture-tested). See change: encrypt-credentials-at-rest (D5, E88).
+import { checkKeyringBundle, codesignVerify } from "./assert-keyring-bundle.mjs";
 import {
   auditInstalledTree,
   fetchPublishedLock,
@@ -529,12 +531,16 @@ if (existsSync(NM)) {
   // Files: *.md, *.map, CHANGELOG*, LICENSE*, *.d.ts
   // Dirs: __tests__, test
   walkAndPrune(NM, {
+    // LICENSE.third-party.md is a shipped notice, not cruft: @napi-rs/keyring-linux-*
+    // statically links libdbus (AFL-2.1 OR GPL-2.0-or-later) and its licence must travel
+    // with the binary. See change: encrypt-credentials-at-rest (D5; checked below).
     fileMatch: (n) =>
-      n.endsWith(".md") ||
-      n.endsWith(".map") ||
-      n.startsWith("CHANGELOG") ||
-      n.startsWith("LICENSE") ||
-      n.endsWith(".d.ts"),
+      n !== "LICENSE.third-party.md" &&
+      (n.endsWith(".md") ||
+        n.endsWith(".map") ||
+        n.startsWith("CHANGELOG") ||
+        n.startsWith("LICENSE") ||
+        n.endsWith(".d.ts")),
     dirMatch: (n) => n === "__tests__" || n === "test",
   });
 }
@@ -646,6 +652,32 @@ if (clientSrc) {
     process.exit(1);
   }
   console.log("  pi-dashboard-web materialization OK — dist/index.html present");
+}
+
+// ── GO/NO-GO: assert the OS-keychain binding for the TARGET triple ───────
+// change: encrypt-credentials-at-rest (design D5, tasks 11.1; test-plan E88, E89).
+// Runs after the node_modules prune and workspace materialization so it proves what
+// ships: the .node of `@napi-rs/keyring-<triple>` for `TARGET_ARCH ?? process.arch`
+// (npm_config_target_arch does not select optional packages — spike rows 3, 6), the
+// worker entry in the materialized server package, matching main/platform versions
+// (skew loads silently — row 11) and, on Linux, the surviving LICENSE.third-party.md.
+{
+  const arch = process.env.TARGET_ARCH || process.arch;
+  const platform = resolveTargetPlatformForGit();
+  const result = checkKeyringBundle({
+    bundleDir: SERVER_BUNDLE,
+    platform,
+    arch,
+    // The static signature check needs `codesign`; macOS hosts only.
+    verifySignature: process.platform === "darwin" ? codesignVerify : undefined,
+  });
+  if (!result.ok) {
+    console.error(`\u2717 @napi-rs/keyring GO/NO-GO failed (target ${platform}/${arch}, triple ${result.triple})`);
+    for (const e of result.errors) console.error(`  - ${e}`);
+    console.error("  See change: encrypt-credentials-at-rest (design D5).");
+    process.exit(1);
+  }
+  console.log(`  @napi-rs/keyring OK \u2014 ${result.triple} binding, worker entry and version match present`);
 }
 
 // ── fix spawn-helper +x on POSIX (npm hoisting may skip postinstall) ─────

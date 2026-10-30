@@ -64,8 +64,8 @@ describe("plugin layout (E1)", () => {
     expect(fs.existsSync(path.join(PLUGIN_DIR, "LICENSE"))).toBe(true);
   });
 
-  it("ships both skills", () => {
-    for (const skill of ["pi-dashboard-bootstrap", "pi-dashboard-control"]) {
+  it("ships all three skills", () => {
+    for (const skill of ["pi-dashboard-bootstrap", "pi-dashboard-control", "pi-dashboard-watch"]) {
       expect(fs.existsSync(path.join(PLUGIN_DIR, "skills", skill, "SKILL.md")), skill).toBe(true);
     }
   });
@@ -114,7 +114,7 @@ describe("skill content contract (E39)", () => {
     return { name: field("name"), description: field("description") };
   }
 
-  it.each(["pi-dashboard-bootstrap", "pi-dashboard-control"])("%s has valid frontmatter and a description ≤ 400 chars", (name) => {
+  it.each(["pi-dashboard-bootstrap", "pi-dashboard-control", "pi-dashboard-watch"])("%s has valid frontmatter and a description ≤ 400 chars", (name) => {
     const fm = frontmatter(skillText(name));
     expect(fm.name).toBe(name);
     expect(fm.description?.length ?? 0).toBeGreaterThan(0);

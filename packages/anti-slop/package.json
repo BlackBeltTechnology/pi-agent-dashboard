@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/anti-slop-frontend",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Pi skills — a mechanical, countable anti-slop suite for AI-generated frontend: AI-tell checklist with surface profiles and theme parity, a redesign protocol, and opt-in image direction and brand-kit skills. Advisory; pairs with frontend-mockup-loop. Works in any React/Tailwind/HTML project.",
   "type": "module",
   "repository": {

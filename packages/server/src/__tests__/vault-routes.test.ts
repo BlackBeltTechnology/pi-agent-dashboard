@@ -29,11 +29,12 @@ import { createVaultImport } from "../vault/vault-import.js";
 import type { VaultProjectEntry } from "../vault/vault-projects.js";
 import { registerVaultRoutes } from "../vault/vault-routes.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
 const apps: FastifyInstance[] = [];
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-routes-")); store = createVaultStore(path.join(dir, "vault.json")); });
+beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-routes-")); store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") }); });
 afterEach(async () => {
   for (const a of apps.splice(0)) await a.close();
   fs.rmSync(dir, { recursive: true, force: true });

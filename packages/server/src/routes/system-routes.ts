@@ -240,6 +240,13 @@ export function registerSystemRoutes(
     directoryService?: DirectoryService;
     /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
     onVaultConfigChanged?: () => void;
+    /**
+     * Called after a `PUT /api/config` that touched `tls`, BEFORE the listener reconcile: withdraw values from, and
+     * close, TLS-admitted bridges when Accept bridges or the listener turned off. See change: prove-vault-bridge-tls (D2).
+     */
+    onTlsBridgeSwitchChanged?: () => void;
+    /** True while a first-plaintext-exposure registry write has not persisted; reported on `/api/health`. */
+    exposureWritePending?: () => boolean;
     /** Optional TLS listener: status in `/api/health.tls`, endpoints, reconcile after a `tls` config write. See change: add-tailscale-cert-tls. */
     tls?: Pick<TlsListener, "status" | "tlsListenerUrls" | "reconcile">;
     piGateway?: PiGateway;
@@ -502,13 +509,17 @@ export function registerSystemRoutes(
       }
       const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
       const cfg = configModule.loadConfig();
+      const tlsEndpoints = deps.tls?.tlsListenerUrls() ?? [];
       const endpoints = collectEndpoints({
         providerEndpoints,
         publicBaseUrls: configModule.resolvePublicBaseUrls(cfg),
         port: config.port,
-        tlsEndpoints: deps.tls?.tlsListenerUrls() ?? [],
+        tlsEndpoints,
       });
-      return { success: true, data: { endpoints } } satisfies ApiResponse;
+      // `tlsEndpoints` names the certificate-backed listener URLs on their own, so the token dialog can point at
+      // the native HTTPS address (a tunnel endpoint of the same shape is not a bridge target).
+      // See change: prove-vault-bridge-tls (D8).
+      return { success: true, data: { endpoints, tlsEndpoints } } satisfies ApiResponse;
     },
   );
 
@@ -674,6 +685,9 @@ export function registerSystemRoutes(
       // work is scheduled, never awaited here. A reconcile failure is reported in TLS
       // status; the config stays as written. See change: add-tailscale-cert-tls (D7).
       if (partial.tls !== undefined) {
+        // BEFORE the reconcile: closing the listener waits for upgraded (bridge) sockets, which `closeAllConnections`
+        // does not reach, so withdraw values and close TLS-admitted bridges first. See change: prove-vault-bridge-tls (D2).
+        deps.onTlsBridgeSwitchChanged?.();
         try {
           await deps.tls?.reconcile();
         } catch (err) {
@@ -1383,6 +1397,9 @@ export function registerSystemRoutes(
       // Pi runtime divergence, under two distinct labels (see readPiDivergence).
       // See change: select-pi-runtime-install (design D5).
       piRuntime: readPiDivergence(),
+      // A first plaintext-exposure write has not persisted: the hub refuses all remote vault delivery while true.
+      // See change: prove-vault-bridge-tls (D4).
+      pairing: { exposureWritePending: deps.exposureWritePending?.() === true },
       // Per-hop dropped-frame counters (observability for silently-dropped
       // WS frames). `serverToBrowser` = frames the fanout skipped under
       // back-pressure, split transcript vs blocking; `bridgeToServer` = the max
