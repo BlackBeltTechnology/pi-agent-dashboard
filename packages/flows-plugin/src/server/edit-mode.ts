@@ -112,8 +112,9 @@ interface ActiveSession {
 function activeSessions(sm: { listActive(): unknown[] }): ActiveSession[] {
   const out: ActiveSession[] = [];
   for (const s of sm.listActive()) {
-    const r = s as { id?: unknown; cwd?: unknown; status?: unknown } | null;
-    if (r && typeof r.id === "string" && typeof r.cwd === "string" && r.cwd !== "" && r.status !== "ended") {
+    const r = s as { id?: unknown; cwd?: unknown; status?: unknown; originDeviceId?: unknown } | null;
+    // A remote-origin session's cwd is not on this filesystem: never resolve it locally.
+    if (r && typeof r.id === "string" && typeof r.cwd === "string" && r.cwd !== "" && r.status !== "ended" && !r.originDeviceId) {
       out.push({ id: r.id, cwd: r.cwd });
     }
   }

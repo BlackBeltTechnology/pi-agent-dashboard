@@ -264,6 +264,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         ],
         "emits": [
             "flow:run",
+            "flow:set-edit-mode",
             "dashboard-flows:report-files"
         ]
     },

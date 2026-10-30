@@ -186,6 +186,13 @@ describe("GET edit-mode-state", () => {
     expect(readSpy).not.toHaveBeenCalled();
   });
 
+  it("remote-origin session → 404 before any file read", async () => {
+    sessions = [{ id: "s1", cwd, originDeviceId: "dev-remote" } as never];
+    const readSpy = vi.spyOn(fs, "readFileSync");
+    expect((await app.inject({ method: "GET", url: `${STATE_URL}?sessionId=s1` })).statusCode).toBe(404);
+    expect(readSpy).not.toHaveBeenCalled();
+  });
+
   it("ended session → 404", async () => {
     sessions = [{ id: "s1", cwd, status: "ended" }];
     expect((await app.inject({ method: "GET", url: `${STATE_URL}?sessionId=s1` })).statusCode).toBe(404);
