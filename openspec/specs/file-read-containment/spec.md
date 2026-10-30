@@ -7,7 +7,7 @@ Define how the localhost file routes contain resolved absolute paths: anchor at 
 
 ### Requirement: File-read containment anchors at the git common root with a layered cwd fast path
 
-The localhost file routes SHALL contain every resolved absolute path using a layered check evaluated in order, at each of the ten containment sites: seven in `file-routes.ts` (`GET /api/file` read, `GET /api/file/tree`, `GET /api/file/exists`, `GET /api/file/raw`, `GET /api/file/render`, and the two gate helpers `gateFilePath` / `gateOfficeFile` — `gateFilePath` gates the EML routes and the `POST /api/open-in-system` / `POST /api/reveal-in-file-manager` system-open endpoints, `gateOfficeFile` the office/render/sheet routes), the grep-result filter in `grep-routes.ts`, the file-mention resolver in `resolve-file-mention.ts`, and the session-directory check in `session-routes.ts` (which carries its own rejection string, `"path outside session directory"`). The local lexical cwd check in `openspec-routes.ts` is NOT a containment site and is out of scope. Each site passes its own set of **containment anchors** — the session `cwd`, plus any site-specific anchor: `homePiAnchor()` (`~/.pi`) for the read, raw, render, and mention sites, and the pinned directories for `exists`. Per-site anchor sets are unchanged by this requirement, except that a path inside the dashboard state directory is first decided by the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries` (on the resolved real path, before containment): an always-refused path is refused for every caller, and a trust-gated path is refused for a caller that is not locally trusted and holds no login session; a path that passes falls through to these anchors unchanged. For each containment anchor:
+The localhost file routes SHALL contain every resolved absolute path using a layered check evaluated in order, at each of the ten containment sites: seven in `file-routes.ts` (`GET /api/file` read, `GET /api/file/tree`, `GET /api/file/exists`, `GET /api/file/raw`, `GET /api/file/render`, and the two gate helpers `gateFilePath` / `gateOfficeFile` — `gateFilePath` gates the EML routes and the `POST /api/open-in-system` / `POST /api/reveal-in-file-manager` system-open endpoints, `gateOfficeFile` the office/render/sheet routes), the grep-result filter in `grep-routes.ts`, the file-mention resolver in `resolve-file-mention.ts`, and the session-directory check in `session-routes.ts` (which carries its own rejection string, `"path outside session directory"`). The local lexical cwd check in `openspec-routes.ts` is NOT a containment site and is out of scope. Each site passes its own set of **containment anchors** — the session `cwd`, plus any site-specific anchor: `homePiAnchor()` (`~/.pi`) for the read, raw, render, and mention sites, and the pinned directories for `exists`. Per-site anchor sets are unchanged by this requirement, except that a path inside the dashboard state directory, or that is a pi-agent credential file, is first decided by the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries` (on the resolved real path, before containment, and at the session-directory site before its in-cwd shortcut): an always-refused path (`<dashboard dir>/local/**`, `identity.key` and the pi-agent credential files) is refused for every caller, and a trust-gated path is refused for a caller that is not locally trusted and holds no login session; a path that passes falls through to these anchors unchanged. For each containment anchor:
 
 1. If the resolved path is the anchor or under `anchor + path.sep`, it SHALL
    be allowed without invoking git.
@@ -123,7 +123,7 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 
 - **GIVEN** the read, raw, render, and mention sites anchor on `cwd` plus `~/.pi`
 - **WHEN** a path under `~/.pi` is read through one of those sites
-- **THEN** it SHALL be allowed exactly as before this change, unless the path is inside the dashboard state directory (`~/.pi/dashboard/`) and that requirement refuses it
+- **THEN** it SHALL be allowed exactly as before this change, unless the path is refused by the credential-and-state refusal of `trust-and-credential-boundaries` (the dashboard state directory `~/.pi/dashboard/` and the pi-agent credential files)
 
 #### Scenario: the denial names its remedy
 
@@ -183,6 +183,12 @@ Two of the ten sites have no response body in which to carry remedy fields: `gre
 - **THEN** each read SHALL be allowed
 - **AND** a relative path `../outside.txt` SHALL be rejected with HTTP 403 `"path outside working directory"`
 
+#### Scenario: the session-directory in-cwd shortcut is not exempt from the credential-and-state refusal
+
+- **GIVEN** a session whose cwd is `$HOME`
+- **WHEN** a path under `~/.pi/agent` naming a pi-agent credential file is requested at the session-directory site (`GET /api/session-file`) by a path lexically inside the cwd
+- **THEN** the credential-and-state refusal SHALL run before the in-cwd shortcut and the request SHALL be refused with `"path outside session directory"`
+
 ### Requirement: git-root resolution fails closed to cwd-only containment
 
 Checkout-root resolution for an anchor SHALL yield NO roots whenever the
@@ -240,7 +246,7 @@ contained.
 
 ### Requirement: the git-root widening is unconditional and per-site anchors and error strings are preserved
 
-The bound checkout roots of each containment anchor SHALL be the containment trust boundary for every caller; the layer-2 widening SHALL NOT depend on the request source (loopback, trusted-network, and authenticated requests are treated identically). The only caller-dependent decision on these sites is the dashboard-state check of the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries`, which runs before containment and never widens it. The shared helper SHALL be parameterized by the calling route's anchor set and rejection string so each route preserves its existing behavior: `GET /api/file`, `GET /api/file/raw`, and `GET /api/file/render` SHALL anchor on `cwd` plus `~/.pi` and reject with `"path outside working directory"`; `GET /api/file/tree` and the office/EML gate helpers SHALL anchor on `cwd` alone with the same rejection string; `GET /api/file/exists` SHALL anchor on `cwd` plus the pinned directories and reject with `"unknown cwd"` / `"path outside cwd"`. There is no containment site in `system-routes`. This change SHALL NOT extend the pinned-directory anchor to the read, raw, or render routes.
+The bound checkout roots of each containment anchor SHALL be the containment trust boundary for every caller; the layer-2 widening SHALL NOT depend on the request source (loopback, trusted-network, and authenticated requests are treated identically). The only caller-dependent decision on these sites is the dashboard-state check of the "Dashboard state is never served to an unproven caller" requirement of `trust-and-credential-boundaries`, which runs before containment and never widens it; the same requirement's always-refused tier, including the pi-agent credential files, is caller-independent and also runs before containment. The shared helper SHALL be parameterized by the calling route's anchor set and rejection string so each route preserves its existing behavior: `GET /api/file`, `GET /api/file/raw`, and `GET /api/file/render` SHALL anchor on `cwd` plus `~/.pi` and reject with `"path outside working directory"`; `GET /api/file/tree` and the office/EML gate helpers SHALL anchor on `cwd` alone with the same rejection string; `GET /api/file/exists` SHALL anchor on `cwd` plus the pinned directories and reject with `"unknown cwd"` / `"path outside cwd"`. There is no containment site in `system-routes`. This change SHALL NOT extend the pinned-directory anchor to the read, raw, or render routes.
 
 #### Scenario: authenticated remote request reads within the repo
 
@@ -338,7 +344,7 @@ unchanged.
 
 ### Requirement: Containment decisions are bound to the path they decided
 
-`evaluateContainment` SHALL return, on every outcome (including the dashboard-secret refusal, the post-hold re-evaluation allow and a `quiet` refusal), the exact `resolved` string it was asked to decide, in addition to `allowed` and `viaGrant`. `@blackbelt-technology/pi-dashboard-shared` SHALL export `containmentAllows(decision, resolved)`, a synchronous predicate that returns true only when `decision.allowed` is true AND `decision.resolved` is exactly equal to `resolved`; its `decision` parameter SHALL be a branded type that only `containment-gate.ts` constructs. `containment-gate.ts` SHALL also export `decidePassive(resolved, anchors, { allowGrant })` for sites that consume grants without originating a denial: it decides on layers ①/② and, only with `allowGrant`, the grant layer, records no denial, holds nothing, and returns the same decision shape. Every containment site SHALL admit a path only when `containmentAllows(decision, resolved)` is true, and SHALL use the same `resolved` string for the read or serve that follows. A refusal keeps its existing form: a 403 body at body-bearing sites, a filtered-out match in `grep-routes.ts`, a `null` mention in `resolve-file-mention.ts`. Allowed paths, refused paths, refusal bodies, status codes, per-site anchors, the Layer-③ artifact-root order at the raw site, grant consumption and the suspend/hold flow SHALL be unchanged.
+`evaluateContainment` SHALL return, on every outcome (including the dashboard-secret refusal, the post-hold re-evaluation allow and a `quiet` refusal), the exact `resolved` string it was asked to decide, in addition to `allowed` and `viaGrant`. `@blackbelt-technology/pi-dashboard-shared` SHALL export `containmentAllows(decision, resolved)`, a synchronous predicate that returns true only when `decision.allowed` is true AND `decision.resolved` is exactly equal to `resolved`; its `decision` parameter SHALL be a branded type that only `containment-gate.ts` constructs. `containment-gate.ts` SHALL also export `decidePassive(resolved, anchors, { allowGrant })` for sites that consume grants without originating a denial: it decides on layers ①/② and, only with `allowGrant`, the grant layer, records no denial, holds nothing, and returns the same decision shape. Every containment site SHALL admit a path only when `containmentAllows(decision, resolved)` is true, and SHALL use the same `resolved` string for the read or serve that follows. A refusal keeps its existing form: a 403 body at body-bearing sites, a filtered-out match in `grep-routes.ts`, a `null` mention in `resolve-file-mention.ts`. Relative to the behaviour of the change that introduced this binding, allowed paths, refused paths, refusal bodies, status codes, per-site anchors, the Layer-③ artifact-root order at the raw site, grant consumption and the suspend/hold flow SHALL be unchanged; the only permitted differences are refusals added later by the credential-and-state refusal of `trust-and-credential-boundaries` (dashboard state and pi-agent credential files, including its opened-handle recheck) and the grep identity filter that drops matches whose device and inode equal an always-refused file.
 
 #### Scenario: A decision for one path does not admit another
 - **WHEN** `containmentAllows` is called with a decision for `/p/a.txt` and the path `/p/b.txt`
@@ -363,3 +369,13 @@ unchanged.
 #### Scenario: Passive sites keep consuming grants
 - **WHEN** a grep match or a file mention is outside the anchors but covered by a grant
 - **THEN** `decidePassive(..., { allowGrant: true })` allows it, it is kept, and no denial is recorded
+
+#### Scenario: A credential-and-state refusal is not a containment regression
+- **WHEN** a path that the layered containment would allow is refused because it is a pi-agent credential file or dashboard state
+- **THEN** the refusal keeps the site's existing refusal form (403 body, filtered grep match, `null` mention)
+- **AND** it is not a change to allowed paths, anchors or status codes for any other path
+
+#### Scenario: The grep identity filter does not change which paths are allowed
+- **WHEN** a grep match comes from a file whose device and inode equal an always-refused file
+- **THEN** the match SHALL be dropped
+- **AND** matches from every other contained path SHALL be kept as before

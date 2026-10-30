@@ -135,6 +135,10 @@ Plugin context `pluginCredentials` builds `createPluginCredentialStore(id, {code
 
 `createVaultStore({codec: getCredentialCodec("vault")})` at the vault wiring. Locked vault ⇒ hub `vault-unavailable`, routes 409 `vault_locked`, ACME `credential vault unavailable`. Startup ordering: `createServer` awaits `initCredentialKey(config.credentialKey)` then `migrateCredentialFiles(...)` right after secret rotation, before bridge-extension registration, vault store, ACME runtime, plugin load, `listen`. `ServerConfig.credentialKey` = test seam (`InitCredentialKeyOptions`: key-file env, stub keychain, `log`, `homeDir`); unset in production. Neither call throws: a keychain failure leaves stores locked, boot continues. See change: encrypt-credentials-at-rest.
 
+OAuth fail-closed wiring: `sessionProviderRejected` (late-bound from the auth handle `isSessionProviderRejected`) is passed to every `effectiveSessionTier` call (live-capability liveness, WS `isSessionLive`, `sessionTierOf`); `registerAuthPlugin({onAuthReloaded})` runs `sweepRevokedSockets` over `browserGateway.wss` + `terminalGateway.wss`; terminal upgrade passes `sessionTierOf`. See change: close-security-map-high-findings (D3).
+
+Plugin context `readFileGuarded: guardedReadFile` (from `lib/dashboard-state-guard.ts` `readFileGuarded`), beside `mintSpawnToken`: guarded UTF-8 read for plugin routes returning file content; `null` when the state/credential guard refuses the real path or opened handle. Not trust-gated. See change: close-security-map-high-findings (D1).
+
 ## seed-claude-compat-on-upgrade
 
 `createPreferencesStore(…, { hasAnthropicCredential })` wires the one-time compat-switch seed from `auth/provider-auth-storage.ts`. See change: seed-claude-compat-on-upgrade.

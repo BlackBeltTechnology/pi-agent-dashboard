@@ -144,3 +144,22 @@ describe("isWritableMdTarget — global scope", () => {
     expect(await isWritableMdTarget(path.join(home, ".pi", "agent", "MEMORY.md"), { home: "" })).toBe(false);
   });
 });
+
+// #E11 (close-security-map-high-findings): a `<credential>.*` sibling is never a markdown write target.
+describe("isWritableMdTarget — pi-agent credential siblings", () => {
+  it("auth.json.md / models.json.md / mcp.json.x.md are refused (global and directory scope); notes.md is writable", async () => {
+    const prevHome = process.env.HOME;
+    process.env.HOME = home; // the credential guard reads the agent dir from HOME
+    try {
+      const agentDir = path.join(home, ".pi", "agent");
+      for (const n of ["auth.json.md", "models.json.md", "mcp.json.x.md", "notes.md"]) await fs.writeFile(path.join(agentDir, n), "# x");
+      for (const n of ["auth.json.md", "models.json.md", "mcp.json.x.md"]) {
+        expect(await isWritableMdTarget(path.join(agentDir, n), { home }), `global ${n}`).toBe(false);
+        expect(await isWritableMdTarget(path.join(agentDir, n), { cwd: agentDir }), `cwd ${n}`).toBe(false);
+      }
+      expect(await isWritableMdTarget(path.join(agentDir, "notes.md"), { home })).toBe(true);
+    } finally {
+      process.env.HOME = prevHome;
+    }
+  });
+});

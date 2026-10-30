@@ -46,6 +46,12 @@ import { gotoDashboard } from "./helpers/index.js";
  */
 
 const PROVIDER = "github";
+/**
+ * github is a PUBLIC IdP: with no allowlist and no groupTiers login is refused (change
+ * close-security-map-high-findings, D3). The boot seed (`docker/test-entrypoint.sh`) therefore
+ * carries a non-empty `allowedUsers`; this spec restores that value, never `[]`.
+ */
+const SEEDED_ALLOWED_USERS = ["e2e-operator@example.com"];
 const BASE_A = "https://pi-e2e-a.example.com";
 const BASE_B = "https://pi-e2e-b.example.com";
 
@@ -104,7 +110,7 @@ test.describe.serial("config-override-oauth-redirect-base", () => {
     // The provider itself is boot-seeded and intentionally left armed — its
     // `bypassUrls:["/"]` means the gate denies nothing.
     await request
-      .put("/api/config", { data: { auth: { redirectBaseUrl: BASE_A } } })
+      .put("/api/config", { data: { auth: { redirectBaseUrl: BASE_A, allowedUsers: SEEDED_ALLOWED_USERS } } })
       .catch(() => {});
   });
 
@@ -167,8 +173,11 @@ test.describe.serial("config-override-oauth-redirect-base", () => {
       .poll(() => mintedRedirectUri(request), { timeout: 15_000, intervals: [250] })
       .toBe(`${BASE_A}/auth/callback/${PROVIDER}`);
 
-    // Write a DIFFERENT auth field, omitting redirectBaseUrl entirely.
-    expect((await request.put("/api/config", { data: { auth: { allowedUsers: [] } } })).ok()).toBe(true);
+    // Write a DIFFERENT auth field, omitting redirectBaseUrl entirely. A NON-EMPTY list: an empty
+    // one would refuse github (public IdP, open enrolment) and break every later /auth/start.
+    expect(
+      (await request.put("/api/config", { data: { auth: { allowedUsers: SEEDED_ALLOWED_USERS } } })).ok(),
+    ).toBe(true);
 
     // `GET /api/config` answers the standard `{ success, data }` envelope —
     // reading `body.auth` directly yields undefined and silently "passes" only
@@ -236,5 +245,31 @@ test.describe.serial("config-override-oauth-redirect-base", () => {
       expect(stateCookie, "the 302 must set the OAuth state cookie").toBeTruthy();
       expect(stateCookie, `no Secure for headers ${JSON.stringify(headers)}`).not.toMatch(/;\s*Secure/i);
     }
+  });
+  // #E109 — close-security-map-high-findings (D3, OA4): a REAL config file, a REAL reload, a REAL 302.
+  // A public IdP with no allowlist is refused (403, no Location); adding `allowedUsers` lifts it live,
+  // in the same server process.
+  test("E109: github with an empty allowlist is refused; adding allowedUsers lifts it without a restart", async ({
+    request,
+  }) => {
+    const before = await serverIdentity(request);
+    const startStatus = async () => (await request.get(`/auth/start/${PROVIDER}`, { maxRedirects: 0 })).status();
+
+    expect((await request.put("/api/config", { data: { auth: { allowedUsers: [] } } })).ok()).toBe(true);
+    await expect.poll(startStatus, { timeout: 15_000, intervals: [250] }).toBe(403);
+    const refused = await request.get(`/auth/start/${PROVIDER}`, { maxRedirects: 0 });
+    expect(refused.headers()["location"], "a refused start must not bounce to the IdP").toBeUndefined();
+    expect(await refused.text()).toContain("auth.allowedUsers");
+
+    expect(
+      (await request.put("/api/config", { data: { auth: { allowedUsers: SEEDED_ALLOWED_USERS } } })).ok(),
+    ).toBe(true);
+    await expect.poll(startStatus, { timeout: 15_000, intervals: [250] }).toBe(302);
+    const lifted = await request.get(`/auth/start/${PROVIDER}`, { maxRedirects: 0 });
+    expect(lifted.headers()["location"]).toContain("https://github.com/login/oauth/authorize");
+
+    const after = await serverIdentity(request);
+    expect(after?.pid).toBe(before?.pid);
+    expect(after?.startedAt).toBe(before?.startedAt);
   });
 });

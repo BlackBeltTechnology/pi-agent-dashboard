@@ -51,3 +51,5 @@ Gains bridge-inbound FAQ set: "Can tunnel viewers see shell command output?" →
 Gains "### CSP enforce + OAuth real-gate E2E lanes" under "Browser E2E baseline": `PI_E2E_SEED=1 PI_DASHBOARD_CSP=enforce docker/test-up.sh` enforce lane; `PI_E2E_OAUTH_NO_BYPASS=1` real-gate lane for `csp-report-sink-oauth.spec.ts` (locks Playwright host out of other routes). See change: harden-cors-and-csp-reporting.
 
 Vault on paired device: how to get keys (Built-in HTTPS + Accept bridges, `pi_tls_` bridge token, `wss://` URL). `tls-verify-disabled` → unset `NODE_TLS_REJECT_UNAUTHORIZED`, use `NODE_EXTRA_CA_CERTS`. `tls-only-token` / `tls-only-token-relayed` (401 `tls_only_token_untrusted_channel`). See change: prove-vault-bridge-tls.
+
+OAuth config keys: `auth.allowedUsers` empty is provider-specific. Public providers (`github`, `google`, `issuerUrl` on public IdP host) refuse login when `auth.allowedUsers` and `auth.groupTiers` both empty; unknown-issuer `keycloak`/`oidc` allow all + startup warning. Adds `auth.groupTiers` key (config-file only). See change: close-security-map-high-findings.

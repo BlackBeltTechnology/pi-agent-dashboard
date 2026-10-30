@@ -2,6 +2,7 @@
 
 > Evidence base: HEAD `e54074304` (branch `develop`, v0.10.0). Map date: 2026-10-22.
 > Method: 7 mappers (one per chapter) + orchestrator re-read of 6 findings at HEAD. Raw 132 rows deduped to 121 canonical rows + 11 aliases.
+> Post-map status (change `close-security-map-high-findings`): HTTP-01, DEP-01, TOOL-01 closed by close-security-map-high-findings. Register rows keep map-time severity; see [Closed findings](#closed-findings) and [Residuals added after the map](#residuals-added-after-the-map).
 > Index: [security-map.md](../security-map.md). Line numbers drift — re-verify against HEAD before relying.
 >
 > **Severity scale**
@@ -46,7 +47,7 @@ pie showData title Canonical findings by severity
     "Info" : 40
 ```
 
-Counts computed from rows in [Register](#register) after dedup. Canonical rows keep their raw severity. Alias rows add no count. Only NET-01 (raw Medium) is absorbed upward into WS-01 (High).
+Counts computed from rows in [Register](#register) after dedup. Map-time: closed rows (HTTP-01, DEP-01 High; TOOL-01 Low) still counted. Rows added after the map are in [their own section](#residuals-added-after-the-map), not counted. Canonical rows keep their raw severity. Alias rows add no count. Only NET-01 (raw Medium) is absorbed upward into WS-01 (High).
 
 **WS-01 scope note.** High where TCP gateway is default: win32, `PI_GATEWAY_TCP=1`, Docker. POSIX default = unix socket, not affected. NET-01 (Medium) reconciled to High.
 
@@ -54,8 +55,8 @@ Counts computed from rows in [Register](#register) after dedup. Canonical rows k
 
 Fix order. High rows first, then Medium rows reachable remotely, by paired device, or by agent/LLM.
 
-1. HTTP-01 — refuse boot/login when OAuth providers set and `allowedUsers` + `groupTiers` empty. Add boot warning + Settings banner.
-2. DEP-01 — narrow `homePiAnchor()` in `file-routes.ts:164`. Refuse credential files (`auth.json`, `providers.json`, `plugin-credentials.json`, `mcp-auth.json`) at every tier.
+1. HTTP-01 — **closed by close-security-map-high-findings**. Public IdP + empty `allowedUsers`/`groupTiers` ⇒ login refused; startup warning; Settings banner.
+2. DEP-01 — **closed by close-security-map-high-findings**. Anchor not narrowed. Credential files joined `always` refusal tier instead.
 3. WS-01 — set `requireTicketOnLoopback: true` (`server.ts:1304`). Drop tokenless loopback grace. Closes NET-01, NET-06 chain.
 4. ELEC-04 — ship `macos-notarization` + `windows-authenticode-signing`.
 5. PLUG-01 — document in-process plugin trust as accepted. Long-term: child process + capability RPC.
@@ -89,11 +90,11 @@ Sorted Severity → ID. Chapter links point to each chapter's `#findings`.
 
 | ID | Sev | Area | Title | Reachability | Key evidence (path:line) | Remedy (short) | Aliases | Verified | Chapter |
 |---|---|---|---|---|---|---|---|---|---|
-| HTTP-01 | High | HTTP | OAuth with empty `auth.allowedUsers` admits ANY IdP account at `operate` | remote-unauth (tunnel/LAN, any IdP account) | `packages/server/src/auth/auth.ts:279-280`<br>`packages/server/src/auth/auth-plugin.ts:441-462` | Refuse start/login when providers set and `allowedUsers`+`groupTiers` empty; boot warn + banner. Owner: close-security-map-high-findings (planned) | — | orchestrator | [02](http-gates-and-routes.md#findings) |
+| HTTP-01 | High | HTTP | OAuth with empty `auth.allowedUsers` admits ANY IdP account at `operate` | remote-unauth (tunnel/LAN, any IdP account) | `packages/server/src/auth/auth.ts:279-280`<br>`packages/server/src/auth/auth-plugin.ts:441-462` | Refuse login for public IdP when `allowedUsers`+`groupTiers` empty; warn + banner. **Status: closed by close-security-map-high-findings** | — | orchestrator | [02](http-gates-and-routes.md#findings) |
 | WS-01 | High | WebSocket/Bridge | Tokenless loopback bridge grace still open; default transport on win32 (and long-UDS-path hosts) | local other-user (win32); L4 forwarder | `server.ts:1301-1304`<br>`bridge-upgrade-auth.ts:167-175` | `requireTicketOnLoopback: true`; require proof on win32 listener; drop grace | NET-01 | orchestrator | [03](websocket-and-bridge.md#findings) |
 | PLUG-01 | High | Plugins | Server plugins run in-process with full server privilege; no isolation | plugin author; supply chain | `packages/dashboard-plugin-runtime/src/server/loader.ts:835`<br>`packages/server/src/server.ts:4035` | Document as accepted; long-term worker/child process + capability RPC | — | mapper | [06](plugins-client-electron.md#findings) |
 | ELEC-04 | High | Electron | Desktop binaries unsigned; update authenticity rests on GitHub release only | supply chain | `forge.config.ts:151-156`<br>`.github/workflows/_electron-build.yml:916-920` | Ship `macos-notarization` + `windows-authenticode-signing` | — | orchestrator | [06](plugins-client-electron.md#findings) |
-| DEP-01 | High | Deployment | File-read routes anchor `~/.pi` → provider credentials readable at `observe` tier | paired observe; local-credential holder | `packages/server/src/routes/file-routes.ts:164`<br>`packages/server/src/lib/dashboard-state-guard.ts:95` | Narrow `~/.pi` anchor; add credential files to `always` refusal; `operate` for outside-cwd absolute paths. Owner: close-security-map-high-findings (planned) | — | orchestrator | [07](deployment-process-supply-chain.md#findings) |
+| DEP-01 | High | Deployment | File-read routes anchor `~/.pi` → provider credentials readable at `observe` tier | paired observe; local-credential holder | `packages/server/src/routes/file-routes.ts:164`<br>`packages/server/src/lib/dashboard-state-guard.ts:95` | Credential files added to `always` refusal at every containment site (anchor kept, decided on real path). **Status: closed by close-security-map-high-findings** | — | orchestrator | [07](deployment-process-supply-chain.md#findings) |
 | NET-02 | Medium | Network | `serve_mockup` binds `0.0.0.0`, no auth, agent picks any directory | agent/LLM; LAN | `packages/mockup-loop/src/extension.ts:112`<br>`packages/mockup-loop/src/extension.ts:197-212` | Bind `127.0.0.1`; LAN opt-in flag; deny dotfiles; confine `dir` to cwd | — | mapper | [01](network-surface.md#findings) |
 | NET-03 | Medium | Network | document-converter publishes PlantUML and Gotenberg containers on all host interfaces | LAN | `packages/document-converter/engine/document_converter/plantuml_server.py:167`<br>`packages/document-converter/engine/document_converter/pdf_server.py:177` | Publish `-p 127.0.0.1:<port>:<cport>`; pin PlantUML digest | — | mapper | [01](network-surface.md#findings) |
 | NET-04 | Medium | Network | `POST /api/providers/test` sends stored provider keys or any server env var to caller-chosen URL (SSRF + secret exfil); exposed via MCP `providers_test` | paired operate; MCP session (agent/LLM) | `packages/server/src/routes/provider-routes.ts:573-600`<br>`packages/server/src/package/provider-probe.ts:131-153,253` | Resolve `***`/`$ENV` only when `baseUrl` matches saved provider; allowlist env; block metadata hosts | — | mapper | [01](network-surface.md#findings) |
@@ -141,7 +142,7 @@ Sorted Severity → ID. Chapter links point to each chapter's `#findings`.
 | WS-08 | Low | WebSocket/Bridge | `sessions_list` writes other sessions' `sessionFile`/`sessionDir` + broadcasts to all browsers | bridge peer | `event-wiring.ts:2759-2790` | Accept only own-connection items; never update existing paths | — | Needs verification | [03](websocket-and-bridge.md#findings) |
 | WS-09 | Low | WebSocket/Bridge | `kill_process` pgid unvalidated end-to-end | paired operate | `session-action-handler.ts:1205-1210`<br>`command-handler.ts:1184-1191` | Validate pgid in last `process_list`; reject ≤1 | — | mapper | [03](websocket-and-bridge.md#findings) |
 | WS-10 | Low | WebSocket/Bridge | `control` tier executes host shell (`!`/`!!` prompt prefix); terminals classed `operate` | paired control | `ws-message-tiers.ts:79`<br>`command-handler.ts:366-373` | Document control ≈ code-exec; optionally gate `!` at operate | — | mapper | [03](websocket-and-bridge.md#findings) |
-| TOOL-01 | Low | Tool guards | MCP `prompt_response` mis-bound: object delivered as `send_prompt` text to any session (cannot answer prompts) | agent/LLM (prompt injection); malformed prompt into target session (runtime unverified) | `packages/server/src/server.ts:4166-4167`<br>`packages/mcp-server-plugin/src/server/dispatch.ts:622-633` | Remove from MCP surface (close-security-map-high-findings D2). Owner: close-security-map-high-findings (planned) | — | orchestrator (corrected 2026-10-22) | [04](tool-call-guards.md#findings) |
+| TOOL-01 | Low | Tool guards | MCP `prompt_response` mis-bound: object delivered as `send_prompt` text to any session (cannot answer prompts) | agent/LLM (prompt injection); malformed prompt into target session (runtime unverified) | `packages/server/src/server.ts:4166-4167`<br>`packages/mcp-server-plugin/src/server/dispatch.ts:622-633` | Removed `prompt_response` + `extension_ui_response` from MCP surface (D2). Premise corrected: broken tool, not answer bypass. **Status: closed by close-security-map-high-findings** | — | orchestrator (corrected 2026-10-22) | [04](tool-call-guards.md#findings) |
 | TOOL-06 | Low | Tool guards | `/tmp` and `os.tmpdir()` are read+write roots without prompt | agent/LLM | `path-gate/roots.ts:135` | Per-session tmp subdir | — | mapper | [04](tool-call-guards.md#findings) |
 | TOOL-10 | Low | Tool guards | image-fit `read` rewrite can sidestep path gate | agent/LLM | `image-fit-extension/src/extension.ts:103-121`<br>`docs/extensions.md:208` | image-fit skip out-of-root paths or run after gate | — | Needs verification | [04](tool-call-guards.md#findings) |
 | TOOL-13 | Low | Tool guards | Browser relay: `Runtime.evaluate` allowed; domain list navigation-only | agent/LLM | `browser-plugin/src/server/relay/deny-list.ts:15-18,27-31` | Per-session confirm for real profile; deny `Runtime.evaluate` there | — | mapper | [04](tool-call-guards.md#findings) |
@@ -213,14 +214,63 @@ Sorted Severity → ID. Chapter links point to each chapter's `#findings`.
 
 **ID coverage: 121 canonical rows + 11 aliases = 132 raw.** Script-checked against `ALL-FINDINGS.md`: 0 missing.
 
+## Closed findings
+
+Change `close-security-map-high-findings` (design D1 DEP-01, D2 TOOL-01, D3 HTTP-01).
+
+| ID | Status | How |
+|---|---|---|
+| DEP-01 | closed by close-security-map-high-findings | D1. `AGENT_CREDENTIAL_NAMES` (`auth.json`, `mcp-auth.json`, `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json`, `system-one/auth.json`) + `<name>.*` siblings refused in `always` tier of `packages/server/src/lib/dashboard-state-guard.ts`, every agent dir (server `PI_CODING_AGENT_DIR` ∪ `~/.pi/agent`), every caller, every mode. Real-path decision + post-open `(dev,ino)` recheck at content sites. Covers cwd anchor (cwd=`$HOME`), `~/.pi` anchor, git-root, grants, mention resolver, grep, writable-md, `/api/session-file` in-cwd shortcut, `/api/pi-resource-file`, `POST /api/file/write-binary`, plugin file routes via `ServerPluginContext.readFileGuarded`. New credential file = one-line addition to `AGENT_CREDENTIAL_NAMES`. |
+| TOOL-01 | closed by close-security-map-high-findings (Low, re-rated) | D2. `prompt_response` + `extension_ui_response` deleted from `tools.manifest.ts`; denylisted in `tools.denylist.ts`; generated artifacts regenerated; chat answers keep working via chat-local tier. |
+| HTTP-01 | closed by close-security-map-high-findings | D3. Public provider (`github`/`google` key, or `issuerUrl` host in `PUBLIC_IDP_HOSTS` `packages/server/src/auth/auth.ts:142`) with empty `allowedUsers` + `groupTiers` ⇒ login refused (403 `renderOpenEnrolmentPage`, audit `oauth login_refused`) at `/auth/login`, `/auth/start/:provider`, `/auth/callback/:provider` (`auth-plugin.ts`). Already-issued sessions rejected (`isSessionProviderRejected`; removed-provider JWT rejected, fail closed). Auth reload sweeps open browser + terminal sockets (`WS_CLOSE_SESSION_REVOKED` 4401, `onAuthReloaded` → `sweepRevokedSockets`). Unknown-issuer `keycloak`/`oidc` keep allow-all + startup warning. `GET /api/auth/diagnostics` gains `openEnrolment`; Settings → Security banner. |
+
+**Ship-time instruction.** Statuses above assume change `close-security-map-high-findings` merges in the PR that carries this edit. At ship (`ship-change` archive): confirm merge. If the change did not ship, revert the three statuses to "open" and drop this section. After archive, remove this paragraph.
+
+**TOOL-04 note.** NOT closed. Agent `read` of `~/.pi/agent/auth.json` etc. still in-root for the path gate (`path-gate/roots.ts:132`, `decide.ts:71`). DEP-01 fixed server routes only.
+
+## Residuals added after the map
+
+Added by change `close-security-map-high-findings`. Not in the 121 count. Owner none unless stated. IDs continue each prefix.
+
+| ID | Sev | Residual | Evidence | Note |
+|---|---|---|---|---|
+| TOOL-20 | Low | Prompt-answer roads remain after MCP removal | REST `POST /api/questions/:id/answer` non-file kinds (`questions/question-routes.ts:94-107`, `control`); browser WS `prompt_response` (`pairing/browser-gateway.ts:2418`, `control`); `POST /api/access/prompts/:promptId` (path-gate, `routes/access-prompt-routes.ts:185`, `operate` `shared/src/route-tiers.ts:65`) | Same-host agent with shell can obtain loopback proof (`requireLocalProof` default `true`). `add-supervised-tool-approval` related. |
+| TOOL-21 | Low | Three other broken `session`-bind MCP rows | `set_session_tags`, `edit_followup_entry`, `history_backfill` in `tools.manifest.ts`; wrap `server.ts:4166-4167` | Not answer roads. Fix or remove `session` bind kind. |
+| DEP-13 | Low | Legacy plain keys in `~/.pi/agent/settings.json` and project-layer `<cwd>/.pi/mcp.json` not refused | `settings.json` = pi primary user-editable file; refusing breaks settings editor + previews | Mitigation: `pi-legacy-credentials` moves keys to `auth.json` (`packages/server/src/auth/pi-legacy-credentials.ts`). TOOL-04 / CRED family. |
+| DEP-14 | Low | Session-side `PI_CODING_AGENT_DIR` override not covered | Guard reads server process env + `~/.pi/agent` only (`agentCredentialDirs`, `dashboard-state-guard.ts`) | Operator starts server with same variable. Pinned by test. |
+| DEP-15 | Low | `~/.pi/agent/backups/**` and other tool-made credential copies | Neither pi nor dashboard creates `backups/`; contents tool-dependent, not enumerable | `<name>.bak*` siblings of fixed names ARE refused. |
+| DEP-16 | Low | `/api/pi-resource-file` prefix/substring allowlist loose | `routes/openspec-routes.ts` (~`:1121-1126`): `~/.pi/agent/`, `<knownCwd>/.pi/`, `.pi/git/` and `node_modules/` substring; `path.resolve` without `realpath` | Only credential/state refusal added in front (real path, both tiers). Allowlist itself not redesigned. DEP family. |
+| DEP-17 | Low | D1 path-vs-handle windows | `rendered-pdf` converter takes a path (swap in last gap; output = PDF render, not bytes); JS grep walker reads hard-linked credential file before gate 2 drops its matches (never returned); Windows alternate names (`auth.json::$DATA`, 8.3 `AUTHJS~1.JSON`, trailing dot) at path-level sites (mention resolver, `tree`); no Windows test | Content sites covered by post-open `(dev,ino)` recheck. |
+| HTTP-19 | Medium | Open-enrolment state created before upgrade survives | While public provider open, a stranger signs in at `operate`, can create passkey users, invites, device bearers; bearers outlive OAuth session | Server cannot tell which entries. **Operator action:** review Settings ▸ Users and Settings ▸ Paired devices after upgrade. Startup warning for a refused provider says so. Severity = reviewer judgement. |
+| CRED-03 | Medium (existing) | Partly mitigated, not closed | D3 rejects sessions of refused-open-enrolment and removed providers on validation. Allowlist edit does not revoke already-issued tokens of a still-allowed provider; logout still cookie-only | Owner none. Out of scope of D3. |
+| WS-18 | Low | Live-preview sockets not swept on auth reload | `case "live"` → `handleLiveServerUpgrade` (`server.ts`) capability-URL scoped, no `sessionTier` | New refused-provider cookie cannot open one (`isSessionLive`); open one ends at ticket expiry (`scheduleAtExpiry`). |
+| PLUG-09 | Info | Plugin-registered file routes need per-route audit | Verdicts table below. Seam `ServerPluginContext.readFileGuarded?(absPath)` (`dashboard-plugin-runtime/src/server/server-context.ts`, host impl `server.ts` → `guardedReadFile`). Plugin route gets `null` or finds member absent (older host) ⇒ refuse, never plain `fs` | New plugin route that reads files = audit against table. |
+
+### Plugin file-route audit (D1)
+
+Scan: `rg "readFile|readFileSync|createReadStream|fs\.open|readSync" packages/*-plugin/src/server`.
+
+| Route / reader | Path source | Verdict |
+|---|---|---|
+| flows `GET /api/plugins/flows/file` (`flow-files.ts`) | bridge-reported name → `realpath` | FIXED via `readFileGuarded` (symlink `x.md` → `auth.json` served before) |
+| automation `GET …/result`, `GET …/definition` (`routes.ts`) | fixed filenames under admitted cwd; run id + name validated | FIXED via `readFileGuarded` (symlinkable in-cwd file returned verbatim before) |
+| flows `flow-inputs`, `codeHandlerPaths` | fixed `.pi/flows/...` path; projection / parse only | accepted: no content returned |
+| automation `scanner`, `run-store`, `engine`, `action-registry` | scheduler internals | accepted: content to agent session, never to client |
+| team `static.ts` | request path under plugin dist | accepted: `realpath`-contained in dist root |
+| team `skills-service`, `store`, `users`, `records`, `projects` | operator-managed / plugin-owned fixed paths | accepted: frontmatter keys only / fixed |
+| kb `kb-routes.ts:199` | `dox-staleness.json` row paths | accepted: SHA-256 compare, count only |
+| roles `roles-routes`, system-one `llm-caller` (`providers.json`) | fixed `~/.pi/agent/providers.json` | accepted: parsed to role map, never raw |
+| system-one, blackhole, hermes-memory, context-mode-settings, grammar, goal, subagents, browser, craft-web, gmail config/IO | fixed or server-env paths | accepted: no request-supplied path |
+| claude, skill-atlas, mcp-client, keycloak-resolver, mcp-server, obs-studio, quota, web-access, demo, fixture-policy | no file read in `src/server` | n/a (skill-atlas + flows clients read via `/api/pi-resource-file`, guarded) |
+
 ## Related findings (cross-ref, kept separate)
 
 | Pair | Link |
 |---|---|
 | DEP-03 ↔ NET-05 | exposure warning / Docker defaults |
-| WS-17 ↔ TOOL-01 | MCP session token tier fixed `control` |
+| WS-17 ↔ TOOL-01 | MCP session token tier fixed `control`. TOOL-01 closed; WS-17 unchanged (token still `control`, fewer verbs) |
 | DEP-02 ↔ TOOL-11 | symlink handling (server file read vs agent TOCTOU) |
-| DEP-01 ↔ TOOL-04 | same secret files; server route (observe) vs agent `read` |
+| DEP-01 ↔ TOOL-04 | same secret files; server route (observe) vs agent `read`. DEP-01 closed; TOOL-04 NOT closed |
 | NET-13 ↔ WS-13 | stale ":9999 NO auth" research claim appears in both |
 
 ## Accepted / by-design risks
@@ -270,7 +320,7 @@ Rows flagged `Needs verification` plus mapper open questions.
 
 | ID | Open question | Needed check |
 |---|---|---|
-| TOOL-01 | Runtime of mis-bound `send_prompt` delivery unverified (static trace). | Call MCP `prompt_response` against a test session; confirm no `promptBus.respond`, observe malformed prompt |
+| TOOL-01 | Runtime of mis-bound `send_prompt` delivery unverified (static trace). | Moot: tool removed (closed by close-security-map-high-findings) |
 | WS-01 | Win32 behaviour. Orchestrator verified code, not a win32 host. | Test on win32 host |
 | HTTP-04 | Resolver plugin claim rules unknown. | Read resolver plugins' principal claims |
 | NET-06 | Docker userland proxy: bridge-gateway IP or `127.0.0.1`? | Test published port bridge origin |
@@ -294,3 +344,5 @@ See change: security-map-audit
 - 2026-10-22: TOOL-01 High → Low. Reason: MCP `prompt_response` never reaches `promptBus.respond`. Chain: `tools.manifest.ts:132` → `dispatch.ts:622-633` `executeSession` → `index.ts:169` `sendToSession` → `server.ts:4166-4167` wraps object as `{type:"send_prompt", text}` → bridge `command-handler.ts:672`. Effect: cannot answer prompts; malformed prompt injected (runtime unverified).
 - Owner: change `close-security-map-high-findings` (D2 removes `prompt_response` + `extension_ui_response` from MCP surface).
 - Residual answer roads: REST `POST /api/questions/:id/answer` (non-file kinds), browser WS `prompt_response`, `POST /api/access/prompts/:promptId` (operate).
+- 2026-10-30: DEP-01, HTTP-01, TOOL-01 status → "closed by close-security-map-high-findings" (change ships in same PR; see ship-time instruction in Closed findings). TOOL-01 stays Low; tool removed. TOOL-04 NOT closed (agent `read` of agent dir; path-gate root unchanged).
+- TOOL-01 correction detail: premise (agent answers another session's path-gate prompt via MCP `prompt_response`) wrong. Host wraps object as `send_prompt` text, `server.ts:4166-4167`. Original `tool-call-guards.md` C12 / `:207` and this register assumed the verb reaches bridge `promptBus.respond` unwrapped; trace shows it does not.

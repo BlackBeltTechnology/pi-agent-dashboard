@@ -34,7 +34,7 @@ async function makeApp(providers: AuthConfig["providers"], redirectBaseUrl?: str
   const { default: Fastify } = await import("fastify");
   const app = Fastify();
   await registerAuthPlugin(app, {
-    authConfig: { secret: SECRET, providers, ...(redirectBaseUrl ? { redirectBaseUrl } : {}) } as AuthConfig,
+    authConfig: { secret: SECRET, providers, allowedUsers: ["*@example.com", "*@x"], ...(redirectBaseUrl ? { redirectBaseUrl } : {}) } as AuthConfig,
     port: 8000,
   });
   await app.ready();
@@ -213,7 +213,7 @@ describe("B16r: cookie Secure decision table (AE13)", () => {
       });
     }
     await registerAuthPlugin(a, {
-      authConfig: { secret: SECRET, providers: github, redirectBaseUrl: opts.base } as AuthConfig,
+      authConfig: { secret: SECRET, providers: github, allowedUsers: ["*@example.com", "*@x"], redirectBaseUrl: opts.base } as AuthConfig,
       port: 8000,
     });
     await a.ready();

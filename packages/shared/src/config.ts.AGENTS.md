@@ -10,4 +10,6 @@ Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/c
 
 `CorsConfig.allowZrokWildcard: boolean` (default `false`; only boolean `true` enables; non-object `cors` yields defaults). See change: harden-cors-and-csp-reporting.
 
+`AuthConfig.allowedUsers` / `groupTiers` docs: empty `allowedUsers` + unset `groupTiers` refuses public-IdP login (non-public stays allow-all + warning); `groupTiers` is config-file-only, Settings save keeps it. No parse change. See change: close-security-map-high-findings (D3).
+
 `security?: { trustedTypes?: unknown }` on `DashboardConfig`: `loadConfig()` copies `parsed.security.trustedTypes` RAW (unvalidated; `resolveTrustedTypesMode` validates + warns); never seeded by `ensureConfig()`. See change: enforce-trusted-types-default.
