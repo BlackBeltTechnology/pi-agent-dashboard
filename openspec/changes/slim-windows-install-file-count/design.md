@@ -230,7 +230,22 @@ The first estimate (10,635, 25.1%) did not count the 853 first-party `__tests__`
 
 **Task 3.3 — runtime reads of third-party `test`/`tests` paths.** Static scan of the installed tree (regex over `.js/.cjs/.mjs` outside test dirs for `require`/`import`/`from` of a `/tests?/` specifier and for `readFile*/existsSync/readdir*/statSync/createReadStream/require.resolve/path.join|resolve(...'tests?')`; plus `package.json` `main`/`module`/`bin`/`browser`/`exports`/`files` values naming a `tests?/` segment). 9 hits, none a runtime read: `asap` `browser` override map (`./test/domain.js`, browser-only and already removed by the existing `test` rule), `jake` `existsSync('./tests')` (project-relative task-runner lookup), and three comments/examples (`@jimp/core` JSDoc, `glob/common.js` comment, `fastify/examples`). Keep-list: empty.
 
-**CI numbers (tasks 1.2, 5.4, 6.3):** recorded below once the throwaway-branch CI runs finish.
+**CI numbers (tasks 1.2, 5.4, 6.3)** — `ci-electron.yml` `workflow_dispatch`, packaged `resources/` regular files (the gate's predicate):
+
+| Leg | develop baseline (throwaway `tmp-slim-baseline` = develop + timing step + budget report, run 41044824494 / 41048263275) | this change (run 41044784633 / 41048744854) | ratio | pinned budget (+5%) |
+|---|---|---|---|---|
+| win32-x64 | 38,045 | 28,368 | 74.6% (−25.4%) | 29,787 |
+| darwin-x64 | 37,155 | 27,478 | 74.0% | 28,852 |
+| darwin-arm64 | — | 27,478 | — | 28,852 |
+| linux-x64 | — | 27,480 | — | 28,854 |
+| linux-arm64 | — | 27,478 | — | 28,852 |
+| win32-arm64 | — | 28,500 | — | 29,925 |
+
+The ≤75% target for win32-x64 holds with 0.4 points of margin (below the 2.5-point margin the v0.11.0 list projected: develop already carries fewer files than v0.11.0 — 38,045 vs 42,226 — because it has since dropped weight elsewhere, so the same removals are a smaller share). Only win32-x64 and darwin-x64 baselines were measured; the other legs have no baseline because the criterion is win32-x64. Per-rule-group counts from the CI bundle step: `Pruned 23,255 file(s) (third-party 21,672, first-party 1,583)`; `Dropped 16 workspace copy dir(s)`.
+
+**Install time (informational, win32-x64, `windows-latest` runner image `win25-vs2026 20261021.278.1`):** `install_seconds=172.3`, `installed_file_count=28,439` on this change. The develop baseline step's summary did not print (a `$LASTEXITCODE` `$null` bug in the first draft of the timing step ended the step early; fixed in the same change). Its wall clock from the log (`Running silent install` → `Install dir present`) was ≈257 s, on a different runner. One sample each: directional, not proof.
+
+**NSIS upgrade (X4) and smoke (X5), win32-x64 CI:** the previous release's (v0.11.0) Setup.exe installed, the app started and registered `…\resources\server\packages\extension` itself on the runner (so the legacy state was real, not seeded); after the new Setup.exe ran over it the install tree held no `resources\server\packages\<dir>` other than `dist` and the app's registration was replaced by the node_modules path (`PASS: upgrade keeps exactly the node_modules bridge extension registered`). `windows-nsis-install`, `-no-permachine`, `-branding` and `-uninstall` all pass on the new layout. `/api/health` is not reachable on the runner (no desktop session), as before; the step treats it as informational.
 
 ## Open Questions
 

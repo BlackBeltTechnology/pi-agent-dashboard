@@ -1,7 +1,7 @@
 ## 1. Baseline measurement
 
 - [x] 1.1 Add install timing to the win32-x64 NSIS smoke step in `.github/workflows/_electron-build.yml`: a `Stopwatch` around `Setup.exe /S`, then write `install_seconds`, the runner image name and `installed_file_count` (regular files under the install dir, lstat, no symlink follow) to `$GITHUB_STEP_SUMMARY`. The step is informational and never fails. See the existing "Smoke-test NSIS Setup.exe" step. Triple: built win32-x64 Setup.exe · silent install in CI · summary has the three values (test-plan #P2)
-- [ ] 1.2 Run the Electron workflow from unchanged `develop` on a throwaway branch (see the `validate-ci-workflow-pre-merge` skill) and record the per-leg packaged `resources/` file count plus the x64 install seconds as the baseline in `design.md` → "Measurements"
+- [x] 1.2 Run the Electron workflow from unchanged `develop` on a throwaway branch (see the `validate-ci-workflow-pre-merge` skill) and record the per-leg packaged `resources/` file count plus the x64 install seconds as the baseline in `design.md` → "Measurements"
 
 ## 2. Reader inventory
 
@@ -46,12 +46,12 @@
 - [x] 5.1.4 Unit test (write first, confirm failing) for `packages/electron/scripts/assert-bundle-file-budget.mjs`; exemplar `packages/electron/src/__tests__/assert-bundled-bash-resolvable.test.ts`. Triple: 3 regular files + 2 symlinks (one to a 10-file dir) · run · count 3 (test-plan #E20)
 - [x] 5.2 Implement the script; the 5.1.x tests pass
 - [x] 5.3 Add a built-bundle layout assert to every leg of `_electron-build.yml`, next to the "Assert bundled plugins complete" step. Triple: CI-native bundle · layout assert · `packages/` children == `["dist"]`, the node_modules server `cli.ts` exists, no `workspaces` key, exit 0 (test-plan #E8)
-- [ ] 5.4 Wire `assert-bundle-file-budget.mjs` into every Electron leg after packaging and the GO/NO-GO gates (exemplar: the `scan-packaged-symlinks.mjs` call in "Package Electron"). Run on the change branch, then pin each leg's budget at measured + 5%
+- [x] 5.4 Wire `assert-bundle-file-budget.mjs` into every Electron leg after packaging and the GO/NO-GO gates (exemplar: the `scan-packaged-symlinks.mjs` call in "Package Electron"). Run on the change branch, then pin each leg's budget at measured + 5%
 - [x] 5.5 Confirm the plugin-load gate boots the canonical node_modules entry on the pruned, deduplicated bundle. Triple: packaged bundle without `packages/server` · `assert-bundled-server-plugin-load.mjs` · every bundled server plugin `Loaded plugin`, zero `Failed to load plugin`, exit 0 (test-plan #X2)
 
 ## 6. NSIS upgrade and verification
 
 - [x] 6.1 Add a win32-x64 CI upgrade step after the NSIS smoke step in `_electron-build.yml`. It downloads the previous release's `Setup.exe` (`gh release download`), installs it with `/S`, starts and stops the app, installs the new `Setup.exe /S`, then starts the app once. Exemplar: `qa/tests/windows-nsis-install.ps1` + `windows-nsis-launch.ps1`. Triple: previous release installed · new Setup.exe over it, app started · settings `packages` contains the node_modules extension path, no entry ends in `packages\extension`, `/api/health` OK (test-plan #X4)
-- [ ] 6.2 Re-run the existing NSIS QA scripts against the new layout. Exemplar: the "Smoke-test NSIS Setup.exe" step. Triple: built Setup.exe · `windows-nsis-install.ps1` + `windows-nsis-launch.ps1` · both pass unchanged (test-plan #X5)
-- [ ] 6.3 Compare the change-branch CI run with the task 1.2 baseline. Triple: win32-x64 packaged `resources/` count · same workflow · count ≤ 75% of baseline. Record per-rule-group counts and install seconds in `design.md` (test-plan #P1)
+- [x] 6.2 Re-run the existing NSIS QA scripts against the new layout. (CI: `windows-nsis-install`, `-no-permachine`, `-branding`, `-uninstall` pass; `windows-nsis-launch.ps1` is VM-only, as before — a GitHub-hosted runner has no desktop session.) Exemplar: the "Smoke-test NSIS Setup.exe" step. Triple: built Setup.exe · `windows-nsis-install.ps1` + `windows-nsis-launch.ps1` · both pass unchanged (test-plan #X5)
+- [x] 6.3 Compare the change-branch CI run with the task 1.2 baseline. (28,368 / 38,045 = 74.6%; see design.md → Measurements.) Triple: win32-x64 packaged `resources/` count · same workflow · count ≤ 75% of baseline. Record per-rule-group counts and install seconds in `design.md` (test-plan #P1)
 - [x] 6.4 Update the `packages/electron/AGENTS.md` rows for `bundle-server.mjs`, `docker-make.sh`, `build-windows-zip.sh` and `scripts/server-launch-helpers/`, and add rows for `scripts/lib/prune-bundle.mjs` and `assert-bundle-file-budget.mjs`. Delegate `docs/installation-windows.md` prose to DocScribe
