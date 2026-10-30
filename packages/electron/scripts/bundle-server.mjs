@@ -640,8 +640,11 @@ if (clientSrc) {
 // Materialization above made `node_modules/@blackbelt-technology/<pkg>` a full
 // copy, so `packages/<dir>` is a second copy nothing reads (launch, overlay
 // compat, doctor, bridge registration and the helpers all use the node_modules
-// path). Delete it (keep `packages/dist` = the served client) and drop the
-// synthetic `workspaces` field — the input of an install that already ran.
+// path). Delete it (keep `packages/dist` = the served client) and empty the
+// synthetic `workspaces` list — the input of an install that already ran. The
+// field stays as `[]`: `findMonorepoRoot` (plugin loader) stops at it, which is how
+// a bundle is its own root; without it a packaged app inside a checkout adopts
+// that checkout as its plugin workspace.
 // ORDER IS LOAD-BEARING: the release-lock `npm ci` + auditInstalledTree need the
 // `packages/<dir>` link targets, so this runs strictly after the install and the
 // materialization. The shared prune runs last so it also sees the materialized

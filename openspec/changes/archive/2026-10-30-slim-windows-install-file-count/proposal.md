@@ -48,8 +48,8 @@ Applying this change's rules to the v0.11.0 file list removes an estimated **11,
     sidecars (outside `.pi/`) and `__tests__`.
     Skills, commands and licences are kept.
 - **The `node_modules` copy is canonical.** `resources/server/packages/<dir>` is deleted after
-  install and materialization; `packages/dist` stays. The synthetic `package.json` drops its
-  `workspaces` field after install, and the local `build-windows-zip.sh` drops its post-bundle
+  install and materialization; `packages/dist` stays. The synthetic `package.json` empties its
+  `workspaces` list after install (the field stays, as `[]`: it is the bundled-root marker `findMonorepoRoot` stops at), and the local `build-windows-zip.sh` drops its post-bundle
   `npm install`. The
   remaining readers move to the `node_modules` path. A stale persisted `…/server/packages/extension`
   registration is already dropped by the existing `registerBridgeExtension` cleanup; a new test pins

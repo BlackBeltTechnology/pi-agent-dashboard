@@ -118,7 +118,7 @@ fi
 
 # Canonical layout (change: slim-windows-install-file-count): workspace source
 # ships ONCE, under node_modules/@blackbelt-technology/<pkg>. --finalize deletes
-# packages/<dir> (keeps packages/dist), drops package.json#workspaces, then runs the
+# packages/<dir> (keeps packages/dist), empties package.json#workspaces, then runs the
 # shared prune (same rules as bundle-server.mjs). Must stay AFTER the symlink
 # materialization above, which needs the packages/<dir> link targets.
 node "/build/$ELECTRON_DIR/scripts/lib/prune-bundle.mjs" --finalize .

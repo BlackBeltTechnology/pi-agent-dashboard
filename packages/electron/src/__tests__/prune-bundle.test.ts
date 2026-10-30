@@ -207,7 +207,7 @@ describe("pruneBundle — failure handling", () => {
 });
 
 describe("dropWorkspaceCopies / --finalize", () => {
-  it("deletes every packages/* child except dist and strips workspaces", () => {
+  it("deletes every packages/* child except dist and empties workspaces (the findMonorepoRoot marker)", () => {
     const d = bundle(["packages/server/src/cli.ts", "packages/extension/src/bridge.ts", "packages/dist/client/index.html"]);
     writeFileSync(path.join(d, "package.json"), JSON.stringify({ name: "b", workspaces: ["packages/server"], dependencies: { a: "1" } }));
     const removed = (dropWorkspaceCopies as (dir: string, o?: object) => string[])(d, { log: () => {} });
@@ -216,7 +216,7 @@ describe("dropWorkspaceCopies / --finalize", () => {
     expect(has(d, "packages/extension")).toBe(false);
     expect(has(d, "packages/dist/client/index.html")).toBe(true);
     const pkg = JSON.parse(readFileSync(path.join(d, "package.json"), "utf8"));
-    expect(pkg.workspaces).toBeUndefined();
+    expect(pkg.workspaces).toEqual([]);
     expect(pkg.dependencies).toEqual({ a: "1" });
   });
 

@@ -453,7 +453,7 @@ jobs:
       - name: Assert bundle layout (workspace source ships once)
         # Built-bundle layout gate: `resources/server/packages/` holds ONLY `dist`
         # (the served client), the server entry exists under node_modules, and the
-        # synthetic package.json carries no `workspaces`. A leftover
+        # synthetic package.json has `workspaces: []` (kept as the bundled-root marker). A leftover
         # `packages/<dir>` is a second copy of every workspace package that nothing
         # reads and the NSIS install pays for. Node-native — Windows-safe.
         # See change: slim-windows-install-file-count (design D2).

@@ -1,7 +1,7 @@
 /**
  * E8 (slim-windows-install-file-count): the built-bundle layout gate. The workspace
  * source ships ONCE, under `node_modules/@blackbelt-technology/<pkg>`; `packages/`
- * holds only `dist` (the served client) and `package.json` has no `workspaces`.
+ * holds only `dist` (the served client) and `package.json#workspaces` is `[]`.
  *
  * Fixture-driven here; CI runs the same script over the real bundle on every leg.
  *
@@ -39,12 +39,12 @@ function bundle(o: Opts = {}): string {
     fs.mkdirSync(path.dirname(cli), { recursive: true });
     fs.writeFileSync(cli, "");
   }
-  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(o.pkgJson ?? { name: "pi-dashboard-bundled-server" }));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(o.pkgJson ?? { name: "pi-dashboard-bundled-server", workspaces: [] }));
   return dir;
 }
 
 describe("checkBundleLayout", () => {
-  it("accepts the canonical layout (packages/ == [dist], node_modules cli, no workspaces)", () => {
+  it("accepts the canonical layout (packages/ == [dist], node_modules cli, workspaces == [])", () => {
     expect(check(bundle())).toEqual({ ok: true, errors: [] });
   });
 
@@ -60,10 +60,16 @@ describe("checkBundleLayout", () => {
     expect(r.errors.join("\n")).toContain("cli.ts");
   });
 
-  it("rejects a package.json that still carries `workspaces`", () => {
+  it("rejects a package.json that still lists workspaces", () => {
     const r = check(bundle({ pkgJson: { name: "x", workspaces: ["packages/server"] } }));
     expect(r.ok).toBe(false);
     expect(r.errors.join("\n")).toContain("workspaces");
+  });
+
+  it("rejects a package.json without `workspaces` (findMonorepoRoot would walk out of the bundle)", () => {
+    const r = check(bundle({ pkgJson: { name: "pi-dashboard-bundled-server" } }));
+    expect(r.ok).toBe(false);
+    expect(r.errors.join("\n")).toContain("findMonorepoRoot");
   });
 
   it("rejects a missing packages/dist (the served client)", () => {

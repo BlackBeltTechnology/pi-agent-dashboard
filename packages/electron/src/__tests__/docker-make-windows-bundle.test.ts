@@ -54,7 +54,7 @@ describe("docker-make.sh Windows bundle", () => {
 /**
  * Canonical node_modules layout (change: slim-windows-install-file-count, E9):
  * the Docker cross-build must ship the same final layout as bundle-server.mjs —
- * workspace source once under node_modules, no `workspaces`, pruned. It runs the
+ * workspace source once under node_modules, empty `workspaces`, pruned. It runs the
  * shared helper AFTER its own symlink materialization (which still needs the
  * `packages/<dir>` link targets).
  */

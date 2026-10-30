@@ -9,9 +9,11 @@
  *     Defender scan each);
  *   - `node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts` (the
  *     entry the app launches);
- *   - a `package.json` WITHOUT `workspaces` (the field was the input of an
- *     install that already ran; a leftover would make a later `npm install`
- *     treat the materialized copies as workspace links).
+ *   - a `package.json` whose `workspaces` is the EMPTY array: the install that
+ *     read it already ran (a leftover list would make a later `npm install`
+ *     treat the materialized copies as workspace links), but the field is also
+ *     the bundled-root marker `findMonorepoRoot` stops at — if it were absent the
+ *     walk would escape the bundle and adopt a checkout the app sits in.
  *
  * Usage: node assert-bundle-layout.mjs [serverDir]
  *   serverDir  default `packages/electron/resources/server` (relative to cwd)
@@ -40,7 +42,9 @@ export function checkBundleLayout(serverDir) {
 
   try {
     const pkg = JSON.parse(readFileSync(path.join(serverDir, "package.json"), "utf8"));
-    if ("workspaces" in pkg) errors.push("package.json still declares `workspaces` (must be dropped after install)");
+    if (!Array.isArray(pkg.workspaces) || pkg.workspaces.length > 0) {
+      errors.push("package.json `workspaces` must be [] (emptied after install; present, because findMonorepoRoot stops at it)");
+    }
   } catch (err) {
     errors.push(`package.json unreadable: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -61,5 +65,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error("See change: slim-windows-install-file-count (design D2).");
     process.exit(1);
   }
-  console.log("\u2713 Bundle layout OK \u2014 workspace source only under node_modules, packages/ == [dist], no workspaces");
+  console.log("\u2713 Bundle layout OK \u2014 workspace source only under node_modules, packages/ == [dist], workspaces == []");
 }

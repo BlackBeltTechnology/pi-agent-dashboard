@@ -27,7 +27,10 @@
  * workspace symlinks are materialized under `node_modules/@blackbelt-technology/`,
  * `packages/<dir>` is a second copy of the same trees nothing reads. It deletes
  * every `packages/*` child except `dist` (the served client) and drops the
- * synthetic `package.json#workspaces` (the input of an install that already ran).
+ * synthetic `package.json#workspaces` to `[]`: the install that read it already ran, but the
+ * field doubles as the bundled-root marker `findMonorepoRoot` (dashboard-plugin-runtime
+ * loader) stops at. Removing it lets that walk escape the bundle and adopt a checkout the
+ * packaged app happens to sit in (CI e2e, `out/` of a dev build) as the plugin workspace.
  *
  * Usage: node prune-bundle.mjs [--finalize] <serverDir>
  *   --finalize  dropWorkspaceCopies, then pruneBundle (docker-make.sh)
@@ -173,7 +176,8 @@ export function pruneBundle(serverDir, opts = {}) {
 
 /**
  * Remove the second copy of every workspace package: every `packages/*` child
- * except `dist`, and `package.json#workspaces`. Returns the removed child names.
+ * except `dist`, and empties `package.json#workspaces` (kept as `[]`, see the file header).
+ * Returns the removed child names.
  *
  * @param {string} serverDir
  * @param {{ rm?: (p: string, o?: object) => void, log?: (m: string) => void }} [opts]
@@ -196,11 +200,11 @@ export function dropWorkspaceCopies(serverDir, opts = {}) {
   if (existsSync(pkgPath)) {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
     if ("workspaces" in pkg) {
-      delete pkg.workspaces;
+      pkg.workspaces = [];
       writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
     }
   }
-  log(`  Dropped ${removed.length} workspace copy dir(s) under packages/ (kept dist), removed package.json#workspaces`);
+  log(`  Dropped ${removed.length} workspace copy dir(s) under packages/ (kept dist), emptied package.json#workspaces`);
   return removed;
 }
 

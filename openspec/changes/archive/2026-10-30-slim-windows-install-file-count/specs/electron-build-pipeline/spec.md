@@ -19,7 +19,7 @@ The packaged Electron app SHALL ship the following as an extraResource, so the s
 - **WHEN** `bundle-server.mjs` completes WITHOUT `--source-only`, or `docker-make.sh` completes
 - **THEN** each bundled workspace package's source SHALL exist under `resources/server/node_modules/@blackbelt-technology/<pkg>/`
 - **AND** `resources/server/packages/` SHALL contain no directory other than `dist`
-- **AND** `resources/server/package.json` SHALL carry no `workspaces` field
+- **AND** `resources/server/package.json` SHALL carry `"workspaces": []` — the field stays as the bundled-root marker `findMonorepoRoot` stops at, so a packaged app inside a checkout does not adopt that checkout as its plugin workspace
 
 #### Scenario: Release-lock audit precedes workspace deletion
 - **WHEN** `bundle-server.mjs --release-lock=<X>` runs

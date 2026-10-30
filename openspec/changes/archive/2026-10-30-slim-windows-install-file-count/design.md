@@ -120,7 +120,7 @@ The app's launch path and every overlay path already use `node_modules/@blackbel
 1. Install, including the release-lock `npm ci` + `auditInstalledTree`, which needs the `packages/<dir>` link targets.
 2. Materialize the workspace links.
 3. Delete `resources/server/packages/<dir>` for every `packages/*` child except `dist` (`dropWorkspaceCopies`; "every child but `dist`" gives the same layout from every builder and is what the layout gate asserts).
-4. Remove the `workspaces` field from the synthetic `resources/server/package.json`. It was the input to the install that has already run. No shipped code reads it afterwards, and `ci-electron-on-demand-build`'s "resolved locally via `workspaces:`" applies to that install, which is unchanged.
+4. Set the `workspaces` field of the synthetic `resources/server/package.json` to `[]`. The list was the input to the install that has already run, and `ci-electron-on-demand-build`'s "resolved locally via `workspaces:`" applies to that install, which is unchanged. **The field itself must stay**: `findMonorepoRoot` (dashboard-plugin-runtime loader) stops at the first `package.json` with a truthy `workspaces`, which is how a bundle is recognised as its own root. The first implementation removed the field; the PR's `runtime-overlay-e2e` then failed (X11: the bundled server adopted the surrounding CI checkout as the plugin workspace and listed `demo`/`fixture-policy`; the mac-x64 launch smoke timed out once the same way). Pinned by `find-monorepo-root-bundle-marker.test.ts`.
 5. Prune (D1).
 
 **Same final layout from every builder.**
