@@ -116,6 +116,13 @@ if [ -d node_modules/@blackbelt-technology ]; then
   done
 fi
 
+# Canonical layout (change: slim-windows-install-file-count): workspace source
+# ships ONCE, under node_modules/@blackbelt-technology/<pkg>. --finalize deletes
+# packages/<dir> (keeps packages/dist), drops package.json#workspaces, then runs the
+# shared prune (same rules as bundle-server.mjs). Must stay AFTER the symlink
+# materialization above, which needs the packages/<dir> link targets.
+node "/build/$ELECTRON_DIR/scripts/lib/prune-bundle.mjs" --finalize .
+
 # Platform-specific native module handling
 if [ "$PLATFORM" = "linux" ]; then
   # Linux: copy built-from-source pty.node into prebuilds, remove other platforms

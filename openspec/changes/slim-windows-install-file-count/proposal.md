@@ -32,8 +32,8 @@ Two things in `packages/electron/scripts/bundle-server.mjs` cause avoidable bulk
    launch helpers, one CI gate, the bridge's relative server fallback and several test scripts still
    read `packages/<dir>` (full list in `design.md`).
 
-Applying this change's rules to the v0.11.0 file list removes an estimated **10,635 files (25.1%)**
-(see `design.md`).
+Applying this change's rules to the v0.11.0 file list removes an estimated **11,611 files (27.5%)**
+(see `design.md` → Measurements; first estimate 10,635 missed 853 first-party `__tests__` files).
 
 ## What Changes
 

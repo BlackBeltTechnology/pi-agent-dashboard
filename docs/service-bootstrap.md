@@ -133,7 +133,7 @@ All runtime deps under `<resourcesPath>/server/node_modules/`. Read-only at runt
 ```
 pi, openspec, tsx: Bundled (regular npm deps of pi-dashboard-server)
 node:              Bundled (<resourcesPath>/node/bin/node)
-bridge:            Bundled (<resourcesPath>/server/node_modules/.../packages/extension)
+bridge:            Bundled (<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-extension)
 serverCli:         Bundled (<resourcesPath>/server/node_modules/.../packages/server/src/cli.ts)
 ```
 
@@ -154,8 +154,8 @@ Add `toolPaths` to `~/.pi/dashboard/config.json`:
     "openspec":  "/Users/x/.nvm/versions/node/v22.22.0/bin/openspec",
     "node":      "/Applications/PI Dashboard.app/Contents/Resources/node/bin/node",
     "tsx":       "/Users/x/.pi-dashboard/node_modules/.bin/tsx",
-    "bridge":    "/Applications/PI Dashboard.app/Contents/Resources/server/packages/extension",
-    "serverCli": "/Applications/PI Dashboard.app/Contents/Resources/server/packages/server/src/cli.ts"
+    "bridge":    "/Applications/PI Dashboard.app/Contents/Resources/server/node_modules/@blackbelt-technology/pi-dashboard-extension",
+    "serverCli": "/Applications/PI Dashboard.app/Contents/Resources/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
   },
   "autoStart": true,
   "spawnStrategy": "headless"

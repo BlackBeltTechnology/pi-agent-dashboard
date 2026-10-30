@@ -30,14 +30,7 @@ Other build paths:
 The v0.11.0 numbers below come from the release asset `PI-Dashboard-win32-x64.zip`. Its central directory was read over HTTP range requests, so the numbers cannot be reproduced from the repo.
 
 - Tree size: 42,298 files, about 1 GB.
-- Applying this design's rules to that file list removes an estimated 10,635 files (25.1%), in four disjoint groups. The list is what actually shipped, so files today's prune already removes count zero. Each group is new removal.
-
-| Removed files | Group |
-|---|---|
-| 2,511 | `packages/<dir>` copies (excluding `dist`) |
-| 7,510 | third-party `.d.{ts,mts,cts}`, `.map`, `.md` and `test`/`tests`/`__tests__` files |
-| 614 | first-party `AGENTS.md`/`*.AGENTS.md` files outside `.pi/` |
-
+- Applying this design's rules to that file list removes an estimated 11,611 files (27.5%), in five disjoint groups (breakdown under "Measurements"). The list is what actually shipped, so files today's prune already removes count zero. Each group is new removal.
 
 Install cost is assumed to scale with file count: one NTFS create plus one Defender scan per file. This is an assumption, and D4 reports the measured effect.
 
@@ -89,10 +82,10 @@ The plugin-load gate and the app boot the same content from different paths. Pat
 
 ### D1 — One shared prune helper, run last, with two rule sets
 
-New module `scripts/lib/prune-bundle.mjs` exports `pruneBundle(serverDir, {platform, arch})`. It has three callers:
+New module `scripts/lib/prune-bundle.mjs` exports `pruneBundle(serverDir, {rm?, log?})` (no platform/arch: no rule is platform-specific; `rm` is the injection point the failure test uses) and `dropWorkspaceCopies(serverDir)`. Its CLI is `prune-bundle.mjs [--finalize] <serverDir>`, where `--finalize` runs `dropWorkspaceCopies` then `pruneBundle`. It has three callers:
 
 - `bundle-server.mjs` (full mode), after materialization and the `pi-dashboard-web` copy.
-- `docker-make.sh`, after its materialization.
+- `docker-make.sh` (`--finalize`), after its materialization.
 - `build-windows-zip.sh` (native path) gets its tree from `bundle-server.mjs`. Its Step 3 `npm install` is removed (see D2). The node-pty prebuild strip stays in Step 3 unchanged.
 
 **Placement in `bundle-server.mjs`.** The helper runs after materialization and the `pi-dashboard-web` copy, and before the keyring GO/NO-GO (`:657-681`). The keyring gate keeps its role ("proves what ships").
@@ -126,7 +119,7 @@ The app's launch path and every overlay path already use `node_modules/@blackbel
 
 1. Install, including the release-lock `npm ci` + `auditInstalledTree`, which needs the `packages/<dir>` link targets.
 2. Materialize the workspace links.
-3. Delete `resources/server/packages/<dir>` for every bundled workspace package, keeping `packages/dist`.
+3. Delete `resources/server/packages/<dir>` for every `packages/*` child except `dist` (`dropWorkspaceCopies`; "every child but `dist`" gives the same layout from every builder and is what the layout gate asserts).
 4. Remove the `workspaces` field from the synthetic `resources/server/package.json`. It was the input to the install that has already run. No shipped code reads it afterwards, and `ci-electron-on-demand-build`'s "resolved locally via `workspaces:`" applies to that install, which is unchanged.
 5. Prune (D1).
 
@@ -165,7 +158,7 @@ New script: `scripts/assert-bundle-file-budget.mjs <resourcesDir> --platform <p>
 
 - **Counting.** It counts regular files only, using `lstat` and never following symlinks. D4 uses the same predicate.
 - **Scope.** The whole `resources/` directory is counted. The `node/` and win32 `git/` trees are part of the budget, and changes to them are the expected source of drift.
-- **Budgets.** One budget per CI leg (`darwin-universal`, `linux-x64`, `linux-arm64`, `win32-x64`, `win32-arm64`), pinned to that leg's measured post-change count plus 5%. A leg with no pinned budget reports and exits 0. Task 5 measures on the change branch and pins every leg in the same change, so the merged gate enforces everywhere.
+- **Budgets.** One budget per CI leg (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`, `win32-x64`, `win32-arm64`; the CI matrix has no universal leg), pinned to that leg's measured post-change count plus 5%. A leg with no pinned budget reports and exits 0. Task 5 measures on the change branch and pins every leg in the same change, so the merged gate enforces everywhere.
 - **Placement.** It runs on every Electron leg, after packaging and after the existing GO/NO-GO gates.
 - **Failure output.** Exit 1 and print the 20 directories with the most files.
 - **Not gated.** The Docker cross-build is a local developer path and is not budget-gated.
@@ -201,6 +194,44 @@ The step never fails the job. One sample per run on a shared runner gives a dire
 - An NSIS upgrade replaces the install directory.
 - Rollback is a revert. See the D2 rollback note.
 
+## Reader inventory (task 2.1, resolves Q1)
+
+Grep scope: `server/packages/`, `"server", "packages"`, `packages\\server|extension`, `../../server`, `packages/(server|extension|shared)` over `packages/*/src`, `packages/electron/scripts`, `qa/`, `tests/`, `docker/`, `scripts/`, `.github/`.
+
+| Class | Hits | Action |
+|---|---|---|
+| **Bundle reader** (repointed) | `runtime-overlay.ts` `extensionPathFor(BUNDLED)`; `bridge-register.ts` `findBundledExtension`; `doctor.ts` server-code row; `start-server.{sh,ps1,cmd}` + README; `assert-bundled-server-plugin-load.mjs` (+ its test fixture); `test-deb-install-inner.sh`; `launch-source.test.ts`; `tests/e2e-electron/runtime-overlay-update.electron.spec.ts`; `packages/extension/src/server-launcher.ts` sibling fallback; `qa/tests/08-electron-real-launch.sh` (+ `qa-dist-only-scripts.test.mjs` needle) | node_modules path |
+| **Source-only intermediate** (unchanged) | `test-server-launch.sh`, `test-electron-install.sh` build their image from `bundle-server.mjs --source-only`, where `packages/<dir>` is the ONLY copy (no install has run). The latter's final image already reads the node_modules path (`test-electron-install-inner.sh`). Both are exempted by name in the leftover-reader lint | none |
+| **Checkout reader / dev-only** (unchanged) | `launch-source.ts` `probeDevMonorepo` + `getLocalCliPath`; `runtime-overlay.ts` local-link branches; `shared/runtime-overlay/compat.ts` `localRequiredPaths`; `bundle-watch-paths.mjs`; `scripts/*` (lock tooling); all of `qa/tests/{26,28,30,35,36,42,45,54,55}-*` (they run against a repo checkout via `PI_DASHBOARD_REPO` / `packages/server/bin/pi-dashboard.mjs`) | none |
+| **Not a path read** | `packages/*/src/**/__tests__` fixtures that build `packages/server` temp trees; `.github/workflows` path filters; docs prose | none |
+
+A **new** reader found while implementing: `qa/tests/08-electron-real-launch.sh` asserted that `packages/mcp-core` sits beside `packages/server` in an extracted bundle (task 4.10).
+
+## Measurements
+
+**v0.11.0 `PI-Dashboard-win32-x64.zip`** (central directory read over HTTP range): 42,298 files; `resources/` 42,226 = `server` 39,847, `node` 1,981, `git` 386.
+
+Rule groups applied to that file list (disjoint):
+
+| Files | Group |
+|---|---|
+| 2,511 | `server/packages/<dir>` copies (not `dist`) |
+| 5,027 | third-party `*.d.mts`/`*.d.cts` |
+| 2,483 | third-party `test`/`tests` directory files |
+| 853 | first-party `__tests__` files (`resources/plugins/*`, `@blackbelt-technology/*`) |
+| 737 | first-party `AGENTS.md`/`*.AGENTS.md` outside `.pi/` |
+| **11,611** | **27.5% of 42,298 → 30,687 files (72.5% of baseline)** |
+
+The first estimate (10,635, 25.1%) did not count the 853 first-party `__tests__` files (the proposal assumed the existing `src/__tests__` strip also covered plugins; it only covers `BUNDLED_WORKSPACE_PKGS` `src/__tests__`). The ≤75% target has ~2.5 points of margin.
+
+**Task 2.2 — why v0.11.0 shipped ~7.5k third-party files.** The premise was wrong. The v0.11.0 zip already has zero third-party `*.d.ts`, `*.map`, `*.md`, `CHANGELOG*`, `LICENSE*` (today's prune works). The 7,510 are the two NEW rule groups: `*.d.mts`/`*.d.cts` (5,027) and `test`/`tests` directory files (2,483; today only `test` and `__tests__` match, so `tests/` such as `zod/src/v4/core/tests` survives). No walker defect.
+
+**Local before/after, macOS arm64 host, `bundle-server.mjs` floating install, stub client** (no `node/`, `git/`, real client): `resources/server` 34,476 files / 412 MB (develop script) → 24,787 files / 335 MB (this change) = **−28.1%**. The prune removed 23,268 files across both rule sets, including those the old prune also removed. The built bundle booted via `assert-bundled-server-plugin-load.mjs` with all 25 server plugins loaded, and `assert-bundle-layout.mjs` passed.
+
+**Task 3.3 — runtime reads of third-party `test`/`tests` paths.** Static scan of the installed tree (regex over `.js/.cjs/.mjs` outside test dirs for `require`/`import`/`from` of a `/tests?/` specifier and for `readFile*/existsSync/readdir*/statSync/createReadStream/require.resolve/path.join|resolve(...'tests?')`; plus `package.json` `main`/`module`/`bin`/`browser`/`exports`/`files` values naming a `tests?/` segment). 9 hits, none a runtime read: `asap` `browser` override map (`./test/domain.js`, browser-only and already removed by the existing `test` rule), `jake` `existsSync('./tests')` (project-relative task-runner lookup), and three comments/examples (`@jimp/core` JSDoc, `glob/common.js` comment, `fastify/examples`). Keep-list: empty.
+
+**CI numbers (tasks 1.2, 5.4, 6.3):** recorded below once the throwaway-branch CI runs finish.
+
 ## Open Questions
 
-- Q1 (task 2): which `qa/tests/*` hits read a bundle, and which read a checkout?
+None. Q1 is resolved by the reader inventory above.

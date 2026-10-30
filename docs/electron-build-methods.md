@@ -111,8 +111,8 @@ bash packages/electron/scripts/build-windows-zip.sh
 | Step | Action | Native Win | Docker |
 |------|--------|-----------|--------|
 | 1 | `npm run build` — Vite web client | ✅ direct | ✅ direct (before Docker) |
-| 2 | `bundle-server.mjs` — copy server source → `resources/server/` | ✅ direct | ✅ inside Docker |
-| 3 | `npm install` in `resources/server/` — Windows native modules | ✅ direct | ✅ inside Docker |
+| 2 | `bundle-server.mjs` — bundle + install + materialize → `resources/server/`; drop `packages/<dir>`; `prune-bundle.mjs` | ✅ direct | ✅ inside Docker |
+| 3 | Native Win: strip non-win32 node-pty prebuilds (no second `npm install`). Docker: `docker-make.sh` install + `prune-bundle.mjs --finalize` | ✅ strip only | ✅ inside Docker |
 | 4 | Download Windows Node.js → `resources/node/` | ✅ direct | ✅ inside Docker |
 | 5 | `electron-forge package --platform win32` | ✅ direct | ✅ inside Docker |
 | 6 | `zip` → `out/make/zip/x64/PI-Dashboard-win32-x64.zip` | ✅ direct | ✅ inside Docker |
