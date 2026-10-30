@@ -28,4 +28,4 @@
 ## 5. Verification
 
 - [x] 5.1 Run the full shared, server and client unit suites
-- [ ] 5.2 Run `review-code` on the diff before commit
+- [x] 5.2 Run `review-code` on the diff before commit
