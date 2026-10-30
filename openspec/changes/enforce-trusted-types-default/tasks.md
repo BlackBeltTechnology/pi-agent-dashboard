@@ -17,7 +17,7 @@
 
 ## 3. E2E
 
-- [ ] 3.1 Test (test-plan #F6), see tests/e2e/acp-restart-midturn.spec.ts (restart glue) and tests/e2e/blackhole-settings.spec.ts (settings glue): input default harness with nothing stored · trigger Settings → Security → "Enforce" → Save → `POST /api/restart` → reload · observable meta `enforce` and an enforcing policy carries `require-trusted-types-for 'script'`; then restore Default (`null`) + restart and meta `report`
+- [x] 3.1 Test (test-plan #F6), see tests/e2e/acp-restart-midturn.spec.ts (restart glue) and tests/e2e/blackhole-settings.spec.ts (settings glue): input default harness with nothing stored · trigger Settings → Security → "Enforce" → Save → `POST /api/restart` → reload · observable meta `enforce` and an enforcing policy carries `require-trusted-types-for 'script'`; then restore Default (`null`) + restart and meta `report`
 
 ## 4. Docs and release
 

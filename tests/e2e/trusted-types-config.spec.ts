@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
+import { gotoDashboard } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 /**
@@ -43,7 +44,7 @@ async function documentState(page: Page): Promise<{ meta: string | null; enforci
 }
 
 async function chooseAndSave(page: Page, value: string): Promise<void> {
-  await page.goto("/settings/security");
+  await gotoDashboard(page, "/settings/security");
   const select = page.getByTestId("trusted-types-select");
   await expect(select).toBeVisible({ timeout: 30_000 });
   await select.selectOption(value);
