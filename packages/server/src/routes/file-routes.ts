@@ -1093,12 +1093,21 @@ export function registerFileRoutes(
         return { success: false, error: "target is not a readable markdown file in scope" } satisfies ApiResponse;
       }
       try {
-        const stat = await fs.stat(resolved);
-        const content = await readFileStateChecked(resolved, "utf-8");
+        // One checked handle for both the bytes and the mtime token, so they describe the same file
+        // even under a swap (and the credential recheck covers the opened inode).
+        const fh = await openStateChecked(resolved, "r");
+        let content: string;
+        let mtimeMs: number;
+        try {
+          content = await fh.readFile("utf-8");
+          mtimeMs = (await fh.stat()).mtimeMs;
+        } finally {
+          await fh.close().catch(() => undefined);
+        }
         // Full-precision mtime token (matches the write-side conflict check).
         return {
           success: true,
-          data: { content, mtime: stat.mtimeMs },
+          data: { content, mtime: mtimeMs },
         } satisfies ApiResponse;
       } catch (err) {
         if (err instanceof DashboardStateRefused) {
