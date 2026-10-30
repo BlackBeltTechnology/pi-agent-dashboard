@@ -30,7 +30,18 @@ import { fileURLToPath } from "node:url";
  * Pinned budgets, keyed `<platform>-<arch>` (the CI matrix legs). Each is the leg's
  * measured post-change regular-file count + 5%. Unpinned legs report only.
  */
-export const BUDGETS = {};
+// Measured on the change branch's ci-electron run (run 41044784633, 2026-10-30): the packaged
+// `resources/` regular-file count per leg, then +5%.
+//   darwin-arm64 27478 · darwin-x64 27478 · linux-arm64 27478 · linux-x64 27480
+//   win32-arm64  28500 · win32-x64  28368
+export const BUDGETS = {
+  "darwin-arm64": 28852,
+  "darwin-x64": 28852,
+  "linux-arm64": 28852,
+  "linux-x64": 28854,
+  "win32-arm64": 29925,
+  "win32-x64": 29787,
+};
 
 const TOP_N = 20;
 

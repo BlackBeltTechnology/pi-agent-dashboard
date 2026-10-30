@@ -13,6 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+// @ts-expect-error — plain .mjs module, no type declarations by design.
+import { BUDGETS } from "../../scripts/assert-bundle-file-budget.mjs";
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../scripts/assert-bundle-file-budget.mjs");
 
@@ -84,6 +86,12 @@ describe("assert-bundle-file-budget", () => {
     const r = run(path.join(os.tmpdir(), "file-budget-no-such-dir"), ["--platform", "win32", "--arch", "x64", "--budget", "10"]);
     expect(r.code).toBe(2);
     expect(r.out).toContain("not found");
+  });
+
+  it("every CI matrix leg has a pinned budget (the merged gate enforces everywhere)", () => {
+    const legs = ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "win32-arm64", "win32-x64"];
+    expect(Object.keys(BUDGETS as Record<string, number>).sort()).toEqual(legs);
+    for (const leg of legs) expect((BUDGETS as Record<string, number>)[leg], leg).toBeGreaterThan(1000);
   });
 
   it("usage error without a resources dir exits 2", () => {
