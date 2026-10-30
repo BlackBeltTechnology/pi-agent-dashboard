@@ -82,6 +82,22 @@ describe("assert-bundle-file-budget", () => {
     expect(r.out).toMatch(/\b3\b/);
   });
 
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "an unreadable subdirectory fails the gate (exit 2) instead of being skipped",
+    () => {
+      const root = resources({ a: 2, locked: 1 });
+      const locked = path.join(root, "locked");
+      fs.chmodSync(locked, 0o000);
+      try {
+        const r = run(root, ["--platform", "linux", "--arch", "x64", "--budget", "100"]);
+        expect(r.code).toBe(2);
+        expect(r.out).toContain(locked);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+    },
+  );
+
   it("a missing resources dir exits 2 instead of passing vacuously", () => {
     const r = run(path.join(os.tmpdir(), "file-budget-no-such-dir"), ["--platform", "win32", "--arch", "x64", "--budget", "10"]);
     expect(r.code).toBe(2);

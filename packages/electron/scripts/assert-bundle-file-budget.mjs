@@ -8,8 +8,9 @@
  * per-leg budget, so a dependency bump that quietly adds thousands of files is
  * caught on the PR instead of by a user's install time.
  *
- * Counting: regular files only — `Dirent` types, so symlinks are neither counted
- * nor followed. Scope: the WHOLE `resources/` dir (server, plugins, node/, win32
+ * Counting: regular files only — `Dirent` types (`d_type`, with Node's own `lstat`
+ * fallback where the filesystem reports none), so symlinks are neither counted
+ * nor followed. A directory that cannot be read fails the gate (exit 2). Scope: the WHOLE `resources/` dir (server, plugins, node/, win32
  * git/): drift in the bundled Node or git trees is part of the budget. The NSIS
  * smoke step counts the installed tree with the same predicate.
  *
@@ -45,6 +46,15 @@ export const BUDGETS = {
 
 const TOP_N = 20;
 
+/** Directory entries; an unreadable directory fails closed (no silent skip). */
+function readEntries(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    throw new Error(`cannot read ${dir}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Regular-file count per directory (direct children only), symlinks skipped. */
 export function countFilesByDir(root) {
   const perDir = new Map();
@@ -52,14 +62,8 @@ export function countFilesByDir(root) {
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop();
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
     let here = 0;
-    for (const e of entries) {
+    for (const e of readEntries(dir)) {
       if (e.isDirectory()) stack.push(path.join(dir, e.name));
       else if (e.isFile()) here += 1;
     }
@@ -105,7 +109,14 @@ export function main(argv, deps = {}) {
     return 2;
   }
   const leg = `${args.platform ?? process.platform}-${args.arch ?? process.arch}`;
-  const { total, perDir } = countFilesByDir(root);
+  let counted;
+  try {
+    counted = countFilesByDir(root);
+  } catch (err) {
+    log(`\u2717 ${err instanceof Error ? err.message : String(err)}`);
+    return 2;
+  }
+  const { total, perDir } = counted;
   const budget = args.budget ?? budgets[leg];
 
   if (budget === undefined) {

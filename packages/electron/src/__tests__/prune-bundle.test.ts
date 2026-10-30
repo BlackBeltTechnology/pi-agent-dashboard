@@ -7,7 +7,7 @@
  *
  * See change: slim-windows-install-file-count (design D1).
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -191,6 +191,20 @@ describe("pruneBundle — failure handling", () => {
     expect(code).not.toBe(0);
     expect(errors.join("\n")).toContain(target);
   });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "an unreadable directory aborts with its path instead of shipping unpruned",
+    () => {
+      const d = bundle(["node_modules/foo/index.js", "node_modules/foo/locked/x.d.ts"]);
+      const locked = path.join(d, "node_modules", "foo", "locked");
+      chmodSync(locked, 0o000);
+      try {
+        expect(() => prune(d, { log: () => {} })).toThrow(locked);
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    },
+  );
 
   it("the CLI wrapper exits 0 on success and non-zero without a directory argument", () => {
     const d = bundle(["node_modules/foo/index.js"]);

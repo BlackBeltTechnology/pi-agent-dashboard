@@ -20,8 +20,8 @@
  * `pi-dashboard-web` and `packages/dist` (the served client) are never touched.
  * A `node_modules` nested inside a first-party package switches back to third-party.
  *
- * Fail fast: a filesystem error aborts with the offending path (a half-pruned
- * bundle must not ship). Symlinks are never followed.
+ * Fail fast: a filesystem error (remove OR read) aborts with the offending path (a
+ * half-pruned bundle must not ship). Symlinks are never followed.
  *
  * `dropWorkspaceCopies` is the other half of the canonical layout: after the
  * workspace symlinks are materialized under `node_modules/@blackbelt-technology/`,
@@ -65,12 +65,17 @@ const firstPartyFile = (name) => name === "AGENTS.md" || name.endsWith(".AGENTS.
 
 const firstPartyDir = (name) => name === "__tests__";
 
+/**
+ * Directory entries. A directory that does not exist is empty (`resources/plugins` and
+ * `node_modules` are optional); any other read error aborts: a skipped subtree would ship
+ * unpruned and the build would still pass.
+ */
 function readDir(dir) {
-  // A missing/unreadable directory is skipped, same as the walkers this replaces.
   try {
     return readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
+  } catch (err) {
+    if (err && (err.code === "ENOENT" || err.code === "ENOTDIR")) return [];
+    throw new Error(`prune failed to read ${dir}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

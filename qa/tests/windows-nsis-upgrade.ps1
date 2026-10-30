@@ -9,7 +9,8 @@
 #
 # Usage: windows-nsis-upgrade.ps1 -Setup <new Setup.exe> [-PreviousSetup <path-or-url-to-previous Setup.exe>]
 #   Without -PreviousSetup the latest published release's x64 Setup.exe is fetched with `gh release download`
-#   (needs GH_TOKEN + GH_REPO). No published release -> SKIP (exit 0).
+#   (needs GH_TOKEN + GH_REPO). No published release -> SKIP (exit 0); a failed lookup/download or a
+#   release without an x64 Setup.exe -> FAIL.
 # See change: slim-windows-install-file-count (test-plan X4).
 param(
     [Parameter(Mandatory = $true)][string]$Setup,
@@ -57,14 +58,21 @@ function Stop-App($p) {
 
 # ── previous release ────────────────────────────────────────────────────────
 if (-not $PreviousSetup) {
-    $dl = Join-Path $env:TEMP "pi-previous-release"
-    New-Item -ItemType Directory -Force -Path $dl | Out-Null
-    & gh release download --pattern "PI-Dashboard-Setup-*-x64.exe" --dir $dl --clobber 2>&1 | Write-Host
-    $prev = Get-ChildItem $dl -Filter "PI-Dashboard-Setup-*-x64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $prev) {
-        Write-Host "SKIP: no published release with an x64 Setup.exe (first release?)"
+    # Distinguish "no published release yet" (SKIP) from a failed lookup/download (FAIL): a transient
+    # `gh` error must not read as a pass of the upgrade gate.
+    $tags = & gh release list --limit 1 --json tagName
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: gh release list failed (exit $LASTEXITCODE)"; exit 1 }
+    if (@(($tags | ConvertFrom-Json)).Count -eq 0) {
+        Write-Host "SKIP: no published release (first release?)"
         exit 0
     }
+    $dl = Join-Path $env:TEMP "pi-previous-release"
+    Remove-Item -Recurse -Force $dl -ErrorAction SilentlyContinue   # no stale installer from an earlier run
+    New-Item -ItemType Directory -Force -Path $dl | Out-Null
+    & gh release download --pattern "PI-Dashboard-Setup-*-x64.exe" --dir $dl 2>&1 | Write-Host
+    if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: gh release download failed"; exit 1 }
+    $prev = Get-ChildItem $dl -Filter "PI-Dashboard-Setup-*-x64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $prev) { Write-Host "FAIL: latest release has no x64 Setup.exe asset"; exit 1 }
     $PreviousSetup = $prev.FullName
 }
 Write-Host "Previous release installer: $PreviousSetup"
