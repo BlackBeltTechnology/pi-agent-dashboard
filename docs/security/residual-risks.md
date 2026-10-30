@@ -25,6 +25,7 @@
 >
 > **Verified column**
 > - `orchestrator` — re-read source at HEAD.
+> - `re-verified <date> (<verdict>)` — premise re-traced at HEAD `109f2e197`. Verdict: CONFIRMED / CONFIRMED-NONDEFAULT / PARTIAL.
 > - `mapper` — mapper evidence only.
 > - `Needs verification` — raw row flags an open sub-question. See [Open verification items](#open-verification-items).
 
@@ -33,54 +34,48 @@
 | Severity | Canonical rows |
 |---|---|
 | Critical | 0 |
-| High | 5 |
-| Medium | 29 |
-| Low | 47 |
+| High | 6 |
+| Medium | 20 |
+| Low | 55 |
 | Info | 40 |
 | **Total** | **121** |
 
 ```mermaid
 pie showData title Canonical findings by severity
-    "High" : 5
-    "Medium" : 29
-    "Low" : 47
+    "High" : 6
+    "Medium" : 20
+    "Low" : 55
     "Info" : 40
 ```
 
-Counts computed from rows in [Register](#register) after dedup. Map-time: closed rows (HTTP-01, DEP-01 High; TOOL-01 Low) still counted. Rows added after the map are in [their own section](#residuals-added-after-the-map), not counted. Canonical rows keep their raw severity. Alias rows add no count. Only NET-01 (raw Medium) is absorbed upward into WS-01 (High).
+Counts computed from rows in [Register](#register) after dedup. Map-time: closed rows (HTTP-01, DEP-01 High; TOOL-01 Low) still counted. Rows added after the map are in [their own section](#residuals-added-after-the-map), not counted. Canonical rows keep their raw severity. Alias rows add no count. Only NET-01 (raw Medium) is absorbed upward into WS-01 (High). 2026-10-26 re-verification moved 9 rows (see [Corrections](#corrections)): HTTP-02 Medium → High; 8 Medium → Low.
 
 **WS-01 scope note.** High where TCP gateway is default: win32, `PI_GATEWAY_TCP=1`, Docker. POSIX default = unix socket, not affected. NET-01 (Medium) reconciled to High.
 
 ## Top priorities
 
-Fix order. High rows first, then Medium rows reachable remotely, by paired device, or by agent/LLM.
+Fix order. High rows first, then Medium rows reachable remotely, by paired device, or by agent/LLM. `Owner` = planned change.
 
-1. HTTP-01 — **closed by close-security-map-high-findings**. Public IdP + empty `allowedUsers`/`groupTiers` ⇒ login refused; startup warning; Settings banner.
-2. DEP-01 — **closed by close-security-map-high-findings**. Anchor not narrowed. Credential files joined `always` refusal tier instead.
-3. WS-01 — set `requireTicketOnLoopback: true` (`server.ts:1304`). Drop tokenless loopback grace. Closes NET-01, NET-06 chain.
-4. ELEC-04 — ship `macos-notarization` + `windows-authenticode-signing`.
-5. PLUG-01 — document in-process plugin trust as accepted. Long-term: child process + capability RPC.
-6. TOOL-04 — narrow path-gate read-only root; mark `auth.json`, `mcp-auth.json`, `sessions/` sensitive. Pairs with DEP-01.
-7. HTTP-05 — default `pair` trust mode on upgrade; cap trusted-network tier.
-8. HTTP-02 — restrict loopback CORS/mutation admission to dashboard port(s).
-9. HTTP-04 — carry tier on `Principal`; require host policy when identity enforced.
-10. HTTP-03 — map `DELETE /api/config/auth/providers/:id` to `operate`.
-11. NET-04 — resolve `***`/`$ENV` in `/api/providers/test` only for saved `baseUrl`; block metadata hosts.
-12. NET-02 — bind `serve_mockup` to `127.0.0.1`; confine `dir`.
-13. NET-03 — publish document-converter containers on `127.0.0.1`.
-14. WS-02 — gate same-pid bridge takeover on probe failure or per-session secret.
-15. WS-03 — per-session reconnect secret; refuse cross-origin auto-claim.
-16. WS-04 — close open sockets on device revoke (4401).
-17. WS-05 — pass `SessionOrigin` to plugin request lane; credential plugins refuse non-local.
-18. CRED-03 — server-side session revocation for OAuth JWT.
-19. DEP-02 — realpath before containment layer ① in file read.
-20. TOOL-03 — pin guard state at session start or document config-edit bypass.
-21. TOOL-05 — extend `sensitive` list (`~/.aws`, `~/.kube`, `~/.gnupg`, …); exclude from YOLO.
-22. TOOL-07 — refuse chat-spawned session when `toolPolicy` set but guard unresolved.
-23. TOOL-08 — no activation auto-trust for MCP/plugin-originated spawns.
-24. TOOL-09 — enable untrusted-content guard by default; extend sources.
-25. CLI-01 — enforce strict CSP + Trusted Types by default.
-26. ELEC-01 — install permission handler on main window default session.
+1. HTTP-02 — restrict loopback CORS/mutation/WS admission to dashboard port(s). Any localhost-port page gets genuine-local `operate`. Owner: harden-http-auth-boundaries.
+2. WS-01 — set `requireTicketOnLoopback: true` (`server.ts:1304`). Drop tokenless loopback grace. Closes NET-01, NET-06 chain. Owner: close-loopback-legacy-window.
+3. ELEC-04 — ship `macos-notarization` + `windows-authenticode-signing`.
+4. PLUG-01 — document in-process plugin trust as accepted. Long-term: child process + capability RPC.
+5. TOOL-04 — add credential files to credential-guard protected set; carve `sessions/` out of read-only root. Pairs with DEP-01. Owner: harden-agent-tool-guards.
+6. HTTP-05 — default `pair` trust mode on upgrade; cap trusted-network tier. Owner: harden-http-auth-boundaries.
+7. HTTP-04 — carry tier on `Principal`; require host policy when identity enforced. Owner: harden-http-auth-boundaries.
+8. WS-02 — gate same-pid bridge takeover on probe failure or per-session secret. Owner: harden-bridge-session-claim.
+9. WS-03 — per-session reconnect secret; refuse cross-origin auto-claim. Owner: harden-bridge-session-claim.
+10. WS-05 — pass `SessionOrigin` to plugin request lane; credential plugins refuse non-local. Owner: harden-bridge-session-claim.
+11. WS-04 — close open sockets on device revoke (4401). Owner: device-key-mutual-check.
+12. DEP-02 — realpath before containment layer ① in file read. Owner: close-local-listener-and-egress-gaps.
+13. TOOL-08 — no activation auto-trust for MCP/plugin-originated spawns. Owner: harden-agent-tool-guards.
+14. TOOL-09 — enable untrusted-content guard by default; extend sources. Owner: harden-agent-tool-guards.
+15. CLI-01 — enforce strict CSP + Trusted Types by default. Owner: enforce-strict-csp-default + enforce-trusted-types-default.
+16. ELEC-01 — install permission handler on main window default session. Owner: close-local-listener-and-egress-gaps.
+
+Demoted to Low 2026-10-26 (still planned): HTTP-03, CRED-03 (harden-http-auth-boundaries); NET-02, NET-03, NET-04 (close-local-listener-and-egress-gaps); TOOL-03, TOOL-05, TOOL-07 (harden-agent-tool-guards). NET-02 stays first of these: it plants the HTTP-02 page.
+
+Closed by close-security-map-high-findings (#1088): HTTP-01, DEP-01 (High), TOOL-01 (Low). See [Closed findings](#closed-findings).
 
 Remaining Medium (local or supply chain, not remote/agent): PLUG-02, PLUG-03, CRED-02, CRED-04, ELEC-05, SUP-01, SUP-02, SUP-03. Fix after list above.
 
@@ -91,39 +86,34 @@ Sorted Severity → ID. Chapter links point to each chapter's `#findings`.
 | ID | Sev | Area | Title | Reachability | Key evidence (path:line) | Remedy (short) | Aliases | Verified | Chapter |
 |---|---|---|---|---|---|---|---|---|---|
 | HTTP-01 | High | HTTP | OAuth with empty `auth.allowedUsers` admits ANY IdP account at `operate` | remote-unauth (tunnel/LAN, any IdP account) | `packages/server/src/auth/auth.ts:279-280`<br>`packages/server/src/auth/auth-plugin.ts:441-462` | Refuse login for public IdP when `allowedUsers`+`groupTiers` empty; warn + banner. **Status: closed by close-security-map-high-findings** | — | orchestrator | [02](http-gates-and-routes.md#findings) |
-| WS-01 | High | WebSocket/Bridge | Tokenless loopback bridge grace still open; default transport on win32 (and long-UDS-path hosts) | local other-user (win32); L4 forwarder | `server.ts:1301-1304`<br>`bridge-upgrade-auth.ts:167-175` | `requireTicketOnLoopback: true`; require proof on win32 listener; drop grace | NET-01 | orchestrator | [03](websocket-and-bridge.md#findings) |
+| HTTP-02 | High | HTTP | Any loopback origin (any port) is CORS-readable AND mutation-admitted with credentials; default strict mode sends `pi_dash_local` cookie → genuine-local `operate` | web content on any other localhost port in operator browser; agent plants via NET-02 | `packages/server/src/auth/cors-origin.ts:176-178`<br>`packages/server/src/server.ts:2289` | Limit loopback CORS/mutation to dashboard port(s); bind proof cookie to `Origin` port. Owner: harden-http-auth-boundaries (planned) | — | re-verified 2026-10-26 (CONFIRMED) | [02](http-gates-and-routes.md#findings) |
+| WS-01 | High | WebSocket/Bridge | Tokenless loopback bridge grace still open; default transport on win32 (and long-UDS-path hosts) | local other-user (win32); L4 forwarder | `server.ts:1301-1304`<br>`bridge-upgrade-auth.ts:167-175` | `requireTicketOnLoopback: true`; require proof on win32 listener; drop grace. Owner: close-loopback-legacy-window (planned) | NET-01 | orchestrator | [03](websocket-and-bridge.md#findings) |
 | PLUG-01 | High | Plugins | Server plugins run in-process with full server privilege; no isolation | plugin author; supply chain | `packages/dashboard-plugin-runtime/src/server/loader.ts:835`<br>`packages/server/src/server.ts:4035` | Document as accepted; long-term worker/child process + capability RPC | — | mapper | [06](plugins-client-electron.md#findings) |
 | ELEC-04 | High | Electron | Desktop binaries unsigned; update authenticity rests on GitHub release only | supply chain | `forge.config.ts:151-156`<br>`.github/workflows/_electron-build.yml:916-920` | Ship `macos-notarization` + `windows-authenticode-signing` | — | orchestrator | [06](plugins-client-electron.md#findings) |
 | DEP-01 | High | Deployment | File-read routes anchor `~/.pi` → provider credentials readable at `observe` tier | paired observe; local-credential holder | `packages/server/src/routes/file-routes.ts:164`<br>`packages/server/src/lib/dashboard-state-guard.ts:95` | Credential files added to `always` refusal at every containment site (anchor kept, decided on real path). **Status: closed by close-security-map-high-findings** | — | orchestrator | [07](deployment-process-supply-chain.md#findings) |
-| NET-02 | Medium | Network | `serve_mockup` binds `0.0.0.0`, no auth, agent picks any directory | agent/LLM; LAN | `packages/mockup-loop/src/extension.ts:112`<br>`packages/mockup-loop/src/extension.ts:197-212` | Bind `127.0.0.1`; LAN opt-in flag; deny dotfiles; confine `dir` to cwd | — | mapper | [01](network-surface.md#findings) |
-| NET-03 | Medium | Network | document-converter publishes PlantUML and Gotenberg containers on all host interfaces | LAN | `packages/document-converter/engine/document_converter/plantuml_server.py:167`<br>`packages/document-converter/engine/document_converter/pdf_server.py:177` | Publish `-p 127.0.0.1:<port>:<cport>`; pin PlantUML digest | — | mapper | [01](network-surface.md#findings) |
-| NET-04 | Medium | Network | `POST /api/providers/test` sends stored provider keys or any server env var to caller-chosen URL (SSRF + secret exfil); exposed via MCP `providers_test` | paired operate; MCP session (agent/LLM) | `packages/server/src/routes/provider-routes.ts:573-600`<br>`packages/server/src/package/provider-probe.ts:131-153,253` | Resolve `***`/`$ENV` only when `baseUrl` matches saved provider; allowlist env; block metadata hosts | — | mapper | [01](network-surface.md#findings) |
-| HTTP-02 | Medium | HTTP | Any loopback origin (any port) is CORS-readable AND mutation-admitted with credentials | web content on other localhost port | `packages/server/src/auth/cors-origin.ts:176-178`<br>`packages/server/src/server.ts:2289` | Limit loopback CORS/mutation to dashboard port(s); bind proof cookie to `Origin` port | — | mapper | [02](http-gates-and-routes.md#findings) |
-| HTTP-03 | Medium | HTTP | `control` tier can delete OAuth providers (incl. last, with `?force=true`) | paired control | `packages/shared/src/route-tiers.ts:71`<br>`packages/server/src/routes/system-routes.ts:808-830` | Map `DELETE /api/config/auth/providers/:id` to `operate` | — | mapper | [02](http-gates-and-routes.md#findings) |
-| HTTP-04 | Medium | HTTP | Identity-plane principals bypass route-tier gate; no host policy ⇒ ungated | plugin author (resolver principal) | `packages/server/src/auth/route-tier-gate.ts:71-74`<br>`packages/server/src/identity/identity-road-gate.ts:61` | Carry tier on `Principal`; require host policy when identity enforced | — | Needs verification | [02](http-gates-and-routes.md#findings) |
-| HTTP-05 | Medium | HTTP | `legacy` trust mode: trusted-network peer with NO credential is tier-exempt (operate) | LAN (trusted network) | `packages/server/src/auth/route-tier-gate.ts:85`<br>`packages/server/src/auth/localhost-guard.ts:457-463` | Default `pair` on upgrade; cap trusted-network tier at `observe`/`control` | — | mapper | [02](http-gates-and-routes.md#findings) |
-| WS-02 | Medium | WebSocket/Bridge | Self-reported `pid` displaces a LIVE bridge (session hijack) | paired device bridge; local | `bridge-contention.ts:96-100`<br>`pi-gateway.ts:582-590` | Same-pid takeover only if incumbent fails probe; per-session secret | — | mapper | [03](websocket-and-bridge.md#findings) |
-| WS-03 | Medium | WebSocket/Bridge | Session id is an unauthenticated name: any bridge claims unheld / disconnected ids | paired device bridge; local | `pi-gateway.ts:764-791`<br>`bridge-contention.ts:88-90` | Per-session reconnect secret; refuse cross-origin auto-claim | — | mapper | [03](websocket-and-bridge.md#findings) |
-| WS-04 | Medium | WebSocket/Bridge | Paired-device revocation does not close open sockets | revoked paired device | `packages/server/src/routes/pairing-routes.ts:617-628`<br>`server.ts:3506` | Record deviceId per socket; close (4401) on revoke | — | mapper | [03](websocket-and-bridge.md#findings) |
-| WS-05 | Medium | WebSocket/Bridge | Plugin request lane has no origin gate — remote bridge leases Gmail access tokens | paired device bridge; local | `plugin-request-lane.ts:1-12`<br>`event-wiring.ts:1103-1106` | Pass `SessionOrigin` in lane meta; credential plugins refuse non-local | — | mapper | [03](websocket-and-bridge.md#findings) |
-| TOOL-03 | Medium | Tool guards | Agent can self-disable guards by editing config files via `bash` | agent/LLM | `path-gate/index.ts:64-80`<br>`config.ts:979` | Document; pin gate state at session start | — | mapper | [04](tool-call-guards.md#findings) |
-| TOOL-04 | Medium | Tool guards | Path gate treats whole pi agent dir as read-only root — `auth.json`, `mcp-auth.json`, other sessions' transcripts readable without prompt | agent/LLM | `path-gate/roots.ts:132`<br>`decide.ts:71` | Narrow read-only root; mark `auth.json`, `mcp-auth.json`, `sessions/` sensitive | CRED-01 | mapper | [04](tool-call-guards.md#findings) |
-| TOOL-05 | Medium | Tool guards | Sensitive set only `~/.ssh` + `~/.pi`; other credential dirs grantable + YOLO auto-allowed | agent/LLM | `packages/shared/src/forbidden-subjects.ts:112-113`<br>`yolo-session.ts:322-327` | Extend `sensitive` list; exclude from YOLO | — | mapper | [04](tool-call-guards.md#findings) |
-| TOOL-07 | Medium | Tool guards | Chat-originated sessions unguarded unless operator sets both `toolPolicy` and `guardExtension` | remote chat user | `chat-gateway/src/server/gateway.ts:634,650-656`<br>`server/config.ts:97-99` | Refuse spawn when `toolPolicy` set but guard unresolved | — | Needs verification | [04](tool-call-guards.md#findings) |
-| TOOL-08 | Medium | Tool guards | Activation trust rule auto-trusts any dashboard-spawned cwd → project `.pi/` extensions + guard settings load | agent/LLM; operator spawn | `extension/src/project-trust.ts:143-144`<br>`untrusted-content-guard/src/extension.ts:26-34` | No auto-trust for MCP/plugin spawns; ignore project `mode:"off"` | — | Needs verification | [04](tool-call-guards.md#findings) |
-| TOOL-09 | Medium | Tool guards | Untrusted-content guard optional + narrow defaults | agent/LLM | `recommended-extensions.ts:658-673`<br>`settings.ts:32-33` | Enable by default; add browser/MCP sources; keep taint on non-human input | — | mapper | [04](tool-call-guards.md#findings) |
+| HTTP-04 | Medium | HTTP | Identity-plane principals bypass route-tier gate; no host policy ⇒ ungated | plugin author (resolver principal) | `packages/server/src/auth/route-tier-gate.ts:71-74`<br>`packages/server/src/identity/identity-road-gate.ts:61` | Carry tier on `Principal`; require host policy when identity enforced. Owner: harden-http-auth-boundaries (planned) | — | re-verified 2026-10-26 (CONFIRMED-NONDEFAULT) | [02](http-gates-and-routes.md#findings) |
+| HTTP-05 | Medium | HTTP | `legacy` trust mode: trusted-network peer with NO credential is tier-exempt (operate) | LAN (trusted network) | `packages/server/src/auth/route-tier-gate.ts:85`<br>`packages/server/src/auth/localhost-guard.ts:457-463` | Default `pair` on upgrade; cap trusted-network tier at `observe`/`control`. Owner: harden-http-auth-boundaries (planned) | — | re-verified 2026-10-26 (CONFIRMED-NONDEFAULT) | [02](http-gates-and-routes.md#findings) |
+| WS-02 | Medium | WebSocket/Bridge | Self-reported `pid` displaces a LIVE bridge (session hijack) | paired operate device (or legacy trusted-network device) on non-unix bridge transport (`PI_GATEWAY_TCP=1`, Docker, `tls.acceptBridges`); local | `bridge-contention.ts:96-100`<br>`pi-gateway.ts:582-590` | Same-pid takeover only if incumbent fails probe; per-session secret. Owner: harden-bridge-session-claim (planned) | — | re-verified 2026-10-26 (CONFIRMED-NONDEFAULT) | [03](websocket-and-bridge.md#findings) |
+| WS-03 | Medium | WebSocket/Bridge | Session id is an unauthenticated name: any bridge claims unheld / disconnected ids | paired operate device (or legacy trusted-network device) on non-unix bridge transport; local | `pi-gateway.ts:764-791`<br>`bridge-contention.ts:88-90` | Per-session reconnect secret; refuse cross-origin auto-claim. Owner: harden-bridge-session-claim (planned) | — | re-verified 2026-10-26 (CONFIRMED-NONDEFAULT) | [03](websocket-and-bridge.md#findings) |
+| WS-04 | Medium | WebSocket/Bridge | Paired-device revocation does not close open sockets | revoked paired device | `packages/server/src/routes/pairing-routes.ts:617-628`<br>`server.ts:3506` | Record deviceId per socket; close (4401) on revoke. Owner: device-key-mutual-check (planned) | — | mapper | [03](websocket-and-bridge.md#findings) |
+| WS-05 | Medium | WebSocket/Bridge | Plugin request lane has no origin gate — remote bridge leases Gmail access tokens | paired operate device (or legacy trusted-network device) on non-unix bridge transport, Gmail plugin connected; local | `plugin-request-lane.ts:1-12`<br>`event-wiring.ts:1103-1106` | Pass `SessionOrigin` in lane meta; credential plugins refuse non-local. Owner: harden-bridge-session-claim (planned) | — | re-verified 2026-10-26 (CONFIRMED-NONDEFAULT) | [03](websocket-and-bridge.md#findings) |
+| TOOL-04 | Medium | Tool guards | Path gate treats whole pi agent dir as read-only root — `auth.json`, `mcp-auth.json`, other sessions' transcripts readable without prompt | agent/LLM | `path-gate/roots.ts:132`<br>`decide.ts:71` | Narrow read-only root; mark `auth.json`, `mcp-auth.json`, `sessions/` sensitive. Owner: harden-agent-tool-guards (planned) | CRED-01 | re-verified 2026-10-26 (CONFIRMED) | [04](tool-call-guards.md#findings) |
+| TOOL-08 | Medium | Tool guards | Activation trust rule auto-trusts any dashboard-spawned cwd → project `.pi/` extensions + guard settings load | agent/LLM; operator spawn | `extension/src/project-trust.ts:143-144`<br>`untrusted-content-guard/src/extension.ts:26-34` | No auto-trust for MCP/plugin spawns; ignore project `mode:"off"`. Owner: harden-agent-tool-guards (planned) | — | re-verified 2026-10-26 (CONFIRMED) | [04](tool-call-guards.md#findings) |
+| TOOL-09 | Medium | Tool guards | Untrusted-content guard optional + narrow defaults | agent/LLM | `recommended-extensions.ts:658-673`<br>`settings.ts:32-33` | Enable by default; add browser/MCP sources; keep taint on non-human input. Owner: harden-agent-tool-guards (planned) | — | re-verified 2026-10-26 (CONFIRMED, design limitation) | [04](tool-call-guards.md#findings) |
 | CRED-02 | Medium | Credentials | Bridge rewrites `providers.json` (API keys) without 0600 | local other-user | `packages/extension/src/role-manager.ts:113-114`<br>`server/src/routes/provider-routes.ts:235-238` | Write tmp `{mode:0o600}` + chmod or reuse `writeJsonAtomic` | — | orchestrator | [05](credentials-and-secrets.md#findings) |
-| CRED-03 | Medium | Credentials | Session JWT not revocable; logout only clears cookie | tunnel (stolen token) | `server/src/auth/auth-plugin.ts:468-471`<br>`auth/auth.ts:180,201` | Server-side session id denylist / short JWT + refresh; rotate CLI | HTTP-06 | mapper | [05](credentials-and-secrets.md#findings) |
 | CRED-04 | Medium | Credentials | Some host secret stores plaintext at rest | backups, sync, support bundles, any same-user process leak | `auth/provider-auth-storage.ts:130`<br>`shared/src/config.ts:2716`<br>`auth/identity.ts:74`<br>`push/push-vapid.ts:33`<br>`services/secrets-store.ts:99` | partial: `vault.json` + `plugin-credentials.json` closed by encrypt-credentials-at-rest (archived 2026-10-26); open: `provider-auth-storage.ts`, `config.ts`, `identity.ts`, `push-vapid.ts`, `secrets-store.ts` | — | mapper | [05](credentials-and-secrets.md#findings) |
 | PLUG-02 | Medium | Plugins | `installed` plugins (`~/.pi/dashboard/plugins`) load server entry without any trust grant | local other-user; agent/LLM (writes home dir) | `loader.ts:172-176`<br>`loader.ts:580` | Require `server:true` grant for `installed` | — | mapper | [06](plugins-client-electron.md#findings) |
 | PLUG-03 | Medium | Plugins | Trusted-seam gate keyed on plugin-authored `priority` | plugin author | `server.ts:4127`<br>`spawn-env-contributors.ts:46-48` | Key on host-side identity, not `priority` | — | mapper | [06](plugins-client-electron.md#findings) |
-| CLI-01 | Medium | Client | CSP + Trusted Types not enforced by default | agent/LLM output (XSS) | `packages/server/src/auth/csp.ts:74` | Ship `enforce-strict-csp-default` + `enforce-trusted-types-default` | — | mapper | [06](plugins-client-electron.md#findings) |
-| ELEC-01 | Medium | Electron | Main window has no permission request/check handler | remote server origin; plugin; XSS | `packages/electron/src/main.ts:605-617`<br>`lib/server-windows.ts:85-90` | Allowlist permission handler on default session | — | mapper | [06](plugins-client-electron.md#findings) |
+| CLI-01 | Medium | Client | CSP + Trusted Types not enforced by default | agent/LLM output (XSS) | `packages/server/src/auth/csp.ts:74` | Ship `enforce-strict-csp-default` + `enforce-trusted-types-default`. Owner: enforce-strict-csp-default + enforce-trusted-types-default (planned) | — | mapper | [06](plugins-client-electron.md#findings) |
+| ELEC-01 | Medium | Electron | Main window has no permission request/check handler | remote server origin; plugin; XSS | `packages/electron/src/main.ts:605-617`<br>`lib/server-windows.ts:85-90` | Allowlist permission handler on default session. Owner: close-local-listener-and-egress-gaps (planned) | — | re-verified 2026-10-26 (CONFIRMED) | [06](plugins-client-electron.md#findings) |
 | ELEC-05 | Medium | Electron | Runtime overlay `github` source: checksum from same release, no signature | supply chain; paired operate trigger | `packages/server/src/runtime-overlay/runtime-io.ts:122-129`<br>`runtime-stager.ts:206-210` | Sign assets (minisign/Sigstore); pin key in shell | NET-15 | mapper | [06](plugins-client-electron.md#findings) |
-| DEP-02 | Medium | Deployment | Layer ① containment is lexical → in-cwd symlink escapes | paired observe; agent/LLM plants symlink | `packages/server/src/lib/path-containment.ts:55-58`<br>`packages/server/src/routes/file-routes.ts:755-757` | Realpath before layer ①; symlink regression test | — | mapper | [07](deployment-process-supply-chain.md#findings) |
+| DEP-02 | Medium | Deployment | Layer ① containment is lexical → in-cwd symlink escapes | paired observe; agent/LLM plants symlink | `packages/server/src/lib/path-containment.ts:55-58`<br>`packages/server/src/routes/file-routes.ts:755-757` | Realpath before layer ①; symlink regression test. Owner: close-local-listener-and-egress-gaps (planned) | — | re-verified 2026-10-26 (CONFIRMED) | [07](deployment-process-supply-chain.md#findings) |
 | SUP-01 | Medium | Supply chain | Actions pinned by mutable tag, incl. third-party in privileged jobs | supply chain | `.github/workflows/publish.yml:786`<br>`publish.yml:258` | Pin every `uses:` to commit SHA; Dependabot for actions | — | mapper | [07](deployment-process-supply-chain.md#findings) |
 | SUP-02 | Medium | Supply chain | npm-publish OIDC job runs unpinned npm + dependency install scripts with persisted token | supply chain | `.github/workflows/publish.yml:245-249`<br>`pnpm-workspace.yaml:77` | Unprivileged build job; publish-only job; pin npm; `persist-credentials: false` | — | Needs verification | [07](deployment-process-supply-chain.md#findings) |
 | SUP-03 | Medium | Supply chain | Bundled Node.js downloaded without checksum | supply chain | `packages/electron/scripts/download-node.sh:41-46`<br>`.github/workflows/_electron-build.yml:296-299` | Verify `SHASUMS256.txt`/pin sha256 | — | mapper | [07](deployment-process-supply-chain.md#findings) |
+| NET-02 | Low | Network | `serve_mockup` binds `0.0.0.0`, no auth, agent picks any directory | agent/LLM; LAN | `packages/mockup-loop/src/extension.ts:112`<br>`packages/mockup-loop/src/extension.ts:197-212` | Bind `127.0.0.1`; LAN opt-in flag; deny dotfiles; confine `dir` to cwd. Owner: close-local-listener-and-egress-gaps (planned) | — | re-verified 2026-10-26 (CONFIRMED) | [01](network-surface.md#findings) |
+| NET-03 | Low | Network | document-converter publishes PlantUML and Gotenberg containers on all host interfaces | LAN | `packages/document-converter/engine/document_converter/plantuml_server.py:167`<br>`packages/document-converter/engine/document_converter/pdf_server.py:177` | Publish `-p 127.0.0.1:<port>:<cport>`; pin PlantUML digest. Owner: close-local-listener-and-egress-gaps (planned) | — | re-verified 2026-10-26 (PARTIAL) | [01](network-surface.md#findings) |
+| NET-04 | Low | Network | `POST /api/providers/test` sends stored provider keys or any server env var to caller-chosen URL (SSRF + secret exfil); MCP session tokens (`control`) cannot call `providers_test` (`operate`) | paired operate; operate device MCP token; legacy LAN peer; genuine-local; HTTP-02 localhost page | `packages/server/src/routes/provider-routes.ts:573-600`<br>`packages/server/src/package/provider-probe.ts:131-153,253` | Resolve `***`/`$ENV` only when `baseUrl` matches saved provider; allowlist env; block metadata hosts. Owner: close-local-listener-and-egress-gaps (planned) | — | re-verified 2026-10-26 (PARTIAL) | [01](network-surface.md#findings) |
 | NET-05 | Low | Network | Docker defaults publish 8000 (all interfaces) and 9999 (`0.0.0.0`), TCP gateway on, tunnel on | LAN | `docker/compose.yml:24,28,39,44,49` | Publish to `127.0.0.1` by default; document LAN opt-in | — | mapper | [01](network-surface.md#findings) |
 | NET-06 | Low | Network | L4 forwarders (ssh -L/-R, socat, possibly Docker userland proxy) indistinguishable from local callers | LAN/tunnel via L4 forwarder | `packages/server/src/pi/bridge-upgrade-auth.ts:126-137`<br>`packages/server/src/auth/localhost-guard.ts:20-25` | Drop tokenless grace (WS-01); strict mode needs local proof | — | Needs verification | [01](network-surface.md#findings) |
 | NET-07 | Low | Network | Recovery server serves error text + install layout unauthenticated on configured host | LAN | `packages/server/src/lifecycle/recovery-server.ts:433-453`<br>`packages/server/src/cli.ts:313-319` | Gate GET like mutations or redact paths for non-loopback | — | mapper | [01](network-surface.md#findings) |
@@ -131,6 +121,7 @@ Sorted Severity → ID. Chapter links point to each chapter's `#findings`.
 | NET-09 | Low | Network | rpc-keeper socket perms set after bind; sessions dir created without explicit mode; Windows pipe uses default ACL | local other-user | `packages/server/src/rpc-keeper/keeper.cjs:45-46,232-236,51-53` | mkdir 0700; set umask before listen; explicit pipe ACL | — | Needs verification | [01](network-surface.md#findings) |
 | NET-10 | Low | Network | Push webhook vet allows RFC1918 and non-self loopback ports | paired operate | `packages/server/src/push/push-transports/webhook-url.ts:38-60,115` | Block private ranges or operator allowlist | — | mapper | [01](network-surface.md#findings) |
 | NET-11 | Low | Network | Live preview `ownPorts` omits model-proxy `secondPort` and other loopback-only listeners (L9–L15) | paired device (live preview) | `packages/server/src/server.ts:1406-1409`<br>`packages/shared/src/live-server.ts:87` | Add `modelProxy.secondPort` to `ownPorts`; warn on managed-service ports | — | mapper | [01](network-surface.md#findings) |
+| HTTP-03 | Low | HTTP | `control` tier can delete OAuth providers (incl. last, with `?force=true`) | paired control | `packages/shared/src/route-tiers.ts:71`<br>`packages/server/src/routes/system-routes.ts:808-830` | Map `DELETE /api/config/auth/providers/:id` to `operate`. Owner: harden-http-auth-boundaries (planned) | — | re-verified 2026-10-26 (CONFIRMED) | [02](http-gates-and-routes.md#findings) |
 | HTTP-07 | Low | HTTP | Global rate limit effectively off; no throttle on `/auth/callback`, `/auth/start`, `/api/pair/challenge` | remote-unauth | `packages/server/src/server.ts:2013-2018` | Per-route limits on pre-auth endpoints | — | mapper | [02](http-gates-and-routes.md#findings) |
 | HTTP-08 | Low | HTTP | Passkey short-code rate key trusts last `X-Forwarded-For` hop when no proxy | LAN | `packages/server/src/auth/passkey/requester.ts:76-82` | Use socket peer unless loopback tunnel agent | — | mapper | [02](http-gates-and-routes.md#findings) |
 | HTTP-09 | Low | HTTP | `bypassUrls` and pairing prefixes match by raw `startsWith` (no segment boundary) | remote-unauth (future routes) | `packages/server/src/auth/bypass-urls.ts:20-22`<br>`packages/server/src/auth/localhost-guard.ts:817-818` | Match on segment boundary | — | mapper | [02](http-gates-and-routes.md#findings) |
@@ -143,11 +134,15 @@ Sorted Severity → ID. Chapter links point to each chapter's `#findings`.
 | WS-09 | Low | WebSocket/Bridge | `kill_process` pgid unvalidated end-to-end | paired operate | `session-action-handler.ts:1205-1210`<br>`command-handler.ts:1184-1191` | Validate pgid in last `process_list`; reject ≤1 | — | mapper | [03](websocket-and-bridge.md#findings) |
 | WS-10 | Low | WebSocket/Bridge | `control` tier executes host shell (`!`/`!!` prompt prefix); terminals classed `operate` | paired control | `ws-message-tiers.ts:79`<br>`command-handler.ts:366-373` | Document control ≈ code-exec; optionally gate `!` at operate | — | mapper | [03](websocket-and-bridge.md#findings) |
 | TOOL-01 | Low | Tool guards | MCP `prompt_response` mis-bound: object delivered as `send_prompt` text to any session (cannot answer prompts) | agent/LLM (prompt injection); malformed prompt into target session (runtime unverified) | `packages/server/src/server.ts:4166-4167`<br>`packages/mcp-server-plugin/src/server/dispatch.ts:622-633` | Removed `prompt_response` + `extension_ui_response` from MCP surface (D2). Premise corrected: broken tool, not answer bypass. **Status: closed by close-security-map-high-findings** | — | orchestrator (corrected 2026-10-22) | [04](tool-call-guards.md#findings) |
+| TOOL-03 | Low | Tool guards | Agent can self-disable guards by editing config files via `bash` | agent/LLM | `path-gate/index.ts:64-80`<br>`config.ts:979` | Document; pin gate state at session start. Owner: harden-agent-tool-guards (planned) | — | re-verified 2026-10-26 (PARTIAL) | [04](tool-call-guards.md#findings) |
+| TOOL-05 | Low | Tool guards | Sensitive set only `~/.ssh` + `~/.pi`; other credential dirs grantable + YOLO auto-allowed | agent/LLM | `packages/shared/src/forbidden-subjects.ts:112-113`<br>`yolo-session.ts:322-327` | Extend `sensitive` list; exclude from YOLO. Owner: harden-agent-tool-guards (planned) | — | re-verified 2026-10-26 (CONFIRMED; YOLO part NONDEFAULT) | [04](tool-call-guards.md#findings) |
 | TOOL-06 | Low | Tool guards | `/tmp` and `os.tmpdir()` are read+write roots without prompt | agent/LLM | `path-gate/roots.ts:135` | Per-session tmp subdir | — | mapper | [04](tool-call-guards.md#findings) |
+| TOOL-07 | Low | Tool guards | Chat-originated sessions run full tool set when `toolPolicy` unset; unresolvable `guardExtension` ref spawns ungated (missing-guard case with `toolPolicy` already refused) | remote chat user | `chat-gateway/src/server/gateway.ts:634,650-656`<br>`server/config.ts:97-99` | Refuse spawn when `toolPolicy` set but guard unresolved. Owner: harden-agent-tool-guards (planned) | — | re-verified 2026-10-26 (PARTIAL) | [04](tool-call-guards.md#findings) |
 | TOOL-10 | Low | Tool guards | image-fit `read` rewrite can sidestep path gate | agent/LLM | `image-fit-extension/src/extension.ts:103-121`<br>`docs/extensions.md:208` | image-fit skip out-of-root paths or run after gate | — | Needs verification | [04](tool-call-guards.md#findings) |
 | TOOL-13 | Low | Tool guards | Browser relay: `Runtime.evaluate` allowed; domain list navigation-only | agent/LLM | `browser-plugin/src/server/relay/deny-list.ts:15-18,27-31` | Per-session confirm for real profile; deny `Runtime.evaluate` there | — | mapper | [04](tool-call-guards.md#findings) |
 | TOOL-17 | Low | Tool guards | Fan-out admission + `project_trust` handlers wrapped in fail-open `safe()` | none (resource guard) | `extension/src/bridge.ts:958-971,1957`<br>`bridge-handlers/lifecycle.ts:200` | Keep; fan-out not a security control | — | mapper | [04](tool-call-guards.md#findings) |
 | TOOL-18 | Low | Tool guards | YOLO `unscoped` via env is process-lifetime auto-allow | agent/LLM | `yolo-env.ts:27,40`<br>`yolo-session.ts:261-262` | Startup warning; bounded duration | — | mapper | [04](tool-call-guards.md#findings) |
+| CRED-03 | Low | Credentials | Session JWT not revocable; logout only clears cookie | tunnel (stolen token) | `server/src/auth/auth-plugin.ts:468-471`<br>`auth/auth.ts:180,201` | Server-side session id denylist / short JWT + refresh; rotate CLI. Owner: harden-http-auth-boundaries (planned) | HTTP-06 | re-verified 2026-10-26 (CONFIRMED) | [05](credentials-and-secrets.md#findings) |
 | CRED-05 | Low | Credentials | `checkOwnerOnly` is dead code; vault mode never verified | local other-user | `server/src/vault/vault-permissions.ts:25` | Call at vault load; refuse or tighten | — | mapper | [05](credentials-and-secrets.md#findings) |
 | CRED-06 | Low | Credentials | Existing token/identity files reused without mode re-tightening | local other-user | `server/src/auth/local-token.ts:48-50`<br>`server/src/auth/identity.ts:64-67` | `chmod 0600` on load | — | mapper | [05](credentials-and-secrets.md#findings) |
 | CRED-07 | Low | Credentials | Raw local token still accepted on the wire | local same-user (captured header) | `server/src/server.ts:768`<br>`auth/local-credential.ts:218` | Default off; ship `close-loopback-legacy-window` | HTTP-15, WS-12 | mapper | [05](credentials-and-secrets.md#findings) |
@@ -316,18 +311,15 @@ Fix list. Doc or comment change only unless noted.
 
 ## Open verification items
 
-Rows flagged `Needs verification` plus mapper open questions.
+Rows flagged `Needs verification` plus mapper open questions. HTTP-04, TOOL-07, TOOL-08 closed by 2026-10-26 re-verification.
 
 | ID | Open question | Needed check |
 |---|---|---|
 | TOOL-01 | Runtime of mis-bound `send_prompt` delivery unverified (static trace). | Moot: tool removed (closed by close-security-map-high-findings) |
 | WS-01 | Win32 behaviour. Orchestrator verified code, not a win32 host. | Test on win32 host |
-| HTTP-04 | Resolver plugin claim rules unknown. | Read resolver plugins' principal claims |
 | NET-06 | Docker userland proxy: bridge-gateway IP or `127.0.0.1`? | Test published port bridge origin |
 | NET-09 | Windows named-pipe default DACL breadth. | Inspect pipe ACL on win32 |
 | WS-08 | Downstream file-read impact of overwritten `sessionFile`/`sessionDir`. | Trace transcript/resume readers |
-| TOOL-07 | Which chat users may approve guard prompts. | Read chat-gateway approver config |
-| TOOL-08 | Hostile-repo spawn via MCP `spawn_session` subject to cwd admission. | Reproduce with hostile `.pi/` |
 | TOOL-10 | Extension load order: image-fit vs bridge. | Check pi load order |
 | CRED-16 | Capability-path page reporting to baseline CSP sink. | Test report path → `csp-reports.json` |
 | CLI-03 | Craft app top-level navigation runs in dashboard origin. | Load `/apps/craft-<app>/index.html` top-level |
@@ -344,5 +336,20 @@ See change: security-map-audit
 - 2026-10-22: TOOL-01 High → Low. Reason: MCP `prompt_response` never reaches `promptBus.respond`. Chain: `tools.manifest.ts:132` → `dispatch.ts:622-633` `executeSession` → `index.ts:169` `sendToSession` → `server.ts:4166-4167` wraps object as `{type:"send_prompt", text}` → bridge `command-handler.ts:672`. Effect: cannot answer prompts; malformed prompt injected (runtime unverified).
 - Owner: change `close-security-map-high-findings` (D2 removes `prompt_response` + `extension_ui_response` from MCP surface).
 - Residual answer roads: REST `POST /api/questions/:id/answer` (non-file kinds), browser WS `prompt_response`, `POST /api/access/prompts/:promptId` (operate).
+- 2026-10-26: re-verification at HEAD `109f2e197` (`/tmp/secmap/batch2/VERIFY-AB.md`, `VERIFY-D.md`). 19 rows re-traced. Counts High 5→6, Medium 29→20, Low 47→55. Verified column = `re-verified 2026-10-26 (<verdict>)`. Owners (planned): A `harden-http-auth-boundaries`, B `harden-bridge-session-claim`, C `close-local-listener-and-egress-gaps`, D `harden-agent-tool-guards`; WS-04 `device-key-mutual-check`; CLI-01 `enforce-strict-csp-default` + `enforce-trusted-types-default`; WS-01 `close-loopback-legacy-window`.
+- Severity changes:
+  - HTTP-02 Medium → High. `pi_dash_local` cookie is SameSite=Strict but localhost ports are one site → cookie sent to :8000 → any localhost-port page acts as genuine-local `operate`. Agent plants page via NET-02.
+  - HTTP-03 Medium → Low. Auth-config availability only; no privilege gain; local operator recovers.
+  - CRED-03 Medium → Low. Needs prior `pi_dash_token` theft; operator can change `auth.secret`.
+  - NET-02 Medium → Low. `bash` already gives agent equivalent egress. Remains planting step for HTTP-02.
+  - NET-03 Medium → Low. `atexit` → `stop_if_started_by_us` stops container at converter exit; exposure = conversion run.
+  - NET-04 Medium → Low. Marginal: `operate`/`control` callers can already spawn agent that reads env + `providers.json`.
+  - TOOL-03 Medium → Low. `bash` already outside path gate; no capability gain; `write`/MCP `set_config` roads gated.
+  - TOOL-05 Medium → Low. Default still prompts; auto-allow needs operator-activated YOLO unscoped.
+  - TOOL-07 Medium → Low. `toolPolicy` set + guard missing already fail-closed (`gateway.ts:605-615`); empty chat allowlist default.
+  - Unchanged after re-trace: HTTP-04 (fails open under identity enforcement, documented D24), HTTP-05 (`legacy` upgrade path), WS-02/03/05, TOOL-04, TOOL-08, TOOL-09, DEP-02, ELEC-01.
+- Reachability correction WS-02/03/05: need `operate` paired device (or legacy-mode trusted-network device), not any tier. `POST /api/ws-ticket` is `operate` (`shared/src/route-tiers.ts:512`); only `decideBridgeTicketMint` (`bridge-ticket-eligibility.ts:67-72`) skipped the tier check. Also needs non-unix bridge transport (`PI_GATEWAY_TCP=1`, Docker default, or `tls.acceptBridges`). Severity stays Medium.
+- NET-04 MCP correction: `providers_test` is tier `operate` (`mcp-server-plugin/src/server/generated/tools.ts:191`); `dispatch.ts:520` refuses `control` session tokens (`tokens.ts:46`). Session tokens cannot call it. Only operate device MCP token or REST operate callers.
+- HTTP-04, TOOL-07, TOOL-08 removed from Open verification items (verdicts reached).
 - 2026-10-30: DEP-01, HTTP-01, TOOL-01 status → "closed by close-security-map-high-findings" (change ships in same PR; see ship-time instruction in Closed findings). TOOL-01 stays Low; tool removed. TOOL-04 NOT closed (agent `read` of agent dir; path-gate root unchanged).
 - TOOL-01 correction detail: premise (agent answers another session's path-gate prompt via MCP `prompt_response`) wrong. Host wraps object as `send_prompt` text, `server.ts:4166-4167`. Original `tool-call-guards.md` C12 / `:207` and this register assumed the verb reaches bridge `promptBus.respond` unwrapped; trace shows it does not.

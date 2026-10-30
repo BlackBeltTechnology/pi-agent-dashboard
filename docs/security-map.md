@@ -205,9 +205,9 @@ Source: [residual-risks](security/residual-risks.md). Canonical rows after dedup
 | Severity | Count |
 |---|---|
 | Critical | 0 |
-| High | 5 |
-| Medium | 29 |
-| Low | 47 |
+| High | 6 |
+| Medium | 20 |
+| Low | 55 |
 | Info | 40 |
 | **Total** | **121** |
 
@@ -216,12 +216,13 @@ High findings:
 | ID | Finding | Chapter |
 |---|---|---|
 | HTTP-01 | OAuth with empty `auth.allowedUsers` admitted any IdP account at `operate`. **closed by close-security-map-high-findings** | [http-gates-and-routes](security/http-gates-and-routes.md#findings) |
+| HTTP-02 | Any localhost-port page is CORS/mutation-admitted; default strict cookie makes it genuine-local `operate` (re-rated High 2026-10-26) | [http-gates-and-routes](security/http-gates-and-routes.md#findings) |
 | WS-01 | Tokenless loopback bridge grace open; default transport on win32 | [websocket-and-bridge](security/websocket-and-bridge.md#findings) |
 | PLUG-01 | Server plugins in-process, full server privilege, no isolation | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | ELEC-04 | Desktop binaries unsigned | [plugins-client-electron](security/plugins-client-electron.md#findings) |
 | DEP-01 | File-read routes anchor `~/.pi`; provider credentials readable at `observe`. **closed by close-security-map-high-findings** | [deployment-process-supply-chain](security/deployment-process-supply-chain.md#findings) |
 
-TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04 NOT closed. Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). Closed statuses assume the change ships in the same PR — see ship-time instruction in [register](security/residual-risks.md#closed-findings).
+TOOL-01 re-rated Low 2026-10-22, then closed by close-security-map-high-findings (see register Corrections). TOOL-04 NOT closed. 2026-10-26 re-verification: HTTP-02 → High; HTTP-03, CRED-03, NET-02, NET-03, NET-04, TOOL-03, TOOL-05, TOOL-07 → Low (see register Corrections). Counts are map-time; new residuals in [register](security/residual-risks.md#residuals-added-after-the-map). Closed statuses assume the change ships in the same PR — see ship-time instruction in [register](security/residual-risks.md#closed-findings).
 
 Also in the register:
 - Fix order: [Top priorities](security/residual-risks.md#top-priorities).
