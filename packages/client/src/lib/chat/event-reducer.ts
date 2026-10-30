@@ -643,6 +643,58 @@ function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: stri
   if (tc) next.toolCalls.set(toolCallId, { ...tc, status: "running" });
 }
 
+/**
+ * The complete `toolCalls` entry for a top-level row that was kept or made
+ * `running` outside the live start path (backfill splice, elided revive).
+ * `startedAt` makes it visible to the stale reconcile; `emittedAtInferenceSeq`
+ * = the CURRENT counter, so the supersede proof (`>`) holds only after a
+ * strictly later assistant inference — genuine evidence the end was lost.
+ * Returns `toolCalls` unchanged (same Map) when an entry already exists.
+ * See change: fix-backfill-elides-live-tools (D2, D3).
+ */
+export function seedRunningToolCall(
+  toolCalls: Map<string, ToolCallState>,
+  row: ChatMessage,
+  inferenceSeq: number,
+  fallbackStartedAt?: number,
+): Map<string, ToolCallState> {
+  const toolCallId = row.toolCallId;
+  if (!toolCallId || toolCalls.has(toolCallId)) return toolCalls;
+  const out = new Map(toolCalls);
+  out.set(toolCallId, {
+    toolCallId,
+    toolName: row.toolName ?? "unknown",
+    args: row.args,
+    status: "running",
+    startedAt: row.startedAt ?? fallbackStartedAt,
+    emittedAtInferenceSeq: inferenceSeq,
+  });
+  return out;
+}
+
+/**
+ * A top-level `tool_execution_update` for an `elided` row proves the call is
+ * still running: the backfill stamped it because its start landed in a gap
+ * segment before its end happened. Revive the row (dropping heal-only detail
+ * keys, mirroring `reopenSessionEndedRow`) and re-seat the `toolCalls` entry
+ * the splice never had, so a real end, the `session_ended` heal, the stale
+ * reconcile and the superseded heal can all close it. The Agent finalizer
+ * (asked afterwards with the pre-event state) restores the row when its
+ * subagent is already terminal. Mutates `next` (messages array already a copy).
+ * See change: fix-backfill-elides-live-tools (D3).
+ */
+function reviveElidedRow(next: SessionState, idx: number): void {
+  const row = next.messages[idx];
+  if (row.toolStatus !== "elided") return;
+  let toolDetails = row.toolDetails;
+  if (toolDetails) {
+    const { healedBy: _h, resultMissing: _m, ...rest } = toolDetails;
+    toolDetails = { ...rest, status: "running" };
+  }
+  next.messages[idx] = { ...row, toolStatus: "running", ...(toolDetails ? { toolDetails } : {}) };
+  next.toolCalls = seedRunningToolCall(next.toolCalls, row, next.assistantInferenceSeq);
+}
+
 /** Options core hands a tool-row finalizer: re-entry into this reducer for synthesized events. */
 function finalizerOpts(isLive: boolean | undefined) {
   return { isLive, reduce: (s: SessionState, e: DashboardEvent) => reduceEvent(s, e) };
@@ -1545,32 +1597,34 @@ export function deriveBannerState(state: SessionState): BannerState {
 
 /**
  * Correctness floor for a fully-reduced BACKFILL segment: stamp every row still
- * `running` as `elided`, and finalize every row the segment left mid-stream.
+ * `running` as `elided` — except a call the backfill response reports open
+ * (`openToolCallIds`) — and finalize every row the segment left mid-stream.
  *
- * Stamp ALL of them, not "the ones at a seam". Within a slice a dangling
- * `tool_execution_start`'s end is always ABOVE the slice — i.e. in content the
- * client already holds — and later slices are strictly lower, so every
- * still-running row in a COMPLETED backfill segment is provably unjoinable. A
- * seam-scoped rule would fire nowhere and ship the bug intact.
+ * A still-running row is ambiguous inside a segment: its end may sit above the
+ * slice (content the client already holds), or the call may still be executing
+ * (tail-only replay moves long-running starts into backfill). Only the server
+ * can tell; it reports the latter at serve time. Absent the field (older
+ * server), every still-running row elides and a live tick revives it
+ * (`reviveElidedRow`). Stamp ALL unreported rows, not "the ones at a seam".
  *
  * Scoped to backfill segments, never the initial windowed replay: a live
  * session reopened mid-tool-run has a dangling start whose end simply has not
- * happened yet. Stamping that would label a genuinely running tool "not
- * loaded" AND remove it from supersede-heal eligibility (the heal selects
- * `status === "running"`).
+ * happened yet.
  *
- * Row-level, because the splice merges `messages` only and discards
- * `seg.toolCalls` — renderers read `msg.toolStatus`, so a status written into
- * the tool-call map would be unobservable.
+ * Row-level, because the splice merges `messages` (plus seeded entries for
+ * kept-running calls) — renderers read `msg.toolStatus`.
  *
  * `isStreaming` is the identical defect one type over: a slice whose top edge
  * lands mid-message produces an assistant row nothing ever clears, i.e. a
  * permanently "streaming" bubble.
- * See change: fix-lazy-history-backfill-ux (D5).
+ * See change: fix-lazy-history-backfill-ux (D5), fix-backfill-elides-live-tools (D2).
  */
-export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] {
+export function finalizeBackfillSegment(
+  messages: ChatMessage[],
+  openToolCallIds?: ReadonlySet<string>,
+): ChatMessage[] {
   return messages.map((m) => {
-    const elide = m.toolStatus === "running";
+    const elide = m.toolStatus === "running" && !(m.toolCallId !== undefined && openToolCallIds?.has(m.toolCallId));
     const finalize = m.isStreaming === true;
     if (!elide && !finalize) return m;
     const out = { ...m };
@@ -2543,14 +2597,25 @@ export function reduceEvent(
       }
       const toolCallId = data.toolCallId as string;
       const partialResult = data.partialResult;
+      const rowIdx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+      // Agent rows: the registered finalizer owns the subagent half of this tick. It
+      // gets the pre-event state (`prior`, own `toolCalls` copy) so it can tell a row
+      // the reopen/revive below restored from one that was already running, and undo
+      // the revive for a subagent it records as terminal.
+      const finalizer =
+        partialResult && rowIdx !== -1 && next.messages[rowIdx].toolName === "Agent"
+          ? findToolRowFinalizer<SessionState>("Agent")
+          : undefined;
+      const prior: SessionState | undefined = finalizer ? { ...next, toolCalls: new Map(next.toolCalls) } : undefined;
+      // Any top-level tick — with or without a partial result — revives an elided row.
+      // See change: fix-backfill-elides-live-tools (D3).
+      if (rowIdx !== -1 && next.messages[rowIdx].toolStatus === "elided") {
+        next.messages = [...next.messages];
+        reviveElidedRow(next, rowIdx);
+      }
       if (partialResult) {
-        const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+        const idx = rowIdx;
         if (idx !== -1) {
-          // Agent rows: the registered finalizer owns the subagent half of this tick. It
-          // gets the pre-event state (`prior`) so it can tell a row the reopen below
-          // restored from one that was already running.
-          const finalizer = next.messages[idx].toolName === "Agent" ? findToolRowFinalizer<SessionState>("Agent") : undefined;
-          const prior: SessionState | undefined = finalizer ? { ...next } : undefined;
           next.messages = [...next.messages];
           reopenSessionEndedRow(next, idx, toolCallId);
           // Structured partialResult (e.g. Agent tool sends { content, details })

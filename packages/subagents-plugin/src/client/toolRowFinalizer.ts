@@ -224,16 +224,34 @@ function hydrateFromTick(subagents: Map<string, SubagentState>, agentId: string,
   return out;
 }
 
-/** A finished subagent's card is not reopened by a late tick: restore the prior terminal fields, merge the rest. */
-function keepTerminalRow(state: AgentFinalizerState, idx: number, priorRow: AgentRow): AgentFinalizerState {
+/**
+ * A finished subagent's card is not reopened by a late tick: restore the prior terminal
+ * fields (incl. `toolStatus`, which the shell's elided revive flips to `running`) and the
+ * prior `toolCalls` entry state (the revive seeds one), merge the rest.
+ * See change: fix-backfill-elides-live-tools (D3).
+ */
+function keepTerminalRow(
+  state: AgentFinalizerState,
+  idx: number,
+  priorRow: AgentRow,
+  prior: AgentFinalizerState | undefined,
+): AgentFinalizerState {
   const kept: Record<string, unknown> = { ...(state.messages[idx].toolDetails ?? {}) };
   for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
     if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
     else delete kept[key];
   }
   const messages = [...state.messages];
-  messages[idx] = { ...state.messages[idx], result: priorRow.result, toolDetails: kept };
-  return { ...state, messages };
+  messages[idx] = { ...state.messages[idx], toolStatus: priorRow.toolStatus, result: priorRow.result, toolDetails: kept };
+  const toolCallId = priorRow.toolCallId;
+  let toolCalls = state.toolCalls;
+  if (prior && toolCallId && prior.toolCalls.get(toolCallId) !== state.toolCalls.get(toolCallId)) {
+    toolCalls = new Map(state.toolCalls);
+    const priorEntry = prior.toolCalls.get(toolCallId);
+    if (priorEntry) toolCalls.set(toolCallId, priorEntry);
+    else toolCalls.delete(toolCallId);
+  }
+  return { ...state, messages, toolCalls };
 }
 
 /**
@@ -252,7 +270,9 @@ function settleLateTick(
 ): AgentFinalizerState {
   if (!priorRunning) {
     const priorAgentId = stringOf(priorRow.toolDetails?.agentId) ?? tickAgentId;
-    return isTerminal(priorAgentId ? next.subagents.get(priorAgentId) : undefined) ? keepTerminalRow(next, idx, priorRow) : next;
+    return isTerminal(priorAgentId ? next.subagents.get(priorAgentId) : undefined)
+      ? keepTerminalRow(next, idx, priorRow, opts?.prior)
+      : next;
   }
   const toolCallId = (event.data as Data).toolCallId as string;
   const sub = tickAgentId ? next.subagents.get(tickAgentId) : undefined;

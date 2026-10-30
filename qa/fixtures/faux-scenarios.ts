@@ -265,6 +265,9 @@ function askScenario(method: string, extra: Record<string, unknown>): Scenario {
  * waits for this text to know the long stream has settled, and asserts the
  * streaming tail against it. See change: virtualize-chat-transcript-tanstack.
  */
+/** Final parent text of `subagent-long-stream-hold`. See change: fix-backfill-elides-live-tools. */
+export const LONG_STREAM_HOLD_TAIL = "long stream hold complete";
+
 export const LONG_TRANSCRIPT_TAIL = "long-transcript complete";
 
 /**
@@ -1727,6 +1730,49 @@ export const SCENARIOS: Record<string, Scenario> = {
   "subagent-streaming-inner": {
     script: buildStreamingBurst(),
     expect: { text: "streaming inner complete" },
+  },
+
+  // Inner run for `subagent-long-stream-hold`: hold → stream → hold.
+  //  1. `sleep 40` — the window the L3 test restarts the dashboard in. After a
+  //     restart the parent store is rebuilt from the bridge transcript, which
+  //     carries no subagent stream, so streaming BEFORE the restart cannot fill
+  //     the tail.
+  //  2. A token-streaming burst: every streamed delta lands in the PARENT store
+  //     as a subagent event, pushing the parent's `Agent` start out of a
+  //     100-event tail window.
+  //  3. `sleep 90` — the call is still running while the test reloads and
+  //     backfills. Hold modelled on `session-death-open-tool`.
+  // See change: fix-backfill-elides-live-tools (task 3.1).
+  "subagent-long-stream-hold-inner": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 40 && echo hold-one" })], { stopReason: "toolUse" }),
+      ...buildStreamingBurst(10, 60).slice(0, -1),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 90 && echo hold-two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("long stream hold inner complete")]),
+    ],
+    expect: { text: "long stream hold inner complete" },
+  },
+
+  // Parent: ONE `Agent` call running `subagent-long-stream-hold-inner`
+  // (hold, ≥150 parent-store events, then a ≥60 s hold). The L3 restart/reload
+  // regression: once the Agent start sits in the lazy backfill, its card
+  // must stay running, never "result not loaded".
+  // See change: fix-backfill-elides-live-tools (test-plan #F15, #F16).
+  "subagent-long-stream-hold": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux long stream hold subagent",
+            prompt: "[[faux:subagent-long-stream-hold-inner]] stream then hold",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(LONG_STREAM_HOLD_TAIL)]),
+    ],
+    expect: { text: LONG_STREAM_HOLD_TAIL },
   },
 
   // Parent spawning the streaming-heavy inner run. Drives P1 (throttled rate

@@ -4162,6 +4162,24 @@ Remedy on old build: `npm run reload` (bridge) + `pi-dashboard api POST /api/res
 
 See change: fix-replay-fabricates-orphan-end-for-live-calls.
 
+## Subagent card says 'result not loaded' after restart while the dock shows it running
+
+Symptom: after dashboard restart or browser reload, long-running tool call (esp. `Agent` subagent) card shows "result not loaded". Composer dock lists same call running.
+
+Root cause: `replayWindowMode: "tail-only"` puts start older than tail into lazy backfill (`history_backfill`).
+`finalizeBackfillSegment` (`packages/client/src/lib/chat/event-reducer.ts`) stamps every still-`running` row `elided`, assuming its end already held by client. False for call not yet ended.
+No recovery before fix: live `tool_execution_update` never cleared `elided`. Splice discarded segment `toolCalls` entry -> `session_ended` heal rejected -> card "not loaded" forever.
+
+Fix (server): `history_backfill_result.openToolCallIds` (optional, additive). `handleHistoryBackfill` computes via `findBackfillOpenToolCalls` (`packages/server/src/session/open-tool-calls.ts`) at serve time: served top-level starts with no stored end, no later non-synthetic `agent_start`, `agent_end` or assistant `message_start`. Omitted on refusals + `movedTo` sessions.
+
+Fix (client splice): listed ids stay `running`. Splice seeds `toolCalls` entry (`seedRunningToolCall`: `startedAt`, `emittedAtInferenceSeq`) -> real end, `session_ended` heal, stale reconcile (200/410), superseded heal can close it.
+
+Fix (backstop, old server): top-level `tool_execution_update` revives `elided` row -> `running` (`reviveElidedRow`). Exception: subagent client records terminal -> Agent finalizer `keepTerminalRow` keeps card as was.
+
+Tools that really finished elsewhere still resolve `elided`.
+
+See change: fix-backfill-elides-live-tools.
+
 ## Why are the passkey buttons disabled on the login page?
 
 Cause: origin unstable. Passkeys need stable RP ID origin.
