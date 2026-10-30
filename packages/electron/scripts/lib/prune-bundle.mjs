@@ -213,8 +213,13 @@ export function main(argv, deps = {}) {
     error("usage: prune-bundle.mjs [--finalize] <serverDir>");
     return 2;
   }
+  const resolved = path.resolve(serverDir);
+  if (!existsSync(resolved)) {
+    // A mistyped build path must not read as "pruned 0 files".
+    error(`\u2717 server bundle dir not found: ${resolved}`);
+    return 2;
+  }
   try {
-    const resolved = path.resolve(serverDir);
     if (finalize) dropWorkspaceCopies(resolved, { rm: deps.rm, log: deps.log });
     pruneBundle(resolved, { rm: deps.rm, log: deps.log });
     return 0;

@@ -8,7 +8,7 @@
  * See change: slim-windows-install-file-count (design D1).
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error — plain .mjs module, no type declarations by design.
@@ -196,6 +196,13 @@ describe("pruneBundle — failure handling", () => {
     const d = bundle(["node_modules/foo/index.js"]);
     expect(runMain([d], { log: () => {}, error: () => {} })).toBe(0);
     expect(runMain([], { log: () => {}, error: () => {} })).not.toBe(0);
+  });
+
+  it("a missing server dir exits 2 instead of pruning nothing", () => {
+    const errors: string[] = [];
+    const code = runMain([path.join(os.tmpdir(), "prune-bundle-no-such-dir")], { log: () => {}, error: (m) => errors.push(m) });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("not found");
   });
 });
 
