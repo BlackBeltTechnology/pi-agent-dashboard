@@ -26,6 +26,10 @@ $settingsPath = Join-Path $env:USERPROFILE ".pi\agent\settings.json"
 $legacyExt = Join-Path $installDir "resources\server\packages\extension"
 $newExt = Join-Path $installDir "resources\server\node_modules\@blackbelt-technology\pi-dashboard-extension"
 
+# `& script.ps1` leaves $LASTEXITCODE untouched when the script ends without `exit`; it is $null on a
+# fresh session and `$null -ne 0` is TRUE in PowerShell. Treat only a real non-zero code as failure.
+function Test-ChildFailed { return ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) }
+
 function Read-Packages {
     if (-not (Test-Path $settingsPath)) { return @() }
     $raw = (Get-Content $settingsPath -Raw -ErrorAction SilentlyContinue)
@@ -67,7 +71,7 @@ Write-Host "Previous release installer: $PreviousSetup"
 
 # ── 1. install the previous release, run it once ────────────────────────────
 & (Join-Path $here "windows-nsis-install.ps1") -Setup $PreviousSetup
-if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: previous release did not install"; exit 1 }
+if (Test-ChildFailed) { Write-Host "FAIL: previous release did not install"; exit 1 }
 
 $oldApp = Start-AppOnce "old"
 Start-Sleep -Seconds 20
@@ -89,7 +93,7 @@ Write-Host "Before upgrade, packages: $((Read-Packages) -join '; ')"
 
 # ── 2. upgrade in place ─────────────────────────────────────────────────────
 & (Join-Path $here "windows-nsis-install.ps1") -Setup $Setup
-if ($LASTEXITCODE -ne 0) { Write-Host "FAIL: new Setup.exe did not install over the previous release"; exit 1 }
+if (Test-ChildFailed) { Write-Host "FAIL: new Setup.exe did not install over the previous release"; exit 1 }
 
 # Install tree: the second copy is gone, the canonical one is there.
 if (Test-Path $legacyExt) { Write-Host "FAIL: stale $legacyExt survived the upgrade"; exit 1 }

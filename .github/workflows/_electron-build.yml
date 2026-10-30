@@ -1032,7 +1032,9 @@ jobs:
           $installWatch = [System.Diagnostics.Stopwatch]::StartNew()
           ./qa/tests/windows-nsis-install.ps1 -Setup $setupPath
           $installWatch.Stop()
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # $LASTEXITCODE is $null when the script ended without `exit`; `$null -ne 0` is TRUE in
+          # PowerShell and would end the step here, skipping every later NSIS check.
+          if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           try {
             $installDir = Join-Path $env:LOCALAPPDATA "Programs\PI Dashboard"
             # Same predicate as assert-bundle-file-budget.mjs: regular files only,
@@ -1082,4 +1084,4 @@ jobs:
         run: |
           $setup = Get-ChildItem "packages/electron/out/make/nsis/PI-Dashboard-Setup-*-x64.exe" | Select-Object -First 1
           ./qa/tests/windows-nsis-upgrade.ps1 -Setup $setup.FullName
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
