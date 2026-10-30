@@ -32,7 +32,7 @@ None.
 
 - Shared: `packages/shared/src/trusted-types-mode.ts` (new resolver), `packages/shared/src/config.ts` (`security.trustedTypes` parse).
 - Server:
-  - `packages/server/src/auth/csp.ts`: the wrapper keeps the `(raw, cspMode)` signature; module doc.
+  - `packages/server/src/auth/csp.ts`: the old `(raw, cspMode)` resolver is removed and re-exports the shared one; module doc.
   - `packages/server/src/server.ts:2315-2317`: resolve with config and warning.
   - `packages/server/src/lib/index-html.ts`: required mode; callers in `csp.test.ts` and `index-html.test.ts` updated.
   - `packages/server/src/config-api.ts`: `security` deep merge, value-compared restart flag, `trustedTypesEnvOverride` dropped on write.
