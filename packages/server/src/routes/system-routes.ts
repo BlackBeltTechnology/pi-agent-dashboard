@@ -101,6 +101,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { recognizeTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
 import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -476,10 +477,13 @@ export function registerSystemRoutes(
       // render the toggle inert with the reason. See change: ask-agent-file-access-in-chat.
       const gateEnv = process.env.PI_DASHBOARD_AGENT_PATH_GATE?.trim().toLowerCase();
       const agentPathGateEnvOverride = gateEnv === "off" || gateEnv === "on" ? gateEnv : null;
+      // `trustedTypesEnvOverride`: the recognized `PI_DASHBOARD_TRUSTED_TYPES` value (env beats config), else null.
+      // COMPUTED, never persisted. See change: enforce-trusted-types-default (D5).
+      const trustedTypesEnvOverride = recognizeTrustedTypesMode(process.env.PI_DASHBOARD_TRUSTED_TYPES);
       // `tls.sources[].solver.configured` (ACME): projected from the vault listing, never a secret.
       // See change: add-acme-dns01-certs.
       const redacted = await projectAcmeConfigured(readConfigRedacted());
-      return { success: true, data: { ...redacted, reachability, agentPathGateEnvOverride } };
+      return { success: true, data: { ...redacted, reachability, agentPathGateEnvOverride, trustedTypesEnvOverride } };
     },
   );
 

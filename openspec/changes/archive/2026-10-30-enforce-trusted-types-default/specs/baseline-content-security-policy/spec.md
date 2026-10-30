@@ -6,18 +6,18 @@ The server SHALL resolve a Trusted Types mode of `off`, `report`, or `enforce` f
 2. the dashboard config key `security.trustedTypes`;
 3. a default.
 
-A source whose value is absent or whitespace-only is not set. The first set source decides. A string value that, trimmed and case-insensitively, equals `off`, `report` or `enforce` resolves to that mode. Any other set value (another string, a number, an object) SHALL resolve to `report`. Every set source with such a value SHALL log one startup warning naming the source without echoing the value, including a source that does not decide. When no source is set, the mode SHALL resolve to `off` if the baseline CSP mode is `off`, and to `enforce` otherwise. The Trusted Types mode SHALL NOT change the baseline CSP mode, and SHALL NOT remove or alter any directive required by "Baseline policy directives"; it may only add `require-trusted-types-for 'script'`. A development-server page and every dashboard document SHALL state the same mode the server resolves for the same environment and config.
+A source whose value is absent or whitespace-only is not set. The first set source decides. A string value that, trimmed and case-insensitively, equals `off`, `report` or `enforce` resolves to that mode. Any other set value (another string, a number, an object) SHALL resolve to `report`. Every set source with such a value SHALL log one startup warning naming the source without echoing the value, including a source that does not decide. When no source is set, the mode SHALL resolve to `off` if the baseline CSP mode is `off`, and to `report` otherwise. The Trusted Types mode SHALL NOT change the baseline CSP mode, and SHALL NOT remove or alter any directive required by "Baseline policy directives"; it may only add `require-trusted-types-for 'script'`. A development-server page and every dashboard document SHALL state the same mode the server resolves for the same environment and config.
 
 #### Scenario: Default follows an enabled baseline
 - **WHEN** neither `PI_DASHBOARD_TRUSTED_TYPES` nor `security.trustedTypes` is set and `PI_DASHBOARD_CSP` is unset, `report` or `enforce`
-- **THEN** the Trusted Types mode resolves to `enforce`
+- **THEN** the Trusted Types mode resolves to `report`
 
 #### Scenario: Default follows a disabled baseline
 - **WHEN** neither `PI_DASHBOARD_TRUSTED_TYPES` nor `security.trustedTypes` is set and `PI_DASHBOARD_CSP` is `off`
 - **THEN** the Trusted Types mode resolves to `off`
 
 #### Scenario: Existing enforce users are not escalated
-- **WHEN** `PI_DASHBOARD_CSP=enforce` and the Trusted Types mode is set to `report` by environment or config
+- **WHEN** `PI_DASHBOARD_CSP=enforce` and neither environment nor config sets the Trusted Types mode, or either sets it to `report`
 - **THEN** Trusted Types is reported, not enforced
 
 #### Scenario: Explicit enforce
@@ -56,17 +56,19 @@ A source whose value is absent or whitespace-only is not set. The first set sour
 
 #### Scenario: Empty value counts as unset
 - **WHEN** `PI_DASHBOARD_TRUSTED_TYPES` is the empty string and `security.trustedTypes` is not set
-- **THEN** the Trusted Types mode resolves to the default
+- **THEN** the Trusted Types mode resolves to the default (`report`, or `off` when the baseline CSP mode is `off`)
 
 #### Scenario: Document states the resolved mode
 - **WHEN** the dashboard document is served under each resolved Trusted Types mode
 - **THEN** the document's stated mode equals the resolved mode
-- **AND** under the default `enforce` mode an enforcing policy on that document contains `require-trusted-types-for 'script'`, whether as a header of its own (baseline `report`) or appended to the strict enforcing header (baseline `enforce`)
+- **AND** under `enforce` an enforcing policy on that document contains `require-trusted-types-for 'script'`, whether as a header of its own (baseline `report`) or appended to the strict enforcing header (baseline `enforce`)
+- **AND** under `report` only report-only policies carry the directive
 
 #### Scenario: Development server states the same mode
 - **WHEN** the dashboard runs against the development server with neither environment nor config setting the mode and `PI_DASHBOARD_CSP` unset
-- **THEN** the served page states the Trusted Types mode `enforce`
+- **THEN** the served page states the Trusted Types mode `report`
 - **AND** with `PI_DASHBOARD_CSP=off` and no Trusted Types setting it states `off`
+- **AND** with `security.trustedTypes` set to `enforce` it states `enforce`
 
 ## ADDED Requirements
 

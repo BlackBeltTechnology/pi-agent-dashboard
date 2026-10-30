@@ -1,0 +1,7 @@
+blocked_by:
+  - change: enforce-trusted-types-default
+    reason: "The flip changes only the resolver default that enforce-trusted-types-default introduces, and rolls back through its security.trustedTypes knob and Settings control."
+  - change: add-trusted-types-shadow-enforce
+    reason: "The soak gate reads the persisted Trusted Types shadow counters (cspReports.ttShadow) and per-source rows that add-trusted-types-shadow-enforce ships. The >=14-day soak can only start once that change is released (archived on develop 2026-10-24, not yet in a tag)."
+related:
+  - enforce-strict-csp-default

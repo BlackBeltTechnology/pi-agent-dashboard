@@ -40,6 +40,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **BREAKING — `prompt_response` and `extension_ui_response` leave the MCP surface for all tokens (TOOL-01, re-rated
   Low).** They never answered a prompt (the host wrapped the object as `send_prompt` text). Chat-gateway button answers
   are unaffected.
+- **Trusted Types mode is now configurable: `security.trustedTypes`, Settings → Security → Trusted Types.** The mode
+  (`off` / `report` / `enforce`) can be set in `~/.pi/dashboard/config.json` or in Settings, not only with
+  `PI_DASHBOARD_TRUSTED_TYPES`; the variable still wins over the config key, and a change needs a server restart. The
+  default is **unchanged** (`report`, or `off` when `PI_DASHBOARD_CSP=off`); flipping it to `enforce` is a separate,
+  soak-gated follow-up. This is also the rollback for that future flip. **Behaviour changes:** the variable is now
+  trimmed and case-insensitive (`OFF` now means `off`; it used to fall back to `report`), and a present but
+  unrecognized value (env or config, e.g. `reprot`) resolves to `report` with one startup warning naming the source
+  (never the value), even when `PI_DASHBOARD_CSP=off` (it used to resolve to `off` there). `GET /api/config` gains a
+  computed, never-persisted `trustedTypesEnvOverride`; the dev server states the same mode as the server.
+
 - **Plugin credentials and the credential vault are now encrypted at rest.** `~/.pi/agent/plugin-credentials.json`
   and `~/.pi/dashboard/vault.json` are stored as an AES-256-GCM envelope (`pi-dashboard-encrypted:v1`). The data key
   lives in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager; service

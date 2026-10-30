@@ -9,8 +9,20 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { proofFetch } from "../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
+
+// A throwaway production client dir so `GET /` serves a real shell (index.html) in the Trusted Types wiring tests.
+const clientDist = vi.hoisted(() => ({ dir: null as string | null }));
+vi.mock("../lib/client-dist.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/client-dist.js")>();
+  return {
+    ...actual,
+    resolveStaticClientDir: (...args: Parameters<typeof actual.resolveStaticClientDir>) =>
+      clientDist.dir ?? actual.resolveStaticClientDir(...args),
+  };
+});
 
 let handle: TestServerHandle | undefined;
 afterEach(async () => {
@@ -52,5 +64,81 @@ describe("createServer wires the CSP report sink", () => {
     expect(post.status).toBe(200);
     const health = (await (await fetch(`${base}/api/health`)).json()) as { cspReports?: { ttShadow?: Record<string, number> } };
     expect(health.cspReports?.ttShadow?.["would-block-script"]).toBe(1);
+  }, 60_000);
+});
+
+describe("createServer resolves the Trusted Types mode once (test-plan #E4, #X1)", () => {
+  const TT = "require-trusted-types-for 'script'";
+  const KEY = "PI_DASHBOARD_TRUSTED_TYPES";
+  let savedEnv: string | undefined;
+  let warned: string[] = [];
+  let warnSpy: { mockRestore: () => void };
+
+  beforeEach(() => {
+    savedEnv = process.env[KEY];
+    delete process.env[KEY];
+    clientDist.dir = fs.mkdtempSync(path.join(os.tmpdir(), "tt-wiring-client-"));
+    fs.writeFileSync(path.join(clientDist.dir, "index.html"), "<!doctype html><html><head></head><body>SPA</body></html>");
+    warned = [];
+    warnSpy = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warned.push(String(args[0]));
+    });
+  });
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[KEY];
+    else process.env[KEY] = savedEnv;
+    warnSpy.mockRestore();
+    if (clientDist.dir) fs.rmSync(clientDist.dir, { recursive: true, force: true });
+    clientDist.dir = null;
+  });
+
+  function writeConfig(security: unknown): void {
+    const dir = path.join(os.homedir(), ".pi", "dashboard");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({ security }));
+  }
+
+  async function bootAndGetRoot(): Promise<Response> {
+    handle = await createTestServer({ dev: false });
+    const base = `http://127.0.0.1:${handle.httpPort}`;
+    const res = await proofFetch(`${base}/`);
+    await proofFetch(`${base}/`); // a second request must not warn again
+    return res;
+  }
+
+  const ttWarnings = () => warned.filter((m) => m.includes("Trusted Types"));
+  const headerValues = (res: Response, name: string) => (res.headers.get(name) ?? "").split(/,(?=\s*(?:default-src|require-trusted-types-for))/);
+
+  it("E4: env beats a mistyped config value; directive only report-only, meta report, one config warning at startup", async () => {
+    writeConfig({ trustedTypes: "enforced" });
+    process.env[KEY] = "report";
+    const res = await bootAndGetRoot();
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<meta name="pi-trusted-types" content="report">');
+    expect(res.headers.get("content-security-policy") ?? "").not.toContain(TT);
+    expect(headerValues(res, "content-security-policy-report-only").some((v) => v.includes(TT))).toBe(true);
+    const w = ttWarnings();
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("security.trustedTypes");
+    expect(w[0]).not.toContain("enforced");
+  }, 60_000);
+
+  it.each([[{}], [5]])("X1: config security.trustedTypes = %j cannot crash startup", async (bad) => {
+    writeConfig({ trustedTypes: bad });
+    const res = await bootAndGetRoot();
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<meta name="pi-trusted-types" content="report">');
+    expect(res.headers.get("content-security-policy") ?? "").not.toContain(TT);
+    const w = ttWarnings();
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain("security.trustedTypes");
+  }, 60_000);
+
+  it("config `enforce` is honoured when no env is set", async () => {
+    writeConfig({ trustedTypes: "enforce" });
+    const res = await bootAndGetRoot();
+    expect(await res.text()).toContain('<meta name="pi-trusted-types" content="enforce">');
+    expect(res.headers.get("content-security-policy") ?? "").toContain(TT);
+    expect(ttWarnings()).toHaveLength(0);
   }, 60_000);
 });
