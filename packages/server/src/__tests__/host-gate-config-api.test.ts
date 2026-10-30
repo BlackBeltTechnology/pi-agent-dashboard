@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeConfigPartial } from "../config-api.js";
 import { livePublicBaseUrls, resetConfigSnapshot } from "../config-snapshot.js";
+import { registerSystemRoutes } from "../routes/system-routes.js";
 
 /**
  * `allowedHosts` / `hostGate` partial writes + legacy publicBaseUrls live read
@@ -75,5 +77,85 @@ describe("#E7 legacy pairing.publicBaseUrls is honoured by the live read", () =>
     write({ pairing: { publicBaseUrls: ["https://old.example.com"] } });
     resetConfigSnapshot();
     expect(livePublicBaseUrls()).toEqual(["https://old.example.com"]);
+  });
+});
+
+// test-plan #E5 (enforce-trusted-types-default): `security.trustedTypes` write semantics.
+describe("#E5 writeConfigPartial security.trustedTypes", () => {
+  const tt = (v: unknown) => writeConfigPartial({ security: { trustedTypes: v } });
+
+  it.each([
+    { stored: undefined, sent: "report", restart: true },
+    { stored: "report", sent: "report", restart: false },
+    { stored: "report", sent: "off", restart: true },
+    { stored: undefined, sent: null, restart: false },
+    { stored: "report", sent: null, restart: true },
+  ] as const)("stored $stored, sent $sent → restartRequired $restart", ({ stored, sent, restart }) => {
+    write(stored === undefined ? { auth: { secret: "s" } } : { security: { trustedTypes: stored } });
+    const result = tt(sent);
+    expect(result.success).toBe(true);
+    expect(result.restartRequired).toBe(restart);
+    if (sent === null) expect(read().security).toBeUndefined();
+    else expect(read().security.trustedTypes).toBe(sent);
+  });
+
+  it("keeps a sibling security key, and removes only trustedTypes on null", () => {
+    write({ security: { trustedTypes: "report", otherKey: 1 } });
+    tt("off");
+    expect(read().security).toEqual({ trustedTypes: "off", otherKey: 1 });
+    tt(null);
+    expect(read().security).toEqual({ otherKey: 1 });
+  });
+
+  it("an unrelated write never seeds a security key", () => {
+    write({ allowedHosts: ["a"] });
+    writeConfigPartial({ auth: { bypassUrls: ["/x"] } });
+    expect(read().security).toBeUndefined();
+  });
+
+  it("never persists the computed trustedTypesEnvOverride echoed by a GET body", () => {
+    write({});
+    writeConfigPartial({ trustedTypesEnvOverride: "report", allowedHosts: ["a"] });
+    expect(read().trustedTypesEnvOverride).toBeUndefined();
+    expect(read().allowedHosts).toEqual(["a"]);
+  });
+});
+
+describe("#E6 GET /api/config trustedTypesEnvOverride", () => {
+  const KEY = "PI_DASHBOARD_TRUSTED_TYPES";
+  let saved: string | undefined;
+  beforeEach(() => {
+    saved = process.env[KEY];
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env[KEY];
+    else process.env[KEY] = saved;
+  });
+
+  async function fetchOverride(): Promise<unknown> {
+    write({ port: 8000 });
+    const app = Fastify();
+    (app as any)._reloadAuth = async () => {};
+    registerSystemRoutes(app, {
+      sessionManager: {} as never,
+      preferencesStore: { flush: () => {} } as never,
+      metaPersistence: { flushAll: () => {} } as never,
+      config: { port: 8000, piPort: 9999, dev: false } as never,
+      networkGuard: (async () => {}) as never,
+    } as never);
+    const res = await app.inject({ method: "GET", url: "/api/config", remoteAddress: "127.0.0.1" });
+    await app.close();
+    return res.json().data.trustedTypesEnvOverride;
+  }
+
+  it.each([
+    { env: "report", want: "report" },
+    { env: " Report ", want: "report" },
+    { env: undefined, want: null },
+    { env: "strict", want: null },
+  ] as const)("env $env → $want", async ({ env, want }) => {
+    if (env === undefined) delete process.env[KEY];
+    else process.env[KEY] = env;
+    expect(await fetchOverride()).toBe(want);
   });
 });

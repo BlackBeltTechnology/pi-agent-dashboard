@@ -8824,13 +8824,25 @@ flowchart LR
 ## Client sink hardening (Trusted Types, URL policy, navigation intents)
 
 ### Trusted Types mode
-- Env `PI_DASHBOARD_TRUSTED_TYPES=off|report|enforce`.
-- Unset → `off` iff `PI_DASHBOARD_CSP=off`, else `report`. Independent of `PI_DASHBOARD_CSP`.
-- Resolver: `packages/server/src/auth/csp.ts` `resolveTrustedTypesMode`.
+- Modes: `off|report|enforce`. Default `report`.
+- Resolution order: env `PI_DASHBOARD_TRUSTED_TYPES` → config `security.trustedTypes` (`~/.pi/dashboard/config.json`) → default.
+- Default → `off` iff `PI_DASHBOARD_CSP=off`, else `report`.
+- "Set" source = not `undefined` and not whitespace-only string. First set source decides.
+- Value trimmed + lowercased. `off|report|enforce` → itself.
+- Other set value (typo, number, object) → `report` + one startup warning naming source (`env`|`config`). Never logs raw value.
+- Every set source validated, incl. env shadowing valid config. Mirrors `hostGate.mode` no-lockout convention.
+- Resolver: `packages/shared/src/trusted-types-mode.ts` `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`; `recognizeTrustedTypesMode(raw)`.
+- `packages/server/src/auth/csp.ts` re-exports resolver. Old `(raw, cspMode)` signature removed.
 - `registerCsp` appends `require-trusted-types-for 'script'` to baseline header when modes match. Else sets other header kind with directive alone.
 - Add-if-absent per header kind. `/live/` skipped. `serveApp` mounts keep own enforcing policy.
 - Server injects `<meta name="pi-trusted-types" content="<mode>">` into index.html (`lib/index-html.ts`).
-- Dev: `trustedTypesDevPlugin` in `packages/client/vite.config.ts` injects same meta.
+- `server.ts` resolves once at startup (`loadConfig().security?.trustedTypes`). Logs each warning once (`[csp] Trusted Types: …`). Same mode → `registerCsp` + `createIndexHtmlSender`.
+- `createIndexHtmlSender` option `trustedTypesMode` required (no `report` fallback). Document meta always equals header mode.
+- Dev: `trustedTypesDevPlugin` in `packages/client/trusted-types-dev-plugin.ts` (imported by `packages/client/vite.config.ts`). Uses same shared resolver. Reads config file. States same mode as server.
+- Config API: `PUT /api/config` deep-merges `security`. `trustedTypes: null` deletes key (emptied `security` removed). Restart flagged only when normalized value changes.
+- `GET /api/config` adds computed, never-persisted `trustedTypesEnvOverride` (recognized env value or `null`). Stripped on write.
+- UI: Settings → Security → Trusted Types select (`TrustedTypesSection.tsx`): Default / Enforce / Report only / Off. Env override → read-only text `Set by PI_DASHBOARD_TRUSTED_TYPES: <mode>`. Change needs server restart.
+- Rollback / opt-in: config key, Settings, or env + restart.
 - Missing meta → client treats as `report`.
 
 ### Client policies
@@ -8908,7 +8920,7 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 
 ### Trusted Types interaction
 
-- TT follows `PI_DASHBOARD_TRUSTED_TYPES`, independent of CSP mode (see § Client sink hardening).
+- TT follows resolved mode (env `PI_DASHBOARD_TRUSTED_TYPES` → config `security.trustedTypes` → default), independent of CSP mode (see § Client sink hardening).
 - Matching modes append `require-trusted-types-for 'script'`: `report` → baseline Report-Only header; `enforce` → strict enforcing header. Reports go to that header's label.
 - Differing modes → other header kind carries TT directive alone, labelled `trusted-types` → `/__pi/csp-report/trusted-types`.
 - TT violations count in `require-trusted-types-for` bucket. Never in strict `script-src*` measure.

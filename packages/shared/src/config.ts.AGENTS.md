@@ -7,3 +7,5 @@ Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/c
 `KnownServer.routes[]`; `parseKnownServers` reads legacy + routes shape, host/port mirror = first http route; `toStoredKnownServer`, `knownServersNeedMigration`. Startup never rewrites. See change: group-servers-by-identity.
 
 `CorsConfig.allowZrokWildcard: boolean` (default `false`; only boolean `true` enables; non-object `cors` yields defaults). See change: harden-cors-and-csp-reporting.
+
+`security?: { trustedTypes?: unknown }` on `DashboardConfig`: `loadConfig()` copies `parsed.security.trustedTypes` RAW (unvalidated; `resolveTrustedTypesMode` validates + warns); never seeded by `ensureConfig()`. See change: enforce-trusted-types-default.

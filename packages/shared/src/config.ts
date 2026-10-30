@@ -1255,6 +1255,14 @@ export interface DashboardConfig {
    */
   hostGate: HostGateConfig;
   /**
+   * Security knobs. `trustedTypes` is the RAW `security.trustedTypes` value
+   * (`"off" | "report" | "enforce"` when valid); it is deliberately not
+   * validated here — `resolveTrustedTypesMode` (trusted-types-mode.ts) owns
+   * validation and warns once at server start. Never seeded by `ensureConfig()`.
+   * See change: enforce-trusted-types-default.
+   */
+  security?: { trustedTypes?: unknown };
+  /**
    * Access-grant prompting settings. Default `{ promptEnabled: true }`.
    * See change: add-access-grant-dialog.
    */
@@ -2809,6 +2817,9 @@ export function loadConfig(): DashboardConfig {
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
         : defaults.allowedHosts,
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
+      ...(parsed.security?.trustedTypes !== undefined
+        ? { security: { trustedTypes: parsed.security.trustedTypes } }
+        : {}),
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: typeof parsed.requireLocalProof === "boolean" ? parsed.requireLocalProof : true,

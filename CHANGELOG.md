@@ -12,6 +12,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **Trusted Types mode is now configurable: `security.trustedTypes`, Settings → Security → Trusted Types.** The mode
+  (`off` / `report` / `enforce`) can be set in `~/.pi/dashboard/config.json` or in Settings, not only with
+  `PI_DASHBOARD_TRUSTED_TYPES`; the variable still wins over the config key, and a change needs a server restart. The
+  default is **unchanged** (`report`, or `off` when `PI_DASHBOARD_CSP=off`); flipping it to `enforce` is a separate,
+  soak-gated follow-up. This is also the rollback for that future flip. **Behaviour changes:** the variable is now
+  trimmed and case-insensitive (`OFF` now means `off`; it used to fall back to `report`), and a present but
+  unrecognized value (env or config, e.g. `reprot`) resolves to `report` with one startup warning naming the source
+  (never the value), even when `PI_DASHBOARD_CSP=off` (it used to resolve to `off` there). `GET /api/config` gains a
+  computed, never-persisted `trustedTypesEnvOverride`; the dev server states the same mode as the server.
+
 - **Browser-held device bearers now expire and rotate.** A bearer a browser keeps in its own storage (cross-origin
   ServerSelector use) now expires 7 days after issue (never later than 30 days after pairing) and the client rotates
   it before then via the new `POST /api/paired-devices/rotate` (authenticated by the bearer alone, tier `observe`, 10 per

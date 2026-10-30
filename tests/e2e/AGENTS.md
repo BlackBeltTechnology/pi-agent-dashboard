@@ -277,6 +277,7 @@ One row per file.
 | `tool-output-selection.spec.ts` | → `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | → `trust-mode-pair.spec.ts.AGENTS.md` |
 | `trusted-types-budget.spec.ts` | F3: report-mode budget over core routes, file previews, every plugin settings page and `/apps/team/` — 0 TT violations, default hits ≤ `fixtures/trusted-types-budget.json` (`PI_TT_BUDGET_RECORD=1` re-records); control step proves the directive is active. See change: harden-client-sinks. |
+| `trusted-types-config.spec.ts` | F6: Settings → Security → Trusted Types "Enforce" → Save → `POST /api/restart` → document meta `enforce` + enforcing `require-trusted-types-for`; finally Default (key removed) → restart → `report`. See change: enforce-trusted-types-default. |
 | `trusted-types-enforce.spec.ts` | X6: Monaco / PDF / chat / plugin settings under forced `enforce` — no page error beyond the TT-off baseline; logs violations + default hits per step. See change: harden-client-sinks. |
 | `trusted-types-perf.spec.ts` | P1: median default-policy callback time per load ≤ 20 ms under `enforce` (mermaid gallery + chat). See change: harden-client-sinks. |
 | `trusted-types-visual.spec.ts` | F1/F2: per-diagram pixel parity enforce vs off within off-vs-off variance (+ accent tint); AsciiDoc/KaTeX/mermaid + EML parity, 0 violations, EML frame `sandbox=""`. See change: harden-client-sinks. |
