@@ -47,7 +47,7 @@ Files in this directory. One row per source file.
 | `canonical-subject.ts` | Access-subject canonical form + containment (moved from server). → see `canonical-subject.ts.AGENTS.md` |
 | `card-sections.ts` | Session-card section visibility model: `CARD_SECTION_IDS`, `CardSectionPrefs`, per-plugin block ids, focus-mode profile, `resolveCardSectionVisible`. → see `card-sections.ts.AGENTS.md` |
 | `changelog-types.ts` | `ChangelogBullet` / `Release` / `Response` types for parsed CHANGELOG.md responses. See change: pi-update-whats-new-panel. |
-| `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see… → see `config.ts.AGENTS.md` |
+| `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` |
 | `containment-guard.ts` | `containmentAllows(decision, resolved)`: sync, strict-equality path-bound predicate over the branded… → see `containment-guard.ts.AGENTS.md` |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
 | `credential-encryption.ts` | Import-free leaf. Keychain `CREDENTIAL_KEYCHAIN_SERVICE`/`_ACCOUNT`, `DATA_KEY_FILE_ENV`, `CredentialFileId`,… → see `credential-encryption.ts.AGENTS.md` |

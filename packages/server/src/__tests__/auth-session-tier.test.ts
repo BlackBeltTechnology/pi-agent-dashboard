@@ -40,7 +40,7 @@ const idToken = (claims: Record<string, unknown>) =>
 async function makeApp(extra: Partial<AuthConfig> = {}): Promise<FastifyInstance> {
   const a = Fastify();
   await registerAuthPlugin(a, {
-    authConfig: { secret: SECRET, providers: github, ...extra } as AuthConfig,
+    authConfig: { secret: SECRET, providers: github, allowedUsers: ["*@example.com", "*@x"], ...extra } as AuthConfig,
     port: 8000,
   });
   a.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => [], logRefusal: () => {} }));

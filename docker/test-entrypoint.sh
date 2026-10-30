@@ -417,6 +417,9 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
         ...(cfg.auth ?? {}),
         secret: "e2e-auth-secret-32-chars-longxxxx",
         providers: { github: { clientId: "e2e-client-id", clientSecret: "e2e-client-secret" } },
+        // github is a public IdP: an empty allowlist REFUSES login and rejects its sessions
+        // (close-security-map-high-findings D3), so the seed must carry a non-empty list.
+        allowedUsers: ["e2e-operator@example.com"],
         bypassUrls: noBypass === "1" ? [] : ["/"],
         redirectBaseUrl: base,
       };

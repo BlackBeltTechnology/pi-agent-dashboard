@@ -38,6 +38,7 @@ import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/to
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
+import { DashboardStateRefused, dashboardStateRefuses, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import {
   admitRouteCwd,
   listKnownFolderCwds,
@@ -1099,7 +1100,11 @@ export function registerOpenSpecRoutes(
     },
   );
 
-  // Pi Resource file endpoint — reads files from allowed pi resource locations
+  // Pi Resource file endpoint — reads files from allowed pi resource locations.
+  // The prefix allowlist below is deliberately loose (`includes(".pi/git/")`, `includes("node_modules/")`
+  // match anywhere in the path: recorded residual); the dashboard-state / pi-agent-credential refusal
+  // (real path, both tiers) runs after it, and the read goes through the post-open (dev, ino) recheck.
+  // See change: close-security-map-high-findings (D1, G1).
   fastify.get<{ Querystring: { path?: string } }>(
     "/api/pi-resource-file",
     { preHandler: networkGuard },
@@ -1130,10 +1135,19 @@ export function registerOpenSpecRoutes(
         return { success: false, error: "path not in allowed resource location" } satisfies ApiResponse;
       }
 
+      if (await dashboardStateRefuses(normalizedPath)) {
+        reply.code(403);
+        return { success: false, error: "path not in allowed resource location" } satisfies ApiResponse;
+      }
+
       try {
-        const content = await fs.readFile(normalizedPath, "utf-8");
+        const content = await readFileStateChecked(normalizedPath, "utf-8");
         return { success: true, data: { type: "file", content } } satisfies ApiResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof DashboardStateRefused) {
+          reply.code(403);
+          return { success: false, error: "path not in allowed resource location" } satisfies ApiResponse;
+        }
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;
       }

@@ -483,3 +483,49 @@ describe("a remote tokenless static request never reaches the file", () => {
     rm(f.cwd);
   });
 });
+
+// #X7 (close-security-map-high-findings): a credential swapped in between the gate and the open is caught on the handle.
+describe("static branch — a pi-agent credential swapped in after the gate (#X7)", () => {
+  let f: Fixture;
+  let home: string;
+  let prevHome: string | undefined;
+  beforeEach(async () => {
+    prevHome = process.env.HOME;
+    home = mkTmp("live-cred-home-");
+    process.env.HOME = home;
+    write(home, ".pi/agent/auth.json", "LIVE-CRED-MARKER");
+    f = await makeStatic();
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    process.env.HOME = prevHome;
+    await f.app.close();
+    rm(f.cwd, home);
+  });
+
+  it.each(["symlink", "hardlink"] as const)("%s to auth.json: the live-server not-servable 404, no bytes; an ordinary page still serves", async (how) => {
+    const page = write(f.root, "page.html", "<p>ordinary</p>");
+    const realOpen = fs.promises.open.bind(fs.promises);
+    let swapped = false;
+    vi.spyOn(fs.promises, "open").mockImplementation((async (p: fs.PathLike, ...rest: unknown[]) => {
+      if (!swapped && String(p) === page) {
+        swapped = true;
+        fs.rmSync(page);
+        if (how === "symlink") fs.symlinkSync(path.join(home, ".pi/agent/auth.json"), page);
+        else fs.linkSync(path.join(home, ".pi/agent/auth.json"), page);
+      }
+      return (realOpen as (...a: unknown[]) => Promise<fs.promises.FileHandle>)(p, ...rest);
+    }) as never);
+    const url = `${f.mint()}/page.html`;
+    const res = await f.app.inject({ method: "GET", url });
+    expect(swapped).toBe(true);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "live-server target not found" });
+    expect(res.body).not.toContain("LIVE-CRED-MARKER");
+    vi.restoreAllMocks();
+    write(f.root, "ok.html", "<p>ok</p>");
+    const ok = await f.app.inject({ method: "GET", url: `${f.mint()}/ok.html` });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.body).toBe("<p>ok</p>");
+  });
+});

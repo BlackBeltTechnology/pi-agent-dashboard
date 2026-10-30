@@ -139,3 +139,21 @@ describe("F17: the replay window mode control is localized in en, zh-CN and hu",
     expect(panel).toMatch(/Affects every client of this server/);
   });
 });
+
+// ─── Open-enrolment banner keys (close-security-map-high-findings D3, #F4) ───
+
+describe("Security open-enrolment banner i18n keys (#F4)", () => {
+  const KEYS = ["settings.openEnrolmentTitle", "settings.openEnrolmentRefused", "settings.openEnrolmentOpen"];
+
+  it.each(SOURCES.map(([name, src]) => [name, src] as const))("%s defines every banner key", (_name, src) => {
+    for (const key of KEYS) expect(lookup(src, key), key).toBeTruthy();
+  });
+
+  it("the parameterised messages keep the {provider} placeholder in every locale (no raw key rendered)", () => {
+    for (const [name, src] of SOURCES) {
+      for (const key of ["settings.openEnrolmentRefused", "settings.openEnrolmentOpen"]) {
+        expect(lookup(src, key), `${name} ${key}`).toContain("{provider}");
+      }
+    }
+  });
+});

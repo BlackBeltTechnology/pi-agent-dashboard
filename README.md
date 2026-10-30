@@ -363,7 +363,8 @@ OAuth2 authentication guards external (tunnel) access. Localhost is always ungua
 |-----|----------|-------------|
 | `auth.secret` | No | JWT signing secret (auto-generated if omitted) |
 | `auth.providers` | Yes | Map of provider → `{ clientId, clientSecret, issuerUrl? }` |
-| `auth.allowedUsers` | No | Allowlist: usernames, emails, or `*@domain` wildcards. Empty = allow all |
+| `auth.allowedUsers` | No | Allowlist: usernames, emails, or `*@domain` wildcards. **Public providers** (`github`, `google`, or an `oidc` issuer on a public IdP such as accounts.google.com / github.com / login.microsoftonline.com `/common`) **refuse login when both this and `auth.groupTiers` are empty or unset**. Providers with an issuer of your own (`keycloak`, a private `oidc`) allow every account at `operate` when empty, with a startup warning |
+| `auth.groupTiers` | No | Config-file only. Map of IdP group → tier (`observe` / `control` / `operate`) for OIDC providers. Setting a non-empty valid map lifts the open-enrolment refusal on a public provider |
 
 **Supported providers:** `github`, `google`, `keycloak`, `oidc` (generic OIDC with `issuerUrl`).
 
