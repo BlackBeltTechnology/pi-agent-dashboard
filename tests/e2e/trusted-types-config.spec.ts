@@ -52,23 +52,31 @@ async function chooseAndSave(page: Page, value: string): Promise<void> {
   await expect(page.getByText(/require a server restart/i)).toBeVisible({ timeout: 30_000 });
 }
 
+/** Fallback restore (independent of the UI): drop a stored `security.trustedTypes` and restart so later specs see the default. */
+async function restoreDefaultViaApi(page: Page): Promise<void> {
+  const res = await page.request.get("/api/config", { timeout: 10_000 });
+  const stored = ((await res.json()) as { data?: { security?: { trustedTypes?: unknown } } }).data?.security?.trustedTypes;
+  if (stored === undefined) return;
+  await page.request.put("/api/config", { data: { security: { trustedTypes: null } }, timeout: 10_000 });
+  await restart(page);
+}
+
 test("F6: Settings → Enforce → restart enforces; Default restores report", async ({ page }) => {
   test.setTimeout(240_000);
-  let saved = false;
   try {
     const initial = await documentState(page);
     expect(initial, "harness runs with the Trusted Types default (report)").toEqual({ meta: "report", enforcing: false });
 
     await chooseAndSave(page, "enforce");
-    saved = true;
     await restart(page);
     expect(await documentState(page)).toEqual({ meta: "enforce", enforcing: true });
+
+    // The operator path back: Default removes the stored key.
+    await chooseAndSave(page, "");
+    await restart(page);
+    expect(await documentState(page)).toEqual({ meta: "report", enforcing: false });
   } finally {
-    // Restore Default (removes the key) and restart, so later specs see the harness default.
-    if (saved) {
-      await chooseAndSave(page, "");
-      await restart(page);
-    }
+    // Whatever failed above (including the save assertion after a successful write), never leave the key stored.
+    await restoreDefaultViaApi(page);
   }
-  expect(await documentState(page)).toEqual({ meta: "report", enforcing: false });
 });
