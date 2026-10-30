@@ -33,14 +33,14 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/pi-agent-settings-lock.js";
 import rateLimit from "@fastify/rate-limit";
 
-export const EDIT_MODE_STATE_FRAME = "flows_edit_mode_state";
-export const SET_EDIT_MODE_EVENT = "flow:set-edit-mode";
+const EDIT_MODE_STATE_FRAME = "flows_edit_mode_state";
+const SET_EDIT_MODE_EVENT = "flow:set-edit-mode";
 /** Per-project action: poll the project file until pi-flows has written it. */
 export const SET_EDIT_MODE_POLL = { attempts: 10, intervalMs: 200 } as const;
 
 export type EditModeError = "not-delivered" | "timeout";
 
-export interface EditModeStateFrame {
+interface EditModeStateFrame {
   type: typeof EDIT_MODE_STATE_FRAME;
   sessionId: string;
   enabled: boolean;
@@ -59,7 +59,7 @@ function projectSettingsPath(cwd: string): string {
 }
 
 /** pi-flows `readEditFlowFlag`: `flows.editFlow` first, then `flowsEditFlow`; booleans only. */
-export function readEditFlowFlag(settings: unknown): boolean | undefined {
+function readEditFlowFlag(settings: unknown): boolean | undefined {
   if (!settings || typeof settings !== "object") return undefined;
   const s = settings as Record<string, unknown>;
   const flows = s.flows;
@@ -163,7 +163,7 @@ export interface EditModeRouteDeps extends EditModeDeps {
 }
 
 /** Write `flows.editFlow` to the global file under pi's lock. */
-export async function writeGlobalEditMode(
+async function writeGlobalEditMode(
   enabled: boolean,
   deps: Pick<EditModeDeps, "home" | "lockFs">,
 ): Promise<{ ok: true } | { ok: false; status: number; parseError?: string; error: string }> {

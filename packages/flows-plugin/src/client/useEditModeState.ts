@@ -16,7 +16,7 @@
 import { usePluginMessage } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type EditModeError = "not-delivered" | "timeout";
+type EditModeError = "not-delivered" | "timeout";
 
 interface EditModeFrame {
   sessionId?: unknown;
