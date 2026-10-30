@@ -99,6 +99,7 @@ import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
+import { TrustedTypesSection } from "./TrustedTypesSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
 import { DefaultGroupingField } from "./DefaultGroupingField.js";
@@ -283,6 +284,10 @@ interface Config {
   agentPathGate?: { enabled: boolean; timeoutSeconds: number };
   /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
   agentPathGateEnvOverride?: "on" | "off" | null;
+  /** Raw stored security knobs; `trustedTypes` is `off | report | enforce` when valid. See change: enforce-trusted-types-default. */
+  security?: { trustedTypes?: unknown };
+  /** Computed by GET /api/config (never persisted): the recognized `PI_DASHBOARD_TRUSTED_TYPES` value, or null. */
+  trustedTypesEnvOverride?: "off" | "report" | "enforce" | null;
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -354,7 +359,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", windowsBashSource: "sessions", autoStart: "sessions", editor: "general",
-  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", security: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -464,6 +469,11 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if ((config.hostGate?.mode ?? "enforce") !== (original.hostGate?.mode ?? "enforce")) {
     partial.hostGate = { mode: config.hostGate?.mode ?? "enforce" };
+  }
+  // Trusted Types: written as `security.trustedTypes`; Default (key absent in the draft) sends `null`,
+  // which removes the stored key. See change: enforce-trusted-types-default.
+  if (config.security?.trustedTypes !== original.security?.trustedTypes) {
+    partial.security = { trustedTypes: config.security?.trustedTypes ?? null };
   }
   // Agent path gate: two flat fields, written whole (server shallow-merges the sub-object).
   {
@@ -2646,6 +2656,14 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   onModeChange={(mode) => update((c) => { c.hostGate = { mode }; })}
                   onAllowedHostsChange={(hosts) => update((c) => { c.allowedHosts = hosts; })}
                   onNavigate={navigate}
+                />
+                <TrustedTypesSection
+                  value={config.security?.trustedTypes}
+                  envOverride={config.trustedTypesEnvOverride ?? null}
+                  onChange={(mode) => update((c) => {
+                    const { trustedTypes: _drop, ...rest } = c.security ?? {};
+                    c.security = mode === undefined ? rest : { ...rest, trustedTypes: mode };
+                  })}
                 />
                 <AgentPathGateSection
                   value={config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 }}

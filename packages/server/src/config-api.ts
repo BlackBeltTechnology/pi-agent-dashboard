@@ -406,6 +406,28 @@ export function writeConfigPartial(
       if (changed) restartRequired = true;
     }
 
+    // Merge `security` key-by-key so a Trusted Types write keeps sibling keys. `trustedTypes: null`
+    // deletes the key (Settings "Default"); an emptied `security` object is removed. Read once at
+    // server start, so a CHANGED value (compared normalized, absent == undefined) owes a restart.
+    // See change: enforce-trusted-types-default (D5).
+    if (partial.security && typeof partial.security === "object" && !Array.isArray(partial.security)) {
+      const existingSecurity =
+        existing.security && typeof existing.security === "object" && !Array.isArray(existing.security) ? existing.security : {};
+      const { trustedTypes, ...otherSecurity } = partial.security as Record<string, unknown>;
+      const mergedSecurity: Record<string, unknown> = { ...existingSecurity, ...otherSecurity };
+      if ("trustedTypes" in partial.security) {
+        const next = trustedTypes === null ? undefined : trustedTypes;
+        if (next !== existingSecurity.trustedTypes) restartRequired = true;
+        if (next === undefined) delete mergedSecurity.trustedTypes;
+        else mergedSecurity.trustedTypes = next;
+      }
+      if (Object.keys(mergedSecurity).length > 0) partial.security = mergedSecurity;
+      else {
+        delete partial.security;
+        delete existing.security;
+      }
+    }
+
     // Merge openspec sub-object (no restart required — live-reconfigured)
     if (partial.openspec) {
       partial.openspec = { ...existing.openspec, ...partial.openspec };
@@ -472,6 +494,7 @@ export function writeConfigPartial(
     delete merged.resolvedTrustedNetworks;
     delete merged.reachability;
     delete merged.agentPathGateEnvOverride;
+    delete merged.trustedTypesEnvOverride;
 
     // Write
     fs.mkdirSync(dir, { recursive: true });

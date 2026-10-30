@@ -2378,7 +2378,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Trusted Types rides the same hook under its own `PI_DASHBOARD_TRUSTED_TYPES`
   // mode (also stamped into index.html as a meta). See change: harden-client-sinks (D7).
   const cspMode = resolveCspMode(process.env.PI_DASHBOARD_CSP);
-  const trustedTypesMode = resolveTrustedTypesMode(process.env.PI_DASHBOARD_TRUSTED_TYPES, cspMode);
+  // Resolved ONCE (env → config `security.trustedTypes` → default); the same value feeds the headers and the
+  // index.html meta. Each bad source warns once here, never per request. See change: enforce-trusted-types-default.
+  const ttResolution = resolveTrustedTypesMode({
+    env: process.env.PI_DASHBOARD_TRUSTED_TYPES,
+    config: loadConfig().security?.trustedTypes,
+    cspMode,
+  });
+  for (const w of ttResolution.warnings) console.warn(`[csp] Trusted Types: ${w.message}`);
+  const trustedTypesMode = ttResolution.mode;
   registerCsp(fastify, cspMode, trustedTypesMode);
 
   // Register auth plugin if configured (must be before routes)

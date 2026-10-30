@@ -1,3 +1,7 @@
+## Scope amendment (2026-10-30)
+
+The default flip, soak gate (old D1/D2), header-kind E2E alignment (old D7) and the BREAKING rollout moved to `flip-trusted-types-default-enforce`. Here the default stays `report` (`off` when the CSP is `off`). Read D3–D6 with that: wherever they say the unset default is `enforce`, it is `report`; D1, D2 and D7 and the soak/flip parts of Risks and Migration Plan belong to the follow-up and are kept only as its starting material. D8's rollback is the same knob, used to opt in or out.
+
 ## Context
 
 **Server resolution.**
@@ -59,7 +63,7 @@
 - A string that, trimmed and lowercased, is `off`, `report` or `enforce` maps to itself. Any other set value (another string, a number, an object) maps to `report` and adds a warning naming the source (`env`/`config`) without echoing the value. This is the shipped `hostGate.mode` convention (`config.ts:61-75`; `openspec/specs/shared-config/spec.md`).
 - Rationale for `report`: the realistic typo is a mistyped rollback (`reprot`), which must still relax.
 - Every set source is validated, so a config typo shadowed by a valid env value still warns.
-- With no set source, the default applies: `cspMode === "off" ? "off" : "enforce"`.
+- With no set source, the default applies: `cspMode === "off" ? "off" : "report"` (unchanged from today; the follow-up flips the `report` branch).
 - The old `csp.ts` `resolveTrustedTypesMode(raw, cspMode)` is removed, not wrapped, so no caller can bypass config. `csp.ts` re-exports the shared function, and its call sites (`server.ts:2316`, the `csp.test.ts` default and `WE12-14` cases) move to the object form.
 - `server.ts` resolves once with `loadConfig().security?.trustedTypes`, logs each warning once, and passes the same value to `registerCsp` and `createIndexHtmlSender` (`server.ts:3721`).
 - `trustedTypesDevPlugin` imports it by relative path and also reads the config, so dev and production state the same mode for the same environment.
@@ -67,18 +71,18 @@
 
 **D4. The document always states the resolved mode.** `createIndexHtmlSender` takes `trustedTypesMode` as a required option, with no `report` fallback.
 - A unit test asserts that for each (CSP mode × TT mode) pair the index-html meta equals the TT mode that `plan()` puts in an enforcing or report-only header.
-- An E2E with no interception asserts, under the unset TT default, `content="enforce"` plus an enforcing policy containing `require-trusted-types-for 'script'`. With the live CSP default `report`, that is a separate TT-only enforcing header; with CSP `enforce` (if the sibling flip has landed), the directive is appended to the strict enforcing header. The spec checks whichever holds for the harness's CSP mode.
+- An E2E (F6) asserts, after Settings selects `enforce` and a restart, `content="enforce"` plus an enforcing policy containing `require-trusted-types-for 'script'`. With the live CSP default `report`, that is a separate TT-only enforcing header; with CSP `enforce` (if the sibling flip has landed), the directive is appended to the strict enforcing header. The spec checks whichever holds for the harness's CSP mode.
 
 **D5. Config knob.**
 - `security?: { trustedTypes?: unknown }` in `DashboardConfig`. `loadConfig()` builds its result field by field (`config.ts:2760-2811`), so it explicitly copies `parsed.security?.trustedTypes` (raw, unvalidated) into `result.security`. A round-trip test covers it.
 - `PUT /api/config` deep-merges `security` (`{ ...existing.security, ...partial.security }`), like the other nested sections, so sibling keys survive. A `trustedTypes: null` in the partial deletes the key, which is how Settings' Default choice clears it; an emptied `security` object is removed. It sets `restartRequired` only when the normalized value differs from the existing one, following the `serverHeap` value-compare pattern (`config-api.ts:397-407`).
 - Settings wiring: the client `Config` type (`SettingsPanel.tsx:281` area), a `security: "security"` entry in `CONFIG_FIELD_PAGE` (`:357`), and a `computeConfigPartial` diff block like the `hostGate` one (`:465-466`). The settings field-contract test covers the new field.
-- Settings → Security gains one select (Default: Enforce unless CSP is off / Enforce / Report only / Off; Default stores no key) beside `AllowedHostsSection`, following its mode-control pattern, with the restart notice the panel already shows for restart fields.
+- Settings → Security gains one select (Default: Report only, or Off when CSP is off / Enforce / Report only / Off; Default stores no key) beside `AllowedHostsSection`, following its mode-control pattern, with the restart notice the panel already shows for restart fields.
 - An env override is shown as read-only text ("Set by PI_DASHBOARD_TRUSTED_TYPES: <mode>"), because env wins. The data source is a computed `trustedTypesEnvOverride: "off" | "report" | "enforce" | null` on `GET /api/config`. It is derived per request from `process.env`, which is constant for the process, following `agentPathGateEnvOverride` (`system-routes.ts:468-475`), and deleted from every write (`config-api.ts:472-474`). The select itself shows the saved config value, with the panel's restart notice.
 
 **D6. Header shape follows from existing `plan()` logic.** No change to `plan()`.
-- Unset TT with an unset CSP gives TT `enforce` against a `report` baseline. An enforcing header carrying the directive alone, labelled `trusted-types`, appears on dashboard responses outside the skipped prefixes (`/live/` etc.) that have not set their own `Content-Security-Policy`.
-- Unset TT with `PI_DASHBOARD_CSP=enforce` matches modes, so the directive is appended to the strict enforcing header.
+- TT `enforce` (set explicitly) against a `report` baseline: an enforcing header carrying the directive alone, labelled `trusted-types`, appears on dashboard responses outside the skipped prefixes (`/live/` etc.) that have not set their own `Content-Security-Policy`.
+- Explicit TT `enforce` with `PI_DASHBOARD_CSP=enforce` matches modes, so the directive is appended to the strict enforcing header.
 - Consequence for tests: a spec that reads `content-security-policy` as the baseline must select by kind and content (`report-only` + `default-src`) or pin its mode.
 
 **D7. Budget and report-mode specs pin report; header readers select by kind.** A `grep -l content-security-policy tests/e2e/*.spec.ts` sweep is part of the task, so specs not named here are aligned too. Guard replacements:
