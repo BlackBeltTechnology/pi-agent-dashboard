@@ -26,6 +26,20 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **BREAKING — pi-agent credential files are always refused (DEP-01).** `~/.pi/agent/auth.json`, `mcp-auth.json`,
+  `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json` and `system-one/auth.json` (plus same-dir
+  `<name>.*` siblings, symlinks and hard links to them) can no longer be opened through the file, grep, session-file,
+  pi-resource-file, write-binary, live-server or plugin file routes, whatever the caller's tier or access grants.
+  Re-checked after open on every content-serving site.
+- **BREAKING — OAuth login fails closed for public identity providers (HTTP-01).** A public provider (`github`,
+  `google`, or an issuer on a public IdP) with neither `auth.allowedUsers` nor `auth.groupTiers` now refuses login
+  (403 remedy page), already-issued sessions of that provider are rejected, and open sockets are closed on config
+  reload. Private issuers (`keycloak`, own `oidc`) keep allow-all with a startup warning. **Review Settings ▸ Users and
+  Paired devices after upgrading**: passkey users, invites and device bearers created while sign-in was open stay valid.
+  `GET /api/auth/diagnostics` now reports `openEnrolment`; Settings → Security shows a banner.
+- **BREAKING — `prompt_response` and `extension_ui_response` leave the MCP surface for all tokens (TOOL-01, re-rated
+  Low).** They never answered a prompt (the host wrapped the object as `send_prompt` text). Chat-gateway button answers
+  are unaffected.
 - **Plugin credentials and the credential vault are now encrypted at rest.** `~/.pi/agent/plugin-credentials.json`
   and `~/.pi/dashboard/vault.json` are stored as an AES-256-GCM envelope (`pi-dashboard-encrypted:v1`). The data key
   lives in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager; service

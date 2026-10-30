@@ -156,7 +156,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "delete_workspace", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "detach_proposal", reason: "duplicate-of:detach_proposal" },
   { pattern: "dismiss_replace_proposal", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
-  { pattern: "extension_ui_response", reason: "duplicate-of:extension_ui_response" },
+  { pattern: "extension_ui_response", reason: "agent prompt answers stay human-in-the-loop; broken session bind" },
   { pattern: "favorite_model", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "fetch_content", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "flow_control", reason: "duplicate-of:flow_control" },
@@ -168,6 +168,13 @@ export const DENYLIST: readonly DenylistEntry[] = [
   // is already the accepted residual R-A (design D1b); exposing it to agents
   // would turn that residual into a one-call self-escalation.
   { pattern: "grant_response", reason: "operator-only answer to an access prompt; self-approval risk" },
+  // Agent prompt answers stay human-in-the-loop (change: close-security-map-high-findings, D2).
+  // `prompt_response` / `extension_ui_response` never worked over MCP (the session
+  // bind injected a malformed send_prompt) and were one bind fix from a
+  // cross-session self-approval road. The REST route stays registered + tiered for
+  // the browser; the chat gateway answers via its own chat-local tier entry.
+  { pattern: "prompt_response", reason: "agent prompt answers stay human-in-the-loop; broken session bind" },
+  { pattern: "/api/session/:id/extension-ui-response", reason: "agent prompt answers stay human-in-the-loop; inert (the bridge drops the legacy message)" },
   { pattern: "kill_process", reason: "duplicate-of:kill_process" },
   { pattern: "kill_terminal", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "list_files", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },

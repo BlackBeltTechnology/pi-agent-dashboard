@@ -806,6 +806,45 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "#AE12: first start minted a 64-hex auth.secret; the second start kept it; server.log never printed it"
 
+    # #E108 — close-security-map-high-findings (D3, OA4/OA6): a public IdP (github) with NO allowlist and
+    # NO groupTiers is refused at login, and the startup log says so exactly once. Only a real boot
+    # proves the warning reaches server.log and the refusal reaches a real HTTP response.
+    E108_CONFIG='{"port":8000,"auth":{"providers":{"github":{"clientId":"e108-client-id","clientSecret":"e108-client-secret"}}}}'
+    if ! boot_with_config "$E108_CONFIG"; then
+      echo "FAIL (#E108): server did not come up for the open-enrolment check"
+      exit 1
+    fi
+    E108_WARN=$(grep -F '"github"' "$LOG_PATH" | grep -F 'open enrolment' || true)
+    E108_WARN_LINES=$(printf '%s' "$E108_WARN" | grep -c . || true)
+    if [ "$E108_WARN_LINES" != "1" ]; then
+      echo "FAIL (#E108): expected exactly 1 open-enrolment warning line for github in server.log, got $E108_WARN_LINES"
+      exit 1
+    fi
+    for NEEDLE in 'auth.allowedUsers' 'auth.groupTiers' 'Paired devices'; do
+      if ! printf '%s' "$E108_WARN" | grep -qF "$NEEDLE"; then
+        echo "FAIL (#E108): the github warning line does not name '$NEEDLE'"
+        exit 1
+      fi
+    done
+    if grep -qF "e108-client-secret" "$LOG_PATH"; then
+      echo "FAIL (#E108): server.log contains the provider clientSecret"
+      exit 1
+    fi
+    E108_HEADERS=$(curl -s -o /dev/null -D - http://localhost:8000/auth/start/github || true)
+    if ! printf '%s' "$E108_HEADERS" | head -1 | grep -q ' 403'; then
+      echo "FAIL (#E108): GET /auth/start/github did not answer 403: $(printf '%s' "$E108_HEADERS" | head -1)"
+      exit 1
+    fi
+    if printf '%s' "$E108_HEADERS" | grep -qi '^location:'; then
+      echo "FAIL (#E108): the refused /auth/start/github carries a Location header (an IdP bounce)"
+      exit 1
+    fi
+    if ! curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then
+      echo "FAIL (#E108): the server did not stay up after the refusal"
+      exit 1
+    fi
+    echo "#E108: one github open-enrolment warning (names both fields + Paired devices); /auth/start/github -> 403, no Location; server stayed up"
+
     restore_config
 
     # =========================================================================

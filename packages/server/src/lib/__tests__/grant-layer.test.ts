@@ -305,3 +305,32 @@ describe("9d.1 / 9d.2 cost of the grant check", () => {
     expect(second).toEqual(first);
   });
 });
+
+// #P3 (close-security-map-high-findings): the credential predicate in front of the grant layer does not make an
+// empty store cost anything — the grant layer itself still performs no syscall.
+describe("P3 an empty grant store: the grant layer performs no syscall with the credential predicate in front", () => {
+  it("1000 checks: 0 grant-layer syscalls; the predicate's own realpath/stat cost is bounded and counted separately", async () => {
+    const fsp = (await import("node:fs/promises")).default;
+    const { dashboardStateRefuses } = await import("../dashboard-state-guard.js");
+    const file = write("a/plain.txt");
+    const counts = { realpath: 0, stat: 0, lstat: 0, readdir: 0, open: 0 };
+    for (const k of Object.keys(counts) as Array<keyof typeof counts>) {
+      const real = (fsp[k] as (...a: unknown[]) => Promise<unknown>).bind(fsp);
+      (vi.spyOn(fsp, k as never) as unknown as { mockImplementation(f: unknown): void }).mockImplementation((...a: unknown[]) => {
+        counts[k]++;
+        return real(...a);
+      });
+    }
+    expect(grantedSubjects()).toEqual([]);
+    for (let i = 0; i < 1000; i++) expect(await isGrantAdmitted(file, grantedSubjects())).toBe(false);
+    expect(counts).toEqual({ realpath: 0, stat: 0, lstat: 0, readdir: 0, open: 0 });
+
+    // The credential predicate's own syscalls (asserted separately): realpath only, a small constant per check.
+    for (let i = 0; i < 1000; i++) expect(await dashboardStateRefuses(file)).toBe(false);
+    expect(counts.realpath).toBeGreaterThan(0);
+    expect(counts.realpath / 1000).toBeLessThanOrEqual(20);
+    expect(counts.readdir).toBe(0);
+    expect(counts.open).toBe(0);
+    vi.restoreAllMocks();
+  });
+});

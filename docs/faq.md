@@ -1070,7 +1070,8 @@ Add `auth.providers` block to `~/.pi/dashboard/config.json`. Localhost stays ung
 Keys:
 - `auth.secret` — JWT signing secret (auto-generated if omitted)
 - `auth.providers` — provider → `{ clientId, clientSecret, issuerUrl? }`
-- `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Empty = allow all
+- `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Provider-specific when empty: public providers (`github`, `google`, or an `issuerUrl` on a public IdP host) refuse login when `auth.allowedUsers` and `auth.groupTiers` are both empty; unknown-issuer `keycloak`/`oidc` allow all (startup warning)
+- `auth.groupTiers` — group → tier map, config file only; non-empty lifts the public-provider refusal
 - `auth.bypassHosts` — network list (CIDR/wildcard/exact); admits without sign-in only under `network.trustMode: "legacy"`; written by Settings → Security → Network access
 - `auth.bypassUrls` — path-prefix allowlist
 

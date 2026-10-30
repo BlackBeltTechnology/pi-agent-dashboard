@@ -218,7 +218,7 @@ import {
   readServedBundledPluginIds,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
-import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
+import { readFileGuarded as guardedReadFile, runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
@@ -259,7 +259,7 @@ import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { stampSocketLocality } from "./pairing/socket-locality.js";
-import type { TieredSocket } from "./pairing/ws-tier-gate.js";
+import { sweepRevokedSockets, type TieredSocket } from "./pairing/ws-tier-gate.js";
 import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
@@ -2399,6 +2399,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // there. It admits ONLY a valid `/live/<id>/~c/<token>/…` raw path.
   // Liveness is re-checked at every use, so a revoked device, an ended session
   // or a removed target is refused on its next request.
+  // Late-bound live accessor from the auth plugin handle (built below): an OAuth session of a
+  // removed / refused-public-IdP provider is not live. See change: close-security-map-high-findings (D3).
+  let sessionProviderRejectedAccessor: ((provider: unknown) => boolean) | null = null;
+  const sessionProviderRejected = (provider: unknown): boolean => sessionProviderRejectedAccessor?.(provider) ?? false;
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: (p) => {
@@ -2406,7 +2410,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Minted on network trust alone: only valid while network trust still authenticates.
       if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
       if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
-      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService) !== null;
+      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
       return true;
     },
   });
@@ -2553,7 +2557,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   passkeyService.configure(config.authConfig);
   let oauthLoginAccessor: (() => boolean) | null = null;
   if (config.authConfig) {
-    oauthLoginAccessor = (await registerAuthPlugin(fastify, {
+    const authHandle = await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
@@ -2562,7 +2566,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       localToken,
       localTrust,
       passkeys: passkeyService,
-    })).hasUsableOAuthProvider;
+      // Close open browser + terminal sockets whose session the reload revoked (D3, G7-G10).
+      onAuthReloaded: () => {
+        sweepRevokedSockets({ browser: browserGateway.wss, terminal: terminalGateway.wss });
+      },
+    });
+    oauthLoginAccessor = authHandle.hasUsableOAuthProvider;
+    sessionProviderRejectedAccessor = authHandle.isSessionProviderRejected;
   }
   // Live "is a usable login method configured" (drives the `sign-in` remedy of an
   // `operate_required` refusal). See change: surface-operate-required-remedy.
@@ -4402,6 +4412,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 return mintSpawnToken();
               },
+              // Guarded UTF-8 file read for plugin routes that return file CONTENT: `null` when the
+              // dashboard-state / pi-agent-credential guard refuses the real path (caller from the
+              // `onRequest` scope) or the opened handle. Not trust-gated (it only narrows).
+              // See change: close-security-map-high-findings (D1, H1).
+              readFileGuarded: guardedReadFile,
               // Rename a live session: in-memory + `session_updated` broadcast
               // + `rename_session` to pi — the host's own rename block, lifted
               // verbatim (the broadcast carries `{ name: name || undefined }`).
@@ -4914,14 +4929,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             ? { identity: liveCapPrincipal.identity, identityExpiresAt: liveCapPrincipal.identityExpiresAt }
             : null,
           // A revoked / disabled passkey user's cookie opens no socket (D4).
-          isSessionLive: (p) => effectiveSessionTier(p, passkeyService) !== null,
+          isSessionLive: (p) => effectiveSessionTier(p, passkeyService, sessionProviderRejected) !== null,
         });
         // Cookie-session sockets carry the session's LIVE tier (passkey users
         // re-read the directory). Terminals need operate, live previews
         // control; browser messages are gated per type in the gateway.
         // See change: add-passkey-user-auth.
         const sessionPayload = upgradeAuth.ok ? upgradeAuth.session : undefined;
-        const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService) : undefined;
+        const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService, sessionProviderRejected) : undefined;
         const roadTier = scope === "terminal" ? TERMINAL_TIER : scope === "live" ? LIVE_PREVIEW_TIER : undefined;
         if (sessionTierOf && roadTier) {
           const t = sessionTierOf();
@@ -5044,6 +5059,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                       })
                   : undefined,
                 upgradeAuth.principalExpiresAt,
+                sessionTierOf,
               ),
             );
             break;

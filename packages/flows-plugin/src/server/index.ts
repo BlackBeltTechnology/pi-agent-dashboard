@@ -82,6 +82,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   await registerFlowFileRoutes({
     fastify: ctx.fastify,
     networkGuard: ctx.networkGuard,
+    readFileGuarded: ctx.readFileGuarded,
     registerPiRequestHandler: ctx.registerPiRequestHandler,
     sessionManager: ctx.sessionManager,
     emitEventToSession,

@@ -169,6 +169,12 @@ const flowFileRegistry = new FlowFileRegistry();
 interface RouteDeps {
   fastify: ServerPluginContext["fastify"];
   networkGuard: ServerPluginContext["networkGuard"];
+  /**
+   * Host guard for reading file CONTENT (state / pi-agent-credential refusal on the real path + post-open
+   * recheck). `null` or an absent seam (older host) refuses — never a plain `fs` fallback.
+   * See change: close-security-map-high-findings (D1, H1).
+   */
+  readFileGuarded?: ServerPluginContext["readFileGuarded"];
   registerPiRequestHandler?: (type: string, h: (payload: unknown, meta: { sessionId: string }) => unknown) => void;
   sessionManager: { listActive(): unknown[]; getSession(id: string): unknown };
   emitEventToSession: (sessionId: string, eventType: string, data: Record<string, unknown>) => boolean;
@@ -254,7 +260,10 @@ export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
     }
     if (!isSmallFile(target)) return reply.code(404).send({ success: false, error: "not found" });
     try {
-      const content = await fs.promises.readFile(target, "utf8");
+      const content = deps.readFileGuarded ? await deps.readFileGuarded(target) : null;
+      if (content === null) {
+        return reply.code(403).send({ success: false, error: "not a flow file of this session" });
+      }
       return { success: true, data: { type: "file", content } };
     } catch {
       return reply.code(404).send({ success: false, error: "not found" });

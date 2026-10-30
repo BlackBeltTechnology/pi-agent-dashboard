@@ -809,6 +809,10 @@ export function registerSystemRoutes(
           source,
           authActive: Boolean((fastify as any)._reloadAuth),
           providerCount: Object.keys(cfg.auth?.providers ?? {}).length,
+          // Live (from the auth plugin's authState, not config.json): providers with no
+          // allowlist/group map; `refused` = public IdP (login refused), `open` = allow-all.
+          // See change: close-security-map-high-findings (D3).
+          openEnrolment: (fastify as any)._authOpenEnrolment?.() ?? [],
         },
       } satisfies ApiResponse;
     },

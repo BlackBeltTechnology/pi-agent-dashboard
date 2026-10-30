@@ -111,7 +111,7 @@ afterEach(() => {
 
 async function appWith(hooks: AutomationRouteHooks = {}): Promise<FastifyInstance> {
   const app = Fastify();
-  mountAutomationRoutes(app, { knownCwds: () => [R], ...hooks });
+  mountAutomationRoutes(app, { knownCwds: () => [R], readFileGuarded: (p) => fs.promises.readFile(p, "utf-8"), ...hooks });
   await app.ready();
   return app;
 }

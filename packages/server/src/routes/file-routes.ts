@@ -836,7 +836,7 @@ export function registerFileRoutes(
         release = await digestGate.acquire(lane, ac.signal);
         const fh = gate.viaGrant
           ? await openVerifiedRegularFile(gate.resolved)
-          : await fs.open(gate.resolved, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
+          : await openStateChecked(gate.resolved, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
         try {
           const stat = await fh.stat();
           if (!stat.isFile()) {
@@ -853,7 +853,7 @@ export function registerFileRoutes(
           await fh.close();
         }
       } catch (err) {
-        if (err instanceof VerifiedReadRefused) {
+        if (err instanceof VerifiedReadRefused || err instanceof DashboardStateRefused) {
           reply.code(403);
           return { success: false, error: "path outside working directory" } satisfies ApiResponse;
         }
@@ -1094,13 +1094,17 @@ export function registerFileRoutes(
       }
       try {
         const stat = await fs.stat(resolved);
-        const content = await fs.readFile(resolved, "utf-8");
+        const content = await readFileStateChecked(resolved, "utf-8");
         // Full-precision mtime token (matches the write-side conflict check).
         return {
           success: true,
           data: { content, mtime: stat.mtimeMs },
         } satisfies ApiResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof DashboardStateRefused) {
+          reply.code(403);
+          return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        }
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;
       }
@@ -1362,17 +1366,23 @@ export function registerFileRoutes(
 
       // A grant-admitted read additionally binds the bytes served to the inode
       // that was checked (design D14, task 2.8).
+      // The media headers were set above; an open-time refusal answers JSON, so reset them (a JSON body under
+      // the file's own content type is a 500) and keep the refusal out of caches.
+      const openRefusal = (code: number, error: string): ApiResponse => {
+        reply.code(code);
+        reply.type("application/json; charset=utf-8");
+        reply.header("Cache-Control", "no-store");
+        reply.removeHeader("Accept-Ranges");
+        reply.removeHeader("Content-Security-Policy");
+        return { success: false, error };
+      };
       let grantedHandle: Awaited<ReturnType<typeof openVerifiedRegularFile>> | undefined;
       if (viaGrant) {
         try {
           grantedHandle = await openVerifiedRegularFile(resolved);
         } catch (err) {
-          if (err instanceof VerifiedReadRefused) {
-            reply.code(403);
-            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
-          }
-          reply.code(404);
-          return { success: false, error: "not found" } satisfies ApiResponse;
+          if (err instanceof VerifiedReadRefused) return openRefusal(403, "path outside working directory");
+          return openRefusal(404, "not found");
         }
       }
 
@@ -1383,11 +1393,9 @@ export function registerFileRoutes(
         try {
           rawHandle = await openStateChecked(resolved, "r");
         } catch (err) {
-          reply.code(err instanceof DashboardStateRefused ? 403 : 404);
-          return {
-            success: false,
-            error: err instanceof DashboardStateRefused ? "path outside working directory" : "not found",
-          } satisfies ApiResponse;
+          return err instanceof DashboardStateRefused
+            ? openRefusal(403, "path outside working directory")
+            : openRefusal(404, "not found");
         }
       }
       const servedHandle = grantedHandle ?? rawHandle!;
@@ -1527,7 +1535,11 @@ export function registerFileRoutes(
       } else {
         try {
           source = await readFileStateChecked(resolved, "utf-8");
-        } catch {
+        } catch (err) {
+          if (err instanceof DashboardStateRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
           reply.code(404);
           return { success: false, error: "not found" } satisfies ApiResponse;
         }
@@ -1578,9 +1590,19 @@ export function registerFileRoutes(
         await fs.access(out);
       } catch {
         try {
+          // The converter takes a PATH, so the post-open (dev, ino) recheck runs immediately before it
+          // to narrow the swap window. Residual: a swap after this checked open; the converter only
+          // accepts .docx/.pptx and emits a PDF rendering, never the file bytes.
+          // See change: close-security-map-high-findings (D1, F7).
+          const guard = await openStateChecked(gate.resolved, "r");
+          await guard.close().catch(() => undefined);
           await fs.mkdir(path.dirname(out), { recursive: true });
           await docxPdfEngine.toPdf(gate.resolved, out);
         } catch (err) {
+          if (err instanceof DashboardStateRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
           reply.code(500);
           return {
             success: false,
@@ -1631,7 +1653,11 @@ export function registerFileRoutes(
       } else {
         try {
           buffer = await readFileStateChecked(gate.resolved);
-        } catch {
+        } catch (err) {
+          if (err instanceof DashboardStateRefused) {
+            reply.code(403);
+            return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+          }
           reply.code(404);
           return { success: false, error: "not found" } satisfies ApiResponse;
         }
@@ -1698,6 +1724,10 @@ export function registerFileRoutes(
         const data = await toParseResult(parsed, { allowRemote: request.query.allowRemote === "1" });
         return { success: true, data } satisfies ApiResponse;
       } catch (err) {
+        if (err instanceof DashboardStateRefused || (err instanceof VerifiedReadRefused && err.reason === "state-file")) {
+          reply.code(403);
+          return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        }
         const msg = err instanceof Error ? err.message : "failed to parse EML";
         reply.code(400);
         return { success: false, error: msg } satisfies ApiResponse;
@@ -1750,6 +1780,10 @@ export function registerFileRoutes(
           ? await loadParsedEml(gate.resolved, stat, await readFileVerified(gate.resolved))
           : await loadParsedEml(gate.resolved, stat);
       } catch (err) {
+        if (err instanceof DashboardStateRefused || (err instanceof VerifiedReadRefused && err.reason === "state-file")) {
+          reply.code(403);
+          return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+        }
         const msg = err instanceof Error ? err.message : "failed to parse EML";
         reply.code(400);
         return { success: false, error: msg } satisfies ApiResponse;

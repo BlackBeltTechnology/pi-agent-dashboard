@@ -6,8 +6,12 @@
  * G6 (the documented indirect-loop limit) and G7 (equality is not bypassable
  * by trivial mutation).
  */
-import { describe, expect, it } from "vitest";
+import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { describe, expect, it, vi } from "vitest";
+import { type DispatchDeps, dispatchRpc, type InjectOptions } from "../dispatch.js";
+import { type GeneratedTool, GENERATED_TOOLS } from "../generated/tools.js";
 import { evaluateSelfTarget, SESSION_TARGETING_TOOLS } from "../guard.js";
+import { META_VERSION_KEY } from "../protocol.js";
 import type { McpCaller } from "../tokens.js";
 
 const sessionCaller = (sessionId: string): McpCaller => ({ kind: "session", sessionId, tier: "control" });
@@ -128,5 +132,94 @@ describe("evaluateSelfTarget — malformed input", () => {
     // assertion would be masked by a self-target refusal.
     const r = evaluateSelfTarget(sessionCaller("A"), target as unknown as string, "send_prompt");
     expect(r.allowed).toBe(true);
+  });
+});
+
+// See change: close-security-map-high-findings (test-plan #E49): with
+// `prompt_response` gone, the guard still covers every remaining row that targets
+// a session — enumerated from the generated surface, not hand-listed.
+describe("E49 — self-target guard enumerates the remaining session-targeting rows", () => {
+  const V = "2026-07-28";
+  const rows = GENERATED_TOOLS.filter((t) => t.sessionTargeting);
+
+  /** Minimal schema-valid args for a row, with `sessionId` = target. */
+  function argsFor(tool: GeneratedTool, target: string): Record<string, unknown> {
+    const props = (tool.inputSchema.properties ?? {}) as Record<string, { type?: string; enum?: unknown[] }>;
+    const out: Record<string, unknown> = {};
+    for (const key of tool.inputSchema.required ?? []) {
+      const p = props[key] ?? {};
+      if (key === "sessionId") out[key] = target;
+      else if (p.enum?.length) out[key] = p.enum[0];
+      else if (p.type === "number" || p.type === "integer") out[key] = 1;
+      else if (p.type === "boolean") out[key] = true;
+      else if (p.type === "array") out[key] = [];
+      else if (p.type === "object") out[key] = {};
+      else out[key] = "x";
+    }
+    return out;
+  }
+
+  const mkDeps = (over: Partial<DispatchDeps> = {}): DispatchDeps => ({
+    invokeTool: vi.fn(async () => ({ ok: true })),
+    inject: vi.fn(async (_o: InjectOptions) => ({ statusCode: 200, body: { success: true, data: {} } })),
+    sendToSession: vi.fn(() => true),
+    serverInfo: { name: "pi-dashboard", version: "0.0.0" },
+    recordRefusal: vi.fn(),
+    recordTierRefusal: vi.fn(),
+    ...over,
+  });
+  const call = (tool: GeneratedTool, target: string, caller: McpCaller, d: DispatchDeps) =>
+    dispatchRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { _meta: { [META_VERSION_KEY]: V }, name: tool.name, arguments: argsFor(tool, target) },
+      },
+      { era: "modern", version: V },
+      caller,
+      d,
+    );
+
+  it("the residual `session` rows are present and the guard list has no prompt-response", () => {
+    const names = rows.map((r) => r.name);
+    for (const n of ["set_session_tags", "edit_followup_entry", "history_backfill"]) {
+      expect(names, n).toContain(n);
+    }
+    expect(names).not.toContain("prompt_response");
+    expect(names).not.toContain("extension_ui_response");
+    expect(SESSION_TARGETING_TOOLS as readonly string[]).not.toContain("prompt_response");
+    expect(SESSION_TARGETING_TOOLS as readonly string[]).not.toContain("prompt-response");
+  });
+
+  it.each(rows.map((r) => [r.name, r] as const))("%s: A→A is refused (tier first, then guard)", async (_n, tool) => {
+    const d = mkDeps();
+    const r = await call(tool, "A", sessionCaller("A"), d);
+    expect(r.status).toBe(403);
+    expect(d.invokeTool).not.toHaveBeenCalled();
+    expect(d.inject).not.toHaveBeenCalled();
+    expect(d.sendToSession).not.toHaveBeenCalled();
+    if (rank(tool.tier) > rank("control")) {
+      expect(d.recordTierRefusal).toHaveBeenCalledOnce();
+      expect(d.recordRefusal).not.toHaveBeenCalled();
+    } else {
+      expect(d.recordRefusal).toHaveBeenCalledWith({ callerSessionId: "A", targetSessionId: "A", tool: tool.name });
+    }
+  });
+
+  it.each(rows.map((r) => [r.name, r] as const))("%s: A→B is not a self-target refusal", async (_n, tool) => {
+    const d = mkDeps();
+    const r = await call(tool, "B", sessionCaller("A"), d);
+    expect(d.recordRefusal).not.toHaveBeenCalled();
+    if (rank(tool.tier) > rank("control")) expect(r.status).toBe(403);
+    else expect(r.status).toBe(200);
+  });
+
+  it("a sessionless (device) caller is unaffected for A→A", async () => {
+    const tool = rows.find((r) => rank(r.tier) <= rank("control")) as GeneratedTool;
+    const d = mkDeps();
+    const r = await call(tool, "A", { kind: "device", deviceId: "d1", tier: "operate" }, d);
+    expect(r.status).toBe(200);
+    expect(d.recordRefusal).not.toHaveBeenCalled();
   });
 });

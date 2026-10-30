@@ -10,6 +10,7 @@ One row per file.
 | `acp-session-queue.spec.ts` | → `acp-session-queue.spec.ts.AGENTS.md` |
 | `acp-session.spec.ts` | → `acp-session.spec.ts.AGENTS.md` |
 | `acp-spawn-picker.spec.ts` | → `acp-spawn-picker.spec.ts.AGENTS.md` |
+| `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
@@ -164,6 +165,7 @@ One row per file.
 | `notify-channel.spec.ts` | → `notify-channel.spec.ts.AGENTS.md` |
 | `notify-min-level.spec.ts` | → `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | → `oauth-redirect-base.spec.ts.AGENTS.md` |
+| `oauth-open-enrolment.spec.ts` | L3 (change: close-security-map-high-findings, D3). E110: github session cookie rejected (401 + cleared) while allowlist empty, accepted after. F5: Settings ▸ Security banner + refused login page, cleared after allowlist. F6: open browser + terminal sockets close after reload refuses github; `/auth/status` false. Restores seeded `allowedUsers` in `afterEach`. |
 | `openspec-artifact-dialog.spec.ts` | → `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | → `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | → `openspec-board-drop-indicator.spec.ts.AGENTS.md` |

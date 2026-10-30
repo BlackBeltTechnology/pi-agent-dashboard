@@ -16,7 +16,11 @@
 # skill loads its companion at runtime belongs to a live-session test, not to
 # this VM smoke layer.
 #
-# See change: fix-skill-discovery-parity (test-plan P1, X10, X11).
+# E42 — pi-agent credential files are refused (403, no bytes) while a non-credential ~/.pi
+#       resource (skill SKILL.md, settings.json) still previews, over the live runtime.
+#
+# See change: fix-skill-discovery-parity (test-plan P1, X10, X11);
+# close-security-map-high-findings (test-plan E42).
 set -euo pipefail
 
 echo "=== Test: pi-resources parity ==="
@@ -138,6 +142,48 @@ if [ -n "$BUNDLED" ]; then
 else
   echo "SKIP: X11 — no pi-dashboard/commands directory in this workspace"
 fi
+
+# ── E42: credential files refused, non-credential ~/.pi previews still work ──
+# Seeds throw-away files under ~/.pi/agent (never overwriting an existing one) and removes only what it created.
+echo "--- E42: credential refusal vs non-credential preview"
+AGENT_DIR="$HOME/.pi/agent"
+MARKER="QA-CRED-MARKER-$$-$(date +%s)"
+CREATED_DIRS=()
+CREATED_FILES=()
+cred_cleanup() {
+  for f in "${CREATED_FILES[@]:-}"; do [ -n "$f" ] && rm -f "$f"; done
+  for d in "${CREATED_DIRS[@]:-}"; do [ -n "$d" ] && rmdir "$d" 2>/dev/null || true; done
+}
+trap 'cred_cleanup; cleanup' EXIT
+seed() { # $1 = file; creates parents (tracking new dirs) and the file only when absent
+  [ -e "$1" ] && return 0
+  [ -d "$(dirname "$1")" ] || { mkdir -p "$(dirname "$1")"; CREATED_DIRS+=("$(dirname "$1")"); }
+  printf '%s' "$2" > "$1"
+  CREATED_FILES+=("$1")
+}
+SKILL_FILE="$AGENT_DIR/skills/qa-cred-regression/SKILL.md"
+seed "$AGENT_DIR/auth.json" "$MARKER"
+seed "$AGENT_DIR/models.json" "$MARKER"
+seed "$AGENT_DIR/settings.json" '{}'
+seed "$SKILL_FILE" "# qa skill $MARKER-skill"
+
+# Non-credential resources still preview (200). Only /api/pi-resource-file is probed: /api/file needs a known
+# session cwd, which this smoke layer does not have, so a 403 there would not prove the credential rule.
+for F in "$SKILL_FILE" "$AGENT_DIR/settings.json"; do
+  RESP=$(resource_file_code "$F")
+  [ "$RESP" = "200" ] || { echo "FAIL: $F not served by /api/pi-resource-file (HTTP $RESP)"; exit 1; }
+done
+
+# Credential files are refused with a 403 and never leak the marker.
+for NAME in auth.json models.json; do
+  BODY=$(mktemp)
+  CODE=$(curl -sS --get --data-urlencode "path=$AGENT_DIR/$NAME" -o "$BODY" -w '%{http_code}' "$BASE/api/pi-resource-file")
+  if [ "$CODE" != "403" ] || grep -q "$MARKER" "$BODY"; then
+    echo "FAIL: /api/pi-resource-file $NAME -> HTTP $CODE (expected 403, no marker)"; cat "$BODY"; rm -f "$BODY"; exit 1
+  fi
+  rm -f "$BODY"
+done
+echo "PASS: E42"
 
 echo "PASS: pi-resources parity"
 exit 0

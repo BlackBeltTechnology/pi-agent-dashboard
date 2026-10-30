@@ -276,9 +276,9 @@ flowchart TD
 ### Tier Model & Authorization Chokepoint
 
 - Tiers: `observe` < `control` < `operate` (`tiers.js`).
-- Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift.
+- Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift. Exception: `prompt_response` has no MCP row (removed from MCP surface, see change: close-security-map-high-findings); its tier is chat-local, read from `wsMessageTier("prompt_response")` (`shared/src/ws-message-tiers.ts`), never a literal. Chat answer road unchanged (`seam.sendPromptResponse`). Chat-local table must not shadow a platform verb.
 - Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`, `disarm`, `attach_session`, `close_session`). Unlisted verbs refused.
-- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`, `attach_session` -> `observe`, `close_session` -> `control`).
+- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`, `attach_session` -> `observe`, `close_session` -> `control`, `prompt_response` -> `wsMessageTier("prompt_response")` = `control`).
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers/ceilings; non-configurable.
 - Global ceiling defaults to `observe`. Acts as HARD maximum; caps resolved principal tier. Per-binding ceiling may only LOWER global ceiling; effective ceiling evaluates as `min(binding, global)`. Prevents global `observe` defeat by stale binding `operate`. `clampTier` caps, never raises. Unconfigured layer grants nothing.
 - Tier resolution: explicit identifier mapping outranks platform role; highest wins. Missing mapping refuses (`no_principal_mapping`); fails closed without fallback.

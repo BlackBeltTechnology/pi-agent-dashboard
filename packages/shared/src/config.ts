@@ -220,6 +220,12 @@ export interface TrustedPluginEntry {
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
+  /**
+   * User allowlist (emails, usernames, `*@domain` wildcards). Empty/unset admits every
+   * account ONLY for non-public providers; a public provider (`github`, `google`, or an
+   * issuer on the public IdP host set) refuses login while this AND `groupTiers` are both
+   * empty. See change: close-security-map-high-findings (D3).
+   */
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
@@ -242,8 +248,10 @@ export interface AuthConfig {
   /**
    * OIDC `groups` claim → session tier. Configured ⇒ highest matching tier
    * wins and no match refuses login (fail closed). Absent ⇒ legacy
-   * behaviour (`allowedUsers`, tier `operate`).
-   * See change: add-passkey-user-auth (D4).
+   * behaviour (`allowedUsers`, tier `operate`). Config-file-only (the Settings save
+   * preserves the stored value); a non-empty map also lifts the open-enrolment refusal
+   * of public providers. See change: add-passkey-user-auth (D4),
+   * close-security-map-high-findings (D3).
    */
   groupTiers?: Record<string, Tier>;
   /**
