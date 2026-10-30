@@ -1,0 +1,67 @@
+# Spike round 1 (run 40184762256) — RESULT lines, one-time codes redacted
+RESULT S1.sshdInstall {"ver":"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2","sec":0.0,"status":"Running"}
+RESULT S1.perUserKeyOnly {"rc":255,"sec":0.1,"out":"","err":"runneradmin@localhost: Permission denied (publickey,password,keyboard-interactive)."}
+RESULT S1.adminKey {"rc":0,"sec":0.1,"out":"hi","err":""}
+RESULT S2.cmd.exit7 {"rc":7,"sec":0.1,"out":"","err":""}
+RESULT S2.cmd.psFile {"rc":7,"sec":0.3,"out":"in exit7.ps1","err":""}
+RESULT S2.cmd.sessid {"rc":0,"sec":1.8,"out":"{\"session\":0,\"user\":\"runnervmdaln5\\\\runneradmin\",\"interactive\":false,\"temp\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\",\"psver\":\"5.1.26100.33648\",\"inJob\":true,\"limitFlags\":\"0xFFFFFFFF\",\"killOnClose\":true,\"breakawayOk\":true,\"silentBreakaway\":true,\"npmOnPath\":\"C:\\\\npm\\\\prefix\",\"node\":\"C:\\\\Program Files\\\\nodejs\\\\node.exe\"}","err":""}
+RESULT S2.ps.exit7 {"rc":7,"sec":0.3,"out":"","err":""}
+RESULT S2.ps.policyBefore {"rc":0,"sec":0.3,"out":"Scope ExecutionPolicy\r\n        ----- ---------------\r\nMachinePolicy       Undefined\r\n   UserPolicy       Undefined\r\n      Process       Undefined\r\n  CurrentUser       Undefined\r\n LocalMachine    Unrestricted","err":""}
+RESULT S2.ps.policyAfter {"rc":0,"sec":0.4,"out":"Scope ExecutionPolicy\r\n        ----- ---------------\r\nMachinePolicy       Undefined\r\n   UserPolicy       Undefined\r\n      Process       Undefined\r\n  CurrentUser       Undefined\r\n LocalMachine      Restricted","err":""}
+RESULT S2.ps.restricted.direct {"rc":1,"sec":0.3,"out":"","err":"…his system. For more information, see about_Execution_Policies at \r\nhttps:/go.microsoft.com/fwlink/?LinkID=135170.\r\nAt line:1 char:1\r\n+ C:\\spike\\exit7.ps1\r\n+ ~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : SecurityError: (:) [], PSSecurityException\r\n    + FullyQualifiedErrorId : UnauthorizedAccess"}
+RESULT S2.ps.restricted.amp {"rc":1,"sec":0.3,"out":"","err":"…stem. \r\nFor more information, see about_Execution_Policies at \r\nhttps:/go.microsoft.com/fwlink/?LinkID=135170.\r\nAt line:1 char:3\r\n+ & C:\\spike\\exit7.ps1\r\n+   ~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : SecurityError: (:) [], PSSecurityException\r\n    + FullyQualifiedErrorId : UnauthorizedAccess"}
+RESULT S2.ps.bypassFile {"rc":1,"sec":0.5,"out":"in exit7.ps1","err":""}
+RESULT S2.ps.bypassFile.throw {"rc":1,"sec":0.5,"out":"before throw","err":"boom\r\nAt C:\\spike\\throw.ps1:3 char:1\r\n+ throw \"boom\"\r\n+ ~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (boom:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : boom"}
+RESULT S2.ps.bypassFile.args {"rc":0,"sec":0.4,"out":"Name=[a b] N=3","err":""}
+RESULT S2.ps.sessid {"rc":0,"sec":0.6,"out":"{\"session\":0,\"user\":\"runnervmdaln5\\\\runneradmin\",\"interactive\":false,\"temp\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\",\"psver\":\"5.1.26100.33648\",\"inJob\":true,\"limitFlags\":\"0xFFFFFFFF\",\"killOnClose\":true,\"breakawayOk\":true,\"silentBreakaway\":true,\"npmOnPath\":\"C:\\\\npm\\\\prefix\",\"node\":\"C:\\\\Program Files\\\\nodejs\\\\node.exe\"}","err":""}
+RESULT S2.runner.sessid {"rc":0,"sec":0.3,"out":"{\"session\":2,\"user\":\"runnervmdaln5\\\\runneradmin\",\"interactive\":true,\"temp\":\"C:\\\\Users\\\\RUNNER~1\\\\AppData\\\\Local\\\\Temp\",\"psver\":\"5.1.26100.33648\",\"inJob\":true,\"limitFlags\":\"0xFFFFFFFF\",\"killOnClose\":true,\"breakawayOk\":true,\"silentBreakaway\":true,\"npmOnPath\":\"C:\\\\npm\\\\prefix\",\"node\":\"C:\\\\Program Files\\\\nodejs\\\\node.exe\"}","err":""}
+RESULT S3.mkdir {"rc":0,"sec":0.3,"out":"ok","err":""}
+RESULT S3.sftp.fwd {"rc":0,"sec":0.4,"out":"","err":""}
+RESULT S3.sftp.leadingSlash {"rc":0,"sec":0.3,"out":"","err":""}
+RESULT S3.sftp.backslash {"rc":0,"sec":0.3,"out":"","err":""}
+RESULT S3.legacyO {"rc":0,"sec":0.3,"out":"","err":""}
+RESULT S3.sftp.space {"rc":0,"sec":0.3,"out":"","err":""}
+RESULT S3.hashes {"files":["a=True","b=True","c=True","d=True","e=ok"]}
+RESULT S3.recursiveUp.fresh {"rc":0,"sec":0.4,"out":"","err":""}
+RESULT S3.recursiveUp.again {"rc":0,"sec":0.5,"out":"","err":""}
+RESULT S3.recursiveUp.layout {"nested":true,"topPs1":27}
+RESULT S3.recursiveDown {"rc":0,"sec":0.5,"out":"","err":""}
+RESULT S3.recursiveDown.count {"n":250}
+RESULT S4.startprocess {"launched":"launched: pid=7876 session=0","aliveAfterClose":0,"launchSec":3.7,"launchRc":0,"err":"","sessions":[]}
+RESULT S4.cmdstart {"launched":"launched: pid=6628 session=0","aliveAfterClose":0,"launchSec":3.7,"launchRc":0,"err":"","sessions":[]}
+RESULT S4.wmi {"launched":"wmi rc=0\r\nlaunched: pid=7564 session=0","aliveAfterClose":1,"launchSec":3.6,"launchRc":0,"err":"","sessions":[0]}
+RESULT S4.taskIT {"launched":"task=spike-bg-taskIT logon=Interactive state= lastResult=0x\r\nlaunched:","aliveAfterClose":0,"launchSec":7.1,"launchRc":0,"err":"…e $Name\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (PS_ScheduledTask:Root/Microsoft/...S_ScheduledTask \r\n   ) [Get-ScheduledTaskInfo], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80070002,Get-ScheduledTaskInfo","sessions":[]}
+RESULT S4.taskS4U {"launched":"task=spike-bg-taskS4U logon=S4U state= lastResult=0x\r\nlaunched:","aliveAfterClose":0,"launchSec":7.1,"launchRc":0,"err":"…e $Name\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (PS_ScheduledTask:Root/Microsoft/...S_ScheduledTask \r\n   ) [Get-ScheduledTaskInfo], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80070002,Get-ScheduledTaskInfo","sessions":[]}
+RESULT S5.expandArchive.pwsh7 {""sec"":$([math]::Round($sw.Elapsed.TotalSeconds))}"[0m
+RESULT S5.expandArchive.pwsh7 {"sec":79}
+RESULT S6a.pre.clean {"rc":0,"sec":2.0,"out":"[clean] clean","err":""}
+RESULT S6a.test07.runnerDirect {"rc":1,"sec":0.6,"out":"","err":"… \"PASS: V2 bootstrap completed end-to-end on Windows\"\r\n+                                                                   ~\r\nThe string is missing the terminator: \".\r\n    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException\r\n    + FullyQualifiedErrorId : UnexpectedToken"}
+RESULT S6a.diff {}
+RESULT S6a.post.clean {"rc":0,"sec":1.5,"out":"[clean] removed C:\\qa-artifacts\r\n[clean] clean","err":""}
+RESULT S6b.test07.overSsh {"rc":1,"sec":0.5,"out":"","err":"… \"PASS: V2 bootstrap completed end-to-end on Windows\"\r\n+                                                                   ~\r\nThe string is missing the terminator: \".\r\n    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException\r\n    + FullyQualifiedErrorId : UnexpectedToken"}
+RESULT S6b.diff {}
+RESULT S6b.post.clean {"rc":0,"sec":1.8,"out":"[clean] removed C:\\qa-artifacts\r\n[clean] clean","err":""}
+RESULT S6c.wmi.pre.clean {"rc":0,"sec":1.7,"out":"[clean] clean","err":""}
+RESULT S6c.wmi {"launch":"wmi rc=0 pid=6004","health":{"ok":true,"port":8000,"sec":10.0,"starter":null,"version":"0.10.0","launchSource":"electron"},"launchErr":""}
+RESULT S6c.taskIT.pre.clean {"rc":0,"sec":3.6,"out":"[clean] killing: node:1248 pi-dashboard:5004 pi-dashboard:6004 pi-dashboard:8320 pi-dashboard:9076\r\n[clean] removed C:\\Users\\runneradmin\\.pi\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Roaming\\pi-dashboard\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pi-dashboard-electron.log\r\n[clean] clean","err":""}
+RESULT S6c.taskIT {"launch":"task=spike-electron-taskIT logon=Interactive state= lastResult=0x","health":{"ok":false,"sec":240},"launchErr":"…e $Name\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (PS_ScheduledTask:Root/Microsoft/...S_ScheduledTask \r\n   ) [Get-ScheduledTaskInfo], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80070002,Get-ScheduledTaskInfo"}
+RESULT S6c.taskS4U.pre.clean {"rc":0,"sec":1.5,"out":"[clean] clean","err":""}
+RESULT S6c.taskS4U {"launch":"task=spike-electron-taskS4U logon=S4U state= lastResult=0x","health":{"ok":false,"sec":240},"launchErr":"…e $Name\r\n+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (PS_ScheduledTask:Root/Microsoft/...S_ScheduledTask \r\n   ) [Get-ScheduledTaskInfo], CimException\r\n    + FullyQualifiedErrorId : HRESULT 0x80070002,Get-ScheduledTaskInfo"}
+RESULT S6c.post.clean {"rc":0,"sec":1.7,"out":"[clean] clean","err":""}
+RESULT S7.nameInProposal {"rc":1,"sec":0.4,"out":"","err":"…out_Execution_Policies at \r\nhttps:/go.microsoft.com/fwlink/?LinkID=135170.\r\nAt line:1 char:1\r\n+ npm view @blackbelt-technology/pi-dashboard version 2>&1 | Select-Obj ...\r\n+ ~~~\r\n    + CategoryInfo          : SecurityError: (:) [], PSSecurityException\r\n    + FullyQualifiedErrorId : UnauthorizedAccess"}
+RESULT S7.env {"rc":0,"sec":0.8,"out":"{\"session\":0,\"user\":\"runnervmdaln5\\\\runneradmin\",\"interactive\":false,\"temp\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\",\"psver\":\"5.1.26100.33648\",\"inJob\":true,\"limitFlags\":\"0xFFFFFFFF\",\"killOnClose\":true,\"breakawayOk\":true,\"silentBreakaway\":true,\"npmOnPath\":\"C:\\\\npm\\\\prefix\",\"node\":\"C:\\\\Program Files\\\\nodejs\\\\node.exe\"}","err":""}
+RESULT S7.install {"rc":0,"sec":0.4,"out":"rc=","err":"…out_Execution_Policies at \r\nhttps:/go.microsoft.com/fwlink/?LinkID=135170.\r\nAt line:1 char:1\r\n+ npm i -g @blackbelt-technology/pi-agent-dashboard@0.10.0 2>&1 | Selec ...\r\n+ ~~~\r\n    + CategoryInfo          : SecurityError: (:) [], PSSecurityException\r\n    + FullyQualifiedErrorId : UnauthorizedAccess"}
+RESULT S7.which {"rc":1,"sec":0.6,"out":"","err":"…... dashboard -ErrorAction SilentlyContinue).Source; pi-dashboard --versi ...\r\n+                                                      ~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (pi-dashboard:String) [], CommandNotFoundException\r\n    + FullyQualifiedErrorId : CommandNotFoundException"}
+RESULT S7.startReturns {"rc":1,"sec":0.5,"out":"","err":"…the name, or if a path was included, \r\nverify that the path is correct and try again.\r\nAt line:1 char:1\r\n+ pi-dashboard start 2>&1\r\n+ ~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (pi-dashboard:String) [], CommandNotFoundException\r\n    + FullyQualifiedErrorId : CommandNotFoundException"}
+RESULT S7.healthAfterSessionClose {"ok":false,"sec":60}
+RESULT S7.stop {"rc":1,"sec":0.5,"out":"","err":"… the name, or if a path was included, \r\nverify that the path is correct and try again.\r\nAt line:1 char:1\r\n+ pi-dashboard stop 2>&1\r\n+ ~~~~~~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (pi-dashboard:String) [], CommandNotFoundException\r\n    + FullyQualifiedErrorId : CommandNotFoundException"}
+RESULT S7.test02.overSsh {"rc":1,"sec":0.4,"out":"","err":"…or type definition.\r\nAt C:\\spike\\tests\\02-server-start.ps1:183 char:7\r\n+ exit 0\r\n+       ~\r\nThe Try statement is missing its Catch or Finally block.\r\n    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException\r\n    + FullyQualifiedErrorId : MissingEndParenthesisInExpression"}
+RESULT S7.diff {}
+RESULT S7.post.clean {"rc":0,"sec":1.4,"out":"[clean] clean","err":""}
+RESULT S8.install {"rc":0,"sec":152.2,"out":"=== Test: NSIS Setup.exe per-user install (default path) ===\nRunning silent install: C:\\spike\\art\\PI-Dashboard-Setup-0.10.0-x64.exe /S /D=C:\\Users\\runneradmin\\AppData\\Local\\Programs\\PI Dashboard\nInstall dir present: C:\\Users\\runneradmin\\AppData\\Local\\Programs\\PI Dashboard\nStart Menu shortcut present\nAdd/Remove entry OK (HKCU, InstallLocation + Publisher match)\nPASS: NSIS per-user install verified","err":""}
+RESULT S8.launch.overSsh {"rc":1,"sec":542.2,"out":"…e=bundled-electron, abi=137, bundled �?\" path-free)\n    [plugin:roles] [roles.bindings] pass trigger=boot evaluated=0 written=0 unchanged=0 dangling=0 detached=0 failed=0 skipped=0\n    [plugin:automation] [engine] armed 0 automation(s) across 1 scope(s)\n    [plugin:automation] [automation-watcher] attach failed for C:\\Users\\runneradmin (ENOENT)\n    [browser-gw] browser client connected from 127.0.0.1 origin=http://localhost:8000 ua=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) (total: 1)\n    [runtime-overlay] check state=not_applicable\n-----------------------","err":""}
+RESULT S8.diff {}
+RESULT S8.post1.clean {"rc":0,"sec":10.6,"out":"[clean] nsis uninstall: C:\\Users\\runneradmin\\AppData\\Local\\Programs\\PI Dashboard\\Uninstall pi-dashboard.exe /S\r\n[clean] removed C:\\Users\\runneradmin\\.pi\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Roaming\\pi-dashboard\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Local\\Programs\\PI Dashboard\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pi-dash-electron-err.log\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pi-dash-electron-out.log\r\n[clean] removed C:\\Users\\runneradmin\\AppData\\Local\\Temp\\pi-dashboard-electron.log\r\n[clean] clean","err":""}
+RESULT S9.again1.clean {"rc":0,"sec":1.5,"out":"[clean] clean","err":""}
+RESULT S9.again2.clean {"rc":0,"sec":1.4,"out":"[clean] clean","err":""}
+RESULT S9.finalDiff {}

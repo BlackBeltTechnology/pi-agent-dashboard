@@ -63,7 +63,7 @@ SSH and scp only, public-key auth, with options `-o BatchMode=yes -o StrictHostK
    - anything else → abort, printing both codes and naming `DefaultShell`.
 3. One helper `remote_ps <script> <args>` in `run.sh` applies the chosen form everywhere.
 
-The script also prints the PS version, session id, `Get-ExecutionPolicy -List`, free space on `C:` (≥ 3 GB required) and `node --version` (npm mode). The driver checks the config first and makes no ssh/scp call while the config is invalid. Config is parsed with `node -e` (the repo already needs Node), not `jq` (absent on stock macOS). `run.sh` targets bash 3.2 (stock macOS `/bin/bash`): no associative arrays, no `mapfile`, no `${var,,}`.
+The script also prints the PS version, session id, `Get-ExecutionPolicy -List`, free space on `C:` (≥ 3 GB required) and `node --version`. Unless `--smoke-only` is set for `zip`/`nsis`, it **requires** the suite's host tools and aborts with a list of what is missing: `node` ≥ 22.19 (the repo `engines` floor), `npm` and `git` on PATH (`run-all.ps1`'s `01` installs through npm in every mode, and `05`/`22` use git). `npm` mode needs `node`/`npm` even with `--smoke-only` (npm mode). The driver checks the config first and makes no ssh/scp call while the config is invalid. Config is parsed with `node -e` (the repo already needs Node), not `jq` (absent on stock macOS). `run.sh` targets bash 3.2 (stock macOS `/bin/bash`): no associative arrays, no `mapfile`, no `${var,,}`.
 
 ### D3. Staging layout and upload
 Remote root is `C:\pi-dashboard-qa\` with `harness\`, `tests\`, `art\` and `logs\` beneath it. `C:\Temp` does not exist by default on clients; creating a folder under `C:\` is allowed for Authenticated Users. `remote-preflight.ps1 -Stage` (no config-derived args) recreates the four subdirs **before** any `scp -r`. It also takes the run lock `C:\pi-dashboard-qa\.lock`, holding `{orchestratorHost, utc}`. It refuses when the lock is younger than 2 h, and replaces a stale lock with a warning. The driver's trap deletes the lock after post-clean. F11 shows that `scp -r` into an existing dir nests (`tests\tests`). Upload: `qa/remote/*.ps1` → `harness\`, `qa/tests/` → `tests\`, artifact → `art\<basename>`. The artifact basename must match `^[A-Za-z0-9._-]+$`.
@@ -80,7 +80,7 @@ flowchart LR
 
 | Mode | Deploy | Health gate (127.0.0.1, ≤180 s) | Suite (unless `--smoke-only`) |
 |---|---|---|---|
-| `zip` | `Add-Type -AssemblyName System.IO.Compression.FileSystem` (required in PS 5.1) → `[IO.Compression.ZipFile]::ExtractToDirectory` → `C:\pi-dashboard-qa\app\`; also stage the zip at `C:\qa-artifacts\PI-Dashboard-win32-x64.zip` (the `07` contract); `Start-Process` the discovered `pi-dashboard.exe` | `launchSource=electron` | `tests\run-all.ps1` |
+| `zip` | `Add-Type -AssemblyName System.IO.Compression.FileSystem` (required in PS 5.1) → `[IO.Compression.ZipFile]::ExtractToDirectory` → `C:\pi-dashboard-qa\app\`; also stage the zip at `C:\qa-artifacts\<artifact basename>` (arch-preserving; `07` discovers `PI-Dashboard-win32-*.zip`); `Start-Process` the discovered `pi-dashboard.exe` | `launchSource=electron`; record `/api/health.version` | `tests\run-all.ps1` with `QA_NPM_SPEC=@blackbelt-technology/pi-agent-dashboard@<health version>` (the npm-based tests exercise the **same release** as the zip, not npm `latest`) and `QA_FIXTURE_EXE=<deployed pi-dashboard.exe>` (the suite's shared-server fixture launches the Electron app, per `repair-windows-qa-suite` D1) |
 | `nsis` | — (the suite installs) | done by `windows-nsis-launch.ps1` | `windows-nsis-install.ps1 -Setup` → `-no-permachine` → `-branding -Setup` → `-launch` → `-uninstall` (the order in the Makefile comment) |
 | `npm` | `npm i -g @blackbelt-technology/pi-agent-dashboard@<pin>`; `pi-dashboard start` | `launchSource=standalone`, `version` = pin when the pin is semver | `tests\run-all.ps1` with `QA_NPM_SPEC` = the same spec |
 
@@ -135,7 +135,15 @@ Exit policy:
 - `artifactPath` is required for `zip`/`nsis` and must exist locally.
 - `npmVersion` defaults to `latest`. It must match `^(latest|next|[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?)$`, because it reaches a remote command line.
 
-CLI flags override the config: `--mode`, `--artifact`, `--npm-version`, `--smoke-only`, `--clean-only`, `--start-only`, `--motw`.
+CLI flags override the config: `--mode`, `--artifact`, `--npm-version`, `--host`, `--user`, `--key`, `--port`, `--smoke-only`, `--clean-only`, `--start-only`, `--motw`, `--known-hosts <file>`.
+
+Identity validation applies to both config and CLI values, before any ssh call:
+- `host` matches `^[A-Za-z0-9][A-Za-z0-9.:_-]*$` (hostname, IPv4 or bare IPv6; never a leading `-`, so it cannot become an ssh option);
+- `user` matches `^[A-Za-z0-9][A-Za-z0-9._-]*$`;
+- `port` is an integer 1–65535;
+- `sshKey` / `--key` names an existing file.
+
+`--known-hosts <file>` replaces the repo-local `UserKnownHostsFile` for that invocation. `StrictHostKeyChecking=accept-new` stays. It is CLI-only: a config key for it is rejected. The use case is throwaway VMs (`repair-windows-qa-suite`: the Packer flow passes a per-run `mktemp` file, so a recycled IP with a new host key never trips a stale entry, and TOFU still holds within the run).
 
 `--motw` (F16): after upload, `remote-cycle.ps1 -Motw` writes a `Zone.Identifier` stream (`[ZoneTransfer]` / `ZoneId=3`) on `art\<artifact>`. This reproduces browser-download conditions for SmartScreen and attachment checks. It is off by default because an unsigned artifact may then block on a SmartScreen prompt that a headless session can't answer. The result is recorded as `summary.json.motw`.
 

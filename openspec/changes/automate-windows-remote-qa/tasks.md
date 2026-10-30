@@ -22,12 +22,13 @@
   - exit 0 when clean, exit 3 with a residue list.
 - [ ] 2.2 `qa/remote/remote-preflight.ps1 [-Stage]`:
   - print the PS version, session id, `Get-ExecutionPolicy -List`, free GB on `C:` and `node --version` (when present) as `key=value` lines;
+  - `-RequireSuiteTools`: fail unless `node` ≥ 22.19, `npm` and `git` resolve (the driver passes it except for `--smoke-only` zip/nsis; npm mode always needs node/npm);
   - with `-Stage`: take or refuse the `C:\pi-dashboard-qa\.lock` (2 h staleness), then recreate `harness`, `tests`, `art`, `logs`;
   - `exit 7` on success (the sentinel, design D2); a distinct non-7 code on lock refusal or low disk.
 - [ ] 2.3 `qa/remote/remote-cycle.ps1 -Mode zip|nsis|npm [-Artifact <path>] [-NpmVersion <v>] [-SmokeOnly]` (design D4):
   - `Start-Transcript` to `logs\`;
   - optional `-Motw`: write `Zone.Identifier` `ZoneId=3` on the artifact before deploy (design D7);
-  - deploy per mode (zip: `Add-Type -AssemblyName System.IO.Compression.FileSystem` + `[IO.Compression.ZipFile]::ExtractToDirectory` → `C:\pi-dashboard-qa\app\` + discovered `pi-dashboard.exe`; npm: `npm i -g …@<v>` + `pi-dashboard start`);
+  - deploy per mode (zip: `Add-Type -AssemblyName System.IO.Compression.FileSystem` + `[IO.Compression.ZipFile]::ExtractToDirectory` → `C:\pi-dashboard-qa\app\` + discovered `pi-dashboard.exe`; stage the zip at `C:\qa-artifacts\<artifact basename>`; suite runs with `QA_NPM_SPEC` pinned to `/api/health.version` and `QA_FIXTURE_EXE` = the deployed `pi-dashboard.exe`; npm: `npm i -g …@<v>` + `pi-dashboard start`);
   - health gate on `http://127.0.0.1:8000/api/health` for ≤180 s with a `launchSource` check;
   - stop the app;
   - suite per mode (zip/npm: `run-all.ps1`, with `C:\qa-artifacts` staging / `QA_NPM_SPEC`; nsis: the five `windows-nsis-*.ps1` in order, stopping at the first failure);
@@ -38,6 +39,7 @@
 ## 3. Driver `qa/remote/run.sh`
 
 - [ ] 3.1 Bash 3.2-compatible strict mode (no associative arrays, no `mapfile`); config loaded with `node -e` (no `jq`); CLI overrides (`--mode --artifact --npm-version --smoke-only --clean-only --start-only`); validation per spec, before any ssh/scp (required fields, mode allowlist, artifact exists + basename regex, npmVersion regex). Test first: `packages/shared/src/__tests__/qa-remote-run-config.test.ts` spawns `bash qa/remote/run.sh` with temp configs and stub `ssh`/`scp` on `PATH` (the stubs log their argv), asserting: no ssh call when the config is invalid; `portable` rejected; injection-shaped `npmVersion` rejected; the run works with `jq` absent from `PATH`; the preflight form selection (stub ssh returns 1, then 7 for the suffixed form → every later call carries the suffix; returns 7 → plain form; returns 1/1 → abort before staging).
+- [ ] 3.1b Identity validation + CLI overrides (design D7): `--host/--user/--key/--port` validated by the same regexes as config `host/user/sshKey/sshPort`; `--known-hosts <file>` (CLI-only; a config `knownHosts` key is rejected). Test first, in `qa-remote-run-config.test.ts`: `-oProxyCommand=…` host rejected; CLI-only run with no config; config `knownHosts` rejected.
 - [ ] 3.2 Common ssh/scp option array: `-i`, `-p`/`-P`, `BatchMode=yes`, `StrictHostKeyChecking=accept-new`, `UserKnownHostsFile=qa/remote/.known_hosts`, `ConnectTimeout=15`.
 - [ ] 3.3 Preflight phase (design D2): print `user@host` and the mode; scp `remote-preflight.ps1` into the remote home dir; try the plain form, then the `; exit $LASTEXITCODE` form; store the winner in the `remote_ps` helper; abort when neither returns 7 (naming `HKLM:\SOFTWARE\OpenSSH\DefaultShell`) or when disk is low.
 - [ ] 3.4 Staging phase: `remote_ps remote-preflight.ps1 -Stage` (lock + recreate dirs), then the scp uploads (design D3). The exit trap removes the lock after post-clean.

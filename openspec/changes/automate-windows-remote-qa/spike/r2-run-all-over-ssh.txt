@@ -1,0 +1,148 @@
+##[group]R9.runAll full output
+========================================
+           QA Test Suite (Windows)
+========================================
+
+----------------------------------------
+Running: 01-install.ps1
+----------------------------------------
+=== Test: npm install pi-dashboard ===
+
+added 1045 packages in 2m
+
+258 packages are looking for funding
+  run `npm fund` for details
+pi-dashboard version: 0.10.0
+PASS: pi-dashboard installed successfully
+
+----------------------------------------
+Running: 02-server-start.ps1
+----------------------------------------
+=== Test: Server start ===
+
+----------------------------------------
+Running: 03-websocket.ps1
+----------------------------------------
+=== Test: WebSocket connections ===
+FAIL: Server not running (The operation has timed out.)
+
+----------------------------------------
+Running: 04-terminal.ps1
+----------------------------------------
+=== Test: Terminal spawning (ConPTY) ===
+FAIL: Server not running (The operation has timed out.)
+
+----------------------------------------
+Running: 05-git-ops.ps1
+----------------------------------------
+=== Test: Git operations ===
+FAIL: Server not running (The operation has timed out.)
+
+----------------------------------------
+Running: 07-electron-bootstrap-v2.ps1
+----------------------------------------
+=== Test: Electron ZIP V2 bootstrap end-to-end ===
+Stage 1: extracting C:\qa-artifacts\PI-Dashboard-win32-x64.zip -> C:\PI-Dashboard-test
+  pi-dashboard.exe: C:\PI-Dashboard-test\PI-Dashboard-win32-x64\pi-dashboard.exe
+Stage 2: verify resources layout
+  � server bundle dir
+  � bundle cliPath
+FAIL: offline cacache manifest missing at C:\PI-Dashboard-test\PI-Dashboard-win32-x64\resources\offline-packages\manifest.json
+
+----------------------------------------
+Running: 09-image-fit-extension.ps1
+----------------------------------------
+=== Test: pi-image-fit install + dep-tree sanity ===
+OK: node_modules\@blackbelt-technology\pi-image-fit\src\extension.ts present
+OK: jimp@1.6.1 installed (pure JS, no native binary)
+OK: no sharp / @napi-rs/image / @napi-rs/canvas in dep tree
+PASS: pi-image-fit installs cleanly on this platform
+
+----------------------------------------
+Running: 10-bundled-git.ps1
+----------------------------------------
+=== Test: Bundled git on Windows ===
+FAIL: Server not running (Unable to connect to the remote server)
+
+----------------------------------------
+Running: 12-openspec-shim.ps1
+----------------------------------------
+=== Test: openspec shim resolves via Git Bash (Windows) ===
+SKIP: pinned openspec bin not installed at C:\node_modules\@fission-ai\openspec\bin\openspec.js (run npm install)
+
+----------------------------------------
+Running: 16-windows-path-casing.ps1
+----------------------------------------
+=== Test: Windows Path key casing (#720) ===
+Dashboard server is not running
+FAIL: Health endpoint did not respond HTTP 200 within 30s
+Dashboard server is not running
+
+----------------------------------------
+Running: 22-worktree-separator.ps1
+----------------------------------------
+=== Test: worktree separator classification ===
+FAIL: Server not running (The operation has timed out.)
+
+----------------------------------------
+Running: 32-origin-gate.ps1
+----------------------------------------
+=== Test: cross-site mutation gate (X5) ===
+
+----------------------------------------
+Running: 35-plugin-install-load.ps1
+----------------------------------------
+=== Test: clean-prefix plugin install-load (X7-X11) ===
+prefix: C:\Users\runneradmin\AppData\Local\Temp\qa-prefix-65f1adc66b9448ba925b1669abf7eaf8
+
+----------------------------------------
+Running: 40-agent-path-gate-windows.ps1
+----------------------------------------
+=== Test: agent path gate suites on win32 ===
+SKIP: no repo checkout with packages/extension/src/path-gate at C:\ (set PI_DASHBOARD_REPO)
+
+----------------------------------------
+Running: 38-poll-cost.ps1
+----------------------------------------
+=== Test: Windows self-spawn exclusion (X11) ===
+
+----------------------------------------
+Running: 44-photocraft.ps1
+----------------------------------------
+=== Test: pi-photocraft install + provisioning smoke ===
+
+Dashboard server is not running
+========================================
+           Test Results
+========================================
+  PASS  01-install.ps1
+  FAIL  02-server-start.ps1 (This command cannot be run due to the error: %1 is not a valid Win32 application.)
+  FAIL  03-websocket.ps1
+  FAIL  04-terminal.ps1
+  FAIL  05-git-ops.ps1
+  FAIL  07-electron-bootstrap-v2.ps1
+  PASS  09-image-fit-extension.ps1
+  FAIL  10-bundled-git.ps1
+  PASS  12-openspec-shim.ps1
+  FAIL  16-windows-path-casing.ps1
+  FAIL  22-worktree-separator.ps1
+  FAIL  32-origin-gate.ps1 (FAIL: dashboard never started)
+  SKIP  40-agent-path-gate-windows.ps1 (precondition not met - not run)
+  FAIL  38-poll-cost.ps1 (FAIL: Server not running (health request failed))
+  FAIL  44-photocraft.ps1 (usage: pi-photocraft <command> [args])
+========================================
+  Total: 15  Passed: 3  Failed: 12  Skipped: 0  Precondition-skipped: 1
+========================================
+--stderr--
+npm warn cleanup Failed to remove some directories [
+npm warn cleanup   [
+npm warn cleanup     'C:\\npm\\prefix\\node_modules\\@blackbelt-technology\\pi-agent-dashboard\\node_modules\\execa',
+npm warn cleanup     [Error: EPERM: operation not permitted, rmdir 'C:\npm\prefix\node_modules\@blackbelt-technology\pi-agent-dashboard\node_modules\execa\node_modules\cross-spawn'] {
+npm warn cleanup       errno: -4048,
+npm warn cleanup       code: 'EPERM',
+npm warn cleanup       syscall: 'rmdir',
+npm warn cleanup       path: 'C:\\npm\\prefix\\node_modules\\@blackbelt-technology\\pi-agent-dashboard\\node_modules\\execa\\node_modules\\cross-spawn'
+npm warn cleanup     }
+npm warn cleanup   ]
+npm warn cleanup ]
+##[endgroup]

@@ -51,6 +51,10 @@ Before staging or cleaning, the driver SHALL copy `remote-preflight.ps1` into th
 - **WHEN** neither form returns 7
 - **THEN** the driver exits non-zero before any staging or clean step, printing both observed codes and naming `HKLM:\SOFTWARE\OpenSSH\DefaultShell`
 
+#### Scenario: Suite host tools missing
+- **WHEN** a full (non-`--smoke-only`) run targets a host without `git`, without `npm`, or with `node` older than 22.19
+- **THEN** preflight fails naming each missing or too-old tool, and nothing is staged or cleaned
+
 #### Scenario: Low disk
 - **WHEN** `C:` has less than 3 GB free
 - **THEN** preflight fails and nothing is staged or cleaned
@@ -81,6 +85,19 @@ The driver SHALL read `qa/remote/config.json`, apply CLI overrides (`--mode`, `-
 - **WHEN** `npmVersion` is `1.0.0; Remove-Item C:\ -Recurse`, or the artifact basename contains a space, quote or `;`
 - **THEN** the driver exits non-zero before any `ssh` or `scp`
 
+#### Scenario: Option-shaped identity rejected
+- **WHEN** `host` (config or `--host`) is `-oProxyCommand=calc`, or `user` contains a space or starts with `-`, or `port` is not an integer in 1–65535
+- **THEN** the driver exits non-zero naming the field, before any `ssh` or `scp`
+
+#### Scenario: CLI identity overrides
+- **WHEN** the driver is invoked with `--host 192.168.56.10 --user qa --key ~/.ssh/qa_vm_key --port 2222` and no `config.json`
+- **THEN** those values are used and validated exactly like config values
+
+#### Scenario: Per-run known-hosts file
+- **WHEN** the driver is invoked with `--known-hosts /tmp/kh.XXXX`
+- **THEN** every `ssh`/`scp` call uses that file as `UserKnownHostsFile` with `StrictHostKeyChecking=accept-new`
+- **AND** a `knownHosts` key in `config.json` is rejected as CLI-only
+
 ### Requirement: Fresh staging tree per run
 
 The driver SHALL recreate `C:\pi-dashboard-qa\harness`, `tests`, `art` and `logs` on the target by running `remote-preflight.ps1 -Stage`, which takes no config-derived arguments. It SHALL do this before uploading `qa/remote/*.ps1` to `harness\`, `qa/tests/` to `tests\` and the artifact to `art\<basename>`.
@@ -98,7 +115,7 @@ The driver SHALL run deploy, health gate, suite and log capture in exactly one s
 - **WHEN** `mode = "zip"` with an artifact `PI-Dashboard-win32-<arch>.zip`
 - **THEN** `remote-cycle.ps1` extracts it under `C:\pi-dashboard-qa\app\` and launches the contained `pi-dashboard.exe`
 - **AND** the health gate passes only when `/api/health` reports `launchSource = "electron"`
-- **AND** unless `--smoke-only`, the zip is staged at `C:\qa-artifacts\PI-Dashboard-win32-x64.zip`, the deployed app is stopped, and `tests\run-all.ps1` runs
+- **AND** unless `--smoke-only`, the zip is staged at `C:\qa-artifacts\<artifact basename>`, the deployed app is stopped, and `tests\run-all.ps1` runs with `QA_NPM_SPEC=@blackbelt-technology/pi-agent-dashboard@<version reported by /api/health>` and `QA_FIXTURE_EXE=<path of the deployed pi-dashboard.exe>`
 
 #### Scenario: NSIS mode
 - **WHEN** `mode = "nsis"` with an artifact `PI-Dashboard-Setup-<v>-<arch>.exe`
