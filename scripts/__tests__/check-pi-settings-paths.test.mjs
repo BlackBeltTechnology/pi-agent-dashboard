@@ -46,7 +46,7 @@ describe("legal sources are left alone", () => {
   it.each([
     "npm:@blackbelt-technology/pi-dashboard-shared",
     "git:git@github.com:user/repo@v1.0.0",
-    "https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
+    "https://github.com/Example/example-ext.git",
     "ssh://git@github.com/user/repo",
   ])("accepts the non-path specifier %s", (source) => {
     expect(absoluteSourceViolations("p", at([{ source }]))).toEqual([]);

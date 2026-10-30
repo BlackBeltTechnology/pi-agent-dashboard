@@ -18,7 +18,6 @@ import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/p
 import { ObsSettings, ObsAppClaim, catalog as obs_studio_catalog } from "@blackbelt-technology/pi-dashboard-obs-studio-plugin";
 import { catalog as craft_web_catalog } from "@blackbelt-technology/pi-dashboard-craft-web-plugin";
 import { BrowserRelayBadge, hasRelayTabsForBadge, BrowserRelayFeed, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
-import { catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 import { WebSearchEntryCard, catalog as web_access_catalog } from "@blackbelt-technology/pi-dashboard-web-access-plugin";
 import { lazyClaim } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -1119,30 +1118,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "flows-anthropic-bridge",
-        "displayName": "Anthropic Messages Bridge",
-        "priority": 500,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "FlowsAnthropicBridgeSettings",
-                "module": "./src/FlowsAnthropicBridgeSettings.tsx",
-                "tab": "general"
-            }
-        ],
-        "client": "./src/client.tsx",
-        "server": "./src/server/index.ts",
-        "bridge": "./src/bridge/index.ts",
-        "configSchema": "./configSchema.json",
-        "i18nCatalog": "catalog"
-    },
-    claims: [
-      { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../flows-anthropic-bridge-plugin/src/FlowsAnthropicBridgeSettings"), "FlowsAnthropicBridgeSettings") },
-    ],
-    catalog: flows_anthropic_bridge_catalog,
-  },
-  {
-    manifest: {
         "id": "quota",
         "displayName": "Provider Quota",
         "priority": 600,
@@ -1196,4 +1171,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "f5a9e2c54dac362c59d5edf99506c7478260a56452f05e3b7b8eaa57da981bc7";
+export const PLUGIN_REGISTRY_HASH = "c236a90a31a77528dbde437276812a758e7d72170913825e63654d51c1f3a3b1";

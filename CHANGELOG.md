@@ -12,9 +12,17 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Claude subscription compat switch.** Settings › Providers asks "Keep Claude requests on your subscription?" after an Anthropic subscription sign-in, and the `anthropic` row carries a switch (off by default; Landing Step ① shows a notice while it is off). When on, the flows-plugin bridge rewords two lines of pi's built-in docs prompt section ("pi itself", "pi packages") for `anthropic` runs in the main session and in pi-flows agents, so requests count against the Claude subscription instead of extra usage. Tool names are no longer renamed. New routes `GET/PATCH /api/preferences/claude-subscription-compat`.
+
 ### Changed
 
+- **BREAKING:** `pi-anthropic-messages` is no longer a required extension and is no longer installed after an Anthropic sign-in. Once the compat switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages` (a one-time notice reminds you). It also wrote every prompt to a world-readable `/tmp/pi-am.log`.
+- **BREAKING:** the `flows-anthropic-bridge` plugin and its `/api/flows-anthropic-bridge/status` route are removed. A leftover `dashboard-flows-anthropic-bridge` entry in `~/.pi/agent/settings.json` is stale and can be deleted.
+
 ### Fixed
+
+- **Claude subscription compat now covers sessions that were already open.** pi 1.4 sends a session's first system prompt as Anthropic's `system` field for the whole session, so turning the switch on did not fix sessions started before it, and their requests kept failing with "You're out of extra usage". The rewrite now also applies to each outgoing Anthropic request.
+- **Upgrades keep Claude subscription billing working.** On the first start after upgrading, the compat switch turns on by itself when `~/.pi/agent/auth.json` already holds an `anthropic` credential, and off when it doesn't. The choice is saved once and never overrides a later change. New installs stay off and are asked at their first Anthropic sign-in.
 
 ### Security
 

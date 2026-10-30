@@ -46,7 +46,7 @@
 | L18 | Docker image publishes | TCP | 8000, 9999 | host all-interfaces (8000); `PI_GATEWAY_BIND:-0.0.0.0` (9999) | `DASHBOARD_PORT`, `PI_GATEWAY_PORT`, `PI_GATEWAY_BIND`, `PI_DASHBOARD_HOST:-0.0.0.0` | LAN | as L1 / L4 | Docker only (area [deployment-process-supply-chain.md](deployment-process-supply-chain.md)) | `docker/compose.yml:22-28,39,44`; `docker/Dockerfile:218` |
 
 Not listeners (port probes only, bind+close): `packages/server/src/services/ports.ts:16`, `packages/system-one-plugin/src/server/supervisor.ts:123`, `plantuml_server.py:27`, `pdf_server.py:29`.
-No listener: chat-gateway (Discord outbound client only, `packages/chat-gateway/src/adapters/discord.ts:6`), flows-anthropic-bridge-plugin (route on L1, `packages/flows-anthropic-bridge-plugin/src/server/index.ts:45-60`), mcp-server-plugin (`/mcp` on L1).
+No listener: chat-gateway (Discord outbound client only, `packages/chat-gateway/src/adapters/discord.ts:6`), mcp-server-plugin (`/mcp` on L1).
 
 ### B) Outbound egress
 

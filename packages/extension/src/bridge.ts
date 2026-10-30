@@ -5,6 +5,7 @@
  * forwards all pi events, and relays commands back.
  */
 
+import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
@@ -133,6 +134,13 @@ export default function (pi: ExtensionAPI) {
     // `adopt-model-resolve-handler-and-roles-ownership`; the legacy `flow:`
     // prefix was dropped in `add-agent-role-model-tools` (design D11).
     activateRoleManager(pi);
+
+    // Claude subscription compat rewrite on EVERY pi this extension loads
+    // into — main sessions and subagent children alike — reading the switch
+    // value the connected bridge mirrors process-globally. Runs before the
+    // re-entry guard so children get it too. See change:
+    // seed-claude-compat-on-upgrade.
+    claudeCompatExtension(() => getBridgeState().claudeSubscriptionCompat === true)(pi as never);
 
     // Anthropic-messages payload transforms (system prompt rewrite + tool
     // filter/remap) are handled by the installed @benvargas/pi-claude-code-use
@@ -340,6 +348,7 @@ function initBridge(pi: ExtensionAPI) {
   // Global auto-naming toggle, relayed by the server via `preferences_update`.
   // Default true so a bridge that registers before the first push still names.
   inst.autoNameSessions = true;
+  inst.claudeSubscriptionCompat = false;
   // → inst.autoNamer (BridgeInstance field; unset until assigned)
   // The namer's durable state set is carried across reload as VALUES, never as
   // the namer object: its closures would retain a stale connection, session id

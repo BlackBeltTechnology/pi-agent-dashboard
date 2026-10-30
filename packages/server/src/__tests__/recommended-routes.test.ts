@@ -131,7 +131,7 @@ describe("sourcesMatch", () => {
 		expect(
 			sourcesMatch(
 				"git@github.com:BlackBeltTechnology/pi-flows.git",
-				"git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+				"git@github.com:Example/example-ext.git",
 			),
 		).toBe(false);
 	});
@@ -145,8 +145,8 @@ describe("sourcesMatch", () => {
 		).toBe(true);
 		expect(
 			sourcesMatch(
-				"../pi-anthropic-messages",
-				"git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+				"../example-ext",
+				"git@github.com:Example/example-ext.git",
 			),
 		).toBe(true);
 		expect(
@@ -435,7 +435,7 @@ describe("GET /api/packages/recommended", () => {
 		fs.mkdirSync(path.join(projectDir, ".pi"), { recursive: true });
 		fs.writeFileSync(
 			path.join(projectDir, ".pi", "settings.json"),
-			JSON.stringify({ packages: ["../pi-flows", "../pi-anthropic-messages"] }),
+			JSON.stringify({ packages: ["../pi-flows"] }),
 		);
 
 		const origCwd = process.cwd();
@@ -445,11 +445,7 @@ describe("GET /api/packages/recommended", () => {
 			const res = await fastify.inject({ method: "GET", url: "/api/packages/recommended" });
 			const body = JSON.parse(res.payload);
 			const flows = body.data.recommended.find((e: any) => e.id === "pi-flows");
-			const msg = body.data.recommended.find(
-				(e: any) => e.id === "pi-anthropic-messages",
-			);
 			expect(flows.activeInPi).toBe(true);
-			expect(msg.activeInPi).toBe(true);
 		} finally {
 			process.chdir(origCwd);
 		}

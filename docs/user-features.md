@@ -113,12 +113,8 @@ Curated subset of [`features.md`](features.md) that can be communicated to end u
 - Name rules: single path segment; no `/ \ : * ? " < > |`, no control chars, no trailing `.` or space, no `CON` `PRN` `AUX` `NUL` `COM0-9` `LPT0-9` (any extension), ≤255 UTF-8 bytes
 - Invalid name: error between label and field; input kept
 - Symlinked project folder must resolve inside `~/Projects`; symlinked `~/Projects` root allowed
-- Claude tool calls: finishing `anthropic` sign-in in Settings ▸ Providers auto-installs `@blackbelt-technology/pi-anthropic-messages` (global)
-- Auto-install skipped when that package already active in pi, or on probe import failure. Sign-in never blocked
-- Auto-install does not run on API-key saves, other providers, custom endpoints, or page loads while already connected
-- Install status shows on Anthropic row and Landing step ①:
-  - installing: info
-  - installed: "applies on next pi session start"
-  - failed: warning, plain sentence first, `Retry install`, raw installer output in collapsed `Details`
-- Landing `Install` appears when `anthropic` signed in and peer not active, with no auto state (e.g. sign-in finished after Settings closed)
-- Status clears on reload, sign-out, or once probe resolves
+- Claude subscription: finishing `anthropic` sign-in in Settings ▸ Providers shows inline prompt "Keep Claude requests on your subscription?" (Turn on / Not now)
+- Authenticated `anthropic` row has "Claude subscription compat" switch (global, default off). Note "Needs the Flows plugin to take effect." when flows plugin disabled
+- Landing step ① shows "Claude subscription requests may be billed as extra usage" + Turn on while off
+- Failed save reverts switch with error toast
+- One-time dismissible notice: legacy Anthropic messages package can be uninstalled when switch on and package still installed

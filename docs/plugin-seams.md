@@ -318,7 +318,7 @@ Compatibility:
 
 First-party adoption (lazy):
 
-- settings-section: apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator (+ CostView command-route), flows (FlowsSettings), flows-anthropic-bridge, goal, grammar, quota, roles, subagents, system-one.
+- settings-section: apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator (+ CostView command-route), flows (FlowsSettings), goal, grammar, quota, roles, subagents, system-one.
 - shell-overlay-route: AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim.
 - mcp-client: McpSettingsClaim (settings).
 - blackhole: PipelineDetailView (content-view).
@@ -464,7 +464,6 @@ Rule: contract used by host + plugin, or plugin + plugin → non-plugin package.
 |---|---|
 | Protocol-shaped types / pure helpers | `packages/shared/src/dashboard-plugin/<name>.ts` |
 | Subagent types + helpers (`SubagentState`, `readLiveTail`, `countSteps`, `readSubagentDetails`, `setSubagentState`, `applyLiveBlockPiece`) | `shared/dashboard-plugin/subagent-types.ts` |
-| `PEER_AM_LEGACY` (anthropic peer probe key) | `shared/dashboard-plugin/anthropic-peer-names.ts`. Provider plugin re-exports. |
 | MCP verb-tier table | `packages/shared/src/mcp/verb-tiers.generated.ts` (`{name, tier}[]`). Emitted by mcp-server codegen. chat-gateway reads it. |
 | MCP config logic (`McpClientConfigService`, `MCP_CLIENT_CONFIG_SERVICE_KEY = "mcp-client.config"`, config IO/writer/layers/effective view) | `packages/mcp-core` = `@blackbelt-technology/pi-dashboard-mcp-core` |
 

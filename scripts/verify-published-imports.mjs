@@ -75,12 +75,6 @@ const NODE_SCHEME = /^node:/;
  * entry without one fails the run, so exceptions cannot accumulate silently.
  */
 export const ALLOWLIST = [
-  {
-    workspace: "packages/flows-anthropic-bridge-plugin",
-    specifier: "@pi/anthropic-messages",
-    reason:
-      "Returns E404 on the npm registry. Legacy pre-rescope name reached only through a guarded dynamic-import fallback; declaring it would write an unresolvable dependency into a published manifest.",
-  },
   // pi-forms-bpmn ships the openforms-mui skill, whose `.pi/skills/openforms-mui/tools`
   // directory is a SELF-CONTAINED Vite library with its OWN package.json. These
   // specifiers are declared there and installed at runtime into `tools/node_modules`

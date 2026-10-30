@@ -59,3 +59,56 @@ describe("X4: subagent re-entry guard is unchanged", () => {
     expect(bridgeRegistrations).toEqual([]);
   });
 });
+
+// The dashboard extension registers the Claude subscription compat rewrite on
+// EVERY pi it loads into — a subagent child included, even though initBridge
+// returns early there — reading the value the parent mirrors process-globally.
+// See change: seed-claude-compat-on-upgrade (test-plan #P3).
+describe("P3: subagent child gets the compat rewrite from the extension", () => {
+  let prevEnv: string | undefined;
+  beforeEach(() => {
+    prevEnv = process.env.PI_DASHBOARD_BRIDGE;
+    process.env.PI_DASHBOARD_BRIDGE = "on";
+  });
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.PI_DASHBOARD_BRIDGE;
+    else process.env.PI_DASHBOARD_BRIDGE = prevEnv;
+    delete g[BRIDGE_KEY];
+  });
+
+  function childPi() {
+    const handlers = new Map<string, (e: unknown, c: unknown) => unknown>();
+    const pi = new Proxy({} as Record<string, unknown>, {
+      get(_t, prop: string) {
+        if (prop === "events") return { on: vi.fn(), emit: vi.fn() };
+        if (prop === "on") return (name: string, h: (e: unknown, c: unknown) => unknown) => handlers.set(name, h);
+        return () => undefined;
+      },
+    });
+    const send = (): unknown =>
+      handlers.get("before_provider_request")?.(
+        { type: "before_provider_request", payload: { system: "<docs>\nPi documentation (about pi itself and pi packages)\n</docs>" } },
+        { model: { provider: "anthropic" } },
+      );
+    return { pi, send };
+  }
+
+  it("rewrites while the process-global switch is on, and follows later changes", async () => {
+    const state: Record<string, unknown> = { generation: 1, pi: recordingPi().pi, claudeSubscriptionCompat: true };
+    g[BRIDGE_KEY] = state;
+    const child = childPi();
+    const { default: bridge } = await import("../bridge.js");
+    bridge(child.pi as never);
+    expect((child.send() as { system: string }).system).toContain("the cli itself");
+    state.claudeSubscriptionCompat = false;
+    expect(child.send()).toBeUndefined();
+  });
+
+  it("parent never received a value → off", async () => {
+    g[BRIDGE_KEY] = { generation: 1, pi: recordingPi().pi };
+    const child = childPi();
+    const { default: bridge } = await import("../bridge.js");
+    bridge(child.pi as never);
+    expect(child.send()).toBeUndefined();
+  });
+});

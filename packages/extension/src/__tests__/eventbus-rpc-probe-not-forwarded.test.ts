@@ -35,6 +35,8 @@ const RPC_PROBE_CHANNELS = [
   "roles:preset-save",
   "roles:preset-delete",
   "ui:list-modules",
+  // pi-flows agent-extension announce (payload carries a function).
+  "flow:register-agent-extension",
 ] as const;
 
 /** Source text with `//` and block comments removed; string literals are kept intact. */

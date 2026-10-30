@@ -30,9 +30,8 @@ const lines = readFileSync("pnpm-lock.yaml", "utf8").split("\n");
  *
  * A cross-ref is "internal" iff the dep name is a WORKSPACE MEMBER — not
  * merely because it carries the @blackbelt-technology scope. The org also
- * publishes packages from other repos (e.g.
- * `@blackbelt-technology/pi-anthropic-messages`, an ordinary external dep
- * pinned at `>=0.3.4`); a scope-prefix test flagged those as drift and
+ * publishes packages from other repos (ordinary external deps pinned with
+ * `>=`); a scope-prefix test flagged those as drift and
  * failed every release. `scripts/sync-versions.js` uses this same
  * definition (`if (!(depName in versionMap)) continue;`) — keep them
  * aligned. Scope is not membership.

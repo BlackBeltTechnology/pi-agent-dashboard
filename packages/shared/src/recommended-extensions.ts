@@ -16,7 +16,6 @@
  * from the npm registry or GitHub (see `/api/packages/recommended`).
  */
 
-import { ANTHROPIC_MESSAGES_SOURCE } from "./anthropic-messages-source.js";
 import type { PluginRequirements } from "./dashboard-plugin/manifest-types.js";
 import type { PluginRequirementReport } from "./dashboard-plugin/plugin-status.js";
 
@@ -138,25 +137,10 @@ export interface EnrichedRecommendedExtension extends RecommendedExtension {
 	missingRequirements?: string[];
 }
 
+// pi-anthropic-messages is no longer recommended or required: its only
+// billing-relevant effect (pi's docs-section wording) moved to the dashboard's
+// Claude subscription compat switch. See change: retire-anthropic-messages-bridge.
 export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
-	{
-		id: "pi-anthropic-messages",
-		// Published to the @blackbelt-technology npm scope. Source MUST be the
-		// npm spec so sourcesMatch() recognizes the npm install as satisfying
-		// this required entry (npm↔git cross-kind also added defensively).
-		source: ANTHROPIC_MESSAGES_SOURCE,
-		displayName: "pi-anthropic-messages",
-		fallbackDescription:
-			"Protocol bridge that makes pi's custom tools work with any " +
-			"anthropic-messages endpoint for Claude models (direct Anthropic " +
-			"OAuth/API key, 9Router cc/claude-*, the dashboard model proxy, any " +
-			"Claude Code-flavored proxy). Required whenever a provider has " +
-			'api: "anthropic-messages" with a Claude model — without it, ' +
-			"tool calls fall back to Claude Code's built-in bash_ide sandbox.",
-		status: "required",
-		unlocks: ["Tool calls on Anthropic OAuth / 9Router cc/* / proxy providers"],
-		autowired: true,
-	},
 	{
 		id: "@blackbelt-technology/pi-dashboard-subagents",
 		source: "npm:@blackbelt-technology/pi-dashboard-subagents",

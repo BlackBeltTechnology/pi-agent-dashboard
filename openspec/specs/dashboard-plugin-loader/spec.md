@@ -243,9 +243,9 @@ An environment variable `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` SH
 
 #### Scenario: Plugin bridge entry registered in both registries
 
-- **WHEN** plugin "flows-anthropic-bridge" declares a `bridge` field and the dashboard starts
-- **THEN** `~/.pi/agent/settings.json` SHALL contain `dashboardPluginBridges["dashboard-flows-anthropic-bridge"]` pointing at the absolute bridge path
-- **AND** `packages[]` SHALL contain an entry for the same path marked `_dashboardOwned: "dashboard-flows-anthropic-bridge"`
+- **WHEN** plugin "flows" declares a `bridge` field and the dashboard starts
+- **THEN** `~/.pi/agent/settings.json` SHALL contain `dashboardPluginBridges["dashboard-flows"]` pointing at the absolute bridge path
+- **AND** `packages[]` SHALL contain an entry for the same path marked `_dashboardOwned: "dashboard-flows"`
 
 #### Scenario: pi loads the bridge from packages[] on next session
 
@@ -318,12 +318,12 @@ The dashboard `GET /api/health` response SHALL include a `plugins` array. Each d
 }
 ```
 
-The `bridgeLoadedFrom` field SHALL be computed by re-reading `~/.pi/agent/settings.json` at health-check time and matching the plugin's resolved bridge path against entries in both registries. The `lastProbe` field SHALL be populated from forwarded `flows-anthropic-bridge:status` events kept in the server's per-PID status map (when the plugin is a status-emitting bridge plugin); for non-status-emitting bridges this field SHALL be omitted.
+The `bridgeLoadedFrom` field SHALL be computed by re-reading `~/.pi/agent/settings.json` at health-check time and matching the plugin's resolved bridge path against entries in both registries. The `lastProbe` field SHALL be populated from the plugin's forwarded status events kept in the server's per-PID status map (when the plugin is a status-emitting bridge plugin); for non-status-emitting bridges this field SHALL be omitted.
 
 #### Scenario: Health reports bridge loaded from packages[]
 
-- **WHEN** plugin "flows-anthropic-bridge" has a `packages[]` entry with matching ownership marker and the plugin loaded successfully
-- **THEN** `GET /api/health` SHALL return `plugins[*]` with `id: "flows-anthropic-bridge", bridgeLoadedFrom: "packages[]", loaded: true`
+- **WHEN** plugin "flows" has a `packages[]` entry with matching ownership marker and the plugin loaded successfully
+- **THEN** `GET /api/health` SHALL return `plugins[*]` with `id: "flows", bridgeLoadedFrom: "packages[]", loaded: true`
 
 #### Scenario: Health reports active bridge probe
 
@@ -1462,7 +1462,7 @@ The Subagents plugin manifest SHALL NOT declare `roles` in its `dependsOn` array
 
 `bundle-server.mjs` SHALL copy every first-party plugin listed in `packages/server/package.json#piDashboard.bundledPlugins` (each a `pi-dashboard-plugin` package under `packages/`) into `<bundle>/resources/plugins/<id>/`, EXCEPT plugins whose manifest declares `fixture: true`. The runtime `findBundledPluginsDir()` SHALL locate the resulting directory at `~/.pi-dashboard/resources/plugins/` after extraction.
 
-The bundled set SHALL include at minimum: `roles-plugin`, `flows-plugin`, `flows-anthropic-bridge-plugin`. Fixture-only plugins (e.g. `demo-plugin`) SHALL be excluded.
+The bundled set SHALL include at minimum: `roles-plugin`, `flows-plugin`. Fixture-only plugins (e.g. `demo-plugin`) SHALL be excluded.
 
 Every package in a bundled plugin's `dependencies` (first-party and third-party; `peerDependencies` and `optionalDependencies` excluded) SHALL be resolvable from `<bundle>/resources/plugins/<id>/` inside the bundle, so a bundled plugin's server entry never fails to load because a declared dependency is absent.
 

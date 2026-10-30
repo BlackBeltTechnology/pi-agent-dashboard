@@ -205,6 +205,14 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     if (typeof (msg as any).autoNameSessions === "boolean") {
       inst.autoNameSessions = (msg as any).autoNameSessions;
     }
+    // Claude subscription compat switch: applied only when boolean, so an
+    // older server (no field) never resets it. See change:
+    // retire-anthropic-messages-bridge (design D3).
+    if (typeof (msg as any).claudeSubscriptionCompat === "boolean") {
+      inst.claudeSubscriptionCompat = (msg as any).claudeSubscriptionCompat;
+      // Mirror for subagent children. See change: seed-claude-compat-on-upgrade.
+      inst.shared.claudeSubscriptionCompat = inst.claudeSubscriptionCompat;
+    }
     return;
   }
   // Persisted stop state + session-owned provenance pushed at register, so a

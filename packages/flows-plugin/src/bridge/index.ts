@@ -17,6 +17,9 @@
  *
  * Also starts the flow-files reporter (see `flow-files-reporter.ts`).
  *
+ * Claude subscription compat is not this bridge's concern: the dashboard
+ * extension registers it on every pi. See change: seed-claude-compat-on-upgrade.
+ *
  * See change: route-flow-asks-to-upper-slot.
  */
 import { startFlowFilesReporter } from "./flow-files-reporter.js";
@@ -28,6 +31,7 @@ export default function activate(ctx: unknown): void {
   const events = (pi as { events?: { emit: (name: string, payload: unknown) => void } })?.events;
   if (!events || typeof events.emit !== "function") return;
   events.emit("prompt:register-adapter", new FlowQuestionAdapter());
+
   // Report this session's flow / agent / handler files to the plugin server so
   // the UI can open them. See change: attach-flow-before-run.
   startFlowFilesReporter(pi as Parameters<typeof startFlowFilesReporter>[0]);

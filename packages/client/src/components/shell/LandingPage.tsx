@@ -3,15 +3,14 @@ import Icon from "@mdi/react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useAcpAgents } from "../../hooks/useAcpAgents.js";
-import { useAnthropicPeerProbe } from "../../hooks/useAnthropicPeerProbe.js";
 import { usePersistedBoolean } from "../../hooks/usePersistedBoolean.js";
 import { useRecommendedExtensions } from "../../hooks/useRecommendedExtensions.js";
 import { getRememberedAgent } from "../../lib/acp/agent-memory.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
-import { ANTHROPIC_PEER_ENTRY_ID } from "../../lib/package/anthropic-peer.js";
-import { peerAutoInstallStore, usePeerAutoInstall } from "../../lib/package/peer-auto-install-store.js";
+import { claudeCompatStore, useClaudeCompat } from "../../lib/claude-compat/claude-compat-store.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
-import { PeerAutoInstallStatus, SECONDARY_BUTTON_CLASS } from "../settings/PeerAutoInstallStatus.js";
+import { Toast, useToast } from "../primitives/Toast.js";
+import { compatSaveFailedText, SECONDARY_BUTTON_CLASS } from "../settings/ClaudeCompatControls.js";
 
 /** Result of the app-level create-project call (see `lib/create-project.ts`). */
 type LandingCreateProjectResult =
@@ -149,83 +148,47 @@ function StepRow({
 }
 
 /**
- * Step ① done-row peer status. Mounted only when Step ① is done AND `anthropic`
- * is authenticated, so its two requests (probe + recommended) happen only then.
- * First match wins (design D3c).
+ * Step ① done-row Claude subscription compat status. Mounted only when Step ①
+ * is done AND `anthropic` is authenticated, so its one read happens only then.
+ * Shows a notice with a secondary Turn on while the switch is off; a failed
+ * save reverts with an error toast. Never probes or installs a package.
+ * See change: retire-anthropic-messages-bridge.
  */
-function Step1PeerStatus() {
+function Step1CompatStatus() {
   const { t } = useI18n();
-  const probe = useAnthropicPeerProbe();
-  const { recommended, refresh: refreshRecommended } = useRecommendedExtensions();
-  const store = usePeerAutoInstall();
-
-  // A probe that reports the peer resolving drops installed/failed.
+  const { value } = useClaudeCompat();
+  const { messages, showToast, dismissToast } = useToast();
   useEffect(() => {
-    if (probe.peerResolving) peerAutoInstallStore.notifyPeerResolving();
-  }, [probe.peerResolving, store.outcome]);
-
-  const entry = recommended.find((e) => e.id === ANTHROPIC_PEER_ENTRY_ID);
-  const install = () => {
-    // Same decision (vetoes + pending rule) as the automatic path; then re-read
-    // so a veto the fresh read found (e.g. an import failure) is shown.
-    void peerAutoInstallStore.ensureInstall("manual").then(() => {
-      void probe.refresh();
-      void refreshRecommended();
-    });
+    void claudeCompatStore.read();
+  }, []);
+  const turnOn = async () => {
+    if (!(await claudeCompatStore.set(true))) showToast(compatSaveFailedText(), "error");
   };
-
-  let content: React.ReactNode = null;
-  if (probe.importFailed) {
-    content = (
-      <InlineMessage
-        severity="warning"
-        icon={mdiAlert}
-        testId="onboarding-step-1-peer-importfailed"
-        title={t(
-          "landing.peerImportFailed",
-          undefined,
-          "pi-anthropic-messages failed to load — see Settings › Providers",
-        )}
-      />
-    );
-  } else if (probe.peerResolving) {
-    content = null;
-  } else if (store.outcome === "deciding" || store.outcome === "running" || store.outcome === "failed") {
-    content = (
-      <PeerAutoInstallStatus
-        outcome={store.outcome}
-        message={store.message}
-        onRetry={() => void peerAutoInstallStore.retry()}
-        testId="anthropic-peer-autoinstall"
-        retryTestId="onboarding-step-1-peer-retry"
-      />
-    );
-  } else if (store.outcome === "installed") {
-    content = null;
-  } else if (entry && !entry.activeInPi) {
-    content = (
-      <InlineMessage
-        severity="warning"
-        icon={mdiAlert}
-        testId="onboarding-step-1-peer-missing"
-        title={t("landing.peerNeedsInstall", undefined, "Claude tool calls need pi-anthropic-messages")}
-        actions={
-          <button
-            type="button"
-            data-testid="onboarding-step-1-peer-install"
-            onClick={install}
-            className={SECONDARY_BUTTON_CLASS}
-          >
-            {t("landing.peerInstall", undefined, "Install")}
-          </button>
-        }
-      />
-    );
-  }
-
   return (
-    <div role="status" aria-live="polite" data-testid="onboarding-step-1-peer-status" className="mt-2">
-      {content}
+    <div role="status" aria-live="polite" data-testid="onboarding-step-1-compat-status" className="mt-2">
+      <Toast messages={messages} onDismiss={dismissToast} />
+      {value === false && (
+        <InlineMessage
+          severity="warning"
+          icon={mdiAlert}
+          testId="onboarding-step-1-compat-notice"
+          title={t(
+            "landing.compatOff",
+            undefined,
+            "Claude subscription requests may be billed as extra usage",
+          )}
+          actions={
+            <button
+              type="button"
+              data-testid="onboarding-step-1-compat-turn-on"
+              onClick={() => void turnOn()}
+              className={SECONDARY_BUTTON_CLASS}
+            >
+              {t("claudeCompat.turnOn", undefined, "Turn on")}
+            </button>
+          }
+        />
+      )}
     </div>
   );
 }
@@ -464,7 +427,7 @@ export function LandingPage({
                     ? "onboarding-step-1-skipped"
                     : "onboarding-step-1-locked"
               }
-              below={step1 === "done" && anthropicAuthenticated === true ? <Step1PeerStatus /> : undefined}
+              below={step1 === "done" && anthropicAuthenticated === true ? <Step1CompatStatus /> : undefined}
             >
               {step1 === "done" ? (
                 t("landing.credentialsConfigured", undefined, "Credentials configured")
