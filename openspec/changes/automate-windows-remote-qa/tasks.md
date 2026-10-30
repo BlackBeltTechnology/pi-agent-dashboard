@@ -6,7 +6,7 @@
   - (c) `qa/tests/01-install.ps1` does not contain `@blackbelt-technology/pi-dashboard` without `-agent`, and does reference `QA_NPM_SPEC`.
 
   Each failure names the file and line. Run it: it must FAIL today (spike F2/F7/F8).
-- [ ] 1.2 Re-save all 27 `qa/tests/*.ps1` as UTF-8 with BOM. Content bytes otherwise unchanged; `git diff --stat` shows a 3-byte delta per file.
+- [ ] 1.2 Re-save every `qa/tests/*.ps1` (30 on 2026-10-30, including `54-credential-guard-windows`, `55-keychain-windows` and `windows-nsis-upgrade`, all BOM-less) as UTF-8 with BOM. Re-list the glob at implementation time. Content bytes otherwise unchanged; `git diff --stat` shows a 3-byte delta per file.
 - [ ] 1.3 Replace `localhost` with `127.0.0.1` in every PowerShell web-cmdlet request URI in `qa/tests/*.ps1`. Leave `Origin` header values and Node `net.connect` snippets alone. Check each of the 14 files listed by `rg -l localhost qa/tests/*.ps1`.
 - [ ] 1.4 `qa/tests/01-install.ps1`: install `$env:QA_NPM_SPEC`, defaulting to `@blackbelt-technology/pi-agent-dashboard`. Print the spec it installed.
 - [ ] 1.5 The guard test passes. `npm test` stays green.
@@ -54,7 +54,7 @@
 
 ## 5. Docs + DOX rows
 
-- [ ] 5.1 Add a `qa/README.md` "Remote Windows host" section covering everything the spec's README requirement lists, including the bold QA-dedicated warning.
+- [ ] 5.1 Add a `qa/README.md` "Remote Windows host" section covering everything the spec's README requirement lists, including the bold QA-dedicated warning, and that nsis mode does not run `windows-nsis-upgrade.ps1` (CI-only; see design Non-Goals).
 - [ ] 5.2 Scaffold `qa/remote/AGENTS.md` (one row per file). Update the `qa/AGENTS.md` `Makefile` row and add a `remote/` pointer. Update the `qa/tests/AGENTS.md` rows for `01-install.ps1` (`QA_NPM_SPEC`) and the BOM/`127.0.0.1` invariant.
 
 ## 6. Verification (no LAN host: use the proven `windows-latest` self-ssh method, `spike-windows-on-gh-actions` skill + `spike/spike-win-remote-qa.round2.yml`; repeat on a real LAN host when one exists)
@@ -71,7 +71,7 @@
 - [ ] 6.6 Measure `ZipFile.ExtractToDirectory` time for the 388 MB zip in PS 5.1, and record it in design.md Risks.
 - [ ] 6.7 Non-admin user: a standard account with a per-user `authorized_keys` passes preflight and `--smoke-only` npm (resolves design Q3).
 - [ ] 6.8 Diff scope matches the spec's "Diff scope" scenario; `openspec validate automate-windows-remote-qa --strict` passes; `node scripts/check-conventions.mjs` passes.
-- [ ] 6.10 CI impact (spike F17): the PR runs `ci-gateway-platform.yml` (path-filtered on `28-gateway-windows.ps1`) and the Windows NSIS smoke in `_electron-build.yml` (dispatch `ci-electron.yml` if it is not triggered) → both green with the BOM'd, `127.0.0.1` scripts.
+- [ ] 6.10 CI impact (spike F17): the PR runs `ci-gateway-platform.yml` (path-filtered on `28-gateway-windows.ps1`) and the Windows NSIS steps in `_electron-build.yml`: the install/branding/uninstall smoke and "Upgrade NSIS install from the previous release" (`windows-nsis-upgrade.ps1`, edited by 1.2 + 1.3 at `:127`). Dispatch `ci-electron.yml` if it is not triggered → all green with the BOM'd, `127.0.0.1` scripts.
 - [ ] 6.11 Delete the spike-era public Actions runs `40184762256` and `40186714826` (they print expired one-time local-proof codes, F15) with `gh run delete` — confirm with the user first.
 - [ ] 6.12 Delete the throwaway branch and worktree; `git ls-remote --heads origin 'spike/*'` returns nothing.
 

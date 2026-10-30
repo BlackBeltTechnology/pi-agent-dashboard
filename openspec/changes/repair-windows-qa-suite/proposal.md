@@ -59,6 +59,7 @@ Auth is **not** a cause. Every bare `GET` used is observe-tier (`packages/shared
 **Expected result over the harness** (on a host provisioned with Node ≥ 22.19 + npm, Git for Windows and internet access; the harness preflight enforces the tools): every test PASSes except the precondition-skips:
 - `12`, `12-keeper-log-rotation`, `17`, `40`, `45` (no checkout on a harness host);
 - `38` (needs a bridge-started server);
+- `54` (no checkout) and `55` (Credential Manager needs an interactive session; SSH sessions are not);
 - npm mode only: `07` (no zip) and `10` (no Electron-launched server).
 
 `03`/`04`/`05`/`22` additionally depend on the dependency's `127.0.0.1` probe rewrite (F7).

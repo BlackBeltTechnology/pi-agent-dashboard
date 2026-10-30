@@ -48,6 +48,7 @@ Stakeholders: release engineer cutting Windows builds; maintainers verifying Win
 - Interactive-desktop GUI tests. F6 shows server-level smoke works in session 0. Scheduled-task `/IT` launch stays unproven and unneeded.
 - WinRM; several hosts in parallel; macOS/Linux remote hosts; CI integration; signing or AV automation.
 - Auto-configuring the target (sshd, keys, policy). This is a one-time operator step, documented in the README.
+- Running `windows-nsis-upgrade.ps1` in nsis mode. It needs `gh` + `GH_TOKEN` on the target and a published previous release; it stays a CI step (`_electron-build.yml`, "Upgrade NSIS install from the previous release").
 
 ## Decisions
 

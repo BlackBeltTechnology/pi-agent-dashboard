@@ -18,7 +18,7 @@ Helper self-tests (E4–E10) live in a new L2 script `qa/tests/00-qa-common-self
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
 | E1 | Windows scripts launch the CLI as an executable | static scan | L1 | automated | a `qa/tests/*.ps1` containing `Start-Process -FilePath "pi-dashboard"` | `npm test` runs `qa-windows-ps1-compat.test.ts` | test fails naming file:line; passes on the fixed tree |
 | E2 | Exit 77 — never-run tests are listed | static scan | L1 | automated | `run-all.ps1` without `17-bridge-contention.ps1`, or listing a file that does not exist | `npm test` | test fails naming the missing or nonexistent entry |
-| E3 | Exit 77 means precondition not met on Windows | static scan | L1 | automated | a `.ps1` with a `SKIP:` line followed by `exit 0` within 3 lines | `npm test` | test fails naming file:line |
+| E3 | Exit 77 means precondition not met on Windows | static scan | L1 | automated | a `.ps1` listed in `run-all.ps1` (not `windows-nsis-*.ps1`) with a `SKIP:` line followed by `exit 0` within 3 lines | `npm test` | test fails naming file:line |
 | E4 | Shim resolution and quoting | EP (shim kinds) | L2 | automated | temp PATH dir holding `pi-dashboard` (sh), `pi-dashboard.cmd`, `pi-dashboard.ps1` | `Get-PiDashboardExe` | returns the `.cmd` path; returns `$null` when only the `.ps1` + sh exist |
 | E5 | Shim resolution and quoting | BVA (spaces) | L2 | automated | stub `C:\qa sp\pi-dashboard.cmd` that writes `%*` to a file; args `start`, `a b` | `Start-PiDashboard -ArgumentList start,'a b'` then `WaitForExit` | file contains exactly `"start" "a b"`; the cmd process exits 0 |
 | E6 | Windows scripts tolerate native stderr under PowerShell 5.1 | fault (stderr) | L2 | automated | `$ErrorActionPreference='Stop'`; block `{ cmd /c "echo out & echo err 1>&2 & exit 3" 2>&1 }` | `Invoke-Native` | no exception; `ExitCode` 3; `Stdout` = `out`; `Stderr` = `err`; `Text` has both, in order |
@@ -26,7 +26,7 @@ Helper self-tests (E4–E10) live in a new L2 script `qa/tests/00-qa-common-self
 | E8 | Windows scripts tolerate native stderr under PowerShell 5.1 | state (stale code) | L2 | automated | a previous `cmd /c exit 5`; block with no native call `{ 'x' }` | `Invoke-Native` | `ExitCode` 0, not 5 |
 | E9 | Checkout resolution order | decision table | L2 | automated | cases: (a) `PI_DASHBOARD_REPO` lacks marker, `QA_REPO_ROOT` has it; (b) neither env var, cwd has marker, grandparent does not | `Resolve-RepoCheckout -Marker packages` | (a) returns `QA_REPO_ROOT`; (b) returns `$null` (no cwd fallback) |
 | E10 | Missing openspec bin or Git Bash | EP (bash kinds) | L2 | automated | PATH with `C:\Windows\System32` first (WSL `bash.exe` present on `windows-latest`) + Git for Windows installed | `Get-GitBash` | returns `%ProgramFiles%\Git\bin\bash.exe` (the `windows-git-bash-runtime` order), never `System32\bash.exe`; with Git hidden (`ProgramFiles`/`ProgramFiles(x86)` → empty dirs, PATH trimmed to System32) returns `$null` |
-| E11 | Runner-owned fixture + expected skips (zip mode) | decision table (mode × test) | L2 | automated | v0.10.0 zip, provisioned host, no checkout | `make -C qa test-windows-remote-zip` | `summary.json.exitCode` 0; precondition-skipped = {12-openspec-shim, 12-keeper-log-rotation, 17, 40, 45, 38}; every other entry PASS (incl. 07, 10) |
+| E11 | Runner-owned fixture + expected skips (zip mode) | decision table (mode × test) | L2 | automated | v0.10.0 zip, provisioned host, no checkout | `make -C qa test-windows-remote-zip` | `summary.json.exitCode` 0; precondition-skipped = {12-openspec-shim, 12-keeper-log-rotation, 17, 40, 45, 38, 54, 55}; every other entry PASS (incl. 07, 10) |
 | E12 | Runner-owned fixture + expected skips (npm mode) | decision table (mode × test) | L2 | automated | `npmVersion` 0.10.0, provisioned host, no checkout | `make -C qa test-windows-remote-npm` | exit 0; precondition-skipped = E11 set ∪ {07, 10}; every other entry PASS |
 | E13 | Windows ZIP e2e — arm64 zip | EP (arch) | L2 | automated | `windows-11-arm` runner; both win32 zips in `C:\qa-artifacts` | run `07` directly | log names `PI-Dashboard-win32-arm64.zip`; PASS with `launchSource=electron` |
 | E14 | Windows ZIP e2e — skip path has no side effects | state | L2 | automated | no zip for host arch; fixture server healthy on 8000 | run `07` | exit 77; `GET 127.0.0.1:8000/api/health` still 200 afterwards |
@@ -41,6 +41,7 @@ Helper self-tests (E4–E10) live in a new L2 script `qa/tests/00-qa-common-self
 | E23 | Bridge-only test under the fixture | state | L2 | automated | fixture standalone server | `38-poll-cost.ps1` | exit 77; summary lists it under precondition-skipped |
 | E24 | First-start output is captured | EP | L2 | automated | clean host, npm install | `02-server-start.ps1` | redirected start file contains `Dashboard server started (pid N)`; the second start prints `already running (pid N)` with the same N; `server.log` grew |
 | E25 | Git operations test — API failure is not masked | static scan | L1 | automated | `qa/tests/05-git-ops.ps1` | `npm test` | no `git branch --list` fallback after a failed `/api/git/branches` call; the failure path exits 1 |
+| E26 | Exit 77 — CI-run NSIS script keeps exit 0 on skip | static scan (negative) | L1 | automated | `qa/tests/windows-nsis-upgrade.ps1` as committed (`SKIP:` at `:66` + `exit 0` at `:67`) | `npm test` runs the E3 scan | the scan does not flag it (not in `run-all.ps1`); a run-all-listed copy of the same lines IS flagged |
 
 ### Performance
 
@@ -72,9 +73,9 @@ Helper self-tests (E4–E10) live in a new L2 script `qa/tests/00-qa-common-self
 ## Coverage summary
 
 - Requirements covered: 15/15 delta requirements; each has ≥ 1 row. The `electron-qa-coverage` server-log rule is covered through E24, X1 and P1/E11.
-- Scenarios by class: edge 25 · perf 1 · frontend 0 (no UI) · error 13 (incl. 1 manual)
-- Scenarios by level: L1 4 · L2 34 · ci 1 · manual 1
-- Scenarios by disposition: automated 39 · manual-only 1
+- Scenarios by class: edge 26 · perf 1 · frontend 0 (no UI) · error 13 (incl. 1 manual)
+- Scenarios by level: L1 5 · L2 34 · ci 1 · manual 1
+- Scenarios by disposition: automated 40 · manual-only 1
 
 ## New infra needed
 

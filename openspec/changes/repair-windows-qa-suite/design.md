@@ -33,9 +33,10 @@ The VM suites run through `qa/scripts/run-test.sh`: it clones a Packer VM, scp's
   Calls through `& pi-dashboard api …` run the `.ps1` shim in-process and do start node (spike `R8`: install + `start` + `status` worked inside a `-File` script).
 - **C3 — PS 5.1 turns redirected native stderr into a terminating error under `$ErrorActionPreference='Stop'`.** In Windows PowerShell 5.1, redirecting a native command's stderr (`2>&1`, `2>$null`, `*>`) wraps each stderr line in an `ErrorRecord`, and `Stop` throws on the first one. pwsh 7.2+ does not do this. The evidence: `35` and `44` were reported with the **stderr text** as the caught exception, not as an exit-code FAIL.
 
-  A scan of `qa/tests/*.ps1` files that set `Stop` finds 30 redirect sites:
+  A scan of `qa/tests/*.ps1` files that set `Stop` finds 36 redirect sites (re-scanned 2026-10-30 after `encrypt-credentials-at-rest` and `slim-windows-install-file-count` landed):
   - 7 are deliberate single-line `try { … } catch { }` no-ops, which are safe: `02:107,155,177`, `12-keeper-log-rotation:73`, `16:21,61`, `35:48`;
-  - **23 are exposed**, enumerated in tasks 2.2.
+  - 1 is a deliberate exemption: `windows-nsis-upgrade.ps1:72` (`gh release download … 2>&1`) runs only under pwsh 7 in CI, where redirected native stderr is not an error record, and needs `gh` + `GH_TOKEN`;
+  - **28 are exposed**, enumerated in tasks 2.2.
 - **C4 — `07` asserts a removed layout.**
   - offline cache (`07-electron-bootstrap-v2.ps1:57-62`) and `~/.pi-dashboard` runtime install (`:136-160`): both removed by archived `eliminate-electron-runtime-install` (2026-05-26). Spike R4 snapshot diff: an Electron launch creates no `.pi-dashboard`.
   - `$Health.starter` (`:129-130`): removed (`openspec/specs/dashboard-starter-identity/spec.md` "Legacy starter field is absent"; spike `starter=null`, `launchSource=electron`).
@@ -60,7 +61,8 @@ The VM suites run through `qa/scripts/run-test.sh`: it clones a Packer VM, scp's
 - Through `make -C qa test-windows-remote-zip` / `…-npm` (dependency harness) on a stock Windows PowerShell 5.1 host **provisioned with the suite's tools** (Node ≥ 22.19 + npm, Git for Windows, internet access — the same set `qa/packer/scripts/provision-windows.ps1:39-53` installs; the harness preflight enforces the first three, dependency D2), every test PASSes except the **expected precondition-skips**:
   - with no repo checkout: `12`, `12-keeper-log-rotation`, `17`, `40`, `45`;
   - `38`: the fixture's server is not bridge-started;
-  - npm mode only: `07` (no zip) and `10` (bundled git exists only under an Electron-launched server, `packages/shared/src/platform/ensure-bundled-git.ts:54-66`).
+  - `54` (no checkout) and `55` (non-interactive SSH session);
+- npm mode only: `07` (no zip) and `10` (bundled git exists only under an Electron-launched server, `packages/shared/src/platform/ensure-bundled-git.ts:54-66`).
 
   `03`/`04`/`05`/`22` need **both** this change's fixture (C1) and the dependency's `127.0.0.1` rewrite (F7).
 - The same fixture fixes the POSIX `run-all.sh` chain.
@@ -94,6 +96,8 @@ The VM suites run through `qa/scripts/run-test.sh`: it clones a Packer VM, scp's
 | `32-origin-gate` | — | own server on 18870/19870 |
 | `35-plugin-install-load` | — | own server on its own port |
 | `40-agent-path-gate-windows` | — | 77 without a checkout |
+| `54-credential-guard-windows` (added by `encrypt-credentials-at-rest`) | — | 77 without a checkout or `tsx` (already compliant) |
+| `55-keychain-windows` (added by `encrypt-credentials-at-rest`) | — | own server on 18341 with an isolated `HOME`; 77 in a non-interactive session (every SSH session) unless `PI_QA_ALLOW_NONINTERACTIVE=1` |
 | `38-poll-cost` | ✓ | expected 77 (not bridge-started) |
 | `44-photocraft` | — | |
 | `45-windows-reclaim-refused` (new in list) | — | 77 without a checkout |
@@ -152,7 +156,7 @@ Checkout needs are **not** declared in the runners: each checkout-dependent test
 Consumers dot-source it with `. (Join-Path $PSScriptRoot '_qa-common.ps1')`. It is staged with the suite because the harness copies the whole `qa/tests/` tree (`automate-windows-remote-qa` D3). The leading `_` keeps it out of the runner list.
 
 ### D3. Exit 77 = precondition not met (Windows runner)
-`run-all.ps1` already maps 77 to precondition-skipped, which does not fail the suite (`run-all.ps1:51-58`). Every `SKIP:`/`exit 0` path in a `.ps1` becomes `exit 77`:
+`run-all.ps1` already maps 77 to precondition-skipped, which does not fail the suite (`run-all.ps1:51-58`). Every `SKIP:`/`exit 0` path in a script **listed in `run-all.ps1`** becomes `exit 77` (77 means something only to that runner). `windows-nsis-*.ps1` are run by CI (`_electron-build.yml`, which fails the step on any nonzero exit) and by the harness's nsis mode, so they keep `SKIP:` + exit 0 (`windows-nsis-upgrade.ps1:66-67`, no previous release). The paths that change:
 - `07` (no zip);
 - `12` (no `Get-GitBash`; no openspec bin);
 - `32` (no CLI).

@@ -127,7 +127,11 @@ When `QA_FIXTURE_EXE` names a `pi-dashboard.exe`, `run-all.ps1`'s fixture SHALL 
 - **THEN** the fixture starts the server with the npm-installed CLI and it reports `launchSource == "standalone"`
 
 ### Requirement: Exit 77 means precondition not met on Windows
-A Windows test script (`qa/tests/*.ps1`) that cannot establish its own precondition SHALL print a `SKIP:` reason and exit 77, never 0. A checkout-dependent Windows test SHALL exit 77 when no checkout containing its marker path is found. The POSIX `SKIP:` first-line convention is unchanged.
+A Windows test script listed in `run-all.ps1` that cannot establish its own precondition SHALL print a `SKIP:` reason and exit 77, never 0. Scripts run only by CI or by the harness's nsis mode (`windows-nsis-*.ps1`) keep `SKIP:` + exit 0, because their CI steps fail on any nonzero exit. A checkout-dependent Windows test SHALL exit 77 when no checkout containing its marker path is found. The POSIX `SKIP:` first-line convention is unchanged.
+
+#### Scenario: CI-run NSIS script keeps exit 0 on skip
+- **WHEN** `windows-nsis-upgrade.ps1` finds no published previous release
+- **THEN** it prints `SKIP:` and exits 0, so the `_electron-build.yml` upgrade step stays green, and the static scan does not flag it
 
 #### Scenario: Missing openspec bin or Git Bash
 - **WHEN** `12-openspec-shim.ps1` runs without the pinned openspec bin, or without Git for Windows' `bash.exe`
