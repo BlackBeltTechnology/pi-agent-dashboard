@@ -10,6 +10,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { provideFlowsActions } from "./automation-actions.js";
+import { broadcastEditModeState, handleSetEditMode, migrateLegacyEditFlow, registerEditModeRoutes } from "./edit-mode.js";
 import { registerFlowFileRoutes } from "./flow-files.js";
 import { mountFlowInputsRoute } from "./flow-inputs.js";
 import { renderSessionFlowActions } from "./render-actions.js";
@@ -87,6 +88,21 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     emitEventToSession,
   });
 
+  // Edit mode: global default (`~/.pi/agent/settings.json#flows.editFlow`) +
+  // per-session effective state, read-only except the guarded global PUT.
+  // The dashboard never writes a repo's `.pi/settings.json` on its own.
+  // See change: stop-flows-edit-mode-project-writes (D2, D4).
+  const editModeDeps = { sessionManager: ctx.sessionManager, broadcastToSubscribers };
+  await registerEditModeRoutes({ ...editModeDeps, fastify: ctx.fastify, networkGuard: ctx.networkGuard });
+
+  // One-time legacy plugin-config `editFlow` → global file (D6). A failure
+  // keeps the key so the next start retries.
+  try {
+    if ((await migrateLegacyEditFlow(ctx, { logger })) === "migrated") broadcastEditModeState(editModeDeps);
+  } catch (err) {
+    logger.warn(`flows: legacy editFlow migration failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   /**
    * Broadcast the current intent tree for one session's slot.
    * Called from action handlers AND in response to event-store changes
@@ -162,6 +178,16 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         const command = instruction ? `/skill:manage-flows ${instruction}` : "/skill:manage-flows";
         const delivered = sendToSession(m.sessionId, command);
         logger.info(`flow.new session=${m.sessionId} delivered=${delivered}`);
+        break;
+      }
+      case "flow.set-edit-mode": {
+        // Explicit per-project action: the ONLY path that sends
+        // flow:set-edit-mode (pi-flows writes <cwd>/.pi/settings.json).
+        // `payload.enabled` is the desired value. See change:
+        // stop-flows-edit-mode-project-writes (D5).
+        void handleSetEditMode({ ...editModeDeps, emitEventToSession, logger }, m.sessionId, payload).catch((err) =>
+          logger.warn(`flow.set-edit-mode failed: ${err instanceof Error ? err.message : String(err)}`),
+        );
         break;
       }
       default:

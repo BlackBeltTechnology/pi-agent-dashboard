@@ -3,8 +3,10 @@
  * claim, `SessionFlowMenuClaim`): hidden with no flows, enabled when idle,
  * disabled while any flow runs; the picker lists every flow and selecting one
  * writes the per-session attachment with the resolved baseline. Also covers the
- * edit-mode reconcile hosted by the claim (F20).
- * See change: attach-flow-before-run (D7), add-session-actions-flyout (E26, F20).
+ * removed edit-mode reconcile (no message is ever sent on mount) and the
+ * effective-state refetch on menu open.
+ * See change: attach-flow-before-run (D7), add-session-actions-flyout (E26, F20),
+ * stop-flows-edit-mode-project-writes (D1, D4; test-plan #F6).
  */
 import {
   createUiPrimitiveRegistry,
@@ -12,6 +14,7 @@ import {
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { CurrentPluginLayer, initPluginConfigs, PluginContextProvider, publishSessionData, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { ActionListMenuContext } from "@blackbelt-technology/pi-dashboard-client-utils/ActionListMenuContext";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -56,25 +59,42 @@ function openGate(sid: string, commands: Array<{ name: string }> = [{ name: "flo
   publishSessionData(sid, "commandsList", commands);
 }
 
-function renderClaim(sid: string, send?: (m: unknown) => void) {
-  return render(
+function claimTree(sid: string, send?: (m: unknown) => void, menu?: { open: boolean }) {
+  const claim = (
     <PluginContextProvider send={send}>
       <UiPrimitiveProvider value={registry}>
         <CurrentPluginLayer pluginId="flows">
           <SessionFlowMenuClaim session={{ id: sid } as DashboardSession} />
         </CurrentPluginLayer>
       </UiPrimitiveProvider>
-    </PluginContextProvider>,
+    </PluginContextProvider>
   );
+  return menu ? <ActionListMenuContext.Provider value={menu}>{claim}</ActionListMenuContext.Provider> : claim;
 }
+function renderClaim(sid: string, send?: (m: unknown) => void) {
+  return render(claimTree(sid, send));
+}
+
+/** Effective edit mode served by `GET /api/plugins/flows/edit-mode-state`. */
+let effective: boolean[] = [];
+const fetchMock = vi.fn(async () => {
+  const enabled = effective.length > 1 ? effective.shift() : effective[0];
+  return new Response(JSON.stringify({ enabled: enabled ?? false }), { status: 200 });
+});
 const openBtn = () => screen.queryByRole("button", { name: /Open flow/ }) as HTMLButtonElement | null;
 
 beforeEach(() => {
   localStorage.clear();
   __resetFlowAttachStoreForTests();
-  initPluginConfigs({ flows: { editFlow: false } });
+  initPluginConfigs({ flows: {} });
+  effective = [false];
+  fetchMock.mockClear();
+  vi.stubGlobal("fetch", fetchMock);
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("Open flow… visibility (E9)", () => {
   it("(a) hidden with no flows", () => {
@@ -151,13 +171,13 @@ describe("flows menu claim gate + actions", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("active-but-empty cwd offers New / Edit… in edit mode (no flowsList, no events)", () => {
+  it("active-but-empty cwd offers New / Edit… in edit mode (no flowsList, no events)", async () => {
     const sid = nextSid();
     openGate(sid);
     publishSessionData(sid, "flowsList", []);
-    initPluginConfigs({ flows: { editFlow: true } });
+    effective = [true];
     renderClaim(sid);
-    expect(screen.getByRole("button", { name: /New \/ Edit/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /New \/ Edit/ })).toBeTruthy();
     expect(openBtn()).toBeNull();
     expect(screen.queryByRole("button", { name: /Run Flow/ })).toBeNull();
   });
@@ -180,34 +200,40 @@ describe("flows menu claim gate + actions", () => {
   });
 });
 
-describe("edit-mode reconcile from the menu claim (F20 / 2.45)", () => {
+describe("edit mode from the menu claim (reconcile removed; F6)", () => {
   const editMsgs = (send: ReturnType<typeof vi.fn>) =>
-    send.mock.calls.filter(([m]) => (m as { action?: string }).action === "set-edit-mode");
+    send.mock.calls.filter(([m]) => {
+      const x = m as { action?: string };
+      return x.action === "set-edit-mode" || x.action === "flow.set-edit-mode";
+    });
 
-  it("dispatches set-edit-mode exactly once when flows is available and nothing was opened", () => {
+  it("sends no edit-mode message when flows is available and nothing was opened", async () => {
     const sid = nextSid();
     openGate(sid);
-    initPluginConfigs({ flows: { editFlow: true } });
+    effective = [true];
     const send = vi.fn();
     const { rerender } = renderClaim(sid, send);
-    expect(editMsgs(send)).toEqual([[{ type: "flow_management", sessionId: sid, action: "set-edit-mode", enabled: true }]]);
-    rerender(
-      <PluginContextProvider send={send}>
-        <UiPrimitiveProvider value={registry}>
-          <CurrentPluginLayer pluginId="flows">
-            <SessionFlowMenuClaim session={{ id: sid } as DashboardSession} />
-          </CurrentPluginLayer>
-        </UiPrimitiveProvider>
-      </PluginContextProvider>,
-    );
-    expect(editMsgs(send)).toHaveLength(1);
+    await screen.findByRole("button", { name: /New \/ Edit/ });
+    rerender(claimTree(sid, send));
+    expect(editMsgs(send)).toHaveLength(0);
   });
 
-  it("waits for availability: nothing is sent before the first commandsList publish", () => {
+  it("does not fetch before the first commandsList publish", () => {
     const sid = nextSid();
-    initPluginConfigs({ flows: { editFlow: true } });
-    const send = vi.fn();
-    renderClaim(sid, send);
-    expect(editMsgs(send)).toHaveLength(0);
+    renderClaim(sid, vi.fn());
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("re-fetches on menu open and shows an out-of-band change (#F6)", async () => {
+    const sid = nextSid();
+    openGate(sid);
+    effective = [false, true];
+    const { rerender } = render(claimTree(sid, vi.fn(), { open: false }));
+    expect(await screen.findByRole("menuitem", { name: "Turn on edit mode for this project" })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    rerender(claimTree(sid, vi.fn(), { open: true }));
+    expect(await screen.findByRole("menuitem", { name: "Turn off edit mode for this project" })).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String((fetchMock.mock.calls[1] as unknown[])[0])).toBe(`/api/plugins/flows/edit-mode-state?sessionId=${sid}`);
   });
 });

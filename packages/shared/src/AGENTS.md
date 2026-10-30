@@ -103,6 +103,7 @@ Files in this directory. One row per source file.
 | `pairing-refusal.ts` | Pairing-approval 401 wire types (`PairingRefusalBody`, `PAIRING_REMEDY_ORDER`). → see `pairing-refusal.ts.AGENTS.md` |
 | `path-containment-guard-name.ts` | `PATH_CONTAINMENT_GUARD_EXT_NAME = "path-containment-guard"`: single spelling for the guard's… → see `path-containment-guard-name.ts.AGENTS.md` |
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside… → see `path-containment.ts.AGENTS.md` |
+| `pi-agent-settings-lock.ts` | NODE-ONLY pi `settings.json` lock + atomic write (`withPiSettingsLock`, `FsDeps.settingsPath`)… → see `pi-agent-settings-lock.ts.AGENTS.md` |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json`… → see `pi-settings-keys.ts.AGENTS.md` |
 | `pi-settings-schema.ts` | Typed key schema of pi's global `settings.json` (50 keys: bool/enum/mixed/int/string/`enabledModels`):… → see `pi-settings-schema.ts.AGENTS.md` |

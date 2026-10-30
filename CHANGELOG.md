@@ -13,11 +13,18 @@ see [`docs/release-process.md`](docs/release-process.md).
 ### Added
 
 - **Claude subscription compat switch.** Settings › Providers asks "Keep Claude requests on your subscription?" after an Anthropic subscription sign-in, and the `anthropic` row carries a switch (off by default; Landing Step ① shows a notice while it is off). When on, the flows-plugin bridge rewords two lines of pi's built-in docs prompt section ("pi itself", "pi packages") for `anthropic` runs in the main session and in pi-flows agents, so requests count against the Claude subscription instead of extra usage. Tool names are no longer renamed. New routes `GET/PATCH /api/preferences/claude-subscription-compat`.
+- **"Turn on / Turn off edit mode for this project"** in the session actions menu (flows). It is the only way the dashboard changes a repo's flows edit mode: pi-flows writes `flows.editFlow` to that repo's `.pi/settings.json`, and the project value then overrides the global default. Every session in the same folder updates.
 
 ### Changed
 
 - **BREAKING:** `pi-anthropic-messages` is no longer a required extension and is no longer installed after an Anthropic sign-in. Once the compat switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages` (a one-time notice reminds you). It also wrote every prompt to a world-readable `/tmp/pi-am.log`.
 - **BREAKING:** the `flows-anthropic-bridge` plugin and its `/api/flows-anthropic-bridge/status` route are removed. A leftover `dashboard-flows-anthropic-bridge` entry in `~/.pi/agent/settings.json` is stale and can be deleted.
+- **BREAKING:** the dashboard no longer sends flows edit mode to a session on its own. Opening a repo, reloading the page or saving settings used to write `flows.editFlow` into that repo's `.pi/settings.json` (and dirty its git tree); now nothing is written unless you use the per-project menu item.
+- The flows **Edit mode** toggle (Settings › Plugins › Flows) now saves `flows.editFlow` in `~/.pi/agent/settings.json`, the file pi-flows reads. This also applies to pi sessions started from a terminal, in every repo. `PI_CODING_AGENT_DIR` is ignored here because pi-flows ignores it too. New routes `GET/PUT /api/plugins/flows/edit-mode-default`, `GET /api/plugins/flows/edit-mode-state`.
+- A previous dashboard Edit mode setting of "on" is moved once to `~/.pi/agent/settings.json` (unless that file already has a value), then removed from the plugin config.
+- **New / Edit…** now follows the session's effective edit mode (project value, else the global value).
+- Repos that already got `flows.editFlow` from the old behaviour keep it, and it overrides the global toggle. To follow the global value again, delete the `flows.editFlow` key from that repo's `.pi/settings.json`.
+- Upgrade pi-flows to **0.8.1 or later** (`pi install npm:@blackbelt-technology/pi-flows`). Older versions still write `.pi/skills/manage-flows/SKILL.md` into each repo at session start.
 
 ### Fixed
 
