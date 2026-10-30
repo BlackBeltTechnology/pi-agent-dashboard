@@ -121,7 +121,7 @@ describe("packaged Electron additions (test-plan #E103)", () => {
 
   it("08-electron-real-launch.sh asserts mcp-core, the import map, /host/react.js and delivery bundled", () => {
     const src = read(T("08-electron-real-launch.sh"));
-    for (const needle of ["packages/mcp-core", '<script type="importmap"', "/host/react.js", "client.delivery:bundled"]) {
+    for (const needle of ["pi-dashboard-mcp-core", '<script type="importmap"', "/host/react.js", "client.delivery:bundled"]) {
       expect(src, needle).toContain(needle);
     }
   });

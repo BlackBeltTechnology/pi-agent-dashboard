@@ -45,11 +45,26 @@ function overlayVersionRoot(dir: string, version: string): string {
   return path.join(dir, "versions", version);
 }
 
+/**
+ * `<serverRoot>/node_modules/@blackbelt-technology/pi-dashboard-extension` — the
+ * bridge extension in every shipped layout (bundled `resources/server`, staged
+ * overlay `versions/<X>`). `packages/extension` is a checkout-only layout.
+ * See change: slim-windows-install-file-count (D2).
+ */
+function extensionDirIn(serverRoot: string): string {
+  return path.join(serverRoot, "node_modules", "@blackbelt-technology", "pi-dashboard-extension");
+}
+
+/** The bundled app's bridge extension (`<resources>/server/node_modules/...`). */
+export function getBundledExtensionDir(resourcesPath: string): string {
+  return extensionDirIn(path.join(resourcesPath, "server"));
+}
+
 /** Directory holding a runtime's bridge extension (D8). */
 export function extensionPathFor(runtimeId: string, dir: string, resourcesPath: string): string {
-  if (runtimeId === BUNDLED_RUNTIME_ID) return path.join(resourcesPath, "server", "packages", "extension");
+  if (runtimeId === BUNDLED_RUNTIME_ID) return getBundledExtensionDir(resourcesPath);
   if (runtimeId.startsWith(LOCAL_PREFIX)) return path.join(runtimeId.slice(LOCAL_PREFIX.length), "packages", "extension");
-  return path.join(overlayVersionRoot(dir, runtimeId), "node_modules", "@blackbelt-technology", "pi-dashboard-extension");
+  return extensionDirIn(overlayVersionRoot(dir, runtimeId));
 }
 
 /** Runtime kind + root for an id. */

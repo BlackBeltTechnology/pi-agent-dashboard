@@ -22,6 +22,19 @@ Grab latest Windows artifact from GitHub releases page:
 
 `Setup.exe` built on `windows-latest` CI via `electron-builder --win nsis`. `.zip` also from CI.
 
+### Install size / speed
+
+- NSIS install time scales with file count (NTFS create + Defender scan per file).
+- Estimate: ~11.6k fewer files (-27.5%) vs v0.11.0 win32-x64 zip file list (42,298 files).
+- Measured on CI vs develop baseline: win32-x64 packaged `resources/` 38,045 → 28,368 files (-25.4%); `install_seconds` ~172-204 s on `windows-latest` (two runs; informational, ±15% spread).
+- Layout: workspace source ships once, under `resources\server\node_modules\@blackbelt-technology\<pkg>`.
+- `resources\server\packages\<dir>` no longer shipped. Only `resources\server\packages\dist` (served client) remains.
+- Upgrade: stale `...\server\packages\extension` bridge registration in `~\.pi\agent\settings.json` dropped automatically on first launch of new version. No manual edit.
+- CI job summary (win32-x64 NSIS smoke step), informational only:
+  - `install_seconds`: time of `Setup.exe /S`.
+  - `installed_file_count`: files under install dir.
+  - runner image.
+
 ### Step 2 — Launch
 
 Start Menu shortcut (Setup.exe) or double-click `pi-dashboard.exe` (.zip).

@@ -38,7 +38,7 @@ BUNDLED_NODE="$RESOURCES/node/bin/node"
 # bundled with the server (it mints local proof from this HOME's token). See change:
 # close-container-loopback-impersonation (D5).
 pd_api() { "$BUNDLED_NODE" "$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-server/bin/pi-dashboard.mjs" api "$@"; }
-SERVER_CLI="$SERVER_BUNDLE/packages/server/src/cli.ts"
+SERVER_CLI="$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
 START_SH="$SERVER_BUNDLE/start-server.sh"
 PI_PKG_JSON="$SERVER_BUNDLE/node_modules/@earendil-works/pi-coding-agent/package.json"
 SERVER_PKG_JSON="$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-server/package.json"
