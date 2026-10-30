@@ -69,7 +69,8 @@ export function useEditModeState(sessionId: string, opts: { active: boolean; men
     if (msg.sessionId !== sessionId || typeof msg.enabled !== "boolean") return;
     seq.current++; // a pushed value supersedes any in-flight GET
     setEnabled(msg.enabled);
-    if (msg.error === "not-delivered" || msg.error === "timeout") setError(msg.error);
+    // A clean frame (the change landed later) clears a surfaced error.
+    setError(msg.error === "not-delivered" || msg.error === "timeout" ? msg.error : null);
   });
 
   const clearError = useCallback(() => setError(null), []);

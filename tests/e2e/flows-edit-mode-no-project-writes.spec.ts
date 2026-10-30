@@ -29,7 +29,7 @@ const sh = (script: string): string =>
 
 const snapshot = (file: string): string => sh(`if [ -f ${file} ]; then base64 -w0 ${file}; else echo ABSENT; fi`);
 const restore = (file: string, snap: string): void => {
-  sh(snap === "ABSENT" ? `rm -f ${file}` : `mkdir -p "$(dirname ${file})" && echo '${snap}' | base64 -d > ${file}`);
+  sh(snap === "ABSENT" ? `rm -f ${file}` : `mkdir -p "$(dirname ${file})" && printf '%s' '${snap}' | base64 -d > ${file}`);
 };
 const readJson = (file: string): Record<string, unknown> | null => {
   const raw = sh(`cat ${file} 2>/dev/null || true`);

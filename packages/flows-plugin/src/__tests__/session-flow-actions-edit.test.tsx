@@ -242,6 +242,7 @@ describe("pushed state + errors (#X3 client)", () => {
     expect(screen.getByRole("button", { name: "Turn on edit mode for this project" })).toBeTruthy();
     push({ type: "flows_edit_mode_state", sessionId: sid, enabled: true });
     expect(await screen.findByRole("button", { name: "Turn off edit mode for this project" })).toBeTruthy();
+    expect(screen.queryByText(/could not be reached/)).toBeNull();
   });
 });
 

@@ -113,7 +113,7 @@ function activeSessions(sm: { listActive(): unknown[] }): ActiveSession[] {
   const out: ActiveSession[] = [];
   for (const s of sm.listActive()) {
     const r = s as { id?: unknown; cwd?: unknown; status?: unknown } | null;
-    if (r && typeof r.id === "string" && typeof r.cwd === "string" && r.status !== "ended") {
+    if (r && typeof r.id === "string" && typeof r.cwd === "string" && r.cwd !== "" && r.status !== "ended") {
       out.push({ id: r.id, cwd: r.cwd });
     }
   }
