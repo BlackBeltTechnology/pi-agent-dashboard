@@ -649,7 +649,8 @@ function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: stri
  * `startedAt` makes it visible to the stale reconcile; `emittedAtInferenceSeq`
  * = the CURRENT counter, so the supersede proof (`>`) holds only after a
  * strictly later assistant inference — genuine evidence the end was lost.
- * Returns `toolCalls` unchanged (same Map) when an entry already exists.
+ * Returns `toolCalls` unchanged (same Map) when a RUNNING entry already exists;
+ * a terminal entry is restored to running with a refreshed inference stamp.
  * See change: fix-backfill-elides-live-tools (D2, D3).
  */
 export function seedRunningToolCall(
@@ -659,8 +660,16 @@ export function seedRunningToolCall(
   fallbackStartedAt?: number,
 ): Map<string, ToolCallState> {
   const toolCallId = row.toolCallId;
-  if (!toolCallId || toolCalls.has(toolCallId)) return toolCalls;
+  if (!toolCallId) return toolCalls;
+  const existing = toolCalls.get(toolCallId);
+  if (existing?.status === "running") return toolCalls;
   const out = new Map(toolCalls);
+  if (existing) {
+    // Tracked as terminal (e.g. a client-side heal) yet proven running: restore it,
+    // or the stale reconcile and the activity bar (both `status === "running"`) skip it.
+    out.set(toolCallId, { ...existing, status: "running", emittedAtInferenceSeq: inferenceSeq });
+    return out;
+  }
   out.set(toolCallId, {
     toolCallId,
     toolName: row.toolName ?? "unknown",

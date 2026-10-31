@@ -194,3 +194,20 @@ describe("revive vs the Agent finalizer (F8, F9)", () => {
     expect(s.subagents.get("ag-2")?.status).toBe("running");
   });
 });
+
+describe("seedRunningToolCall", () => {
+  const keptRow = { id: "tool-c1", role: "toolResult", content: "Agent", toolName: "Agent", toolCallId: "c1", toolStatus: "running", timestamp: 9, startedAt: 9 } as SessionState["messages"][number];
+
+  it("leaves an existing RUNNING entry untouched (same Map)", () => {
+    const map = new Map([["c1", { toolCallId: "c1", toolName: "Agent", status: "running" as const, startedAt: 5, emittedAtInferenceSeq: 1 }]]);
+    expect(seedRunningToolCall(map, keptRow, 4)).toBe(map);
+  });
+
+  it("restores a TERMINAL entry the server reports open to running, refreshing only its inference stamp", () => {
+    const map = new Map([["c1", { toolCallId: "c1", toolName: "Agent", status: "complete" as const, startedAt: 5, emittedAtInferenceSeq: 1 }]]);
+    const out = seedRunningToolCall(map, keptRow, 4);
+    expect(out).not.toBe(map);
+    expect(out.get("c1")).toMatchObject({ status: "running", startedAt: 5, emittedAtInferenceSeq: 4 });
+    expect(map.get("c1")?.status).toBe("complete");
+  });
+});
