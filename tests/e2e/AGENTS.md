@@ -189,6 +189,7 @@ One row per file.
 | `remote-access-wizard.spec.ts` | → `remote-access-wizard.spec.ts.AGENTS.md` |
 | `remote-browse-confinement.spec.ts` | → `remote-browse-confinement.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
+| `replay-live-tool-not-orphaned.backfill.spec.ts` | L3 #F15/#F16: tail-only `WINDOW` armed in `beforeAll` (restored exactly in `afterAll`); `faux:subagent-long-stream-hold` Agent start lands in backfill after `POST /api/restart` (#F15) or a reload (#F16); "reload" = FRESH browser context (same-context `page.reload()` resubscribes from IndexedDB cache as unwindowed delta); walks gap via `history-gap-load` click (short transcript never auto-loads); non-vacuity = Agent `tool_execution_start` seen in a `history_backfill_result`; card `agent-activity-row` running, no `agent-elided-note`, converges after `LONG_STREAM_HOLD_TAIL`. See change: fix-backfill-elides-live-tools. |
 | `retro-ux-plugin-settings-wave-2.spec.ts` | → `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | → `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | → `runtime-updates-remote-local.spec.ts.AGENTS.md` |

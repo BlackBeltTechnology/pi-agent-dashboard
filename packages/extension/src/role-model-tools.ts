@@ -226,7 +226,7 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
     name: "list_roles",
     label: "List Roles",
     description:
-      "List the roles you can use as `model: \"@<role>\"` (e.g. when spawning subagents). `roles` maps each usable role to its model ref: assigned, not removed, and (when the model registry is ready) bound to an available model. `unavailable` lists assigned roles whose model is not available, with a reason. `registryReady:false` means availability was not checked. Also returns preset names and the active preset. No model catalogue — use list_models for that.",
+      "List the roles you can use as `model: \"@<role>\"` (e.g. when launching subagents). `roles` maps each usable role to its model ref: assigned, not removed, and (when the model registry is ready) bound to an available model. `unavailable` lists assigned roles whose model is not available, with a reason. `registryReady:false` means availability was not checked. Also returns preset names and the active preset. No model catalogue — use list_models for that.",
     parameters: Type.Object({}),
     async execute(_id: any, _params: any, _signal: any, _onUpdate: any, _ctx: any) {
       const cfg = loadRoleConfig();

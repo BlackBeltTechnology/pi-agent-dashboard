@@ -14,7 +14,7 @@
  */
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -953,5 +953,93 @@ describe("history_backfill_result — re-seats ts-placed notifies (D5)", () => {
     notify(h, "n150", 150);
     backfill(h, [100, 200, 300]);
     expect(labels(h.get())).toEqual(["gap", "100", "N150", "200", "N250", "300", "500", "600"]);
+  });
+});
+
+/**
+ * A call the server reports open stays running through the splice and gains a
+ * complete `toolCalls` entry — the ONE bookkeeping exception to D10.
+ * See change: fix-backfill-elides-live-tools (D2, D3) — test-plan #F10–#F13, #X3.
+ */
+describe("history_backfill_result — server-reported open calls (#F10–#F13, #X3)", () => {
+  const primed = (replay: ServerToBrowserMessage = windowedReplay()) => {
+    const h = mount();
+    h.fire(windowMsg());
+    h.fire(replay);
+    return h;
+  };
+  const startEv = (toolCallId: string, timestamp = 1234): DashboardEvent =>
+    ({ eventType: "tool_execution_start", timestamp, data: { toolCallId, toolName: "Agent", args: {} } }) as DashboardEvent;
+  const backfill = (openToolCallIds?: string[]) =>
+    ({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [{ seq: 4799, event: startEv("c1") }],
+      servedFrom: 4799,
+      servedTo: 4799,
+      remainingGapCount: 700,
+      ...(openToolCallIds ? { openToolCallIds } : {}),
+    }) as ServerToBrowserMessage;
+  const stateOf = (h: { get: () => Harness }) => h.get().states.get(SID)!;
+  const rowOf = (h: { get: () => Harness }, id: string) => stateOf(h).messages.find((m) => m.toolCallId === id);
+
+  it("#F10: a reported-open call stays running and is tracked with its row's startedAt", () => {
+    const h = primed();
+    h.fire(backfill(["c1"]));
+    expect(rowOf(h, "c1")?.toolStatus).toBe("running");
+    expect(stateOf(h).toolCalls.get("c1")).toMatchObject({ status: "running", startedAt: 1234 });
+  });
+
+  it("#F11: the open-call splice gains exactly c1 and leaves live bookkeeping untouched", () => {
+    const h = primed();
+    const maxBefore = h.get().maxSeqs.get(SID);
+    const keysBefore = [...stateOf(h).toolCalls.keys()];
+    h.get().publishEvents.mockClear();
+    h.get().persisterSeed.mockClear();
+    h.get().persisterRecord.mockClear();
+    h.fire(backfill(["c1"]));
+    expect(h.get().maxSeqs.get(SID)).toBe(maxBefore);
+    expect(h.get().publishEvents).not.toHaveBeenCalled();
+    expect(h.get().persisterSeed).not.toHaveBeenCalled();
+    expect(h.get().persisterRecord).not.toHaveBeenCalled();
+    expect([...stateOf(h).toolCalls.keys()]).toEqual([...keysBefore, "c1"]);
+  });
+
+  it("#F12: without openToolCallIds the row elides and toolCalls is unchanged", () => {
+    const h = primed();
+    const before = stateOf(h).toolCalls;
+    h.fire(backfill());
+    expect(rowOf(h, "c1")?.toolStatus).toBe("elided");
+    expect(stateOf(h).toolCalls).toBe(before);
+  });
+
+  it("#F13: an entry the session already tracks is not overwritten", () => {
+    const replay = windowedReplay() as Extract<ServerToBrowserMessage, { type: "event_replay" }>;
+    const h = primed({ ...replay, events: [...replay.events, { seq: 4810, event: startEv("c1", 5) }] });
+    expect(stateOf(h).toolCalls.get("c1")?.startedAt).toBe(5);
+    h.fire(backfill(["c1"]));
+    expect(stateOf(h).toolCalls.get("c1")?.startedAt).toBe(5);
+  });
+
+  it("#X3: an old server's elided Agent row revives on the next live tick", async () => {
+    const h = primed();
+    h.fire(backfill());
+    expect(rowOf(h, "c1")?.toolStatus).toBe("elided");
+    h.fire({
+      type: "event",
+      sessionId: SID,
+      seq: 5000,
+      event: {
+        eventType: "tool_execution_update",
+        timestamp: 2000,
+        data: {
+          toolCallId: "c1",
+          toolName: "Agent",
+          partialResult: { content: [{ type: "text", text: "working" }], details: { agentId: "ag-9", status: "running" } },
+        },
+      } as DashboardEvent,
+    } as ServerToBrowserMessage);
+    // Live events fold once per animation frame — poll the observable.
+    await waitFor(() => expect(rowOf(h, "c1")?.toolStatus).toBe("running"));
   });
 });

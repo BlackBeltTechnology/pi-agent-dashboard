@@ -29,3 +29,5 @@ Handles `preview_exposure_changed` → `notifyExposureChanged(epoch)`. See chang
 
 New setter `setLookupOnlyIds`: `sessions_page_result` removes the ids it delivers, `sessions_snapshot` clears the set (lookup-merged rows are excluded from the held-ended count until then). See change: add-session-ui-deep-links-for-agents.
 - `terminal_error` → notice store (`kind:"error"`, server `message`); no terminal state; clears `pendingTerminalCwdRef` when cwd matches (`terminal_limit_reached` now does too). Newer terminal notice replaces older. See change: harden-git-terminal-plugin-boundaries.
+
+- `history_backfill_result` splice passes `new Set(msg.openToolCallIds ?? [])` to `finalizeBackfillSegment`; each kept-running reported-open row missing from `current.toolCalls` gets `seedRunningToolCall(..., current.assistantInferenceSeq, <segment start ts>)` — the ONE exception to the touch-only-`messages[]` (D10) rule; `maxSeqMapRef`/publish/persister still untouched. See change: fix-backfill-elides-live-tools (D2).

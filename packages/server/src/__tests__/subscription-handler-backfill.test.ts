@@ -825,3 +825,108 @@ describe("history_backfill — edge crediting in a head-free window (E10, E11)",
 
 const backfillOn = (ctx: BrowserHandlerContext, subs: Set<string>, fromSeq: number, toSeq: number) =>
   handleHistoryBackfill({ type: "history_backfill", sessionId: "s1", fromSeq, toSeq }, subs, ctx);
+
+// Serve-time open-call report on `history_backfill_result`.
+// See change: fix-backfill-elides-live-tools (D1) — test-plan E9–E13.
+describe("history_backfill — openToolCallIds (E9–E13)", () => {
+  const startEv = (toolCallId: string): DashboardEvent => ({
+    eventType: "tool_execution_start",
+    timestamp: 1,
+    data: { toolCallId, toolName: "Agent" },
+  });
+
+  /** 5000 events, `starts` maps seq → toolCallId of an open start. */
+  async function primed(
+    starts: Record<number, string> = {},
+    types: Record<number, string> = {},
+    n = 5000,
+  ) {
+    const ctx = createMockContext({ maxReplayEvents: 500 });
+    for (let i = 1; i <= n; i++) {
+      ctx.eventStore.insertEvent("s1", starts[i] ? startEv(starts[i]) : makeEvent(types[i] ?? "tool_execution_end"));
+    }
+    const subs = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, subs, ctx);
+    await settle();
+    const win = windowsOf(ctx)[0];
+    (ctx.sendTo as any).mockClear();
+    return { ctx, subs, win };
+  }
+
+  const backfill = (ctx: BrowserHandlerContext, subs: Set<string>, fromSeq: number, toSeq: number) =>
+    handleHistoryBackfill({ type: "history_backfill", sessionId: "s1", fromSeq, toSeq }, subs, ctx);
+
+  it("E9: only open starts actually served are reported — one below the snapped edge is not", async () => {
+    // Same geometry as E18: the tail-anchored slice snaps up to seq 4091.
+    const { ctx, subs, win } = await primed(
+      { 4060: "c1", 4100: "c2" },
+      { 4090: "message_end", 4091: "message_start" },
+    );
+    await backfill(ctx, subs, win.tailMinSeq - MAX_BACKFILL_EVENTS, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.servedFrom).toBe(4091);
+    expect(res.openToolCallIds).toEqual(["c2"]);
+  });
+
+  it("E10: an empty compacted slice carries no openToolCallIds key and never reads the suffix", async () => {
+    // n=1000 → gap [51,550]; every gap event is a superseded message_update.
+    const types: Record<number, string> = {};
+    for (let i = 51; i <= 550; i++) types[i] = "message_update";
+    const { ctx, subs, win } = await primed({}, types, 1000);
+    const spy = vi.spyOn(ctx.eventStore, "getEvents");
+    await backfill(ctx, subs, win.headMaxSeq + 1, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.events).toEqual([]);
+    expect("openToolCallIds" in res).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("E11: no refusal carries openToolCallIds", async () => {
+    const { ctx, subs, win } = await primed({ 4400: "c1" });
+    const from = win.tailMinSeq - 200;
+    const to = win.tailMinSeq - 1;
+
+    await backfill(ctx, new Set(), from, to); // not_subscribed
+    await backfill(ctx, subs, win.tailMinSeq, win.tailMinSeq + 5); // out_of_range
+    const first = backfill(ctx, subs, from, to);
+    await backfill(ctx, subs, from, to); // in_flight
+    await first;
+    const stale = backfill(ctx, subs, win.headMaxSeq + 1, win.headMaxSeq + 10);
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, subs, ctx);
+    await stale; // stale_generation
+
+    const refusals = resultsOf(ctx).filter((r) => r.error !== undefined);
+    expect(refusals.map((r) => r.error).sort()).toEqual(
+      ["in_flight", "not_subscribed", "out_of_range", "stale_generation"],
+    );
+    for (const r of refusals) expect("openToolCallIds" in r, r.error).toBe(false);
+  });
+
+  it("E12: a relocated session reports no open calls", async () => {
+    const { ctx, subs, win } = await primed({ 4400: "c1" });
+    ctx.sessionManager.register({ id: "s1", cwd: "/repo", source: "dashboard", startedAt: 1 } as any);
+    ctx.sessionManager.update("s1", { movedTo: { instanceId: "other-host", endpoint: "x", at: 2 } } as any);
+    await backfill(ctx, subs, win.tailMinSeq - 200, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.events.some((e) => e.event.eventType === "tool_execution_start")).toBe(true);
+    expect("openToolCallIds" in res).toBe(false);
+  });
+
+  it("E13: an end stored during the handler's yield excludes the call", async () => {
+    const { ctx, subs, win } = await primed({ 4400: "c1" });
+    const pending = backfill(ctx, subs, win.tailMinSeq - 200, win.tailMinSeq - 1);
+    // The handler is parked on its setImmediate yield here.
+    ctx.eventStore.insertEvent("s1", { eventType: "tool_execution_end", timestamp: 2, data: { toolCallId: "c1" } });
+    await pending;
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.openToolCallIds ?? []).not.toContain("c1");
+    // Control: the same setup without the racing end reports c1 open.
+    const ctl = await primed({ 4400: "c1" });
+    await backfill(ctl.ctx, ctl.subs, ctl.win.tailMinSeq - 200, ctl.win.tailMinSeq - 1);
+    expect(resultsOf(ctl.ctx)[0].openToolCallIds).toEqual(["c1"]);
+  });
+});
