@@ -2603,7 +2603,7 @@ export function reduceEvent(
       // the reopen/revive below restored from one that was already running, and undo
       // the revive for a subagent it records as terminal.
       const finalizer =
-        partialResult && rowIdx !== -1 && next.messages[rowIdx].toolName === "Agent"
+        rowIdx !== -1 && next.messages[rowIdx].toolName === "Agent"
           ? findToolRowFinalizer<SessionState>("Agent")
           : undefined;
       const prior: SessionState | undefined = finalizer ? { ...next, toolCalls: new Map(next.toolCalls) } : undefined;
@@ -2612,6 +2612,12 @@ export function reduceEvent(
       if (rowIdx !== -1 && next.messages[rowIdx].toolStatus === "elided") {
         next.messages = [...next.messages];
         reviveElidedRow(next, rowIdx);
+        // No partial result → the structured arm below never asks the finalizer, yet a
+        // revive for a subagent it records as terminal must still be undone.
+        if (!partialResult) {
+          const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
+          if (finalized) return finalized;
+        }
       }
       if (partialResult) {
         const idx = rowIdx;

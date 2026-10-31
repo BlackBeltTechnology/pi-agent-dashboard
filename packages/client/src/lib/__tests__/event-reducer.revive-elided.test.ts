@@ -171,6 +171,18 @@ describe("revive vs the Agent finalizer (F8, F9)", () => {
     expect(s.toolCalls.get("r")?.status).not.toBe("running");
   });
 
+  it("F8b: a tick WITHOUT partialResult for a terminal subagent's row also leaves it elided", () => {
+    let s = splice(tail(), [toolStart("r", "Agent")]);
+    s = {
+      ...s,
+      messages: s.messages.map((m) => (m.toolCallId === "r" ? { ...m, toolDetails: { agentId: "ag-1" } } : m)),
+    };
+    s = reduceEvent(s, evt("subagent_completed", { id: "ag-1", result: "R" }));
+    s = reduceEvent(s, evt("tool_execution_update", { toolCallId: "r", toolName: "Agent" }));
+    expect(row(s, "r")?.toolStatus).toBe("elided");
+    expect(s.toolCalls.has("r")).toBe(false);
+  });
+
   it("F9: an unknown subagent's tick revives the row AND hydrates the subagent", () => {
     let s = splice(tail(), [toolStart("r", "Agent")]);
     s = reduceEvent(s, agentTick("r", { agentId: "ag-2", status: "running" }));
