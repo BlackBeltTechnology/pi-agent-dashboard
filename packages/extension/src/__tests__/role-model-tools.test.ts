@@ -139,7 +139,45 @@ describe("list_roles", () => {
     const { pi, tools } = mkPi();
     registerRoleModelTools(pi, { getRegistry: () => null });
     const res = await tools.get("list_roles").execute("id", {}, null, null, {});
-    expect(res.details).toEqual({ roles: {}, presets: [], activePreset: null });
+    expect(res.details).toMatchObject({ roles: {}, unavailable: {}, presets: [], activePreset: null });
+  });
+
+  const reg = (...refs: string[]) => ({
+    getAvailable: () => refs.map((r) => ({ provider: r.slice(0, r.indexOf("/")), id: r.slice(r.indexOf("/") + 1) })),
+  });
+
+  it("excludes a removed role even when still assigned", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { vision: "anthropic/claude-x", fast: "anthropic/claude-x" },
+      removedRoles: ["vision"],
+    }));
+    const { pi, tools } = mkPi();
+    registerRoleModelTools(pi, { getRegistry: () => reg("anthropic/claude-x") });
+    const res = await tools.get("list_roles").execute("id", {}, null, null, {});
+    expect(res.details.roles).toEqual({ fast: "anthropic/claude-x" });
+    expect(res.details.unavailable).toEqual({});
+  });
+
+  it("moves roles whose model is not available into `unavailable` (level suffix stripped)", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { fast: "anthropic/claude-x:low", review: "local/missing-model", free: "ocg-free/ocg/m" },
+    }));
+    const { pi, tools } = mkPi();
+    registerRoleModelTools(pi, { getRegistry: () => reg("anthropic/claude-x", "ocg-free/ocg/m") });
+    const res = await tools.get("list_roles").execute("id", {}, null, null, {});
+    expect(res.details.roles).toEqual({ fast: "anthropic/claude-x:low", free: "ocg-free/ocg/m" });
+    expect(res.details.unavailable).toEqual({ review: { ref: "local/missing-model", reason: "model-not-available" } });
+    expect(res.details.registryReady).toBe(true);
+  });
+
+  it("unhydrated registry: no availability filter, registryReady:false + reason", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "anthropic/claude-x" } }));
+    const { pi, tools } = mkPi();
+    registerRoleModelTools(pi, { getRegistry: () => null });
+    const res = await tools.get("list_roles").execute("id", {}, null, null, {});
+    expect(res.details.roles).toEqual({ fast: "anthropic/claude-x" });
+    expect(res.details.registryReady).toBe(false);
+    expect(typeof res.details.reason).toBe("string");
   });
 });
 
