@@ -24,8 +24,9 @@ async function setup() {
     // `register` runs encapsulated-scope callbacks against the same fake
     // (rate-limited flow-file routes; see change: attach-flow-before-run).
     fastify: (() => {
-      const f: { get: ReturnType<typeof vi.fn>; register: (fn: unknown, opts?: unknown) => Promise<void> } = {
+      const f: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn>; register: (fn: unknown, opts?: unknown) => Promise<void> } = {
         get: vi.fn(),
+        put: vi.fn(),
         // Scope callbacks (no options) run; option-bearing plugin
         // registrations (e.g. @fastify/rate-limit) are no-ops here.
         register: async (fn, opts) => {
@@ -34,6 +35,8 @@ async function setup() {
       };
       return f;
     })(),
+    getPluginConfig: () => ({}),
+    updatePluginConfig: vi.fn(async () => {}),
     registerBrowserHandler: (type: string, h: Handler) => {
       if (type === "plugin_action") handler = h;
     },
@@ -62,5 +65,23 @@ describe("flows plugin_action handler", () => {
     handler({ pluginId: "goal", sessionId: "s1", action: "flow.run", payload: { flow: "ns:x" } });
     handler({ pluginId: "flows", action: "flow.run", payload: { flow: "ns:x" } });
     expect(emitEventToSession).not.toHaveBeenCalled();
+  });
+
+  it("flow.set-edit-mode is wired to the per-project handler (unknown session: no emit)", async () => {
+    const { handler, emitEventToSession, ctx } = await setup();
+    handler({ pluginId: "flows", sessionId: "s1", action: "flow.set-edit-mode", payload: { enabled: true } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(emitEventToSession).not.toHaveBeenCalled();
+    expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining("flow.set-edit-mode session=s1"));
+  });
+
+  it("registers the edit-mode routes and does not touch plugin config without a legacy key", async () => {
+    const { ctx } = await setup();
+    const f = ctx.fastify as unknown as { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+    expect(f.get.mock.calls.map((c) => c[0])).toEqual(
+      expect.arrayContaining(["/api/plugins/flows/edit-mode-default", "/api/plugins/flows/edit-mode-state"]),
+    );
+    expect(f.put.mock.calls.map((c) => c[0])).toContain("/api/plugins/flows/edit-mode-default");
+    expect(ctx.updatePluginConfig).not.toHaveBeenCalled();
   });
 });

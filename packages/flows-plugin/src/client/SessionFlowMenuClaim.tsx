@@ -1,5 +1,6 @@
-import { usePluginConfig, usePluginSend, useSessionData, useSessionEvents, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { usePluginSend, useSessionData, useSessionEvents, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
+import { ActionListMenuContext } from "@blackbelt-technology/pi-dashboard-client-utils/ActionListMenuContext";
 import type { UiSelectOption as SelectOption } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type {
@@ -8,15 +9,15 @@ import type {
   FlowInfo,
   FlowState,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useMemo, useState } from "react";
 import { FlowAuthorPromptDialog } from "./FlowAuthorPromptDialog.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
-import type { FlowsPluginConfig } from "./FlowsSettings.js";
 import { newAttachmentId, setAttachment } from "./flow-attach-store.js";
 import { hasFlowsCommand } from "./flowsActionsGate.js";
 import { sessionHasFlowEvents } from "./flowsAvailability.js";
 import { makeSafeSend } from "./send-safe.js";
+import { useEditModeState } from "./useEditModeState.js";
 
 function isAnyFlowRunning(
   flowState: FlowState | null | undefined,
@@ -27,17 +28,41 @@ function isAnyFlowRunning(
 }
 
 /**
+ * Explicit per-project write: the ONLY path that sends flow:set-edit-mode
+ * (pi-flows then writes <cwd>/.pi/settings.json). The click requests the value
+ * the label names. See change: stop-flows-edit-mode-project-writes (D5).
+ */
+function projectEditModeItem(t: ReturnType<typeof useT>, editMode: boolean, onClick: () => void) {
+  return {
+    label: editMode
+      ? t("projectEditModeOff", undefined, "Turn off edit mode for this project")
+      : t("projectEditModeOn", undefined, "Turn on edit mode for this project"),
+    icon: editMode ? "mdiPencilOff" : "mdiPencilOutline",
+    tooltip: t(
+      "projectEditModeHint",
+      undefined,
+      "Writes flows.editFlow to this project's .pi/settings.json. The project value then overrides the global default.",
+    ),
+    onClick,
+  };
+}
+
+/**
  * `session-card-action-bar` claim: the flow ACTIONS (Run Flow…, Open flow…,
- * New / Edit…, Delete) rendered as an `ActionList` for the session actions menu,
- * plus the dialogs they open and the edit-mode reconcile. Flow STATUS stays in
- * the FLOWS subcard (`SessionFlowActionsClaim`).
+ * New / Edit…, Delete, and the per-project edit-mode item) rendered as an
+ * `ActionList` for the session actions menu, plus the dialogs they open. Flow
+ * STATUS stays in the FLOWS subcard (`SessionFlowActionsClaim`).
  *
  * The claim stays mounted for the card's lifetime (dialogs portal to body and
- * survive the menu closing; the reconcile runs without the menu being opened).
- * Gated by availability — a `flows` / `flows:*` command (not `flows:new` alone)
- * or any flow event; never by `flowsList` length.
+ * survive the menu closing). Gated by availability — a `flows` / `flows:*`
+ * command (not `flows:new` alone) or any flow event; never by `flowsList` length.
  *
- * See change: add-session-actions-flyout (D7, D12).
+ * Edit mode: New / Edit… and the per-project item follow the session's
+ * EFFECTIVE edit mode (`useEditModeState`; hidden while unknown). The claim
+ * never sends an edit-mode message on its own: only a click on "Turn on / off
+ * edit mode for this project" sends `plugin_action flow.set-edit-mode`.
+ *
+ * See change: add-session-actions-flyout (D7, D12); stop-flows-edit-mode-project-writes (D1, D4, D5).
  */
 export function SessionFlowMenuClaim({ session }: { session: DashboardSession }) {
   const t = useT();
@@ -48,15 +73,16 @@ export function SessionFlowMenuClaim({ session }: { session: DashboardSession })
   const { flowState, flowStates, lastFlowStartedAt } = useFlowsSessionState(session.id);
   const events = useSessionEvents(session.id);
   const send = usePluginSend();
-  // The edit-mode reconcile and author-prompt handlers cannot own the send
+  // The action and author-prompt handlers cannot own the send
   // promise — discard it explicitly. See change: cleanup-client-plugin-promises.
   const dispatch = useMemo(() => makeSafeSend(send), [send]);
-  const config = usePluginConfig<FlowsPluginConfig>();
-  const editMode = config.editFlow ?? false;
+  const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
+  const menuOpen = useContext(ActionListMenuContext)?.open;
 
   // commandsList (subscribed above) + the event stream drive re-evaluation; the
   // gate reads the same sources as `flowsActionsAvailable`.
   const available = hasFlowsCommand(commands) || sessionHasFlowEvents(session.id);
+  const { enabled: editMode, error: editModeError, clearError } = useEditModeState(session.id, { active: available, menuOpen });
   const hasFlowsDelete = commands.some((c) => c.name === "flows:delete");
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -67,18 +93,6 @@ export function SessionFlowMenuClaim({ session }: { session: DashboardSession })
   const [deletePickerOpen, setDeletePickerOpen] = useState(false);
   const [deleteFlowName, setDeleteFlowName] = useState<string | null>(null);
   const [selectedFlow, setSelectedFlow] = useState<FlowInfo | null>(null);
-
-  // Reconcile the GLOBAL edit-mode default down to this session once flows is
-  // available. pi-flows persists it to the project .pi/settings.json. Idempotent
-  // — re-emits only when the default changes. See change:
-  // rework-flows-plugin-for-new-pi-flows (D4), add-session-actions-flyout (D12).
-  const reconciledRef = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (!available) return; // wait until flows is available
-    if (reconciledRef.current === editMode) return;
-    reconciledRef.current = editMode;
-    dispatch({ type: "flow_management", sessionId: session.id, action: "set-edit-mode", enabled: editMode });
-  }, [available, editMode, session.id, dispatch]);
 
   if (!available) return null;
 
@@ -109,8 +123,19 @@ export function SessionFlowMenuClaim({ session }: { session: DashboardSession })
           onClick: () => setOpenPickerOpen(true),
         }]
       : []),
-    ...(editMode
+    ...(editMode === true
       ? [{ label: t("newEditButton", undefined, "New / Edit…"), icon: "mdiPencil", onClick: () => setEditPickerOpen(true) }]
+      : []),
+    ...(editMode !== undefined
+      ? [projectEditModeItem(t, editMode, () =>
+          dispatch({
+            type: "plugin_action",
+            pluginId: "flows",
+            sessionId: session.id,
+            action: "flow.set-edit-mode",
+            payload: { enabled: !editMode },
+          }),
+        )]
       : []),
     ...(hasFlowsDelete && hasFlows
       ? [{ label: `${t("delete", undefined, "Delete")}…`, icon: "mdiDeleteOutline", onClick: () => setDeletePickerOpen(true) }]
@@ -141,6 +166,20 @@ export function SessionFlowMenuClaim({ session }: { session: DashboardSession })
   return (
     <>
       {actions.length > 0 && <ActionList actions={actions} />}
+
+      {/* Per-project edit-mode change did not land: tell the user. */}
+      {editModeError && (
+        <Dialog open onClose={clearError} title={t("editModeErrorTitle", undefined, "Edit mode not changed")} size="sm" testId="flows-edit-mode-error">
+          <p className="text-xs text-[var(--text-secondary)]">
+            {editModeError === "not-delivered"
+              ? t("editModeErrorNotDelivered", undefined, "The session could not be reached. Edit mode for this project is unchanged.")
+              : t("editModeErrorTimeout", undefined, "pi-flows did not confirm the change in time. The menu shows the current value.")}
+          </p>
+          <Dialog.Footer>
+            <Dialog.Cancel onClick={clearError}>{t("dismiss", undefined, "Dismiss")}</Dialog.Cancel>
+          </Dialog.Footer>
+        </Dialog>
+      )}
 
       {/* Run: pick flow → task dialog */}
       {pickerOpen && (

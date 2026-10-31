@@ -1,0 +1,3 @@
+# pi-agent-settings-lock.ts — index
+
+NODE-ONLY lock-coordinated write of pi's global `settings.json` (moved from server `pi-agent-settings.ts`, names/behaviour unchanged): `withPiSettingsLock`, `readPiSettings`, `computePiSettingsEtag`, `formatJson`, `piSettingsPath`, `PiSettingsState`, `LockedStep`/`LockedResult`/`LockOptions`, `FsDeps` (+ `settingsPath` override = target + lock path), helpers `asObject`/`isPlainObject`/`sortKeys`/`parseText`. pi's `proper-lockfile` lock (`realpath:false`, `stale:10_000`, 10×20 ms), tmp+`rename`, mode preserved. Never imported by client code, not in any barrel (`__tests__/pi-agent-settings-lock-boundary.test.ts`). See change: stop-flows-edit-mode-project-writes (D3).

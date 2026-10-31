@@ -6,6 +6,8 @@
  * See change: harden-trust-and-credential-boundaries (D3; T-E21, E22);
  * harden-git-terminal-plugin-boundaries (D16; test-plan #SE24, #SE25, #SE40, #SP1, #SP5, #SX7).
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeEmitAllowlist,
@@ -249,5 +251,18 @@ describe("undeclared-emit warnings", () => {
     expect(reserved).toHaveLength(1);
     expect(reserved[0]).toContain('"roles:"');
     for (const l of [...find("A", "x"), ...find("B", "x"), ...find("A", "y")]) expect(l).toContain("emits");
+  });
+});
+
+describe("E11 — flows manifest admits flow:set-edit-mode", () => {
+  // See change: stop-flows-edit-mode-project-writes (D5, test-plan #E11).
+  it("the seam delivers flow:set-edit-mode from plugin flows (real manifest emits)", () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "../../../flows-plugin/package.json"), "utf-8")) as {
+      "pi-dashboard-plugin": { emits: string[] };
+    };
+    const send = vi.fn(() => true);
+    const { emitter } = fakeHost({ flows: pkg["pi-dashboard-plugin"].emits });
+    expect(emitter("flows", send)("flow:set-edit-mode", { enabled: true })).toBe(true);
+    expect(send).toHaveBeenCalledWith("s1", expect.objectContaining({ eventType: "flow:set-edit-mode", data: { enabled: true } }));
   });
 });
