@@ -7,7 +7,7 @@
  *                      local refresh), then reads the ModelSelector source
  *                      (`cachedModelRegistry.getAvailable()`), roles-independent.
  *                      See change: list-models-auto-resync.
- *   - `list_roles`   — READ. `{ roles(bound-only), presets, activePreset }`.
+ *   - `list_roles`   — READ. `{ roles(usable), unavailable, registryReady, presets, activePreset }`.
  *   - `update_roles` — WRITE, action-dispatched, `ask_user`-confirmed. Mutates
  *                      the global `~/.pi/agent/providers.json` role slice.
  *
@@ -24,12 +24,14 @@
  * See change: add-agent-role-model-tools.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { parseModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import { Type } from "typebox";
 import { resyncForListModels, toRefreshErrors } from "./model-refresh.js";
 import { getCustomProviderNames } from "./provider-register.js";
 import {
   addRoleName,
   loadRoleConfig,
+  overlayRoles,
   removeRoleFromSchema,
   saveRoleConfig,
 } from "./role-manager.js";
@@ -224,16 +226,31 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
     name: "list_roles",
     label: "List Roles",
     description:
-      "List the configured role → model bindings, the preset names, and the active preset. Returns only roles with an assigned model (empty slots are omitted). No model catalogue — use list_models for that. Tolerates a missing/malformed role config (returns empty).",
+      "List the roles you can use as `model: \"@<role>\"` (e.g. when spawning subagents). `roles` maps each usable role to its model ref: assigned, not removed, and (when the model registry is ready) bound to an available model. `unavailable` lists assigned roles whose model is not available, with a reason. `registryReady:false` means availability was not checked. Also returns preset names and the active preset. No model catalogue — use list_models for that.",
     parameters: Type.Object({}),
     async execute(_id: any, _params: any, _signal: any, _onUpdate: any, _ctx: any) {
       const cfg = loadRoleConfig();
+      const registry = deps.getRegistry();
+      const availKeys = registry
+        ? new Set(((registry.getAvailable?.() ?? []) as any[]).map((m) => `${m?.provider}/${m?.id}`))
+        : null;
       const roles: Record<string, string> = {};
-      for (const [k, v] of Object.entries(cfg.roles)) {
-        if (typeof v === "string" && v.trim() !== "") roles[k] = v.trim();
+      const unavailable: Record<string, { ref: string; reason: string }> = {};
+      // overlayRoles = effective schema (honours removedRoles). See change: roles-discovery-via-list-roles.
+      for (const [k, v] of Object.entries(overlayRoles(cfg))) {
+        const ref = v.trim();
+        if (!ref) continue;
+        const parsed = parseModelRef(ref);
+        const model = parsed.kind === "direct" ? parsed.model : ref;
+        if (availKeys && !availKeys.has(model)) {
+          unavailable[k] = { ref, reason: "model-not-available" };
+        } else roles[k] = ref;
       }
       const result = {
         roles,
+        unavailable,
+        registryReady: availKeys !== null,
+        ...(availKeys ? {} : { reason: "model registry not hydrated yet; availability not checked" }),
         presets: cfg.rolePresets.map((p) => p.name),
         activePreset: cfg.activePreset,
       };
