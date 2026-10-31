@@ -181,6 +181,10 @@ describe("revive vs the Agent finalizer (F8, F9)", () => {
     s = reduceEvent(s, evt("tool_execution_update", { toolCallId: "r", toolName: "Agent" }));
     expect(row(s, "r")?.toolStatus).toBe("elided");
     expect(s.toolCalls.has("r")).toBe(false);
+    // A plain-string partial result (forwarded unthrottled) takes the same path.
+    s = reduceEvent(s, evt("tool_execution_update", { toolCallId: "r", toolName: "Agent", partialResult: "late text" }));
+    expect(row(s, "r")?.toolStatus).toBe("elided");
+    expect(s.toolCalls.has("r")).toBe(false);
   });
 
   it("F9: an unknown subagent's tick revives the row AND hydrates the subagent", () => {

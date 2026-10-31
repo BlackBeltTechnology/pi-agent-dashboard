@@ -2612,9 +2612,10 @@ export function reduceEvent(
       if (rowIdx !== -1 && next.messages[rowIdx].toolStatus === "elided") {
         next.messages = [...next.messages];
         reviveElidedRow(next, rowIdx);
-        // No partial result → the structured arm below never asks the finalizer, yet a
-        // revive for a subagent it records as terminal must still be undone.
-        if (!partialResult) {
+        // No structured partial result → the structured arm below never asks the
+        // finalizer, yet a revive for a subagent it records as terminal must still be
+        // undone (missing or plain-string `partialResult`).
+        if (!partialResult || typeof partialResult !== "object") {
           const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
           if (finalized) return finalized;
         }

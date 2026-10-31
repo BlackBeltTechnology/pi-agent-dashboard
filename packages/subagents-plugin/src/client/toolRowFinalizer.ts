@@ -296,9 +296,10 @@ function onUpdate(state: AgentFinalizerState, event: SessionEventLike, opts: Opt
   const partial = data.partialResult;
   const idx = state.messages.findLastIndex((m) => m.toolCallId === toolCallId);
   if (idx === -1 || state.messages[idx].toolName !== "Agent") return undefined;
-  if (!partial) {
-    // A detail-less tick the shell used to revive an elided row: undo it when the
-    // row's subagent is already terminal. See change: fix-backfill-elides-live-tools (D3).
+  if (!partial || typeof partial !== "object") {
+    // A detail-less (missing or plain-string partial) tick the shell used to revive an
+    // elided row: undo it when the row's subagent is already terminal.
+    // See change: fix-backfill-elides-live-tools (D3).
     const priorRow = opts?.prior?.messages[idx];
     const agentId = stringOf(priorRow?.toolDetails?.agentId);
     if (!priorRow || priorRow.toolStatus === "running" || !isTerminal(agentId ? state.subagents.get(agentId) : undefined)) {
@@ -306,7 +307,6 @@ function onUpdate(state: AgentFinalizerState, event: SessionEventLike, opts: Opt
     }
     return keepTerminalRow(state, idx, priorRow, opts?.prior);
   }
-  if (typeof partial !== "object") return undefined;
   const details = (partial as Data).details as Data | undefined;
   const tickAgentId = stringOf(details?.agentId);
   const priorRow = (opts?.prior ?? state).messages[idx] ?? state.messages[idx];
