@@ -43,7 +43,7 @@ The flows bridge declares `{ pluginId: "flows", channels: { "dashboard-flows:cat
 
 The shared probe helper returns `undefined` when no listener set `probe.flows` (pi-flows absent or not loaded yet) and an array otherwise. The publisher skips `undefined` and publishes arrays as-is, so deleting the last flow publishes an empty catalog. Task 1.1 verified that pi-flows fills its flow map before its `flow:list-flows` listener can answer, so an answered empty list is always real.
 
-**Alternative rejected:** a "never replace non-empty with empty" rule. It lived in bridge memory, was lost on bridge reload, and kept deleted flows forever within a session (both doubt reviewers flagged this). The likely cause of the observed empty list is the unretained core forward, not an empty probe; task 1.1 must confirm this before implementation, and a different finding returns the change to planning.
+**Alternative rejected:** a "never replace non-empty with empty" rule. It lived in bridge memory, was lost on bridge reload, and kept deleted flows forever within a session (both doubt reviewers flagged this). The likely cause of the observed empty list is the unretained core forward, not an empty probe; task 1.1 confirmed this before implementation (see Context).
 
 ### D3. One collector; triggers plus a client ask for restart survival
 
