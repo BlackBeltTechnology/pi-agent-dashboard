@@ -82,11 +82,11 @@ function useStatusText(): (s: ChipStatus) => string {
 }
 
 const PILL_TONE: Record<ChipStatus["kind"], string> = {
-  running: "text-[var(--status-info,#60a5fa)] border-[var(--status-info,#60a5fa)]/40",
-  failed: "text-[var(--status-error)] border-[var(--status-error)]/40",
-  done: "text-[var(--status-success,#34d399)] border-[var(--status-success,#34d399)]/40",
-  aborted: "text-[var(--status-warning,#fbbf24)] border-[var(--status-warning,#fbbf24)]/40",
-  "not-started": "text-[var(--text-secondary)] border-[var(--border-subtle)]",
+  running: "text-[var(--severity-info-fg)] border-[var(--severity-info-border)] bg-[var(--severity-info-bg)]",
+  failed: "text-[var(--severity-error-fg)] border-[var(--severity-error-border)] bg-[var(--severity-error-bg)]",
+  done: "text-[var(--severity-success-fg)] border-[var(--severity-success-border)] bg-[var(--severity-success-bg)]",
+  aborted: "text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)]",
+  "not-started": "text-[var(--severity-neutral-fg)] border-[var(--severity-neutral-border)] bg-[var(--severity-neutral-bg)]",
 };
 
 export function FlowsContextGroup({ session }: { session: DashboardSession }) {
