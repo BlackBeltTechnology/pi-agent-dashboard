@@ -1177,7 +1177,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // don't insert replayed events again (would cause exponential duplication)
       if (replayed && replayController.isSkipped(sessionId)) {
         // Still process status updates so session state stays accurate
-        const updates = extractSessionUpdates(msg.event);
+        const updates = extractSessionUpdates(msg.event, false, msg.replay === true);
         if (updates) {
           sessionManager.update(sessionId, updates as Partial<DashboardSession>);
         }
@@ -1277,7 +1277,9 @@ export function wireEvents(deps: EventWiringDeps): void {
       const hasPendingPrompt =
         !replayed &&
         browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS);
-      const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
+      // The replay window can also contain live model selections. Only the
+      // bridge's explicit marker makes a selection historical.
+      const updates = extractSessionUpdates(msg.event, hasPendingPrompt, msg.replay === true);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
         // During replay, accumulate in sessionManager but don't broadcast

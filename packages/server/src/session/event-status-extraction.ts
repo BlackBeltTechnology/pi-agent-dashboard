@@ -69,7 +69,11 @@ export function extractStatsFromEvents(
 export function extractSessionUpdates(
   event: DashboardEvent,
   hasPendingPrompt = false,
+  replayed = false,
 ): SessionUpdates | null {
+  // The bridge register carries the CURRENT model/thinking level. Historical
+  // selections must remain in the transcript, not replace that live snapshot.
+  if (replayed && event.eventType === "model_select") return null;
   const updates = extractRawSessionUpdates(event);
   if (!updates || !hasPendingPrompt) return updates;
   // Fold only when the derived update would clear the field. `currentTool`
