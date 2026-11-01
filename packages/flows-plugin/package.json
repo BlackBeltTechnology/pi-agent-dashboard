@@ -66,8 +66,7 @@
       },
       {
         "slot": "composer-context-group",
-        "component": "FlowsContextGroup",
-        "module": "./src/client/FlowsContextGroup.tsx"
+        "component": "FlowsContextGroup"
       },
       {
         "slot": "content-header-sticky",

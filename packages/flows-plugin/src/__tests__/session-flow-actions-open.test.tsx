@@ -69,7 +69,7 @@ describe("Open flow… visibility (E9)", () => {
 });
 
 describe("Open flow… picker (E10)", () => {
-  it("lists every flow with its description, attaches with the resolved baseline and expands the panel", () => {
+  it("lists every flow with its description, attaches with the resolved baseline and expands the panel", async () => {
     const sid = nextSid();
     publishCatalog(sid, TWO);
     publishSessionEvents(sid, [started("X", 700), completed("X", 800)]);
@@ -77,7 +77,7 @@ describe("Open flow… picker (E10)", () => {
     fireEvent.click(openBtn()!);
     // Opening the picker asks for a rediscovered catalog.
     expect(catalogAsks(send).at(-1)).toMatchObject({ payload: { rediscover: true } });
-    const picker = screen.getByTestId("picker");
+    const picker = await screen.findByTestId("picker");
     expect(picker.textContent).toContain("test:capabilities|project flow");
     expect(picker.textContent).toContain("pkg:review|package flow");
     fireEvent.click(screen.getByText(/pkg:review/));

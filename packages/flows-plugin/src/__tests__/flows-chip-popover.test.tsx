@@ -34,9 +34,8 @@ async function openPopover(served: Served, withDelete: boolean, ws?: WebSocket) 
     await new Promise((r) => setTimeout(r, 0));
   });
   fireEvent.click(screen.getByTestId("flows-chip-edit-button"));
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 0));
-  });
+  // The popover body is a lazy chunk.
+  await screen.findByTestId("flows-chip-edit-popover");
   return { sid, send };
 }
 const items = () => screen.queryAllByRole("menuitem").map((i) => i.textContent);
@@ -69,6 +68,7 @@ describe("pencil popover (E22)", () => {
     fireEvent.click(screen.getByTestId("flows-chip-edit-button"));
     editMode.served = true;
     fireEvent.click(screen.getByTestId("flows-chip-edit-button"));
+    await screen.findByTestId("flows-chip-edit-popover");
     await waitFor(() => expect(items()).toContain("New flow…"));
   });
 
@@ -101,6 +101,7 @@ describe("session unreachable (X6)", () => {
     });
     await waitFor(() => expect(screen.getByText(/could not be reached/)).toBeTruthy());
     fireEvent.click(screen.getByTestId("flows-chip-edit-button"));
+    await screen.findByTestId("flows-chip-edit-popover");
     expect(items()).toEqual(["Turn on edit mode for this project"]);
   });
 });

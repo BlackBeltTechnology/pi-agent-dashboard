@@ -24,7 +24,9 @@ export const chipEdit = (page: Page) => page.getByTestId("flows-chip-edit-button
 /** Open the chip's pencil popover and return it. */
 export async function openChipPopover(page: Page): Promise<Locator> {
   const pop = page.getByTestId("flows-chip-edit-popover");
-  if (!(await pop.isVisible().catch(() => false))) await chipEdit(page).click();
+  // The popover body is a lazy chunk: key on the pencil's state, not on the
+  // popover being visible yet, or a second click would close it again.
+  if ((await chipEdit(page).getAttribute("aria-expanded")) !== "true") await chipEdit(page).click();
   await expect(pop).toBeVisible({ timeout: 10_000 });
   return pop;
 }

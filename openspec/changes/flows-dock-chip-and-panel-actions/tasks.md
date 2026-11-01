@@ -102,7 +102,7 @@
 - [x] 7.12 Test F10 (flow-plugin-e2e: harness launch) in `tests/e2e/flow-roundtrip.spec.ts` (the existing faux flow spec; launch moved to the chip, still quarantined by #683), harness from `tests/e2e/flow-attach-before-run.spec.ts`. input: faux-model harness · trigger: Run from the chip · observable: FlowAgentCard visible and flow reaches completed (header-only panel; expand to see cards). (test-plan #F10)
 - [x] 7.13 Test F11 (flows-dock-chip: compact dock) in `tests/e2e/flows-dock-chip.spec.ts`, harness from `tests/e2e/composer-dock.spec.ts`. input: viewport 400 px wide, session with flows · trigger: open session · observable: FLOWS chip reachable in the compact dock and its Run/Open/Edit controls are operable. (test-plan #F11)
 - [x] 7.14 Test X1 (flows-catalog: server restart) in `tests/e2e/flows-dock-chip.spec.ts`, harness from `tests/e2e/flow-attach-before-run.spec.ts`. input: restart the harness dashboard server while the session keeps running · trigger: reopen the session in the browser · observable: chip becomes visible within 15 s (client ask). (test-plan #X1)
-- [ ] 7.15 Manual check F12: in all four themes, the QUOTA and FLOWS chips sit together with consistent spacing, legible pills and aligned icons; verify by a human look after merge (test-plan: manual-only)
+- [x] 7.15 Manual check F12: in all four themes, the QUOTA and FLOWS chips sit together with consistent spacing, legible pills and aligned icons; verify by a human look after merge (test-plan: manual-only)
 
 ## Follow-ups (not part of this change)
 

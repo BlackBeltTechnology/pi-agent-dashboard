@@ -77,7 +77,7 @@ describe("opened-not-started header", () => {
     expect(q("flow-header-open")?.disabled).toBe(false);
     expect(q("flow-header-edit-button")).toBeTruthy();
     fireEvent.click(q("flow-header-open") as HTMLButtonElement);
-    fireEvent.click(screen.getByText(/^batch:apply\|/));
+    fireEvent.click(await screen.findByText(/^batch:apply\|/));
     expect(getAttachment(sid)?.name).toBe("batch:apply");
   });
 });

@@ -53,9 +53,9 @@ describe("chip pencil popover authoring", () => {
     await settle();
     openPencil();
     fireEvent.click(await screen.findByTestId("flows-chip-edit-edit"));
-    fireEvent.click(screen.getByText(/invoice-research/));
+    fireEvent.click(await screen.findByText(/invoice-research/));
     // Intent dialog appears; edit instruction is optional → submit empty.
-    fireEvent.click(screen.getByTestId("flow-author-submit"));
+    fireEvent.click(await screen.findByTestId("flow-author-submit"));
     expect(prompts(send)).toEqual([{ type: "send_prompt", sessionId: sid, text: "/skill:manage-flows invoice-research" }]);
   });
 
@@ -64,7 +64,7 @@ describe("chip pencil popover authoring", () => {
     await settle();
     openPencil();
     fireEvent.click(await screen.findByTestId("flows-chip-edit-new"));
-    const submit = screen.getByTestId("flow-author-submit") as HTMLButtonElement;
+    const submit = (await screen.findByTestId("flow-author-submit")) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     fireEvent.change(screen.getByPlaceholderText(/Research an invoice/), { target: { value: "Summarize PRs" } });
     expect(submit.disabled).toBe(false);
@@ -91,7 +91,7 @@ describe("state unavailable (#X5)", () => {
     await settle();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     openPencil();
-    expect(screen.getByTestId("flows-chip-edit-loading")).toBeTruthy();
+    expect(await screen.findByTestId("flows-chip-edit-loading")).toBeTruthy();
     expect(screen.queryByRole("menuitem")).toBeNull();
   });
 });

@@ -44,6 +44,11 @@ export { SessionFlowActions, SessionFlowActionsClaim } from "./SessionFlowAction
 export { flowsActionsAvailable, hasFlowsCommand } from "./flowsActionsGate.js";
 export { SessionFlowMenuClaim } from "./SessionFlowMenuClaim.js";
 
+// `composer-context-group` claim: the FLOWS dock chip. Eager: a hot composer
+// slot must not suspend (lazy-plugin-claims policy). See change:
+// flows-dock-chip-and-panel-actions.
+export { FlowsContextGroup } from "./FlowsContextGroup.js";
+
 // Manifest-level shouldRender predicate for the `session-card-flows` claim
 // (any flow event). See change: add-flows-subcard, add-session-actions-flyout.
 export { shouldRenderFlowsSubcard } from "./shouldRender.js";
