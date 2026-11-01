@@ -647,6 +647,36 @@ Cross-refs:
 - README.md:178
 - docs/architecture.md:959
 
+## What happens if I lose my data key (keychain reset, new machine, lost key volume)?
+
+Credential files stay locked. Ciphertext untouched. Without a key backup, the data is unrecoverable.
+
+- Locked files: `vault.json` and `plugin-credentials.json` report `key_missing` (keychain), `key_file_missing` (key file) or `key_mismatch`. Writes refused.
+- Restore the key (keychain entry or `PI_DASHBOARD_DATA_KEY_FILE` file from backup), restart the server.
+- Or reset and re-enter:
+  ```bash
+  pi-dashboard credentials status                          # read-only
+  pi-dashboard credentials reset [--vault] [--plugin-credentials] [--yes]   # server stopped
+  ```
+  Locked file renamed to `<file>.undecryptable-<stamp>` (kept). Re-enter credentials on the Vault page or each plugin's settings.
+- Key-file source: `reset` never creates a key. Create first: `openssl rand -base64 32 > <file>; chmod 600 <file>`.
+- Back up the key apart from `~/.pi`. A copy of `~/.pi` carries no key.
+- Reference: [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest). See change: encrypt-credentials-at-rest.
+
+## How does the Docker `pi-key` volume work?
+
+- Data key: `/home/pi/.pi-key/data-key` on named volume `pi-key`, separate from `pi-state` (`/home/pi/.pi`).
+- First start, no encrypted file yet: entrypoint generates the key under `umask 077`. Key never in argv or logs.
+- Key volume missing but encrypted file exists: entrypoint refuses to generate a key. Prints restore remedy. Server starts, files locked `key_file_missing`.
+- Custom Compose or `docker run` must mount it as a named volume:
+  ```bash
+  docker run -v pi-state:/home/pi/.pi -v pi-key:/home/pi/.pi-key ...
+  ```
+  Image `VOLUME` alone creates an anonymous volume. `docker compose down -v` or a fresh `docker run` discards the key. Entrypoint warns.
+- Back up `pi-key` and `pi-state` together. `pi-state` alone needs the key.
+- Own key: `PI_DASHBOARD_DATA_KEY_FILE` → `0600` file. Compose secret (`/run/secrets/…`, mode `0444`) rejected. Copy to a `0600` file first.
+- Reference: `docker/README.md` → Credential key volume.
+
 ## How do I expose the dashboard on my LAN?
 
 Native installs bind `127.0.0.1` (loopback) by default. HTTP + pi gateway both stay local.
@@ -1040,7 +1070,8 @@ Add `auth.providers` block to `~/.pi/dashboard/config.json`. Localhost stays ung
 Keys:
 - `auth.secret` — JWT signing secret (auto-generated if omitted)
 - `auth.providers` — provider → `{ clientId, clientSecret, issuerUrl? }`
-- `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Empty = allow all
+- `auth.allowedUsers` — usernames, emails, or `*@domain` wildcards. Provider-specific when empty: public providers (`github`, `google`, or an `issuerUrl` on a public IdP host) refuse login when `auth.allowedUsers` and `auth.groupTiers` are both empty; unknown-issuer `keycloak`/`oidc` allow all (startup warning)
+- `auth.groupTiers` — group → tier map, config file only; non-empty lifts the public-provider refusal
 - `auth.bypassHosts` — network list (CIDR/wildcard/exact); admits without sign-in only under `network.trustMode: "legacy"`; written by Settings → Security → Network access
 - `auth.bypassUrls` — path-prefix allowlist
 
@@ -2336,7 +2367,7 @@ Pre-fix bug. `spawnDetached` only routed stderr to `logFd`; stdout (where server
 npm package unavailable at release time. Instead: bundle server source + deps as app resource. Wizard installs only external tools (pi, openspec, tsx). Server runs from `resources/server/` inside app package.
 
 Server resolution order:
-1. Packaged: `process.resourcesPath/server/packages/server/src/cli.ts` (always found first)
+1. Packaged: `process.resourcesPath/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts` (always found first)
 2. Dev: relative path `../../server/src/cli.ts`
 3. Managed: fallback `~/.pi-dashboard/node_modules/@blackbelt-technology/...`
 
@@ -2456,7 +2487,7 @@ Bridge extension (`packages/extension/src/bridge.ts`) NOT bundled in DEB/DMG by 
 Solution: Bundle extension + auto-register into pi's package list.
 
 Steps:
-1. `bundle-server.mjs` — adds `packages/extension/` to server bundle + includes in workspace `node_modules/`
+1. `bundle-server.mjs` — ships extension under `node_modules/@blackbelt-technology/pi-dashboard-extension` in server bundle; `packages/<dir>` not shipped after install
 2. `extension-register.ts` (new server module) — detects bundled extension path + adds to `~/.pi/agent/settings.json` (pi's global package discovery list) at server startup
 3. Extension's `package.json` has `"pi"` field → pi discovers extension + loads `src/bridge.ts`
 4. Dependencies resolve via server bundle's workspace `node_modules/` (shared types, `ws`)
@@ -2569,8 +2600,8 @@ Schema:
     "openspec":  "/Users/x/.nvm/versions/node/v22.22.0/bin/openspec",
     "node":      "/Applications/PI Dashboard.app/Contents/Resources/node/bin/node",
     "tsx":       "/Users/x/.pi-dashboard/node_modules/.bin/tsx",
-    "bridge":    "/Applications/PI Dashboard.app/Contents/Resources/server/packages/extension",
-    "serverCli": "/Applications/PI Dashboard.app/Contents/Resources/server/packages/server/src/cli.ts"
+    "bridge":    "/Applications/PI Dashboard.app/Contents/Resources/server/node_modules/@blackbelt-technology/pi-dashboard-extension",
+    "serverCli": "/Applications/PI Dashboard.app/Contents/Resources/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
   }
 }
 ```
@@ -2996,13 +3027,13 @@ Cross-refs:
 - packages/shared/src/platform/ts-loader-select.mjs
 - See change: replace-tsx-with-jiti, strip-only-native-ts-loader
 
-## Why does `/api/flows-anthropic-bridge/status` show "no sessions reporting"?
+## Why does a bridge show "no sessions reporting"?
 
 pi-coding-agent reads `packages[]`, not `dashboardPluginBridges`. Pre-0.5.4 dashboards wrote bridge entry only to `dashboardPluginBridges` \u2014 invisible to pi. Bridge loaded by dashboard, never invoked by pi runtime.
 
 Fix: dashboard 0.5.4+ writes to both. Restart dashboard \u2014 one-shot `reconcilePluginBridgePackages` runs at server start.
 
-Verify: `curl -s http://localhost:8000/api/health | jq '.plugins[] | select(.id == "flows-anthropic-bridge")'`. Expect `bridgeLoadedFrom: "both"` (or `"packages[]"` post-reconcile). Value `"dashboardPluginBridges"` only = stale install, restart again.
+Verify: `curl -s http://localhost:8000/api/health | jq '.plugins[] | {id, bridgeLoadedFrom}'`. Expect `bridgeLoadedFrom: "both"` (or `"packages[]"` post-reconcile). Value `"dashboardPluginBridges"` only = stale install, restart again.
 
 Escape hatch: env `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` skips `packages[]` write. Legacy key only. Diagnostic flag.
 
@@ -4132,6 +4163,24 @@ Remedy on old build: `npm run reload` (bridge) + `pi-dashboard api POST /api/res
 
 See change: fix-replay-fabricates-orphan-end-for-live-calls.
 
+## Subagent card says 'result not loaded' after restart while the dock shows it running
+
+Symptom: after dashboard restart or browser reload, long-running tool call (esp. `Agent` subagent) card shows "result not loaded". Composer dock lists same call running.
+
+Root cause: `replayWindowMode: "tail-only"` puts start older than tail into lazy backfill (`history_backfill`).
+`finalizeBackfillSegment` (`packages/client/src/lib/chat/event-reducer.ts`) stamps every still-`running` row `elided`, assuming its end already held by client. False for call not yet ended.
+No recovery before fix: live `tool_execution_update` never cleared `elided`. Splice discarded segment `toolCalls` entry -> `session_ended` heal rejected -> card "not loaded" forever.
+
+Fix (server): `history_backfill_result.openToolCallIds` (optional, additive). `handleHistoryBackfill` computes via `findBackfillOpenToolCalls` (`packages/server/src/session/open-tool-calls.ts`) at serve time: served top-level starts with no stored end, no later non-synthetic `agent_start`, `agent_end` or assistant `message_start`. Omitted on refusals + `movedTo` sessions.
+
+Fix (client splice): listed ids stay `running`. Splice seeds `toolCalls` entry (`seedRunningToolCall`: `startedAt`, `emittedAtInferenceSeq`) -> real end, `session_ended` heal, stale reconcile (200/410), superseded heal can close it.
+
+Fix (backstop, old server): top-level `tool_execution_update` revives `elided` row -> `running` (`reviveElidedRow`). Exception: subagent client records terminal -> Agent finalizer `keepTerminalRow` keeps card as was.
+
+Tools that really finished elsewhere still resolve `elided`.
+
+See change: fix-backfill-elides-live-tools.
+
 ## Why are the passkey buttons disabled on the login page?
 
 Cause: origin unstable. Passkeys need stable RP ID origin.
@@ -4233,26 +4282,37 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
   - Session retries inside 5 min cap. Or restart the session to retry now.
 - Docker / published port: sender sees `401` with `binding-mismatch` → BREAKING for `pi-dashboard login --local|open|token create` through the published port. Run those inside the container, or log in.
 
-## Why does Claude chat work but tool calls fall back?
+## Claude subscription requests billed as extra usage?
 
-Peer `@blackbelt-technology/pi-anthropic-messages` missing → bridge stays in `waiting_peers` → tool calls return without executing.
+Anthropic bills subscription requests as extra usage when pi's built-in `docs` system-prompt section contains "pi itself" / "pi packages". Tool names do not matter.
 
-Auto-install runs after Anthropic sign-in (Settings ▸ Providers).
+Fix: Settings ▸ Providers ▸ `anthropic` row ▸ **Claude subscription compat** → on. Or Landing step ① → **Turn on**. Or the prompt after sign-in: "Keep Claude requests on your subscription?" → **Turn on**.
 
-- Failure: warning on Anthropic row and Landing step ① with `Retry install`. Raw installer output under `Details`.
-- Manual install:
-  - Settings ▸ Packages ▸ Recommended extensions
-  - or Landing `Install` (shows when `anthropic` signed in, peer not active)
-- `failed to load` = installed but import broken. Reinstall does not fix. Check Settings ▸ Providers.
-- Applies on next pi session start.
+- Preference: `claudeSubscriptionCompat` in `~/.pi/dashboard/preferences.json`. API: `GET/PATCH /api/preferences/claude-subscription-compat` (`{value:boolean}`).
+- Never stored → seeded once at server start: `true` when `~/.pi/agent/auth.json` has an `anthropic` key (OAuth or API key), else `false`.
+- Seeded value stored. Never overrides a later choice. Unparseable `auth.json` → reads off, stays unstored, retried next start.
+- How it works: dashboard extension (`packages/extension/src/bridge.ts`) registers `claudeCompatExtension` (`packages/shared/src/dashboard-plugin/claude-compat.ts`) on every pi it loads into: main sessions, subagent children, pi-flows agents that load the settings packages. No plugin opts in.
+- When on + provider `anthropic` + pi default prompt: `docs` section "pi itself" → "the cli itself", "pi packages" → "cli packages". Whole prompt never forced. Tool names never renamed.
+- Already-open sessions: pi 1.4 replays a session's first system prompt as Anthropic `system` field. `before_provider_request` (`rewritePayloadSystem`) rewrites the docs block in the outgoing `system` too → covered from next request.
+- Log: `[dashboard] claude-compat: state=<applied|off|not-anthropic|custom-or-forced|no-match>` once per pi and on change. No prompt text logged.
+- Old package: `pi-anthropic-messages` is no longer required. After the switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages`. A one-time notice in the dashboard prompts this when the package is still installed.
 
 Cross-refs:
-- docs/user-features.md §First run: connect, create, start
-- packages/client/src/components/shell/LandingPage.tsx
-- packages/client/src/components/settings/PeerAutoInstallStatus.tsx
-- packages/flows-anthropic-bridge-plugin/src/bridge/index.ts
+- docs/user-features.md §Models & providers
+- packages/shared/src/dashboard-plugin/claude-compat.ts
+- packages/server/src/auth/provider-auth-storage.ts (`hasAnthropicCredential`)
+- packages/extension/src/__tests__/claude-compat-pi-docs-canary.test.ts
 
-See change: streamline-first-run.
+See change: retire-anthropic-messages-bridge, seed-claude-compat-on-upgrade.
+
+## How do I re-check whether Claude requests bill as subscription or extra usage?
+
+Send one request with the subscription OAuth token. Read the response header `anthropic-ratelimit-unified-representative-claim`:
+
+- `five_hour` → billed to subscription.
+- `400 You're out of extra usage` → billed as extra usage.
+
+Spike scripts kept outside the repo.
 
 ## Server shows "CORS-blocked", "Name not found" or "Moved to …" in the server selector — what does it mean?
 
@@ -4579,7 +4639,7 @@ Follow-up change names. None exist yet. Create via `openspec change new <name>`.
 | queue / image / prompt lifecycle | `followup-image-queue`, `optimistic-prompt`, `pending-prompt-recovery`, `package-queue-visible` | `fix-e2e-prompt-queue` |
 | restart / boot / session lifecycle | `ended-session-endedat`, `status-reconcile`, `durable-session-diff`, `faux-ask`, `keeper-restart-survival`, `tmux-session-shutdown`, `spawn-correlation-recovery` | `fix-e2e-restart-cluster` (CANDIDATE: shares #832 root cause, restart axis) |
 | trust / token surfaces | `mcp-session-token`, `origin-gate` | CANDIDATE: re-check after #832 verdict |
-| misc UI | `folder-actions-menu`, `editor-pane`, `folder-membership-drag`, `terminal`, `inline-terminal-transcript`, `inline-screenshot`, `history-backfill-gap`, `flow-roundtrip`, `flow-live-no-double-render`, `anthropic-bridge-activation`, `automation-fanout`, `acp-automation`, `pi-runtime-picker`, `settings-default-model-catalogue`, `tool-created-files` | `fix-e2e-misc-reds` |
+| misc UI | `folder-actions-menu`, `editor-pane`, `folder-membership-drag`, `terminal`, `inline-terminal-transcript`, `inline-screenshot`, `history-backfill-gap`, `flow-roundtrip`, `flow-live-no-double-render`, `automation-fanout`, `acp-automation`, `pi-runtime-picker`, `settings-default-model-catalogue`, `tool-created-files` | `fix-e2e-misc-reds` |
 
 ### Unquarantine rule
 

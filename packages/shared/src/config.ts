@@ -220,6 +220,12 @@ export interface TrustedPluginEntry {
 export interface AuthConfig {
   secret: string;
   providers: Record<string, AuthProviderConfig>;
+  /**
+   * User allowlist (emails, usernames, `*@domain` wildcards). Empty/unset admits every
+   * account ONLY for non-public providers; a public provider (`github`, `google`, or an
+   * issuer on the public IdP host set) refuses login while this AND `groupTiers` are both
+   * empty. See change: close-security-map-high-findings (D3).
+   */
   allowedUsers?: string[];
   bypassUrls?: string[];
   bypassHosts?: string[];
@@ -242,8 +248,10 @@ export interface AuthConfig {
   /**
    * OIDC `groups` claim → session tier. Configured ⇒ highest matching tier
    * wins and no match refuses login (fail closed). Absent ⇒ legacy
-   * behaviour (`allowedUsers`, tier `operate`).
-   * See change: add-passkey-user-auth (D4).
+   * behaviour (`allowedUsers`, tier `operate`). Config-file-only (the Settings save
+   * preserves the stored value); a non-empty map also lifts the open-enrolment refusal
+   * of public providers. See change: add-passkey-user-auth (D4),
+   * close-security-map-high-findings (D3).
    */
   groupTiers?: Record<string, Tier>;
   /**
@@ -1262,6 +1270,14 @@ export interface DashboardConfig {
    * See change: add-host-allowlist-admission.
    */
   hostGate: HostGateConfig;
+  /**
+   * Security knobs. `trustedTypes` is the RAW `security.trustedTypes` value
+   * (`"off" | "report" | "enforce"` when valid); it is deliberately not
+   * validated here — `resolveTrustedTypesMode` (trusted-types-mode.ts) owns
+   * validation and warns once at server start. Never seeded by `ensureConfig()`.
+   * See change: enforce-trusted-types-default.
+   */
+  security?: { trustedTypes?: unknown };
   /**
    * Access-grant prompting settings. Default `{ promptEnabled: true }`.
    * See change: add-access-grant-dialog.
@@ -2817,6 +2833,9 @@ export function loadConfig(): DashboardConfig {
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
         : defaults.allowedHosts,
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
+      ...(parsed.security?.trustedTypes !== undefined
+        ? { security: { trustedTypes: parsed.security.trustedTypes } }
+        : {}),
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
       ...(parseNetworkConfig(parsed.network) ? { network: parseNetworkConfig(parsed.network) } : {}),
       requireLocalProof: typeof parsed.requireLocalProof === "boolean" ? parsed.requireLocalProof : true,

@@ -1,4 +1,5 @@
 # Agent Tool-Call Guards
+> Post-map update: TOOL-01 closed by close-security-map-high-findings (D2: MCP `prompt_response` + `extension_ui_response` removed). New residuals TOOL-20, TOOL-21. Rest of chapter = HEAD `e54074304` snapshot.
 > Scope: every mechanism that intercepts, confirms, blocks, confines or redacts what the LLM agent (pi session) and its tools can do · Evidence base: HEAD e54074304 · Mapper: 04-tool-call-guards (prefix TOOL-) · Map index: [security-map.md](../security-map.md) · Register: [residual-risks.md](residual-risks.md)
 
 ## Summary
@@ -9,7 +10,7 @@
 - Opt-in hard guards exist but only on specific spawn paths: `path-containment-guard` (plugin spawn scope, no in-repo consumer), chat-gateway L3 guard (only when operator sets `toolPolicy` + `guardExtension`), team guard (team sessions).
 - Untrusted-content guard (taint → confirm sensitive tools) is an OPTIONAL recommended pi package, not bundled; active in `strip` mode once installed (`packages/shared/src/recommended-extensions.ts:658-673`; `packages/untrusted-content-guard/src/settings.ts:30-36`).
 - Credential-vault redaction masks exact vault values in `tool_result` / `message_end` / `user_bash` / forwarded events; values live in `process.env` of pi, so `bash` sees them; encoded forms not masked (`packages/extension/src/vault-delivery.ts:205`, `vault-masker.ts:5`).
-- Every bridge-connected pi session receives a `control`-tier dashboard MCP bearer (`packages/mcp-server-plugin/src/server/tokens.ts:46,123`). That surface includes `prompt_response`, `send_prompt`, `spawn_session` against OTHER sessions — see TOOL-01.
+- Every bridge-connected pi session receives a `control`-tier dashboard MCP bearer (`packages/mcp-server-plugin/src/server/tokens.ts:46,123`). That surface includes `send_prompt`, `spawn_session` against OTHER sessions. `prompt_response` + `extension_ui_response` no longer on the surface (TOOL-01, closed by close-security-map-high-findings). Prompt answers still reachable by other roads — TOOL-20.
 - `ctx.hasUI` is `true` in pi RPC mode (pi `docs/rpc-extension-ui.md:25`), so dashboard-spawned headless sessions prompt via dashboard; unanswered prompts fail closed on timeout.
 
 ## Inventory
@@ -36,7 +37,7 @@
 | Browser relay / dedicated deny sets | `packages/browser-plugin/src/server/relay/deny-list.ts`, `dedicated/dedicated-deny.ts` | CDP proxy (server) | agent CDP via `browser_connect` cdpUrl | deny cookie reads; scheme fence; `allowedDomains` on `Page.navigate`/`Target.createTarget` | ON; default target `@dedicated` | dedicated: unclassified method → DENIED | `Runtime.evaluate` / link click / redirect leave domain list (documented) | `deny-list.ts:10-31`; `dedicated-deny.ts:139,172,214`; `settings.ts:35` |
 | `browser_await_human` | `packages/browser-plugin/src/bridge/index.ts` | tool | — | `ctx.ui.confirm` handoff | ON | no UI → `cancelled` | — | `bridge/index.ts:119` |
 | Image-fit `read` rewrite (NOT a guard) | `packages/image-fit-extension/src/extension.ts` | pi `tool_call` (mutates `input.path`) | `read` of images | resizes into `os.tmpdir()` | optional package | open (fall-through) | interacts with path gate — TOOL-10 | `extension.ts:103-121` |
-| Dashboard MCP server (tools EXPOSED to agents) | `packages/mcp-server-plugin/src/server/` | `POST /mcp`, bearer | 160 manifest rows (see below) | tier filter + self-target refusal + denylist | ON; session token minted per bridge | refuse on auth fail; throttle | indirect A→B loops permitted | `tokens.ts:46,123`; `dispatch.ts:552-567,612-634`; `guard.ts:1-19,77-96`; `tools.denylist.ts` |
+| Dashboard MCP server (tools EXPOSED to agents) | `packages/mcp-server-plugin/src/server/` | `POST /mcp`, bearer | 158 manifest rows (see below) | tier filter + self-target refusal + denylist | ON; session token minted per bridge | refuse on auth fail; throttle | indirect A→B loops permitted | `tokens.ts:46,123`; `dispatch.ts:552-567,612-634`; `guard.ts:1-19,77-96`; `tools.denylist.ts` |
 | ACP permission bridge | `packages/server/src/acp-bridge/permission-bridge.ts`, `child-env.ts` | ACP `session/request_permission` | external ACP agent's own tools | dashboard select prompt | ON for ACP sessions | dismiss → `cancelled` | pi guards do not run in ACP agents | `permission-bridge.ts:1-15,85-90`; `child-env.ts:11-17,69` |
 | Radius | `packages/server/src/auth/radius-mcp.ts`, `radius-override.ts` | server routes | none | model-provider login + MCP entry config | — | — | — | NOT a tool guard (`radius-mcp.ts.AGENTS.md`, `radius-override.ts.AGENTS.md`) |
 | web-access-plugin | `packages/web-access-plugin/` | client renderer only | — | none | — | — | — | no server/bridge; fetch/search tools come from third-party `pi-web-access` (`packages/web-access-plugin/AGENTS.md`) |
@@ -47,9 +48,9 @@
 | Session caller tier | hard-wired `control` | `tokens.ts:46,123` |
 | Device caller tier | from device registry; legacy fallback `operate` | `auth.ts:102-109` |
 | Tier order | `observe` < `control` < `operate` | `packages/shared/src/tiers.ts:17` |
-| Security-relevant control-tier rows | `send_prompt`, `spawn_session`, `abort`, `prompt_response` (bridge verb), `extension_ui_response`, `set_model`, `flow_control`, `retry_session` | `tools.manifest.ts:44-46,52,54-55,128,132` |
+| Security-relevant control-tier rows | `send_prompt`, `spawn_session`, `abort`, `set_model`, `flow_control`, `retry_session` | `tools.manifest.ts` (rows `prompt_response`, `extension_ui_response` removed — D2) |
 | Self-target refusal | any row with `sessionTargeting`; direct only (A→A) | `dispatch.ts:552-567`; `guard.ts:77-96` |
-| Denylisted (never MCP) | `grant_response`, `/api/questions*`, `/api/plugins/gmail/`, pairing approve, system-one | `tools.denylist.ts:131-190` |
+| Denylisted (never MCP) | `grant_response`, `/api/questions*`, `prompt_response`, `extension_ui_response` + `/api/session/:id/extension-ui-response` (D2), `/api/plugins/gmail/`, pairing approve, system-one | `tools.denylist.ts:131-190` |
 | Token delivery | `pi.registerMcpServer("pi-dashboard", {url, headers:{Authorization}})`, never env | `packages/extension/src/mcp-token-delivery.ts.AGENTS.md` |
 
 ### Tool × guard coverage matrix
@@ -62,7 +63,7 @@ Legend: ✔ covered · ◐ partial/conditional · ✘ not covered · — n/a
 | `grep` / `find` / `ls` | ✘ | ✔ | ✘ | ✔ | ✔ | ✔ | ✘ |
 | web fetch/search (`pi-web-access`) | ✘ | ✘ | ✔ taint source + scan | ✔ | ✘ not in presets | ✔ | ✘ (no SSRF/domain policy in repo) |
 | MCP tools (third-party, pi built-in MCP) | ✘ | ◐ `deniedTools` | ◐ only `*_send` etc. glob names | ✔ | ✘ not in presets | ✔ | ✘ |
-| Dashboard MCP (`prompt_response`, `send_prompt`, `spawn_session`) | ✘ | ◐ | ✘ | ✔ | ✘ | ✔ | ✘ (tier + self-target only) |
+| Dashboard MCP (`send_prompt`, `spawn_session`) | ✘ | ◐ | ✘ | ✔ | ✘ | ✔ | ✘ (tier + self-target only) |
 | Browser (`browser_connect` + CDP via `bash` agent-browser) | ✘ | ✘ | ✘ (page content arrives via `bash`) | ✔ | ✘ | ✔ | server CDP deny set |
 | `gmail_send`/`_reply`/`_draft`/`_modify`/`_trash`/filters | — | ◐ | `selfConfirming` (skipped) | ✔ | ✘ | ✔ | ✔ `ctx.ui.confirm` + tier |
 | `Agent` (subagent) | — | ◐ | ✘ | ✔ | ✘ | ✔ | fan-out cap only |
@@ -113,15 +114,24 @@ sequenceDiagram
   S-->>G: "path_grant_result ok"
 ```
 
-### Cross-session approval path (TOOL-01)
+### Cross-session approval path (TOOL-01 — closed)
+
+Status: **closed by close-security-map-high-findings** (D2). Original High premise wrong. Re-rated Low 2026-10-22. Both answer tools then removed from MCP.
+
+Pre-change chain, static trace (no MCP road answered a prompt):
 ```mermaid
 flowchart LR
-  A["session A agent"] -->|"MCP bearer (control)"| M["POST /mcp"]
-  M -->|"get_session_events(B) observe"| E["B pending prompt id"]
-  M -->|"prompt_response {sessionId:B, promptId, answer}"| SB["sendToSession(B)"]
-  SB --> BR["B bridge: promptBus.respond (no kind check)"]
-  BR --> PGB["B path gate: Allow / Always allow"]
+  A["session A agent"] -->|"MCP bearer (control)"| M["POST /mcp prompt_response {sessionId:B}"]
+  M --> X["executeSession dispatch.ts:622-633"]
+  X -->|"ctx.sendToSession(B, object) (as never)"| H["server.ts:4166-4167"]
+  H -->|"object becomes text of send_prompt"| BR["B bridge command-handler.ts:672 send_prompt"]
+  BR -.->|"never reaches"| PB["promptBus.respond"]
 ```
+- Effect: malformed `send_prompt` into target session. Within what `send_prompt` (same tier, same road) already grants.
+- `extension_ui_response`: inert. Bridge drops legacy message (`bridge-handlers/dispatch.ts:143`).
+- After D2: both rows deleted from `tools.manifest.ts`. Denylisted in `tools.denylist.ts` (`prompt_response`, `extension_ui_response`, `/api/session/:id/extension-ui-response`). `tools/call` → standard unknown-tool error for every token. Manifest artifacts regenerated (`codegen`).
+- chat-gateway keeps answering. `prompt_response` tier moved to chat-local `CHAT_LOCAL_VERB_TIERS` (`chat-gateway/src/server/team/tier.ts`), read from `wsMessageTier("prompt_response")`. Answer road unchanged: `seam.sendPromptResponse`.
+- Remaining roads (not MCP): TOOL-20. Broken `session` bind rows: TOOL-21.
 
 ## Controls detail
 
@@ -204,7 +214,8 @@ flowchart LR
 
 ### C12 Dashboard MCP surface toward agents
 - Session token `control` `tokens.ts:123`; mint replaces prior row; revoked on session end (`mcp-server-plugin/src/server/AGENTS.md`).
-- `prompt_response` row `tools.manifest.ts:132` → `executeSession` → `sendToSession(target, {type, sessionId, ...rest})` `dispatch.ts:622-634` → bridge `promptBus.respond` with no kind filter `packages/extension/src/bridge-handlers/dispatch.ts:359-368`.
+- `prompt_response` + `extension_ui_response` rows removed (D2, closed by close-security-map-high-findings). Denylisted `tools.denylist.ts`. Pre-change: row never answered a prompt — `executeSession` `dispatch.ts:622-633` → `sendToSession` → host `server.ts:4166-4167` wraps object as `send_prompt` text.
+- Rows with `bind:{kind:"session"}` left: `set_session_tags`, `edit_followup_entry`, `history_backfill`. Same broken wrap → TOOL-21.
 - Self-target guard direct only `guard.ts:13-18,77-96`. `SESSION_TARGETING_TOOLS` constant `guard.ts:27` unused by live code (enforcement uses manifest flag `dispatch.ts:552`).
 
 ### C13 ACP sessions
@@ -252,10 +263,10 @@ flowchart LR
 ## Findings
 | ID | Sev | Title | Evidence (path:line) | Impact | Suggested remedy |
 |---|---|---|---|---|---|
-| TOOL-01 | High (Needs verification end-to-end) | Agent can answer another session's guard prompts via dashboard MCP `prompt_response` | `mcp-server-plugin/src/server/tokens.ts:123`; `tools.manifest.ts:132`; `dispatch.ts:622-634`; `extension/src/bridge-handlers/dispatch.ts:359-368`; `guard.ts:13-18` (indirect loops permitted); contrast `tools.denylist.ts:140,169` | Reachable by agent/LLM (prompt injection). Session A (or a session it spawns via `spawn_session` + `send_prompt`) reads B's pending prompt id (`get_session_events`, observe) and answers path-gate `Allow once`/`Always allow` (persistent grant), untrusted-guard or chat-gw confirms routed via PromptBus. Defeats every human-in-the-loop guard. | Denylist `prompt_response` + `extension_ui_response` for `kind:"session"` callers, or refuse answers whose prompt `kind` is `agent-path-gate*`/guard confirms unless from browser origin. |
+| TOOL-01 | Low (corrected 2026-10-22; was High) — **status: closed by close-security-map-high-findings** | MCP `prompt_response` mis-bound: object delivered as `send_prompt` text to any session; cannot answer prompts | `mcp-server-plugin/src/server/tokens.ts:123`; `dispatch.ts:622-633`; `server.ts:4166-4167`; `extension/src/command-handler.ts:672`; `tools.denylist.ts` | **Correction note:** original premise (agent answers another session's path-gate prompt via MCP) wrong. Host wraps the message object as `send_prompt` text (`server.ts:4166-4167`); bridge never sees `prompt_response`, never reaches `promptBus.respond` (`bridge-handlers/dispatch.ts:359-368`). Defect = broken tool + advertised answer verb one bind fix from a self-approval road. Runtime of the wrap = static trace, not executed. | Done (D2): both answer tools removed from MCP surface for all callers. Residual answer roads: TOOL-20. |
 | TOOL-02 | Info | `bash`/`grep`/`find`/`ls`/MCP/custom tools bypass path gate; agent = OS user | `path-gate/handler.ts:40`; `docs/architecture.md:4003,4091` | Agent/LLM can read/write anywhere the user can. Documented non-goal. | Ship supervised mode / OS sandbox (Planned). |
 | TOOL-03 | Medium | Agent can self-disable guards by editing config files via `bash` | `path-gate/index.ts:64-80` (re-read on signature change); `config.ts:979`; `untrusted-content-guard/src/settings.ts:101-104` | `bash` writes `agentPathGate.enabled:false` to `~/.pi/dashboard/config.json` → gate off from next call; or `mode:"off"` in `~/.pi/agent/settings.json` (next session). Same class as documented grant-store write, but not documented for config. | Document; optionally pin gate state at session start or require server-signed config for disable. |
-| TOOL-04 | Medium | Path gate treats whole pi agent dir as read-only root — `auth.json`, `mcp-auth.json`, other sessions' transcripts readable without prompt | `path-gate/roots.ts:132`; `decide.ts:71`; pi `docs/configuration.md:17`, `docs/mcp.md:129` | Agent/LLM `read ~/.pi/agent/auth.json` → provider API keys/OAuth tokens into model context; exfil after injection. `~/.pi` "sensitive" flag never applies because in-root check wins. | Narrow read-only root to docs/skills/context files; mark `auth.json`, `mcp-auth.json`, `sessions/` sensitive. |
+| TOOL-04 | Medium | Path gate treats whole pi agent dir as read-only root — `auth.json`, `mcp-auth.json`, other sessions' transcripts readable without prompt | `path-gate/roots.ts:132`; `decide.ts:71`; pi `docs/configuration.md:17`, `docs/mcp.md:129` | Agent/LLM `read ~/.pi/agent/auth.json` → provider API keys/OAuth tokens into model context; exfil after injection. `~/.pi` "sensitive" flag never applies because in-root check wins. | Narrow read-only root to docs/skills/context files; mark `auth.json`, `mcp-auth.json`, `sessions/` sensitive. **Not closed** by close-security-map-high-findings: DEP-01 closed the server file routes only. Path-gate agent-dir root unchanged. `encrypt-credentials-at-rest` credential guard covers `plugin-credentials.json` + vault only, not `auth.json`/`mcp-auth.json`/`providers.json`. |
 | TOOL-05 | Medium | Sensitive set only `~/.ssh` + `~/.pi`; other credential dirs grantable + YOLO auto-allowed | `packages/shared/src/forbidden-subjects.ts:112-113`; `yolo-session.ts:322-327` | `~/.aws`, `~/.config/gh`, `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.netrc`, browser profiles: Always allow offered; YOLO `unscoped` auto-allows. | Extend `sensitive` list; exclude from YOLO. |
 | TOOL-06 | Low | `/tmp` and `os.tmpdir()` are read+write roots without prompt | `path-gate/roots.ts:135` | Agent reads other processes' tmp files (shared `/tmp` on Linux), plants files there. | Restrict to per-session tmp subdir. |
 | TOOL-07 | Medium | Chat-originated sessions unguarded unless operator sets both `toolPolicy` and `guardExtension` | `chat-gateway/src/server/gateway.ts:634,650-656`; `server/config.ts:97-99` | Remote chat user (Discord) drives full tool set (`bash`) in spawned session when guard config missing. Approvals answered in chat (Needs verification: which chat users may approve). | Refuse spawn when `toolPolicy` set but guard unresolved; default-load guard. |
@@ -271,3 +282,5 @@ flowchart LR
 | TOOL-17 | Low | Fan-out admission + `project_trust` handlers wrapped in fail-open `safe()` | `extension/src/bridge.ts:958-971,1957`; `bridge-handlers/lifecycle.ts:200` | Throw → allow (fan-out) / pi default (trust = undecided, safe). Resource guard only. | Keep; note fan-out is not a security control. |
 | TOOL-18 | Low | YOLO `unscoped` via env is process-lifetime auto-allow | `yolo-env.ts:27,40`; `yolo-session.ts:261-262` | Operator opt-in; all non-sensitive/non-system out-of-root agent file access auto-allowed until restart. | Warn at startup; require bounded duration. |
 | TOOL-19 | Info | Doc/code drift | `docs/architecture.md` observability list omits `yolo-allowed`/`yolo-refused` vs `handler.ts:26-36`; `guard.ts:27` `SESSION_TARGETING_TOOLS` unused vs manifest flag `dispatch.ts:552` | Audit confusion. | Update doc; remove dead const. |
+| TOOL-20 | Low | Prompt-answer roads remain after MCP removal (new, close-security-map-high-findings) | REST `POST /api/questions/:id/answer` non-file kinds `questions/question-routes.ts:94-107`, tier `control` `shared/src/route-tiers.ts:58`; browser WS `prompt_response` `pairing/browser-gateway.ts:2418`, `control` `shared/src/ws-message-tiers.ts:65`; `POST /api/access/prompts/:promptId` `routes/access-prompt-routes.ts:185`, `operate` `route-tiers.ts:65` | Holder of `control` REST credential answers non-file prompts of other sessions (file-origin refused `:94`, owner-scoped `canSee`). Browser/cookie `control` session answers via WS. Loopback needs local proof by default (`requireLocalProof` `true`, `shared/src/config.ts:1847`); same-host agent with shell can obtain proof material. | Owner none. `add-supervised-tool-approval` moves approvals off agent-reachable roads (related). |
+| TOOL-21 | Low | Three other `session`-bind MCP rows broken the same way (new, close-security-map-high-findings) | `tools.manifest.ts` `set_session_tags`, `edit_followup_entry`, `history_backfill` (`bind:{kind:"session"}`); wrap `server.ts:4166-4167` | Not answer roads. Tools never act; inject malformed `send_prompt` text into target session. | Fix or remove `session` bind kind. Owner none. |

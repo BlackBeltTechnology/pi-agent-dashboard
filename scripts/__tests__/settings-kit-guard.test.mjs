@@ -135,7 +135,6 @@ const FIFTEEN = [
   "browser-plugin",
   "chat-gateway",
   "cost-estimator",
-  "flows-anthropic-bridge-plugin",
   "grammar-plugin",
   "quota-plugin",
   "mcp-client-plugin",

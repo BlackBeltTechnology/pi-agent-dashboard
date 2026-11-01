@@ -122,6 +122,21 @@ export function tryReadAuthJson(): AuthData | null {
   return read.ok ? read.data : null;
 }
 
+/**
+ * Whether auth.json holds an `anthropic` credential of any type. Missing file
+ * → false; unparseable or unreadable → undefined (unknown). Checks the key
+ * only, never reads or logs the credential value.
+ * See change: seed-claude-compat-on-upgrade (design D2).
+ */
+export function hasAnthropicCredential(): boolean | undefined {
+  try {
+    const data = tryReadAuthJson();
+    return data === null ? undefined : Object.hasOwn(data, "anthropic");
+  } catch {
+    return undefined;
+  }
+}
+
 function corruptUnbackedRefusal(): Error {
   return corruptUnbackedRefusal_(AUTH_PATH);
 }

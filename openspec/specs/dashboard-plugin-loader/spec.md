@@ -243,9 +243,9 @@ An environment variable `PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1` SH
 
 #### Scenario: Plugin bridge entry registered in both registries
 
-- **WHEN** plugin "flows-anthropic-bridge" declares a `bridge` field and the dashboard starts
-- **THEN** `~/.pi/agent/settings.json` SHALL contain `dashboardPluginBridges["dashboard-flows-anthropic-bridge"]` pointing at the absolute bridge path
-- **AND** `packages[]` SHALL contain an entry for the same path marked `_dashboardOwned: "dashboard-flows-anthropic-bridge"`
+- **WHEN** plugin "flows" declares a `bridge` field and the dashboard starts
+- **THEN** `~/.pi/agent/settings.json` SHALL contain `dashboardPluginBridges["dashboard-flows"]` pointing at the absolute bridge path
+- **AND** `packages[]` SHALL contain an entry for the same path marked `_dashboardOwned: "dashboard-flows"`
 
 #### Scenario: pi loads the bridge from packages[] on next session
 
@@ -318,12 +318,12 @@ The dashboard `GET /api/health` response SHALL include a `plugins` array. Each d
 }
 ```
 
-The `bridgeLoadedFrom` field SHALL be computed by re-reading `~/.pi/agent/settings.json` at health-check time and matching the plugin's resolved bridge path against entries in both registries. The `lastProbe` field SHALL be populated from forwarded `flows-anthropic-bridge:status` events kept in the server's per-PID status map (when the plugin is a status-emitting bridge plugin); for non-status-emitting bridges this field SHALL be omitted.
+The `bridgeLoadedFrom` field SHALL be computed by re-reading `~/.pi/agent/settings.json` at health-check time and matching the plugin's resolved bridge path against entries in both registries. The `lastProbe` field SHALL be populated from the plugin's forwarded status events kept in the server's per-PID status map (when the plugin is a status-emitting bridge plugin); for non-status-emitting bridges this field SHALL be omitted.
 
 #### Scenario: Health reports bridge loaded from packages[]
 
-- **WHEN** plugin "flows-anthropic-bridge" has a `packages[]` entry with matching ownership marker and the plugin loaded successfully
-- **THEN** `GET /api/health` SHALL return `plugins[*]` with `id: "flows-anthropic-bridge", bridgeLoadedFrom: "packages[]", loaded: true`
+- **WHEN** plugin "flows" has a `packages[]` entry with matching ownership marker and the plugin loaded successfully
+- **THEN** `GET /api/health` SHALL return `plugins[*]` with `id: "flows", bridgeLoadedFrom: "packages[]", loaded: true`
 
 #### Scenario: Health reports active bridge probe
 
@@ -1462,7 +1462,7 @@ The Subagents plugin manifest SHALL NOT declare `roles` in its `dependsOn` array
 
 `bundle-server.mjs` SHALL copy every first-party plugin listed in `packages/server/package.json#piDashboard.bundledPlugins` (each a `pi-dashboard-plugin` package under `packages/`) into `<bundle>/resources/plugins/<id>/`, EXCEPT plugins whose manifest declares `fixture: true`. The runtime `findBundledPluginsDir()` SHALL locate the resulting directory at `~/.pi-dashboard/resources/plugins/` after extraction.
 
-The bundled set SHALL include at minimum: `roles-plugin`, `flows-plugin`, `flows-anthropic-bridge-plugin`. Fixture-only plugins (e.g. `demo-plugin`) SHALL be excluded.
+The bundled set SHALL include at minimum: `roles-plugin`, `flows-plugin`. Fixture-only plugins (e.g. `demo-plugin`) SHALL be excluded.
 
 Every package in a bundled plugin's `dependencies` (first-party and third-party; `peerDependencies` and `optionalDependencies` excluded) SHALL be resolvable from `<bundle>/resources/plugins/<id>/` inside the bundle, so a bundled plugin's server entry never fails to load because a declared dependency is absent.
 
@@ -2500,6 +2500,40 @@ A failure while registering a plugin after the server has started SHALL be logge
 - **WHEN** a plugin's registration throws after server start
 - **THEN** the error SHALL be logged and the plugin reported as failed
 - **AND** the server and every other plugin SHALL keep running
+
+### Requirement: `ServerPluginContext` exposes a state-guarded file read
+
+`ServerPluginContext` SHALL expose an optional `readFileGuarded(absPath): Promise<string | null>` for plugin routes that return file content. It SHALL apply the credential-and-state refusal of `trust-and-credential-boundaries` on the real path and answer `null` for a refused file, otherwise the UTF-8 content read through the opened-handle recheck. It SHALL NOT be trust-gated, and a plugin route that needs it SHALL refuse when it is absent.
+
+#### Scenario: A credential file reads as refused
+- **WHEN** a plugin route calls `readFileGuarded` with `~/.pi/agent/auth.json`, or a symlink resolving to it
+- **THEN** the call SHALL resolve `null` and no bytes SHALL be returned
+
+#### Scenario: The trust-gated state tier follows the request's caller
+- **WHEN** a plugin route running for an unproven bare-loopback caller calls `readFileGuarded` with `~/.pi/dashboard/config.json`
+- **THEN** the call SHALL resolve `null`
+- **AND** for a locally trusted caller the same call SHALL return the content
+
+#### Scenario: An ordinary file is returned
+- **WHEN** a plugin route calls `readFileGuarded` with a regular file outside the state directory and the credential set
+- **THEN** the call SHALL resolve the file's UTF-8 content
+
+#### Scenario: A swapped-in credential file is refused after open
+- **WHEN** the path is replaced by a link to a credential file between the real-path decision and the open
+- **THEN** the call SHALL resolve `null` because the opened handle matches the credential file
+
+#### Scenario: Other failures reject as filesystem errors
+- **WHEN** a plugin route calls `readFileGuarded` with a path that does not exist
+- **THEN** the call SHALL reject with the ordinary filesystem error, not resolve `null`
+
+#### Scenario: Untrusted plugins may use it
+- **WHEN** a plugin that is not trusted calls `readFileGuarded`
+- **THEN** the call SHALL behave as for a trusted plugin
+
+#### Scenario: Absent capability degrades, never reads directly
+- **WHEN** a plugin route runs against a context without `readFileGuarded`
+- **THEN** it SHALL refuse the request
+- **AND** it SHALL NOT read the path with plain filesystem calls
 
 ## Related Capabilities
 

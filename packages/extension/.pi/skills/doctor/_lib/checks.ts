@@ -98,9 +98,8 @@ export interface NameSkewResult {
 }
 
 /**
- * Probe a set of candidate names for one logical peer (e.g. the current
- * `@scope/pi-anthropic-messages` and its legacy `@pi/anthropic-messages`
- * alias). Reports which name currently resolves and which probed names are
+ * Probe a set of candidate names for one logical peer (e.g. a current
+ * `@scope/pkg` and its legacy pre-rescope alias). Reports which name currently resolves and which probed names are
  * dead — the signal for published-bridge name skew after a rescope.
  */
 export function detectNameSkew(

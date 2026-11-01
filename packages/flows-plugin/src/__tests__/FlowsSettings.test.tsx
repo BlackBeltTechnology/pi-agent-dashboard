@@ -1,14 +1,33 @@
 /**
  * FlowsSettings (settings consistency wave 2): kit switch with a short label and
- * a `t()` hint, no native checkbox; draft id `plugin:flows` commits `editFlow`.
- * See change: retro-ux-plugin-settings-wave-2.
+ * a `t()` hint, no native checkbox; draft id `plugin:flows` commits via
+ * `PUT /api/plugins/flows/edit-mode-default` (global pi settings), never
+ * `plugin_config_write`. See change: retro-ux-plugin-settings-wave-2;
+ * stop-flows-edit-mode-project-writes (D2; test-plan #F8, #X1).
  */
 import { CurrentPluginLayer, createSlotRegistry, PluginContextProvider, type RegisteredSource, SettingsDraftProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FlowsSettings } from "../client/FlowsSettings.js";
 
-afterEach(cleanup);
+type Reply = { status: number; body: unknown };
+let getReply: Reply;
+let putReply: Reply;
+const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+  const r = init?.method === "PUT" ? putReply : getReply;
+  return new Response(JSON.stringify(r.body), { status: r.status });
+});
+beforeEach(() => {
+  getReply = { status: 200, body: { enabled: false } };
+  putReply = { status: 200, body: { enabled: true } };
+  fetchMock.mockClear();
+  vi.stubGlobal("fetch", fetchMock);
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+const puts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
 
 function renderSettings(sources: Map<string, RegisteredSource>, send = vi.fn()) {
   const draft = {
@@ -41,14 +60,39 @@ describe("FlowsSettings", () => {
     expect(container.innerHTML).not.toMatch(/--text-muted|--text-tertiary/);
   });
 
-  it("toggling marks plugin:flows dirty; commit writes { editFlow }", async () => {
+  it("toggling marks plugin:flows dirty; commit PUTs { enabled } once, no plugin_config_write (#F8)", async () => {
     const sources = new Map<string, RegisteredSource>();
     const { send } = renderSettings(sources);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/plugins/flows/edit-mode-default"));
     fireEvent.click(screen.getByTestId("flows-edit-mode-toggle"));
     await waitFor(() => expect(sources.get("plugin:flows")?.isDirty).toBe(true));
     await act(async () => {
       await sources.get("plugin:flows")?.commit();
     });
-    expect(send).toHaveBeenCalledWith({ type: "plugin_config_write", id: "flows", config: { editFlow: true } });
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0][0]).toBe("/api/plugins/flows/edit-mode-default");
+    expect(JSON.parse(String(puts()[0][1]?.body))).toEqual({ enabled: true });
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "plugin_config_write" }));
+    await waitFor(() => expect(sources.get("plugin:flows")?.isDirty).toBe(false));
+  });
+
+  it("shows the global value from GET", async () => {
+    getReply = { status: 200, body: { enabled: true } };
+    renderSettings(new Map());
+    await waitFor(() => expect(screen.getByTestId("flows-edit-mode-toggle").getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("a 400 parseError rejects the commit and is shown in the section (#X1)", async () => {
+    putReply = { status: 400, body: { error: "unparseable settings", parseError: "Invalid JSON at line 1, column 10" } };
+    const sources = new Map<string, RegisteredSource>();
+    renderSettings(sources);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("flows-edit-mode-toggle"));
+    await waitFor(() => expect(sources.get("plugin:flows")?.isDirty).toBe(true));
+    await act(async () => {
+      await expect(sources.get("plugin:flows")?.commit()).rejects.toThrow(/Invalid JSON/);
+    });
+    expect(screen.getByTestId("flows-edit-mode-error").textContent).toContain("Invalid JSON at line 1, column 10");
+    expect(sources.get("plugin:flows")?.isDirty).toBe(true);
   });
 });

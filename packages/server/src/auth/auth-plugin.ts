@@ -16,12 +16,15 @@ import {
   buildAuthorizeUrl,
   buildProviderRegistry,
   buildRedirectUri,
+  classifyProviderConfig,
   COOKIE_NAME,
   ensureAuthSecret,
   exchangeCode,
   fetchUserInfo,
   idTokenGroups,
+  isOpenEnrolment,
   isUserAllowed,
+  openEnrolmentOf,
   parseAuthCookie,
   type ResolvedProvider,
   resolveGroupTier,
@@ -31,6 +34,7 @@ import {
   verifyToken,
   warnOnInvalidRedirectBase,
 } from "./auth.js";
+import { auditLine } from "./audit-log.js";
 import { isBypassed } from "./bypass-urls.js";
 import { CSP_REPORT_POLICIES, cspReportPath } from "./csp-report-paths.js";
 import { hasLocalCredential } from "./local-credential.js";
@@ -91,6 +95,13 @@ export interface AuthPluginOptions {
    * See change: add-passkey-user-auth.
    */
   passkeys?: PasskeyService;
+  /**
+   * Called synchronously at the END of every `_reloadAuth` (after the new state is
+   * applied), so the server can close open sockets of a session the reload revoked.
+   * A throw is logged at error level; the reload stays applied.
+   * See change: close-security-map-high-findings (D3).
+   */
+  onAuthReloaded?: () => void;
 }
 
 /**
@@ -150,13 +161,25 @@ function readStateCookie(cookieValue: unknown, secret: string): string | null {
   return safeEqual(cookieValue.slice(dot + 1), stateMac(secret, nonce)) ? nonce : null;
 }
 
+/** One row of the login picker. `refused` = public IdP in open enrolment (no sign-in link). */
+interface LoginPickerEntry {
+  key: string;
+  name: string;
+  refused: boolean;
+}
+
 /**
- * Simple login page HTML with provider links.
+ * Simple login page HTML with provider links. A refused provider is listed as a text
+ * note (not colour-only) naming the remedy, without a sign-in link.
  */
-function renderLoginPage(providers: ResolvedProvider[], error?: string, returnUrl = "/", passkeySection = "", needsProof = false): string {
+function renderLoginPage(providers: LoginPickerEntry[], error?: string, returnUrl = "/", passkeySection = "", needsProof = false): string {
   const ret = encodeURIComponent(sanitizeReturnUrl(returnUrl));
   const providerLinks = providers
-    .map((p) => `<a href="/auth/start/${p.key}?return=${ret}" style="display:block;margin:10px 0;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;text-align:center;font-size:16px;">Sign in with ${p.name}</a>`)
+    .map((p) =>
+      p.refused
+        ? `<div role="note" style="margin:10px 0;padding:12px 14px;background:#0f172a;border:1px solid #475569;border-radius:8px;text-align:left;font-size:14px;line-height:1.45;"><strong>${escapeHtml(p.name)}</strong>: not configured for sign-in. Set <code>auth.allowedUsers</code> or <code>auth.groupTiers</code> in the dashboard config (Settings ▸ Security) to enable it.</div>`
+        : `<a href="/auth/start/${p.key}?return=${ret}" style="display:block;margin:10px 0;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;text-align:center;font-size:16px;">Sign in with ${p.name}</a>`,
+    )
     .join("\n");
 
   const errorHtml = error
@@ -193,6 +216,23 @@ h1{margin:0 0 16px;font-size:24px;color:#ef4444;}</style>
 }
 
 /**
+ * 403 remedy page for a public IdP in open enrolment. Echoes no identity and no query
+ * value; only the (escaped) configured provider name. See change:
+ * close-security-map-high-findings (D3).
+ */
+function renderOpenEnrolmentPage(providerName: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PI Dashboard — Sign-in Not Configured</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#e2e8f0;}
+.card{background:#1e293b;padding:40px;border-radius:12px;max-width:480px;width:100%;text-align:center;}
+h1{margin:0 0 16px;font-size:24px;color:#ef4444;}</style>
+</head><body><div class="card"><h1>Sign-in Not Configured</h1><p><strong>${escapeHtml(providerName)}</strong> is a public identity provider and no one is allowed to sign in with it yet: <code>auth.allowedUsers</code> and <code>auth.groupTiers</code> are both empty, so any account on it would be admitted.</p>
+<p>The operator must set <code>auth.allowedUsers</code> (or <code>auth.groupTiers</code>) in the dashboard config, for example in Settings ▸ Security.</p>
+<a href="/auth/login" style="color:#60a5fa;">Back to sign in</a></div></body></html>`;
+}
+
+/**
  * Mirror the RESOLVED redirect base + winning tier to the server log at every
  * register/reload (D10). A remote operator whose OAuth is broken cannot obtain
  * a JWT to reach the diagnostics endpoint, so `~/.pi/dashboard/server.log` has
@@ -213,6 +253,14 @@ export interface AuthPluginHandle {
    * See change: surface-operate-required-remedy.
    */
   hasUsableOAuthProvider: () => boolean;
+  /**
+   * Live: must a cookie session issued by `provider` (the JWT `provider` claim) be
+   * rejected? True when the claim is missing/empty/non-string, the key is no longer a
+   * configured provider, or it is a public IdP in open enrolment. Decided from CONFIG,
+   * never discovery. Passkey sessions never reach it (`effectiveSessionTier`).
+   * See change: close-security-map-high-findings (D3).
+   */
+  isSessionProviderRejected: (provider: unknown) => boolean;
 }
 
 /** Identity-plane facts `buildLoginAvailable` reads. */
@@ -252,6 +300,9 @@ export async function registerAuthPlugin(
   const authState = {
     secret: ensureAuthSecret(authConfig),
     providerRegistry: await buildProviderRegistry(authConfig.providers),
+    // CONFIGURED providers (not the registry): classification and warnings must not
+    // depend on OIDC discovery succeeding. See change: close-security-map-high-findings (H8).
+    providers: authConfig.providers,
     allowedUsers: authConfig.allowedUsers,
     bypassUrls: authConfig.bypassUrls ?? [],
     redirectBaseUrl: authConfig.redirectBaseUrl,
@@ -261,6 +312,25 @@ export async function registerAuthPlugin(
   warnOnInvalidRedirectBase(authState.redirectBaseUrl);
   logResolvedRedirectBase(port, authState.redirectBaseUrl);
 
+  // A public IdP in open enrolment is REFUSED at login; any other provider with no
+  // allowlist/group map admits every account of its issuer. Both are visible in the log.
+  // See change: close-security-map-high-findings (D3).
+  const isRefusedProvider = (key: string): boolean =>
+    Object.hasOwn(authState.providers, key) &&
+    classifyProviderConfig(key, authState.providers[key]) === "public" &&
+    isOpenEnrolment(authState.allowedUsers, authState.groupTiers);
+  const logOpenEnrolment = (): void => {
+    for (const { provider, mode } of openEnrolmentOf(authState.providers, authState.allowedUsers, authState.groupTiers)) {
+      const key = JSON.stringify(provider);
+      console.warn(
+        mode === "refused"
+          ? `⚠️  OAuth provider ${key} is a public identity provider in open enrolment: login is REFUSED until auth.allowedUsers or auth.groupTiers is set. Review Settings ▸ Users and Settings ▸ Paired devices for entries created while sign-in was open.`
+          : `⚠️  OAuth provider ${key} is in open enrolment: auth.allowedUsers and auth.groupTiers are both empty, so every account of its issuer is admitted at operate tier. Set auth.allowedUsers or auth.groupTiers to restrict it.`,
+      );
+    }
+  };
+  logOpenEnrolment();
+
   // Created before the early return below so a provider-less install still gets a
   // function (it reads false, and stays false: that path installs no reload hook).
   const handle: AuthPluginHandle = {
@@ -268,6 +338,11 @@ export async function registerAuthPlugin(
       [...authState.providerRegistry.values()].some(
         (p) => typeof p.clientId === "string" && p.clientId.trim().length > 0,
       ),
+    isSessionProviderRejected: (provider) =>
+      typeof provider !== "string" ||
+      provider.length === 0 ||
+      !Object.hasOwn(authState.providers, provider) ||
+      isRefusedProvider(provider),
   };
 
   if (authState.providerRegistry.size === 0 && !passkeys?.isEnabled()) {
@@ -283,6 +358,7 @@ export async function registerAuthPlugin(
   (fastify as any)._reloadAuth = async (newConfig: AuthConfig, _fullConfig?: DashboardConfig) => {
     authState.secret = ensureAuthSecret(newConfig);
     authState.providerRegistry = await buildProviderRegistry(newConfig.providers);
+    authState.providers = newConfig.providers;
     authState.allowedUsers = newConfig.allowedUsers;
     authState.bypassUrls = newConfig.bypassUrls ?? [];
     authState.redirectBaseUrl = newConfig.redirectBaseUrl;
@@ -292,7 +368,20 @@ export async function registerAuthPlugin(
     logResolvedRedirectBase(port, authState.redirectBaseUrl);
     const names = Array.from(authState.providerRegistry.values()).map((p) => p.name);
     console.log(`🔐 Auth reloaded with providers: ${names.join(", ")}`);
+    logOpenEnrolment();
+    // Synchronous, last: the new state is already applied, so a throwing sweep neither
+    // rolls it back nor rejects the reload (G9). See change: close-security-map-high-findings (D3).
+    try {
+      options.onAuthReloaded?.();
+    } catch (err) {
+      console.error("[auth] onAuthReloaded failed; revoked sockets may still be open:", err);
+    }
   };
+
+  // Live open-enrolment posture for `GET /api/auth/diagnostics` (config-derived, from the
+  // LIVE authState — not config.json). See change: close-security-map-high-findings (D3).
+  (fastify as any)._authOpenEnrolment = () =>
+    openEnrolmentOf(authState.providers, authState.allowedUsers, authState.groupTiers);
 
   // Tag requests with authentication status (read by createNetworkGuard).
   // May already be decorated by the bearer branch registered earlier.
@@ -345,7 +434,18 @@ export async function registerAuthPlugin(
    * authenticated); any other session keeps its claim (`operate` when absent).
    * See change: add-passkey-user-auth (D4).
    */
-  const effectiveTier = (payload: TokenPayload): Tier | null => effectiveSessionTier(payload, passkeys);
+  const effectiveTier = (payload: TokenPayload): Tier | null => effectiveSessionTier(payload, passkeys, handle.isSessionProviderRejected);
+
+  /** Refusal bookkeeping: audit (never throws) + the remedy page. No identity is read. */
+  const refuseOpenEnrolment = (request: FastifyRequest, reply: FastifyReply, providerKey: string) => {
+    try {
+      auditLine("oauth", "login_refused", { provider: providerKey, reason: "open_enrolment", ip: request.ip });
+    } catch {
+      // fail-open: a broken sink must not turn the refusal into a 500
+    }
+    const name = authState.providerRegistry.get(providerKey)?.name ?? authState.providers[providerKey]?.name ?? providerKey;
+    return reply.code(403).type("text/html").send(renderOpenEnrolmentPage(name));
+  };
 
   if (passkeys) {
     registerPasskeyRoutes(fastify, {
@@ -363,7 +463,18 @@ export async function registerAuthPlugin(
 
   // GET /auth/login — provider picker or auto-redirect
   fastify.get("/auth/login", async (request, reply) => {
-    const providers = Array.from(authState.providerRegistry.values());
+    // Login-capable providers plus any refused one (listed as a note; a discovery-failed
+    // public provider is never in the registry but is still refused).
+    const providers: LoginPickerEntry[] = Array.from(authState.providerRegistry.values()).map((p) => ({
+      key: p.key,
+      name: p.name,
+      refused: isRefusedProvider(p.key),
+    }));
+    for (const key of Object.keys(authState.providers)) {
+      if (!authState.providerRegistry.has(key) && isRefusedProvider(key)) {
+        providers.push({ key, name: authState.providers[key]?.name ?? key, refused: true });
+      }
+    }
     const error = (request.query as any)?.error;
     const passkeysOn = passkeys?.isEnabled() === true;
     // A bare-loopback request the strict default refuses for want of proof must see the remedy, not be
@@ -374,10 +485,13 @@ export async function registerAuthPlugin(
     if (providers.length === 1 && !error && !passkeysOn && !needsProof) {
       // Auto-redirect to single provider
       const p = providers[0];
+      // A single refused provider is never an IdP bounce: return the remedy page.
+      const resolved = authState.providerRegistry.get(p.key);
+      if (p.refused || !resolved) return refuseOpenEnrolment(request, reply, p.key);
       const redirectUri = buildRedirectUri(p.key, port, authState.redirectBaseUrl);
       const returnUrl = sanitizeReturnUrl((request.query as any)?.return);
       const state = encodeState(returnUrl, issueState(request, reply));
-      const url = buildAuthorizeUrl(p, redirectUri, state);
+      const url = buildAuthorizeUrl(resolved, redirectUri, state);
       return reply.redirect(url);
     }
 
@@ -389,6 +503,8 @@ export async function registerAuthPlugin(
   // GET /auth/start/:provider — redirect to provider's authorize URL
   fastify.get("/auth/start/:provider", async (request, reply) => {
     const providerKey = (request.params as any).provider;
+    // Refusal first: no IdP round trip, and a discovery-failed public provider is refused too.
+    if (isRefusedProvider(providerKey)) return refuseOpenEnrolment(request, reply, providerKey);
     const provider = authState.providerRegistry.get(providerKey);
     if (!provider) {
       return reply.code(404).send({ error: "Unknown provider" });
@@ -404,7 +520,8 @@ export async function registerAuthPlugin(
   fastify.get("/auth/callback/:provider", async (request, reply) => {
     const providerKey = (request.params as any).provider;
     const provider = authState.providerRegistry.get(providerKey);
-    if (!provider) {
+    const refused = isRefusedProvider(providerKey);
+    if (!provider && !refused) {
       return reply.code(404).send({ error: "Unknown provider" });
     }
 
@@ -426,6 +543,10 @@ export async function registerAuthPlugin(
     if (!cookieNonce || !decoded.nonce || !safeEqual(cookieNonce, decoded.nonce)) {
       return reply.redirect("/auth/login?error=Invalid+login+state");
     }
+
+    // Open enrolment on a public IdP: refuse AFTER the state check, BEFORE any
+    // code exchange (the token endpoint is never contacted).
+    if (refused || !provider) return refuseOpenEnrolment(request, reply, providerKey);
 
     const redirectUri = buildRedirectUri(providerKey, port, authState.redirectBaseUrl);
     const tokens = await exchangeCode(provider, code, redirectUri);
@@ -611,9 +732,21 @@ export async function registerAuthPlugin(
  * session's tier is the directory's CURRENT tier (null ⇒ revoked / passkeys
  * disabled ⇒ not authenticated); any other session keeps its claim, `operate`
  * when absent (pre-claim JWT). See change: add-passkey-user-auth (D4).
+ *
+ * `isSessionProviderRejected` (the live accessor on the auth handle) rejects an OAuth
+ * session of a removed provider or of a public IdP in open enrolment.
  */
-export function effectiveSessionTier(payload: TokenPayload, passkeys?: PasskeyService): Tier | null {
-  return payload.provider === PASSKEY_PROVIDER ? (passkeys?.sessionTier(payload) ?? null) : (payload.tier ?? "operate");
+export function effectiveSessionTier(
+  payload: TokenPayload,
+  passkeys?: PasskeyService,
+  isSessionProviderRejected?: (provider: unknown) => boolean,
+): Tier | null {
+  if (payload.provider === PASSKEY_PROVIDER) return passkeys?.sessionTier(payload) ?? null;
+  // An OAuth session whose provider was removed, or is now a refused public IdP, is not
+  // authenticated (also a missing/non-string `provider` claim: fail closed, G14).
+  // See change: close-security-map-high-findings (D3).
+  if (isSessionProviderRejected?.(payload.provider)) return null;
+  return payload.tier ?? "operate";
 }
 
 /**

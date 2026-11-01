@@ -248,8 +248,8 @@ describe("check-plugin-boundary", () => {
   describe("ratcheting allowlist", () => {
     const green = () =>
       makeTree({
-        "packages/client/src/lib/package/anthropic-peer.ts": `import { P } from "${ROLES}";\nexport const x = P;\n`,
-        [ALLOWLIST]: allowlist(row("packages/client/src/lib/package/anthropic-peer.ts", "roles-plugin")),
+        "packages/client/src/lib/package/example-peer.ts": `import { P } from "${ROLES}";\nexport const x = P;\n`,
+        [ALLOWLIST]: allowlist(row("packages/client/src/lib/package/example-peer.ts", "roles-plugin")),
       });
 
     it("the matching tree is green", () => {
@@ -266,10 +266,10 @@ describe("check-plugin-boundary", () => {
 
     it("(b) a row whose edge is gone fails as STALE", () => {
       const root = green();
-      write(root, "packages/client/src/lib/package/anthropic-peer.ts", "export const x = 1;\n");
+      write(root, "packages/client/src/lib/package/example-peer.ts", "export const x = 1;\n");
       const r = run(root);
       expect(r.status).not.toBe(0);
-      expect(r.out).toMatch(/STALE allowlist entry .*anthropic-peer\.ts.*delete it/);
+      expect(r.out).toMatch(/STALE allowlist entry .*example-peer\.ts.*delete it/);
     });
 
     it("a row missing its annotations fails", () => {
@@ -379,15 +379,15 @@ describe("check-plugin-boundary", () => {
     // removes rows, never up. Phase 3A (tasks 4.3/4.4): the Agent renderer + its test left core (-2 rows),
     // the vitest setup file registering the subagents reducer slice is one integration-keep row (+1).
     // Phase 3B (task 4.10): the server vitest setup file registering the slice + Agent finalizer is one more (+1).
-    it("is green with 26 rows (prod 0 / test 25 / pkg 1 / css 0)", () => {
+    it("is green with 25 rows (prod 0 / test 24 / pkg 1 / css 0)", () => {
       const r = spawnSync(process.execPath, [SCRIPT], { cwd: REPO_ROOT, encoding: "utf8" });
       expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
       const rows = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ALLOWLIST), "utf8")).rows;
       const count = (k) => rows.filter((x) => x.kind === k).length;
       expect({ total: rows.length, prod: count("prod"), test: count("test"), pkg: count("pkg"), css: count("css") }).toEqual({
-        total: 26,
+        total: 25,
         prod: 0,
-        test: 25,
+        test: 24,
         pkg: 1,
         css: 0,
       });

@@ -94,6 +94,8 @@ import {
   isWsOriginTrusted,
   sanitizeHeaderForLog,
 } from "./auth/cors-origin.js";
+import { getCredentialCodec, type InitCredentialKeyOptions, initCredentialKey } from "./auth/credential-key.js";
+import { migrateCredentialFiles } from "./auth/credential-migration.js";
 import { cspNonceFor, markViteProxied, registerCsp, resolveCspMode, resolveTrustedTypesMode } from "./auth/csp.js";
 import { registerCspReportSink } from "./auth/csp-report-sink.js";
 import { CspReportStore } from "./auth/csp-report-store.js";
@@ -134,7 +136,7 @@ import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
 import { isServerTrusted } from "./auth/plugin-server-trust.js";
 import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
-import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { hasAnthropicCredential, readAuthJson } from "./auth/provider-auth-storage.js";
 import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { RotationError, rotateSecretsOnce } from "./auth/secret-rotation.js";
@@ -216,7 +218,7 @@ import {
   readServedBundledPluginIds,
   resolveStaticClientDir,
 } from "./lib/client-dist.js";
-import { runWithStateCaller } from "./lib/dashboard-state-guard.js";
+import { readFileGuarded as guardedReadFile, runWithStateCaller } from "./lib/dashboard-state-guard.js";
 import { collectRuleSources } from "./lib/folder-project.js";
 import { createIndexHtmlSender } from "./lib/index-html.js";
 import { listKnownFolderCwds, type RouteAdmissionDeps } from "./lib/route-admission.js";
@@ -257,13 +259,13 @@ import { startDeviceExpirySweep } from "./vault/device-expiry-sweep.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { stampSocketLocality } from "./pairing/socket-locality.js";
-import type { TieredSocket } from "./pairing/ws-tier-gate.js";
+import { sweepRevokedSockets, type TieredSocket } from "./pairing/ws-tier-gate.js";
 import { buildSelfServer, wirePeerServers } from "./peer-servers.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
 import { createPendingForkRegistry } from "./pending/pending-fork-registry.js";
-import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingInitialPromptRegistry, type PendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
 import { createPendingPluginRefRegistry } from "./pending/pending-plugin-ref-registry.js";
 import { createPendingPrincipalOwnerRegistry } from "./pending/pending-principal-owner-registry.js";
 import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
@@ -333,6 +335,7 @@ import { registerPluginActivationRoutes, setPluginsEnabled } from "./routes/plug
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPluginRuntimeClientRoutes } from "./routes/plugin-runtime-client-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
+import { registerPreferencesClaudeCompatRoutes } from "./routes/preferences-claude-compat-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
@@ -413,6 +416,12 @@ import { createVaultStore } from "./vault/vault-store.js";
 import { createWatchFilesHandler, type WatchFilesMessage } from "./watch-files-handler.js";
 
 export interface ServerConfig {
+  /**
+   * Test seam for the credential data key (key file env, stub keychain, log sink, home dir).
+   * Production leaves it unset: `initCredentialKey()` then reads `process.env` and the real home.
+   * See change: encrypt-credentials-at-rest (D4, D9).
+   */
+  credentialKey?: InitCredentialKeyOptions;
   port: number;
   piPort: number;
   /**
@@ -565,6 +574,13 @@ export interface DashboardServer {
    */
   pendingDashboardSpawns: Map<string, number>;
   /**
+   * Pending initial-prompt intents per cwd. Exposed for in-process tests that
+   * pin register-time ordering (preferences snapshot before `send_prompt`).
+   * Not part of the public API — do not depend on this from production code.
+   * See change: retire-anthropic-messages-bridge.
+   */
+  pendingInitialPromptRegistry: PendingInitialPromptRegistry;
+  /**
    * In-process OpenSpec poll cache + discovery service. Exposed for tests
    * that need to stub `getOpenSpecData` (e.g. the deleted-proposal bypass).
    * Not part of the public API.
@@ -651,6 +667,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
     throw err;
   }
+  // Resolve the credential data key BEFORE anything builds or reads a credential store
+  // (vault, ACME runtime, plugin load) and before `listen`, then migrate plaintext
+  // credential files to envelopes. One 10 s total deadline bounds init; a keychain failure
+  // only leaves the stores locked, it never stops the server from booting. Neither call throws.
+  // See change: encrypt-credentials-at-rest (D4, D7, D11).
+  await initCredentialKey(config.credentialKey);
+  await migrateCredentialFiles({ home: config.credentialKey?.homeDir, log: config.credentialKey?.log });
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //
@@ -708,6 +731,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     customEventGroupDefaults: Object.fromEntries(
       customEventGroupsStore.definitions().map((g) => [g.id, g.default]),
     ),
+    // One-time compat-switch seed for upgraders with an anthropic sign-in.
+    // See change: seed-claude-compat-on-upgrade (design D2).
+    hasAnthropicCredential,
   });
   // Single cwd-policy registry (Part B — host-cwd-policy). Recognized workspace
   // roots = pinned directories + every folder in a folder-workspace, evaluated
@@ -1884,7 +1910,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Credential vault: store + delivery hub. The hub answers bridge sync
   // requests and pushes on every vault write / config change; values travel only
   // on the session-private bridge lane. See change: add-credential-vault.
-  const vaultStore = createVaultStore();
+  const vaultStore = createVaultStore({ codec: getCredentialCodec("vault") });
   // ACME DNS-01 certificate source: solver secrets live in this vault (kind `tls-solver`).
   // GC of orphaned namespaces/account keys runs once at start. See change: add-acme-dns01-certs.
   configureAcmeRuntime({ credentials: createAcmeCredentials(vaultStore) });
@@ -2352,7 +2378,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Trusted Types rides the same hook under its own `PI_DASHBOARD_TRUSTED_TYPES`
   // mode (also stamped into index.html as a meta). See change: harden-client-sinks (D7).
   const cspMode = resolveCspMode(process.env.PI_DASHBOARD_CSP);
-  const trustedTypesMode = resolveTrustedTypesMode(process.env.PI_DASHBOARD_TRUSTED_TYPES, cspMode);
+  // Resolved ONCE (env → config `security.trustedTypes` → default); the same value feeds the headers and the
+  // index.html meta. Each bad source warns once here, never per request. See change: enforce-trusted-types-default.
+  const ttResolution = resolveTrustedTypesMode({
+    env: process.env.PI_DASHBOARD_TRUSTED_TYPES,
+    config: loadConfig().security?.trustedTypes,
+    cspMode,
+  });
+  for (const w of ttResolution.warnings) console.warn(`[csp] Trusted Types: ${w.message}`);
+  const trustedTypesMode = ttResolution.mode;
   registerCsp(fastify, cspMode, trustedTypesMode);
 
   // Register auth plugin if configured (must be before routes)
@@ -2373,6 +2407,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // there. It admits ONLY a valid `/live/<id>/~c/<token>/…` raw path.
   // Liveness is re-checked at every use, so a revoked device, an ended session
   // or a removed target is refused on its next request.
+  // Late-bound live accessor from the auth plugin handle (built below): an OAuth session of a
+  // removed / refused-public-IdP provider is not live. See change: close-security-map-high-findings (D3).
+  let sessionProviderRejectedAccessor: ((provider: unknown) => boolean) | null = null;
+  const sessionProviderRejected = (provider: unknown): boolean => sessionProviderRejectedAccessor?.(provider) ?? false;
   const liveCapabilities = new LiveCapabilityStore({
     isTargetLive: (id) => liveServerManager.has(id),
     isPrincipalLive: (p) => {
@@ -2380,7 +2418,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Minted on network trust alone: only valid while network trust still authenticates.
       if (p.kind === "network") return effectiveTrustMode().mode === "legacy";
       if (p.kind === "device") return pairedDeviceRegistry.list().some((d) => d.id === p.deviceId);
-      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService) !== null;
+      if (p.kind === "session" && p.session) return effectiveSessionTier(p.session, passkeyService, sessionProviderRejected) !== null;
       return true;
     },
   });
@@ -2527,7 +2565,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   passkeyService.configure(config.authConfig);
   let oauthLoginAccessor: (() => boolean) | null = null;
   if (config.authConfig) {
-    oauthLoginAccessor = (await registerAuthPlugin(fastify, {
+    const authHandle = await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
@@ -2536,7 +2574,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       localToken,
       localTrust,
       passkeys: passkeyService,
-    })).hasUsableOAuthProvider;
+      // Close open browser + terminal sockets whose session the reload revoked (D3, G7-G10).
+      onAuthReloaded: () => {
+        sweepRevokedSockets({ browser: browserGateway.wss, terminal: terminalGateway.wss });
+      },
+    });
+    oauthLoginAccessor = authHandle.hasUsableOAuthProvider;
+    sessionProviderRejectedAccessor = authHandle.isSessionProviderRejected;
   }
   // Live "is a usable login method configured" (drives the `sign-in` remedy of an
   // `operate_required` refusal). See change: surface-operate-required-remedy.
@@ -3574,6 +3618,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Global auto-session-naming toggle (add-auto-session-naming). Broadcasts
   // `preferences_update` to bridges on change.
   registerPreferencesAutoNameRoutes(fastify, { preferencesStore, piGateway, networkGuard });
+  registerPreferencesClaudeCompatRoutes(fastify, { preferencesStore, piGateway, networkGuard });
   registerPluginActivationRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
@@ -3856,6 +3901,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     eventStore,
     browserGateway,
     pendingDashboardSpawns,
+    pendingInitialPromptRegistry,
     directoryService,
     sessionOrderManager,
 
@@ -4374,6 +4420,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 return mintSpawnToken();
               },
+              // Guarded UTF-8 file read for plugin routes that return file CONTENT: `null` when the
+              // dashboard-state / pi-agent-credential guard refuses the real path (caller from the
+              // `onRequest` scope) or the opened handle. Not trust-gated (it only narrows).
+              // See change: close-security-map-high-findings (D1, H1).
+              readFileGuarded: guardedReadFile,
               // Rename a live session: in-memory + `session_updated` broadcast
               // + `rename_session` to pi — the host's own rename block, lifted
               // verbatim (the broadcast carries `{ name: name || undefined }`).
@@ -4572,7 +4623,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // the private request lane. Not trust-gated: each is scoped to
               // the calling plugin's manifest id. See change:
               // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
-              pluginCredentials: (id) => createPluginCredentialStore(id),
+              pluginCredentials: (id) =>
+                createPluginCredentialStore(id, { codec: getCredentialCodec("plugin-credentials") }),
               // Declared + user-approved vault reads, bound to this plugin's manifest.
               // See change: add-credential-vault (D4).
               pluginVault: (id) => createPluginVaultReader(vaultStore, id, plugin.manifest.vaultBindings ?? []),
@@ -4885,14 +4937,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             ? { identity: liveCapPrincipal.identity, identityExpiresAt: liveCapPrincipal.identityExpiresAt }
             : null,
           // A revoked / disabled passkey user's cookie opens no socket (D4).
-          isSessionLive: (p) => effectiveSessionTier(p, passkeyService) !== null,
+          isSessionLive: (p) => effectiveSessionTier(p, passkeyService, sessionProviderRejected) !== null,
         });
         // Cookie-session sockets carry the session's LIVE tier (passkey users
         // re-read the directory). Terminals need operate, live previews
         // control; browser messages are gated per type in the gateway.
         // See change: add-passkey-user-auth.
         const sessionPayload = upgradeAuth.ok ? upgradeAuth.session : undefined;
-        const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService) : undefined;
+        const sessionTierOf = sessionPayload ? () => effectiveSessionTier(sessionPayload, passkeyService, sessionProviderRejected) : undefined;
         const roadTier = scope === "terminal" ? TERMINAL_TIER : scope === "live" ? LIVE_PREVIEW_TIER : undefined;
         if (sessionTierOf && roadTier) {
           const t = sessionTierOf();
@@ -5015,6 +5067,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                       })
                   : undefined,
                 upgradeAuth.principalExpiresAt,
+                sessionTierOf,
               ),
             );
             break;

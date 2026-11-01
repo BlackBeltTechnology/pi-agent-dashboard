@@ -1,0 +1,5 @@
+blocked_by:
+  - change: group-aware-kill-process
+    reason: "headless-spawn 'Process group kill for headless agents' MODIFIED block is based on the text synced by the group-aware-kill-process archive (PR #1069); merge that first"
+  - change: scope-pids-to-namespace
+    reason: "force-kill-handler 'Unattended reclamation' and 'Force kill process escalation' MODIFIED blocks are rebased on scope-pids-to-namespace's text"

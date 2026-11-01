@@ -137,7 +137,6 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/file/rendered-pdf", tier: "observe" },
   { method: "GET", path: "/api/file/sheet", tier: "observe" },
   { method: "GET", path: "/api/file/tree", tier: "observe" },
-  { method: "GET", path: "/api/flows-anthropic-bridge/status", tier: "observe" },
   { method: "GET", path: "/api/folder/project", tier: "observe" },
   { method: "GET", path: "/api/folders/goals", tier: "observe" },
   { method: "GET", path: "/api/git/branches", tier: "observe" },
@@ -233,6 +232,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/flows/file", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/files", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/flow-inputs", tier: "observe" },
+  // stop-flows-edit-mode-project-writes: effective edit mode (read-only) and
+  // the global `flows.editFlow` default (PUT writes ~/.pi/agent/settings.json).
+  { method: "GET", path: "/api/plugins/flows/edit-mode-default", tier: "observe" },
+  { method: "GET", path: "/api/plugins/flows/edit-mode-state", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/gmail/setup/run/:id", tier: "operate" },
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
@@ -244,6 +247,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "GET", path: "/api/plugins/context-mode-settings/config", tier: "operate" },
   { method: "GET", path: "/api/preferences/auto-name", tier: "observe" },
+  { method: "GET", path: "/api/preferences/claude-subscription-compat", tier: "observe" },
   { method: "GET", path: "/api/preferences/display", tier: "observe" },
   { method: "GET", path: "/api/preferences/worktree-auto-init", tier: "observe" },
   { method: "GET", path: "/api/provider-auth/catalogue-ready", tier: "observe" },
@@ -304,6 +308,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PATCH", path: "/api/plugins/team/projects/:id", tier: "operate" },
   { method: "PATCH", path: "/api/plugins/team/skills/:name", tier: "operate" },
   { method: "PATCH", path: "/api/preferences/auto-name", tier: "control" },
+  { method: "PATCH", path: "/api/preferences/claude-subscription-compat", tier: "control" },
   { method: "PATCH", path: "/api/preferences/display", tier: "control" },
   { method: "PATCH", path: "/api/preferences/worktree-auto-init", tier: "control" },
   { method: "PATCH", path: "/api/providers/:name", tier: "operate" },
@@ -523,6 +528,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/pi-settings", tier: "operate" },
   { method: "PUT", path: "/api/pi-settings/raw", tier: "operate" },
   { method: "PUT", path: "/api/plugins/blackhole/config", tier: "operate" },
+  { method: "PUT", path: "/api/plugins/flows/edit-mode-default", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/client", tier: "operate" },
   { method: "PUT", path: "/api/plugins/gmail/setup", tier: "operate" },
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },

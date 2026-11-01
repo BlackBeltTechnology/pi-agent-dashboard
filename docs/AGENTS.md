@@ -8,7 +8,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `acme-dns01-certs.md` | ACME DNS-01 domain cert guide. See change: add-acme-dns01-certs. |
 | `acp-sessions.md` | ACP agent sessions: `acpAgents`/`acp.*` config, pi-vs-ACP matrix, hosts A/B, replay. → see `acp-sessions.md.AGENTS.md` |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. `### Editor pane chrome`: pane bar, document bar, rail Search, bulk close, Search tabs. See change: scope-anchor-editor-pane-controls. Known servers: identity-keyed `routes[]`, best-route rule, route delegation, pair action. See change: group-servers-by-identity. Bridge inbound bounds, loopback counter-proof, git remote userinfo strip, tunnel shell-output note. See change: harden-bridge-inbound-and-discovery. → see `architecture.md.AGENTS.md`. History → `architecture.md.history.AGENTS.md`. |
+| `architecture.md` | Full architecture reference (bridge + server + client, data flow, protocols). → see `architecture.md.AGENTS.md` |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `blender-wasm.md` | Headless Blender via WASM. `packages/blender`, bin `pi-blender`, MCP `blender-wasm`. Node 24 JSPI. 5 tools. MEMFS sandbox. sha512 pin. See change: add-blender-wasm-mcp. |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
@@ -22,7 +22,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |
 | `craft-apps.md` | ArtCraft craft apps (13) headless via `pi-craft`. Provision `<CRAFT_HOME>/<app>/<v>/`; `<APP>_BIN`/`_VERSION`, `CRAFT_SOURCE`; MCP confinement table; `verify` exit 0/1/2/3. See change: add-craft-apps-core. |
 | `craft-web-plugin.md` | ArtCraft web editors in editor pane. Provision, sandbox/CSP, shim v3, §14 spikes, §15 `craft_control` live agent control. See change: edit-office-in-pane-with-craft-web; add-craft-live-control. → see `craft-web-plugin.md.AGENTS.md` |
-| `credential-vault.md` | Hub `vault.json` 0600. Env bindings, grants, redaction. Trust gate: hub-proven TLS. See change: add-credential-vault, prove-vault-bridge-tls. |
+| `credential-vault.md` | Hub `vault.json`: encrypted at rest (§12), bindings, grants, TLS trust gate. → see `credential-vault.md.AGENTS.md` |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
 | `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |
@@ -31,13 +31,13 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `electron-session.md` | Implementation session log. 21 phases. Branding/icons, packaging (NSIS/AppImage), `__dirname`/tsx saga, dead… → see `electron-session.md.AGENTS.md` |
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
-| `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery. → see `faq.md.AGENTS.md` |
+| `faq.md` | Recurring how-to + troubleshooting Q&A. Caveman style. See change: harden-bridge-inbound-and-discovery, encrypt-credentials-at-rest. → see `faq.md.AGENTS.md` |
 | `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. See change: scope-anchor-editor-pane-controls. |
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… Plugin-config partial write keeps omitted keys. See change: fix-plugin-config-partial-write. → see `grammar-checker.md.AGENTS.md` |
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. → see `grammar-model-guidance.md.AGENTS.md` |
 | `gmail-plugin.agent.md` | Pull-only condensed map/companion for `gmail-plugin.md`. Sign-in + error codes, automatic setup run/steps/checkpoints/handoff reasons, lease gates, levels, tools, routes, storage, security. → see `gmail-plugin.md` |
-| `gmail-plugin.md` | Map Gmail setup (manual wizard + automatic run), sign-in, leases, levels, tools, routes, storage, tests, security. See change: add-gmail-plugin, add-gmail-auto-setup. |
+| `gmail-plugin.md` | Map Gmail setup (manual wizard + automatic run), sign-in, leases, levels, tools, routes, storage (encrypted at rest), tests, security. See change: add-gmail-plugin, add-gmail-auto-setup, encrypt-credentials-at-rest. |
 | `identity-auth-plugin-guide.md` | Build dashboard auth plugin. Three-way split; login view + resolver + host access policy; break-glass. → see `identity-auth-plugin-guide.md.AGENTS.md` |
 | `identity-plane.md` | Multi-user identity ref. Gate on `request.principal`/`ws.principal`; owner-equality every session road; break-glass D23; `ctx.identity` D24. → see `identity-plane.md.AGENTS.md` |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
@@ -60,7 +60,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `plugin-apps.md` | Plugin React apps embedded + standalone. `<EmbeddedApp>` (`./embedded-app`), `EmbeddedAppShellProvider`,… → see `plugin-apps.md.AGENTS.md` |
 | `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims; slot-claims invalidation store; badge-gate rule; `shell-headless` slot. See change: auto-hide-empty-session-subcards, add-blackhole-session-pipeline, fix-empty-status-subcard. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
-| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store, ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
+| `plugin-seams.md` | Plugin authoring guide. 3 seams (credentials store (encrypted at rest), ctx.oauth flow, bridge→server request lane), editor-pane-tab slot, pluginMeta, lazy claim `module`. → see `plugin-seams.md.AGENTS.md` |
 | `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. → see `plugin-ui-primitives.md.AGENTS.md` |
 | `pnpm-workspace.yaml` | (repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). → see `pnpm-workspace.yaml.AGENTS.md` |
 | `team-plugin.md` | Phase 1 AI Team. `packages/team-plugin` + `packages/team-app`. → see `team-plugin.md.AGENTS.md` |
@@ -129,7 +129,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `research/video-upscaling-dossier.md` | Research dossier, verified 2026-10-04 (§12 log). Low-res draft → one-step refine for video-production: SoL-Refiner (refiner, LTX-2 licence gate) + Cosmos 3 / Wan 2.2 / MiniMax-H3 / hosted Wan / Veo (draft generators). Plan only, no impl. → see `research/video-upscaling-dossier.md.AGENTS.md` |
 | `research/webgl-field-and-glass-bands.md` | Implementation record. pi-dashboard.dev visual system: `site/field.js` WebGL slab field + `site/index.html`… → see `research/webgl-field-and-glass-bands.md.AGENTS.md` |
 | `runtime-plugin-clients.md` | Runtime-delivered plugin clients: import map, `/host/*` shims, trustedPlugins pin. → see `runtime-plugin-clients.md.AGENTS.md` |
-| `security-map.md` | Security audit entry: trust boundaries, ports/protocols, gate chain, tool-call guards, findings glance. Chapters + register in `security/` → see `security/AGENTS.md`. See change: security-map-audit. |
+| `security-map.md` | Security audit entry: trust boundaries, ports/protocols, gate chain, tool-call guards, findings glance. Chapters + register in `security/` → see `security/AGENTS.md`. See change: security-map-audit. Updated: HTTP-01, DEP-01, TOOL-01 marked closed. See change: close-security-map-high-findings. |
 | `service-bootstrap.md` | 3 starters (Electron/Bridge/Standalone) × 2 surfaces (GUI/shell). Tool resolution (pi, openspec, node, tsx, bridge). `DASHBOARD_STARTER` env, `launchSource` on `/api/health`. |
 | `session-actions-menu.md` | Desktop session card `⋯` menu. `deriveSessionMenu` → `SessionActionsMenu`; groups… → see `session-actions-menu.md.AGENTS.md` |
 | `skill-atlas.md` | Skill Atlas plugin graph doc. → see `skill-atlas.md.AGENTS.md` |

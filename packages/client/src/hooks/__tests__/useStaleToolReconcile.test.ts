@@ -11,7 +11,13 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInitialState, reduceEvent, type SessionState } from "../../lib/chat/event-reducer.js";
+import {
+  createInitialState,
+  finalizeBackfillSegment,
+  reduceEvent,
+  type SessionState,
+  seedRunningToolCall,
+} from "../../lib/chat/event-reducer.js";
 import {
   pruneInactiveKeys,
   RECONCILE_POLL_MS,
@@ -894,5 +900,71 @@ describe("useStaleToolReconcile — nested calls (E17)", () => {
     for (const call of fetchMock.mock.calls) expect(String(call[0])).not.toContain("call_1/1");
     for (const call of fetchMock.mock.calls) expect(String(call[0])).not.toContain("call_1%2F1");
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/call_1?pending=1");
+  });
+});
+
+/**
+ * A call kept running by a backfill splice (server reported it open) carries a
+ * seeded `toolCalls` entry with `startedAt`, so the stale reconcile can close
+ * it when its live end is never delivered.
+ * See change: fix-backfill-elides-live-tools (D2) — test-plan #F14, #X1, #X2.
+ */
+describe("a splice-kept running call is reconcilable", () => {
+  /** Mirror of the `history_backfill_result` splice for a reported-open `c1`. */
+  function splicedKeptState(startedAt = 0): SessionState {
+    const seg = reduceEvent(createInitialState(), {
+      eventType: "tool_execution_start",
+      timestamp: startedAt,
+      data: { toolCallId: "c1", toolName: "Agent", args: {} },
+    } as DashboardEvent);
+    const open = new Set(["c1"]);
+    const current = createInitialState();
+    const messages = finalizeBackfillSegment(seg.messages, open);
+    let toolCalls = current.toolCalls;
+    for (const row of messages) {
+      if (row.toolStatus === "running") toolCalls = seedRunningToolCall(toolCalls, row, current.assistantInferenceSeq);
+    }
+    return { ...current, messages, toolCalls };
+  }
+  const answer = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("#F14: the kept call is selected for the tool-result probe once stale", () => {
+    const states = new Map([["s1", splicedKeptState(0)]]);
+    expect(selectStaleRunningTools(states, STALE_TOOL_MS + 1, STALE_TOOL_MS, () => false)).toEqual([
+      { sessionId: "s1", toolCallId: "c1" },
+    ]);
+  });
+
+  it("#X1: a 200 probe completes the kept row with the stored result", async () => {
+    vi.setSystemTime(STALE_TOOL_MS + 100);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(200, { result: "server result", isError: false })));
+    const { result } = renderHook(() => useHarness(new Map([["s1", splicedKeptState(0)]])));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+    });
+    const row = result.current.get("s1")!.messages.find((m) => m.toolCallId === "c1");
+    expect(row?.toolStatus).toBe("complete");
+    expect(row?.result).toBe("server result");
+  });
+
+  it("#X2: a 410 probe finalizes the kept row with the eviction heal, never left running", async () => {
+    vi.setSystemTime(STALE_TOOL_MS + 100);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(answer(410, { error: "result no longer available" })));
+    const { result } = renderHook(() => useHarness(new Map([["s1", splicedKeptState(0)]])));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+    });
+    const row = result.current.get("s1")!.messages.find((m) => m.toolCallId === "c1");
+    expect(row?.toolStatus).not.toBe("running");
+    expect(row?.toolDetails?.healedBy).toBe("result_evicted");
   });
 });

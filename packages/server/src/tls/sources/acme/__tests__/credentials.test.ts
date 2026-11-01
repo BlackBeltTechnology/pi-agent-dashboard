@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { testVaultCodec } from "../../../../__tests__/helpers/vault-test-codec.js";
 import { createVaultStore, type VaultStore } from "../../../../vault/vault-store.js";
 import { AcmeCredentialsError, createAcmeCredentials, redactSecrets } from "../credentials.js";
 
@@ -72,7 +73,7 @@ describe("createAcmeCredentials", () => {
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "acme-creds-"));
     file = path.join(dir, "vault.json");
-    store = createVaultStore(file);
+    store = createVaultStore({ codec: testVaultCodec(), path: file });
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

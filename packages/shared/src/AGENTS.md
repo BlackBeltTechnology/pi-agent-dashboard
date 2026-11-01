@@ -11,6 +11,7 @@ Files in this directory. One row per source file.
 | `__tests__/ci-affected-selection-contract.test.ts` | Parallel `ci.yml` contract (E30). → see `__tests__/ci-affected-selection-contract.test.ts.AGENTS.md` |
 | `__tests__/client-no-node-subjects-import.test.ts` | Import guard: client never imports Node-only `forbidden-subjects`/`canonical-subject`. See change: ask-agent-file-access-in-chat. |
 | `__tests__/config-pi-trust-mirror.test.ts` | #E21: `piTrustMirror` loader defaults + partial merge → see `__tests__/config-pi-trust-mirror.test.ts.AGENTS.md` |
+| `__tests__/credential-encryption-remedy.test.ts` | #E96: every `CREDENTIAL_LOCK_REASONS` entry has a non-empty remedy; `key_missing`/`key_mismatch` name… → see `__tests__/credential-encryption-remedy.test.ts.AGENTS.md` |
 | `__tests__/loopback-host.test.ts` | #E25 loopback predicate forms. See change: mirror-dashboard-trust-live-remote. |
 | `__tests__/nightly-tests-workflow-contract.test.ts` | Repo-lint for `nightly-tests.yml` (E31). → see `__tests__/nightly-tests-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/pi-trust-mirror.test.ts` | #E1 #E2 #E6 #E7 #E8 #E9: piTrustKey golden vs installed pi store, deny rules, source/choice filter,… → see `__tests__/pi-trust-mirror.test.ts.AGENTS.md` |
@@ -38,7 +39,6 @@ Files in this directory. One row per source file.
 | `__tests__/state-replay.test.ts` | L1 for the persisted `compaction` → `session_compact` replay arm (change: replay-compaction-boundary, E1–E7 +… → see `__tests__/state-replay.test.ts.AGENTS.md` |
 | `__tests__/workflow-token-cache-contract.test.ts` | Repo-lint: workflow token permissions + no release-job cache. → see `__tests__/workflow-token-cache-contract.test.ts.AGENTS.md` |
 | `__tests__/config-keeper-log.test.ts` | keeperLog parse boundaries (test-plan #E7): valid values pass; 0/−1/non-numeric/absent coerce to defaults; `capturePiOutput` unaffected. See change: fix-runaway-keeper-log-growth. |
-| `anthropic-messages-source.ts` | `ANTHROPIC_MESSAGES_SOURCE` — install source of the `pi-anthropic-messages` peer, own module so the client… → see `anthropic-messages-source.ts.AGENTS.md` |
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `bind-reachability.ts` | Bind-vs-trust reachability: the ONE predicate + well-known-range table, imported by both client and server so… → see `bind-reachability.ts.AGENTS.md` |
 | `boot-state.ts` | Exit-intent vocabulary for the server boot record. Exports `ExitIntent`… → see `boot-state.ts.AGENTS.md` |
@@ -47,9 +47,10 @@ Files in this directory. One row per source file.
 | `canonical-subject.ts` | Access-subject canonical form + containment (moved from server). → see `canonical-subject.ts.AGENTS.md` |
 | `card-sections.ts` | Session-card section visibility model: `CARD_SECTION_IDS`, `CardSectionPrefs`, per-plugin block ids, focus-mode profile, `resolveCardSectionVisible`. → see `card-sections.ts.AGENTS.md` |
 | `changelog-types.ts` | `ChangelogBullet` / `Release` / `Response` types for parsed CHANGELOG.md responses. See change: pi-update-whats-new-panel. |
-| `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` `requireLocalProof` defaults TRUE; parse is boolean-strict (missing/non-boolean → true). See change: close-container-loopback-impersonation (D1). |
-| `containment-guard.ts` | `containmentAllows(decision, resolved)`: sync, strict-equality path-bound predicate over the branded `PathDecision`; modelled as a `js/path-injection` barrier guard. See change: codeql-file-containment-barrier. |
+| `config.ts` | Dashboard config loader: `loadConfig()`/`ensureConfig()` read `~/.pi/dashboard/config.json` via… → see `config.ts.AGENTS.md` |
+| `containment-guard.ts` | `containmentAllows(decision, resolved)`: sync, strict-equality path-bound predicate over the branded… → see `containment-guard.ts.AGENTS.md` |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
+| `credential-encryption.ts` | Import-free leaf. Keychain `CREDENTIAL_KEYCHAIN_SERVICE`/`_ACCOUNT`, `DATA_KEY_FILE_ENV`, `CredentialFileId`,… → see `credential-encryption.ts.AGENTS.md` |
 | `cwd-guard.ts` | Plugin cwd guard: `isAllowedCwd`, async `admitCwd`. → see `cwd-guard.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
 | `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` |
@@ -78,7 +79,7 @@ Files in this directory. One row per source file.
 | `launch-source-types.ts` | `LaunchSource` discriminated union for Electron server layout. → see `launch-source-types.ts.AGENTS.md` |
 | `legacy-managed-dir.ts` | `detectLegacyManagedDir({ homedir? })`. Returns `{present:false}` or `{present:true, path, pkgCount,… → see `legacy-managed-dir.ts.AGENTS.md` |
 | `local-credential-proof.ts` | Pure local credential proof primitive: `mintProof`/`parseProof`/`canonicalBinding`/counter-proof/`localDialHost`. → see `local-credential-proof.ts.AGENTS.md` |
-| `local-proof-signal.ts` | `LOCAL_PROOF_REQUIRED = "required"` + `HealthLocalProofField`: the additive `/api/health` field. Own dependency-free module (client bundles must not value-import node-only `rest-api.ts`). See change: close-container-loopback-impersonation (D3). |
+| `local-proof-signal.ts` | `LOCAL_PROOF_REQUIRED = "required"` + `HealthLocalProofField`: the additive `/api/health` field. → see `local-proof-signal.ts.AGENTS.md` |
 | `loopback-host.ts` | `isLoopbackHost(host)`, `isLoopbackEndpoint(url)`. One loopback predicate (localhost, 127/8, ::1,… → see `loopback-host.ts.AGENTS.md` |
 | `md-table-cell.ts` | GFM cell escape. → see `md-table-cell.ts.AGENTS.md` |
 | `memory-limits.ts` | BROWSER-SAFE memory-limit types + defaults: `MemoryLimitsConfig`, `MIN_REPLAY_WINDOW` (100), `DEFAULT_MEMORY_L. → see `memory-limits.ts.AGENTS.md` |
@@ -97,11 +98,12 @@ Files in this directory. One row per source file.
 | `openspec-specs-evidence.ts` | Local-evidence override for OpenSpec `specs` artifact. `evaluateLocalSpecsSatisfaction(changeDir, probe)` =… → see `openspec-specs-evidence.ts.AGENTS.md` |
 | `openspec-status-all.ts` | Pure `status --all` helpers (no fs/spawn; worker-safe). `parseJsonOrNull`, `classifyStatusAll(raw)` →… → see `openspec-status-all.ts.AGENTS.md` |
 | `operate-required.ts` | Wire types for the `operate_required` 403: `OperateRemedy`, `OPERATE_REMEDY_ORDER`, `OperateRequiredReason`,… → see `operate-required.ts.AGENTS.md` |
-| `pairing-knock-client.ts` | Native LAN-knock client: `ProveFn`, `proveExpected`, `sendKnock`, `knockServerWith`, `knockRequestBody`. See change: add-electron-server-windows (D2). Approved outcome carries validated `routes?`; `redeemPairingCode` posts `/api/pair/redeem` + polls. See change: group-servers-by-identity. |
+| `pairing-knock-client.ts` | Native LAN-knock client: `ProveFn`, `proveExpected`, `sendKnock`, `knockServerWith`, `knockRequestBody` → see `pairing-knock-client.ts.AGENTS.md` |
 | `pairing-knock.ts` | Knock vocabulary shared by server + client: `KNOCK_REFUSALS`, `KnockRefusal`, `PairingProvenance`,… → see `pairing-knock.ts.AGENTS.md` |
 | `pairing-refusal.ts` | Pairing-approval 401 wire types (`PairingRefusalBody`, `PAIRING_REMEDY_ORDER`). → see `pairing-refusal.ts.AGENTS.md` |
 | `path-containment-guard-name.ts` | `PATH_CONTAINMENT_GUARD_EXT_NAME = "path-containment-guard"`: single spelling for the guard's… → see `path-containment-guard-name.ts.AGENTS.md` |
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside… → see `path-containment.ts.AGENTS.md` |
+| `pi-agent-settings-lock.ts` | NODE-ONLY pi `settings.json` lock + atomic write (`withPiSettingsLock`, `FsDeps.settingsPath`)… → see `pi-agent-settings-lock.ts.AGENTS.md` |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `pi-settings-keys.ts` | `PI_MANAGED_SETTINGS_KEYS` (`defaultProvider`,`defaultModel`,`defaultThinkingLevel`) — pi `settings.json`… → see `pi-settings-keys.ts.AGENTS.md` |
 | `pi-settings-schema.ts` | Typed key schema of pi's global `settings.json` (50 keys: bool/enum/mixed/int/string/`enabledModels`):… → see `pi-settings-schema.ts.AGENTS.md` |
@@ -111,7 +113,7 @@ Files in this directory. One row per source file.
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |
 | `pi-trust-resource-digest.ts` | Remote folder proof, Node-only. `trustResourceManifest(cwd,{home,signal})` async walk of pi's trust-requiring… → see `pi-trust-resource-digest.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
-| `plugin-route-cwd.ts` | `admitRouteCwdParam(raw, {required, knownCwds, admitOptions})`: plugin-route cwd boundary — shape (non-string → 400 `invalid_cwd`), presence (400 `cwd_required`), tri-state `admitCwd` (403 `not-allowed` / 503 `cwd-admission-unavailable` + `Retry-After: 1`); returns `release()` for the handler `finally`. `sendRouteCwdRefusal`. Used by automation + flows routes. See change: harden-git-terminal-plugin-boundaries. |
+| `plugin-route-cwd.ts` | `admitRouteCwdParam(raw, {required, knownCwds, admitOptions})`: plugin-route cwd boundary — shape (non-string… → see `plugin-route-cwd.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |
 | `project-root.ts` | `hasProjectRootMarker(dir)`: the ONE `.git`/`.pi` project-root test (`.git` dir or worktree file, or `.pi`);… → see `project-root.ts.AGENTS.md` |
 | `prompt-answer.ts` | `encodePromptAnswer` (moved from client) + `validateQuestionAnswer`. → see `prompt-answer.ts.AGENTS.md` |
@@ -120,19 +122,19 @@ Files in this directory. One row per source file.
 | `recovery-timing.ts` | The two cold-start recovery windows in one module so their relation is testable. → see `recovery-timing.ts.AGENTS.md` |
 | `redaction.ts` | `REDACTION_PATTERNS_V1`, `REDACTION_VERSION`, `redactSecrets`. → see `redaction.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,…). → see `recommended-extensions.ts.AGENTS.md` |
-| `remote-credentials.ts` | `stripRemoteCredentials(raw)`: http(s) ⇒ drop all userinfo; other `scheme://user:pass@host` ⇒ drop password, keep user; scp/no-userinfo ⇒ unchanged; userinfo + no usable host ⇒ `undefined`. Keeps raw shape (never `normalizeOrigin`'s host/path). `remoteForWire(raw)` = strip + drop `?query`/`#fragment` of a URL form (vault sync origin + hub receipt); git-link-builder uses the strip. See change: harden-bridge-inbound-and-discovery (D18). |
+| `remote-credentials.ts` | `stripRemoteCredentials(raw)`: http(s) ⇒ drop all userinfo; other `scheme://user:pass@host` ⇒ drop password,… → see `remote-credentials.ts.AGENTS.md` |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… →… → see `rest-api.ts.AGENTS.md` |
 | `role-config-disk.ts` | Node-only `readRoleConfigFromDisk(home?)` + `providersJsonPath`; total — missing/garbled `providers.json` →… → see `role-config-disk.ts.AGENTS.md` |
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |
 | `role-schema.ts` | Pure, `node:fs`-free role-schema core shared by every role read surface (bridge `role-manager.ts`, roles-plugin `/api/roles` route, roles-plugin client). → see `role-schema.ts.AGENTS.md` |
 | `rendezvous.ts` | HOME-derived rendezvous record reader; resolves the local endpoint + instance identity without discovery. → see `rendezvous.ts.AGENTS.md` |
-| `safe-local-path.ts` | `isSafeLocalPath(raw)`: the ONE same-origin request-path predicate (single leading `/`, no `//`/`\`, no control chars, stays on origin). Used by `sanitizeReturnUrl` and `pi-dashboard api`. Dependency-free. See change: close-container-loopback-impersonation (D4). |
+| `safe-local-path.ts` | `isSafeLocalPath(raw)`: the ONE same-origin request-path predicate (single leading `/`, no `//`/`\`, no… → see `safe-local-path.ts.AGENTS.md` |
 | `sanitize-profiles.ts` | DOMPurify profiles shared by server sanitizers + client `pi-sanitized-html`. → see `sanitize-profiles.ts.AGENTS.md` See change: harden-client-sinks. |
 | `semaphore.ts` | Tiny FIFO throttling semaphore. `createSemaphore(max)` → `Semaphore` with `run(fn)` (queue when at cap,… → see `semaphore.ts.AGENTS.md` |
 | `server-identity.ts` | Identity-verified dashboard detection over GET /api/health. → see `server-identity.ts.AGENTS.md` |
 | `server-launcher.ts` | `launchDashboardServer` — single shared spawn primitive (selected TS loader — native default, jiti opt-in —… → see `server-launcher.ts.AGENTS.md` |
 | `server-pinning.ts` | Client-side D8 pinning of the server Ed25519 identity.… → see `server-pinning.ts.AGENTS.md` |
-| `server-routes.ts` | Pure route model: `Route`, `classifyRoute`, `normalizeHost`, `groupRoutes`, `findAttachTarget`, `rankRoutes`, `validateDeliveredRoutes`, `pairAction`, `buildRequestPageUrl`, `SIMILAR_LATENCY_MS=50`. No I/O. Used by server, client, Electron. See change: group-servers-by-identity. |
+| `server-routes.ts` | Pure route model: `Route`, `classifyRoute`, `normalizeHost`, `groupRoutes`, `findAttachTarget`, `rankRoutes`,… → see `server-routes.ts.AGENTS.md` |
 | `session-group-by.ts` | Group-by vocabulary + guards (`GroupByMode`, `LaneId`, `laneCollapseKey`). → see `session-group-by.ts.AGENTS.md` |
 | `session-group-path.ts` | Hoisted `inferPlatform`/`pathKey`/`resolveSessionGroupPath` from client session-grouping.ts. → see `session-group-path.ts.AGENTS.md` |
 | `session-meta.ts` | Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`,… → see… → see `session-meta.ts.AGENTS.md` |
@@ -144,9 +146,10 @@ Files in this directory. One row per source file.
 | `state-replay.ts` | Synthesizes dashboard `event_forward` messages from persisted pi session entries for post-reconnect chat… → see `state-replay.ts.AGENTS.md` |
 | `stats-extractor.ts` | Extracts `StatsData` (tokensIn/out, cost, turnUsage, optional contextUsage) from a `turn_end` event's… → see `stats-extractor.ts.AGENTS.md` |
 | `terminal-safe.ts` | `INVISIBLE_OR_SEPARATOR` + `terminalSafe`. → see `terminal-safe.ts.AGENTS.md` |
-| `tls-only-token.ts` | TLS-only bridge token marker. Exports `TLS_ONLY_TOKEN_PREFIX="pi_tls_"`, `isTlsOnlyToken`, `TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL`. Bridge never sends a `pi_tls_` token to a non-https origin; hub refuses and marks it off a proven channel. See change: prove-vault-bridge-tls. |
+| `tls-only-token.ts` | TLS-only bridge token marker. Exports `TLS_ONLY_TOKEN_PREFIX="pi_tls_"`, `isTlsOnlyToken`,… → see `tls-only-token.ts.AGENTS.md` |
 | `tls-status.ts` | Browser-safe wire types of `/api/health.tls`: `TlsGate`, `TlsSourceStatus`, `TlsCertStatus` (held, notAfter… → see `tls-status.ts.AGENTS.md` |
 | `tool-path-resolve.ts` | Shared pi-parity path resolver: `resolveToolPath`, `resolveReadTarget`, `canonicalizeTarget` (realpath… → see `tool-path-resolve.ts.AGENTS.md` |
+| `trusted-types-mode.ts` | `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`; `recognizeTrustedTypesMode`. → see `trusted-types-mode.ts.AGENTS.md` |
 | `tunnel-concurrency.ts` | Resolves WHICH providers run and in which mode.… → see `tunnel-concurrency.ts.AGENTS.md` |
 | `tunnel-provider.ts` | Tunnel ("Gateway") provider abstraction types. Exports `TunnelProvider` interface (`id`, `kind`… → see `tunnel-provider.ts.AGENTS.md` |
 | `transcript-request-guard.ts` | Pure `decideTranscriptRequest()` — session id only, path-bearing field refused. → see `transcript-request-guard.ts.AGENTS.md` |

@@ -18,6 +18,7 @@ import { createAttachmentResolver } from "../attachments/attachment-resolver.js"
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
 import { extractStatsFromEvents } from "../session/event-status-extraction.js";
+import { findBackfillOpenToolCalls } from "../session/open-tool-calls.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { truncateToolResultForReplay } from "../session/replay-truncate.js";
 import {
@@ -636,7 +637,7 @@ export async function handleHistoryBackfill(
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { ws, eventStore, sendTo } = ctx;
+  const { ws, eventStore, sessionManager, sendTo } = ctx;
   const sessionId = msg.sessionId;
   const refuse = (error: NonNullable<HistoryBackfillResultMessage["error"]>): void => {
     sendTo(ws, {
@@ -802,6 +803,29 @@ export async function handleHistoryBackfill(
       current.tailMinSeq - 1,
     );
 
+    /**
+     * Served top-level starts still open at SERVE time. Synchronous with the
+     * `sendTo` below (no `await` in between), so an end stored before this
+     * point excludes its id and one stored after it follows this result on the
+     * wire. A relocated session never receives its ends here — omit.
+     * See change: fix-backfill-elides-live-tools (D1).
+     */
+    const startIds: string[] = [];
+    for (const { event } of compacted) {
+      const d = event.data;
+      if (
+        event.eventType === "tool_execution_start" &&
+        typeof d?.toolCallId === "string" &&
+        !(typeof d.parentToolCallId === "string" && d.parentToolCallId !== "")
+      ) {
+        startIds.push(d.toolCallId);
+      }
+    }
+    const openToolCallIds =
+      startIds.length > 0 && sessionManager.get(sessionId)?.movedTo === undefined
+        ? findBackfillOpenToolCalls(startIds, eventStore.getEvents(sessionId, servedFrom))
+        : undefined;
+
     sendTo(ws, {
       type: "history_backfill_result",
       sessionId,
@@ -809,6 +833,7 @@ export async function handleHistoryBackfill(
       servedFrom,
       servedTo,
       remainingGapCount,
+      ...(openToolCallIds ? { openToolCallIds } : {}),
     });
   } finally {
     const latch = gapMapFor(ws).get(sessionId);

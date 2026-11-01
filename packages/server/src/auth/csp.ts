@@ -19,12 +19,12 @@
  * `-Report-Only`; off mode registers no hook and the mount sets its own).
  * See change: add-plugin-capability-routes (D7).
  *
- * Trusted Types (`require-trusted-types-for 'script'`) has its own mode,
- * `PI_DASHBOARD_TRUSTED_TYPES=off|report|enforce`; unset follows the baseline
- * (`off` iff `PI_DASHBOARD_CSP=off`, else `report`), so an existing `enforce`
+ * Trusted Types (`require-trusted-types-for 'script'`) has its own mode, resolved by the shared
+ * `resolveTrustedTypesMode` (env `PI_DASHBOARD_TRUSTED_TYPES`, then config `security.trustedTypes`, then the
+ * default: `off` iff `PI_DASHBOARD_CSP=off`, else `report`), so an existing `enforce`
  * deployment never gets TT enforcement by accident. Matching modes append the
  * directive to the baseline header; differing modes set the OTHER header kind
- * with the directive alone (never comma-joined). See change: harden-client-sinks (D7).
+ * with the directive alone (never comma-joined). See change: harden-client-sinks (D7), enforce-trusted-types-default (D3).
  *
  * Strict policy (S3b): identical to the baseline except `script-src 'self' 'nonce-<n>'` (no
  * `'unsafe-inline'`/`'unsafe-eval'`). `report` mode emits baseline + strict as two Report-Only headers;
@@ -39,6 +39,9 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { type CspReportPolicy, cspReportEndpointName, cspReportPath } from "./csp-report-paths.js";
+
+// One resolver for the server and the dev plugin; re-exported so the server's callers keep one import site.
+export { resolveTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
 
 export type CspMode = "off" | "report" | "enforce";
 
@@ -85,12 +88,6 @@ export function resolveCspMode(raw: string | undefined): CspMode {
 }
 
 const TRUSTED_TYPES_DIRECTIVE = "require-trusted-types-for 'script'";
-
-/** `PI_DASHBOARD_TRUSTED_TYPES`: explicit value wins; unset / unknown → `off` iff the baseline is `off`, else `report`. */
-export function resolveTrustedTypesMode(raw: string | undefined, cspMode: CspMode): CspMode {
-  if (raw === "off" || raw === "report" || raw === "enforce") return raw;
-  return cspMode === "off" ? "off" : "report";
-}
 
 const nonces = new WeakMap<FastifyReply, string>();
 const viteProxied = new WeakSet<FastifyReply>();

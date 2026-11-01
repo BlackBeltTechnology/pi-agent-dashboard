@@ -11,7 +11,7 @@ The dashboard client SHALL render a `LandingPage` component in the main content 
 
 Each step SHALL be in one of three states, derived from the current application state. Step ① has a fourth state, **skipped** (see "Step ① can be skipped"):
 - **pending:** the first pending step in order is expanded and carries the step's call-to-action. Any later pending step renders as one line with no controls, naming the earlier step it waits on;
-- **done:** the step collapses to one line with a check marker. Only Step ① may add the peer status, and only Step ② the "already existed" note, beneath that line;
+- **done:** the step collapses to one line with a check marker. Only Step ① may add the Claude subscription compat status, and only Step ② the "already existed" note, beneath that line;
 - **locked:** the step collapses to one line with a lock marker and text naming the unmet prerequisite, and renders no controls;
 - **skipped** (Step ① only): the step collapses to one line with a skip marker, text stating that provider setup was skipped, and one secondary control that resumes setup. A skipped step is not pending: it is never the expanded first pending step, and no later step waits on it. It is not done either, and SHALL NOT count toward the progress line.
 
@@ -34,7 +34,7 @@ Every state SHALL be conveyed by a marker and text, never by colour alone. Above
 - **AND** at least one session exists
 - **WHEN** the LandingPage renders
 - **THEN** all three steps SHALL render as done rows with a ✔ indicator
-- **AND** no step CTA buttons SHALL be rendered (a peer **Install** or **Retry install** action beneath Step ① is not a step CTA)
+- **AND** no step CTA buttons SHALL be rendered (a compat **Turn on** action beneath Step ① is not a step CTA)
 
 #### Scenario: Folder pinned before credentials
 - **GIVEN** `useProvidersReady()` reports no credentials
@@ -286,63 +286,6 @@ An authentication flow started from the Add-provider dialog is **in** scope even
 - **AND** no `focus` event is fired
 - **THEN** the hook SHALL refetch both endpoints and report `ready=true`
 
-### Requirement: Step ① done row reports the Claude peer state
-While Step ① is **done**, a peer status MAY appear beneath its one-line label. Exactly one of the following applies, first match wins:
-1. the bridge probe, when known, reports the peer as found but failing to import → a warning that the package failed to load, pointing to Settings › Providers, with no install action;
-2. the bridge probe reports the peer resolving → no peer status;
-3. an automatic install (see `anthropic-peer-hint`) is deciding, queued or running → an in-progress status;
-4. an automatic install failed → the same plain-language warning as the Anthropic row, with a **Retry install** action, and the raw installer output only inside a collapsed log block;
-5. an automatic install succeeded → no peer status;
-6. the `anthropic` subscription is authenticated and the server's recommended-extension state reports the peer not active in pi → a warning that Claude tool calls need `pi-anthropic-messages`, with an **Install** action;
-7. otherwise → no peer status.
-
-Requirements on these actions and on the status:
-- **Install** and **Retry install** SHALL go through the same decision and the same single global install as the automatic path, including its vetoes and its "already pending" rule.
-- Both SHALL use the secondary-button treatment, never the primary one.
-- The recommended-extension state and the bridge probe SHALL be requested by Landing only while Step ① is done and `anthropic` is authenticated.
-- The status SHALL be announced politely to assistive technology and SHALL NOT block Steps ② and ③.
-
-#### Scenario: Install in progress after returning from settings
-- **GIVEN** the operator completed the Anthropic sign-in and the automatic install is running
-- **WHEN** the LandingPage renders
-- **THEN** the Step ① done row shows an in-progress status naming `pi-anthropic-messages`
-- **AND** Step ② remains usable
-
-#### Scenario: Install succeeded
-- **WHEN** the automatic install completes successfully
-- **THEN** the Step ① done row shows no peer status, even if the recommended-extension state has not yet refreshed
-
-#### Scenario: Install failed
-- **WHEN** the automatic install reports an error
-- **THEN** the Step ① done row shows the plain-language warning
-- **AND** the raw installer output is not visible until the operator expands the log block
-- **AND** activating **Retry install** enqueues the same global install again
-
-#### Scenario: Sign-in finished without an automatic decision
-- **GIVEN** the `anthropic` subscription is authenticated
-- **AND** no automatic-install state exists (for example the sign-in completed after settings was closed)
-- **AND** the recommended-extension state reports the peer not active in pi
-- **WHEN** Step ① renders as **done**
-- **THEN** its done row shows the manual-install warning with an **Install** action
-- **AND** activating **Install** runs the shared decision and, when it enqueues, the row switches to the in-progress status
-
-#### Scenario: Peer resolves outside pi settings
-- **GIVEN** the `anthropic` subscription is authenticated
-- **AND** the recommended-extension state reports the peer not active in pi
-- **AND** the bridge probe reports the peer resolving (for example from a workspace `node_modules`)
-- **WHEN** Step ① renders as **done**
-- **THEN** its done row shows no peer status
-
-#### Scenario: Broken package is not reinstalled from Landing
-- **GIVEN** the manual-install warning is shown
-- **WHEN** the operator activates **Install** and a fresh probe reports the peer as failing to import
-- **THEN** no install is enqueued and the row shows the failed-to-load warning
-
-#### Scenario: No Claude subscription
-- **GIVEN** `anthropic` is not authenticated
-- **WHEN** Step ① renders as **done** because another provider is configured
-- **THEN** its done row shows no peer status and no recommended-extension request is made
-
 ### Requirement: Step ① can be skipped
 While Step ① is **pending**, it SHALL render a secondary **Skip for now** control next to its call-to-action. The control SHALL NOT use the primary-button treatment. It SHALL carry `data-testid="onboarding-step-1-skip"`.
 
@@ -381,3 +324,28 @@ While Step ① is **skipped**:
 - **GIVEN** `useProvidersReady()` reports credentials
 - **WHEN** Step ① renders
 - **THEN** no **Skip for now** or **Set up now** control SHALL be rendered
+
+### Requirement: Step ① done row reports the Claude subscription compat state
+While Step ① is **done** and the `anthropic` subscription is authenticated, its done row SHALL show a compat status only when the Claude subscription compat switch is off: a notice that Claude subscription requests may be billed as extra usage, with a secondary **Turn on** action that sets the same global switch as the `anthropic` provider row. Landing SHALL NOT probe, recommend or install `pi-anthropic-messages`.
+
+#### Scenario: Switch off
+- **GIVEN** the `anthropic` subscription is authenticated and the compat switch is off
+- **WHEN** Step ① renders as **done**
+- **THEN** its done row shows the extra-usage notice with a **Turn on** action using the secondary-button treatment
+- **AND** the status is announced politely to assistive technology
+- **AND** Step ② remains usable
+
+#### Scenario: Turn on from Landing
+- **WHEN** the operator activates **Turn on**
+- **THEN** the compat switch is on and the done row shows no compat status
+- **AND** no package install is enqueued
+
+#### Scenario: Switch on
+- **GIVEN** the compat switch is on
+- **WHEN** Step ① renders as **done**
+- **THEN** its done row shows no compat status
+
+#### Scenario: No Claude subscription
+- **GIVEN** `anthropic` is not authenticated
+- **WHEN** Step ① renders as **done** because another provider is configured
+- **THEN** its done row shows no compat status

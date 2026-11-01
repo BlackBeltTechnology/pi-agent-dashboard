@@ -67,7 +67,7 @@ async function makeApp(base: string, withOAuth: boolean) {
   });
   if (withOAuth) {
     await registerAuthPlugin(a, {
-      authConfig: { secret: SECRET, providers: { github: { clientId: "cid", clientSecret: "cs" } }, redirectBaseUrl: base } as AuthConfig,
+      authConfig: { secret: SECRET, providers: { github: { clientId: "cid", clientSecret: "cs" } }, allowedUsers: ["*@example.com"], redirectBaseUrl: base } as AuthConfig,
       port: PORT,
     });
   }

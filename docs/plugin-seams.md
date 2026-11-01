@@ -14,8 +14,11 @@ See change: `expose-plugin-credential-and-oauth-seams`.
 ## Credential store (`ctx.credentials`)
 
 Namespaced, locked, 0600 credential persistence. File
-`~/.pi/agent/plugin-credentials.json`, plaintext at rest — same posture as
-`auth.json`. Deliberately NOT `connector-auth.json` (claimed by
+`~/.pi/agent/plugin-credentials.json`, encrypted at rest (`pi-dashboard-encrypted:v1`,
+AES-256-GCM, AAD `pi-dashboard:v1:plugin-credentials`). Key: OS keychain or
+`PI_DASHBOARD_DATA_KEY_FILE`. Plaintext files migrate in place at startup. Full format,
+key sources, lock states, recovery and threat model: [`credential-vault.md` §12](credential-vault.md#12-encryption-at-rest).
+Deliberately NOT `connector-auth.json` (claimed by
 `add-connector-layer` with another schema).
 
 Schema `{ "<pluginId>": { "<key>": <record> } }`. Plugin sees OWN namespace only.
@@ -46,13 +49,18 @@ Reads (`get`/`list`/`snapshot`) unlocked. Safe: file only replaced by atomic
 rename; read never creates file. Writes (`set`/`remove`/`update`) share the
 `locked-json-file.ts` lock with `auth.json`.
 
+Locked store (no usable data key):
+- Encrypted file: `get`/`list`/`snapshot` and writes reject `store_locked`. Error carries `reason`.
+- Plaintext file, no key: reads work. Writes reject `store_locked`.
+- Locked file never overwritten, never quarantined. Remedy text: `credential-vault.md` §12.4.
+
 ### Limits and errors
 
 - Keys 1–200 chars. Reserved keys `__proto__`, `constructor`, `prototype` rejected.
 - Records plain JSON objects ≤ 64 KiB serialized.
 - ≤ 256 keys per namespace. ≤ 2 MiB per namespace.
 - `PluginCredentialError` codes: `invalid_key`, `invalid_record`,
-  `record_too_large`, `too_many_keys`, `namespace_too_large`.
+  `record_too_large`, `too_many_keys`, `namespace_too_large`, `store_locked`.
 
 `update` is the only atomic read-modify-write. Concurrent `get`+`set` races.
 
@@ -310,7 +318,7 @@ Compatibility:
 
 First-party adoption (lazy):
 
-- settings-section: apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator (+ CostView command-route), flows (FlowsSettings), flows-anthropic-bridge, goal, grammar, quota, roles, subagents, system-one.
+- settings-section: apple-tools, automation, blackhole, browser, chat-gateway, context-mode-settings, cost-estimator (+ CostView command-route), flows (FlowsSettings), goal, grammar, quota, roles, subagents, system-one.
 - shell-overlay-route: AutomationBoard, AutomationRunMonitor, GoalsBoardClaim, GoalDetailClaim, KbSettingsClaim, FolderMcpPage, SubagentPopoutClaim.
 - mcp-client: McpSettingsClaim (settings).
 - blackhole: PipelineDetailView (content-view).
@@ -456,7 +464,6 @@ Rule: contract used by host + plugin, or plugin + plugin → non-plugin package.
 |---|---|
 | Protocol-shaped types / pure helpers | `packages/shared/src/dashboard-plugin/<name>.ts` |
 | Subagent types + helpers (`SubagentState`, `readLiveTail`, `countSteps`, `readSubagentDetails`, `setSubagentState`, `applyLiveBlockPiece`) | `shared/dashboard-plugin/subagent-types.ts` |
-| `PEER_AM_LEGACY` (anthropic peer probe key) | `shared/dashboard-plugin/anthropic-peer-names.ts`. Provider plugin re-exports. |
 | MCP verb-tier table | `packages/shared/src/mcp/verb-tiers.generated.ts` (`{name, tier}[]`). Emitted by mcp-server codegen. chat-gateway reads it. |
 | MCP config logic (`McpClientConfigService`, `MCP_CLIENT_CONFIG_SERVICE_KEY = "mcp-client.config"`, config IO/writer/layers/effective view) | `packages/mcp-core` = `@blackbelt-technology/pi-dashboard-mcp-core` |
 

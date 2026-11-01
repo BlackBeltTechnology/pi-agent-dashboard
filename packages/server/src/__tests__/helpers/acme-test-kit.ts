@@ -39,6 +39,7 @@ import { TlsListener } from "../../tls/tls-listener.js";
 import { createVaultImport } from "../../vault/vault-import.js";
 import { createVaultManageGuard, registerVaultRoutes } from "../../vault/vault-routes.js";
 import { createVaultStore, type VaultStore } from "../../vault/vault-store.js";
+import { testVaultCodec } from "./vault-test-codec.js";
 
 export const ACME_TOKEN = "cf-secret-1234567890";
 const LOCAL_TOKEN = "local-token-xyz";
@@ -123,7 +124,7 @@ export function setupAcmeEnv(wrap?: (c: AcmeCredentials) => AcmeCredentials): Ac
   resetAccountCache();
   registerCertSourceType(acmeSourceType);
   registerCertSourceType(tailscaleSourceType);
-  const store = createVaultStore();
+  const store = createVaultStore({ codec: testVaultCodec() });
   const base = createAcmeCredentials(store);
   const credentials = wrap ? wrap(base) : base;
   configureAcmeRuntime({ credentials, tlsRoot: tlsRoot(), log: { info: () => undefined, warn: () => undefined } });

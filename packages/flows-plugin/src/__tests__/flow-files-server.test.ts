@@ -103,6 +103,7 @@ describe("flow file routes", () => {
     await registerFlowFileRoutes({
       fastify: fastify as never,
       networkGuard: async () => {},
+      readFileGuarded: (p) => fs.promises.readFile(p, "utf8"),
       registerPiRequestHandler: (type, h) => {
         if (type === FLOW_FILES_REPORT) report = h;
       },
@@ -160,5 +161,73 @@ describe("flow file routes", () => {
     expect((await getFile(flowFile, "S9")).statusCode).toBe(404);
     live = [{ id: "S1", cwd: tmp, status: "ended" }];
     expect((await getFile(flowFile)).statusCode).toBe(404);
+  });
+});
+
+// #E30 / #E31 (close-security-map-high-findings): the route reads CONTENT only through the host's `readFileGuarded`
+// seam and fails closed when it is null or absent (an older host) — it never falls back to plain `fs`.
+describe("flow file route × host readFileGuarded seam", () => {
+  type Guard = ((absPath: string) => Promise<string | null>) | undefined;
+  async function build(guard: Guard) {
+    let report: (payload: unknown, meta: { sessionId: string }) => unknown = () => undefined;
+    const app = Fastify();
+    await registerFlowFileRoutes({
+      fastify: app as never,
+      networkGuard: async () => {},
+      readFileGuarded: guard,
+      registerPiRequestHandler: (type, h) => {
+        if (type === FLOW_FILES_REPORT) report = h;
+      },
+      sessionManager: { listActive: () => [{ id: "S1", cwd: tmp }], getSession: () => ({ cwd: tmp }) },
+      emitEventToSession: () => true,
+      registry: new FlowFileRegistry(),
+    });
+    await app.ready();
+    const get = (p: string) => app.inject({ method: "GET", url: `/api/plugins/flows/file?sessionId=S1&path=${encodeURIComponent(p)}` });
+    return { app, report: (payload: unknown) => report(payload, { sessionId: "S1" }), get };
+  }
+
+  it("E30 present+ok → unchanged content; null → the existing 403; absent seam → the existing 403; plain fs.readFile never called when refused", async () => {
+    const readSpy = vi.spyOn(fs.promises, "readFile");
+    const ok = await build((p) => fs.promises.readFile(p, "utf8").then((c) => c));
+    ok.report({ flows: [{ name: "ns:demo", source: flowFile }] });
+    const res = await ok.get(handler);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.payload).data.content).toBe("// load.ts\n");
+    await ok.app.close();
+
+    for (const guard of [async () => null, undefined] as Guard[]) {
+      readSpy.mockClear();
+      const refused = await build(guard);
+      refused.report({ flows: [{ name: "ns:demo", source: flowFile }] });
+      const r = await refused.get(handler);
+      expect(r.statusCode).toBe(403);
+      expect(JSON.parse(r.payload)).toEqual({ success: false, error: "not a flow file of this session" });
+      expect(readSpy).not.toHaveBeenCalled();
+      await refused.app.close();
+    }
+  });
+
+  it("E31 a reported file that is a symlink to a credential file is refused by the seam: 403, no bytes; an ordinary reported file is unchanged; an unreported path keeps its 403", async () => {
+    const credDir = path.join(tmp, "agent");
+    fs.mkdirSync(credDir);
+    fs.writeFileSync(path.join(credDir, "auth.json"), "FLOWS-CRED-MARKER");
+    const link = path.join(tmp, "cwd", "x.md");
+    fs.symlinkSync(path.join(credDir, "auth.json"), link);
+    // Stand-in for the host guard: decides on the REAL path (the real guard is covered in the server package).
+    const asked: string[] = [];
+    const guard: Guard = async (p) => {
+      asked.push(p);
+      return fs.realpathSync(p).endsWith(`${path.sep}auth.json`) ? null : fs.promises.readFile(p, "utf8");
+    };
+    const t = await build(guard);
+    t.report({ flows: [{ name: "ns:demo", source: flowFile }], agents: [{ name: "evil", source: link }, { name: "filler", source: agentFile }] });
+    const bad = await t.get(link);
+    expect(bad.statusCode).toBe(403);
+    expect(bad.payload).not.toContain("FLOWS-CRED-MARKER");
+    expect(asked.some((p) => fs.realpathSync(p).endsWith(`${path.sep}auth.json`))).toBe(true); // the seam, not the allow-list, refused it
+    expect((await t.get(agentFile)).statusCode).toBe(200);
+    expect((await t.get(helper)).statusCode).toBe(403);
+    await t.app.close();
   });
 });

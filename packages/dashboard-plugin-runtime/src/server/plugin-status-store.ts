@@ -39,7 +39,7 @@ export interface PluginStatusStore {
   /**
    * Record the latest bridge probe for a plugin. The most recent snapshot
    * (highest `at`) wins; older snapshots are discarded. Called from plugin
-   * server entries when they receive `flows-anthropic-bridge:status`-style
+   * server entries when they receive `<plugin>:status`-style
    * events from pi-side bridges.
    */
   recordBridgeProbe(pluginId: string, snapshot: BridgeProbeSnapshot): void;

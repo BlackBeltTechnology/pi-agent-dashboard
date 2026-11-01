@@ -638,6 +638,9 @@ export type UnregisterCwdPolicyFn = (cwd: string) => void;
  */
 export type MintSpawnTokenFn = () => string;
 
+/** Guarded UTF-8 read: `null` = refused by the host's state/credential guard. See change: close-security-map-high-findings (D1). */
+export type ReadFileGuardedFn = (absPath: string) => Promise<string | null>;
+
 /**
  * Rename a live session: in-memory name update + `session_updated` broadcast
  * + `rename_session` dispatch to the pi session. Gated to first-party /
@@ -854,14 +857,34 @@ export interface PluginVault {
 export type PluginCredentialRecord = Record<string, unknown>;
 
 /**
+ * The rejection of every `PluginCredentials` operation while the store is locked.
+ * Structural mirror of the server's `PluginCredentialError` with `code: "store_locked"`.
+ * See change: encrypt-credentials-at-rest (D3).
+ */
+export interface PluginCredentialsStoreLockedError extends Error {
+  readonly code: "store_locked";
+  /** Non-secret lock reason, e.g. `key_mismatch`, `keychain_unavailable`, `envelope_damaged`. */
+  readonly reason: string;
+}
+
+/**
  * Namespaced, locked, 0600 credential persistence for a plugin
  * (`~/.pi/agent/plugin-credentials.json`). Bound by the host to the calling
  * plugin's manifest id — a plugin only ever sees its own namespace.
  * Keys 1–200 chars (`__proto__`/`constructor`/`prototype` rejected); records
  * ≤ 64 KiB serialized; ≤ 256 keys and 2 MiB per namespace. Reads return
- * copies and never create the file. Plaintext at rest, like `auth.json`.
+ * copies and never create the file. Encrypted at rest (AES-256-GCM envelope,
+ * data key in the OS keychain or `PI_DASHBOARD_DATA_KEY_FILE`); encryption is
+ * transparent — same API, same results. While the file is locked (wrong or
+ * missing key, damaged or newer envelope) every operation, and while no data key
+ * is available every write (a plaintext file stays readable), rejects with a
+ * `PluginCredentialsStoreLockedError`
+ * (`code: "store_locked"`, non-secret `reason`, remedy in `message`; never any
+ * stored content). Treat it as a user-facing "credentials unavailable" error:
+ * do not retry in a loop — the user must fix the key or reset the file.
  * Structural mirror of the server's `PluginCredentialStore`.
  * See change: expose-plugin-credential-and-oauth-seams (D2).
+ * See change: encrypt-credentials-at-rest (D3).
  */
 export interface PluginCredentials {
   get(key: string): Promise<PluginCredentialRecord | undefined>;
@@ -1216,6 +1239,15 @@ export interface ServerPluginContext {
    */
   networkGuard: PluginNetworkGuard;
   /**
+   * Read a UTF-8 file through the host's dashboard-state / pi-agent-credential guard (real path, both
+   * tiers, post-open (dev, ino) recheck). Resolves `null` when the guard refuses the path (a credential
+   * file, a symlink or hard link to one, or a trust-gated file for an unproven caller); any other
+   * failure (ENOENT, EISDIR, EACCES) rejects. Not trust-gated: it only narrows what a plugin may read.
+   * Optional — absent on an older host: a plugin route that returns file CONTENT must then refuse
+   * (fail closed) and never fall back to plain `fs`. See change: close-security-map-high-findings (D1, H1).
+   */
+  readFileGuarded?: ReadFileGuardedFn;
+  /**
    * Subscribe to server shutdown (not trust-gated). See change:
    * relocate-goal-product-to-plugin (D1-#8).
    */
@@ -1409,6 +1441,8 @@ export interface ServerContextDeps {
   assignSessionRef: AssignSessionRefFn;
   /** Network-access guard for plugin-registered routes. See change: relocate-goal-product-to-plugin. */
   networkGuard: PluginNetworkGuard;
+  /** Guarded UTF-8 file read (optional). See change: close-security-map-high-findings (D1). */
+  readFileGuarded?: ReadFileGuardedFn;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
   /**
@@ -1536,6 +1570,7 @@ export function createServerPluginContext(
     renameSession: deps.renameSession,
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
+    readFileGuarded: deps.readFileGuarded,
     onShutdown: deps.onShutdown,
     // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
     // does not wire it still exposes a total accessor to plugins.

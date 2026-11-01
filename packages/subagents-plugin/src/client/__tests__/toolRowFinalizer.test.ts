@@ -167,3 +167,38 @@ describe("Agent tool-row finalizer", () => {
     expect(finalizer.onToolExecution!(state(), ev("tool_execution_end", { toolCallId: "A", toolName: "Agent", result: "x", isError: false }))).toBeUndefined();
   });
 });
+
+// The shell revives an `elided` row on any top-level tick (fix-backfill-elides-live-tools
+// D3); for a subagent already terminal this finalizer undoes it: `toolStatus` and the
+// seeded `toolCalls` entry return to their prior state.
+describe("Agent finalizer vs an elided-row revive (test-plan #F8, #F9)", () => {
+  const elidedRow = { role: "toolResult", toolName: "Agent", toolStatus: "elided", toolCallId: "R" };
+  const revivedRow = { ...elidedRow, toolStatus: "running", toolDetails: { agentId: "ag-1", status: "running" } };
+  const tick = (agentId: string) =>
+    ev("tool_execution_update", {
+      toolCallId: "R",
+      toolName: "Agent",
+      partialResult: { content: [{ type: "text", text: "late" }], details: { agentId, status: "running" } },
+    });
+
+  it("#F8: a terminal subagent's late tick restores the elided status and drops the seeded entry", () => {
+    const subagents = new Map([["ag-1", { id: "ag-1", status: "completed" } as never]]);
+    const prior = state({ subagents, messages: [elidedRow], toolCalls: new Map() });
+    const post = state({ subagents, messages: [revivedRow], toolCalls: new Map([["R", { status: "running" }]]) });
+    const out = finalizer.onToolExecution!(post, tick("ag-1"), { prior, reduce: (s) => s })!;
+    expect(out.messages[0].toolStatus).toBe("elided");
+    expect(out.toolCalls.has("R")).toBe(false);
+  });
+
+  it("#F9: an unknown subagent's tick keeps the revived row running and hydrates the subagent", () => {
+    const prior = state({ messages: [elidedRow], toolCalls: new Map() });
+    const post = state({
+      messages: [{ ...revivedRow, toolDetails: { agentId: "ag-2", status: "running" } }],
+      toolCalls: new Map([["R", { status: "running" }]]),
+    });
+    const out = finalizer.onToolExecution!(post, tick("ag-2"), { prior, reduce: (s) => s })!;
+    expect(out.messages[0].toolStatus).toBe("running");
+    expect(out.toolCalls.get("R")?.status).toBe("running");
+    expect(out.subagents.get("ag-2")?.status).toBe("running");
+  });
+});

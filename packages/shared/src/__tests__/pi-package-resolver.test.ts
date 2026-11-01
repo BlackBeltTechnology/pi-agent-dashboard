@@ -72,22 +72,22 @@ function writePackage(pkgDir: string, pkgJson: Record<string, unknown>, files: R
 
 describe("npm: install resolution", () => {
   it("resolves an npm: peer in global scope via npmRoot", () => {
-    writeSettings("user", { packages: ["npm:@pi/anthropic-messages"] });
-    const pkgDir = path.join(npmRoot, "@pi", "anthropic-messages");
+    writeSettings("user", { packages: ["npm:@example-legacy/example-ext"] });
+    const pkgDir = path.join(npmRoot, "@example-legacy", "example-ext");
     writePackage(pkgDir, {
-      name: "@pi/anthropic-messages",
+      name: "@example-legacy/example-ext",
       exports: { ".": "./extensions/index.js" },
     }, {
       "extensions/index.js": "export default function() {}",
     });
 
-    const result = resolvePiPackage("@pi/anthropic-messages", { agentDir, npmRoot });
+    const result = resolvePiPackage("@example-legacy/example-ext", { agentDir, npmRoot });
     expect(result).not.toBeNull();
     expect(result!.packageDir).toBe(pkgDir);
     expect(result!.entryPath).toBe(path.join(pkgDir, "extensions", "index.js"));
     expect(result!.scope).toBe("user");
-    expect(result!.source).toBe("npm:@pi/anthropic-messages");
-    expect(result!.packageJsonName).toBe("@pi/anthropic-messages");
+    expect(result!.source).toBe("npm:@example-legacy/example-ext");
+    expect(result!.packageJsonName).toBe("@example-legacy/example-ext");
   });
 
   it("ignores @version suffix in npm: spec when resolving", () => {
@@ -106,17 +106,17 @@ describe("npm: install resolution", () => {
 describe("git: install resolution", () => {
   it("resolves https github URL to ~/.pi/agent/git/<host>/<path>", () => {
     writeSettings("user", {
-      packages: ["https://github.com/BlackBeltTechnology/pi-anthropic-messages.git"],
+      packages: ["https://github.com/Example/example-ext.git"],
     });
-    const pkgDir = path.join(agentDir, "git", "github.com", "BlackBeltTechnology", "pi-anthropic-messages");
+    const pkgDir = path.join(agentDir, "git", "github.com", "Example", "example-ext");
     writePackage(pkgDir, {
-      name: "@pi/anthropic-messages",
+      name: "@example-legacy/example-ext",
       main: "./extensions/index.ts",
     }, {
       "extensions/index.ts": "export default function() {}",
     });
 
-    const result = resolvePiPackage("@pi/anthropic-messages", { agentDir, npmRoot });
+    const result = resolvePiPackage("@example-legacy/example-ext", { agentDir, npmRoot });
     expect(result?.packageDir).toBe(pkgDir);
     expect(result?.entryPath).toBe(path.join(pkgDir, "extensions", "index.ts"));
     expect(result?.scope).toBe("user");

@@ -134,4 +134,33 @@ test.describe("tiered MCP tokens", () => {
     const challenge = call.headers()["www-authenticate"];
     expect(challenge).toBeUndefined();
   });
+  // close-security-map-high-findings D2 (test-plan #E57): the answer tools are gone
+  // at every tier; the tier behaviour of the other tools is unchanged.
+  test("D2 — prompt_response is absent / unknown-tool at every tier; other tools unchanged", async ({ request }) => {
+    for (const tier of ["observe", "control", "operate"] as const) {
+      const token = await mint(request, tier);
+      const list = await mcp(request, token, rpc("tools/list"));
+      expect(list.status(), tier).toBe(200);
+      const names = ((await list.json()) as { result: { tools: Array<{ name: string }> } }).result.tools.map(
+        (t) => t.name,
+      );
+      expect(names, tier).not.toContain("prompt_response");
+      expect(names, tier).not.toContain("extension_ui_response");
+      expect(names.includes("send_prompt"), `${tier} send_prompt`).toBe(tier !== "observe");
+      expect(names.includes("force_kill"), `${tier} force_kill`).toBe(tier === "operate");
+
+      for (const name of ["prompt_response", "extension_ui_response"]) {
+        const call = await mcp(
+          request,
+          token,
+          rpc("tools/call", { name, arguments: { sessionId: "e2e-no-such-session", promptId: "p", answer: "x" } }),
+        );
+        expect(call.status(), `${tier} ${name}`).toBe(404);
+        expect(call.headers()["www-authenticate"], `${tier} ${name}`).toBeUndefined();
+        const body = (await call.json()) as { error: { code: number; message: string } };
+        expect(body.error.code).toBe(-32601);
+        expect(body.error.message).toBe(`Unknown tool: ${name}`);
+      }
+    }
+  });
 });

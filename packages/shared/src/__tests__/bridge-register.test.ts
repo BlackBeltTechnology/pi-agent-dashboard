@@ -287,6 +287,29 @@ describe("shared bridge-register", () => {
       errSpy.mockRestore();
     });
 
+    // E21/E22 (slim-windows-install-file-count): the bundle ships the extension ONCE, under
+    // node_modules. An upgraded install must drop the old `server/packages/extension`
+    // registration; a rollback must drop the node_modules one. No new code — pinned here.
+    it("E21 upgrade: the stale server/packages/extension registration is replaced by the node_modules path", () => {
+      const stale = path.join(tmpDir, "PI Dashboard", "resources", "server", "packages", "extension"); // gone after the upgrade
+      const fresh = makeExt(
+        path.join(tmpDir, "PI Dashboard", "resources", "server", "node_modules", "@blackbelt-technology", "pi-dashboard-extension"),
+      );
+      writeSettings({ packages: [stale] });
+      registerBridgeExtension(fresh);
+      expect(readSettings().packages).toEqual([fresh]);
+    });
+
+    it("E22 rollback: registering the packages/extension copy drops the existing node_modules entry (same package name)", () => {
+      const nm = makeExt(
+        path.join(tmpDir, "PI Dashboard", "resources", "server", "node_modules", "@blackbelt-technology", "pi-dashboard-extension"),
+      );
+      const legacy = makeExt(path.join(tmpDir, "PI Dashboard", "resources", "server", "packages", "extension"));
+      writeSettings({ packages: [nm] });
+      registerBridgeExtension(legacy);
+      expect(readSettings().packages).toEqual([legacy]);
+    });
+
     it("an already-registered target still drops other same-identity entries", () => {
       const bundled = makeExt(path.join(tmpDir, "b", "extension"));
       const overlay = makeExt(path.join(tmpDir, "o", "extension"));

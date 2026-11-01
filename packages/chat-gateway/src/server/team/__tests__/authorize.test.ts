@@ -4,7 +4,7 @@
  */
 
 import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type AuthorizeInput,
   authorize,
@@ -288,5 +288,77 @@ describe("team authorize", () => {
     times.sort((a, b2) => a - b2);
     const p95 = times[Math.floor(0.95 * times.length)];
     expect(p95).toBeLessThan(1);
+  });
+});
+
+// See change: close-security-map-high-findings (D2, test-plan #E52, #E53, #E54):
+// `prompt_response` left the generated MCP table, so chat answers resolve from the
+// chat-local table at the dashboard's WS tier (control).
+describe("D2 — chat prompt_response resolves from the chat-local table", () => {
+  it("E52: observe refused insufficient_tier; control and operate permitted; never verb_unknown_tier", () => {
+    expect(VERB_TIERS.has("prompt_response")).toBe(false);
+    for (const [tier, kind] of [
+      ["observe", "refusal"],
+      ["control", "grant"],
+      ["operate", "grant"],
+    ] as const) {
+      const { result } = run({
+        verb: "prompt_response",
+        binding: binding({ principals: { u1: tier } }),
+      });
+      expect(result.kind, tier).toBe(kind);
+      if (result.kind === "refusal") {
+        expect(result.reason).toBe("insufficient_tier");
+        expect(result.reason).not.toBe("verb_unknown_tier");
+      }
+    }
+    expect(CHAT_COMMAND_ALLOWLIST).toContain("prompt_response");
+  });
+
+  it("E54: only the chat-local table has prompt_response; the other chat-local verbs are unchanged", () => {
+    expect(CHAT_LOCAL_VERB_TIERS.has("prompt_response")).toBe(true);
+    expect(VERB_TIERS.has("prompt_response")).toBe(false);
+    for (const verb of CHAT_LOCAL_VERB_TIERS.keys()) expect(VERB_TIERS.has(verb), verb).toBe(false);
+    expect(CHAT_LOCAL_VERB_TIERS.get("disarm")).toBe("observe");
+    expect(CHAT_LOCAL_VERB_TIERS.get("attach_session")).toBe("observe");
+    expect(CHAT_LOCAL_VERB_TIERS.get("close_session")).toBe("control");
+    expect([...CHAT_LOCAL_VERB_TIERS.keys()].sort()).toEqual(
+      ["attach_session", "close_session", "disarm", "prompt_response"].sort(),
+    );
+  });
+
+  describe("E53: the chat-local tier tracks WS_MESSAGE_TIERS, not a literal", () => {
+    async function tierWith(table: Record<string, Tier>): Promise<Tier | undefined> {
+      vi.resetModules();
+      vi.doMock("@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js", async () => {
+        const actual = await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js")>(
+          "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js",
+        );
+        return {
+          ...actual,
+          wsMessageTier: (type: string): Tier => (Object.hasOwn(table, type) ? table[type]! : "operate"),
+        };
+      });
+      try {
+        const mod = await import("../tier.js");
+        return mod.tierOfVerb("prompt_response");
+      } finally {
+        vi.doUnmock("@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js");
+        vi.resetModules();
+      }
+    }
+
+    it("follows a mocked operate / observe row", async () => {
+      expect(await tierWith({ prompt_response: "operate" })).toBe("operate");
+      expect(await tierWith({ prompt_response: "observe" })).toBe("observe");
+    });
+
+    it("a removed row fails closed to operate", async () => {
+      expect(await tierWith({})).toBe("operate");
+    });
+
+    it("the real table says control today", () => {
+      expect(tierOfVerb("prompt_response")).toBe("control");
+    });
   });
 });

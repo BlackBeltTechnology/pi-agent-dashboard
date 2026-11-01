@@ -1292,7 +1292,7 @@ Dual-write contract. `registerPluginBridge` writes BOTH locations in `~/.pi/agen
 - `packages[]` — user-visible package list. pi-coding-agent reads only this.
 - `_dashboardManagedPackages` — ownership map. Tracks which `packages[]` entries owned by dashboard vs user. Prevents clobbering user-added entries.
 
-pi-coding-agent ignores `dashboardPluginBridges` entirely. Bridge extensions invisible to pi until written to `packages[]`. Symptom of single-write bug: plugin bridge loaded by dashboard but never invoked by pi runtime; `/api/flows-anthropic-bridge/status` reports "no sessions reporting".
+pi-coding-agent ignores `dashboardPluginBridges` entirely. Bridge extensions invisible to pi until written to `packages[]`. Symptom of single-write bug: plugin bridge loaded by dashboard but never invoked by pi runtime; Symptom: bridge status reports "no sessions reporting".
 
 Reconciliation: one-shot `reconcilePluginBridgePackages` runs at server start. Replays current plugin manifests through `ensurePackageEntry` for every claim with a `bridge` entry. Drops dangling managed entries via `removePackageEntry` when manifest gone. Atomic settings write (tmp + rename).
 
@@ -6635,7 +6635,7 @@ See FAQ: How do I clean up stale entries from settings.json?
 
 ### Bundled first-party extensions (Electron installer)
 
-The Electron installer can optionally ship a curated subset of recommended pi extensions inside `resources/bundled-extensions/<id>/` so first-run works with zero network access. The set is declared by `BUNDLED_EXTENSION_IDS` in `packages/shared/src/recommended-extensions.ts` (currently `pi-anthropic-messages`, `pi-flows`) — a strict subset of `RECOMMENDED_EXTENSIONS`, enforced by a unit test.
+The Electron installer can optionally ship a curated subset of recommended pi extensions inside `resources/bundled-extensions/<id>/` so first-run works with zero network access. The set is declared by `BUNDLED_EXTENSION_IDS` in `packages/shared/src/recommended-extensions.ts` (currently `pi-flows`) — a strict subset of `RECOMMENDED_EXTENSIONS`, enforced by a unit test.
 
 **Build time** (`packages/electron/scripts/bundle-recommended-extensions.sh`): gated on `BUNDLE_RECOMMENDED_EXTENSIONS=1` (set in `.github/workflows/publish.yml`, unset everywhere else). Clones each id shallow, records the commit SHA to `.bundled-sha`, validates the SPDX identifier against a fixed allowlist (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC), and fails the build if the combined bundle exceeds 15 MB. `forge.config.ts` conditionally appends `./resources/bundled-extensions` to `extraResource` when the directory exists.
 
@@ -8824,13 +8824,25 @@ flowchart LR
 ## Client sink hardening (Trusted Types, URL policy, navigation intents)
 
 ### Trusted Types mode
-- Env `PI_DASHBOARD_TRUSTED_TYPES=off|report|enforce`.
-- Unset → `off` iff `PI_DASHBOARD_CSP=off`, else `report`. Independent of `PI_DASHBOARD_CSP`.
-- Resolver: `packages/server/src/auth/csp.ts` `resolveTrustedTypesMode`.
+- Modes: `off|report|enforce`. Default `report`.
+- Resolution order: env `PI_DASHBOARD_TRUSTED_TYPES` → config `security.trustedTypes` (`~/.pi/dashboard/config.json`) → default.
+- Default → `off` iff `PI_DASHBOARD_CSP=off`, else `report`.
+- "Set" source = not `undefined` and not whitespace-only string. First set source decides.
+- Value trimmed + lowercased. `off|report|enforce` → itself.
+- Other set value (typo, number, object) → `report` + one startup warning naming source (`env`|`config`). Never logs raw value.
+- Every set source validated, incl. env shadowing valid config. Mirrors `hostGate.mode` no-lockout convention.
+- Resolver: `packages/shared/src/trusted-types-mode.ts` `resolveTrustedTypesMode({env,config,cspMode})` → `{mode,source,warnings}`; `recognizeTrustedTypesMode(raw)`.
+- `packages/server/src/auth/csp.ts` re-exports resolver. Old `(raw, cspMode)` signature removed.
 - `registerCsp` appends `require-trusted-types-for 'script'` to baseline header when modes match. Else sets other header kind with directive alone.
 - Add-if-absent per header kind. `/live/` skipped. `serveApp` mounts keep own enforcing policy.
 - Server injects `<meta name="pi-trusted-types" content="<mode>">` into index.html (`lib/index-html.ts`).
-- Dev: `trustedTypesDevPlugin` in `packages/client/vite.config.ts` injects same meta.
+- `server.ts` resolves once at startup (`loadConfig().security?.trustedTypes`). Logs each warning once (`[csp] Trusted Types: …`). Same mode → `registerCsp` + `createIndexHtmlSender`.
+- `createIndexHtmlSender` option `trustedTypesMode` required (no `report` fallback). Document meta always equals header mode.
+- Dev: `trustedTypesDevPlugin` in `packages/client/trusted-types-dev-plugin.ts` (imported by `packages/client/vite.config.ts`). Uses same shared resolver. Reads config file. States same mode as server.
+- Config API: `PUT /api/config` deep-merges `security`. `trustedTypes: null` deletes key (emptied `security` removed). Restart flagged only when normalized value changes.
+- `GET /api/config` adds computed, never-persisted `trustedTypesEnvOverride` (recognized env value or `null`). Stripped on write.
+- UI: Settings → Security → Trusted Types select (`TrustedTypesSection.tsx`): Default / Enforce / Report only / Off. Env override → read-only text `Set by PI_DASHBOARD_TRUSTED_TYPES: <mode>`. Change needs server restart.
+- Rollback / opt-in: config key, Settings, or env + restart.
 - Missing meta → client treats as `report`.
 
 ### Client policies
@@ -8908,7 +8920,7 @@ Two policies, one sink, persisted counter. Default mode stays `report`; nothing 
 
 ### Trusted Types interaction
 
-- TT follows `PI_DASHBOARD_TRUSTED_TYPES`, independent of CSP mode (see § Client sink hardening).
+- TT follows resolved mode (env `PI_DASHBOARD_TRUSTED_TYPES` → config `security.trustedTypes` → default), independent of CSP mode (see § Client sink hardening).
 - Matching modes append `require-trusted-types-for 'script'`: `report` → baseline Report-Only header; `enforce` → strict enforcing header. Reports go to that header's label.
 - Differing modes → other header kind carries TT directive alone, labelled `trusted-types` → `/__pi/csp-report/trusted-types`.
 - TT violations count in `require-trusted-types-for` bucket. Never in strict `script-src*` measure.

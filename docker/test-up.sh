@@ -192,10 +192,10 @@ export TUNNEL_ENABLED=false
 
 # Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests). Passed
 # through to the container (compose.test.yml -> test-entrypoint.sh) which wires
-# the pi-flows engine + anthropic-messages bridge peer accordingly:
-#   both | no-am | legacy | bad-registration   (unset => no flow-peer wiring)
-# Requires PI_E2E_SEED=1. Boot a specific variant for manual /api/health checks:
-#   PI_E2E_SEED=1 PI_TEST_PEERS=no-am /path/to/docker/test-up.sh -d --build
+# the pi-flows engine accordingly:
+#   both   (unset => no flow-peer wiring)
+# Requires PI_E2E_SEED=1:
+#   PI_E2E_SEED=1 PI_TEST_PEERS=both /path/to/docker/test-up.sh -d --build
 export PI_TEST_PEERS="${PI_TEST_PEERS:-}"
 
 # Browser-relay e2e faucet (change: add-browser-relay, task 7.61). Passed

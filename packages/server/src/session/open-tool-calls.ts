@@ -99,6 +99,51 @@ export function findOpenToolCalls(events: StoredEvent[]): OpenToolCall[] {
 }
 
 /**
+ * Which backfill-served top-level starts are still open at serve time.
+ *
+ * `suffix` is the store from the served slice's lower bound onward. A
+ * candidate is open iff, after its top-level `tool_execution_start`, the
+ * suffix holds none of: its top-level `tool_execution_end` (real or healed), a
+ * non-synthetic `agent_start` (earlier turn), an `agent_end` (turn over), or
+ * an assistant `message_start` (pi infers again only after every tool of the
+ * previous inference ended, so a later inference proves the end was lost).
+ *
+ * Narrower than `findOpenToolCalls`, which must stay turn-scoped and wide for
+ * the session-end heal. Nested starts (`parentToolCallId`) are never open.
+ * Result keeps candidate order.
+ * See change: fix-backfill-elides-live-tools (D1).
+ */
+export function findBackfillOpenToolCalls(
+  candidateIds: readonly string[],
+  suffix: readonly StoredEvent[],
+): string[] {
+  if (candidateIds.length === 0) return [];
+  const candidates = new Set(candidateIds);
+  const closed = new Set<string>();
+  const open = new Set<string>();
+  // Backwards walk. The first boundary met (the LATEST in the stream) closes
+  // every start before it, so the walk stops there.
+  for (let i = suffix.length - 1; i >= 0; i--) {
+    const { eventType, data } = suffix[i].event;
+    const nested = typeof data?.parentToolCallId === "string" && data.parentToolCallId !== "";
+    if (eventType === "agent_start" && data?.synthetic !== true) break;
+    if (eventType === "agent_end") break;
+    if (
+      eventType === "message_start" &&
+      (data?.message as { role?: unknown } | undefined)?.role === "assistant"
+    ) {
+      break;
+    }
+    if (nested) continue;
+    const id = data?.toolCallId;
+    if (typeof id !== "string") continue;
+    if (eventType === "tool_execution_end") closed.add(id);
+    else if (eventType === "tool_execution_start" && candidates.has(id) && !closed.has(id)) open.add(id);
+  }
+  return candidateIds.filter((id) => open.has(id));
+}
+
+/**
  * Subagents created/started with no terminal event.
  *
  * NOT turn-scoped — a subagent outlives a single `agent_start` — and

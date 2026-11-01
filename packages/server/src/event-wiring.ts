@@ -3,6 +3,7 @@
  * Extracted from server.ts for clarity.
  */
 
+import { buildPreferencesUpdate } from "./preferences-relay.js";
 import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -591,10 +592,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     // so it gates naming on the right value from its first turn (config push,
     // register arm). Change arm is the PATCH route broadcast.
     // See change: add-auto-session-naming.
-    piGateway.sendToSession(sessionId, {
-      type: "preferences_update",
-      autoNameSessions: preferencesStore.getAutoNameSessions(),
-    });
+    // Full snapshot (auto-naming + Claude subscription compat).
+    // See change: retire-anthropic-messages-bridge (design D3).
+    piGateway.sendToSession(sessionId, buildPreferencesUpdate(preferencesStore));
 
     // Announce which grant store this dashboard writes (re-read every time, never
     // cached) so the bridge's path gate can decide whether "Always allow" is
@@ -1927,6 +1927,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (pendingInitialPromptRegistry) {
         const prompt = pendingInitialPromptRegistry.consume(msg.cwd);
         if (prompt) {
+          // The preferences snapshot must reach the bridge before its first
+          // prompt: `onSessionRegistered` pushes it too, but its order relative
+          // to this branch is not guaranteed. Same socket → FIFO, so the bridge
+          // applies the compat switch before the run starts.
+          // See change: retire-anthropic-messages-bridge (design D3, #E10).
+          piGateway.sendToSession(sessionId, buildPreferencesUpdate(preferencesStore));
           piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: prompt });
         }
       }

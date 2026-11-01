@@ -34,9 +34,9 @@ mkdirSync(cwd, { recursive: true });
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [] }, null, 2));
 
 // Fabricate a minimal "bundled" extension tree (avoid network).
-const bundleSrc = join(tmpRoot, "bundle", "pi-anthropic-messages");
+const bundleSrc = join(tmpRoot, "bundle", "example-ext");
 mkdirSync(bundleSrc, { recursive: true });
-writeFileSync(join(bundleSrc, "package.json"), JSON.stringify({ name: "pi-anthropic-messages", version: "0.0.0" }, null, 2));
+writeFileSync(join(bundleSrc, "package.json"), JSON.stringify({ name: "example-ext", version: "0.0.0" }, null, 2));
 
 console.log("\n--- Scenario A: installAndPersist('local:<path>') ---");
 const settings = SettingsManager.create(cwd, agentDir);
@@ -59,8 +59,8 @@ writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [] }, 
 const settings2 = SettingsManager.create(cwd, agentDir);
 const manager2 = new DefaultPackageManager({ cwd, agentDir, settingsManager: settings2 });
 
-const gitUrl = "https://github.com/BlackBeltTechnology/pi-anthropic-messages.git";
-const gitCache = join(agentDir, "git", "github.com", "BlackBeltTechnology", "pi-anthropic-messages");
+const gitUrl = "https://github.com/Example/example-ext.git";
+const gitCache = join(agentDir, "git", "github.com", "Example", "example-ext");
 mkdirSync(join(agentDir, "git"), { recursive: true });
 cpSync(bundleSrc, gitCache, { recursive: true });
 const added = manager2.addSourceToSettings(gitUrl, { local: false });

@@ -2,11 +2,10 @@
 
 Modular diagnostic skill. Diagnoses why broken in pi-agent-dashboard:
 - pi-flows
-- Anthropic-messages bridge
 - model resolution
 - pi install
 - peer
-- plugin-bridge
+- plugin-bridge (`dashboard-flows`, `dashboard-goal`, `dashboard-automation`)
 - build-reload
 
 Ships in `packages/extension/.pi/skills/doctor/`. Extension present in every install topology.
@@ -76,9 +75,9 @@ Flags divergence. Flags any location below `piCompatibility.minimum` floor. Floo
 
 ## Peers + name-skew
 
-`probePeer()` tier-1 `createRequire(cwd)` / tier-2 pi `packages[]`.
+`probePeer()` tier-1 `createRequire(cwd)` / tier-2 pi `packages[]`. `peers` module probes only pi-flows.
 
-`detectNameSkew()` reports live package name + dead aliases. Example: legacy `@pi/anthropic-messages` vs current `@blackbelt-technology/pi-anthropic-messages`.
+`detectNameSkew()` reports live package name + dead aliases. Example: legacy `@pi/<name>` alias vs current `@blackbelt-technology/<name>`.
 
 Unresolved peer → dependent bridge `waiting_peers`.
 

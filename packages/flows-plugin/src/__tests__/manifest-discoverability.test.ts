@@ -43,6 +43,14 @@ describe("flows-plugin manifest discoverability", () => {
     expect(() => validateManifest(manifest, pkg.name)).not.toThrow();
   });
 
+  // The host emit seam refuses undeclared types; the per-project edit-mode
+  // action emits flow:set-edit-mode. See change:
+  // stop-flows-edit-mode-project-writes (D5, test-plan #E11).
+  it("declares `flow:set-edit-mode` in `emits`", () => {
+    const validated = validateManifest(manifest, pkg.name) as { emits?: string[] };
+    expect(validated.emits).toContain("flow:set-edit-mode");
+  });
+
   it("declares plugin id `flows`", () => {
     const validated = validateManifest(manifest, pkg.name);
     expect(validated.id).toBe("flows");

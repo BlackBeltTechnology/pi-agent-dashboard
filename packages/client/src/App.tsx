@@ -134,7 +134,6 @@ import { OpenSpecMapContext } from "./lib/openspec/OpenSpecMapContext.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
 import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
 import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
-import { usePeerAutoInstallReset } from "./lib/package/peer-auto-install-store.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket, onDeviceBearerNotice } from "./lib/pairing/device-auth.js";
 import { createEmbeddedAppShell } from "./lib/plugins/embedded-app-shell.js";
@@ -906,8 +905,6 @@ export default function App() {
   const [cardSections, setCardSections] = useState<CardSectionPrefs>({});
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
-  // Drop the automatic-peer-install state when `anthropic` signs out (true → false).
-  usePeerAutoInstallReset(providersReady.anthropicAuthenticated);
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
   const pendingTerminalCwdRef = useRef<string | null>(null);
   const lastCreatedTerminalIdRef = useRef<string | null>(null);

@@ -6,7 +6,6 @@ import { blackholeStates } from "./fixtures/retro-ux/plugin-blackhole.js";
 import { browserInstall, browserStates } from "./fixtures/retro-ux/plugin-browser.js";
 import { chatGatewayStates } from "./fixtures/retro-ux/plugin-chat-gateway.js";
 import { costStates } from "./fixtures/retro-ux/plugin-cost-estimator.js";
-import { answerBridge, bridgeSessions, bridgeStates } from "./fixtures/retro-ux/plugin-flows-anthropic-bridge.js";
 import { flowsStates } from "./fixtures/retro-ux/plugin-flows.js";
 import { goalStates } from "./fixtures/retro-ux/plugin-goal.js";
 import { grammarStates } from "./fixtures/retro-ux/plugin-grammar.js";
@@ -26,7 +25,7 @@ import { type CaptureResult, captureStates, RETRO_UX_THEMES, type UiState } from
 /**
  * Plugin settings wave 2 — the 15 remaining plugin bodies plus the host chrome,
  * in every board state, theme and width (E36), and the targeted rendered checks
- * for the cost inputs (E37), the back link (E38), the table scroll (E39), the
+ * for the cost inputs (E37), the back link (E38), the
  * collapsed browser card (F7) and the body rhythm (F8). Every state is reached
  * by `page.route` stubs; the probes are the repo's computed-contrast ones.
  *
@@ -43,7 +42,6 @@ const SURFACES: Record<string, UiState[]> = {
   "apple-tools": appleToolsStates,
   browser: browserStates,
   "chat-gateway": chatGatewayStates,
-  "flows-anthropic-bridge": bridgeStates,
   automation: automationStates,
   blackhole: blackholeStates,
   cost: costStates,
@@ -149,29 +147,6 @@ test.describe("retro-ux plugin settings wave 2", () => {
       expect(b!.height, `back link height at ${width}px`).toBeGreaterThanOrEqual(min);
       expect(b!.y + b!.height, `back link sits above the chrome card at ${width}px`).toBeLessThanOrEqual(c!.y + 0.5);
     }
-  });
-
-  test("E39: degraded bridge table at 375 scrolls inside its wrapper, the page does not", async ({ page }) => {
-    await gotoDashboard(page);
-    await answerBridge(bridgeSessions.degraded)(page);
-    await page.setViewportSize({ width: 375, height: 900 });
-    await page.goto(pluginPath("flows-anthropic-bridge"));
-    const row = page.getByTestId("flows-anthropic-bridge-session-4302");
-    await expect(row).toBeVisible({ timeout: 30_000 });
-    const wrapper = row.locator("xpath=ancestor::table[1]/parent::div[1]");
-    const page_ = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
-    expect(page_.scrollWidth, "document scrollWidth within the viewport").toBeLessThanOrEqual(page_.innerWidth);
-    const box = await wrapper.evaluate((el) => ({
-      overflowX: getComputedStyle(el).overflowX,
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-    }));
-    expect(box.overflowX, "wrapper overflow-x").toBe("auto");
-    expect(box.scrollWidth, "wrapper content is wider than the wrapper (it scrolls)").toBeGreaterThan(box.clientWidth);
-    await wrapper.evaluate((el) => {
-      el.scrollLeft = el.scrollWidth;
-    });
-    expect(await wrapper.evaluate((el) => el.scrollLeft), "wrapper actually scrolls").toBeGreaterThan(0);
   });
 
   test("F7: the browser profile card collapses and expands from the keyboard, pills and focus ring intact", async ({ page }) => {

@@ -10,6 +10,7 @@ One row per file.
 | `acp-session-queue.spec.ts` | → `acp-session-queue.spec.ts.AGENTS.md` |
 | `acp-session.spec.ts` | → `acp-session.spec.ts.AGENTS.md` |
 | `acp-spawn-picker.spec.ts` | → `acp-spawn-picker.spec.ts.AGENTS.md` |
+| `agent-credential-refusal.spec.ts` | → `agent-credential-refusal.spec.ts.AGENTS.md` |
 | `agent-path-gate.spec.ts` | → `agent-path-gate.spec.ts.AGENTS.md` |
 | `apply-fix-to-file.spec.ts` | → `apply-fix-to-file.spec.ts.AGENTS.md` |
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
@@ -20,6 +21,7 @@ One row per file.
 | `canvas-static-mockup.spec.ts` | L3 |
 | `changed-on-disk-content-gate.spec.ts` | L3 |
 | `chat-motion.spec.ts` | → `chat-motion.spec.ts.AGENTS.md` |
+| `claude-subscription-compat.spec.ts` | #F1 sign-in prompt → Turn on → row on after reload (real compat route, staged auth reads); #F3 Landing Step ① notice → Turn on → row on. See change: retire-anthropic-messages-bridge. |
 | `composer-dock-collapse.spec.ts` | L3 composer dock collapse/peek/file open (synthetic bridge, stubbed diff/quota): 44 px one-line bar at 375 px (#E5), Open/Diff 44 px targets + truncated folder (#E17), composer card + YOLO footer fixed across expanded/collapsed/peek and `composer-root` border-top 0 (#F17/#F18), fast pass never peeks (#F19), per-session persistence across reload (#F20), Open/Diff land in the editor pane never `/diff` (#F21), portaled menu holds the peek (#F22). See change: composer-dock-collapse-and-file-open. |
 | `composer-dock.spec.ts` | L3 composer dock (synthetic bridge): collapsed default, accordion, compact chips 480 px, Kill (`kill_process`), plugin subagent rows ≥44 px at 375 px, #F16 (767 px canvas hides dock), YOLO footer in `hu` at 375 px, #F18 contrast (base dark/light, nord dark). See change: add-composer-dock. |
 | `composer-liveness-reload.spec.ts` | → `composer-liveness-reload.spec.ts.AGENTS.md` |
@@ -27,6 +29,8 @@ One row per file.
 | `context-mode-settings.spec.ts` | → `context-mode-settings.spec.ts.AGENTS.md` |
 | `craft-live-control.spec.ts` | → `craft-live-control.spec.ts.AGENTS.md` |
 | `craft-web-editor.spec.ts` | → `craft-web-editor.spec.ts.AGENTS.md` |
+| `credential-guard-chat.spec.ts` | → `credential-guard-chat.spec.ts.AGENTS.md` |
+| `credential-vault-locked.spec.ts` | → `credential-vault-locked.spec.ts.AGENTS.md` |
 | `csp-report-sink-oauth.spec.ts` | WF5: report sink POST public to armed OAuth gate; GET / unknown label gated. Needs `PI_E2E_OAUTH_NO_BYPASS=1` + narrowed `PI_E2E_TRUSTED_NETWORKS`; skips when gate unarmed. See change: harden-cors-and-csp-reporting. |
 | `csp-strict-enforce.spec.ts` | WF2/WF3/WF6/WF7 under `PI_DASHBOARD_CSP=enforce`: no `unsafe-*`, nonce == import-map nonce, inline-script blocking, SW + deep-link nonce freshness. Skips without an enforcing header. See change: harden-cors-and-csp-reporting. |
 | `csp-strict-report.spec.ts` | WF1/WF4 in default `report` harness: zero strict `script-src*` violations on core + plugin routes; TT/inline-script report delivery. See change: harden-cors-and-csp-reporting. |
@@ -63,7 +67,6 @@ One row per file.
 | `access-provisioning.spec.ts` | → `access-provisioning.spec.ts.AGENTS.md` |
 | `add-folder-file-manager.spec.ts` | → `add-folder-file-manager.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | → `access-grant-dialog.spec.ts.AGENTS.md` |
-| `anthropic-bridge-activation.spec.ts` | → `anthropic-bridge-activation.spec.ts.AGENTS.md` |
 | `archive-fold.spec.ts` | → `archive-fold.spec.ts.AGENTS.md` |
 | `asciidoc-preview.spec.ts` | → `asciidoc-preview.spec.ts.AGENTS.md` |
 | `diagram-preview.spec.ts` | → `diagram-preview.spec.ts.AGENTS.md` |
@@ -117,6 +120,7 @@ One row per file.
 | `flow-attach-before-run.spec.ts` | → `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | → `flow-live-no-double-render.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | → `flow-roundtrip.spec.ts.AGENTS.md` |
+| `flows-edit-mode-no-project-writes.spec.ts` | → `flows-edit-mode-no-project-writes.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | → `folder-action-banner.spec.ts.AGENTS.md` |
 | `folder-actions-menu.spec.ts` | → `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-collapse-persistence.spec.ts` | → `folder-collapse-persistence.spec.ts.AGENTS.md` |
@@ -162,6 +166,7 @@ One row per file.
 | `notify-channel.spec.ts` | → `notify-channel.spec.ts.AGENTS.md` |
 | `notify-min-level.spec.ts` | → `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | → `oauth-redirect-base.spec.ts.AGENTS.md` |
+| `oauth-open-enrolment.spec.ts` | L3 (change: close-security-map-high-findings, D3). E110: github session cookie rejected (401 + cleared) while allowlist empty, accepted after. F5: Settings ▸ Security banner + refused login page, cleared after allowlist. F6: open browser + terminal sockets close after reload refuses github; `/auth/status` false. Restores seeded `allowedUsers` in `afterEach`. |
 | `openspec-artifact-dialog.spec.ts` | → `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | → `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | → `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
@@ -184,6 +189,7 @@ One row per file.
 | `remote-access-wizard.spec.ts` | → `remote-access-wizard.spec.ts.AGENTS.md` |
 | `remote-browse-confinement.spec.ts` | → `remote-browse-confinement.spec.ts.AGENTS.md` |
 | `replay-live-tool-not-orphaned.spec.ts` | L3 restart mid-call |
+| `replay-live-tool-not-orphaned.backfill.spec.ts` | L3 #F15/#F16: tail-only `WINDOW` armed in `beforeAll` (restored exactly in `afterAll`); `faux:subagent-long-stream-hold` Agent start lands in backfill after `POST /api/restart` (#F15) or a reload (#F16); "reload" = FRESH browser context (same-context `page.reload()` resubscribes from IndexedDB cache as unwindowed delta); walks gap via `history-gap-load` click (short transcript never auto-loads); non-vacuity = Agent `tool_execution_start` seen in a `history_backfill_result`; card `agent-activity-row` running, no `agent-elided-note`, converges after `LONG_STREAM_HOLD_TAIL`. See change: fix-backfill-elides-live-tools. |
 | `retro-ux-plugin-settings-wave-2.spec.ts` | → `retro-ux-plugin-settings-wave-2.spec.ts.AGENTS.md` |
 | `runtime-extension-reload-convergence.spec.ts` | → `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
 | `runtime-updates-remote-local.spec.ts` | → `runtime-updates-remote-local.spec.ts.AGENTS.md` |
@@ -277,6 +283,7 @@ One row per file.
 | `tool-output-selection.spec.ts` | → `tool-output-selection.spec.ts.AGENTS.md` |
 | `trust-mode-pair.spec.ts` | → `trust-mode-pair.spec.ts.AGENTS.md` |
 | `trusted-types-budget.spec.ts` | F3: report-mode budget over core routes, file previews, every plugin settings page and `/apps/team/` — 0 TT violations, default hits ≤ `fixtures/trusted-types-budget.json` (`PI_TT_BUDGET_RECORD=1` re-records); control step proves the directive is active. See change: harden-client-sinks. |
+| `trusted-types-config.spec.ts` | F6: Settings → Security → Trusted Types "Enforce" → Save → `POST /api/restart` → document meta `enforce` + enforcing `require-trusted-types-for`; finally Default (key removed) → restart → `report`. See change: enforce-trusted-types-default. |
 | `trusted-types-enforce.spec.ts` | X6: Monaco / PDF / chat / plugin settings under forced `enforce` — no page error beyond the TT-off baseline; logs violations + default hits per step. See change: harden-client-sinks. |
 | `trusted-types-perf.spec.ts` | P1: median default-policy callback time per load ≤ 20 ms under `enforce` (mermaid gallery + chat). See change: harden-client-sinks. |
 | `trusted-types-visual.spec.ts` | F1/F2: per-diagram pixel parity enforce vs off within off-vs-off variance (+ accent tint); AsciiDoc/KaTeX/mermaid + EML parity, 0 violations, EML frame `sandbox=""`. See change: harden-client-sinks. |

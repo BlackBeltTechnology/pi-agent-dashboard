@@ -16,6 +16,8 @@ $tests = @(
     "32-origin-gate.ps1"   # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
     "35-plugin-install-load.ps1"   # clean prefix: discovery non-empty + browser enabled + no load error + no path outside the prefix (#X7–#X11). See change: fix-browser-plugin-vendor-specifier-resolution.
     "40-agent-path-gate-windows.ps1",   # path-gate + canonical-subject vitest suites natively on win32; exit 77 = no checkout (#X14). See change: ask-agent-file-access-in-chat.
+    "54-credential-guard-windows.ps1",   # the shipped credential guard blocks the native Windows vault path forms (#E64); exit 77 = no checkout/tsx. See change: encrypt-credentials-at-rest.
+    "55-keychain-windows.ps1",   # Windows Credential Manager holds the data key, vault migrated, decodes after restart (#E92); exit 77 = non-interactive session. See change: encrypt-credentials-at-rest.
     "38-poll-cost.ps1"   # the scan never lists the bridge-auto-started server PID (#X11); exit 77 = SKIP when the server was not bridge-started. See change: optimize-polling-hot-paths.
     "44-photocraft.ps1"   # pi-photocraft install (no TS loader), real release provisioning cacheHit false->true, exec + MCP handshake (#E36). Needs network. See change: add-photocraft-plugin.
 )

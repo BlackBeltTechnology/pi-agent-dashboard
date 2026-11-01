@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import type { StoredEvent } from "../../persistence/memory-event-store.js";
-import { findOpenSubagents, findOpenToolCalls } from "../open-tool-calls.js";
+import { findBackfillOpenToolCalls, findOpenSubagents, findOpenToolCalls } from "../open-tool-calls.js";
 
 /** Wrap bare events into the store's `{seq, event}` shape, seq ascending. */
 function stored(events: DashboardEvent[]): StoredEvent[] {
@@ -204,5 +204,75 @@ describe("findOpenToolCalls — synthetic reconnect agent_start", () => {
   it("dedupes a repeated open start by toolCallId (test-plan #E9)", () => {
     const events = stored([ev("agent_start", {}), start("A", "bash"), start("A", "bash")]);
     expect(findOpenToolCalls(events)).toEqual([{ toolCallId: "A", toolName: "bash" }]);
+  });
+});
+
+// Serve-time open set for a `history_backfill_result`: narrower than
+// `findOpenToolCalls` — an ended turn or a later assistant inference also closes.
+// See change: fix-backfill-elides-live-tools (D1).
+describe("findBackfillOpenToolCalls", () => {
+  const upd = (toolCallId: string) => ev("tool_execution_update", { toolCallId });
+  const msgStart = (role: string) => ev("message_start", { message: { role } });
+
+  it("reports a start with only updates after it (test-plan #E1)", () => {
+    const suffix = stored([start("c1", "Agent"), upd("c1"), upd("c1")]);
+    expect(findBackfillOpenToolCalls(["c1"], suffix)).toEqual(["c1"]);
+  });
+
+  it("a real or healed end closes it (test-plan #E2)", () => {
+    expect(findBackfillOpenToolCalls(["c1"], stored([start("c1", "bash"), end("c1")]))).toEqual([]);
+    const healed = stored([
+      start("c1", "bash"),
+      end("c1", { isError: true, healedBy: "session_ended" }),
+    ]);
+    expect(findBackfillOpenToolCalls(["c1"], healed)).toEqual([]);
+  });
+
+  it("a later non-synthetic agent_start closes it (test-plan #E3)", () => {
+    expect(findBackfillOpenToolCalls(["c1"], stored([start("c1", "bash"), ev("agent_start", {})]))).toEqual([]);
+  });
+
+  it("a later SYNTHETIC agent_start does not close it (test-plan #E4)", () => {
+    const suffix = stored([start("c1", "bash"), ev("agent_start", { synthetic: true })]);
+    expect(findBackfillOpenToolCalls(["c1"], suffix)).toEqual(["c1"]);
+  });
+
+  it("a later agent_end closes it (test-plan #E5)", () => {
+    expect(findBackfillOpenToolCalls(["c1"], stored([start("c1", "bash"), ev("agent_end", {})]))).toEqual([]);
+  });
+
+  it("only a later ASSISTANT message_start closes it (test-plan #E6)", () => {
+    const run = (role: string) =>
+      findBackfillOpenToolCalls(["c1"], stored([start("c1", "bash"), msgStart(role)]));
+    expect(run("assistant")).toEqual([]);
+    expect(run("toolResult")).toEqual(["c1"]);
+    expect(run("user")).toEqual(["c1"]);
+  });
+
+  it("never reports a nested start (test-plan #E7)", () => {
+    const suffix = stored([ev("tool_execution_start", { toolCallId: "c1", toolName: "bash", parentToolCallId: "p" })]);
+    expect(findBackfillOpenToolCalls(["c1"], suffix)).toEqual([]);
+  });
+
+  it("reports only open candidates actually present (test-plan #E8)", () => {
+    const suffix = stored([start("c1", "bash"), start("c2", "bash"), end("c1")]);
+    expect(findBackfillOpenToolCalls(["c1", "c2", "c3"], suffix)).toEqual(["c2"]);
+  });
+
+  it("scans a 50,000-event suffix in under 25 ms (test-plan #P1)", () => {
+    const suffix = stored([
+      ...Array.from({ length: 20 }, (_, i) => start(`c-${i}`, "bash")),
+      ...Array.from({ length: 49_980 }, (_, i) => upd(`c-${i % 20}`)),
+    ]);
+    const candidates = Array.from({ length: 20 }, (_, i) => `c-${i}`);
+    expect(findBackfillOpenToolCalls(candidates, suffix)).toHaveLength(20); // warm-up
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const t0 = performance.now();
+      findBackfillOpenToolCalls(candidates, suffix);
+      times.push(performance.now() - t0);
+    }
+    times.sort((a, b) => a - b);
+    expect(times[2]).toBeLessThan(25);
   });
 });

@@ -568,7 +568,7 @@ SHALL NOT be treated as empty.
 - **WHEN** a desktop session card is rendered for a session whose cwd has the pi-flows
   extension loaded (a `flows` command is present)
 - **AND** the session's `flowsList` is empty
-- **AND** the flows plugin edit mode (`editFlow`) is off
+- **AND** the session's effective flows edit mode (`flows.editFlow`, project overriding global) is off
 - **AND** the session has no flow event (no flow running or previously run)
 - **THEN** no element with title text `FLOWS` SHALL appear
 - **AND** no empty flows panel SHALL be rendered
@@ -576,7 +576,7 @@ SHALL NOT be treated as empty.
 #### Scenario: Edit mode alone does not show the FLOWS subcard
 
 - **WHEN** a desktop session card is rendered for a session with an empty `flowsList`
-- **AND** the flows plugin edit mode (`editFlow`) is on
+- **AND** the session's effective flows edit mode (`flows.editFlow`, project overriding global) is on
 - **AND** the session has no flow event
 - **THEN** no element with title text `FLOWS` SHALL appear
 - **AND** the author-first **New / Edit…** entry point SHALL be offered in the session actions menu instead

@@ -72,6 +72,8 @@ A grant SHALL NOT be supplied to `isAllowed` as an additional anchor. That funct
 
 The grant check SHALL resolve symlinks on the **requested path** before comparing, and SHALL compare against the stored subject verbatim. A lexical-only comparison of the requested path would allow a symlink inside a granted directory to reach a target outside it.
 
+A path refused by the credential-and-state refusal of `trust-and-credential-boundaries` (the dashboard state directory and the pi-agent credential files) SHALL NOT be admitted by a grant: that refusal runs before the grant layer, a grant covering a refused file's directory (or any ancestor) never admits it, and bytes served through a grant are re-checked against the opened handle.
+
 The check SHALL be evaluated **after** every pre-existing admission at the site, including the image-only artifact-root admission at `file-routes.ts:746` (`isImageUnderArtifactRoot`, labelled "Layer ③" in source). This capability refers to its own check as the **grant layer** rather than a layer number, so it does not collide with that existing numbering.
 
 The check SHALL read the grant set from memory, never with a synchronous file read on the containment path, and SHALL short-circuit when the grant set is empty without performing any filesystem syscall. The containment module is asynchronous by deliberate design; a synchronous read would stall unrelated requests. The empty-store short-circuit matters because `grep-routes.ts:60` evaluates containment once per grep match, so any per-check cost is multiplied by the match count.
@@ -128,6 +130,16 @@ The check SHALL read the grant set from memory, never with a synchronous file re
 
 - **WHEN** the grant feature is present but the store is empty
 - **THEN** every pre-existing file-read-containment behaviour SHALL be unchanged, including the bound-checkout-root widening of derived anchors
+
+#### Scenario: A grant never admits a credential or state file
+- **GIVEN** an operator grant covers `~/.pi/agent` (or `$HOME`)
+- **WHEN** `~/.pi/agent/auth.json` or `~/.pi/dashboard/local/token` is checked
+- **THEN** it SHALL be refused, because the credential-and-state refusal runs before the grant layer
+
+#### Scenario: A grant read of a swapped-in credential file is refused after open
+- **GIVEN** a grant admits a directory
+- **WHEN** a path inside it is replaced by a link to `~/.pi/agent/auth.json` after the check and read through a grant-admitted site
+- **THEN** the read SHALL be refused because the opened handle matches the credential file
 
 ### Requirement: The grant store is bounded at 200 entries
 

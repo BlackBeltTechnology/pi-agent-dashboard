@@ -12,9 +12,69 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Claude subscription compat switch.** Settings › Providers asks "Keep Claude requests on your subscription?" after an Anthropic subscription sign-in, and the `anthropic` row carries a switch (off by default; Landing Step ① shows a notice while it is off). When on, the flows-plugin bridge rewords two lines of pi's built-in docs prompt section ("pi itself", "pi packages") for `anthropic` runs in the main session and in pi-flows agents, so requests count against the Claude subscription instead of extra usage. Tool names are no longer renamed. New routes `GET/PATCH /api/preferences/claude-subscription-compat`.
+- **"Turn on / Turn off edit mode for this project"** in the session actions menu (flows). It is the only way the dashboard changes a repo's flows edit mode: pi-flows writes `flows.editFlow` to that repo's `.pi/settings.json`, and the project value then overrides the global default. Every session in the same folder updates.
+
 ### Changed
 
+- **BREAKING:** `pi-anthropic-messages` is no longer a required extension and is no longer installed after an Anthropic sign-in. Once the compat switch is on, uninstall it: `pi remove npm:@blackbelt-technology/pi-anthropic-messages` (a one-time notice reminds you). It also wrote every prompt to a world-readable `/tmp/pi-am.log`.
+- **BREAKING:** the `flows-anthropic-bridge` plugin and its `/api/flows-anthropic-bridge/status` route are removed. A leftover `dashboard-flows-anthropic-bridge` entry in `~/.pi/agent/settings.json` is stale and can be deleted.
+- **BREAKING:** the dashboard no longer sends flows edit mode to a session on its own. Opening a repo, reloading the page or saving settings used to write `flows.editFlow` into that repo's `.pi/settings.json` (and dirty its git tree); now nothing is written unless you use the per-project menu item.
+- The flows **Edit mode** toggle (Settings › Plugins › Flows) now saves `flows.editFlow` in `~/.pi/agent/settings.json`, the file pi-flows reads. This also applies to pi sessions started from a terminal, in every repo. `PI_CODING_AGENT_DIR` is ignored here because pi-flows ignores it too. New routes `GET/PUT /api/plugins/flows/edit-mode-default`, `GET /api/plugins/flows/edit-mode-state`.
+- A previous dashboard Edit mode setting of "on" is moved once to `~/.pi/agent/settings.json` (unless that file already has a value), then removed from the plugin config.
+- **New / Edit…** now follows the session's effective edit mode (project value, else the global value).
+- Repos that already got `flows.editFlow` from the old behaviour keep it, and it overrides the global toggle. To follow the global value again, delete the `flows.editFlow` key from that repo's `.pi/settings.json`.
+- Upgrade pi-flows to **0.8.1 or later** (`pi install npm:@blackbelt-technology/pi-flows`). Older versions still write `.pi/skills/manage-flows/SKILL.md` into each repo at session start.
+
 ### Fixed
+
+- **Claude subscription compat now covers sessions that were already open.** pi 1.4 sends a session's first system prompt as Anthropic's `system` field for the whole session, so turning the switch on did not fix sessions started before it, and their requests kept failing with "You're out of extra usage". The rewrite now also applies to each outgoing Anthropic request.
+- **Upgrades keep Claude subscription billing working.** On the first start after upgrading, the compat switch turns on by itself when `~/.pi/agent/auth.json` already holds an `anthropic` credential, and off when it doesn't. The choice is saved once and never overrides a later change. New installs stay off and are asked at their first Anthropic sign-in.
+
+### Security
+
+- **BREAKING — pi-agent credential files are always refused (DEP-01).** `~/.pi/agent/auth.json`, `mcp-auth.json`,
+  `providers.json`, `plugin-credentials.json`, `models.json`, `mcp.json` and `system-one/auth.json` (plus same-dir
+  `<name>.*` siblings, symlinks and hard links to them) can no longer be opened through the file, grep, session-file,
+  pi-resource-file, write-binary, live-server or plugin file routes, whatever the caller's tier or access grants.
+  Re-checked after open on every content-serving site.
+- **BREAKING — OAuth login fails closed for public identity providers (HTTP-01).** A public provider (`github`,
+  `google`, or an issuer on a public IdP) with neither `auth.allowedUsers` nor `auth.groupTiers` now refuses login
+  (403 remedy page), already-issued sessions of that provider are rejected, and open sockets are closed on config
+  reload. Private issuers (`keycloak`, own `oidc`) keep allow-all with a startup warning. **Review Settings ▸ Users and
+  Paired devices after upgrading**: passkey users, invites and device bearers created while sign-in was open stay valid.
+  `GET /api/auth/diagnostics` now reports `openEnrolment`; Settings → Security shows a banner.
+- **BREAKING — `prompt_response` and `extension_ui_response` leave the MCP surface for all tokens (TOOL-01, re-rated
+  Low).** They never answered a prompt (the host wrapped the object as `send_prompt` text). Chat-gateway button answers
+  are unaffected.
+- **Trusted Types mode is now configurable: `security.trustedTypes`, Settings → Security → Trusted Types.** The mode
+  (`off` / `report` / `enforce`) can be set in `~/.pi/dashboard/config.json` or in Settings, not only with
+  `PI_DASHBOARD_TRUSTED_TYPES`; the variable still wins over the config key, and a change needs a server restart. The
+  default is **unchanged** (`report`, or `off` when `PI_DASHBOARD_CSP=off`); flipping it to `enforce` is a separate,
+  soak-gated follow-up. This is also the rollback for that future flip. **Behaviour changes:** the variable is now
+  trimmed and case-insensitive (`OFF` now means `off`; it used to fall back to `report`), and a present but
+  unrecognized value (env or config, e.g. `reprot`) resolves to `report` with one startup warning naming the source
+  (never the value), even when `PI_DASHBOARD_CSP=off` (it used to resolve to `off` there). `GET /api/config` gains a
+  computed, never-persisted `trustedTypesEnvOverride`; the dev server states the same mode as the server.
+
+- **Plugin credentials and the credential vault are now encrypted at rest.** `~/.pi/agent/plugin-credentials.json`
+  and `~/.pi/dashboard/vault.json` are stored as an AES-256-GCM envelope (`pi-dashboard-encrypted:v1`). The data key
+  lives in the OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Manager; service
+  `pi-dashboard-credential-key`) or, when `PI_DASHBOARD_DATA_KEY_FILE` names an owner-only file, only in that file. The
+  key is created lazily (first credential write, or to migrate an existing plaintext file at startup) and never leaves
+  the server process. Without a usable key the host never falls back to plaintext: existing plaintext stays readable,
+  writes are refused (`store_locked`, vault `vault_locked` → 409) with a remedy. On Linux the key is stored only in the
+  Secret Service, never the non-persistent kernel keyring. A new always-on bridge guard blocks agent tool calls that
+  target the credential files, the key file or the keychain entry (`credential_guard`; best effort, not a sandbox).
+  New local CLI: `pi-dashboard credentials status|decrypt|reset`.
+  - **Before downgrading, run `pi-dashboard credentials decrypt`** with the server stopped. An older version sees an
+    encrypted file as corrupt: its vault refuses writes, its plugin store backs the file up and starts a new plaintext
+    one.
+  - **Docker:** mount `/home/pi/.pi-key` as a named volume (`compose.yml` does). The entrypoint generates
+    `/home/pi/.pi-key/data-key` on first start and refuses to generate one while an encrypted file exists (restore the
+    volume instead). A copy of the `/home/pi/.pi` volume alone carries no key.
+  - **Key loss** (keychain reset, restore on a new machine) leaves the files locked; restore the key or run
+    `pi-dashboard credentials reset` and enter the credentials again.
 
 ## [0.11.0] - 2026-10-26
 

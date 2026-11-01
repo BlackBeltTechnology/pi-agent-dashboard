@@ -165,6 +165,13 @@ The client SHALL insert backfilled events at their seq-ordered position within t
 - **THEN** the session's live-event high-water mark SHALL NOT change
 - **AND** the backfilled events SHALL NOT be published to the plugin-runtime event store
 - **AND** the backfilled events SHALL NOT be written to the durable replay cache
+- **AND** the session's tool-call tracking SHALL change only by gaining a running entry for each spliced call the response reports open and the session does not already track
+
+#### Scenario: A reported-open spliced call becomes tracked as running
+
+- **WHEN** a backfill response reports `call_1` open and the session does not yet track `call_1`
+- **THEN** after the splice the session SHALL track `call_1` as running with the start time of its row
+- **AND** it SHALL be eligible for the stale running-tool reconcile
 
 #### Scenario: A response with no place to splice changes nothing
 
@@ -459,3 +466,79 @@ When a two-sided (head segment present) gap is exhausted, the client SHALL class
 
 - **WHEN** an exhausted two-sided gap was contiguous
 - **THEN** the client SHALL remove the interstitial rather than showing a terminus
+
+### Requirement: A backfill response reports which served tool calls are still open
+
+A successful `history_backfill_result` SHALL carry the identifiers of the top-level tool calls whose `tool_execution_start` it serves and that are still open, evaluated when the response is sent. A served call SHALL count as open only when the store holds, after its start, none of: its `tool_execution_end`, a non-synthetic `agent_start`, an `agent_end`, or an assistant `message_start`. The field SHALL be optional and additive; an absent field SHALL mean no open calls.
+
+#### Scenario: A still-running served start is reported open
+
+- **WHEN** a backfill response serves a top-level `tool_execution_start` for `call_1`
+- **AND** the store holds no `tool_execution_end` for `call_1`, no later non-synthetic `agent_start`, no later `agent_end` and no later assistant `message_start`
+- **THEN** the response SHALL list `call_1` as open
+
+#### Scenario: A served start whose end is stored is not reported open
+
+- **WHEN** a backfill response serves a top-level `tool_execution_start` for `call_1`
+- **AND** the store holds a `tool_execution_end` for `call_1` (real or synthesized heal)
+- **THEN** the response SHALL NOT list `call_1`
+
+#### Scenario: A start from an earlier turn is not reported open
+
+- **WHEN** a served `tool_execution_start` for `call_1` has no stored end
+- **AND** a non-synthetic `agent_start` is stored after it
+- **THEN** the response SHALL NOT list `call_1`
+
+#### Scenario: A synthetic re-announcement does not end the turn
+
+- **WHEN** a served `tool_execution_start` for `call_1` has no stored end
+- **AND** the only `agent_start` stored after it is marked synthetic
+- **AND** nothing else listed in this requirement is stored after it
+- **THEN** the response SHALL list `call_1` as open
+
+#### Scenario: A start in an ended turn is not reported open
+
+- **WHEN** a served `tool_execution_start` for `call_1` has no stored end
+- **AND** an `agent_end` is stored after it
+- **THEN** the response SHALL NOT list `call_1`
+
+#### Scenario: A start superseded by a later inference is not reported open
+
+- **WHEN** a served `tool_execution_start` for `call_1` has no stored end
+- **AND** an assistant `message_start` is stored after it
+- **THEN** the response SHALL NOT list `call_1`
+
+#### Scenario: Only starts actually served are reported
+
+- **WHEN** a call is open but its `tool_execution_start` is not among the events the response delivers
+- **THEN** the response SHALL NOT list it
+
+#### Scenario: Nested starts are never reported
+
+- **WHEN** a served `tool_execution_start` carries `parentToolCallId` and has no stored end
+- **THEN** the response SHALL NOT list it
+
+#### Scenario: An end stored while the request is in flight excludes the call
+
+- **WHEN** a `tool_execution_end` for a served call is stored after the slice is read but before the response is sent
+- **THEN** the response SHALL NOT list that call
+
+#### Scenario: An end stored after the response follows it on the wire
+
+- **WHEN** a `tool_execution_end` for a call listed open is stored after the response is sent
+- **THEN** the client SHALL receive that end after the response
+
+#### Scenario: A relocated session reports no open calls
+
+- **WHEN** a backfill response is served for a session recorded as moved to another host
+- **THEN** the response SHALL NOT carry open-call identifiers
+
+#### Scenario: An older client ignores the field
+
+- **WHEN** a client that does not read open-call identifiers receives a response carrying them
+- **THEN** it SHALL behave exactly as with a response that omits them
+
+#### Scenario: A refusal carries no open calls
+
+- **WHEN** a backfill request is refused for any reason
+- **THEN** the response SHALL NOT carry open-call identifiers

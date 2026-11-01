@@ -20,6 +20,38 @@ describe("server-launcher", () => {
       expect(cliPath).toContain(path.join("packages", "server", "src", "cli.ts"));
     });
 
+    // E14 (slim-windows-install-file-count): the bundle ships the server ONCE, under
+    // node_modules; the sibling fallback must find `pi-dashboard-server`, not the
+    // checkout-only `server` dir.
+    describe("sibling fallback when require.resolve fails", () => {
+      const throwing = () => {
+        throw new Error("MODULE_NOT_FOUND");
+      };
+      const SCOPE = path.join("/R", "server", "node_modules", "@blackbelt-technology");
+      const extSrc = path.join(SCOPE, "pi-dashboard-extension", "src");
+
+      it("resolves <R>/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts", () => {
+        const cli = path.join(SCOPE, "pi-dashboard-server", "src", "cli.ts");
+        const got = resolveServerCliPath({ resolve: throwing, extensionSrcDir: extSrc, exists: (p) => p === cli });
+        expect(got).toBe(cli);
+      });
+
+      it("resolves packages/server/src/cli.ts in a checkout", () => {
+        const cli = path.join("/repo", "packages", "server", "src", "cli.ts");
+        const got = resolveServerCliPath({
+          resolve: throwing,
+          extensionSrcDir: path.join("/repo", "packages", "extension", "src"),
+          exists: (p) => p === cli,
+        });
+        expect(got).toBe(cli);
+      });
+
+      it("defaults to the checkout path when neither exists", () => {
+        const got = resolveServerCliPath({ resolve: throwing, extensionSrcDir: extSrc, exists: () => false });
+        expect(got).toBe(path.join(SCOPE, "server", "src", "cli.ts"));
+      });
+    });
+
     it("should point to a file that actually exists on disk", () => {
       expect(existsSync(resolveServerCliPath())).toBe(true);
     });

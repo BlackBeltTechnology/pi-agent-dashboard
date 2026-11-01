@@ -16,7 +16,7 @@
 # Layout assumption (Linux .deb / .AppImage extracted; macOS .app contents):
 #   <root>/resources/node/bin/node
 #   <root>/resources/server/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs
-#   <root>/resources/server/packages/server/src/cli.ts
+#   <root>/resources/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts
 #
 # Argv contract: packages/shared/src/platform/node-spawn.ts
 #   ::buildNodeImportArgvParts
@@ -51,7 +51,7 @@ fi
 LOADER_URL="file://$LOADER_PATH"
 
 # Entry — raw POSIX path (URL wrapping unnecessary on non-Windows)
-CLI="$SVR_DIR/packages/server/src/cli.ts"
+CLI="$SVR_DIR/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts"
 if [ ! -f "$CLI" ]; then
   echo "✗ Bundled cli.ts not found: $CLI" >&2
   exit 1

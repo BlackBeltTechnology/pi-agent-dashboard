@@ -1655,11 +1655,18 @@ export interface PluginEmitEventExtensionMessage {
  * whenever the value changes (`piGateway.broadcast`). The bridge gates its
  * automatic session naming on `autoNameSessions`. See change:
  * add-auto-session-naming.
+ *
+ * Both fields are optional on the wire: senders send the full snapshot, and
+ * the bridge applies each field only when it is a boolean, so an older server
+ * or a partial message never resets the other value. See change:
+ * retire-anthropic-messages-bridge (design D3).
  */
 export interface PreferencesUpdateExtensionMessage {
   type: "preferences_update";
   /** Global auto-naming toggle; bridge attempts naming only when true. */
-  autoNameSessions: boolean;
+  autoNameSessions?: boolean;
+  /** Claude subscription compat switch; when true the docs-section rewrite applies on anthropic runs. */
+  claudeSubscriptionCompat?: boolean;
 }
 
 /**

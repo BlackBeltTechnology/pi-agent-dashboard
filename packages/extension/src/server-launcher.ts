@@ -4,6 +4,7 @@
  * its own PID file at ~/.pi/dashboard/server.pid.
  */
 
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,17 +55,28 @@ export interface LaunchResult {
  *                → `<x>/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`
  *
  * Uses Node's module resolver (`require.resolve`) to find the server package
- * and joins `src/cli.ts`. Falls back to the monorepo-relative path so existing
- * dev workflows keep working even if the server package isn't resolvable (e.g.
- * a pristine checkout with no node_modules yet).
+ * and joins `src/cli.ts`. Falls back to the sibling directory (`server` in a
+ * checkout, `pi-dashboard-server` under node_modules) so existing dev workflows
+ * keep working even if the server package isn't resolvable (e.g. a pristine
+ * checkout with no node_modules yet).
  */
-export function resolveServerCliPath(): string {
+export function resolveServerCliPath(
+  opts: { resolve?: (specifier: string) => string; extensionSrcDir?: string; exists?: (p: string) => boolean } = {},
+): string {
+  const resolve = opts.resolve ?? ((spec: string) => require.resolve(spec));
   try {
-    const serverPkgJson = require.resolve("@blackbelt-technology/pi-dashboard-server/package.json");
+    const serverPkgJson = resolve("@blackbelt-technology/pi-dashboard-server/package.json");
     return path.resolve(path.dirname(serverPkgJson), "src", "cli.ts");
   } catch {
-    // Dev-repo fallback: <extension>/src/../../server/src/cli.ts
-    return path.resolve(__dirname, "..", "..", "server", "src", "cli.ts");
+    // Sibling fallback, by directory name — `packages/server` in a checkout,
+    // `pi-dashboard-server` under node_modules (the only shipped layout; there is
+    // no `packages/<dir>` copy in a bundle). First one that holds a cli.ts wins;
+    // none → the checkout path, so the error names the dev location.
+    // See change: slim-windows-install-file-count (D2).
+    const siblings = path.resolve(opts.extensionSrcDir ?? __dirname, "..", "..");
+    const exists = opts.exists ?? existsSync;
+    const candidates = ["server", "pi-dashboard-server"].map((dir) => path.join(siblings, dir, "src", "cli.ts"));
+    return candidates.find((c) => exists(c)) ?? candidates[0];
   }
 }
 

@@ -333,19 +333,6 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/flows-anthropic-bridge-plugin": {
-      "entry": [
-        "src/client.tsx",
-        "src/server/index.ts",
-        "src/bridge/index.ts",
-        "src/peer-probe.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
     "packages/flows-plugin": {
       "entry": [
         "src/client/index.tsx",
@@ -751,6 +738,8 @@
         "bin/pi-dashboard.mjs",
         "src/cli.ts",
         "src/lib/grep-worker.ts",
+        "src/__tests__/helpers/credential-key-child.mjs",
+        "src/__tests__/helpers/stub-keychain-worker.mjs",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
