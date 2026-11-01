@@ -73,7 +73,7 @@ The rewrite SHALL change only the docs section. It SHALL NOT replace the whole s
 - **THEN** each tool SHALL be sent under its registered pi name
 
 ### Requirement: Flow agents receive the same rewrite
-Every pi instance the dashboard extension loads into SHALL receive the docs-section rewrite under the same conditions, judged on that instance's own model and the switch value its process last received from the server: the main session, subagent children, and agents spawned by pi-flows that load the settings packages. No plugin or package SHALL need to register it.
+Every pi instance the dashboard extension loads into SHALL receive the docs-section rewrite under the same conditions, judged on that instance's own model and the switch value its process last received from the server: the main session and subagent children. Agents spawned by pi-flows, which do not load the settings packages, SHALL receive the same rewrite through pi-flows' agent-extension registration, announced by the flows plugin, judged on the agent's own model and the process's switch value.
 
 #### Scenario: Flow agent on Anthropic
 - **WHEN** the switch is on and a flow agent runs on an `anthropic` model
@@ -90,6 +90,10 @@ Every pi instance the dashboard extension loads into SHALL receive the docs-sect
 #### Scenario: Flow agent on another provider
 - **WHEN** the switch is on, the parent session runs on `anthropic`, and a flow agent runs on a non-`anthropic` model
 - **THEN** the flow agent's docs section SHALL be sent unmodified
+
+#### Scenario: Factory survives a pi-flows re-seed
+- **WHEN** the parent session starts again (for example after `/reload`)
+- **THEN** the flows plugin SHALL announce the same factory again, so flow agents keep the rewrite without duplicates
 
 ### Requirement: Sign-in prompts to turn the switch on
 When an Anthropic subscription sign-in completes in Provider Authentication while the switch is off, the dashboard SHALL ask the user once for that completion whether to turn the switch on, offering Turn on and Not now. Turn on SHALL set the switch on. Not now SHALL leave it off. The prompt SHALL NOT block the sign-in. No package install SHALL be started.
