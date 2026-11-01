@@ -69,5 +69,5 @@ flow agents resolving to `faux/faux-1`, trigger a flow through the dashboard
 run-flow surface, and assert the flow renders end-to-end.
 
 #### Scenario: faux-modeled flow renders and completes
-- **WHEN** a flow is launched from the dashboard run-flow launcher in the Docker harness with agents wired to `faux/faux-1`
-- **THEN** the availability gate opens (run-flow launcher present), a `FlowAgentCard` becomes visible, and the flow reaches a completed state in the UI
+- **WHEN** a flow is launched from the FLOWS dock chip's Run flow… action in the Docker harness with agents wired to `faux/faux-1`
+- **THEN** the FLOWS dock chip is present, a `FlowAgentCard` becomes visible, and the flow reaches a completed state in the UI

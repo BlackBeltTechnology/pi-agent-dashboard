@@ -60,17 +60,6 @@ The `SessionCard` component SHALL render a `FlowActivityBadge` below the `OpenSp
 - **WHEN** a session has no `activeFlowName`
 - **THEN** no flow activity badge SHALL be rendered
 
-### Requirement: Session cards display flow launcher section
-The `SessionCard` component SHALL render a flow launcher section when the session has available flow commands detected from the commands list. The section SHALL be labeled "Flows:" to distinguish it from other sections.
-
-#### Scenario: Flow launcher rendered
-- **WHEN** the session's commands list contains flow commands
-- **THEN** the session card SHALL display a "Flows:" labeled section with a "▶ Run Flow..." button below the OpenSpec actions
-
-#### Scenario: No launcher without flows
-- **WHEN** the session has no flow commands in its commands list
-- **THEN** no flow launcher section SHALL be rendered
-
 ### Requirement: OpenSpec attach section labeled
 The `SessionOpenSpecActions` component SHALL display an "OpenSpec:" label before the attach button to distinguish it from other card sections.
 

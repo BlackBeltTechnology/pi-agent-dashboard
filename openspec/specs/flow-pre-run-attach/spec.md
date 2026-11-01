@@ -167,24 +167,27 @@ The attachment SHALL be stored on the client per session id and SHALL survive pa
 - **WHEN** client storage is unavailable
 - **THEN** attaching SHALL still work for the current page lifetime without throwing
 
-### Requirement: Session actions menu offers an Open flow action
+### Requirement: Open flow action lives in the dock chip and the flow panel header
 
-The desktop session card's actions menu SHALL offer an **Open flow…** action, as part of the flows plugin's PLUGINS contribution, whenever flows is available for the session (per `flows-plugin` "Flow actions and the FLOWS subcard are gated separately") and the session's available-flows list is non-empty. Activating it SHALL close the menu and open a searchable picker listing every flow in the session's available-flows list (project-local and package-provided flows alike), each with its name and description. The action SHALL be disabled, with an explanatory tooltip, while any flow in that session is running.
+An **Open flow…** action SHALL be offered in the FLOWS dock chip (see `flows-dock-chip`) and in the flow panel header whenever the session's flow catalog lists at least one flow. Activating it SHALL open a searchable picker listing every flow in the catalog (project-local and package-provided alike), each with its name and description. Choosing a flow SHALL put it in the flow panel as not started. The action SHALL be disabled, with the reason "A flow is running", while any flow in that session is running. The session actions menu SHALL NOT offer Open flow….
 
 #### Scenario: Open action visible with flows available
-- **WHEN** flows is available for a session, its available-flows list contains at least one flow, and no flow is running
-- **THEN** the session actions menu SHALL show an enabled **Open flow…** action
+- **WHEN** a session's catalog contains at least one flow and no flow is running
+- **THEN** the dock chip SHALL show an enabled **Open flow…** action
 
 #### Scenario: Picker lists all available flows
-- **GIVEN** a session whose available-flows list contains a project flow `test:capabilities` and a package flow
-- **WHEN** the user activates **Open flow…** in the session actions menu
-- **THEN** the picker SHALL open and stay open after the menu closes
-- **AND** it SHALL list both flows by name with their descriptions
+- **GIVEN** a session whose catalog contains a project flow `test:capabilities` and a package flow
+- **WHEN** the user activates **Open flow…**
+- **THEN** the picker SHALL list both flows by name with their descriptions
 
 #### Scenario: Open action disabled while a flow runs
 - **WHEN** a flow in the session is running
-- **THEN** the **Open flow…** action SHALL be disabled and SHALL indicate that a flow is running
+- **THEN** every **Open flow…** action SHALL be disabled and SHALL indicate that a flow is running
 
 #### Scenario: Open action hidden with no flows
-- **WHEN** the session's available-flows list is empty
-- **THEN** no **Open flow…** action SHALL be shown
+- **WHEN** the session's catalog is empty
+- **THEN** no **Open flow…** action SHALL be shown anywhere
+
+#### Scenario: Not in the session actions menu
+- **WHEN** the user opens the session actions menu of a session with flows
+- **THEN** it SHALL NOT contain **Open flow…**

@@ -132,8 +132,8 @@ This applies to every plugin reading `useSessionEvents` (flows, goal-plugin), no
 - **THEN** the client SHALL append the batch to the existing plugin store without clearing
 
 #### Scenario: Actions subcard availability is a separate non-replayed signal
-- **WHEN** a session cold-loads with replayed flow events but no live `flows_list`/`commands_list` has been re-published
-- **THEN** the flow card (`FlowDashboardClaim`) SHALL reattach (it has no availability gate), while the actions subcard (`SessionFlowActionsClaim`, gated by `shouldRenderFlowsSubcard` → `getFlowsAvailabilitySync`) MAY remain hidden until availability is rehydrated; rehydrating availability from replayed flow events or re-publishing the flows list on subscribe is tracked as follow-up
+- **WHEN** a session cold-loads with replayed flow events and a replayed flow catalog event, and no live publish has happened since
+- **THEN** the flow card (`FlowDashboardClaim`) SHALL reattach, and the flows plugin SHALL derive the session's flow catalog from the replayed catalog event, so the FLOWS dock chip and the flowless menu entry point reflect the catalog without waiting for the session (see `flows-catalog`)
 
 ### Requirement: Durable replay depends on upstream flush of custom entries (KNOWN BLOCKER)
 

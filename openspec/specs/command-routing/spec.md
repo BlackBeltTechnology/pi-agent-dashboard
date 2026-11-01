@@ -57,7 +57,7 @@ The command handler SHALL process `send_prompt` text in this exact order:
 5. Check for `/reload` → extension reload
 6. Check for `/new` → spawn new session in same cwd
 7. Check for `/model provider/id` → model switch via `setModel` callback
-8. Check for `/` prefix matching a known **user-defined flow name** (from `getFlowsList()`) → emit `flow:run` event
+8. (Removed.) The bridge SHALL NOT look up flow names itself. A typed `/<flow-name> [task]` is a command pi-flows registered for that flow and is handled by step 9; the step number is kept so cross-references stay valid.
 9. Check for `/` prefix matching a known **extension command** (`source: "extension"` in `pi.getCommands()`, excluding `DASHBOARD_NATIVE_COMMANDS` and `__`-prefixed names; evaluated inside `tryDispatchExtensionCommand`, which returns `false` if `getCommands()` throws) → dispatch in-process via `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs })`
 10. Check for `/` prefix → fall through to template expansion + `pi.sendUserMessage()` (handles skills, prompt templates, unrecognized slashes)
 11. Default (no `/` prefix) → `pi.sendUserMessage(text, { deliverAs })`, with `deliverAs` defaulting to `"followUp"` (existing passthrough behavior; pi ignores `deliverAs` when idle and queues the message when a run is already starting or streaming)
@@ -72,14 +72,18 @@ Note: pi-flows management commands (`/flows`, `/flows:new`, `/flows:edit`, `/flo
 - **AND** SHALL NOT invoke any slash routing branch
 
 #### Scenario: Routing precedence — user-defined flow run beats extension dispatch
-- **WHEN** `send_prompt` text is `/deploy-prod` AND `deploy-prod` is a user-defined flow name returned by `getFlowsList()` AND ALSO appears in `pi.getCommands()`
-- **THEN** the handler SHALL emit `flow:run { flowName: "deploy-prod" }` via `pi.events.emit(...)` (step 8 wins over step 9)
-- **AND** SHALL NOT call `pi.sendUserMessage(...)` with `expandPromptTemplates: true` for this text
+- **WHEN** `send_prompt` text is `/deploy-prod fix it` AND `deploy-prod` is a flow pi-flows registered as an extension command
+- **THEN** step 9 SHALL dispatch it in-process, and pi-flows' command handler SHALL start `deploy-prod` with task `fix it`
+- **AND** the bridge SHALL NOT query pi-flows for its flow list to decide this
+
+#### Scenario: Typed flow command while the agent is streaming
+- **WHEN** `send_prompt` text is `/deploy-prod fix it` while the session's agent is streaming a turn AND `deploy-prod` is a pi-flows-registered command
+- **THEN** it SHALL be handled as any extension command at step 9 with the same `deliverAs` semantics
+- **AND** the bridge SHALL NOT start the flow by any other path
 
 #### Scenario: Routing precedence — typed `/flows:new` rides extension dispatch
-- **WHEN** `send_prompt` text is `/flows:new` AND `getFlowsList()` does NOT contain a user-defined flow named `flows:new` AND `pi.getCommands()` contains `{ name: "flows:new", source: "extension" }` (registered by pi-flows)
-- **THEN** step 8 SHALL NOT match (no user-defined flow)
-- **AND** step 9 SHALL fire: `pi.sendUserMessage("/flows:new", { expandPromptTemplates: true, deliverAs: "followUp" })`
+- **WHEN** `send_prompt` text is `/flows:new` AND `pi.getCommands()` contains `{ name: "flows:new", source: "extension" }` (registered by pi-flows)
+- **THEN** step 9 SHALL fire: `pi.sendUserMessage("/flows:new", { expandPromptTemplates: true, deliverAs: "followUp" })`
 - **AND** step 10 SHALL NOT execute for this text
 
 #### Scenario: Extension dispatch beats fall-through
