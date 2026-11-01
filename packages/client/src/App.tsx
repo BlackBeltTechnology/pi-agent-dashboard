@@ -149,6 +149,7 @@ import { createReplayPersister } from "./lib/replay/replay-persist.js";
 import { viewedSession } from "./lib/session/archived-read-only-session.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
+import { currentModelState } from "./lib/current-model-state.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 
@@ -1845,17 +1846,18 @@ export default function App() {
   // recovery link, consumed both directly (composer) and via ModelConfig (the
   // shell-bound `ui:model-selector` primitive). See change: open-empty-model-selector.
   const openProviderSettings = useCallback(() => navigate("/settings/providers"), [navigate]);
+  const { model: currentModel, thinkingLevel: currentThinkingLevel } = currentModelState(selectedSession, selectedState);
   // Neutral model config for the selected session — sourced from
-  // `selectedState.model`/`thinkingLevel`, `modelsMap`, and `favoriteModels`;
+  // live session metadata (transcript fallback), `modelsMap`, and `favoriteModels`;
   // setters emit the existing browser messages. Consumed by the OpenSpec launch
   // dialogs AND by the shell-bound `ui:model-selector` primitive.
   // See changes: openspec-dialog-model-effort-selector,
   // upgrade-model-selector-primitives (design D2).
   const modelConfig = useMemo<ModelConfigValue>(
     () => ({
-      model: selectedState.model ?? selectedSession?.model,
+      model: currentModel,
       models: selectedId ? modelsMap.get(selectedId) : undefined,
-      thinkingLevel: selectedState.thinkingLevel ?? selectedSession?.thinkingLevel,
+      thinkingLevel: currentThinkingLevel,
       favorites: favoriteModels,
       setModel: (label) => {
         const slashIdx = label.indexOf("/");
@@ -1878,7 +1880,7 @@ export default function App() {
       openProviderSettings,
       notify: (message) => showToast(message, "info"),
     }),
-    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings, clearResumePickField],
+    [selectedId, currentModel, currentThinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings, clearResumePickField],
   );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
@@ -2795,13 +2797,13 @@ export default function App() {
             sessionMessages={selectedState.messages}
             commandsOrigin={selectedCommandsOrigin}
             unsetLabel={endedView ? t("directoryHome.piDefault", undefined, "pi default") : undefined}
-            model={endedPick?.model ?? selectedState.model ?? selectedSession?.model}
+            model={endedPick?.model ?? currentModel}
             models={endedView ? endedComposer.models : modelsMap.get(selectedId)}
             favorites={favoriteModels}
             onToggleFavorite={(label, makeFavorite) =>
               send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
             }
-            thinkingLevel={endedPick?.thinkingLevel ?? selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
+            thinkingLevel={endedPick?.thinkingLevel ?? currentThinkingLevel}
             onSelectModel={(modelStr) => {
               // Ended session: no bridge to `set_model` — remember the pick; it
               // rides the resuming prompt. See change: redesign-directory-home-split.
