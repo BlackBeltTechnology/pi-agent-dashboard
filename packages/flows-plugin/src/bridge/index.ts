@@ -15,7 +15,9 @@
  * therefore claims flow-tagged prompts before `DashboardDefaultAdapter`
  * (priority 9999).
  *
- * Also starts the flow-files reporter (see `flow-files-reporter.ts`).
+ * Also starts the flow-files reporter (see `flow-files-reporter.ts`) and the
+ * flow catalog publisher (see `flow-catalog-publisher.ts`; change
+ * flows-dock-chip-and-panel-actions).
  *
  * Claude subscription compat for flow agents: pi-flows builds agents with an
  * in-memory loader that never loads the settings packages, so the dashboard
@@ -27,6 +29,7 @@
  * See change: route-flow-asks-to-upper-slot.
  */
 import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
+import { startFlowCatalogPublisher } from "./flow-catalog-publisher.js";
 import { startFlowFilesReporter } from "./flow-files-reporter.js";
 import { FlowQuestionAdapter } from "./flow-question-adapter.js";
 
@@ -60,4 +63,7 @@ export default function activate(ctx: unknown): void {
   // Report this session's flow / agent / handler files to the plugin server so
   // the UI can open them. See change: attach-flow-before-run.
   startFlowFilesReporter(pi as Parameters<typeof startFlowFilesReporter>[0]);
+  // Publish this session's flow catalog through declared event forwarding.
+  // See change: flows-dock-chip-and-panel-actions.
+  startFlowCatalogPublisher(pi as Parameters<typeof startFlowCatalogPublisher>[0]);
 }

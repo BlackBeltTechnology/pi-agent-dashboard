@@ -128,7 +128,7 @@ function handleSessionChange(inst: BridgeInstance, ctx: any, usageSeed?: ReturnT
   }
   inst.renewGitTracker();
   const bc = inst.syncBc();
-  _handleSessionChange(bc, ctx, inst.getFlowsList, usageSeed);
+  _handleSessionChange(bc, ctx, usageSeed);
   inst.applyBc(bc);
   // A new session id needs its own `pi_version_update` (below-floor flag).
   // After applyBc, so syncBc() carries the NEW session id.
@@ -682,9 +682,6 @@ export function registerSessionStart(inst: BridgeInstance): void {
       commands,
     });
 
-    // Send initial flows list
-    inst.sendFlowsList();
-
     // Send available models
     inst.cachedModelRegistry = (ctx as any).modelRegistry;
     if (inst.cachedModelRegistry) {
@@ -978,7 +975,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     scheduler.start();
 
     // Register flow event listeners (pi-flows emits these via pi.events)
-    registerFlowEventListeners(inst.syncBc(), () => inst.sessionReady, inst.getFlowsList);
+    registerFlowEventListeners(inst.syncBc(), () => inst.sessionReady);
 
     // Extension UI System (Phase 1): subscribe to invalidate once per
     // session, then run the discovery probe. The probe is synchronous

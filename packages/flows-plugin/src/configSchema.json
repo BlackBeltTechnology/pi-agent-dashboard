@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Flows plugin configuration",
-  "description": "Per-plugin (global) configuration for the flows-plugin. The edit-mode default no longer lives here: it is `flows.editFlow` in ~/.pi/agent/settings.json (read/written via /api/plugins/flows/edit-mode-default). See change: stop-flows-edit-mode-project-writes.",
+  "description": "Per-plugin (global) configuration for the flows-plugin. The edit-mode default no longer lives here: it is `flows.editFlow` in ~/.pi/agent/settings.json (read/written via /api/plugins/flows/edit-mode-default). See change: stop-flows-edit-mode-project-writes. Catalog timings: see change flows-dock-chip-and-panel-actions (mirrors src/catalog-timings.ts).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -9,6 +9,41 @@
       "type": "boolean",
       "default": false,
       "description": "DEPRECATED, ignored. Legacy global edit-mode default; migrated once to ~/.pi/agent/settings.json#flows.editFlow on plugin start, then removed. Kept so stored configs still validate."
+    },
+    "catalogAskLimitSec": {
+      "type": "number",
+      "default": 2,
+      "minimum": 0.5,
+      "maximum": 60,
+      "description": "Catalog ask limit per session (seconds)."
+    },
+    "catalogReaskIntervalSec": {
+      "type": "number",
+      "default": 5,
+      "minimum": 1,
+      "maximum": 60,
+      "description": "Browser re-ask interval while a session's catalog is unknown (seconds)."
+    },
+    "catalogReaskAttempts": {
+      "type": "integer",
+      "default": 12,
+      "minimum": 1,
+      "maximum": 60,
+      "description": "Browser re-ask attempts per view."
+    },
+    "catalogServerStartIntervalSec": {
+      "type": "number",
+      "default": 5,
+      "minimum": 1,
+      "maximum": 60,
+      "description": "Re-ask interval after server start (seconds)."
+    },
+    "catalogServerStartWindowSec": {
+      "type": "number",
+      "default": 60,
+      "minimum": 10,
+      "maximum": 600,
+      "description": "Re-ask window after server start (seconds)."
     }
   }
 }

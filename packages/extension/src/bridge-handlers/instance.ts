@@ -17,7 +17,6 @@
  */
 
 import type { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AbortLatch } from "../abort-latch.js";
 import type { AutoNamer, PersistedNamerState } from "../auto-session-namer.js";
@@ -130,8 +129,6 @@ export interface BridgeInstance {
   cachedCwd: string | undefined;
   pendingDefaultModel: string | null;
   applyDefaultModel: () => string | null;
-  getFlowsList: () => FlowInfo[];
-  sendFlowsList: () => void;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   gitPollTimer: ReturnType<typeof setInterval> | null;
   polling: ReturnType<typeof createPollingHolder>;

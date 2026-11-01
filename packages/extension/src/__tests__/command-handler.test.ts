@@ -554,38 +554,17 @@ describe("CommandHandler", () => {
     expect(result?.type).toBe("commands_list");
   });
 
-  it("should send flows_list via eventSink on request_commands", async () => {
+  it("request_commands sends no flow list and never probes pi-flows (plugin-owned catalog)", async () => {
     const pi = createMockPi();
-    (pi as any).events = {
-      emit: vi.fn((event: string, probe: any) => {
-        if (event === "flow:list-flows") {
-          probe.flows = [{ name: "my-flow", description: "A flow", taskRequired: false }];
-        }
-      }),
-    };
+    const emit = vi.fn();
+    (pi as any).events = { emit };
     const eventSink = vi.fn();
     const handler = createCommandHandler(pi as any, "s1", { eventSink });
 
-    await handler.handle({ type: "request_commands", sessionId: "s1" });
-    expect(eventSink).toHaveBeenCalledWith({
-      type: "flows_list",
-      sessionId: "s1",
-      flows: [{ name: "my-flow", description: "A flow", taskRequired: false }],
-    });
-  });
-
-  it("should send empty flows_list when pi-flows is not installed", async () => {
-    const pi = createMockPi();
-    // No events property — pi-flows not installed
-    const eventSink = vi.fn();
-    const handler = createCommandHandler(pi as any, "s1", { eventSink });
-
-    await handler.handle({ type: "request_commands", sessionId: "s1" });
-    expect(eventSink).toHaveBeenCalledWith({
-      type: "flows_list",
-      sessionId: "s1",
-      flows: [],
-    });
+    const result = await handler.handle({ type: "request_commands", sessionId: "s1" });
+    expect(result?.type).toBe("commands_list");
+    expect(eventSink).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalledWith("flow:list-flows", expect.anything());
   });
 
   it("should filter hidden commands (starting with __) from commands list", async () => {
@@ -1809,29 +1788,29 @@ describe("extension slash dispatch precedence (test-plan E15–E20)", () => {
     return src.slice(start, end);
   }
 
-  it("E15: the user-defined-flow fast-path (step 8) precedes extension dispatch (step 9) and returns", () => {
+  it("E15 (retired): sessionPrompt has no flow fast-path — no flow:run emit, no flow probe", () => {
+    // The bridge's own `/<flow-name>` step is gone; pi-flows' registered command
+    // handles it. See change: flows-dock-chip-and-panel-actions (D8).
     const block = bridgeSessionPromptBlock();
+    expect(block).not.toContain('pi.events.emit("flow:run"');
+    expect(block).not.toContain("flow:list-flows");
+    expect(block).toContain("tryDispatchExtensionCommand(");
+  });
 
-    const flowIdx = block.indexOf('pi.events.emit("flow:run"');
-    const dispatchIdx = block.indexOf("tryDispatchExtensionCommand(");
+  it.each([
+    ["idle", false],
+    ["streaming", true],
+  ])("E28: typed /batch:apply task (%s) rides extension dispatch with the step-9 deliverAs", async (_label, streaming) => {
+    const pi = mockPi([{ name: "batch:apply", source: "extension" }]);
+    const eventSink = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { eventSink, isStreaming: () => streaming });
 
-    expect(flowIdx, "flow:run emission missing from sessionPrompt").toBeGreaterThan(-1);
-    expect(dispatchIdx, "extension dispatch missing from sessionPrompt").toBeGreaterThan(-1);
-    expect(flowIdx, "step 8 must come before step 9").toBeLessThan(dispatchIdx);
+    await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/batch:apply task" } as ServerToExtensionMessage);
 
-    // Step 8 must RETURN, so a colliding name never reaches the dispatch.
-    const returnIdx = block.indexOf("return;", flowIdx);
-    expect(returnIdx, "flow fast-path must return before dispatch").toBeGreaterThan(flowIdx);
-    expect(returnIdx).toBeLessThan(dispatchIdx);
-
-    // The flow-name match is evaluated against getFlowsList(), not pi.getCommands().
-    expect(block.slice(flowIdx - 400, flowIdx)).toContain("getFlowsList()");
-
-    // Order alone is not enough: a neutered predicate would keep the order while
-    // never firing. Pin the predicate AND the emitted payload so the guard fails
-    // when the branch stops matching or stops naming the flow it matched.
-    expect(block).toMatch(/flowsList\.some\(f => f\.name === cmdName\)/);
-    expect(block).toMatch(/pi\.events\.emit\("flow:run", \{ flowName: cmdName/);
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("/batch:apply task", { expandPromptTemplates: true, deliverAs: "followUp" });
+    expect(pi.events.emit).not.toHaveBeenCalledWith("flow:run", expect.anything());
+    expect(pi.events.emit).not.toHaveBeenCalledWith("flow:list-flows", expect.anything());
   });
 
   it("E16: typed /flows:new rides extension dispatch, not the fall-through", async () => {

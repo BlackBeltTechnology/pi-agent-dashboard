@@ -24,10 +24,10 @@ import { chooseLayoutMode, spawnFreshGitSession } from "./index.js";
 const FLOW_SOURCE = "/fixtures/sample-git/.pi/flows/flows/e2e/grid/flow.yaml";
 
 /**
- * Name the attachment carries. MUST be a name the session's `flowsList`
+ * Name the attachment carries. MUST be a name the session's flow catalog
  * contains: `resolveFlowSlot` renders the "no longer available" slot message
  * (NOT the idle panel) when an attached name is absent from a non-empty
- * flowsList (flow-idle-state.ts). The harness discovers flows from the baked
+ * catalog (flow-idle-state.ts). The harness discovers flows from the baked
  * fixture dir, so the fixture borrows the baked `e2e:synthetic` identity and
  * serves its own 6-step YAML through the mocked `/api/plugins/flows/file`
  * route below (the file content, not the name, defines the grid).
@@ -105,7 +105,12 @@ export async function openIdleGrid(page: Page): Promise<IdleGrid> {
   // The store reads localStorage on mount, so write then reload (same page: no
   // cross-tab `storage` event fires).
   await page.evaluate(
-    ([k, v]) => localStorage.setItem(k, v),
+    ([k, v, ck]) => {
+      localStorage.setItem(k, v);
+      // Panels start collapsed; the grid is measured expanded. See change:
+      // flows-dock-chip-and-panel-actions.
+      localStorage.setItem(ck, "false");
+    },
     [
       `dashboard:flow-attached:${sid}`,
       JSON.stringify({
@@ -114,6 +119,7 @@ export async function openIdleGrid(page: Page): Promise<IdleGrid> {
         source: FLOW_SOURCE,
         baselineStartedAt: 0,
       }),
+      `dashboard:flow-dashboard-collapsed:${sid}`,
     ],
   );
   await page.reload();

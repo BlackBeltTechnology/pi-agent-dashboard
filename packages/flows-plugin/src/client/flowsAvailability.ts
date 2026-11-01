@@ -10,13 +10,14 @@
  * See change: fix-empty-flows-subcard.
  */
 import { getSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { FLOW_CATALOG_EVENT } from "../flow-catalog-contract.js";
 import { isFlowEvent } from "../reducer.js";
 
 // Per-session memo for "has this session seen any flow event?". Keyed on the
 // session-events array reference (stable until the next publish) so the scan
 // runs only when the event list grows; once true it stays true (flow events
 // are append-only). Lets the FLOWS subcard reattach on cold load after replay,
-// where the `flowsList`/`commandsList` availability signal is NOT replayed and
+// where the flow-catalog/`commandsList` availability signal is NOT replayed and
 // is closed-by-default. See change: replay-persisted-flow-runs (task 5.5).
 const flowEventMemo = new Map<string, { ref: readonly unknown[]; has: boolean }>();
 
@@ -29,7 +30,12 @@ export function sessionHasFlowEvents(sessionId: string): boolean {
   const events = getSessionEvents(sessionId);
   const cached = flowEventMemo.get(sessionId);
   if (cached && (cached.has || cached.ref === events)) return cached.has;
-  const has = events.some((e) => isFlowEvent((e as { eventType: string }).eventType));
+  // The catalog is session metadata, not flow activity: it never opens the
+  // FLOWS subcard. See change: flows-dock-chip-and-panel-actions.
+  const has = events.some((e) => {
+    const type = (e as { eventType: string }).eventType;
+    return type !== FLOW_CATALOG_EVENT && isFlowEvent(type);
+  });
   flowEventMemo.set(sessionId, { ref: events, has });
   return has;
 }

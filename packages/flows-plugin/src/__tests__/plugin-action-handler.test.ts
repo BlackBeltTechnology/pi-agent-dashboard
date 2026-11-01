@@ -36,6 +36,8 @@ async function setup() {
       return f;
     })(),
     getPluginConfig: () => ({}),
+    onEvent: () => () => {},
+    onSessionEnded: () => () => {},
     updatePluginConfig: vi.fn(async () => {}),
     registerBrowserHandler: (type: string, h: Handler) => {
       if (type === "plugin_action") handler = h;
@@ -52,6 +54,12 @@ describe("flows plugin_action handler", () => {
     const { handler, emitEventToSession } = await setup();
     handler({ pluginId: "flows", sessionId: "s1", action: "flow.run", payload: { flow: "ns:build", task: "do it" } });
     expect(emitEventToSession).toHaveBeenCalledWith("s1", "flow:run", { flowName: "ns:build", task: "do it" });
+  });
+
+  it("flow.request-catalog asks the session to report (rediscover passed through)", async () => {
+    const { handler, emitEventToSession } = await setup();
+    handler({ pluginId: "flows", sessionId: "s1", action: "flow.request-catalog", payload: { rediscover: true } });
+    expect(emitEventToSession).toHaveBeenCalledWith("s1", "dashboard-flows:report-files", { rediscover: true });
   });
 
   it("flow.new launches the manage-flows skill via sendToSession", async () => {

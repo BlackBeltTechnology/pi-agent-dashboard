@@ -510,14 +510,13 @@ All flow rendering SHALL go through slot consumers populated by
 `flows-plugin` claims. Specifically:
 
 - The flow status part of `SessionFlowActions` (the running / completed flow badge and its abort control) rendered via the `session-card-flows` slot, inside the FLOWS subcard.
-- The flow actions (Run Flow…, Open flow…, New / Edit…, Delete) rendered via the `session-card-action-bar` slot. On the desktop session card their output appears in the session actions menu's PLUGINS group.
+- The flow actions for a session with flows (Run, Open, and the Edit popover with Edit…, New flow…, Delete… and the edit-mode item) rendered via the `composer-context-group` slot as the FLOWS dock chip, and in the flow panel headers.
+- The flowless authoring entry point (New flow… or the edit-mode item) rendered via the `session-card-action-bar` slot. On the desktop session card its output appears in the session actions menu's PLUGINS group.
 - `FlowDashboard` and `FlowArchitect` rendered via
   `content-header-sticky` slot.
 - `FlowAgentDetail`, `FlowArchitectDetail`, `FlowYamlPreview`
   rendered via `content-view` slot, each with a distinct `route`.
 - `FlowSummary` rendered via `content-inline-footer` slot.
-- Slash-command wrappers (`/flows`, `/flows:new`, `/flows:edit`,
-  `/flows:delete`) rendered via `command-route` slot.
 
 The shell SHALL NOT pass flow-specific props to any slot consumer.
 Slot consumers receive the standard prop contract for their slot
@@ -554,11 +553,12 @@ Slot consumers receive the standard prop contract for their slot
 
 #### Scenario: SessionFlowActions renders inside FLOWS subcard
 
-- **GIVEN** a session with a running flow, whose `commandsList` includes a flows-namespaced command
+- **GIVEN** a session with a running flow whose flow catalog lists at least one flow
 - **WHEN** the desktop session card is rendered
 - **THEN** the flow status SHALL render exactly once inside the FLOWS subcard via the `session-card-flows` slot
 - **AND** the flow actions SHALL NOT render inside the FLOWS subcard
-- **AND** they SHALL render via the `session-card-action-bar` slot in the session actions menu's PLUGINS group
+- **AND** they SHALL render in the FLOWS dock chip (`composer-context-group`) and the flow panel header
+- **AND** the `session-card-action-bar` slot SHALL render no flows plugin item for that session
 
 ### Requirement: New plugin slot `session-card-flows` is reserved and consumed by FLOWS subcard
 

@@ -159,7 +159,7 @@ Files in this directory. One row per source file.
 | `__tests__/bundled-plugins-complete.test.ts` | bundledPlugins completeness; first-party deps are workspaces; third-party union conflict-free (E13). See change: bundle-plugin-third-party-deps. |
 | `__tests__/materialize-plugins-deps.test.ts` | `collectPluginRuntimeDeps` (E1–E8) + `findUnresolvedPluginDeps` (E9–E12). See change: bundle-plugin-third-party-deps. |
 | `terminal-types.ts` | Terminal emulator shared types. Exports `TerminalSession` (id, cwd, shell, status, title, `ephemeral` flag for inline cards) and `TerminalControlMessage` (resize | title) control frame union. |
-| `types.ts` | Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`, `FlowInfo`, `CommandInfo`,…… → see `types.ts.AGENTS.md` |
+| `types.ts` | Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`, `CommandInfo`,…… → see `types.ts.AGENTS.md` |
 | `url-policy.ts` | `classifyUrl(raw, origin|null)` → `internal|loopback|external|mailto|blocked`; pure, never throws. → see `url-policy.ts.AGENTS.md` See change: harden-client-sinks. |
 | `vault-delivery.ts` | Vault delivery constants shared by hub + bridge (feature flag, marker env, grace clamp, env-name rule). → see `vault-delivery.ts.AGENTS.md` |
 | `vault-origin.ts` | Pure `normalizeOrigin(raw)`: SSH / SCP / HTTPS spellings of one repository → `host[:port]/path`; no node… → see `vault-origin.ts.AGENTS.md` |

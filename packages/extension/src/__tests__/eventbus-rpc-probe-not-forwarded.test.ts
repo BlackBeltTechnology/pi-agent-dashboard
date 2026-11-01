@@ -134,7 +134,10 @@ describe("RPC probes are not forwarded (static set)", () => {
 });
 
 describe("RPC probes are not forwarded (two-facade bus)", () => {
-  it("E2: a probe emitted by the bridge facade is answered but not forwarded", () => {
+  it("E2: the flows plugin bridge's flow-list probe (a foreign facade) is answered but not forwarded", () => {
+    // The dashboard bridge no longer probes pi-flows; the flows plugin bridge
+    // does (`packages/flows-plugin/src/bridge/flow-probe.ts`), from its own
+    // facade, and pi-flows answers it. See change: flows-dock-chip-and-panel-actions.
     const host = makeHost();
     const { deps, sent } = makeDeps();
     registerEventBusForwarding(host.bridgeEvents, deps);
@@ -143,7 +146,7 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
     });
 
     const probe: { flows?: unknown } = {};
-    host.bridgeEvents.emit("flow:list-flows", probe);
+    host.foreignEvents.emit("flow:list-flows", probe);
     host.foreignEvents.emit("flow:complete", { status: "success" });
 
     expect(probe.flows).toEqual([{ name: "x" }]);

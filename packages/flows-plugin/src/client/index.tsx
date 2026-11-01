@@ -44,6 +44,11 @@ export { SessionFlowActions, SessionFlowActionsClaim } from "./SessionFlowAction
 export { flowsActionsAvailable, hasFlowsCommand } from "./flowsActionsGate.js";
 export { SessionFlowMenuClaim } from "./SessionFlowMenuClaim.js";
 
+// `composer-context-group` claim: the FLOWS dock chip. Eager: a hot composer
+// slot must not suspend (lazy-plugin-claims policy). See change:
+// flows-dock-chip-and-panel-actions.
+export { FlowsContextGroup } from "./FlowsContextGroup.js";
+
 // Manifest-level shouldRender predicate for the `session-card-flows` claim
 // (any flow event). See change: add-flows-subcard, add-session-actions-flyout.
 export { shouldRenderFlowsSubcard } from "./shouldRender.js";
@@ -53,10 +58,8 @@ export { shouldRenderFlowsSubcard } from "./shouldRender.js";
 // surface through buttons only (`SessionFlowActions`, `FlowLaunchDialog`,
 // `FlowDashboard` Abort). pi-flows itself continues to register the slash
 // commands for TUI users. See change: fix-pi-flows-end-to-end (Group 8).
-//
-// The FlowsCommandRoutes module is no longer exported from this barrel.
-// Restore the exports here if/when the dashboard re-introduces command-route
-// claims for flows.
+// The dead FlowsCommandRoutes module was deleted. See change:
+// flows-dock-chip-and-panel-actions.
 
 export type { FlowsSessionState } from "./FlowsSessionStateContext.js";
 // Plugin-internal state hooks. Components consume these in place of

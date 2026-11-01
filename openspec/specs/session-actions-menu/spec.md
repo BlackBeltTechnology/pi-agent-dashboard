@@ -118,12 +118,12 @@ Group contents:
     - `BROKEN` and `STALE`: the group contains no workflow, attach, propose or archive item. It contains only Detach when a change is attached; otherwise it is omitted. Remediation stays on the card's disabled subcard.
     - Payload with no `readiness` field (older server): the group degrades exactly as the subcard does.
 - **GIT:** Commit N changes… (when dirty), Switch branch…, then the worktree actions — Push, Open PR or View PR #N, Merge (when not the NEXT item), Close worktree…
-- **PLUGINS:** the output of `session-card-action-bar` claims and intents, including the flows plugin's flow actions (see "Plugin contributions render inside the PLUGINS group").
+- **PLUGINS:** the output of `session-card-action-bar` claims and intents (see "Plugin contributions render inside the PLUGINS group"). The flows plugin contributes here only for a session without flows (see `flows-plugin`).
 - **VIEW:**
   - `Card sections…` opens the Session cards page of the session's group folder (`gitWorktree.mainPath` for worktree sessions, otherwise the session's cwd).
   - `Card section defaults…` opens the global Session cards defaults in Settings.
 
-The menu holds the host's session actions, the `session-card-action-bar` slot output and the flows plugin's flow actions. Controls rendered inside other plugin-owned sections stay where their plugin renders them: MEMORY subcard content, `session-card-badge` claims in STATUS (for example, a relay badge popover), and worktree card-section claims (for example, KB re-index). Moving them is out of scope.
+The menu holds the host's session actions and the `session-card-action-bar` slot output. Flow actions for a session with flows live in the FLOWS dock chip and the flow panel header (see `flows-dock-chip`). Controls rendered inside other plugin-owned sections stay where their plugin renders them: MEMORY subcard content, `session-card-badge` claims in STATUS (for example, a relay badge popover), and worktree card-section claims (for example, KB re-index). Moving them is out of scope.
 
 Section visibility ids other than `spawn` and `actionbar-<pluginId>` (for example `openspec`, `git`, `flows`, `memory`) hide card sections only. They do not remove menu items.
 
@@ -380,9 +380,9 @@ The menu SHALL host plugin actions through the existing `session-card-action-bar
 - **AND** it SHALL render in the `PLUGINS` group of `s1`'s menu when the menu is open
 
 #### Scenario: Claim-owned dialog survives the menu closing
-- **WHEN** the user activates **Run Flow…** in the `PLUGINS` group of `s1`'s menu
+- **WHEN** the user activates **New flow…** in the `PLUGINS` group of a flowless session `s1`'s menu
 - **THEN** the menu SHALL close
-- **AND** the flows plugin's run dialog SHALL open and stay open
+- **AND** the flows plugin's authoring dialog SHALL open and stay open
 
 #### Scenario: Intent action list renders as menu items
 - **WHEN** a plugin publishes an `action-list` intent on `session-card-action-bar` for `s1`

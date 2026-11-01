@@ -31,3 +31,5 @@ New setter `setLookupOnlyIds`: `sessions_page_result` removes the ids it deliver
 - `terminal_error` → notice store (`kind:"error"`, server `message`); no terminal state; clears `pendingTerminalCwdRef` when cwd matches (`terminal_limit_reached` now does too). Newer terminal notice replaces older. See change: harden-git-terminal-plugin-boundaries.
 
 - `history_backfill_result` splice passes `new Set(msg.openToolCallIds ?? [])` to `finalizeBackfillSegment`; each kept-running reported-open row missing from `current.toolCalls` gets `seedRunningToolCall(..., current.assistantInferenceSeq, <segment start ts>)` — the ONE exception to the touch-only-`messages[]` (D10) rule; `maxSeqMapRef`/publish/persister still untouched. See change: fix-backfill-elides-live-tools (D2).
+
+`flows_list` case removed (flow list plugin-owned). See change: flows-dock-chip-and-panel-actions.

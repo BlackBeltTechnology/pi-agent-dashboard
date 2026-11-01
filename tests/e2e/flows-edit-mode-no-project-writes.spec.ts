@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { expect, test } from "./fixtures.js";
 import { resolveContainer } from "./helpers/container-proc.js";
 import { FIXTURE_GIT, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
-import { closeSessionMenu, flowMenuItem, openSessionMenu } from "./helpers/session-actions-menu.js";
+import { chipPopoverItem, closeChipPopover, waitForFlowsChip } from "./helpers/flows-chip.js";
 
 // Change: stop-flows-edit-mode-project-writes — L3 against the REAL pi-flows
 // engine (>= 0.8.1, baked by docker/Dockerfile). The dashboard never writes a
@@ -18,6 +18,10 @@ import { closeSessionMenu, flowMenuItem, openSessionMenu } from "./helpers/sessi
 // F5: two sessions in one cwd, effective off → A "Turn on edit mode for this
 //     project" → repo file flows.editFlow:true, B's label flips without reload,
 //     global unchanged.
+//
+// The authoring items live in the FLOWS dock chip's pencil popover (the fixture
+// has flows, so the session actions menu carries none). See change:
+// flows-dock-chip-and-panel-actions.
 //
 // Shared container: every test snapshots and restores both settings files.
 
@@ -64,36 +68,39 @@ test.afterEach(() => {
 });
 
 test.describe("flows edit mode never writes the repo implicitly (L3: real pi-flows)", () => {
-  test("F3: global on → open + reload twice → repo unchanged, New / Edit… offered", async ({ page }) => {
+  test("F3: global on → open + reload twice → repo unchanged, New flow… offered", async ({ page }) => {
     setFlag(PROJECT, "unset");
     setFlag(GLOBAL, "true");
     const before = repoState();
 
     const card = await spawnFreshGitSession(page);
-    await openSessionMenu(page, card);
-    await expect(flowMenuItem(page, /new \/ edit/i)).toBeVisible({ timeout: 60_000 });
-    await closeSessionMenu(page);
+    await card.click();
+    await waitForFlowsChip(page);
+    await expect(await chipPopoverItem(page, /new flow/i)).toBeVisible({ timeout: 30_000 });
+    await closeChipPopover(page);
 
     for (let i = 0; i < 2; i++) {
       await page.reload();
       await gotoDashboard(page);
       await expect(card).toBeVisible({ timeout: 30_000 });
     }
-    await openSessionMenu(page, card);
-    await expect(flowMenuItem(page, /new \/ edit/i)).toBeVisible({ timeout: 30_000 });
+    await card.click();
+    await waitForFlowsChip(page, 30_000);
+    await expect(await chipPopoverItem(page, /new flow/i)).toBeVisible({ timeout: 30_000 });
     expect(repoState()).toEqual(before);
   });
 
-  test("F4: Settings › Flows Edit mode on → global file written, repo clean, New / Edit… shown", async ({ page }) => {
+  test("F4: Settings › Flows Edit mode on → global file written, repo clean, New flow… shown", async ({ page }) => {
     setFlag(PROJECT, "unset");
     setFlag(GLOBAL, "unset");
     const before = repoState();
 
     const card = await spawnFreshGitSession(page);
-    await openSessionMenu(page, card);
-    await expect(flowMenuItem(page, /turn on edit mode for this project/i)).toBeVisible({ timeout: 60_000 });
-    await expect(flowMenuItem(page, /new \/ edit/i)).toHaveCount(0);
-    await closeSessionMenu(page);
+    await card.click();
+    await waitForFlowsChip(page);
+    await expect(await chipPopoverItem(page, /turn on edit mode for this project/i)).toBeVisible({ timeout: 30_000 });
+    await expect(await chipPopoverItem(page, /new flow/i)).toHaveCount(0);
+    await closeChipPopover(page);
 
     const prompts: string[] = [];
     page.on("websocket", (ws) =>
@@ -113,8 +120,9 @@ test.describe("flows edit mode never writes the repo implicitly (L3: real pi-flo
     await expect.poll(() => editFlowOf(GLOBAL), { timeout: 15_000 }).toBe(true);
 
     await gotoDashboard(page);
-    await openSessionMenu(page, card);
-    await expect(flowMenuItem(page, /new \/ edit/i)).toBeVisible({ timeout: 30_000 });
+    await card.click();
+    await waitForFlowsChip(page, 30_000);
+    await expect(await chipPopoverItem(page, /new flow/i)).toBeVisible({ timeout: 30_000 });
     expect(prompts).toEqual([]);
     expect(repoState()).toEqual(before);
   });
@@ -127,15 +135,17 @@ test.describe("flows edit mode never writes the repo implicitly (L3: real pi-flo
     const a = await spawnFreshGitSession(page);
     const b = await spawnFreshGitSession(page);
 
-    await openSessionMenu(page, a);
-    await flowMenuItem(page, /turn on edit mode for this project/i).click({ timeout: 60_000 });
+    await a.click();
+    await waitForFlowsChip(page);
+    await (await chipPopoverItem(page, /turn on edit mode for this project/i)).click({ timeout: 30_000 });
     await expect.poll(() => editFlowOf(PROJECT), { timeout: 15_000 }).toBe(true);
 
     // B: label follows the pushed frame (no reload).
-    await closeSessionMenu(page);
-    await openSessionMenu(page, b);
-    await expect(flowMenuItem(page, /turn off edit mode for this project/i)).toBeVisible({ timeout: 15_000 });
-    await expect(flowMenuItem(page, /new \/ edit/i)).toBeVisible();
+    await closeChipPopover(page);
+    await b.click();
+    await waitForFlowsChip(page, 30_000);
+    await expect(await chipPopoverItem(page, /turn off edit mode for this project/i)).toBeVisible({ timeout: 15_000 });
+    await expect(await chipPopoverItem(page, /new flow/i)).toBeVisible();
     expect(snapshot(GLOBAL)).toBe(globalBefore);
   });
 });

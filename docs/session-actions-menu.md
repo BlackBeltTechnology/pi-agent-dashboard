@@ -114,14 +114,15 @@ No new API. Existing `session-card-action-bar` claims and intents.
 
 ## 4. Flows example
 
-Two claims, two slots, two gates.
+Flows contributes only the flowless entry point to the menu. Flow actions (Run, Open, Edit…, Delete) live in the FLOWS dock chip and panel headers. See change: flows-dock-chip-and-panel-actions.
 
 | Claim | Slot | Renders | Gate |
 |---|---|---|---|
-| `SessionFlowMenuClaim` | `session-card-action-bar` | Run Flow…, Open flow…, New, Edit…, Delete (`ui:action-list`) + their dialogs | `flowsActionsAvailable(sessionId)` |
+| `SessionFlowMenuClaim` | `session-card-action-bar` | New flow…; "Turn on edit mode for this project" (flowless sessions only) + dialogs | `flowsActionsAvailable(sessionId)` |
 | `SessionFlowActionsClaim` | `session-card-flows` (FLOWS subcard) | `FlowActivityBadge`: status + abort only | `shouldRenderFlowsSubcard(session)` |
 
-- `flowsActionsAvailable(id)` = `hasFlowsCommand(commandsList)` OR `sessionHasFlowEvents(id)`.
+- Flow list source: `useFlowCatalog(sessionId)` (`flow_catalog`). Core `flows_list` removed.
+- `flowsActionsAvailable(id)`: `hasFlowsCommand(commandsList)` OR `sessionHasFlowEvents(id)`.
 - `hasFlowsCommand`: `flows` or `flows:*`. Ignores `flows:new`.
 - `shouldRenderFlowsSubcard(session)` = `sessionHasFlowEvents(session.id)` (any flow event).
 - Edit-mode reconcile hosted by `SessionFlowMenuClaim` (moved from `SessionFlowActionsClaim`).

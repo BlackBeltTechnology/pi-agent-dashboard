@@ -1,7 +1,7 @@
 /**
  * Unit tests for `shouldRenderFlowsSubcard`, the manifest-level visibility gate
  * for the `session-card-flows` claim. The FLOWS subcard carries status only, so
- * the gate is "the session has any flow event" — flowsList and edit mode no
+ * the gate is "the session has any flow event" — the flow catalog and edit mode no
  * longer matter (they gate the flow actions, see flows-actions-gate.test.ts).
  * See change: fix-empty-flows-subcard, add-session-actions-flyout (E25).
  */
@@ -16,6 +16,9 @@ import { shouldRenderFlowsSubcard } from "../client/shouldRender.js";
 
 const session = (id: string) => ({ id }) as never;
 const setEditMode = (on: boolean) => initPluginConfigs({ flows: { editFlow: on } });
+/** The plugin `flow_catalog` event (session metadata, never flow activity). */
+const catalogEvent = (flows: Array<{ name: string }>) =>
+  ({ eventType: "flow_catalog", timestamp: 1, data: { catalogKey: "catalog", flows } }) as never;
 
 describe("flows-plugin: shouldRenderFlowsSubcard predicate", () => {
   beforeEach(() => {
@@ -35,22 +38,22 @@ describe("flows-plugin: shouldRenderFlowsSubcard predicate", () => {
     expect(shouldRenderFlowsSubcard(undefined)).toBe(false);
   });
 
-  it("hidden in the bug state: flowsList empty + edit mode off + no flow events", () => {
+  it("hidden in the bug state: empty catalog + edit mode off + no flow events", () => {
     const sid = "bug-state";
-    publishSessionData(sid, "flowsList", []);
+    publishSessionEvent(sid, catalogEvent([]));
     // Extension present (a /flows command exists) must NOT open the gate anymore.
     publishSessionData(sid, "commandsList", [{ name: "flows" }]);
     expect(shouldRenderFlowsSubcard(session(sid))).toBe(false);
   });
 
-  it("E25: true iff a flow event exists, irrespective of editFlow × flowsList", () => {
+  it("E25: true iff a flow event exists, irrespective of editFlow × catalog", () => {
     let n = 0;
     for (const edit of [false, true]) {
       for (const list of [[], [{ name: "deploy" }]]) {
         for (const withEvent of [false, true]) {
           const sid = `e25-${++n}`;
           setEditMode(edit);
-          publishSessionData(sid, "flowsList", list);
+          publishSessionEvent(sid, catalogEvent(list));
           if (withEvent) {
             publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
           }
@@ -63,7 +66,7 @@ describe("flows-plugin: shouldRenderFlowsSubcard predicate", () => {
 
   it("visible when a flow event exists (running/completed, zero listed flows)", () => {
     const sid = "flow-ran";
-    publishSessionData(sid, "flowsList", []);
+    publishSessionEvent(sid, catalogEvent([]));
     expect(shouldRenderFlowsSubcard(session(sid))).toBe(false);
     publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
     expect(shouldRenderFlowsSubcard(session(sid))).toBe(true);

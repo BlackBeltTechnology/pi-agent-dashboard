@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { renderSessionFlowActions } from "../server/render-actions.js";
-import type { FlowInfo, CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 
 const cmd = (name: string): CommandInfo => ({ name }) as CommandInfo;
-const flow = (name: string, description = ""): FlowInfo =>
-  ({ name, description }) as FlowInfo;
+const flow = (name: string, description = ""): FlowCatalogEntry => ({ name, description, source: "", taskRequired: false });
 
 describe("renderSessionFlowActions", () => {
   it("returns null when no flows and no /flows:new command", () => {

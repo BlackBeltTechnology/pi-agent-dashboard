@@ -21,7 +21,6 @@ import type {
   DecoratorDescriptor,
   ExtensionUiModule,
   FileEntry,
-  FlowInfo,
   FollowUpEntryView,
   GoalRecord,
   ImageContent,
@@ -313,12 +312,6 @@ export interface BrowserCommandsListMessage {
   type: "commands_list";
   sessionId: string;
   commands: CommandInfo[];
-}
-
-export interface BrowserFlowsListMessage {
-  type: "flows_list";
-  sessionId: string;
-  flows: FlowInfo[];
 }
 
 export interface BrowserExtensionUiRequestMessage {
@@ -1248,7 +1241,6 @@ export type ServerToBrowserMessage =
   | SessionHistoryWindowMessage
   | HistoryBackfillResultMessage
   | BrowserCommandsListMessage
-  | BrowserFlowsListMessage
   | BrowserExtensionUiRequestMessage
   | BrowserUiDismissMessage
   | BrowserFilesListMessage

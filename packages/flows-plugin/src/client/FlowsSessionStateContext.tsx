@@ -31,6 +31,7 @@ import type {
   FlowState,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useMemo } from "react";
+import { FLOW_CATALOG_EVENT, type FlowCatalogEntry, parseCatalogPayload } from "../flow-catalog-contract.js";
 import { isFlowEvent, reduceFlowEvent } from "../reducer.js";
 import { toEventTime } from "./flow-idle-state.js";
 
@@ -52,6 +53,9 @@ export interface FlowsSessionState {
   lastAutonomousMode?: boolean;
   /** Latest start pi-flows refused (`flow_complete` status `rejected`) (D7). */
   lastRejection?: { flowName: string; reason?: string; timestamp: number };
+  /** Newest `flow_catalog` in the stream (replayed included); `undefined` =
+   *  unknown (never seen). See change: flows-dock-chip-and-panel-actions (D1, D5). */
+  catalog?: readonly FlowCatalogEntry[];
 }
 
 const EMPTY_STATE: FlowsSessionState = Object.freeze({
@@ -83,11 +87,19 @@ export function reduceFlowsSessionState(
   let lastFlowStartedAt: number | undefined;
   let lastAutonomousMode: boolean | undefined;
   let lastRejection: FlowsSessionState["lastRejection"];
+  let catalog: FlowCatalogEntry[] | undefined;
 
   // Diagnostic counter for C1 — see fix-flows-plugin-polish. Gated to dev.
   let flowEventCount = 0;
 
   for (const event of events) {
+    if (event.eventType === FLOW_CATALOG_EVENT) {
+      // Catalog is session metadata, not flow progress: latest wins, never
+      // touches flowState / flowStates (no chat row, no panel).
+      const parsed = parseCatalogPayload(event.data);
+      if (parsed) catalog = parsed;
+      continue;
+    }
     if (isFlowEvent(event.eventType)) {
       flowEventCount++;
       const data = event.data ?? {};
@@ -141,7 +153,8 @@ export function reduceFlowsSessionState(
     flowStates.size === 0 &&
     lastFlowStartedAt === undefined &&
     lastAutonomousMode === undefined &&
-    lastRejection === undefined
+    lastRejection === undefined &&
+    catalog === undefined
   ) {
     return EMPTY_STATE;
   }
@@ -152,6 +165,7 @@ export function reduceFlowsSessionState(
     lastFlowStartedAt,
     lastAutonomousMode,
     lastRejection,
+    ...(catalog !== undefined ? { catalog } : {}),
   };
 }
 

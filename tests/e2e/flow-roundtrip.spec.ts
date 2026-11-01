@@ -30,7 +30,7 @@ test.describe("flow roundtrip (L3: real pi-flows engine + faux agents)", () => {
 
     // (1) Availability gate: pi-flows discovered the synthetic flow → the
     // "Run Flow…" launcher renders on the session-card action bar.
-    const runFlow = card.getByRole("button", { name: /run flow/i });
+    const runFlow = page.getByTestId("flows-chip-run");
     await expect(runFlow).toBeVisible({ timeout: 60_000 });
     await runFlow.click();
 

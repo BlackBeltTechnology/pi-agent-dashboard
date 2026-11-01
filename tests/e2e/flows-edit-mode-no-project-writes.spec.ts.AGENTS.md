@@ -5,3 +5,5 @@ Container files via `docker exec` (`resolveContainer`): global `$HOME/.pi/agent/
 F3: global `flows.editFlow:true` → fresh session, menu `New / Edit…`, reload twice → `git status --porcelain` + project settings bytes + `.pi/skills/manage-flows` unchanged.
 F4: nothing set → menu shows `Turn on edit mode for this project`, no `New / Edit…` → `/settings/plugins/flows` `flows-edit-mode-toggle` → `save-btn` → global `flows.editFlow:true`, `New / Edit…` appears, no `send_prompt` frame, repo unchanged.
 F5: global false, two sessions in fixture cwd → A `Turn on edit mode for this project` → project `flows.editFlow:true`; B menu `Turn off edit mode for this project` + `New / Edit…`; global bytes unchanged.
+
+F3–F5 use the chip pencil popover (New flow… / per-project item) instead of the session menu. See change: flows-dock-chip-and-panel-actions.

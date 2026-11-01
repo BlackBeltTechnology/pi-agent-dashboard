@@ -3,7 +3,6 @@
  * and forwards them as protocol messages to the dashboard server.
  */
 
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { filterHiddenCommands } from "./bridge-context.js";
 
@@ -165,26 +164,24 @@ export function registerEventBusForwarding(
  *
  * @param bc - Bridge context (mutable state)
  * @param isSessionReady - Function that returns whether session is ready
- * @param getFlowsList - Function to get current flows list
  */
 export function registerFlowEventListeners(
   bc: BridgeContext,
   isSessionReady: () => boolean,
-  getFlowsList: () => FlowInfo[],
 ): void {
   const { pi, connection } = bc;
   if (!pi.events) return;
 
-  // Re-send commands and flows list when pi-flows discovers new flows or completes
-  const resendCommandsAndFlows = () => {
+  // Re-send the commands list when pi-flows rediscovers (it re-registers flow
+  // commands) or completes. The flow list itself is plugin-owned (flows plugin
+  // catalog). See change: flows-dock-chip-and-panel-actions (D8).
+  const resendCommands = () => {
     if (!isSessionReady()) return;
     const commands = filterHiddenCommands(pi.getCommands());
     connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
-    const flows = getFlowsList();
-    connection.send({ type: "flows_list", sessionId: bc.sessionId, flows });
   };
-  pi.events.on("flow:rediscover", resendCommandsAndFlows);
-  pi.events.on("flow:complete", resendCommandsAndFlows);
+  pi.events.on("flow:rediscover", resendCommands);
+  pi.events.on("flow:complete", resendCommands);
 
   // Note: event_forward sending for flow and subagent events is handled by
   // subscription-based forwarding (`registerEventBusForwarding` above, wired
