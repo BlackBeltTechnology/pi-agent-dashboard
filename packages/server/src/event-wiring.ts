@@ -968,8 +968,6 @@ export function wireEvents(deps: EventWiringDeps): void {
   }
   replayController.setOnExit(exitReplay);
 
-  // Debounce flows refresh to prevent infinite loop between sessions in same cwd
-  const recentFlowsRefresh = new Set<string>();
   // Per-session timestamp of the most recent `lastActivityAt` broadcast.
   // In-memory state updates on every activity event; the WebSocket broadcast
   // is throttled to at most one per `LAST_ACTIVITY_BROADCAST_INTERVAL_MS` per
@@ -2230,30 +2228,9 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    if (msg.type === "flows_list") {
-      browserGateway.sendToSubscribers(sessionId, {
-        type: "flows_list",
-        sessionId,
-        flows: msg.flows,
-      });
-
-      // Tell other connected sessions in the same cwd to rediscover flows
-      // (debounced to avoid infinite loop: A→refresh B→B sends flows→refresh A→...)
-      if (!recentFlowsRefresh.has(sessionId)) {
-        recentFlowsRefresh.add(sessionId);
-        setTimeout(() => recentFlowsRefresh.delete(sessionId), 5_000);
-        const session = sessionManager.get(sessionId);
-        if (session) {
-          for (const sid of piGateway.getConnectedSessionIds()) {
-            if (sid === sessionId || recentFlowsRefresh.has(sid)) continue;
-            const other = sessionManager.get(sid);
-            if (other && other.cwd === session.cwd) {
-              piGateway.sendToSession(sid, { type: "request_flows_refresh", sessionId: sid });
-            }
-          }
-        }
-      }
-    }
+    // An older bridge's legacy flow-list message falls through unhandled: the
+    // flow list is plugin-owned (flows plugin catalog event). See change:
+    // flows-dock-chip-and-panel-actions (D8).
 
     if (msg.type === "git_info_update") {
       // Compose live worktree state from bridge + server-cached base ref

@@ -985,7 +985,7 @@ This is a **historic** inventory. The archive spans 2025-06 → 2026-07; many ea
 - **Frontend surface:** SessionFlowActions, SessionHeader (flow list/menu)
 - **User-facing behavior:** Users see the list of available flows (with names/descriptions) sourced from real flow metadata, and can trigger /flows:new and /flows:edit actions.
 - **Test cases (Playwright candidates):**
-  - The flow actions menu lists flows by name matching the `flows_list` data (not filtered command heuristics).
+  - The flow actions menu lists flows by name matching the `flow_catalog` data via `useFlowCatalog` (not filtered command heuristics). Core `flows_list` removed.
   - Each listed flow shows its description metadata when present.
   - Triggering "new flow" from SessionFlowActions initiates the flow-new action without an error state.
   - Triggering "edit flow" for an existing flow opens the edit action.

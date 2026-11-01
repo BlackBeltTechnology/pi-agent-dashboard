@@ -11,6 +11,8 @@ import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin
 import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { provideFlowsActions } from "./automation-actions.js";
 import { broadcastEditModeState, handleSetEditMode, migrateLegacyEditFlow, registerEditModeRoutes } from "./edit-mode.js";
+import { FLOW_REQUEST_CATALOG_ACTION } from "../flow-catalog-contract.js";
+import { registerFlowCatalog } from "./flow-catalog.js";
 import { registerFlowFileRoutes } from "./flow-files.js";
 import { mountFlowInputsRoute } from "./flow-inputs.js";
 import { renderSessionFlowActions } from "./render-actions.js";
@@ -19,8 +21,8 @@ import { stateStore } from "./state-store.js";
 const PLUGIN_ID = "flows";
 
 /**
- * Resolve the flows available in a folder from the LIVE per-session flows list
- * (`stateStore`, populated by the bridge-forwarded `flows_list`), by mapping
+ * Resolve the flows available in a folder from the LIVE per-session flow catalog
+ * (`stateStore`, fed by forwarded `flow_catalog` events), by mapping
  * the cwd to its running session(s) and unioning their reported `<ns>:<name>`
  * ids. Reflects package-bundled and event-registered flows that a static
  * `.pi/flows/flows` scan would miss; empty when no running session matches the
@@ -88,6 +90,20 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     sessionManager: ctx.sessionManager,
     emitEventToSession,
   });
+
+  // Flow catalog: feed stateStore from forwarded `flow_catalog` events, ask
+  // sessions to report (client ask, sibling follow, server start).
+  // See change: flows-dock-chip-and-panel-actions (D3, D4).
+  const catalog = registerFlowCatalog({
+    onEvent: ctx.onEvent,
+    onSessionEnded: ctx.onSessionEnded,
+    sessionManager: ctx.sessionManager,
+    emitEventToSession,
+    getPluginConfig: () => ctx.getPluginConfig<Record<string, unknown>>() ?? {},
+    store: stateStore,
+    logger,
+  });
+  catalog.startServerStartAsks();
 
   // Edit mode: global default (`~/.pi/agent/settings.json#flows.editFlow`) +
   // per-session effective state, read-only except the guarded global PUT.
@@ -179,6 +195,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         const command = instruction ? `/skill:manage-flows ${instruction}` : "/skill:manage-flows";
         const delivered = sendToSession(m.sessionId, command);
         logger.info(`flow.new session=${m.sessionId} delivered=${delivered}`);
+        break;
+      }
+      case FLOW_REQUEST_CATALOG_ACTION: {
+        // Browser ask while a session's catalog is unknown, or on chip / menu
+        // / picker open (`rediscover` re-reads flows from disk first).
+        // Rate-limited per session. See change: flows-dock-chip-and-panel-actions (D3).
+        catalog.requestCatalog(m.sessionId, { rediscover: payload.rediscover === true });
         break;
       }
       case "flow.set-edit-mode": {

@@ -23,7 +23,7 @@ test.describe("live flow — dedicated flow card only", () => {
 
     // Launch the synthetic flow (availability gate: launcher appears once
     // pi-flows' flows_list arrives).
-    const runFlow = card.getByRole("button", { name: /run flow/i });
+    const runFlow = page.getByTestId("flows-chip-run");
     await expect(runFlow).toBeVisible({ timeout: 60_000 });
     await runFlow.click();
 

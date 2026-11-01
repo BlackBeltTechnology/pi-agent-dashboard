@@ -6,6 +6,7 @@
 import { PLUGIN_REQUEST_SYMBOL } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectFlowFiles, startFlowFilesReporter } from "../bridge/flow-files-reporter.js";
+import { probeFlows } from "../bridge/flow-probe.js";
 import { FLOW_FILES_REPORT, FLOW_FILES_REQUEST_EVENT } from "../flow-files-contract.js";
 
 type Listener = (data: unknown) => void;
@@ -48,7 +49,20 @@ afterEach(() => {
   delete g[PLUGIN_REQUEST_SYMBOL];
 });
 
+describe("probeFlows", () => {
+  it("distinguishes unanswered (undefined), answered empty ([]) and answered flows", () => {
+    expect(probeFlows({ emit: () => {} })).toBeUndefined();
+    expect(probeFlows({ emit: (_n, d) => void ((d as { flows?: unknown }).flows = []) })).toEqual([]);
+    expect(probeFlows({ emit: (_n, d) => void ((d as { flows?: unknown }).flows = [{ name: "x" }]) })).toEqual([{ name: "x" }]);
+    expect(probeFlows({ emit: () => { throw new Error("boom"); } })).toBeUndefined();
+  });
+});
+
 describe("collectFlowFiles", () => {
+  it("is undefined when pi-flows did not answer", () => {
+    expect(collectFlowFiles({ on: () => {}, emit: () => {} })).toBeUndefined();
+  });
+
   it("reads flows and agents with sources from pi-flows", () => {
     expect(collectFlowFiles(fakePi().events)).toEqual({
       flows: [{ name: "ns:a", source: "/p/flows/ns/a/flow.yaml" }],
@@ -85,10 +99,31 @@ describe("startFlowFilesReporter", () => {
     expect(lane).toHaveBeenCalledTimes(3);
   });
 
-  it("never throws when pi-flows is absent", async () => {
+  it("never throws when pi-flows is absent, and skips the report (unanswered probe)", async () => {
     const pi = { events: { on: () => {}, emit: () => {} }, on: (_n: string, fn: () => void) => fn() };
     expect(() => startFlowFilesReporter(pi)).not.toThrow();
     await vi.advanceTimersByTimeAsync(500);
-    expect(lane).toHaveBeenCalledWith("flows", FLOW_FILES_REPORT, { flows: [], agents: [] });
+    expect(lane).not.toHaveBeenCalled();
+  });
+
+  it("reports once pi-flows answers on a later trigger (the client lookup then resolves)", async () => {
+    let loaded = false;
+    const listeners = new Map<string, Array<(d: unknown) => void>>();
+    const events = {
+      on: (n: string, fn: (d: unknown) => void) => listeners.set(n, [...(listeners.get(n) ?? []), fn]),
+      emit: (n: string, data: unknown) => {
+        if (n === "flow:list-flows" && loaded) (data as { flows?: unknown }).flows = [{ name: "ns:a", source: "/p/a.yaml" }];
+        for (const fn of listeners.get(n) ?? []) fn(data);
+      },
+    };
+    const piL: Array<() => void> = [];
+    startFlowFilesReporter({ events, on: (_n, fn) => piL.push(fn) });
+    for (const fn of piL) fn();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(lane).not.toHaveBeenCalled();
+    loaded = true;
+    events.emit(FLOW_FILES_REQUEST_EVENT, {});
+    await vi.advanceTimersByTimeAsync(500);
+    expect(lane).toHaveBeenCalledWith("flows", FLOW_FILES_REPORT, { flows: [{ name: "ns:a", source: "/p/a.yaml" }], agents: [] });
   });
 });

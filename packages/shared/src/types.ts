@@ -783,14 +783,6 @@ export interface DashboardEvent {
   data: Record<string, unknown>;
 }
 
-/** Info about an available flow from pi-flows */
-export interface FlowInfo {
-  name: string;
-  description: string;
-  taskRequired: boolean;
-  source?: string;
-}
-
 /** Info about an available command */
 export interface CommandInfo {
   name: string;

@@ -8,9 +8,9 @@ import {
   registerUiPrimitive,
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { CurrentPluginLayer, PluginContextProvider, publishSessionData } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { CurrentPluginLayer, PluginContextProvider, publishSessionData, publishSessionEvent } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,11 +66,13 @@ describe("useEditModeState frames are session-scoped (#F7)", () => {
 });
 
 describe("FLOWS subcard ignores edit mode (#E16)", () => {
-  it("empty flowsList, no flow events, effective on → no subcard, New/Edit in the menu", async () => {
+  it("empty catalog, no flow events, effective on → no subcard, New flow… in the menu", async () => {
     fetchMock.mockImplementation(async () => new Response(JSON.stringify({ enabled: true }), { status: 200 }));
     const sid = "e16-S";
     publishSessionData(sid, "commandsList", [{ name: "flows" }]);
-    publishSessionData(sid, "flowsList", []);
+    // An empty catalog (flow_catalog) never opens the subcard. See change:
+    // flows-dock-chip-and-panel-actions.
+    publishSessionEvent(sid, { seq: 1, timestamp: 1, eventType: "flow_catalog", data: { catalogKey: "catalog", flows: [] } } as unknown as DashboardEvent);
     const session = { id: sid } as DashboardSession;
     expect(shouldRenderFlowsSubcard(session)).toBe(false);
 
@@ -90,7 +92,7 @@ describe("FLOWS subcard ignores edit mode (#E16)", () => {
         </UiPrimitiveProvider>
       </PluginContextProvider>,
     );
-    expect(await screen.findByRole("button", { name: /New \/ Edit/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "New flow…" })).toBeTruthy();
     expect(screen.getByTestId("subcard").textContent).toBe("");
     expect(screen.queryByText("FLOWS")).toBeNull();
   });

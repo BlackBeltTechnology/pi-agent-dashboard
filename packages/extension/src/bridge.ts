@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { shouldActivateBridge } from "./bridge-activation.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
-import type { FlowInfo, } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AbortLatch } from "./abort-latch.js";
 import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
@@ -233,23 +232,9 @@ function initBridge(pi: ExtensionAPI) {
   }
   inst.applyDefaultModel = applyDefaultModel;
 
-  /** Query pi-flows for available flows via synchronous event RPC */
-  function getFlowsList(): FlowInfo[] {
-    const probe: any = {};
-    try {
-      pi.events?.emit("flow:list-flows", probe);
-    } catch { /* ignore */ }
-    return (probe.flows as FlowInfo[] | undefined) ?? [];
-  }
-  inst.getFlowsList = getFlowsList;
-
-  /** Send flows_list message to the dashboard server */
-  function sendFlowsList() {
-    const flows = getFlowsList();
-    console.error(`[dashboard] sendFlowsList: ${flows.length} flows, sessionId=${inst.sessionId.slice(0,8)}`);
-    inst.connection.send({ type: "flows_list", sessionId: inst.sessionId, flows });
-  }
-  inst.sendFlowsList = sendFlowsList;
+  // The flow list is plugin-owned (flows plugin bridge publishes a catalog
+  // event); core no longer probes or sends it. See change:
+  // flows-dock-chip-and-panel-actions (D8).
 
 
   inst.heartbeatTimer = null;
@@ -1482,24 +1467,10 @@ function initBridge(pi: ExtensionAPI) {
       inst.connection.send({ type: "spawn_new_session", sessionId: inst.sessionId, cwd: process.cwd() });
     },
     sessionPrompt: async (text, delivery, promptId) => {
-      // Route slash commands: management events, flow:run, extension dispatch, then fallback.
-      // See change: fix-extension-slash-commands-in-dashboard.
-      if (text.startsWith("/") && pi.events) {
-        const cmdText = text.slice(1);
-        const spaceIdx = cmdText.indexOf(" ");
-        const cmdName = spaceIdx === -1 ? cmdText : cmdText.slice(0, spaceIdx);
-        const cmdArgs = spaceIdx === -1 ? "" : cmdText.slice(spaceIdx + 1);
-
-        // Flow fast-path: typed /<user-defined-flow-name> wins over extension dispatch.
-        const flowsList = getFlowsList();
-        if (flowsList.some(f => f.name === cmdName)) {
-          // Non-turn slash route: settle any optimistic idle bubble so it does
-          // not hang to the 30s timeout. See change: optimistic-prompt-progress.
-          inst.connection.send({ type: "prompt_received", sessionId: inst.sessionId, fresh: false });
-          pi.events.emit("flow:run", { flowName: cmdName, task: cmdArgs.trim() || undefined });
-          return;
-        }
-      }
+      // Route slash commands: extension dispatch, then fallback. A typed
+      // `/<flow-name>` is pi-flows' own registered command, dispatched like any
+      // extension command (the bridge's flow fast-path is gone). See change:
+      // fix-extension-slash-commands-in-dashboard; flows-dock-chip-and-panel-actions (D8).
 
       // Extension-command dispatch (routing step 9). When matched, the helper
       // emits its own command_feedback events and we MUST NOT fall through.
@@ -1831,7 +1802,7 @@ function initBridge(pi: ExtensionAPI) {
   inst.applyBc = applyBc;
 
   // Local wrappers that sync bc around extracted module calls
-  function sendStateSync(opts?: { liveTailOpen?: boolean }) { const bc = syncBc(); _sendStateSync(bc, getFlowsList, opts); applyBc(bc); inst.connection.noteRegistered(); }
+  function sendStateSync(opts?: { liveTailOpen?: boolean }) { const bc = syncBc(); _sendStateSync(bc, opts); applyBc(bc); inst.connection.noteRegistered(); }
   function replaySessionEntries(opts?: { liveTailOpen?: boolean }) { _replaySessionEntries(syncBc(), opts); }
   inst.replaySessionEntries = replaySessionEntries;
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }

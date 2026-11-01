@@ -8,13 +8,13 @@
  * `useSessionData<T>(sessionId, key)`. The value type is plugin-
  * specific; the store is type-erased at the boundary.
  *
- * Used today for `flows_list` (consumed by flows-plugin's
- * SessionFlowActions claim) and `commands_list` (consumed by command-
- * route enabling logic in flows-plugin). Future plugins may register
- * their own keys; the namespace is shared, so plugins SHOULD
- * prefix keys with their plugin id (e.g. `"flows:flowsList"`).
+ * Used today for `commandsList` (consumed by flows-plugin's gates and
+ * actions). Future plugins may register their own keys; the namespace is
+ * shared, so plugins SHOULD prefix keys with their plugin id
+ * (e.g. `"flows:catalog"`).
  *
- * See change: pluginize-flows-via-registry.
+ * See change: pluginize-flows-via-registry; flows-dock-chip-and-panel-actions
+ * (the flow list moved to the flows plugin's catalog event).
  */
 
 const data = new Map<string, Map<string, unknown>>();

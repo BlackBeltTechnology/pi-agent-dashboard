@@ -6,7 +6,7 @@ import {
   gridOf,
   openIdleGrid,
 } from "./helpers/flow-card-grid.js";
-import { flowMenuItem, openSessionMenu } from "./helpers/session-actions-menu.js";
+import { chipOpen, expandSummary, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
@@ -65,20 +65,17 @@ async function expectControlRowAtCardBottom(card: import("@playwright/test").Loc
 async function runSyntheticToSummary(page: import("@playwright/test").Page) {
   const card = await spawnFreshGitSession(page);
   await card.click();
-  await openSessionMenu(page, card);
-  const open = flowMenuItem(page, /open flow/i);
-  await expect(open).toBeVisible({ timeout: 60_000 });
-  await expect(open).not.toHaveAttribute("aria-disabled", "true");
-  await open.click();
-  const search = page.getByPlaceholder("Search flows...");
-  await search.waitFor({ state: "visible", timeout: 15_000 });
-  await search.fill("synthetic");
-  await page.getByText("synthetic", { exact: false }).first().click();
+  // Open flow… lives on the FLOWS dock chip. See change: flows-dock-chip-and-panel-actions.
+  await waitForFlowsChip(page);
+  await chipOpen(page).click();
+  await pickFlow(page, "synthetic");
   const panel = page.getByTestId("flow-dashboard");
   await expect(panel).toBeVisible({ timeout: 30_000 });
   await panel.getByTestId("flow-idle-run").click();
   await byTestId(page, "flowLaunchRun").click();
-  await expect(page.getByTestId("flow-summary-scrollbox")).toBeVisible({ timeout: 120_000 });
+  // The completed panel starts collapsed; expand to measure the frozen grid.
+  await expandSummary(page);
+  await expect(page.getByTestId("flow-summary-scrollbox")).toBeVisible();
   return page.getByTestId("flow-summary-scrollbox");
 }
 

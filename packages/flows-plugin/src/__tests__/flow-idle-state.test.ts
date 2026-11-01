@@ -213,7 +213,7 @@ steps:
 `;
 
 describe("buildIdleFlowState — nominal (E5)", () => {
-  it("builds pending cards named by the FlowInfo name + source", () => {
+  it("builds pending cards named by the catalog entry name + source", () => {
     const source = "/x/.pi/flows/flows/e2e/synthetic/flow.yaml";
     const s = ready(SYNTHETIC_YAML, "e2e:synthetic", source);
     expect(Array.from(s.agents.keys())).toEqual(["alpha", "beta"]);
@@ -236,7 +236,7 @@ describe("resolveFlowSlot — decision table (E6)", () => {
     attachment: att as typeof att | null,
     idle: readyLoad,
     lastFlowStartedAt: 50 as number | undefined,
-    flowsList: [{ name: "A" }] as Array<{ name: string }>,
+    flows: [{ name: "A" }] as Array<{ name: string }>,
   };
 
   it("running wins over an attachment and consumes it", () => {
@@ -266,14 +266,14 @@ describe("resolveFlowSlot — decision table (E6)", () => {
     expect(e.error).toEqual({ kind: "load", message: "boom" });
   });
 
-  it("non-empty flowsList lacking the name → unavailable error", () => {
-    const r = resolveFlowSlot({ ...base, flowsList: [{ name: "B" }] });
+  it("non-empty catalog lacking the name → unavailable error", () => {
+    const r = resolveFlowSlot({ ...base, flows: [{ name: "B" }] });
     expect(r.mode).toBe("error");
     expect(r.error).toEqual({ kind: "unavailable" });
   });
 
-  it("empty flowsList → still idle", () => {
-    expect(resolveFlowSlot({ ...base, flowsList: [] }).mode).toBe("idle");
+  it("empty catalog → still idle", () => {
+    expect(resolveFlowSlot({ ...base, flows: [] }).mode).toBe("idle");
   });
 
   it("consumed + completed → live summary", () => {

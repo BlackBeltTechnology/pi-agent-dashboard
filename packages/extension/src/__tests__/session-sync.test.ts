@@ -46,7 +46,7 @@ function createMockBridgeContext(overrides?: Partial<BridgeContext>): BridgeCont
 describe("sendStateSync", () => {
   it("should include pid in session_register message", () => {
     const bc = createMockBridgeContext();
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
 
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
@@ -62,7 +62,7 @@ describe("sendStateSync", () => {
     const bc = createMockBridgeContext();
     expect(bc.hasRegisteredOnce).toBe(false);
 
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
 
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
@@ -73,10 +73,10 @@ describe("sendStateSync", () => {
   it("second sendStateSync (reconnect) tags registerReason: reattach", () => {
     const bc = createMockBridgeContext();
 
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
     // Clear sent, simulate reconnect
     (bc as any)._sent.length = 0;
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
 
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
@@ -87,23 +87,23 @@ describe("sendStateSync", () => {
   it("hasRegisteredOnce flips exactly once and stays true", () => {
     const bc = createMockBridgeContext();
 
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
     expect(bc.hasRegisteredOnce).toBe(true);
 
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
     expect(bc.hasRegisteredOnce).toBe(true);
 
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
     expect(bc.hasRegisteredOnce).toBe(true);
   });
 
   it("third+ sendStateSync continues to tag reattach", () => {
     const bc = createMockBridgeContext();
 
-    sendStateSync(bc, () => []);
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
+    sendStateSync(bc);
     (bc as any)._sent.length = 0;
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
 
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
@@ -121,7 +121,7 @@ describe("handleSessionChange", () => {
     handleSessionChange(bc, {
       cwd: "/proj",
       sessionManager: { getSessionId: () => "sess-new", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => [], getEntries: () => [] },
-    } as any, () => []);
+    } as any);
     expect(evaluateFirst).toHaveBeenCalledWith(bc, "/proj");
     expect(order.indexOf("git:/proj")).toBeGreaterThan(order.indexOf("session_register"));
     expect(order.indexOf("git:/proj")).toBeLessThan(order.indexOf("commands_list"));
@@ -142,7 +142,7 @@ describe("handleSessionChange", () => {
       },
     };
 
-    handleSessionChange(bc, ctx as any, () => []);
+    handleSessionChange(bc, ctx as any);
 
     const sent = (bc as any)._sent;
     const registerMsg = sent.find((m: any) => m.type === "session_register");
@@ -176,7 +176,7 @@ describe("sendStateSync: spawnToken from env", () => {
   it("first register includes spawnToken from env", () => {
     withEnvVar("tok_first", () => {
       const bc = createMockBridgeContext({ hasRegisteredOnce: false } as any);
-      sendStateSync(bc, () => []);
+      sendStateSync(bc);
       const sent = (bc as any)._sent;
       const registerMsg = sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBe("tok_first");
@@ -187,7 +187,7 @@ describe("sendStateSync: spawnToken from env", () => {
   it("reattach register omits spawnToken (even when env still set)", () => {
     withEnvVar("tok_first", () => {
       const bc = createMockBridgeContext({ hasRegisteredOnce: true } as any);
-      sendStateSync(bc, () => []);
+      sendStateSync(bc);
       const sent = (bc as any)._sent;
       const registerMsg = sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBeUndefined();
@@ -198,7 +198,7 @@ describe("sendStateSync: spawnToken from env", () => {
   it("first register without env var omits spawnToken", () => {
     withEnvVar(undefined, () => {
       const bc = createMockBridgeContext({ hasRegisteredOnce: false } as any);
-      sendStateSync(bc, () => []);
+      sendStateSync(bc);
       const sent = (bc as any)._sent;
       const registerMsg = sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBeUndefined();
@@ -210,7 +210,7 @@ describe("sendStateSync: spawnToken from env", () => {
   it("first register emits token + dashboardSpawned:true and scrubs the env var", () => {
     withEnvVar("tok_first", () => {
       const bc = createMockBridgeContext({ hasRegisteredOnce: false, dashboardSpawned: true } as any);
-      sendStateSync(bc, () => []);
+      sendStateSync(bc);
       const registerMsg = (bc as any)._sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBe("tok_first");
       expect(registerMsg.dashboardSpawned).toBe(true);
@@ -223,7 +223,7 @@ describe("sendStateSync: spawnToken from env", () => {
     // Env already scrubbed (token gone) but the captured boolean persists.
     withEnvVar(undefined, () => {
       const bc = createMockBridgeContext({ hasRegisteredOnce: true, dashboardSpawned: true } as any);
-      sendStateSync(bc, () => []);
+      sendStateSync(bc);
       const registerMsg = (bc as any)._sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBeUndefined();
       expect(registerMsg.dashboardSpawned).toBe(true);
@@ -234,7 +234,7 @@ describe("sendStateSync: spawnToken from env", () => {
   it("descendant child (no token, dashboardSpawned:false) emits neither field", () => {
     withEnvVar(undefined, () => {
       const bc = createMockBridgeContext({ hasRegisteredOnce: false, dashboardSpawned: false } as any);
-      sendStateSync(bc, () => []);
+      sendStateSync(bc);
       const registerMsg = (bc as any)._sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBeUndefined();
       expect(registerMsg.dashboardSpawned).toBeUndefined();
@@ -254,7 +254,7 @@ describe("sendStateSync: spawnToken from env", () => {
           getEntries: () => [],
         },
       };
-      handleSessionChange(bc, ctx as any, () => []);
+      handleSessionChange(bc, ctx as any);
       const sent = (bc as any)._sent;
       const registerMsg = sent.find((m: any) => m.type === "session_register" && m.sessionId === "sess-fork");
       expect(registerMsg).toBeDefined();
@@ -267,7 +267,7 @@ describe("sendStateSync: spawnToken from env", () => {
 describe("D3 re-mint on every re-register (wire-mcp-session-token)", () => {
   it("sendStateSync sends mcp/mint-token AFTER its session_register (the reconnect path)", () => {
     const bc = createMockBridgeContext();
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
     const sent = (bc as any)._sent;
     const registerIdx = sent.findIndex((m: any) => m.type === "session_register");
     const mintIdx = sent.findIndex(
@@ -285,10 +285,10 @@ describe("D3 re-mint on every re-register (wire-mcp-session-token)", () => {
 
   it("the REATTACH register (reconnect after dashboard restart) re-mints — the token registry died server-side", () => {
     const bc = createMockBridgeContext();
-    sendStateSync(bc, () => []); // first register
+    sendStateSync(bc); // first register
     (bc as any)._sent.length = 0;
     bc.hasRegisteredOnce = true;
-    sendStateSync(bc, () => []); // reconnect
+    sendStateSync(bc); // reconnect
     const sent = (bc as any)._sent;
     const register = sent.find((m: any) => m.type === "session_register");
     expect(register.registerReason).toBe("reattach");
@@ -309,7 +309,7 @@ describe("D3 re-mint on every re-register (wire-mcp-session-token)", () => {
       cwd: "/tmp/x",
     };
     bc.cachedCtx = ctx as any;
-    handleSessionChange(bc, ctx, () => []);
+    handleSessionChange(bc, ctx);
     const sent = (bc as any)._sent;
     const registerIdx = sent.findIndex((m: any) => m.type === "session_register");
     const mint = sent.find(
@@ -351,7 +351,7 @@ describe("session file not yet created (X1)", () => {
             },
           } as any,
         });
-        expect(() => sendStateSync(bc, () => [])).not.toThrow();
+        expect(() => sendStateSync(bc)).not.toThrow();
         const register = (bc as any)._sent.find((m: any) => m.type === "session_register");
         expect(register).toBeDefined();
         expect(register.sessionFile).toBe(missing);
@@ -435,7 +435,6 @@ describe("replaySessionEntries live tail (test-plan #E6)", () => {
     handleSessionChange(
       bc2,
       { cwd: "/proj", sessionManager: { getSessionId: () => "s2", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => branch, getEntries: () => branch } } as any,
-      () => [],
     );
     expect(endsFor((bc2 as any)._sent)).toEqual(["A", "B"]);
   });
@@ -461,7 +460,7 @@ describe("replay marker + branch fingerprint (test-plan #E14)", () => {
 
   it("reconnect: every replayed event_forward is marked, the first after replay_complete is not", () => {
     const bc = mk();
-    sendStateSync(bc, () => [], { liveTailOpen: false });
+    sendStateSync(bc, { liveTailOpen: false });
     replaySessionEntries(bc, { liveTailOpen: false });
     (bc as any).connection.send({ type: "replay_complete", sessionId: bc.sessionId });
     (bc as any).connection.send({ type: "event_forward", sessionId: bc.sessionId, event: { eventType: "agent_start", timestamp: 1, data: {} } });
@@ -477,7 +476,7 @@ describe("replay marker + branch fingerprint (test-plan #E14)", () => {
 
   it("register carries leafEntryId (last branch id), eventCount and the shared liveTailOpen", () => {
     const bc = mk();
-    sendStateSync(bc, () => [], { liveTailOpen: false });
+    sendStateSync(bc, { liveTailOpen: false });
     const reg = (bc as any)._sent.find((m: any) => m.type === "session_register");
     expect(reg.eventCount).toBe(5);
     expect(reg.leafEntryId).toBe("e5");
@@ -486,7 +485,7 @@ describe("replay marker + branch fingerprint (test-plan #E14)", () => {
 
   it("register omits liveTailOpen / leafEntryId when the caller or branch gives none", () => {
     const bc = createMockBridgeContext(); // branch entries carry no id
-    sendStateSync(bc, () => []);
+    sendStateSync(bc);
     const reg = (bc as any)._sent.find((m: any) => m.type === "session_register");
     expect(reg.leafEntryId).toBeUndefined();
     expect(reg.liveTailOpen).toBeUndefined();
@@ -497,7 +496,6 @@ describe("replay marker + branch fingerprint (test-plan #E14)", () => {
     handleSessionChange(
       bc,
       { cwd: "/proj", sessionManager: { getSessionId: () => "s2", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => branch5, getEntries: () => branch5 } } as any,
-      () => [],
     );
     const sent = (bc as any)._sent as any[];
     const reg = sent.find((m) => m.type === "session_register");

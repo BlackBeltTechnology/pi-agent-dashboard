@@ -1,6 +1,6 @@
 /**
  * makeFlowsForCwd: resolves a folder cwd to the live per-session flows list
- * (stateStore, populated by the forwarded flows_list). Reflects package/event
+ * (stateStore, fed by forwarded flow_catalog events). Reflects package/event
  * flows a static disk scan would miss; empty with no matching running session.
  * See change: fix-automation-flow-detection.
  */

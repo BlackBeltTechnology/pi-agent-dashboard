@@ -8,7 +8,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { matchesPattern, stripThinkingLevel } from "@blackbelt-technology/pi-dashboard-shared/enabled-models-match.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
@@ -99,7 +98,8 @@ export function branchFingerprint(
 }
 
 /**
- * Send full state sync to the server (session_register, commands, flows, models).
+ * Send full state sync to the server (session_register, commands, models).
+ * The flow list is plugin-owned (see change: flows-dock-chip-and-panel-actions).
  * Called on initial connect and reconnect.
  *
  * `opts.liveTailOpen` is computed ONCE by the caller and shared with the replay
@@ -108,7 +108,6 @@ export function branchFingerprint(
  */
 export function sendStateSync(
   bc: BridgeContext,
-  getFlowsList: () => FlowInfo[],
   opts?: { liveTailOpen?: boolean },
 ): void {
   const model = getCurrentModelString(bc);
@@ -181,10 +180,6 @@ export function sendStateSync(
   const commands = filterHiddenCommands(bc.pi.getCommands());
   bc.connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
 
-  // Send flows list
-  const flows = getFlowsList();
-  bc.connection.send({ type: "flows_list", sessionId: bc.sessionId, flows });
-
   if (bc.cachedModelRegistry) {
     try {
       const models = filterByEnabledModels(bc.cachedModelRegistry.getAvailable().map(toModelInfo));
@@ -255,7 +250,6 @@ export function replaySessionEntries(bc: BridgeContext, opts?: { liveTailOpen?: 
 export function handleSessionChange(
   bc: BridgeContext,
   ctx: any,
-  getFlowsList: () => FlowInfo[],
   /**
    * Full usage totals of the incoming session's baseline snapshot — the same
    * snapshot the bridge's usage drain cursor was set from (`UsageDrain.baseline`).
@@ -335,9 +329,6 @@ export function handleSessionChange(
 
   const commands = filterHiddenCommands(bc.pi.getCommands());
   bc.connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
-
-  const flows = getFlowsList();
-  bc.connection.send({ type: "flows_list", sessionId: bc.sessionId, flows });
 
   if (bc.cachedModelRegistry) {
     try {

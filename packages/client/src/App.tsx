@@ -729,10 +729,9 @@ export default function App() {
   // acceptable (see openspec/specs/chat-input-state).
   const [pendingImagesMap, setPendingImagesMap] = useState<Map<string, ImageContent[]>>(new Map());
   const [sessionCommands, setSessionCommands] = useState<Map<string, CommandInfo[]>>(new Map());
-  // sessionFlows state was removed; flows-plugin reads the per-session
-  // flows list directly from the plugin-runtime per-session-data store
-  // (mirrored by useMessageHandler on `flows_list` messages). See
-  // change: pluginize-flows-via-registry.
+  // sessionFlows state was removed; the flow list is plugin-owned (the flows
+  // plugin's catalog event). See change: pluginize-flows-via-registry;
+  // flows-dock-chip-and-panel-actions.
   const [fileResults, setFileResults] = useState<{ query: string; files: FileEntry[] } | null>(null);
   // Per-session rel-paths that changed on disk while open in the editor pane
   // (drives the changed-on-disk banner). See change: split-editor-workspace.

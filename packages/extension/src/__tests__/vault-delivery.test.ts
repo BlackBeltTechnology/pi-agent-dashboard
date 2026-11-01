@@ -395,7 +395,7 @@ describe("E14: certValidation declaration", () => {
       hasRegisteredOnce: false,
       dashboardSpawned: false,
     };
-    sendStateSync(bc as never, () => []);
+    sendStateSync(bc as never);
     const d = createVaultDelivery({
       env: {}, platform: "linux", registry: createVaultRegistry(),
       send: (m) => cm.sendIfOpen(m),

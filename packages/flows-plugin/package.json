@@ -65,6 +65,11 @@
         "component": "SessionFlowMenuClaim"
       },
       {
+        "slot": "composer-context-group",
+        "component": "FlowsContextGroup",
+        "module": "./src/client/FlowsContextGroup.tsx"
+      },
+      {
         "slot": "content-header-sticky",
         "component": "FlowDashboardClaim",
         "module": "./src/client/FlowDashboard.tsx"

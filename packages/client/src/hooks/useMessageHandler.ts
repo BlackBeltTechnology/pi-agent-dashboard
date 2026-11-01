@@ -101,9 +101,9 @@ export interface MessageHandlerSetters {
   setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
   setSessionStates: React.Dispatch<React.SetStateAction<Map<string, SessionState>>>;
   setSessionCommands: React.Dispatch<React.SetStateAction<Map<string, CommandInfo[]>>>;
-  // Note: setSessionFlows removed. flows-plugin reads `flowsList` from
-  // the per-session-data store directly. See change:
-  // pluginize-flows-via-registry.
+  // Note: setSessionFlows removed. The flow list is plugin-owned (flows plugin
+  // catalog event). See change: pluginize-flows-via-registry;
+  // flows-dock-chip-and-panel-actions.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   /** Per-session set of rel-paths that changed on disk (editor-pane banner). See change: split-editor-workspace. */
   setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Map<string, number>>>>;
@@ -948,13 +948,6 @@ export function useMessageHandler(
         // read the commands list without coupling to shell state.
         // See change: pluginize-flows-via-registry.
         publishSessionData(msg.sessionId, "commandsList", msg.commands);
-        break;
-
-      case "flows_list":
-        // Mirrored to the plugin-runtime per-session-data store so
-        // flows-plugin's SessionFlowActionsClaim and FlowsCommandRoutes
-        // can read the flows list. The shell does not retain it.
-        publishSessionData(msg.sessionId, "flowsList", msg.flows);
         break;
 
       case "files_list":

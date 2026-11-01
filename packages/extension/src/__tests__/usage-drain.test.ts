@@ -164,7 +164,7 @@ describe("#E11 / #E12 fork: drain outgoing, then baseline incoming", () => {
     // Incoming runtime: session_start{reason:"fork"} — copied history.
     const smB = makeSm("B", [...smA.entries]);
     const seed = d.baseline(smB);
-    handleSessionChange(bc, { sessionManager: smB, cwd: tmp }, () => [], seed);
+    handleSessionChange(bc, { sessionManager: smB, cwd: tmp }, seed);
 
     const types = sent.map((m) => `${m.type}:${m.sessionId}`);
     const aUsage = types.indexOf("usage_recorded:A");
@@ -209,7 +209,7 @@ describe("#E14 reconnect keeps the cursor", () => {
     d.baseline(sm);
     const { bc, sent } = makeBc(sm, tmp);
     sm.append(usageEntry("while-down")); // connection down
-    sendStateSync(bc, () => []); // onReconnect → reattach register
+    sendStateSync(bc); // onReconnect → reattach register
     drainUsageAndSend(d, sm, (m) => bc.connection.send(m));
     drainUsageAndSend(d, sm, (m) => bc.connection.send(m));
     const reg = sent.find((m) => m.type === "session_register");

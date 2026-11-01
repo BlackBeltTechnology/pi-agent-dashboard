@@ -218,6 +218,11 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "component": "SessionFlowMenuClaim"
             },
             {
+                "slot": "composer-context-group",
+                "component": "FlowsContextGroup",
+                "module": "./src/client/FlowsContextGroup.tsx"
+            },
+            {
                 "slot": "content-header-sticky",
                 "component": "FlowDashboardClaim",
                 "module": "./src/client/FlowDashboard.tsx"
@@ -271,6 +276,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     claims: [
       { pluginId: "flows", priority: 100, slot: "session-card-flows", Component: SessionFlowActionsClaim, shouldRender: shouldRenderFlowsSubcard },
       { pluginId: "flows", priority: 100, slot: "session-card-action-bar", Component: SessionFlowMenuClaim },
+      { pluginId: "flows", priority: 100, slot: "composer-context-group", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowsContextGroup"), "FlowsContextGroup") },
       { pluginId: "flows", priority: 100, slot: "content-header-sticky", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowDashboard"), "FlowDashboardClaim") },
       { pluginId: "flows", priority: 100, slot: "content-view", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowYamlPreview"), "FlowYamlPreviewClaim"), predicate: isFlowYamlPreviewActive },
       { pluginId: "flows", priority: 100, slot: "tool-renderer", toolName: "flow_write", Component: lazyClaim(() => import("../../../flows-plugin/src/client/FlowWriteToolRenderer"), "FlowWriteToolRenderer") },
@@ -1172,4 +1178,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "c236a90a31a77528dbde437276812a758e7d72170913825e63654d51c1f3a3b1";
+export const PLUGIN_REGISTRY_HASH = "9137b8e6be924aadbeefa3e6104d01bd4e1bf523e6c392d0d3ea2ec7434f329c";

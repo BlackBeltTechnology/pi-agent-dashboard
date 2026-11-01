@@ -144,7 +144,6 @@ describe("E9: session_start delegates the session change to session-sync", () =>
       renewGitTracker: vi.fn() as never,
       syncBc: vi.fn(() => ({})) as never,
       applyBc: vi.fn(),
-      getFlowsList: vi.fn(() => []),
       sendPiVersionIfChanged: vi.fn(),
       gitPollTimer: null,
       polling: { setGitPollTimer: vi.fn() } as never,

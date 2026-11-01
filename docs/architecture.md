@@ -370,6 +370,20 @@ See change: add-acp-session-driver.
 - `latest` — keep newest per key until ready.
 - `stream` — keep all, in order, never coalesced.
 
+**Example consumer: flows.** Flow catalog rides this path. Replaces core `flows_list` / `getFlowsList` / `FlowInfo` (removed). See change: flows-dock-chip-and-panel-actions.
+- Declares `dashboard-flows:catalog` → `as: flow_catalog`, `delivery: latest`, `key: catalogKey`. Source: `packages/flows-plugin/src/bridge/flow-catalog-publisher.ts`.
+- Payload: `{ catalogKey: "catalog", flows: [{ name, description, source, taskRequired }] }`.
+- Probe: `flow:list-flows` (`flow-probe.ts`). Unanswered → no publish. Answered `[]` → publish empty catalog.
+- Debounce 300 ms. Triggers: `session_start`, `flow:(un)register-(flows|agents)-dir`, `flow:rediscover`, `flow:complete`, publisher attach, server ask `dashboard-flows:report-files`.
+- `report-files` with `{rediscover:true}` → pi-flows rediscovers before publish.
+- Plugin server `packages/flows-plugin/src/server/flow-catalog.ts`:
+  - `ctx.onEvent` `flow_catalog` → `stateStore.setFlows`.
+  - Handles `plugin_action` `flow.request-catalog` (per-session ask limit, default 2 s).
+  - Sibling rediscover ask when known catalog changes.
+  - Server-start re-ask: 5 s interval × 60 s.
+- Client `useFlowCatalog`: re-asks every 5 s, max 12 per view, while catalog unknown.
+- Timings: flows plugin settings (`configSchema`).
+
 **Retention.** `StreamForwardBuffer` (`packages/extension/src/stream-forward-buffer.ts`).
 - One buffer keyed by (pluginId, key value) — cross-channel order (delta vs entry) survives.
 - ≤2000 msgs or 2MiB per key; 64-key budget shared by latest+stream across plugins, drop-oldest, counted.
@@ -988,6 +1002,14 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 **Flow controls (browser → pi-flows):**
 - Abort: browser sends `flow_control { action: "abort" }` → server → bridge → `pi.events.emit("flow:abort")` → `flowManager.abort()`
 - Autonomous toggle: browser sends `flow_control { action: "toggle_autonomous" }` → same path → `setAutonomousMode()`
+
+**Flow actions UI (flows-dock-chip-and-panel-actions):**
+- `FLOWS` chip: `composer-context-group` claim.
+- Panel headers (`FlowDashboard`, `FlowSummary`): Run again / Open flow… / Edit….
+- Panels default collapsed.
+- Session actions menu: New flow… / "Turn on edit mode for this project" only for flowless sessions.
+- Shared logic: `useFlowActions(session)` + `<FlowActionDialogs>`.
+- Flow list source: `useFlowCatalog(sessionId)` → `flow_catalog` (see Plugin-declared event forwarding).
 
 ### Extension UI System (Phases 1 + 2 shipped)
 
@@ -2215,9 +2237,9 @@ The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / chan
 - Work through PromptBus — `TuiFlowIOAdapter` calls `ctx.ui.select/confirm/input` which the bridge routes through the bus to registered adapters (dashboard, TUI, or custom)
 
 **Flow launcher:**
-- Available flows detected from session commands list (heuristic: `source: "extension"`, excluding management commands)
-- Launch dispatched as `send_prompt` with `/<flow-name> <task>`
-- Commands list auto-refreshed on `flow:rediscover` and `flow:complete` events
+- Flow list: plugin-owned catalog `flow_catalog` (`useFlowCatalog`). Core holds no flow list.
+- Launch dispatched as `send_prompt` with `/<flow-name> <task>`.
+- Typed `/<flow-name>` runs pi-flows' registered command via extension dispatch. No bridge fast-path.
 
 **pi-flows local patches required** (upstream report prepared):
 - `EventEmitObserver`: 5 missing methods added (flow-started, agent-started, agent-complete, assistant-text, thinking-text)
@@ -5295,8 +5317,8 @@ When a browser subscribes to a session whose events have been evicted from memor
 5. If the session file is missing or corrupt, server sends `dataUnavailable: true`
 6. Concurrent loads for the same session are deduplicated
 
-### Flows Refresh Deduplication
-When a session sends `flows_list`, the server notifies other sessions in the same cwd to rediscover flows. To prevent infinite loops (A→refresh B→B sends flows→refresh A→...), a per-session 5-second cooldown (`recentFlowsRefresh` set) suppresses duplicate refresh requests.
+### Flow Catalog Refresh (replaces Flows Refresh Deduplication)
+`flows_list` and `request_flows_refresh` removed. Catalog refresh runs through plugin channel `dashboard-flows:catalog` (see Plugin-declared event forwarding). Sibling rediscover ask fires only when a known catalog changes. Former `recentFlowsRefresh` 5 s cooldown no longer exists.
 
 ### Event Broadcast During Replay (change: fix-large-session-resume-replay, #928/#929)
 

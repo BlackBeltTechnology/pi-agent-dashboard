@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
@@ -451,12 +451,6 @@ export interface CommandsListMessage {
   type: "commands_list";
   sessionId: string;
   commands: CommandInfo[];
-}
-
-export interface FlowsListMessage {
-  type: "flows_list";
-  sessionId: string;
-  flows: FlowInfo[];
 }
 
 export interface ExtensionUiRequestMessage {
@@ -1114,7 +1108,6 @@ export type ExtensionToServerMessage =
   | SessionHeartbeatMessage
   | EventForwardMessage
   | CommandsListMessage
-  | FlowsListMessage
   | ExtensionUiRequestMessage
   | FilesListMessage
   | GitInfoUpdateMessage
@@ -1414,11 +1407,6 @@ export interface RegisterRejectedExtensionMessage {
   type: "register_rejected";
   sessionId: string;
   reason: string;
-}
-
-export interface RequestFlowsRefreshMessage {
-  type: "request_flows_refresh";
-  sessionId: string;
 }
 
 export interface CredentialsUpdatedMessage {
@@ -1743,7 +1731,6 @@ export type ServerToExtensionMessage =
   | PathYoloResultMessage
   | VaultSnapshotMessage
   | DashboardIdentityMessage
-  | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage
   | PluginReplyMessage

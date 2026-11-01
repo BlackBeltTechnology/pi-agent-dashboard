@@ -1023,12 +1023,8 @@ export function createCommandHandler(
 
         case "request_commands": {
           const commands = filterHiddenCommands(pi.getCommands());
-          // Also send flows list alongside commands
-          if (options?.eventSink) {
-            const probe: any = {};
-            try { pi.events?.emit("flow:list-flows", probe); } catch { /* ignore */ }
-            options.eventSink({ type: "flows_list", sessionId, flows: probe.flows ?? [] });
-          }
+          // The flow list is plugin-owned (flows plugin catalog); core sends
+          // only commands. See change: flows-dock-chip-and-panel-actions (D8).
           return {
             type: "commands_list",
             sessionId,
@@ -1199,16 +1195,6 @@ export function createCommandHandler(
         case "request_state_sync":
           // State sync is handled by the bridge on reconnect
           return undefined;
-
-        case "request_flows_refresh": {
-          // Re-query pi-flows and send updated list
-          if (options?.eventSink) {
-            const probe: any = {};
-            try { pi.events?.emit("flow:list-flows", probe); } catch { /* ignore */ }
-            options.eventSink({ type: "flows_list", sessionId, flows: probe.flows ?? [] });
-          }
-          return undefined;
-        }
 
         case "list_sessions": {
           try {
