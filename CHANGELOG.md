@@ -28,6 +28,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **pi-flows agent steps on Anthropic models no longer bill as extra usage with the Claude subscription compat switch on.** pi-flows builds agents without loading your installed packages, so the flows plugin again hands the compat rewrite to every flow agent through pi-flows' agent-extension hook.
 - **Claude subscription compat now covers sessions that were already open.** pi 1.4 sends a session's first system prompt as Anthropic's `system` field for the whole session, so turning the switch on did not fix sessions started before it, and their requests kept failing with "You're out of extra usage". The rewrite now also applies to each outgoing Anthropic request.
 - **Upgrades keep Claude subscription billing working.** On the first start after upgrading, the compat switch turns on by itself when `~/.pi/agent/auth.json` already holds an `anthropic` credential, and off when it doesn't. The choice is saved once and never overrides a later change. New installs stay off and are asked at their first Anthropic sign-in.
 
