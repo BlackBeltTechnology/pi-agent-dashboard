@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-blender",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Headless Blender for pi agents without a native install: runs the published Blender WebAssembly build inside Node, provisions one integrity-pinned runtime on first use, and exposes it as a sandboxed stdio MCP server (blender-wasm) with a project-root-confined file workflow. Ships the pi-blender CLI and a blender skill.",
   "type": "module",
   "repository": {
@@ -50,7 +50,7 @@
     "prepack": "node scripts/build.mjs"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

@@ -26,6 +26,7 @@ import {
   type Tier,
 } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { KnockOutcome } from "./knock-admission.js";
+import type { BearerChannel } from "../auth/proven-tls.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "./paired-devices.js";
 
 /** Current pairing protocol version (D9). */
@@ -633,12 +634,15 @@ export class PairingManager {
    * redeem: the still-uncollected token's row becomes an expiring browser row.
    * `expiresAt` (epoch ms) is returned only for an expiring row.
    */
-  poll(pendingId: string, holder?: unknown): PollResult {
+  poll(pendingId: string, holder?: unknown, channel: BearerChannel = "plain"): PollResult {
     this.sweep();
     for (const entry of this.codes.values()) {
       if (entry.pending?.pendingId === pendingId) {
         if (entry.pending.issuedToken) {
           const token = entry.pending.issuedToken;
+          // The token travels on THIS response: a non-proven delivery channel exposes it. `approve()`
+          // makes no exposure decision. See change: prove-vault-bridge-tls (D4).
+          if (entry.pending.deviceId !== undefined) this.deps.registry.markDelivered(entry.pending.deviceId, channel);
           const expiresAt = this.browserExpiry(entry.pending, holder);
           // One-shot: clear so the token isn't re-served, drop the code.
           this.codes.delete(entry.code);

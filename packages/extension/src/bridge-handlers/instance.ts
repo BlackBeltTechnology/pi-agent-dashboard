@@ -17,7 +17,6 @@
  */
 
 import type { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AbortLatch } from "../abort-latch.js";
 import type { AutoNamer, PersistedNamerState } from "../auto-session-namer.js";
@@ -89,6 +88,13 @@ export interface BridgeState {
    */
   dashboardSpawned?: boolean;
   /**
+   * Last Claude subscription compat value relayed by the server, mirrored
+   * process-globally so a subagent child (whose `initBridge` returns early on
+   * re-entry) can answer the compat probe on its own `pi.events`.
+   * See change: seed-claude-compat-on-upgrade.
+   */
+  claudeSubscriptionCompat?: boolean;
+  /**
    * Dashboard-attached OpenSpec change name persisted across reload so the
    * `before_agent_start` injector keeps the fragment after `npm run reload`
    * even before the server re-replays on `session_register`. `null`/absent
@@ -123,8 +129,6 @@ export interface BridgeInstance {
   cachedCwd: string | undefined;
   pendingDefaultModel: string | null;
   applyDefaultModel: () => string | null;
-  getFlowsList: () => FlowInfo[];
-  sendFlowsList: () => void;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   gitPollTimer: ReturnType<typeof setInterval> | null;
   polling: ReturnType<typeof createPollingHolder>;
@@ -138,6 +142,8 @@ export interface BridgeInstance {
   prStatus: PrStatusScheduler;
   lastSessionName: string | undefined;
   autoNameSessions: boolean;
+  /** Claude subscription compat switch relayed by the server; default false. See change: retire-anthropic-messages-bridge. */
+  claudeSubscriptionCompat: boolean;
   autoNamer: AutoNamer | undefined;
   namerState: PersistedNamerState | undefined;
   cachedHasUI: boolean | undefined;

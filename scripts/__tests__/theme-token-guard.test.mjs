@@ -168,7 +168,6 @@ describe("every plugin client tree is guarded (#E35)", () => {
     for (const dir of [
       "packages/quota-plugin/src",
       "packages/grammar-plugin/src",
-      "packages/flows-anthropic-bridge-plugin/src",
       "packages/apple-tools/src/client",
       "packages/browser-plugin/src/client",
       "packages/chat-gateway/src/client",

@@ -20,7 +20,7 @@ import { extractSemanticTokens } from "./knowledge-hash.js";
 export const MODULE_TOKEN_SOURCES: Record<string, string[]> = {
 	"env-node": ["packages/shared/src/node-version.ts"],
 	"pi-resolution": ["packages/server/package.json"],
-	peers: ["packages/flows-anthropic-bridge-plugin/src/peer-probe.ts"],
+	peers: ["packages/shared/src/pi-package-resolver.ts"],
 	"plugins-bridges": ["packages/shared/src/plugin-bridge-register.ts"],
 	"build-reload": ["packages/extension/package.json"],
 	"install-topology": ["packages/shared/src/dashboard-paths.ts"],

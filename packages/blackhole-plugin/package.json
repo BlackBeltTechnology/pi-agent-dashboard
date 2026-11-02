@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-blackhole-plugin",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Dashboard surface for the pi-blackhole extension — settings (config file editor + fallback chains) and the per-session memory pipeline subcard/detail view.",
   "keywords": [
     "pi-dashboard-plugin"
@@ -92,8 +92,8 @@
     "wouter": ">=3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.10.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.11.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },

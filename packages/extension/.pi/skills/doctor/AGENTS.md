@@ -19,7 +19,7 @@ See change: add-modular-doctor-skill.
 | `_lib/regenerate.ts` | CLI: `--check` reports drift, `--write [module]` rewrites sidecars from live sources. Never edits authored prose. `findRepoRoot`, `reportDrift`, `writeHashes`. |
 | `modules/env-node.md` | Node version/OS/platform baseline. depends-on: none (root layer). |
 | `modules/pi-resolution.md` | Enumerate every pi install (CLI/repo/managed/nvm/cwd), flag divergence + floor violation. depends-on: env-node. |
-| `modules/peers.md` | pi-flows + anthropic peer via tier-1/tier-2; detect published-name skew. depends-on: pi-resolution. |
+| `modules/peers.md` | pi-flows via tier-1/tier-2 (derives from `pi-package-resolver.ts`); detect published-name skew. Anthropic peer dropped (change: retire-anthropic-messages-bridge). depends-on: pi-resolution. |
 | `modules/plugins-bridges.md` | Bridge `bridgeLoadedFrom`; flag dashboardPluginBridges-only (invisible to pi packages[]); activation status. depends-on: peers. |
 | `modules/build-reload.md` | Three-component rebuild/reload gaps (client build / server restart / bridge reload). depends-on: install-topology. |
 | `modules/install-topology.md` | Detect npm-global / Electron (immutable) / Docker / dev; topology-specific fix routing. depends-on: env-node. |

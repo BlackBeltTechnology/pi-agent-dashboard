@@ -3,18 +3,19 @@
 Pull-only condensed map. Source: `docs/credential-vault.md`. Part 1 of 3: static `key` accounts, env delivery. Changes: add-credential-vault, retro-ux-credential-vault.
 
 ## 1. What it is
-- Store `~/.pi/dashboard/vault.json`, mode `0600`. Atomic, `locked-json-file`, `createIfMissing: false`.
+- Store `~/.pi/dashboard/vault.json`, mode `0600`, encrypted at rest (§12). Atomic, `locked-json-file`, `createIfMissing: false`.
 - Accounts kind `key`. Several per provider. Min value 8 chars (entry + import).
 - Env binding: name → default `key` account. Names validated (§3).
 - Grants per project, default deny. Checkout confirmation per (device, dir, repoKey).
 - Unknown fields/kinds preserved on write.
 - Corrupt → byte-exact backup, writes refused. Error shows backup path only.
+- Locked (no key, envelope damaged) → writes 409 `vault_locked` + `reason`/remedy. Nothing overwritten. §12.
 
 ## 2. Settings → Vault
 - Path: Settings → Network → Vault (`SettingsPanel` page `vault`, `VaultSection`).
 - Tabs `Variables` (default) · `Accounts` · `Import`. APG tablist. Not in URL. Panels stay mounted.
 - Testids: `vault-panel-bindings`, `vault-panel-accounts`, `vault-panel-import`.
-- Corrupt: error callout, write controls `disabled`.
+- Corrupt: error callout, write controls `disabled`. Locked: same, with `reason` + remedy.
 
 ### Variables
 - Card `vault-binding-<NAME>`. Grant rows `vault-grant-row`: `data-state` = server (`ok`|`no-account`), `data-status` = page status.
@@ -106,7 +107,7 @@ Row text from `vault.stateHelp.<state>`.
 - `vault.offlineGraceHours` (`~/.pi/dashboard/config.json`). Default 24. Clamp 1–168.
 - Elapsed = max(monotonic, wall-clock). Expired → withdraw.
 - Hub feature `vault-delivery` in `dashboard_identity.features`. Missing → bridge withdraws.
-- Hub corrupt → `vault-unavailable` (not empty snapshot).
+- Hub corrupt or locked → `vault-unavailable` (not empty snapshot).
 - Emergency off: `vault.deliveryEnabled=false`. Checked first. Default `true`.
 
 ## 7. Redaction
@@ -143,7 +144,28 @@ Row text from `vault.stateHelp.<state>`.
 - Source: `packages/server/src/vault/vault-routes.ts`.
 
 ## 11. Rollback
+
+Before downgrade to pre-encryption build: stop server, `pi-dashboard credentials decrypt`, then downgrade. §12.6.
 1. `vault.deliveryEnabled=false` in `config.json` (withdraws).
 2. Delete `vault.json` if needed.
 3. Downgraded dashboard keeps unknown fields. Bridges withdraw on reconnect.
 - No accounts before change → no behaviour change.
+
+## 12. Encryption at rest
+Source: `docs/credential-vault.md` §12. Covers `vault.json` + `plugin-credentials.json`.
+- Envelope: line1 `pi-dashboard-encrypted:v1`; line2 JSON `{alg:A256GCM,kid,iv,tag,ct}`. AES-256-GCM, fresh 12 B IV per write.
+- AAD `pi-dashboard:v1:<fileId>` (`plugin-credentials` | `vault`). Path not bound.
+- `kid` = first 8 B SHA-256(`pi-dashboard-kid\0`‖key) hex. Tells `key_mismatch` from damage.
+- Key sources: `PI_DASHBOARD_DATA_KEY_FILE` (only source when set; owner-only; server never creates) else OS keychain service `pi-dashboard-credential-key` account `data-key-v1`. Linux: Secret Service only, never kernel keyring.
+- Key created lazily: plaintext migration or first write. Under `~/.pi/dashboard/credential-key.lock`. Never over envelope.
+- Keychain worker, 10 s total deadline → `keychain_timeout`. Failures cached per process.
+- Migration at startup: plaintext → encrypted in place (verify, `writeJsonAtomic` 0600). No plaintext backup.
+- Lock reasons: `keychain_unavailable`, `keychain_timeout`, `key_missing`, `key_file_missing|invalid|insecure`, `key_uninitialized`, `key_mismatch`, `unsupported_format`, `envelope_damaged`. Remedy = `CREDENTIAL_REASON_REMEDY`.
+- Vault locked: `status` `{state:locked,reason}`; plaintext+no key `{state:ok,writable:false,reason}`. Writes 409 `vault_locked`.
+- Plugin store locked: `get|list|snapshot|set|remove|update` reject `store_locked` (+`reason`). Plaintext+no key: reads ok, writes `store_locked`.
+- Recovery: `pi-dashboard credentials status` (read-only). `decrypt [--yes]` (server stopped; all-or-nothing; plaintext 0600). `reset [--vault] [--plugin-credentials] [--yes]` (renames locked file → `<file>.undecryptable-<stamp>`; key-file source never creates key). Exit 0/1/2.
+- Downgrade: `credentials decrypt` first. Skipped → old vault refuses writes; old plugin store `.corrupt-*` backup.
+- Docker: `/home/pi/.pi-key` named volume `pi-key`. Entrypoint generates `data-key` under `umask 077` only when no envelope exists. Else refuses, server starts, `key_file_missing`.
+- `credential_guard` (extension, always on): blocks path tools + command fields touching protected files, keychain verbs, `credentials decrypt`. Best effort, NOT sandbox.
+- Threat model: protects `cat`/`read`/`grep` disclosure, backups, sync, copied `~/.pi`, stolen disk. NOT same-user keychain reads: Linux/Windows any process; macOS npm arm any nodejs.org-signed `node` silent (spike C16); Electron depends on signature.
+- Real fix: agent bash sandboxing (`docs/research/agent-bash-sandboxing.md`), follow-up.

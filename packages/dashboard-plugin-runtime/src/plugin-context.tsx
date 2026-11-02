@@ -407,7 +407,7 @@ function useSessionEventsHookImpl(sessionId: string): readonly DashboardEvent[] 
  * Public hook — read a session-scoped key/value entry the shell has
  * published into `session-data-store`. Plugins MAY use this to read
  * data the shell already receives but doesn't expose via
- * `DashboardSession` (e.g. `flows_list`, `commands_list`).
+ * `DashboardSession` (e.g. `commandsList`).
  *
  * The value reference is stable until `publishSessionData` for the
  * same (sessionId, key) replaces it.

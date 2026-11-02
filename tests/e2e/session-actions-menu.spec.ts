@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { buttonBoxes, resolveColor } from "./helpers/computed-contrast.js";
+import { chipRun, waitForFlowsChip } from "./helpers/flows-chip.js";
 import { byTestId, ensureGitSession, expandFolder, FIXTURE_GIT, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
 import {
   chooseMenuItem,
@@ -687,14 +688,18 @@ test.describe("session actions menu (L3)", () => {
     await detachIfAttached(page);
   });
 
-  test("F21: Run Flow… closes the menu, and the claim-owned run dialog stays open", async ({ page }) => {
+  test("F21: a session with flows carries no flows item; the chip's Run flow… dialog stays open", async ({ page }) => {
+    // Flow actions moved to the FLOWS dock chip; the menu keeps only the
+    // flowless entry point. See change: flows-dock-chip-and-panel-actions (test-plan F4).
     const card = await spawnFreshGitSession(page);
     await card.click();
+    await waitForFlowsChip(page);
     await openSessionMenu(page, card);
-    const run = flowMenuItem(page, /run flow/i);
-    await expect(run).toBeVisible({ timeout: 60_000 });
-    await run.click();
-    await expect(sessionMenuPanel(page)).toHaveCount(0);
+    for (const name of [/run flow/i, /open flow/i, /new flow/i, /edit mode for this project/i]) {
+      await expect(flowMenuItem(page, name)).toHaveCount(0);
+    }
+    await closeSessionMenu(page);
+    await chipRun(page).click();
     const search = page.getByPlaceholder("Search flows...");
     await expect(search).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(2_000);

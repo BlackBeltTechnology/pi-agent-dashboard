@@ -91,8 +91,7 @@ presented token and SHALL NOT be derived from any client-supplied claim.
 The server SHALL refuse a tool call whose target session equals the caller's
 server-resolved originating session. This SHALL apply to every session-targeting
 tool in the manifest, including prompt delivery that routes to extension-command
-dispatch, prompt-response, model and thinking-level changes, lifecycle tools
-and hard kill. The tier check SHALL run before the self-target check.
+dispatch, model and thinking-level changes, lifecycle tools and hard kill. The tier check SHALL run before the self-target check.
 
 #### Scenario: Self-targeted prompt is refused
 - **WHEN** a caller whose originating session resolves to `A` invokes a session-targeting tool with `sessionId` equal to `A`
@@ -577,3 +576,33 @@ No dashboard package SHALL register a pi slash command named `mcp`, because doin
 #### Scenario: Built-in MCP stays active
 - **WHEN** a pi session loads every dashboard extension
 - **THEN** `/mcp` SHALL be served by pi's built-in MCP extension
+
+### Requirement: Prompt answers are not an MCP capability
+The MCP endpoint SHALL NOT expose answering an agent prompt as a tool to any caller. `prompt_response` and `extension_ui_response` SHALL be neither advertised nor callable for any token type or tier, and SHALL be on the manifest denylist with a reason stating that agent prompt answers stay human-in-the-loop.
+
+#### Scenario: tools/list never advertises the answer tools
+- **WHEN** a caller of any tier, authenticated by a per-session token or by a device token, issues `tools/list`
+- **THEN** the result SHALL contain neither `prompt_response` nor `extension_ui_response`
+
+#### Scenario: tools/call returns the standard unknown-tool error
+- **WHEN** a caller invokes `tools/call` with name `prompt_response` or `extension_ui_response`
+- **THEN** the server SHALL return the same unknown-tool error it returns for any name not in the manifest
+- **AND** nothing SHALL be forwarded to any session
+
+#### Scenario: Cross-session answer attempt reaches nothing
+- **WHEN** a caller whose originating session resolves to `A` invokes `prompt_response` with `sessionId` equal to `B`
+- **THEN** the server SHALL return the unknown-tool error
+- **AND** session `B` SHALL receive no message
+
+#### Scenario: Denylist records the reason
+- **WHEN** the denylist is enumerated
+- **THEN** it SHALL contain `prompt_response`, `extension_ui_response` and `/api/session/:id/extension-ui-response`, each with a reason containing "agent prompt answers stay human-in-the-loop"
+
+#### Scenario: Manifest stays total after the removal
+- **WHEN** the manifest completeness test runs
+- **THEN** the verb `prompt_response` and the route `/api/session/:id/extension-ui-response` SHALL be covered by the denylist
+- **AND** no manifest row SHALL bind them
+
+#### Scenario: Non-MCP answer roads are unchanged
+- **WHEN** a prompt is answered through the dashboard UI, the chat gateway, `POST /api/questions/:id/answer`, the browser WebSocket `prompt_response` message or `POST /api/access/prompts/:promptId`
+- **THEN** the answer SHALL be delivered exactly as before this change

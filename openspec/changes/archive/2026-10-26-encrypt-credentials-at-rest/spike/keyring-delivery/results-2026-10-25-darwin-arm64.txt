@@ -1,0 +1,47 @@
+# keyring-delivery spike — @napi-rs/keyring@2.1.2 — Darwin arm64 — 2026-10-25T08:33:44Z
+## matrix: Node versions (main thread + worker)
+v16.14.2 arch=arm64 napi=8 main={"ok":true,"ms":33.3} worker={"ok":true,"ms":15}
+v18.12.1 arch=arm64 napi=8 main={"ok":true,"ms":29.9} worker={"ok":true,"ms":15.3}
+v18.20.5 arch=arm64 napi=9 main={"ok":true,"ms":30.3} worker={"ok":true,"ms":16.5}
+v20.18.1 arch=arm64 napi=9 main={"ok":true,"ms":28.7} worker={"ok":true,"ms":14.7}
+v20.19.5 arch=arm64 napi=9 main={"ok":true,"ms":28.3} worker={"ok":true,"ms":18.5}
+v20.19.6 arch=arm64 napi=9 main={"ok":true,"ms":39.6} worker={"ok":true,"ms":17.1}
+v22.19.0 arch=arm64 napi=10 main={"ok":true,"ms":32.6} worker={"ok":true,"ms":15.6}
+v22.22.0 arch=arm64 napi=10 main={"ok":true,"ms":32.7} worker={"ok":true,"ms":16.3}
+v22.22.3 arch=arm64 napi=10 main={"ok":true,"ms":33.9} worker={"ok":true,"ms":16.7}
+v24.15.0 arch=arm64 napi=10 main={"ok":true,"ms":32.7} worker={"ok":true,"ms":17.2}
+## electron: ELECTRON_RUN_AS_NODE fallback (server launcher fallback when bundled Node is missing)
+v24.22.0 arch=arm64 napi=10 main={"ok":true,"ms":14.7} worker={"ok":true,"ms":7.5}
+## select: which platform package does npm install? (bundle-server cross-build inputs)
+  default:                         keyring keyring-darwin-arm64 
+  npm_config_target_arch=x64:      keyring keyring-darwin-arm64 
+  --cpu=x64:                       keyring keyring-darwin-x64 
+  --cpu=x64 --cpu=arm64:           keyring keyring-darwin-arm64 
+  --os=linux --cpu=x64 --libc=glibc: keyring keyring-linux-x64-gnu 
+  --os=win32 --cpu=x64:            keyring keyring-win32-x64-msvc 
+## rosetta: x64 Node (Intel-mac leg / --mac-both cross build) on this host
+  x64 node + arm64-only install (host-arch bundle shipped to Intel): v24.15.0 arch=x64 napi=10 main={"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing bot","ms":11.1} worker={"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing bot","ms":2.7}
+  x64 node + --cpu=x64 install:                                  v24.15.0 arch=x64 napi=10 main={"ok":true,"ms":268.9} worker={"ok":true,"ms":48.4}
+  install run under 'arch -x86_64' x64 npm (build-installer.sh --mac-both): keyring keyring-darwin-x64 
+## sign: hardened-runtime bundled Node vs third-party-team .node (library validation)
+  upstream node: TeamIdentifier=HX7739G8FX DLV=1
+  binding:       TeamIdentifier=K3VT49H83Y
+  ad-hoc + runtime + entitlements=full: v24.15.0 arch=arm64 napi=10 main={"ok":true,"ms":15.9} worker={"ok":true,"ms":8.5}
+  ad-hoc + runtime + entitlements=no-dlv: v24.15.0 arch=arm64 napi=10 main={"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing bot","ms":1.5} worker={"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing bot","ms":1.2}
+## skew: main package and platform package at different versions
+  installed: main=2.1.2 platform=2.1.1
+  default:                         v24.15.0 arch=arm64 napi=10 main={"ok":true,"ms":35.5} worker={"ok":true,"ms":15.1}
+  NAPI_RS_ENFORCE_VERSION_CHECK=1: v24.15.0 arch=arm64 napi=10 main={"ok":true,"ms":30.1} worker={"ok":true,"ms":15.8}
+## missing: platform package absent (bundle built for another arch / --omit=optional)
+v24.15.0 arch=arm64 napi=10 main={"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing bot","ms":1} worker={"err":"Cannot find native binding. npm has a bug related to optional dependencies (https://github.com/npm/cli/issues/4828). Please try `npm i` again after removing bot","ms":0.8}
+  --omit=optional installs: keyring 
+## docker: no session D-Bus (image base node:24-bookworm-slim) + alpine
+  node:24-bookworm-slim: [keyring keyring-linux-arm64-gnu ] v24.22.1 arch=arm64 napi=10 main={"err":"Couldn't access platform storage: PermissionDenied","ms":1.4} worker={"err":"Couldn't access platform storage: PermissionDenied","ms":0.9}
+  node:22-alpine: [keyring keyring-linux-arm64-musl ] v22.23.4 arch=arm64 napi=10 main={"err":"Couldn't access platform storage: PermissionDenied","ms":5.2} worker={"err":"Couldn't access platform storage: PermissionDenied","ms":1.2}
+# keyring-delivery spike — @napi-rs/keyring@2.1.2 — Darwin arm64 — 2026-10-25T08:35:26Z
+## secretservice: Linux Secret Service (gnome-keyring on a private session bus) in node:24-bookworm-slim
+  A unlocked gnome-keyring: v24.22.1 arch=arm64 napi=10 main={"ok":true,"ms":8.9} worker={"ok":true,"ms":9.6}
+  B bus up, no keyring daemon: v24.22.1 arch=arm64 napi=10 main={"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","ms":14.9} worker={"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","ms":11.4} exit=0 
+  C daemon started but NOT unlocked: v24.22.1 arch=arm64 napi=10 main={"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","ms":12.2} worker={"err":"Couldn't access platform storage: Secret Service: unlock prompt was dismissed","ms":11.3} exit=0 
+## noexec: binding installed on a noexec mount (hardened /home, /tmp, tmpfs)
+  top= Cannot find native binding. npm has a bu | root= arm64-gnu/keyring.linux-arm64-gnu.node: failed to map segment from shared object

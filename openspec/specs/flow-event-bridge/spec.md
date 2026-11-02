@@ -69,24 +69,11 @@ The bridge's `sessionPrompt` handler SHALL route `/flows:delete` through the sta
 - **THEN** the bridge SHALL NOT handle it specially
 - **AND** SHALL route it through the existing slash command pipeline
 
-### Requirement: Bridge uses flow:list-flows for flow command detection
-The bridge's `sessionPrompt` handler SHALL use `flow:list-flows` event to determine whether a slash command is a user-defined flow, instead of filtering `pi.getCommands()` by source.
-
-#### Scenario: Flow command detected via flow:list-flows
-- **WHEN** `sessionPrompt` receives `/my-custom-flow some task`
-- **AND** `flow:list-flows` returns a flow named `my-custom-flow`
-- **THEN** the bridge SHALL emit `flow:run` with `{ flowName: "my-custom-flow", task: "some task" }`
-
-#### Scenario: Unknown slash command falls through
-- **WHEN** `sessionPrompt` receives `/unknown-cmd args`
-- **AND** `flow:list-flows` does NOT include `unknown-cmd`
-- **THEN** the bridge SHALL fall through to the existing slash command routing
-
 ### Requirement: Remove forwarding loops from flow-event-wiring
 The `registerFlowEventListeners` function SHALL remove the `event_forward` sending loops for `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` channels. Event forwarding for these channels is handled by the bridge's per-channel EventBus subscriptions (see `catch-all-event-forwarding`).
 
-The function SHALL retain its non-forwarding responsibilities:
-- Listening to `flow:rediscover` and `flow:complete` to resend `commands_list` and `flows_list` messages
+The function SHALL retain one non-forwarding responsibility:
+- Listening to `flow:rediscover` and `flow:complete` to resend `commands_list` (newly registered flow commands). It SHALL NOT send any flow list.
 
 #### Scenario: No duplicate forwarding
 - **WHEN** a `flow:flow-started` event is emitted on `pi.events`
@@ -94,7 +81,8 @@ The function SHALL retain its non-forwarding responsibilities:
 
 #### Scenario: Commands and flows refresh preserved
 - **WHEN** `flow:rediscover` or `flow:complete` fires
-- **THEN** `registerFlowEventListeners` SHALL still resend `commands_list` and `flows_list`
+- **THEN** `registerFlowEventListeners` SHALL still resend `commands_list`
+- **AND** it SHALL NOT send a `flows_list` message
 
 ### Requirement: Event rename maps exported for forwarding
 The `FLOW_EVENT_MAP` and `SUBAGENT_EVENT_MAP` constants SHALL be exported from `flow-event-wiring.ts` so that `bridge.ts` can merge them into its unified `EVENT_BUS_MAP` and the bridge's per-channel EventBus forwarding can subscribe to their channels.

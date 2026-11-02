@@ -1,0 +1,8 @@
+blocked_by:
+  - change: close-security-map-high-findings
+    reason: "Planned, unshipped. It MODIFIES file-read-containment 'File-read containment anchors at the git common root with a layered cwd fast path' (credential-and-state refusal wording) and builds the structural post-open recheck (openStateChecked / readFileStateChecked / openVerifiedRegularFile at every content site) that DEP-02's open binding extends. This change's MODIFIED block copies THAT change's delta text, not main's, so archiving here cannot revert it; if it is edited before ship, re-copy. Tasks 1.x name functions rather than line numbers because its edits shift file-routes.ts / session-routes.ts lines."
+related:
+  - add-voice-assistant-dashboard-plugin
+  - harden-http-auth-boundaries
+  - add-google-docs-pane
+  - add-supervised-tool-approval

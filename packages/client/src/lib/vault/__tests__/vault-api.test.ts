@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../api/api-context.js";
-import { fetchVault, fetchVaultProjects } from "../vault-api.js";
+import { fetchVault, fetchVaultProjects, isVaultWriteBlocked, type VaultOverview, vaultLock } from "../vault-api.js";
 
 const JSON_HEADERS = new Headers({ "content-type": "application/json" });
 
@@ -141,5 +141,38 @@ describe("E19 VaultResult.base is the request-start base", () => {
   it("is the empty string for the page's own server", async () => {
     stubFetch(403, { success: false, error: "operate_required", remedies: [] });
     expect((await fetchVault()).base).toBe("");
+  });
+});
+
+describe("F3 vault status type", () => {
+  it("a locked status keeps its reason, known or an unknown future one", async () => {
+    for (const reason of ["key_mismatch", "x_new"]) {
+      stubFetch(200, { success: true, data: { status: { state: "locked", reason }, accounts: [], bindings: [], grants: [], confirmations: [], pluginApprovals: [], plugins: [] } });
+      const res = await fetchVault();
+      expect(res.data?.status).toEqual({ state: "locked", reason });
+      expect(vaultLock(res.data?.status as VaultOverview["status"])).toEqual({ reason });
+    }
+  });
+
+  it("vaultLock: locked and writable:false are locks; an unknown state is a lock, never ok", () => {
+    expect(vaultLock({ state: "locked", reason: "key_missing" })).toEqual({ reason: "key_missing" });
+    expect(vaultLock({ state: "ok", writable: false, reason: "keychain_unavailable" })).toEqual({ reason: "keychain_unavailable" });
+    expect(vaultLock({ state: "locked" })).toEqual({ reason: "unknown" });
+    expect(vaultLock({ state: "frozen" } as unknown as VaultOverview["status"])).toEqual({ reason: "unknown" });
+  });
+
+  it("vaultLock: ok, ok+writable and absent are not locks", () => {
+    expect(vaultLock({ state: "ok" })).toBeNull();
+    expect(vaultLock({ state: "ok", writable: true })).toBeNull();
+    expect(vaultLock({ state: "absent" })).toBeNull();
+  });
+
+  it("isVaultWriteBlocked: corrupt, locked, read-only and unknown block writes", () => {
+    expect(isVaultWriteBlocked({ state: "corrupt" })).toBe(true);
+    expect(isVaultWriteBlocked({ state: "locked", reason: "x_new" })).toBe(true);
+    expect(isVaultWriteBlocked({ state: "ok", writable: false, reason: "key_missing" })).toBe(true);
+    expect(isVaultWriteBlocked({ state: "frozen" } as unknown as VaultOverview["status"])).toBe(true);
+    expect(isVaultWriteBlocked({ state: "ok" })).toBe(false);
+    expect(isVaultWriteBlocked({ state: "absent" })).toBe(false);
   });
 });

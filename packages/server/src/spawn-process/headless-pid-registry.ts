@@ -8,7 +8,12 @@ import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { isProcessAlive, killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import {
+  isProcessAlive,
+  killPidWithGroup,
+  killProcess,
+  killProcessGroup,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { isUnsafeTestHomeScan } from "../auth/test-env-guard.js";
 import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
@@ -315,15 +320,15 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
           killedSomething = true;
         } catch { /* pi may already be dead */ }
       }
-      // Fallback: 200 ms grace for the keeper's auto-exit; SIGTERM if it
-      // survives. Fire-and-forget — the keeper's own SIGTERM handler is
-      // reliable on the happy path, and Decision 3 of
-      // fix-keeper-kill-escalation has the keeper SIGKILL its piChild on
-      // shutdown, so registry-level SIGKILL escalation here is unneeded.
+      // Fallback after a 200 ms grace: terminate the keeper's whole process
+      // GROUP (keeper + pi + pi's children — pi is spawned non-detached by the
+      // keeper, so it shares the keeper's group). Gated on the GROUP still
+      // existing, not on keeper liveness: the keeper auto-exits with pi, but
+      // pi's orphaned children (long bash calls, MCP servers) stay in the
+      // group. killProcessGroup is a no-op once the group is gone and
+      // escalates SIGTERM → SIGKILL. See issue #912.
       setTimeout(() => {
-        if (isProcessAlive(keeperPid)) {
-          try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
-        }
+        void killProcessGroup(keeperPid, { timeoutMs: 2000 }).catch(() => undefined);
       }, 200).unref?.();
       // If pi was unknown (bridge never connected), fall through to
       // killing the keeper directly with SIGKILL escalation so the

@@ -309,6 +309,39 @@ describe("loadConfig", () => {
     expect(config.auth!.allowedUsers).toEqual(["user@example.com", "octocat"]);
   });
 
+  // #E106 — close-security-map-high-findings (D3): the loader stays neutral about open enrolment.
+  describe("open enrolment and groupTiers (#E106)", () => {
+    const github = { github: { clientId: "id1", clientSecret: "secret1" } };
+
+    it("github with neither list: auth unchanged, no allowlist injected", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ auth: { secret: "s", providers: github } }));
+      const auth = loadConfig().auth!;
+      expect(auth.providers.github.clientId).toBe("id1");
+      expect(auth.allowedUsers).toBeUndefined();
+      expect(auth.groupTiers).toBeUndefined();
+    });
+
+    it("groupTiers keeps the two valid entries and drops the invalid tier", () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({ auth: { providers: github, groupTiers: { a: "observe", b: "operate", bad: "root" } } }),
+      );
+      expect(loadConfig().auth!.groupTiers).toEqual({ a: "observe", b: "operate" });
+    });
+
+    it("groupTiers with no valid entry reads as unset", () => {
+      for (const groupTiers of [{ bad: "root" }, {}, "nope", ["operate"]]) {
+        fs.writeFileSync(configFile, JSON.stringify({ auth: { providers: github, groupTiers } }));
+        expect(loadConfig().auth!.groupTiers).toBeUndefined();
+      }
+    });
+
+    it("empty providers → auth undefined (no open-enrolment state to evaluate)", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ auth: { providers: {}, groupTiers: { a: "observe" } } }));
+      expect(loadConfig().auth).toBeUndefined();
+    });
+  });
+
   it("should parse auth config with keycloak provider including issuerUrl", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       auth: {

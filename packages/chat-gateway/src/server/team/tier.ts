@@ -12,6 +12,7 @@
  */
 import { GENERATED_VERB_TIERS } from "@blackbelt-technology/pi-dashboard-shared/mcp/verb-tiers.generated.js";
 import { minTier, rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { wsMessageTier } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 
 /** Roles may never grant `operate` — see `authorize.ts` / `tier-config.ts`. */
 export type RoleTier = "observe" | "control";
@@ -81,6 +82,12 @@ export const CHAT_LOCAL_VERB_TIERS: ReadonlyMap<string, Tier> = new Map([
   ["attach_session", "observe"],
   // Ending a session is at least as strong as prompting it (`send_prompt`).
   ["close_session", "control"],
+  // A verb with no MCP-manifest row: agent prompt answers left the MCP surface
+  // (human-in-the-loop), so the generated table no longer carries it. The tier is
+  // READ from the dashboard's WS table (never a literal) so chat follows it;
+  // an unlisted row fails closed to `operate`.
+  // See change: close-security-map-high-findings (D2).
+  ["prompt_response", wsMessageTier("prompt_response")],
 ]);
 
 /** The effective per-verb tier table, read from the shared generated table. */

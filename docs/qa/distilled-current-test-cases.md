@@ -227,7 +227,7 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 - [ ] **NEW** [flow-graph] Error-route (⚠) edges are hidden by default and the toggle state persists across remount/reload.
 - [ ] **NEW** [flow-graph] Clicking "Expand graph" opens the enlarged FlowGraph/summary Dialog at near-fullscreen.
 - [ ] **NEW** [flows-new-edit-button] Clicking flows-new-edit-button (New / Edit…) opens the flow picker with "Search flows..." and "Pick a flow to edit, or + New flow…".
-- [ ] **NEW** [flows-new-edit-button] The flow picker lists flows by name from flows_list data and filters via "Search flows...".
+- [ ] **NEW** [flows-new-edit-button] The flow picker lists flows by name from `flow_catalog` data (`useFlowCatalog`) and filters via "Search flows...".
 - [ ] **NEW** [flows-new-edit-button] Choosing "+ New flow…" initiates flow-new without an error state.
 - [ ] **NEW** [flows-new-edit-button] Selecting an existing flow under "New / Edit flow" opens its edit action.
 - [ ] **NEW** [flow-launch-run] Filling "Describe the task (optional)..." and clicking Run (flow-launch-run) submits the flow launch dialog.

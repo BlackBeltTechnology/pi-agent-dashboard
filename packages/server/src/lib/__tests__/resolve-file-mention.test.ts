@@ -107,4 +107,28 @@ describe("resolveFileMention", () => {
       await fsp.rm(outside, { recursive: true, force: true });
     }
   });
+
+  // #E10 (close-security-map-high-findings): pi-agent credential files never resolve as a mention.
+  it("credential mentions resolve to null (no denial recorded); a skill file still resolves (#E10)", async () => {
+    const agentDir = path.join(home, ".pi", "agent");
+    await fsp.mkdir(path.join(agentDir, "skills", "x"), { recursive: true });
+    for (const n of ["auth.json", "models.json", "auth.json.bak"]) await fsp.writeFile(path.join(agentDir, n), "SECRET\n");
+    await fsp.writeFile(path.join(agentDir, "skills", "x", "SKILL.md"), "# skill\n");
+    const homeCwd = home;
+    for (const mention of [
+      "~/.pi/agent/auth.json",
+      path.join(agentDir, "auth.json"),
+      ".pi/agent/auth.json", // relative, cwd = $HOME
+      "~/.pi/agent/models.json",
+      "~/.pi/agent/auth.json.bak",
+    ]) {
+      expect(await resolveFileMention(mention, { cwd: homeCwd }), mention).toBeNull();
+    }
+    const { listPathDenials } = await import("../../access/access-denials.js");
+    expect(listPathDenials()).toEqual([]);
+    expect(await resolveFileMention("~/.pi/agent/skills/x/SKILL.md", { cwd })).toEqual({
+      resolved: path.join(agentDir, "skills", "x", "SKILL.md"),
+      kind: "tilde",
+    });
+  });
 });

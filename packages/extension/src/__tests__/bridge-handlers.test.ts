@@ -144,7 +144,6 @@ describe("E9: session_start delegates the session change to session-sync", () =>
       renewGitTracker: vi.fn() as never,
       syncBc: vi.fn(() => ({})) as never,
       applyBc: vi.fn(),
-      getFlowsList: vi.fn(() => []),
       sendPiVersionIfChanged: vi.fn(),
       gitPollTimer: null,
       polling: { setGitPollTimer: vi.fn() } as never,
@@ -207,6 +206,30 @@ describe("E5: inbound message dispatch — one row per accepted message type", (
     h.inst.autoNameSessions = true;
     await run({ type: "preferences_update", autoNameSessions: false });
     expect(h.inst.autoNameSessions).toBe(false);
+  });
+
+  // See change: retire-anthropic-messages-bridge (test-plan #E9).
+  it("E9: preferences_update applies each field only when present and boolean", async () => {
+    h.inst.autoNameSessions = true;
+    h.inst.claudeSubscriptionCompat = false;
+
+    await run({ type: "preferences_update", autoNameSessions: false });
+    expect(h.inst.autoNameSessions).toBe(false);
+    expect(h.inst.claudeSubscriptionCompat).toBe(false);
+
+    await run({ type: "preferences_update", claudeSubscriptionCompat: true });
+    expect(h.inst.autoNameSessions).toBe(false);
+    expect(h.inst.claudeSubscriptionCompat).toBe(true);
+    // Mirrored for subagent children (test-plan #P3). See change: seed-claude-compat-on-upgrade.
+    expect(h.inst.shared.claudeSubscriptionCompat).toBe(true);
+
+    await run({ type: "preferences_update", autoNameSessions: true, claudeSubscriptionCompat: false });
+    expect(h.inst.autoNameSessions).toBe(true);
+    expect(h.inst.claudeSubscriptionCompat).toBe(false);
+
+    await run({ type: "preferences_update", claudeSubscriptionCompat: "x" });
+    expect(h.inst.autoNameSessions).toBe(true);
+    expect(h.inst.claudeSubscriptionCompat).toBe(false);
   });
 
   it("plugin_reply resolves through the plugin request client", async () => {

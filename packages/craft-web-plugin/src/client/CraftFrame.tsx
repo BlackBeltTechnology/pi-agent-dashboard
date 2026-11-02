@@ -85,6 +85,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot, 
   const [exhausted, setExhausted] = useState<SiblingExhausted | null>(null);
   const [offer, setOffer] = useState<DownloadOffer | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [mediaMissing, setMediaMissing] = useState(0);
   const [downloadConfirm, setDownloadConfirm] = useState<{ name: string } | null>(null);
   const buildVersionRef = useLatest(buildVersion);
   const agent = useControlInstance({ instanceId: run.instanceId, app, fh, session: () => sessionRef.current, frame: () => frameRef.current });
@@ -101,7 +102,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot, 
       t: () => tRef.current,
       instanceId: run.instanceId,
       buildVersion: buildVersionRef.current,
-      ui: { setPhase, setLostEdits, setSnapMsg, setBlocked, setNav, setSaveAs, setSibling, setExhausted, setOffer, setSaveError, setDownloadConfirm },
+      ui: { setPhase, setLostEdits, setSnapMsg, setBlocked, setNav, setSaveAs, setSibling, setExhausted, setOffer, setSaveError, setMediaMissing, setDownloadConfirm },
     });
     sessionRef.current = session;
     session.start();
@@ -126,6 +127,7 @@ export function CraftFrame({ app, fh, initialWebgl, webglCapable, takeSnapshot, 
         blocked={blocked}
         nav={nav}
         saveError={saveError}
+        mediaMissing={mediaMissing}
         offer={offer}
         onNavClose={() => setNav(null)}
         onOfferClose={() => setOffer(null)}
@@ -256,17 +258,23 @@ interface NoticesProps {
   blocked: boolean;
   nav: { url: string | null } | null;
   saveError: string | null;
+  mediaMissing: number;
   offer: DownloadOffer | null;
   onNavClose: () => void;
   onOfferClose: () => void;
 }
 
-function Notices({ t, app, blocked, nav, saveError, offer, onNavClose, onOfferClose }: NoticesProps) {
+function Notices({ t, app, blocked, nav, saveError, mediaMissing, offer, onNavClose, onOfferClose }: NoticesProps) {
   return (
     <>
       {blocked && (
         <div role="status" data-testid="craft-blocked-toast" className={NOTICE}>
           {t("blockedToast")}
+        </div>
+      )}
+      {mediaMissing > 0 && (
+        <div role="status" data-testid="craft-media-missing" className={NOTICE}>
+          {t("mediaMissing", { count: String(mediaMissing) })}
         </div>
       )}
       {nav && <NavOffer t={t} app={app} url={nav.url} onClose={onNavClose} />}

@@ -6,7 +6,9 @@
  * two ways, and where guessing wrong sends them debugging the wrong thing.
  */
 import { describe, expect, it } from "vitest";
+import { withTicket } from "../bridge-ticket-client.js";
 import {
+  bridgeDialUrl,
   describeConnectTarget,
   parseConnectTarget,
   resolveConnectTarget,
@@ -150,5 +152,28 @@ describe("resolveConnectTarget", () => {
     const v = resolveConnectTarget(parseConnectTarget("80"), deps);
     expect(v.ok).toBe(false);
     expect(v.ok === false && v.reason).toMatch(/out of range/);
+  });
+});
+
+/**
+ * A path-less `wss://` endpoint dials the bridge route; an explicit path is kept.
+ * See change: prove-vault-bridge-tls (D7; test-plan #E13).
+ */
+describe("bridgeDialUrl", () => {
+  it.each([
+    ["wss://dash.example.ts.net:8443", "wss://dash.example.ts.net:8443/ws/bridge?ticket=t1"],
+    ["wss://dash.example.ts.net:8443/", "wss://dash.example.ts.net:8443/ws/bridge?ticket=t1"],
+    ["wss://proxy.example/pi", "wss://proxy.example/pi?ticket=t1"],
+    ["ws://dash.example:9999", "ws://dash.example:9999?ticket=t1"],
+  ])("%s → %s", (endpoint, expected) => {
+    expect(bridgeDialUrl(withTicket(endpoint, "t1"))).toBe(expected);
+    // Idempotent: dialling an already-mapped URL changes nothing.
+    expect(bridgeDialUrl(bridgeDialUrl(withTicket(endpoint, "t1")))).toBe(expected);
+  });
+
+  it("leaves the unticketed forms and unix sockets alone", () => {
+    expect(bridgeDialUrl("wss://dash.example.ts.net:8443")).toBe("wss://dash.example.ts.net:8443/ws/bridge");
+    expect(bridgeDialUrl("ws+unix:///tmp/gw.sock:/")).toBe("ws+unix:///tmp/gw.sock:/");
+    expect(bridgeDialUrl("not a url")).toBe("not a url");
   });
 });

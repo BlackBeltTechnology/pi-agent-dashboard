@@ -460,9 +460,15 @@ describe("runtimeIdentityEnv (D8 active extension dir)", () => {
     const env = runtimeIdentityEnv({ kind: "localLink", cliPath: "c", cwd: "w", runtimeId: "local:/r/co" }, res, dir);
     expect(env.PI_DASHBOARD_EXTENSION_DIR?.split(/[\\/]/).slice(-4)).toEqual(["r", "co", "packages", "extension"]);
   });
-  it("bundled → resources/server/packages/extension", () => {
+  it("bundled → resources/server/node_modules/@blackbelt-technology/pi-dashboard-extension", () => {
     const env = runtimeIdentityEnv({ kind: "bundled", cliPath: "c", cwd: "w" }, res, dir);
-    expect(env.PI_DASHBOARD_EXTENSION_DIR?.split(/[\\/]/).slice(-4)).toEqual(["res", "server", "packages", "extension"]);
+    expect(env.PI_DASHBOARD_EXTENSION_DIR?.split(/[\\/]/).slice(-5)).toEqual([
+      "res",
+      "server",
+      "node_modules",
+      "@blackbelt-technology",
+      "pi-dashboard-extension",
+    ]);
   });
   it("devMonorepo registers no extension → no convergence target", () => {
     const env = runtimeIdentityEnv({ kind: "devMonorepo", cliPath: "c", cwd: "w" }, res, dir);

@@ -1,0 +1,149 @@
+# THROWAWAY spike (round 2) for openspec change automate-windows-remote-qa. Delete with the branch.
+name: spike-win-remote-qa
+on:
+  push:
+    branches: [spike/win-remote-qa]
+permissions:
+  contents: read
+jobs:
+  spike:
+    runs-on: windows-latest
+    timeout-minutes: 130
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SPIKE: ${{ github.workspace }}\.github\spike-winremote
+      VER: "0.10.0"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: R0 setup (sshd, admin key, client-default Restricted policy, BOM copies)
+        run: |
+          New-Item -ItemType Directory -Force C:\spike, C:\spike\art | Out-Null
+          Copy-Item "$env:SPIKE\remote\*" C:\spike\ -Force
+          Copy-Item qa\tests C:\spike\tests -Recurse -Force
+          # BOM-fixed copy of the suite; 01 patched to the real npm package name.
+          New-Item -ItemType Directory -Force C:\spike\tests-bom | Out-Null
+          Get-ChildItem qa\tests -File | ForEach-Object {
+            $t = [IO.File]::ReadAllText($_.FullName, [Text.UTF8Encoding]::new($false))
+            if ($_.Name -eq '01-install.ps1') { $t = $t.Replace('@blackbelt-technology/pi-dashboard', "@blackbelt-technology/pi-agent-dashboard@$env:VER") }
+            [IO.File]::WriteAllText((Join-Path C:\spike\tests-bom $_.Name), $t, [Text.UTF8Encoding]::new($true))
+          }
+          Copy-Item qa\scripts\pack-fixture-plugin.mjs C:\spike\tests-bom\ -ErrorAction SilentlyContinue
+          Start-Service sshd
+          . "$env:SPIKE\lib.ps1"
+          New-Item -ItemType Directory -Force "$env:USERPROFILE\.ssh" | Out-Null
+          Start-Process "$env:WINDIR\System32\OpenSSH\ssh-keygen.exe" -ArgumentList '-q', '-t', 'ed25519', '-N', '""', '-f', $Key -Wait -NoNewWindow
+          $ak = 'C:\ProgramData\ssh\administrators_authorized_keys'
+          Copy-Item "$Key.pub" $ak -Force
+          icacls.exe $ak /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+          powershell -NoProfile -Command "Set-ExecutionPolicy Restricted -Scope LocalMachine -Force"
+          Result 'R0.ping' (Invoke-Remote 'echo hi')
+
+      - name: R1 exit-code matrix (cmd vs PowerShell DefaultShell)
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          Result 'R1.cmd.file.exit7' (Invoke-Remote "$PS C:\spike\exit7.ps1")
+          Result 'R1.cmd.file.throw' (Invoke-Remote "$PS C:\spike\throw.ps1")
+          Result 'R1.cmd.file.argsQuoted' (Invoke-Remote "$PS C:\spike\echoargs.ps1 -Name ""a b"" -N 3")
+          New-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -Name DefaultShell -Value "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force | Out-Null
+          Result 'R1.ps.file.exit7' (Invoke-Remote "$PS C:\spike\exit7.ps1")
+          Result 'R1.ps.file.exit7.relay' (Invoke-Remote "$PS C:\spike\exit7.ps1; exit `$LASTEXITCODE")
+          Remove-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -Name DefaultShell
+          Result 'R1.cmd.restored.exit7' (Invoke-Remote "$PS C:\spike\exit7.ps1")
+
+      - name: R2 PS 5.1 parse sweep (as shipped vs BOM)
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          Result 'R2.asShipped' (Invoke-Remote "$PS C:\spike\parse-sweep.ps1 -Dir C:\spike\tests")
+          Result 'R2.bom' (Invoke-Remote "$PS C:\spike\parse-sweep.ps1 -Dir C:\spike\tests-bom")
+
+      - name: R3 artifacts + baseline
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          gh release download "v$env:VER" -R $env:GITHUB_REPOSITORY -p 'PI-Dashboard-win32-x64.zip' -p "PI-Dashboard-Setup-$env:VER-x64.exe" -D C:\spike\art --clobber
+          Expand-Archive C:\spike\art\PI-Dashboard-win32-x64.zip -DestinationPath C:\spike\zipx -Force
+          Snap 'baseline' | Out-Null
+
+      - name: R4 localhost vs 127.0.0.1 from PS 5.1 (server launched detached via WMI)
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          $exe = (Get-ChildItem C:\spike\zipx -Recurse -Filter pi-dashboard.exe | Select-Object -First 1).FullName
+          Result 'R4.launch' (Invoke-Remote "$PS C:\spike\launch-wmi.ps1 -Exe $exe" 60)
+          Result 'R4.health.pwsh7' (Wait-Health 240)
+          Result 'R4.probe.ssh.session0' (Invoke-Remote "$PS C:\spike\probe-http.ps1" 180)
+          Result 'R4.probe.runner.session2' (Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\spike\probe-http.ps1') 180)
+          Dump-AppLogs 'R4'
+          Result 'R4.diff' (Compare-Snap 'C:\spike\snap-baseline.json' (Snap 'R4'))
+          Clean 'R4.post' | Out-Null
+
+      - name: R5 launch Electron into the interactive session (scheduled task)
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          $exe = (Get-ChildItem C:\spike\zipx -Recurse -Filter pi-dashboard.exe | Select-Object -First 1).FullName
+          Result 'R5.cim.Interactive' (Invoke-Remote "$PS C:\spike\launch-task.ps1 -Exe $exe -Logon Interactive -Name spike-cim-it" 60)
+          Result 'R5.cim.Interactive.health' (Wait-Health 150)
+          Dump-AppLogs 'R5.cim'
+          Clean 'R5.cim' | Out-Null
+          Result 'R5.schtasks.IT' (Invoke-Remote "$PS C:\spike\launch-schtasks-it.ps1 -Exe $exe" 60)
+          Result 'R5.schtasks.IT.health' (Wait-Health 150)
+          Dump-AppLogs 'R5.schtasks'
+          Clean 'R5.schtasks' | Out-Null
+
+      - name: R6 qa/tests/07 (BOM) — over ssh, then runner-direct
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          New-Item -ItemType Directory -Force C:\qa-artifacts | Out-Null; Copy-Item C:\spike\art\PI-Dashboard-win32-x64.zip C:\qa-artifacts\
+          Result 'R6.test07.overSsh' (Invoke-Remote "$PS C:\spike\tests-bom\07-electron-bootstrap-v2.ps1" 900)
+          Dump-AppLogs 'R6.ssh'
+          Result 'R6.diff' (Compare-Snap 'C:\spike\snap-baseline.json' (Snap 'R6'))
+          Clean 'R6.ssh' | Out-Null
+          New-Item -ItemType Directory -Force C:\qa-artifacts | Out-Null; Copy-Item C:\spike\art\PI-Dashboard-win32-x64.zip C:\qa-artifacts\
+          Result 'R6.test07.runnerDirect' (Invoke-Native 'powershell.exe' @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\spike\tests-bom\07-electron-bootstrap-v2.ps1') 900)
+          Clean 'R6.direct' | Out-Null
+
+      - name: R7 NSIS (BOM) install + launch over ssh
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          Result 'R7.install' (Invoke-Remote "$PS C:\spike\tests-bom\windows-nsis-install.ps1 -Setup C:\spike\art\PI-Dashboard-Setup-$env:VER-x64.exe" 900)
+          Result 'R7.launch' (Invoke-Remote "$PS C:\spike\tests-bom\windows-nsis-launch.ps1 -TimeoutSec 120" 900)
+          Result 'R7.diff' (Compare-Snap 'C:\spike\snap-baseline.json' (Snap 'R7'))
+          Clean 'R7' | Out-Null
+
+      - name: R8 npm-global mode (inside Bypass -File scripts)
+        continue-on-error: true
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          Result 'R8.inSession' (Invoke-Remote "$PS C:\spike\npm-mode.ps1 -Ver $env:VER -StartMode inSession" 1200)
+          Start-Sleep -Seconds 5
+          Result 'R8.inSession.healthAfterClose' (Wait-Health 30)
+          Result 'R8.diff' (Compare-Snap 'C:\spike\snap-baseline.json' (Snap 'R8'))
+          Clean 'R8.a' | Out-Null
+          Result 'R8.wmi' (Invoke-Remote "$PS C:\spike\npm-mode.ps1 -Ver $env:VER -StartMode wmi" 1200)
+          Start-Sleep -Seconds 5
+          Result 'R8.wmi.healthAfterClose' (Wait-Health 30)
+          Result 'R8.test02.overSsh' (Invoke-Remote "$PS C:\spike\tests-bom\02-server-start.ps1" 600)
+          Clean 'R8.b' | Out-Null
+
+      - name: R9 whole run-all.ps1 (BOM, 01 patched) over ssh
+        continue-on-error: true
+        timeout-minutes: 50
+        run: |
+          . "$env:SPIKE\lib.ps1"
+          New-Item -ItemType Directory -Force C:\qa-artifacts | Out-Null; Copy-Item C:\spike\art\PI-Dashboard-win32-x64.zip C:\qa-artifacts\
+          $r = Invoke-Remote "$PS C:\spike\tests-bom\run-all.ps1" 2700
+          Result 'R9.runAll' $r
+          $summary = ($r.out -split "`n" | Where-Object { $_ -match '^\s+(PASS|FAIL|SKIP)\s' -or $_ -match 'Total:' }) -join "`n"
+          Result 'R9.summary' @{ rc = $r.rc; sec = $r.sec; lines = $summary }
+          Clean 'R9.a' | Out-Null
+          Clean 'R9.b' | Out-Null
+          Result 'R9.finalDiff' (Compare-Snap 'C:\spike\snap-baseline.json' (Snap 'final'))

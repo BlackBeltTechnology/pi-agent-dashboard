@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Model · thinking picker: one-trip concepts</title>
+<link rel="stylesheet" href="tokens.css" />
+<script src="probe.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+  header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 20px;
+    border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); position: sticky; top: 0; z-index: 5; }
+  header.top h1 { font-size: 15px; margin: 0 12px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; padding: 6px 12px; font-size: 13px; color: var(--text-secondary); cursor: pointer; min-height: 32px; }
+  .seg button + button { border-left: 1px solid var(--border-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); }
+  .rec { font-size: 11px; margin-left: 4px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--accent); color: var(--text-primary); }
+  .spacer { flex: 1; }
+
+  main { display: grid; grid-template-columns: minmax(380px, 560px) minmax(300px, 1fr); gap: 24px; padding: 20px; max-width: 1280px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  /* ── mock chat pane ─────────────────────────────────────────── */
+  .frame { position: relative; border: 1px solid var(--border-primary); border-radius: 12px; background: var(--bg-primary);
+    height: 640px; display: flex; flex-direction: column; overflow: hidden; }
+  .chat { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+  .bubble { max-width: 85%; padding: 8px 12px; border-radius: 10px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 13px; }
+  .bubble.me { align-self: flex-end; background: var(--accent-soft); color: var(--text-primary); }
+  .composer { border-top: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 8px 10px; }
+  .composer .input { min-height: 44px; border: 1px solid var(--border-secondary); border-radius: 8px; padding: 10px; color: var(--text-tertiary); font-size: 13px; background: var(--bg-tertiary); }
+  .toolbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--text-secondary); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 8px; border-radius: 6px; border: 0; background: none;
+    color: var(--text-secondary); cursor: pointer; font-size: 12px; max-width: 100%; }
+  .chip:hover, .chip[aria-expanded="true"] { background: var(--bg-hover); color: var(--text-primary); }
+  .chip .lvl { color: var(--text-secondary); }
+  .chip .flash { animation: flash .9s ease-out; border-radius: 4px; }
+  @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+  .tool { padding: 0 8px; min-height: 32px; display: inline-flex; align-items: center; border-radius: 6px; color: var(--text-tertiary); }
+
+  /* ── popover (mirrors ModelSelector panel chrome) ───────────── */
+  .pop { position: absolute; left: 10px; bottom: 92px; width: 320px; max-height: 520px; display: flex; flex-direction: column;
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.35); overflow: hidden; z-index: 3; }
+  .pop[hidden] { display: none; }
+  .pop-head { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border-secondary); }
+  .pop-head input { flex: 1; min-width: 0; min-height: 32px; border: 1px solid var(--border-secondary); border-radius: 6px; padding: 0 8px; font-size: 12px;
+    background: var(--bg-tertiary); color: var(--text-primary); }
+  .pop-head input::placeholder { color: var(--text-tertiary); }
+  .pop-head .sel { font-size: 12px; min-height: 32px; padding: 0 8px; border: 1px solid var(--border-secondary); border-radius: 6px; display: inline-flex; align-items: center; color: var(--text-secondary); }
+  .list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
+  .grp { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; min-height: 40px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  .row:hover, .row.active { background: var(--bg-hover); }
+  .row.cur { color: var(--text-primary); }
+  .row .chk { width: 16px; flex: none; text-align: center; }
+  .row .nm { flex: 1; min-width: 0; }
+  .row .nm div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .nm .id { font-size: 11px; color: var(--text-secondary); }
+  .badge { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-secondary); white-space: nowrap; }
+  .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--border-strong); border-top-color: transparent; border-radius: 50%; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  /* level footer */
+  .lvlbox { flex: none; border-top: 1px solid var(--border-secondary); padding: 8px 10px; }
+  .lvlbox.pulse { animation: pulse 1.1s ease-out; }
+  @keyframes pulse { 0% { box-shadow: inset 0 0 0 2px var(--accent); } 100% { box-shadow: inset 0 0 0 2px transparent; } }
+  .lvlhead { display: flex; align-items: baseline; gap: 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); padding-bottom: 6px; }
+  .lvlhead .for { font-weight: 400; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .levels { display: flex; flex-wrap: wrap; gap: 4px; }
+  .lv { min-height: 32px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--border-secondary); background: none; font-size: 12px;
+    color: var(--text-secondary); cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .lv:hover:not([aria-disabled="true"]) { background: var(--bg-hover); }
+  .lv[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); }
+  .lv[aria-disabled="true"] { color: var(--text-muted); border-style: dashed; cursor: not-allowed; text-decoration: line-through; }
+  .note { margin-top: 6px; font-size: 11px; color: var(--severity-warning-fg); display: flex; gap: 6px; align-items: center; }
+  .note.info { color: var(--text-secondary); }
+  .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .kbd { font-size: 11px; color: var(--text-secondary); }
+  .kbd kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border-secondary); border-radius: 3px; padding: 0 3px; background: var(--bg-tertiary); }
+  .btn { min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); font-size: 12px; cursor: pointer; }
+  .btn.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+
+  /* summary header (B) */
+  .sum { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-secondary); font-size: 12px; }
+  .sum .x { margin-left: auto; min-width: 32px; min-height: 32px; border: 0; background: none; cursor: pointer; color: var(--text-secondary); border-radius: 6px; }
+  .sum .x:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* inline levels (C) */
+  .row.has-inline { flex-wrap: wrap; }
+  .inline-lv { flex-basis: 100%; display: flex; gap: 4px; padding: 2px 0 4px 24px; flex-wrap: wrap; }
+  .inline-lv .lv { min-height: 28px; padding: 0 7px; }
+
+  /* ── side panel ─────────────────────────────────────────────── */
+  .side h2 { font-size: 16px; margin: 0 0 4px; }
+  .side .lead { color: var(--text-secondary); margin: 0 0 14px; }
+  .card { border: 1px solid var(--border-primary); background: var(--bg-secondary); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .card h3 { font-size: 13px; margin: 0 0 8px; color: var(--text-primary); }
+  .card ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; }
+  .card li { margin: 3px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border-primary); color: var(--text-secondary); }
+  th { color: var(--text-primary); font-weight: 600; }
+  td.n { font-family: ui-monospace, Menlo, monospace; color: var(--text-primary); }
+  td.best { color: var(--severity-success-fg, var(--text-primary)); font-weight: 600; }
+  td.worse { color: var(--severity-warning-fg); }
+  .task { display: flex; flex-direction: column; gap: 6px; }
+  .task-row { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-secondary); }
+  .task-row .ok { min-width: 18px; text-align: center; }
+  .counter { font-family: ui-monospace, Menlo, monospace; color: var(--text-primary); }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+  .pill.ok { border-color: var(--severity-success-border, var(--accent)); color: var(--severity-success-fg, var(--text-primary)); }
+  .pill.bad { border-color: var(--severity-error-border); color: var(--severity-error-fg); }
+  .log { font: 12px ui-monospace, Menlo, monospace; color: var(--text-secondary); max-height: 120px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Model · thinking picker</h1>
+  <div class="seg" role="group" aria-label="Concept" id="conceptSeg">
+    <button data-c="cur" aria-pressed="false">Today</button>
+    <button data-c="A" aria-pressed="true">A · Model keeps it open <span class="rec">recommended</span></button>
+    <button data-c="B">B · Live panel</button>
+    <button data-c="C">C · Inline levels</button>
+  </div>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="Theme" id="themeSeg">
+    <button data-t="dark" aria-pressed="true">Dark</button>
+    <button data-t="light" aria-pressed="false">Light</button>
+    <button data-t="nord" aria-pressed="false">Nord</button>
+  </div>
+  <span class="pill" id="probeBadge" title="Contrast + text-size probe over the open popover and side panel">probe…</span>
+</header>
+
+<main>
+  <section>
+    <div class="frame" id="frame">
+      <div class="chat">
+        <div class="bubble me">Refactor the WS reconnect loop, keep the backoff.</div>
+        <div class="bubble">Done. Backoff kept at 250 ms → 8 s. Tests pass.</div>
+        <div class="bubble me">Now a deep review of the whole bridge module.</div>
+        <div class="bubble">…switching model for this one?</div>
+      </div>
+      <div class="composer">
+        <div class="input">Ask pi…</div>
+        <div class="toolbar">
+          <button class="chip" id="chip" aria-haspopup="dialog" aria-expanded="false"></button>
+          <span class="tool">⏎ steer</span>
+          <span class="tool">📎</span>
+        </div>
+      </div>
+      <div class="pop" id="pop" role="dialog" aria-modal="false" aria-label="Choose model and thinking level" hidden></div>
+    </div>
+    <p class="kbd" style="margin-top:8px">Click the chip in the composer toolbar. Every click inside the mock is counted.</p>
+  </section>
+
+  <aside class="side" id="side"></aside>
+</main>
+
+<script>
+/* ── data: realistic per-model supportedThinkingLevels (deriveSupportedThinkingLevels) ── */
+const ALL = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const MODELS = [
+  { p: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5", ctx: "1M", vis: true, lv: ALL },
+  { p: "anthropic", id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", ctx: "1M", vis: true, lv: ["off", "minimal", "low", "medium", "high", "xhigh"] },
+  { p: "anthropic", id: "claude-haiku-5-5", name: "Claude Haiku 5.5", ctx: "200k", vis: true, lv: ["off", "minimal", "low", "medium", "high"] },
+  { p: "openai-codex", id: "gpt-6-sol", name: "GPT-6 Sol", ctx: "400k", vis: true, lv: ["minimal", "low", "medium", "high", "xhigh"] },
+  { p: "zai", id: "glm-5.3", name: "GLM 5.3", ctx: "200k", vis: false, lv: ["off", "low", "medium"] },
+  { p: "ollama", id: "qwen3-coder", name: null, ctx: "128k", vis: false, lv: ["off"] },
+];
+const label = (m) => `${m.p}/${m.id}`;
+const byLabel = (l) => MODELS.find((m) => label(m) === l);
+
+/* pi-ai clampThinkingLevel: nearest supported ABOVE first, then below, else first supported. */
+function clamp(level, m) {
+  if (m.lv.includes(level)) return level;
+  const i = ALL.indexOf(level);
+  for (let k = i + 1; k < ALL.length; k++) if (m.lv.includes(ALL[k])) return ALL[k];
+  for (let k = i - 1; k >= 0; k--) if (m.lv.includes(ALL[k])) return ALL[k];
+  return m.lv[0] ?? "off";
+}
+
+/* ── concept copy ─────────────────────────────────────────────── */
+const COPY = {
+  cur: {
+    title: "Today (as built)",
+    lead: "One popover, two independent pickers. ANY pick closes it, so changing both means opening it twice.",
+    rules: [
+      "Model row click → <b>set model, close</b>.",
+      "Level click → <b>set level, close</b>.",
+      "Level list reflects the model at open time; after a model switch you reopen to see the new model's levels.",
+      "Unsupported levels are hidden, so the strip reflows when the model changes.",
+    ],
+    clicks: [4, 2, 2],
+  },
+  A: {
+    title: "A · Model pick keeps the popover open",
+    lead: "Follow the natural order: model first, then level. Picking a model applies it and keeps the popover open; picking a level applies it and closes.",
+    rules: [
+      "Model row click → set model (applies immediately, pending spinner on the row), <b>popover stays open</b>.",
+      "Level footer re-renders for the <i>just-picked</i> model and briefly highlights: the next step.",
+      "Current level not offered by the new model → footer shows the clamped value pi will use, with a one-line note.",
+      "All 7 canonical levels always render; unsupported ones are disabled (dashed, struck), so the strip never reflows under the pointer.",
+      "Level click → set level, <b>close</b>. Model-only change: Esc, outside click, chip click or <b>Done</b>.",
+      "Keyboard: filter ↑↓ <kbd>Enter</kbd> on a model → focus jumps to the level group; ←→ <kbd>Enter</kbd> → applies + closes.",
+    ],
+    clicks: [3, 3, 2],
+    pros: ["One trip for the common 'switch model + adjust thinking'.", "Same panel, same grid keyboard model; smallest code delta (handleSelect stops closing when merged).", "Touch-friendly: no hover dependence."],
+    cons: ["Model-only change costs one dismiss (Esc / outside click)."],
+  },
+  B: {
+    title: "B · Live settings panel",
+    lead: "Treat it as a small settings panel, not a menu: nothing closes on pick. A summary header shows the live result; dismiss explicitly.",
+    rules: [
+      "Model and level clicks both apply immediately; <b>nothing closes</b>.",
+      "Header shows <span class='mono'>model · level</span> as it will run, plus ✕.",
+      "Same disabled-not-hidden level strip and clamp note as A.",
+      "Close: ✕, Esc, outside click, chip click.",
+    ],
+    clicks: [4, 3, 3],
+    pros: ["Most predictable: one rule ('nothing closes').", "Good for exploring several models and comparing their levels."],
+    cons: ["Every task needs a dismiss: single-field changes regress from 2 to 3 clicks."],
+  },
+  C: {
+    title: "C · Inline levels on the row",
+    lead: "Each model row carries its own levels. The current row and the hovered / keyboard-active row expand a chip line; a chip applies model + level in one click.",
+    rules: [
+      "Level chip on any expanded row → <b>set model + level, close</b> (one click inside).",
+      "Row body click → set model only (level clamped), close.",
+      "Current row is always expanded, so a level-only change stays a single click.",
+      "Touch has no hover: first tap on a non-current row expands it, second action picks.",
+    ],
+    clicks: [2, 2, 2],
+    pros: ["Fewest clicks for every task.", "Levels can never be shown for the wrong model."],
+    cons: ["Rows jump in height as hover moves (list feels busy).", "Hover-dependent; touch needs the expand-tap, so 3 taps there.", "Grid keyboard model grows a third axis (row → chips)."],
+  },
+};
+const TASKS = [
+  { id: "both", text: "Switch to <span class='mono'>openai-codex/gpt-6-sol</span> + <span class='mono'>high</span>", goal: (s) => s.model === "openai-codex/gpt-6-sol" && s.level === "high" },
+  { id: "model", text: "Model only: <span class='mono'>anthropic/claude-haiku-5-5</span>", goal: (s) => s.model === "anthropic/claude-haiku-5-5" },
+  { id: "level", text: "Level only: <span class='mono'>xhigh</span>", goal: (s) => s.level === "xhigh" },
+];
+
+/* ── state ─────────────────────────────────────────────────────── */
+const S = { concept: "A", model: "anthropic/claude-opus-5-5", level: "high", open: false, pending: null, clicks: 0, active: null, clampNote: null, done: {}, log: [] };
+const $ = (s) => document.querySelector(s);
+const chip = $("#chip"), pop = $("#pop"), side = $("#side");
+
+function log(msg) { S.log.unshift(`${String(S.clicks).padStart(2, " ")}  ${msg}`); S.log = S.log.slice(0, 12); }
+function checkTasks() {
+  for (const t of TASKS) if (!S.done[t.id] && !S.open && t.goal(S)) S.done[t.id] = S.clicks;
+}
+function setModel(l) {
+  const m = byLabel(l);
+  const next = clamp(S.level, m);
+  S.clampNote = next !== S.level ? `${S.level} isn't offered by ${m.id}: pi will use ${next}` : null;
+  S.model = l; S.level = next;
+  S.pending = l; setTimeout(() => { S.pending = null; render(); }, 650);
+  log(`set model ${l}${S.clampNote ? ` (level → ${next})` : ""}`);
+}
+function setLevel(l) { S.level = l; S.clampNote = null; log(`set level ${l}`); }
+function openPop() { S.open = true; S.clampNote = null; S.active = S.model; log("open"); }
+function closePop(why) { S.open = false; S.clampNote = null; log(`close (${why})`); checkTasks(); }
+
+/* ── render ────────────────────────────────────────────────────── */
+function chipHtml() {
+  const m = byLabel(S.model);
+  return `${S.pending ? '<span class="spin" aria-hidden="true"></span>' : ""}<span class="mono">${m.id}</span>
+    <span class="lvl" aria-hidden="true">·</span><span class="mono lvl">${S.level}</span><span aria-hidden="true">▾</span>`;
+}
+function levelButtons(m, cur, opts = {}) {
+  const shown = opts.hideUnsupported ? m.lv : ALL;
+  return shown.map((l) => {
+    const ok = m.lv.includes(l);
+    return `<button class="lv" role="radio" data-level="${l}" ${opts.model ? `data-for="${opts.model}"` : ""}
+      aria-checked="${l === cur}" ${ok ? "" : `aria-disabled="true" title="Not offered by ${m.id}"`}
+      tabindex="${l === cur ? 0 : -1}">${l}</button>`;
+  }).join("");
+}
+function rowsHtml() {
+  const groups = [...new Set(MODELS.map((m) => m.p))];
+  return groups.map((p) => `<div class="grp" id="g-${p}">${p}</div>` + MODELS.filter((m) => m.p === p).map((m) => {
+    const l = label(m), cur = l === S.model;
+    const inline = S.concept === "C" && (cur || l === S.active);
+    return `<div class="row ${cur ? "cur" : ""} ${l === S.active ? "active" : ""} ${inline ? "has-inline" : ""}" role="row" aria-selected="${cur}" data-model="${l}">
+      <span class="chk" aria-hidden="true">${S.pending === l ? '<span class="spin"></span>' : cur ? "✓" : ""}</span>
+      <div class="nm"><div class="mono">${m.name ?? l}</div>${m.name ? `<div class="mono id">${l}</div>` : ""}</div>
+      ${m.lv.length > 1 ? '<span class="badge" title="reasoning">🧠</span>' : ""}${m.vis ? '<span class="badge" title="vision">👁</span>' : ""}
+      <span class="badge">${m.ctx}</span>
+      ${inline ? `<div class="inline-lv" role="radiogroup" aria-label="Thinking level for ${m.id}">${levelButtons(m, cur ? S.level : clamp(S.level, m), { hideUnsupported: true, model: l })}</div>` : ""}
+    </div>`;
+  }).join("")).join("");
+}
+function footerHtml() {
+  const m = byLabel(S.model);
+  if (S.concept === "C") return "";
+  const hide = S.concept === "cur";
+  const single = m.lv.length === 1;
+  return `<div class="lvlbox ${S.pulse ? "pulse" : ""}" id="lvlbox">
+    <div class="lvlhead"><span id="lvh">Thinking level</span>${hide ? "" : `<span class="for mono">for ${m.id}</span>`}</div>
+    <div class="levels" role="radiogroup" aria-labelledby="lvh">${levelButtons(m, S.level, { hideUnsupported: hide })}</div>
+    ${!hide && S.clampNote ? `<div class="note" role="status">⚠ ${S.clampNote}</div>` : ""}
+    ${!hide && single ? `<div class="note info">This model doesn't reason: thinking is off.</div>` : ""}
+    ${S.concept === "A" ? `<div class="foot"><span class="kbd"><kbd>Enter</kbd> on a model → levels · <kbd>Esc</kbd> done</span><span class="spacer"></span><button class="btn" data-act="done">Done</button></div>` : ""}
+  </div>`;
+}
+function popHtml() {
+  const head = `<div class="pop-head"><input placeholder="Filter models…" aria-label="Filter models" /><span class="sel">All providers ▾</span><span class="sel">★</span></div>`;
+  const summary = S.concept === "B"
+    ? `<div class="sum"><span class="kbd">Runs with</span><span class="mono">${byLabel(S.model).id} · ${S.level}</span><button class="x" data-act="x" aria-label="Close">✕</button></div>` : "";
+  return summary + head + `<div class="list" role="grid" aria-label="Models">${rowsHtml()}</div>` + footerHtml();
+}
+function tableHtml() {
+  const keys = ["cur", "A", "B", "C"];
+  const names = { cur: "Today", A: "A", B: "B", C: "C" };
+  const rows = ["Model + level", "Model only", "Level only"];
+  return `<table><thead><tr><th>Clicks (incl. open)</th>${keys.map((k) => `<th>${names[k]}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map((r, i) => `<tr><td>${r}</td>${keys.map((k) => {
+      const v = COPY[k].clicks[i], base = COPY.cur.clicks[i];
+      return `<td class="n ${v < base ? "best" : v > base ? "worse" : ""}">${v}</td>`;
+    }).join("")}</tr>`).join("")}</tbody></table>`;
+}
+function sideHtml() {
+  const c = COPY[S.concept];
+  return `<h2>${c.title}</h2><p class="lead">${c.lead}</p>
+    <div class="card"><h3>Behaviour</h3><ul>${c.rules.map((r) => `<li>${r}</li>`).join("")}</ul></div>
+    ${c.pros ? `<div class="card"><h3>Trade-offs</h3><ul>${c.pros.map((p) => `<li>+ ${p}</li>`).join("")}${c.cons.map((p) => `<li>− ${p}</li>`).join("")}</ul></div>` : ""}
+    <div class="card"><h3>Try it <span class="pill">clicks <span class="counter">${S.clicks}</span></span> <button class="btn" data-act="reset" style="float:right">Reset</button></h3>
+      <div class="task">${TASKS.map((t) => `<div class="task-row"><span class="ok">${S.done[t.id] !== undefined ? "✓" : "○"}</span><span>${t.text}</span>
+        ${S.done[t.id] !== undefined ? `<span class="pill ok">done at click ${S.done[t.id]}</span>` : ""}</div>`).join("")}</div>
+      <ul class="log" aria-label="Event log" style="margin-top:8px">${S.log.map((l) => `<li>${l}</li>`).join("")}</ul>
+    </div>
+    <div class="card"><h3>Click cost per task</h3>${tableHtml()}
+      <p class="kbd" style="margin:8px 0 0">Green = fewer than today, amber = more. A dismiss (Esc / outside click) counts as a click.</p></div>
+    <div class="card"><h3>Shared across A / B</h3><ul>
+      <li>Levels come from the <b>picked</b> model's <span class="mono">supportedThinkingLevels</span> (<span class="mono">thinkingLevelsFor</span>), not the model at open time.</li>
+      <li>Non-reasoning model (<span class="mono">["off"]</span>) → strip stays, all but <span class="mono">off</span> disabled, one info line.</li>
+      <li>Clamp note mirrors what pi does on <span class="mono">setModel</span>; the chip shows the effective level.</li>
+      <li>No new tokens: <span class="mono">--accent-soft</span>/<span class="mono">--accent</span> selected, <span class="mono">--text-muted</span> disabled only, <span class="mono">--severity-warning-fg</span> clamp note.</li>
+    </ul></div>`;
+}
+function render() {
+  chip.innerHTML = chipHtml();
+  chip.setAttribute("aria-expanded", String(S.open));
+  chip.setAttribute("aria-label", `Model ${S.model}, thinking ${S.level}`);
+  pop.hidden = !S.open;
+  if (S.open) pop.innerHTML = popHtml();
+  side.innerHTML = sideHtml();
+  S.pulse = false;
+  document.querySelectorAll("#conceptSeg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.c === S.concept)));
+  runProbe();
+}
+
+/* ── interaction ───────────────────────────────────────────────── */
+$("#frame").addEventListener("click", (e) => {
+  S.clicks++;
+  const t = e.target;
+  if (t.closest("#chip")) { S.open ? closePop("chip") : openPop(); return render(); }
+  if (!S.open) { S.clicks--; return; }
+  if (!t.closest("#pop")) { closePop("outside click"); return render(); }
+  const lv = t.closest(".lv");
+  if (lv) {
+    if (lv.getAttribute("aria-disabled") === "true") { log(`(${lv.dataset.level} not offered)`); return render(); }
+    if (S.concept === "C" && lv.dataset.for && lv.dataset.for !== S.model) { setModel(lv.dataset.for); }
+    setLevel(lv.dataset.level);
+    if (S.concept !== "B") closePop("level picked");
+    return render();
+  }
+  const act = t.closest("[data-act]");
+  if (act && (act.dataset.act === "done" || act.dataset.act === "x")) { closePop(act.dataset.act); return render(); }
+  const row = t.closest(".row");
+  if (row) {
+    const l = row.dataset.model;
+    if (S.concept === "C" && l !== S.model && l !== S.active) { S.active = l; log(`expand ${l}`); return render(); }
+    setModel(l);
+    if (S.concept === "cur" || S.concept === "C") closePop("model picked");
+    else { S.active = l; S.pulse = true; }
+    return render();
+  }
+  S.clicks--; // inert area inside the popover
+});
+$("#frame").addEventListener("mouseover", (e) => {
+  if (S.concept !== "C" || !S.open) return;
+  const row = e.target.closest(".row");
+  if (row && row.dataset.model !== S.active) { S.active = row.dataset.model; pop.querySelector(".list").innerHTML = rowsHtml(); runProbe(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (!S.open) return;
+  if (e.key === "Escape") { S.clicks++; closePop("Esc"); render(); chip.focus(); }
+});
+side.addEventListener("click", (e) => {
+  if (e.target.closest('[data-act="reset"]')) { Object.assign(S, { model: "anthropic/claude-opus-5-5", level: "high", open: false, clicks: 0, done: {}, log: [], clampNote: null }); render(); }
+});
+$("#conceptSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  Object.assign(S, { concept: b.dataset.c, open: false, clicks: 0, done: {}, log: [], clampNote: null, model: "anthropic/claude-opus-5-5", level: "high" });
+  render();
+});
+$("#themeSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const t = b.dataset.t, root = document.documentElement;
+  root.dataset.theme = t === "light" ? "light" : "dark";
+  if (t === "nord") root.dataset.palette = "nord"; else delete root.dataset.palette;
+  document.querySelectorAll("#themeSeg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  runProbe();
+});
+function runProbe() {
+  const badge = $("#probeBadge");
+  if (!window.__probeRoot) return;
+  const f = [...document.querySelectorAll(".frame, .side")].flatMap(window.__probeRoot);
+  window.__lastProbe = f;
+  badge.className = `pill ${f.length ? "bad" : "ok"}`;
+  badge.textContent = f.length ? `${f.length} probe failure${f.length > 1 ? "s" : ""}` : "0 probe failures";
+  badge.title = f.join("\n") || "Contrast + text size OK";
+}
+/* deep links: ?c=A&open=1&model=...&theme=light */
+const q = new URLSearchParams(location.search);
+if (q.get("c")) S.concept = q.get("c");
+if (q.get("model")) { setModel(q.get("model")); S.pending = null; }
+if (q.get("open")) { S.open = true; S.active = S.model; }
+if (q.get("clamp")) { S.level = "xhigh"; setModel(q.get("clamp")); S.pending = null; }
+if (q.get("theme")) $(`#themeSeg [data-t="${q.get("theme")}"]`).click();
+S.log = []; S.clicks = 0;
+render();
+</script>
+</body>
+</html>

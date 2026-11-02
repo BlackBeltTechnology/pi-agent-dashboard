@@ -131,11 +131,15 @@ if [ "$HOST_PLATFORM" = "win32" ]; then
   node packages/electron/scripts/bundle-server.mjs
   echo "✓ Server bundled"
 
-  # ── Step 3 — Install server deps for Windows ─────────────────────────────
+  # ── Step 3 — Strip non-win32 node-pty prebuilds ──────────────────────────
+  # bundle-server.mjs (Step 2) already ran the install and produced the final
+  # layout (workspace source only under node_modules, no `workspaces`, pruned).
+  # A second `npm install` here would treat the materialized
+  # @blackbelt-technology/* copies as extraneous and remove them.
+  # See change: slim-windows-install-file-count (design D2).
   echo ""
-  echo "▶ Step 3/7 — Installing server dependencies (Windows native modules)..."
+  echo "▶ Step 3/7 — Pruning node-pty prebuilds (Windows native modules)..."
   cd "$ELECTRON_DIR/resources/server"
-  npm install --omit=dev --no-audit --no-fund
 
   # Keep only win32 node-pty prebuilds; strip darwin + linux
   if [ -d node_modules/node-pty/prebuilds ]; then
@@ -148,7 +152,7 @@ if [ "$HOST_PLATFORM" = "win32" ]; then
       [ -d "$d" ] && [[ "$d" != *"win32-$ARCH" ]] && rm -rf "$d"
     done
   fi
-  echo "✓ Server dependencies installed"
+  echo "✓ Server dependencies ready"
 
   # ── Step 4 — Download Windows Node.js ────────────────────────────────────
   echo ""

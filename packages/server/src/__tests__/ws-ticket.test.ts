@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { decideBridgeTicketMint } from "../auth/bridge-ticket-eligibility.js";
-import { extractTicket, routeScopeForUrl, WsTicketStore } from "../auth/ws-ticket.js";
+import { extractTicket, mintBridgeTicket, routeScopeForUrl, WsTicketStore } from "../auth/ws-ticket.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { decideBridgeUpgrade } from "../pi/bridge-upgrade-auth.js";
 
@@ -110,7 +110,7 @@ describe("revoked paired device (#X11)", () => {
       // A REMOTE bridge — the genuinely-local branch must not rescue it.
       ip: "203.0.113.7",
       headers: {},
-      verifyDeviceBearer: (t) => registry.verify(t),
+      verifyDeviceBearer: (t) => registry.verify(t, "tls"),
     });
 
   it("mints for a paired device and refuses once revoked, with a named reason", () => {
@@ -142,6 +142,42 @@ describe("revoked paired device (#X11)", () => {
     const { device, token } = registry.add("remote-laptop");
     registry.revoke(device.id);
     const reloaded = new PairedDeviceRegistry(registryFile);
-    expect(reloaded.verify(token)).toBeNull();
+    expect(reloaded.verify(token, "tls")).toBeNull();
+  });
+});
+
+// ── prove-vault-bridge-tls: what the minting request proves, carried on the ticket (test-plan #E16) ──
+
+describe("bridge ticket mint flags (E16)", () => {
+  const req = (encrypted: boolean, headers: Record<string, string> = {}) => ({ socket: { encrypted }, headers }) as never;
+  const store = () => new WsTicketStore(() => 1000);
+
+  it("(a) TLS listener + device bearer → provenTls, mintedBy device", () => {
+    const s = store();
+    const t = mintBridgeTicket(s, "dev-a", req(true));
+    expect(s.consumeDetailed(t, "bridge")).toMatchObject({ ok: true, provenTls: true, mintedBy: "device", deviceId: "dev-a" });
+  });
+
+  it("(b) TLS + X-Forwarded-For and (c) main listener → not provenTls", () => {
+    const s = store();
+    const b = mintBridgeTicket(s, "dev-a", req(true, { "x-forwarded-for": "198.51.100.7" }));
+    const c = mintBridgeTicket(s, "dev-a", req(false));
+    expect(s.consumeDetailed(b, "bridge")).toMatchObject({ ok: true, provenTls: false, mintedBy: "device" });
+    expect(s.consumeDetailed(c, "bridge")).toMatchObject({ ok: true, provenTls: false, mintedBy: "device" });
+  });
+
+  it("(d) a local bearer-less mint → mintedBy local, no deviceId", () => {
+    const s = store();
+    const t = mintBridgeTicket(s, undefined, req(false));
+    const r = s.consumeDetailed(t, "bridge");
+    expect(r).toMatchObject({ ok: true, mintedBy: "local", provenTls: false });
+    expect(r.ok && r.deviceId).toBeFalsy();
+  });
+
+  it("a non-bridge mint carries no flags", () => {
+    const s = store();
+    const r = s.consumeDetailed(s.mint("browser"), "browser");
+    expect(r).toMatchObject({ ok: true });
+    expect(r.ok && r.provenTls).toBeUndefined();
   });
 });

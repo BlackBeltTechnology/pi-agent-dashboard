@@ -12,6 +12,7 @@
  */
 import { requestPluginServer } from "@blackbelt-technology/dashboard-plugin-runtime/bridge";
 import { FLOW_FILES_REPORT, FLOW_FILES_REQUEST_EVENT, type FlowFilesReport, type ReportedFile } from "../flow-files-contract.js";
+import { probeFlows } from "./flow-probe.js";
 
 interface PiEvents {
   on(name: string, fn: (data: unknown) => void): unknown;
@@ -38,21 +39,20 @@ function toFile(name: unknown, source: unknown): ReportedFile | null {
   return typeof name === "string" && typeof source === "string" && source ? { name, source } : null;
 }
 
-/** Synchronously probe pi-flows for its flow + agent sources. */
-export function collectFlowFiles(events: PiEvents): FlowFilesReport {
+/**
+ * Synchronously probe pi-flows for its flow + agent sources. `undefined` when
+ * pi-flows did not answer the flow probe (absent / not loaded yet): the caller
+ * skips the report instead of reporting empty. See change:
+ * flows-dock-chip-and-panel-actions (D2).
+ */
+export function collectFlowFiles(events: PiEvents): FlowFilesReport | undefined {
+  const answered = probeFlows(events);
+  if (answered === undefined) return undefined;
   const flows: ReportedFile[] = [];
   const agents: ReportedFile[] = [];
-  try {
-    const probe: { flows?: unknown } = {};
-    events.emit("flow:list-flows", probe);
-    if (Array.isArray(probe.flows)) {
-      for (const f of probe.flows) {
-        const r = toFile((f as ReportedFile)?.name, (f as ReportedFile)?.source);
-        if (r) flows.push(r);
-      }
-    }
-  } catch {
-    /* pi-flows absent */
+  for (const f of answered) {
+    const r = toFile((f as ReportedFile)?.name, (f as ReportedFile)?.source);
+    if (r) flows.push(r);
   }
   try {
     const probe: { agents?: unknown } = {};
@@ -82,7 +82,9 @@ export function startFlowFilesReporter(pi: PiLike): void {
 
   const send = async () => {
     timer = undefined;
-    const reply = await requestPluginServer("flows", FLOW_FILES_REPORT, collectFlowFiles(events));
+    const report = collectFlowFiles(events);
+    if (!report) return; // pi-flows not answering: a later trigger reports
+    const reply = await requestPluginServer("flows", FLOW_FILES_REPORT, report);
     if (reply.ok) {
       retries = 0;
       return;

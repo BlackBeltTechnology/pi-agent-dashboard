@@ -101,6 +101,29 @@ describe("E21 — UI-only and transport verbs are absent", () => {
   });
 });
 
+// See change: close-security-map-high-findings (test-plan #E58): surface-size
+// bounds after the two answer rows are removed (160 → 158).
+describe("E58 — surface-size bounds after removing the answer tools", () => {
+  it("158 tools, inside the (100, 200) bounds; abort and list_sessions remain", () => {
+    expect(GENERATED_TOOLS.length).toBe(158);
+    expect(GENERATED_TOOLS.length).toBeGreaterThan(100);
+    expect(GENERATED_TOOLS.length).toBeLessThan(200);
+    expect(allNames).toContain("abort");
+    expect(allNames).toContain("list_sessions");
+  });
+
+  it("removing two rows from the pre-change count keeps both bounds", () => {
+    const before = GENERATED_TOOLS.length + 2;
+    expect(before - 2).toBeGreaterThan(100);
+    expect(before - 2).toBeLessThan(200);
+  });
+
+  it("neither answer tool is advertised", () => {
+    expect(allNames).not.toContain("prompt_response");
+    expect(allNames).not.toContain("extension_ui_response");
+  });
+});
+
 describe("E25 — abort maps to the general session primitive", () => {
   it("uses abortSession, not the plugin-spawned-run hard kill", () => {
     const abort = contextRows.find((r) => r.name === "abort");

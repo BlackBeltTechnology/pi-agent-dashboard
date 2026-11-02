@@ -128,3 +128,26 @@ export function resolveConnectTarget(
     }
   }
 }
+
+/** The bridge route on the dashboard's native TLS listener. */
+const BRIDGE_WS_PATH = "/ws/bridge";
+
+/**
+ * The URL actually dialled for `endpoint`: a `wss:` endpoint with an empty or `/`
+ * path dials the bridge route (on the TLS listener only `/ws/bridge` is one); any
+ * other path (a proxy in front of the gateway) and every `ws:` / `ws+unix:` URL is
+ * kept unchanged. The query (the ticket) is preserved. Idempotent.
+ *
+ * See change: prove-vault-bridge-tls (D7).
+ */
+export function bridgeDialUrl(endpoint: string): string {
+  let u: URL;
+  try {
+    u = new URL(endpoint);
+  } catch {
+    return endpoint;
+  }
+  if (u.protocol !== "wss:" || u.pathname !== "/") return endpoint;
+  u.pathname = BRIDGE_WS_PATH;
+  return u.toString();
+}

@@ -70,17 +70,17 @@ describe("detectNameSkew", () => {
 	it("reports the live name and the dead alias probed before it", () => {
 		const agentDir = path.join(root, "agent");
 		const pkgDir = path.join(root, "installed", "am");
-		writePkg(pkgDir, "@blackbelt-technology/pi-anthropic-messages", "0.3.4");
+		writePkg(pkgDir, "@example/example-ext", "0.3.4");
 		mkdirSync(agentDir, { recursive: true });
 		writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [pkgDir] }));
 		const cwd = path.join(root, "empty");
 		mkdirSync(cwd, { recursive: true });
 		const res = detectNameSkew(
-			["@pi/anthropic-messages", "@blackbelt-technology/pi-anthropic-messages"],
+			["@example-legacy/example-ext", "@example/example-ext"],
 			{ cwd, agentDir },
 		);
-		expect(res.resolvedName).toBe("@blackbelt-technology/pi-anthropic-messages");
-		expect(res.staleNames).toEqual(["@pi/anthropic-messages"]);
+		expect(res.resolvedName).toBe("@example/example-ext");
+		expect(res.staleNames).toEqual(["@example-legacy/example-ext"]);
 		expect(res.tier).toBe("tier-2");
 	});
 });

@@ -126,3 +126,48 @@ describe("gateRemoteRegistration", () => {
     expect(challenge).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The identity challenge is a TLS credential call too: validation disabled in the
+ * process refuses an https origin without a request. See change: prove-vault-bridge-tls (D7).
+ */
+describe("gateRemoteRegistration TLS checks", () => {
+  const OFF = { NODE_TLS_REJECT_UNAUTHORIZED: "0" };
+  const store = (servers: PinnedServer[]): ServerPinStore => ({ servers });
+
+  it("refuses a wss endpoint with tls-verify-disabled and never challenges", async () => {
+    const challenge = vi.fn();
+    const res = await gateRemoteRegistration({ endpoint: "wss://dash.example:8443", store: store([PIN]), env: OFF, challenge });
+    expect(res).toMatchObject({ allow: false, cause: "tls-verify-disabled" });
+    expect(res.reason).toContain("NODE_TLS_REJECT_UNAUTHORIZED");
+    expect(challenge).not.toHaveBeenCalled();
+  });
+
+  it("an invalid HTTP override is reported before tls-verify-disabled", async () => {
+    const res = await gateRemoteRegistration({
+      endpoint: "wss://dash.example:8443",
+      store: store([PIN]),
+      env: { ...OFF, PI_DASHBOARD_HTTP_URL: "ftp://dash.example" },
+      challenge: vi.fn(),
+    });
+    expect(res).toMatchObject({ allow: false, cause: "bad-http-url" });
+  });
+
+  it("plain ws/http is unaffected by validation being disabled", async () => {
+    const challenge = vi.fn(async () => verdict({ accept: true, cause: "verified", reason: "ok" }));
+    const res = await gateRemoteRegistration({ endpoint: "ws://dash.example:9999", store: store([PIN]), env: OFF, challenge });
+    expect(res).toMatchObject({ allow: true, cause: "verified" });
+    expect(challenge).toHaveBeenCalledTimes(1);
+  });
+
+  it("the default challenge also refuses (env passed through) without a fetch", async () => {
+    const spy = vi.spyOn(globalThis, "fetch");
+    try {
+      const res = await gateRemoteRegistration({ endpoint: "wss://dash.example:8443", store: store([PIN]), env: OFF });
+      expect(res).toMatchObject({ allow: false, cause: "tls-verify-disabled" });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

@@ -83,3 +83,22 @@ export async function getGatewayEndpoints(): Promise<GatewayEndpoint[]> {
   if (json.success && json.data) return json.data.endpoints;
   return [];
 }
+
+/**
+ * The certificate-backed `https://` names of the Built-in HTTPS listener, from
+ * `GET /api/tunnel/endpoints` `tlsEndpoints` (empty while the listener is off,
+ * unbound, loopback-bound or holds no certificate). Never throws: an unreadable
+ * answer is "none". See change: prove-vault-bridge-tls (D8).
+ */
+export async function getTlsListenerUrls(): Promise<string[]> {
+  try {
+    const { json } = await fetchJsonResponse<{
+      success: boolean;
+      data?: { tlsEndpoints?: GatewayEndpoint[] };
+    }>(`${getApiBase()}/api/tunnel/endpoints`);
+    const list = json.success ? json.data?.tlsEndpoints : undefined;
+    return Array.isArray(list) ? list.filter((e) => e?.tls === true && /^https:\/\//i.test(e.url)).map((e) => e.url) : [];
+  } catch {
+    return [];
+  }
+}

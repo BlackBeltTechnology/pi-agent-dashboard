@@ -100,6 +100,8 @@ function makePrefs(pinnedDirs: string[] = []): PreferencesStore {
     getAutoInitWorktreeOnSpawn: vi.fn(() => false),
     getAutoNameSessions: vi.fn(() => true),
     setAutoNameSessions: vi.fn(),
+    getClaudeSubscriptionCompat: vi.fn(() => false),
+    setClaudeSubscriptionCompat: vi.fn(),
     getLiveServers: vi.fn(() => []),
     setLiveServers: vi.fn(),
     setAutoInitWorktreeOnSpawn: vi.fn(),

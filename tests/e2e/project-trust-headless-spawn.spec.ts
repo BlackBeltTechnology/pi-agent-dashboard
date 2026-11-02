@@ -20,7 +20,7 @@ import { ensureGitSession } from "./helpers/index.js";
  * flagged, non-blocking follow-up (test-plan "New infra needed"). Until it
  * lands this spec is opt-in via PI_TRUST_SEED_CWD — an absolute path inside the
  * container to an untrusted, `.pi/`-bearing dir — mirroring the opt-in variants
- * in anthropic-bridge-activation.spec.ts. Default run skips (no false red).
+ * in the (since removed) anthropic bridge activation spec. Default run skips (no false red).
  */
 test.describe("project_trust headless auto-trust (L3)", () => {
   test("dashboard-spawned headless session in an untrusted .pi/ cwd reaches idle", async ({ page }) => {

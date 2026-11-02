@@ -347,7 +347,7 @@ function SummaryBar({
         aria-label={t("dock.barName", { summary }, "Session context: {summary}")}
         disabled={readOnly}
         onClick={onActivate}
-        className="focus-ring flex min-w-0 flex-1 items-center px-3 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]"
+        className={`focus-ring flex min-w-0 flex-1 items-center px-3 text-left text-xs text-[var(--text-primary)] ${peeking ? "" : "hover:bg-[var(--bg-hover)]"} focus-visible:outline-none focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)]`}
       >
         <span className="min-w-0 flex-1 truncate whitespace-nowrap">
           {lanes.map((lane, i) => (
@@ -486,9 +486,17 @@ function ComposerDockInner({
       : undefined;
   const visibleLanes = lanes.filter((l) => !emptyLanes.has(l.key));
   const showHide = live && !collapsed && hasVisibleLane && lanes.length > 0;
+  // Peek = ONE surface with the bar: the overlay owns the top corners/edge, its sides sit on
+  // the root's 1px borders, its shadow points up only. Only the overlay is raised (z-popover,
+  // above the chat's z-10 scroll controls); the root drops `z-0` so it forms no stacking
+  // context, and the later-in-DOM composer root still covers its tucked foot.
+  // See change: fix-dock-peek-join-and-view-menu-close.
   const regionClass = peeking
-    ? "absolute -inset-x-px bottom-full z-raised min-h-0 overflow-y-auto rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg"
+    ? "absolute -inset-x-px bottom-full z-popover min-h-0 overflow-y-auto rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-[0_-10px_24px_-12px_rgb(0_0_0/0.22)]"
     : "min-h-0 flex-initial overflow-y-auto rounded-t-xl";
+  const rootEdgeClass = peeking
+    ? "rounded-t-none border-t-transparent"
+    : "z-0 rounded-t-xl shadow-[inset_0_1px_0_var(--elevation-rim)]";
   const toggle = (key: DockLaneKey) => onOpenLaneChange(effectiveOpen === key ? null : key);
   // Every lane renders nothing visible (claims that return `null`) and no footer: leave no chrome.
   const allEmpty = !yoloLive && lanes.every((l) => emptyLanes.has(l.key));
@@ -507,7 +515,7 @@ function ComposerDockInner({
         data-peek={peeking || undefined}
         onKeyDown={onRootKeyDown}
         style={rowStyle}
-        className={`relative z-0 mx-5 -mb-6 flex min-h-0 shrink flex-col rounded-t-xl border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] pb-6 shadow-[inset_0_1px_0_var(--elevation-rim)] ${lanes.length === 0 ? "overflow-hidden" : ""}`}
+        className={`relative mx-5 -mb-6 flex min-h-0 shrink flex-col ${rootEdgeClass} border border-b-0 border-[var(--border-secondary)] bg-[var(--bg-secondary)] pb-6 ${lanes.length === 0 ? "overflow-hidden" : ""}`}
       >
         {showHide && (
           <button

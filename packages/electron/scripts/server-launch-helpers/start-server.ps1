@@ -41,7 +41,7 @@ $loaderUrl = "file:///" + ($loaderPath -replace '\\','/')
 
 # Entry: RAW Windows path (Node path.resolve()s the main entry under any
 # --import loader, so a file:// entry breaks).
-$cli = Join-Path $svrDir 'packages\server\src\cli.ts'
+$cli = Join-Path $svrDir 'node_modules\@blackbelt-technology\pi-dashboard-server\src\cli.ts'
 if (-not (Test-Path $cli)) {
   Write-Error "Bundled cli.ts not found at: $cli"
   exit 1

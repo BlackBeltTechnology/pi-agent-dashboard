@@ -2,9 +2,6 @@ import { act, fireEvent, render, renderHook, waitFor } from "@testing-library/re
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderAuthSection } from "../../components/settings/ProviderAuthSection.js";
-import { ANTHROPIC_PEER_SOURCE } from "../../lib/package/anthropic-peer.js";
-import { packageQueue } from "../../lib/package/package-queue.js";
-import { peerAutoInstallStore, usePeerAutoInstallReset } from "../../lib/package/peer-auto-install-store.js";
 import { PROVIDER_AUTH_EVENT, useProvidersReady } from "../useProvidersReady.js";
 
 /**
@@ -258,45 +255,19 @@ describe("useProvidersReady — provider-auth-event wiring (dispatch-provider-au
   });
 });
 
-// See change: streamline-first-run (test-plan F4, design D3).
-describe("anthropicAuthenticated tri-state + peer auto-install reset", () => {
-  /** Routes status / health / recommended / install; the test controls anthropic state + status HTTP code. */
+// See change: streamline-first-run (design D3); peer auto-install reset removed
+// by change: retire-anthropic-messages-bridge.
+describe("anthropicAuthenticated tri-state", () => {
+  /** Routes status; the test controls anthropic state + status HTTP code. */
   function authFetch(ctl: { status: number; anthropic: boolean }) {
-    return vi.fn().mockImplementation((url: string, init?: any) => {
+    return vi.fn().mockImplementation((url: string) => {
       if (url.includes("/api/provider-auth/status")) {
         if (ctl.status !== 200) return Promise.resolve({ ok: false, status: ctl.status, json: async () => ({}) } as any);
         return Promise.resolve({ ok: true, json: async () => [{ id: "anthropic", authenticated: ctl.anthropic }] } as any);
       }
-      if (url.includes("/api/health")) return Promise.resolve({ ok: true, json: async () => ({ plugins: [] }) } as any);
-      if (url.includes("/api/packages/recommended")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ success: true, data: { recommended: [{ id: "pi-anthropic-messages", activeInPi: false }] } }),
-        } as any);
-      }
-      if (url.includes("/api/packages/install") && init?.method === "POST") {
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true, data: { operationId: "op-1" } }) } as any);
-      }
       return Promise.resolve({ ok: true, json: async () => ({ success: true, providers: {} }) } as any);
     });
   }
-
-  const completeInstall = (success: boolean) =>
-    window.dispatchEvent(
-      new CustomEvent("pi-package-event", {
-        detail: { type: "package_operation_complete", operationId: "op-1", action: "install", source: ANTHROPIC_PEER_SOURCE, success },
-      }),
-    );
-
-  beforeEach(() => {
-    packageQueue.__resetForTests();
-    peerAutoInstallStore.__resetForTests();
-  });
-
-  afterEach(() => {
-    packageQueue.__resetForTests();
-    peerAutoInstallStore.__resetForTests();
-  });
 
   it("is true/false on a successful read and null (unknown) on a failed one", async () => {
     const ctl = { status: 200, anthropic: true };
@@ -310,37 +281,5 @@ describe("anthropicAuthenticated tri-state + peer auto-install reset", () => {
     ctl.anthropic = false;
     act(() => { window.dispatchEvent(new Event(PROVIDER_AUTH_EVENT)); });
     await waitFor(() => expect(result.current.anthropicAuthenticated).toBe(false));
-  });
-
-  it("F4: resets only on true → false between successful reads; a late success is ignored", async () => {
-    const ctl = { status: 200, anthropic: true };
-    global.fetch = authFetch(ctl) as any;
-    const { result } = renderHook(() => {
-      const ready = useProvidersReady();
-      usePeerAutoInstallReset(ready.anthropicAuthenticated);
-      return ready;
-    });
-    await waitFor(() => expect(result.current.anthropicAuthenticated).toBe(true));
-
-    await act(async () => { await peerAutoInstallStore.ensureInstall("sign-in"); });
-    await waitFor(() => expect(peerAutoInstallStore.getSnapshot().outcome).toBe("running"));
-
-    // true → unknown → true: unchanged.
-    ctl.status = 500;
-    act(() => { window.dispatchEvent(new Event(PROVIDER_AUTH_EVENT)); });
-    await waitFor(() => expect(result.current.anthropicAuthenticated).toBeNull());
-    expect(peerAutoInstallStore.getSnapshot().outcome).toBe("running");
-    ctl.status = 200;
-    act(() => { window.dispatchEvent(new Event(PROVIDER_AUTH_EVENT)); });
-    await waitFor(() => expect(result.current.anthropicAuthenticated).toBe(true));
-    expect(peerAutoInstallStore.getSnapshot().outcome).toBe("running");
-
-    // true → false: reset; the late success must not resurrect it.
-    ctl.anthropic = false;
-    act(() => { window.dispatchEvent(new Event(PROVIDER_AUTH_EVENT)); });
-    await waitFor(() => expect(result.current.anthropicAuthenticated).toBe(false));
-    await waitFor(() => expect(peerAutoInstallStore.getSnapshot().outcome).toBeNull());
-    act(() => completeInstall(true));
-    expect(peerAutoInstallStore.getSnapshot().outcome).toBeNull();
   });
 });

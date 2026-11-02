@@ -28,6 +28,7 @@ import {
   type StaticTarget,
 } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { openStateChecked } from "../lib/dashboard-state-guard.js";
 
 export interface StaticServeDeps {
   /** The raw file-read gate for an absolute real path under `cwd`. `true` = admitted. */
@@ -158,7 +159,9 @@ async function locateFile(target: StaticTarget, segments: string[], deps: Static
 async function openRegular(real: string): Promise<{ fh: fs.promises.FileHandle; size: number } | null> {
   let fh: fs.promises.FileHandle;
   try {
-    fh = await fs.promises.open(real, "r");
+    // Checked open: a hard link / swapped symlink to an always-refused file (pi-agent credential, token)
+    // is refused after open and answers the same not-servable shape. See change: close-security-map-high-findings (D1).
+    fh = await openStateChecked(real, "r");
   } catch {
     return null;
   }

@@ -8,3 +8,5 @@ Static branch via `serveStatic` (capability required). Browser-originated (`Orig
 
 
 New deps wired by the server: `onStaticHtmlServed(grant, realPath)` (HTML served under a token → lazy origin scan), `grantedOrigins` = `previewEgress.grantedFor` (project grants read live per response), `reservedHandler` = `createReservedHandler` (csp-report; the proxy registers the `application/csp-report` + `application/reports+json` parsers when it is set). See change: improve-canvas-html-and-url-ux.
+
+`isDeviceBearer(token, req)` takes the request; new `isKnownBearer` strips every registry-known bearer upstream. See change: prove-vault-bridge-tls.

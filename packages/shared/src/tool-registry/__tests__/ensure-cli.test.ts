@@ -10,7 +10,8 @@
  * Folded scenarios: test-plan #X4 (8.32), #X8 (8.33).
  * L2 exemplar: qa/tests/01-install.sh (spawn + exit-code assertion).
  *
- * The headless auto-deny half (#X8 / 8.33) lives in `ensure-cli.confirm.test.ts`.
+ * The headless auto-deny half (#X8 / 8.33) lives in `ensure-cli.confirm.test.ts`; the
+ * bad-manifest case lives in `ensure-cli.manifest.test.ts` (each file stays under the E14 per-file budget).
  * See change: test-trust-audit (design D7).
  */
 import { describe, expect, it } from "vitest";
@@ -63,15 +64,5 @@ describe("ensure CLI — exit codes (8.32)", () => {
     const json = run([fixture, "--json"], env);
     expect(json.status).toBe(0);
     expect(JSON.parse(json.stdout).ok).toBe(true);
-  }, 90_000);
-
-  it("a bad manifest is a reported doc bug, never a host mutation", () => {
-    const fixture = path.join(FIXTURES, "bad-manifest.package.json");
-    const plain = run([fixture]);
-    expect(plain.status).not.toBe(0);
-    expect(plain.stderr).toContain("provide");
-    const json = run([fixture, "--json"]);
-    expect(json.status).toBe(0);
-    expect(JSON.parse(json.stdout).ok).toBe(false);
   }, 90_000);
 });

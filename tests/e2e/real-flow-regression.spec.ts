@@ -24,7 +24,7 @@ test.describe("real-flow regression (L3, opt-in)", () => {
     const card = await spawnFreshGitSession(page);
     await card.click();
 
-    const runFlow = card.getByRole("button", { name: /run flow/i });
+    const runFlow = page.getByTestId("flows-chip-run");
     await expect(runFlow).toBeVisible({ timeout: 60_000 });
     await runFlow.click();
 

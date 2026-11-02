@@ -4,4 +4,8 @@ REST routes: config, health, shutdown, tunnel. External-editor endpoints `/api/e
 
 `GET /api/health` gains optional `cspReports` block `{since,dropped,counts}` via `readCspReports` dep, only when `canDiscloseAccessPosture(request)`; omitted (absent, not null) otherwise or when the store read throws. See change: harden-cors-and-csp-reporting.
 
+`GET /api/tunnel/endpoints` adds `tlsEndpoints`; `/api/health` adds `pairing.exposureWritePending`; tls config write runs `onTlsBridgeSwitchChanged` BEFORE the reconcile. See change: prove-vault-bridge-tls.
+
+`GET /api/auth/diagnostics` adds `openEnrolment: [{provider, mode: refused|open}]` from the live auth plugin getter `_authOpenEnrolment` (not `loadConfig()`); `[]` when auth inactive. Tier stays `operate`. See change: close-security-map-high-findings (D3).
+
 - surface-network-denial-on-health: `/api/health` emits `networkAccess:{error,hint}` iff optional dep `readNetworkVerdict(request)` true and `needsLocalProof` false; try/catch omits on throw; absent dep → no field. See change: surface-network-denial-on-health.

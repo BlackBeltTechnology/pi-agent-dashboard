@@ -3,16 +3,17 @@
  * unchanged, manual rows get exactly one badge, and the create-token flow
  * shows the token + snippet once and clears on dismiss.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../../lib/api/api-context.js";
 import { PairedDevicesSection } from "../PairedDevicesSection.js";
 
-const { listPairedDevices, revokePairedDevice, createPairedDevice, reachableUrls } = vi.hoisted(() => ({
+const { listPairedDevices, revokePairedDevice, createPairedDevice, reachableUrls, getBridgeTokenContext } = vi.hoisted(() => ({
   listPairedDevices: vi.fn(),
   revokePairedDevice: vi.fn(),
   createPairedDevice: vi.fn(),
   reachableUrls: vi.fn(),
+  getBridgeTokenContext: vi.fn(),
 }));
 
 vi.mock("../../../lib/pairing/paired-devices-api.js", () => ({
@@ -20,6 +21,7 @@ vi.mock("../../../lib/pairing/paired-devices-api.js", () => ({
   revokePairedDevice,
   createPairedDevice,
   reachableUrls,
+  getBridgeTokenContext,
 }));
 
 const PAIRING_ROW = {
@@ -46,6 +48,8 @@ beforeEach(() => {
   revokePairedDevice.mockReset().mockResolvedValue(undefined);
   createPairedDevice.mockReset().mockResolvedValue(MINTED);
   reachableUrls.mockReset().mockResolvedValue([]);
+  // Default: a plain-HTTP dashboard with no TLS listener (the pre-change world).
+  getBridgeTokenContext.mockReset().mockResolvedValue({ httpsChannel: false, tlsListenerUrls: [], acceptBridges: false });
 });
 
 afterEach(() => {
@@ -228,5 +232,117 @@ describe("F5 — tier badge on every row", () => {
     await screen.findByText("My iPhone");
     expect(screen.getByTestId("tier-d-o").textContent).toBe("observe");
     expect(screen.getByTestId("tier-d-p").textContent).toBe("operate");
+  });
+});
+
+
+// ── F7 (test-plan prove-vault-bridge-tls): the "Bridge on another machine" purpose ──
+
+describe("F7 — bridge purpose in the token-issue dialog", () => {
+  const TLS_URL = "https://dash.example.ts.net:8443";
+  const BRIDGE_TOKEN = "pi_tls_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const bridgeRadio = () => screen.getByLabelText(/Bridge on another machine/) as HTMLInputElement;
+
+  async function openDialog() {
+    render(<PairedDevicesSection />);
+    await screen.findByText("My iPhone");
+    fireEvent.click(screen.getByText("Create token for an MCP client"));
+    await screen.findByTestId("create-token-form");
+  }
+
+  it("(a) proven channel + Accept bridges on + reachable bind: issues a pi_tls_ token with the wss snippet", async () => {
+    getBridgeTokenContext.mockResolvedValue({ httpsChannel: true, tlsListenerUrls: [TLS_URL], acceptBridges: true });
+    createPairedDevice.mockResolvedValue({ device: { ...MANUAL_ROW, tier: "operate" as const }, token: BRIDGE_TOKEN });
+    await openDialog();
+    await waitFor(() => expect(bridgeRadio().disabled).toBe(false));
+    fireEvent.click(bridgeRadio());
+    fireEvent.change(screen.getByLabelText("Token label"), { target: { value: "laptop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await screen.findByText(BRIDGE_TOKEN);
+    // Bridge forces the operate tier and sends the purpose.
+    expect(createPairedDevice).toHaveBeenCalledWith("laptop", "operate", "bridge");
+    expect(BRIDGE_TOKEN).toMatch(/^pi_tls_/);
+    const snippet = screen.getByTestId("bridge-token-snippet");
+    expect(snippet.textContent).toContain("PI_DASHBOARD_URL=wss://dash.example.ts.net:8443");
+    expect(snippet.textContent).toContain(`PI_DASHBOARD_TOKEN=${BRIDGE_TOKEN}`);
+    // The MCP snippet is not shown for a bridge token.
+    expect(screen.queryByText(/claude mcp add/)).toBeNull();
+  });
+
+  it("(a') Accept bridges off: the token shows with the switch-on remedy and no PI_DASHBOARD_URL line", async () => {
+    getBridgeTokenContext.mockResolvedValue({ httpsChannel: true, tlsListenerUrls: [TLS_URL], acceptBridges: false });
+    createPairedDevice.mockResolvedValue({ device: { ...MANUAL_ROW, tier: "operate" as const }, token: BRIDGE_TOKEN });
+    await openDialog();
+    await waitFor(() => expect(bridgeRadio().disabled).toBe(false));
+    fireEvent.click(bridgeRadio());
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByText(BRIDGE_TOKEN);
+    expect(screen.queryByTestId("bridge-token-snippet")).toBeNull();
+    expect(screen.getByTestId("bridge-token-note").textContent).toContain("Accept bridges");
+    expect(document.body.textContent).not.toContain("PI_DASHBOARD_URL=");
+  });
+
+  it("(b) plain HTTP + a TLS listener: purpose disabled and the HTTPS address is shown", async () => {
+    getBridgeTokenContext.mockResolvedValue({ httpsChannel: false, tlsListenerUrls: [TLS_URL], acceptBridges: true });
+    await openDialog();
+    await waitFor(() => expect(screen.getByTestId("bridge-unavailable")).toBeTruthy());
+    expect(bridgeRadio().disabled).toBe(true);
+    const box = screen.getByTestId("bridge-unavailable");
+    expect(box.textContent).toContain(TLS_URL);
+    expect(box.textContent).toMatch(/not vault-eligible/i);
+    expect(within(box).queryByText(/Turn on Built-in HTTPS/)).toBeNull();
+    // jsdom toggles a disabled radio on a synthetic click; the state that matters is that the purpose did not switch.
+    fireEvent.click(bridgeRadio());
+    expect(screen.queryByTestId("bridge-tier-note")).toBeNull();
+    expect(screen.getByTestId("create-token-form").querySelector('input[value="observe"]')).not.toBeNull();
+  });
+
+  it("(c) plain HTTP, no TLS URL: purpose disabled with the Built-in HTTPS link", async () => {
+    await openDialog();
+    await waitFor(() => expect(screen.getByTestId("bridge-unavailable")).toBeTruthy());
+    expect(bridgeRadio().disabled).toBe(true);
+    const link = within(screen.getByTestId("bridge-unavailable")).getByRole("link", { name: /Turn on Built-in HTTPS to issue bridge tokens/ }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/settings/gateway#gateway-built-in-https");
+  });
+
+  it("the MCP purpose flow is unchanged in every case: two arguments, no purpose", async () => {
+    for (const ctx of [
+      { httpsChannel: true, tlsListenerUrls: [TLS_URL], acceptBridges: true },
+      { httpsChannel: false, tlsListenerUrls: [TLS_URL], acceptBridges: true },
+      { httpsChannel: false, tlsListenerUrls: [], acceptBridges: false },
+    ]) {
+      cleanup();
+      createPairedDevice.mockClear();
+      createPairedDevice.mockResolvedValue(MINTED);
+      getBridgeTokenContext.mockResolvedValue(ctx);
+      await openDialog();
+      expect((screen.getByLabelText(/MCP client/) as HTMLInputElement).checked).toBe(true);
+      fireEvent.change(screen.getByLabelText("Token label"), { target: { value: "claude-code" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create" }));
+      await screen.findByText(MINTED.token);
+      expect(createPairedDevice).toHaveBeenCalledWith("claude-code", "observe");
+      expect(MINTED.token.startsWith("pi_tls_")).toBe(false);
+      expect(screen.getByText(/claude mcp add/)).toBeTruthy();
+      expect(screen.queryByTestId("bridge-token-snippet")).toBeNull();
+    }
+  });
+
+  it("a server refusal (bridge_token_requires_https) shows the reason and the HTTPS address", async () => {
+    getBridgeTokenContext.mockResolvedValue({ httpsChannel: true, tlsListenerUrls: [], acceptBridges: true });
+    createPairedDevice.mockRejectedValue(Object.assign(new Error("bridge_token_requires_https"), { code: "bridge_token_requires_https", httpsUrl: TLS_URL }));
+    await openDialog();
+    await waitFor(() => expect(bridgeRadio().disabled).toBe(false));
+    fireEvent.click(bridgeRadio());
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    const err = await screen.findByTestId("bridge-refused");
+    expect(err.textContent).toContain(TLS_URL);
+    expect(document.body.textContent).not.toContain("pi_tls_");
+  });
+
+  it("text in the purpose block stays at 12 px or larger", async () => {
+    await openDialog();
+    await waitFor(() => expect(screen.getByTestId("bridge-unavailable")).toBeTruthy());
+    expect(screen.getByTestId("create-token-form").innerHTML).not.toMatch(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/);
   });
 });

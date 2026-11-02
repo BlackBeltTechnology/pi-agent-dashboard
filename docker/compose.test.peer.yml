@@ -52,6 +52,9 @@ services:
       PI_PEER_BRIDGE_ADDR: "192.168.64.1/24"
     volumes:
       - "peer-state:/home/pi/.pi"
+      # Own credential key volume (tmpfs), mirroring the pi-key mount of the
+      # primary service. See change: encrypt-credentials-at-rest (D6).
+      - "peer-key:/home/pi/.pi-key"
       - "${HOST_CWD:-/tmp}:/mnt/test-lower:ro"
       - "./fixtures:/fixtures-src:ro"
       - "./test-entrypoint.sh:/usr/local/bin/test-entrypoint.sh:ro"
@@ -70,3 +73,9 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: "size=1g,noatime"
+  peer-key:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=16m,noatime"

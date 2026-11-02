@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>One model · thinking picker for every surface</title>
+<link rel="stylesheet" href="tokens.css" />
+<script src="probe.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  a { color: var(--link); }
+
+  header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 20px;
+    border-bottom: 1px solid var(--border-primary); background: var(--bg-secondary); position: sticky; top: 0; z-index: 5; }
+  header.top h1 { font-size: 15px; margin: 0 8px 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+  .seg button { background: none; border: 0; padding: 6px 12px; font-size: 13px; color: var(--text-secondary); cursor: pointer; min-height: 32px; }
+  .seg button + button { border-left: 1px solid var(--border-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); }
+  .spacer { flex: 1; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-secondary); color: var(--text-secondary); white-space: nowrap; }
+  .pill.ok { border-color: var(--severity-success-border); color: var(--severity-success-fg); }
+  .pill.bad { border-color: var(--severity-error-border); color: var(--severity-error-fg); }
+  .pill.warn { border-color: var(--severity-warning-border); color: var(--severity-warning-fg); }
+
+  main { display: grid; grid-template-columns: 250px minmax(420px, 560px) minmax(280px, 1fr); gap: 20px; padding: 20px; max-width: 1440px; margin: 0 auto; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+  /* context list */
+  nav.ctx h2, .side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); margin: 0 0 8px; }
+  nav.ctx ul { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  nav.ctx button { width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 8px; padding: 6px 10px; cursor: pointer;
+    color: var(--text-secondary); font-size: 13px; min-height: 36px; }
+  nav.ctx button:hover { background: var(--bg-hover); }
+  nav.ctx button[aria-current="true"] { background: var(--bg-tertiary); border-color: var(--border-secondary); color: var(--text-primary); }
+  nav.ctx .where { display: block; font-size: 12px; color: var(--text-secondary); }
+
+  /* host frame */
+  .stage { position: relative; border: 1px solid var(--border-primary); border-radius: 12px; background: var(--bg-primary); min-height: 600px; padding: 0; overflow: visible; }
+  .stage .crumb { padding: 10px 14px; border-bottom: 1px solid var(--border-primary); font-size: 12px; color: var(--text-secondary); background: var(--bg-secondary); border-radius: 12px 12px 0 0; }
+  .host { position: relative; padding: 16px; }
+  .host.composer-host { height: 560px; display: flex; flex-direction: column; justify-content: flex-end; padding: 0; }
+  .chatfill { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .bubble { max-width: 80%; padding: 8px 12px; border-radius: 10px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 13px; }
+  .bubble.me { align-self: flex-end; background: var(--accent-soft); color: var(--text-primary); }
+  .composer { border-top: 1px solid var(--border-primary); background: var(--bg-secondary); padding: 8px 10px; border-radius: 0 0 12px 12px; }
+  .composer .input { min-height: 44px; border: 1px solid var(--border-secondary); border-radius: 8px; padding: 10px; color: var(--text-tertiary); font-size: 13px; background: var(--bg-tertiary); }
+  .toolbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--text-secondary); position: relative; }
+  .field { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--border-primary); }
+  .field label { font-size: 13px; color: var(--text-primary); padding-top: 7px; }
+  .field .hint { grid-column: 2; font-size: 12px; color: var(--text-secondary); }
+  .anchor { position: relative; }
+
+  /* triggers */
+  .chip { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 8px; border-radius: 6px; border: 0; background: none;
+    color: var(--text-secondary); cursor: pointer; font-size: 12px; max-width: 100%; }
+  .chip:hover, .chip[aria-expanded="true"] { background: var(--bg-hover); color: var(--text-primary); }
+  .ftrig { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; border-radius: 6px;
+    border: 1px solid var(--border-secondary); background: var(--bg-tertiary); cursor: pointer; font-size: 12px; text-align: left; color: var(--text-primary); }
+  .ftrig:hover, .ftrig[aria-expanded="true"] { border-color: var(--border-strong); }
+  .ftrig .m { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ftrig .muted, .chip .muted { color: var(--text-secondary); }
+  .lvpill { font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-primary); white-space: nowrap; }
+  .lvpill.inh { border-style: dashed; color: var(--text-secondary); }
+  .tag { font-size: 12px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+
+  /* popover */
+  .pop { position: absolute; left: 0; width: 340px; max-height: 500px; display: flex; flex-direction: column;
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); overflow: hidden; z-index: 4; }
+  .pop.up { bottom: calc(100% + 4px); }
+  .pop.down { top: calc(100% + 4px); }
+  .tabs { display: flex; border-bottom: 1px solid var(--border-secondary); }
+  .tabs button { flex: 1; background: none; border: 0; min-height: 34px; font-size: 12px; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; }
+  .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
+  .pop-head { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-bottom: 1px solid var(--border-secondary); }
+  .pop-head .r1 { display: flex; gap: 4px; }
+  .pop-head select { flex: 1; min-width: 0; min-height: 32px; border: 1px solid var(--border-secondary); border-radius: 6px; padding: 0 6px; font-size: 12px; background: var(--bg-tertiary); color: var(--text-primary); }
+  .pop-head .favs { min-height: 32px; padding: 0 8px; border: 1px solid var(--border-secondary); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .pop-head .favs[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); }
+  .pop-head input { width: 100%; min-height: 32px; border: 1px solid var(--border-secondary); border-radius: 6px; padding: 0 8px; font-size: 12px; background: var(--bg-tertiary); color: var(--text-primary); }
+  .pop-head input::placeholder { color: var(--text-tertiary); }
+  .pop-head .sel { font-size: 12px; min-height: 32px; padding: 0 8px; border: 1px solid var(--border-secondary); border-radius: 6px; display: inline-flex; align-items: center; color: var(--text-secondary); }
+  .list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0; }
+  .grp { padding: 6px 10px 2px; font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; min-height: 38px; cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+  .row:hover { background: var(--bg-hover); }
+  .row.cur { color: var(--text-primary); }
+  .row .chk { width: 16px; flex: none; text-align: center; }
+  .star { flex: none; min-width: 32px; min-height: 32px; border: 0; background: none; cursor: pointer; color: var(--text-secondary); border-radius: 6px; font-size: 14px; }
+  .star:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .star[aria-pressed="true"] { color: var(--text-primary); }
+  .empty { padding: 16px 12px; font-size: 12px; color: var(--text-secondary); }
+  .row .nm { flex: 1; min-width: 0; }
+  .row .nm div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .nm .id { font-size: 11px; color: var(--text-secondary); }
+  .row.inherit { border-bottom: 1px solid var(--border-secondary); }
+  .badge { font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--bg-tertiary); color: var(--text-secondary); white-space: nowrap; }
+
+  .lvlbox { flex: none; border-top: 1px solid var(--border-secondary); padding: 8px 10px; }
+  .lvlbox.pulse { animation: pulse 1.1s ease-out; }
+  @keyframes pulse { 0% { box-shadow: inset 0 0 0 2px var(--accent); } 100% { box-shadow: inset 0 0 0 2px transparent; } }
+  .lvlhead { display: flex; align-items: baseline; gap: 6px; font-size: 11px; font-weight: 600; color: var(--text-secondary); padding-bottom: 6px; }
+  .lvlhead .for { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .levels { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .levels .sep { width: 1px; height: 22px; background: var(--border-secondary); margin: 0 2px; }
+  .lv { min-height: 32px; padding: 0 9px; border-radius: 6px; border: 1px solid var(--border-secondary); background: none; font-size: 12px;
+    color: var(--text-secondary); cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .lv:hover:not([aria-disabled="true"]) { background: var(--bg-hover); }
+  .lv[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); }
+  .lv[aria-disabled="true"] { color: var(--text-muted); border-style: dashed; cursor: not-allowed; text-decoration: line-through; }
+  .lv.def { font-family: inherit; border-style: dashed; }
+  .lv.def[aria-checked="true"] { border-style: solid; }
+  .lv.def .rv { color: var(--text-secondary); font-family: ui-monospace, Menlo, monospace; }
+  .lv.def[aria-checked="true"] .rv { color: var(--text-primary); }
+  .eff { margin-top: 8px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .eff b { color: var(--text-primary); font-weight: 600; }
+  .note { margin-top: 6px; font-size: 12px; color: var(--severity-warning-fg); }
+  .note.info { color: var(--text-secondary); }
+  .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .kbd { font-size: 11px; color: var(--text-secondary); }
+  .kbd kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border-secondary); border-radius: 3px; padding: 0 3px; background: var(--bg-tertiary); }
+  .btn { min-height: 32px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-primary); font-size: 12px; cursor: pointer; }
+
+  /* side */
+  .card { border: 1px solid var(--border-primary); background: var(--bg-secondary); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+  .card h3 { font-size: 13px; margin: 0 0 8px; color: var(--text-primary); }
+  .card ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; }
+  .card li { margin: 3px 0; }
+  .card p { margin: 0 0 6px; color: var(--text-secondary); font-size: 13px; }
+  pre.store { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--bg-code); border: 1px solid var(--border-primary); font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--text-primary); white-space: pre-wrap; word-break: break-all; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 5px; border-bottom: 1px solid var(--border-primary); color: var(--text-secondary); vertical-align: top; }
+  th { color: var(--text-primary); font-weight: 600; }
+  .fix { color: var(--severity-success-fg); }
+  .bug { color: var(--severity-warning-fg); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>One model · thinking picker, every surface</h1>
+  <span class="pill">Concept A: model pick keeps it open, level pick closes</span>
+  <a href="concepts.html" class="kbd">← A/B/C concept board</a>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="Theme" id="themeSeg">
+    <button data-t="dark" aria-pressed="true">Dark</button>
+    <button data-t="light" aria-pressed="false">Light</button>
+    <button data-t="nord" aria-pressed="false">Nord</button>
+  </div>
+  <span class="pill" id="probeBadge">probe…</span>
+</header>
+
+<main>
+  <nav class="ctx" aria-label="Surfaces" id="ctxNav"></nav>
+  <section>
+    <div class="stage" id="stage"></div>
+    <p class="kbd" style="margin-top:8px">Open the picker. Try a model without <span class="mono">off</span> (GPT-6 Sol), a non-reasoning one (qwen3-coder), a role, and the <b>default</b> level chip.</p>
+  </section>
+  <aside class="side" id="side"></aside>
+</main>
+
+<script>
+/* ── pi facts (pi-ai getSupportedThinkingLevels / clampThinkingLevel, pi settings) ── */
+const ALL = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const PI_DEFAULT_LEVEL = "medium";            // pi settings.json defaultThinkingLevel (pi's built-in default)
+const MODELS = [
+  { p: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5", ctx: "1M", vis: true, lv: ALL },
+  { p: "anthropic", id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", ctx: "1M", vis: true, lv: ["off", "minimal", "low", "medium", "high", "xhigh"] },
+  { p: "anthropic", id: "claude-haiku-5-5", name: "Claude Haiku 5.5", ctx: "200k", vis: true, lv: ["off", "minimal", "low", "medium", "high"] },
+  { p: "openai-codex", id: "gpt-6-sol", name: "GPT-6 Sol", ctx: "400k", vis: true, lv: ["minimal", "low", "medium", "high", "xhigh"], note: "always reasons: thinkingLevelMap.off = null" },
+  { p: "zai", id: "glm-5.3", name: "GLM 5.3", ctx: "200k", vis: false, lv: ["off", "low", "medium"] },
+  { p: "google", id: "gemini-3.5-pro", name: "Gemini 3.5 Pro", ctx: "1M", vis: true, lv: ["low", "high"], note: "can't disable thinking: off clamps up to low" },
+  { p: "google", id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", ctx: "1M", vis: true, lv: ["off", "minimal", "low", "medium", "high"] },
+  { p: "opencode-go", id: "muse-spark-1.3-contributor", name: "Muse Spark 1.3", ctx: "256k", vis: false, lv: ["off", "low", "medium", "high"] },
+  { p: "ollama", id: "qwen3-coder", name: null, ctx: "128k", vis: false, lv: ["off"], note: "reasoning: false" },
+];
+// Live roles map (GET /api/roles). A role carries model + optional level; unassigned roles resolve to "unresolved".
+const ROLES = {
+  planning: { ref: "anthropic/claude-opus-5-5", level: "high" },
+  fast: { ref: "anthropic/claude-haiku-5-5" },
+  review: { ref: "openai-codex/gpt-6-sol", level: "xhigh" },
+  vision: { ref: "google/gemini-3.5-flash", level: "off" },
+  research: { ref: null },
+};
+const label = (m) => `${m.p}/${m.id}`;
+const byLabel = (l) => MODELS.find((m) => label(m) === l);
+function clamp(level, m) {
+  if (!m || m.lv.includes(level)) return level;
+  const i = ALL.indexOf(level);
+  for (let k = i + 1; k < ALL.length; k++) if (m.lv.includes(ALL[k])) return ALL[k];
+  for (let k = i - 1; k >= 0; k--) if (m.lv.includes(ALL[k])) return ALL[k];
+  return m.lv[0] ?? "off";
+}
+
+/* ── surfaces (from the call-site inventory) ─────────────────────── */
+// level: "required" | "optional" | "none"
+const CTX = [
+  { id: "live", group: "Composer", name: "Live session chip", where: "CommandInput", variant: "chip", level: "required", roles: true, roleMode: "once",
+    init: { model: "anthropic/claude-opus-5-5", level: "high" },
+    why: "A running pi session always has a level, so there is no default chip. Same as today, minus the second trip.",
+    store: (v) => `→ set_model   "${v.model}"${v.via ? `   // via ${v.via}` : ""}\n→ set_thinking_level "${v.level}"` },
+  { id: "home", group: "Composer", name: "Folder home (new session)", where: "DirectoryHomeView", variant: "chip", level: "optional", roles: true, roleMode: "once",
+    inheritModel: { label: "pi default model", resolved: "anthropic/claude-sonnet-5-5" }, inheritLevel: { label: "pi default", resolved: PI_DEFAULT_LEVEL },
+    init: { model: undefined, level: undefined },
+    why: "Today 'pi default' is a face label only: once you pick a level you can't go back. The default chip makes it reversible.",
+    store: (v) => `spawn { ${[v.model && `model: "${v.model}"`, v.level && `thinkingLevel: "${v.level}"`].filter(Boolean).join(", ") || "/* nothing: pi resolves both */"} }` },
+  { id: "settings", group: "Settings", name: "Sessions → Default model", where: "SettingsPanel", variant: "field", level: "optional", roles: false,
+    inheritModel: { label: "pi's own default", resolved: "anthropic/claude-sonnet-5-5" }, inheritLevel: { label: "pi default", resolved: PI_DEFAULT_LEVEL },
+    init: { model: "anthropic/claude-opus-5-5", level: undefined },
+    bug: "Today: once a level is picked there is no way back to \"\" (don't override). Model can't be cleared either.",
+    why: "Replaces ModelSelector + ThinkingLevelSelector pair. Default chip writes \"\", explicit off writes \"off\".",
+    store: (v) => `config.defaultModel         = "${v.model ?? ""}"\nconfig.defaultThinkingLevel = "${v.level ?? ""}"` },
+  { id: "openspec", group: "Dialogs", name: "OpenSpec · Runs with", where: "useOpenSpecRunConfigRow", variant: "field", level: "optional", roles: true, roleMode: "once",
+    inheritModel: { label: "session model", resolved: "anthropic/claude-opus-5-5" }, inheritLevel: { label: "session level", resolved: "high" },
+    init: { model: undefined, level: undefined },
+    bug: "Today: no supportedLevels passed, so it offers six fallback levels for every model.",
+    why: "Levels now follow the picked model. Unset = keep the session's own model/level.",
+    store: (v) => [v.model ? `→ set_model "${v.model}"` : "(model unchanged)", v.level ? `→ set_thinking_level "${v.level}"` : "(level unchanged)"].join("\n") },
+  { id: "automation", group: "Plugins", name: "Create automation → Model", where: "automation-plugin", variant: "field", level: "optional", roles: true,
+    inheritLevel: { label: "pi default", resolved: PI_DEFAULT_LEVEL },
+    init: { model: "anthropic/claude-sonnet-5-5", level: undefined },
+    bug: "Today: picking off writes a bare ref, so the run uses pi default (medium), not off.",
+    why: "provider/id[:level] grammar already accepts :off (pi CLI --model suffix).",
+    store: (v) => `model: "${join(v)}"` },
+  { id: "roles", group: "Plugins", name: "Roles → assign @planning", where: "roles-plugin", variant: "field", level: "optional", roles: false,
+    inheritLevel: { label: "pi default", resolved: PI_DEFAULT_LEVEL },
+    init: { model: "anthropic/claude-opus-5-5", level: "high" },
+    bug: "Today: joinRefLevel drops off → bare ref → pi default. Explicit off impossible for a role.",
+    why: "Default chip = bare ref (no override, spec 'No-override strips the suffix'). off = \":off\".",
+    store: (v) => `"@planning": "${join(v)}"` },
+  { id: "blackhole", group: "Plugins", name: "Blackhole chain entry", where: "blackhole ChainEditor", variant: "field", level: "optional", roles: true,
+    inheritLevel: { label: "inherit", resolved: PI_DEFAULT_LEVEL },
+    init: { model: "zai/glm-5.3", level: undefined },
+    bug: "Today: separate toggle + level list hard-coded (ignores supportedThinkingLevels).",
+    why: "Toggle disappears: the default chip IS 'inherit'. Spec 'Inherited thinking is distinguishable from off' still holds.",
+    store: (v) => v.model?.startsWith("@") ? `{ role: "${v.model.slice(1)}"${v.level ? `, thinking: "${v.level}"` : ""} }`
+      : `{ provider: "${(v.model ?? "/").split("/")[0]}", id: "${(v.model ?? "/").split("/")[1]}"${v.level ? `, thinking: "${v.level}"` : ""} }` },
+  { id: "rolesNaming", group: "Plugins", name: "Roles → assign @naming", where: "roles-plugin", variant: "field", level: "optional", roles: false, warnAlways: true,
+    inheritLevel: { label: "pi default", resolved: PI_DEFAULT_LEVEL },
+    init: { model: "anthropic/claude-haiku-5-5", level: undefined },
+    consumers: "Read by the session auto-namer (auto-session-namer.ts), which drops the level and sends no reasoning. @fast also feeds the pending-question brief (400-token cap).",
+    bug: "Today: nothing warns when @naming / @fast point at an always-reasoning model: it thinks anyway, eats the token budget, namer escalates then gives up.",
+    why: "Roles are shared, so the level stays free. Models that can't turn thinking off get an 'always reasons' warning in the list.",
+    store: (v) => `"@naming": "${join(v)}"` },
+  { id: "hermes", group: "Plugins", name: "Hermes memory → LLM override", where: "hermes-memory-plugin", variant: "field", level: "optional", roles: false,
+    inheritModel: { label: "Hermes default", resolved: "anthropic/claude-sonnet-5-5" }, inheritLevel: { label: "Hermes default", resolved: PI_DEFAULT_LEVEL },
+    init: { model: undefined, level: undefined },
+    bug: "Today: llmThinkingOverride is a free enum next to a plain model picker: it can name a level the model doesn't have.",
+    why: "Model override + thinking override become one control; the inherit row and default chip replace the separate inherit button.",
+    store: (v) => `llmModelOverride:    ${v.model ? `"${v.model}"` : "undefined"}\nllmThinkingOverride: ${v.level ? `"${v.level}"` : "undefined"}` },
+  { id: "grammar", group: "No-thinking functions", name: "Grammar → LLM model", where: "grammar-plugin llm backend", variant: "field", level: "off", roles: true,
+    init: { model: "anthropic/claude-haiku-5-5" },
+    consumers: "backends/llm.ts completeSimple: no reasoning option, maxTokens 8192, 20 s timeout.",
+    bug: "Today: any model is pickable; an always-reasoning one still thinks (pi can't turn it off) and runs into the 20 s timeout.",
+    why: "levelMode \"off\": thinking is shown locked to off. Models that can't run without thinking are disabled in the list (and roles that resolve to one).",
+    store: (v) => `llm: ${v.model?.startsWith("@") ? `{ role: "${v.model.slice(1)}" }` : `{ provider: "${v.model.split("/")[0]}", model: "${v.model.split("/")[1]}" }`}` },
+  { id: "systemone", group: "No-thinking functions", name: "System-one → decision model", where: "system-one-plugin llm-caller", variant: "field", level: "off", roles: true,
+    init: { model: "@fast" },
+    consumers: "llm-caller.ts completeSimple: JSON decision, maxTokens 1024, temperature 0, level suffix ignored.",
+    bug: "Today: a reasoning-only model can burn the 1024 tokens before emitting the JSON.",
+    why: "Same as grammar: locked off, always-reasoning models disabled.",
+    store: (v) => `model: "${v.model}"` },
+  { id: "modelonly", group: "Model only", name: "Proxy · fallback · blackhole base", where: "ModelProxySection, AutomationSettings, BlackholeSettings", variant: "field", level: "none", roles: true,
+    inheritModel: { label: "inherit", resolved: "anthropic/claude-haiku-5-5" },
+    init: { model: "anthropic/claude-haiku-5-5" },
+    why: "levelMode \"none\" = today's plain picker: model pick closes. Proxy is a pass-through (client decides reasoning); fallback/base levels come from elsewhere.",
+    store: (v) => `model: ${v.model ? `"${v.model}"` : "undefined /* inherit */"}` },
+];
+const canOff = (m) => !!m && m.lv.includes("off");
+const roleModeOf = (c) => c.roleMode ?? "follows";
+const roleModel = (k) => byLabel(ROLES[k].ref);
+function join(v) { return (v.model ?? "") + (v.level ? `:${v.level}` : ""); }
+
+/* ── state ─────────────────────────────────────────────────────── */
+// Provider filter + favs-only persist across opens (like modelselector.providerFilter / favOnly in localStorage); text filter clears on open.
+const S = { ctx: "settings", open: false, tab: "models", pulse: false, clampNote: null, vals: {}, filter: "", provider: "", favOnly: false,
+  favs: new Set(["anthropic/claude-opus-5-5", "anthropic/claude-haiku-5-5", "openai-codex/gpt-6-sol"]) };
+for (const c of CTX) S.vals[c.id] = { ...c.init };
+const $ = (s) => document.querySelector(s);
+const C = () => CTX.find((c) => c.id === S.ctx);
+const V = () => S.vals[S.ctx];
+
+/* resolved model + level the run will actually use */
+function resolve(c, v) {
+  let model = v.model, via = null, roleLevel, unresolved = false;
+  if (model?.startsWith("@")) {
+    const r = ROLES[model.slice(1)]; via = model; roleLevel = r.level; model = r.ref;
+    if (!model) unresolved = true;
+  } else if (!model) model = c.inheritModel?.resolved;
+  const m = byLabel(model);
+  // A followed role without its own level falls through to pi's default.
+  const inheritedLevel = via ? (roleLevel ?? PI_DEFAULT_LEVEL) : (c.inheritLevel?.resolved ?? PI_DEFAULT_LEVEL);
+  const wanted = v.level ?? inheritedLevel;
+  const level = c.level === "off" ? "off" : m ? clamp(wanted, m) : wanted;
+  return { m, model, via, level, wanted, inheritedLevel, roleLevel, unresolved };
+}
+
+/* ── render: nav ──────────────────────────────────────────────── */
+function navHtml() {
+  const groups = [...new Set(CTX.map((c) => c.group))];
+  return groups.map((g) => `<h2>${g}</h2><ul>${CTX.filter((c) => c.group === g).map((c) =>
+    `<li><button data-ctx="${c.id}" aria-current="${c.id === S.ctx}">${c.name}<span class="where mono">${c.where} · level: ${c.level}${c.roles ? ` · roles: ${roleModeOf(c)}` : ""}</span></button></li>`).join("")}</ul>`).join("");
+}
+
+/* ── render: trigger ──────────────────────────────────────────── */
+function triggerHtml(c, v) {
+  const r = resolve(c, v);
+  const mText = v.model?.startsWith("@") ? v.model : v.model ? byLabel(v.model).id : c.inheritModel?.label ?? "Select model…";
+  const viaTag = v.via ? `<span class="tag" title="Picked from ${v.via} once; not linked to the role">via ${v.via}</span>` : "";
+  const unres = r.unresolved ? `<span class="pill warn">unassigned</span>` : "";
+  const mMuted = !v.model;
+  const lvl = c.level === "none" || r.unresolved ? "" : c.level === "off" ? `<span class="lvpill inh" title="Thinking is always off here">off</span>` : v.level
+    ? `<span class="lvpill">${v.level}</span>`
+    : `<span class="lvpill inh" title="${r.via ? "from " + r.via : c.inheritLevel?.label ?? "default"}">${r.level}</span><span class="tag">${r.via ? "from role" : "default"}</span>`;
+  if (c.variant === "chip") {
+    return `<button class="chip" id="trig" aria-haspopup="dialog" aria-expanded="${S.open}" aria-label="Model ${mText}, thinking ${v.level ?? "default " + r.level}">
+      <span class="mono ${mMuted ? "muted" : ""}">${mText}</span>${viaTag}${unres}${c.level === "none" ? "" : `<span aria-hidden="true">·</span>${lvl}`}<span aria-hidden="true">▾</span></button>`;
+  }
+  const sub = v.model && !v.model.startsWith("@") ? byLabel(v.model).name ?? "" : v.model?.startsWith("@") && r.model ? `→ ${r.m.id}` : "";
+  return `<button class="ftrig" id="trig" aria-haspopup="dialog" aria-expanded="${S.open}">
+    <span class="m"><span class="mono ${mMuted ? "muted" : ""}">${mText}</span>${sub ? ` <span class="muted">${sub}</span>` : ""}</span>${viaTag}${unres}${lvl}<span aria-hidden="true">▾</span></button>`;
+}
+
+/* ── render: popover ──────────────────────────────────────────── */
+function rowsHtml(c, v) {
+  let html = "";
+  if (c.inheritModel) {
+    const cur = !v.model;
+    html += `<div class="row inherit ${cur ? "cur" : ""}" data-model="" role="row" aria-selected="${cur}"><span class="chk">${cur ? "✓" : "↺"}</span>
+      <div class="nm"><div>${c.inheritModel.label}</div><div class="mono id">currently ${c.inheritModel.resolved}</div></div></div>`;
+  }
+  const tokens = S.filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const visible = MODELS.filter((m) => (!S.provider || m.p === S.provider) && (!S.favOnly || S.favs.has(label(m)))
+    && tokens.every((t) => `${label(m)} ${m.name ?? ""}`.toLowerCase().includes(t)));
+  if (!visible.length) html += `<div class="empty">No models match${S.favOnly ? " (favourites only)" : ""}.</div>`;
+  for (const p of [...new Set(visible.map((m) => m.p))].sort()) {
+    html += `<div class="grp">${p}</div>`;
+    for (const m of visible.filter((x) => x.p === p)) {
+      const l = label(m), cur = l === v.model, fav = S.favs.has(l);
+      const blocked = c.level === "off" && !canOff(m);
+      const warn = c.warnAlways && !canOff(m);
+      html += `<div class="row ${cur ? "cur" : ""}" data-model="${l}" role="row" aria-selected="${cur}" ${blocked ? 'aria-disabled="true"' : ""}><span class="chk">${cur ? "✓" : blocked ? "⊘" : ""}</span>
+        <div class="nm"><div class="mono">${m.name ?? l}</div>${blocked ? `<div class="id">always reasons: can't answer without thinking</div>` : m.name ? `<div class="mono id">${l}</div>` : ""}</div>${warn ? '<span class="pill warn" title="thinkingLevelMap.off = null: thinks even when off is requested">always reasons</span>' : ""}
+        ${m.lv.length > 1 ? '<span class="badge" title="reasoning">🧠</span>' : ""}${m.vis ? '<span class="badge" title="vision">👁</span>' : ""}<span class="badge">${m.ctx}</span>
+        <button class="star" data-star="${l}" aria-pressed="${fav}" aria-label="Favorite ${m.name ?? l}" tabindex="-1">${fav ? "\u2605" : "\u2606"}</button></div>`;
+    }
+  }
+  return html;
+}
+function rolesHtml(c, v) {
+  const once = roleModeOf(c) === "once";
+  const head = `<div class="note info" style="margin:0;padding:6px 10px;border-bottom:1px solid var(--border-secondary)">${once
+    ? "Applies the role's model + level <b>once</b>. Reassigning the role later doesn't change this session."
+    : "Stores the <b>@role</b> ref. Reassigning the role in Settings → Roles changes this too."}</div>`;
+  return head + Object.entries(ROLES).map(([k, r]) => {
+    const cur = once ? v.via === `@${k}` : v.model === `@${k}`;
+    const m = roleModel(k);
+    const unassigned = !r.ref;
+    const blocked = (c.level === "off" && (unassigned || !canOff(m))) || (once && unassigned);
+    const why = unassigned ? (once ? "unassigned: nothing to apply" : "unassigned: runs fail until assigned") : c.level === "off" && !canOff(m) ? "always reasons" : "";
+    const res = unassigned ? "" : `${r.ref} · ${r.level ?? `pi default (${PI_DEFAULT_LEVEL})`}`;
+    return `<div class="row ${cur ? "cur" : ""}" data-model="@${k}" role="row" aria-selected="${cur}" ${blocked ? 'aria-disabled="true"' : ""}><span class="chk">${cur ? "✓" : blocked ? "⊘" : ""}</span>
+      <div class="nm"><div class="mono">@${k}</div>${res ? `<div class="mono id">${res}</div>` : ""}${why ? `<div class="id">${why}</div>` : ""}</div>${unassigned ? '<span class="pill warn">unassigned</span>' : ""}</div>`;
+  }).join("");
+}
+function levelHtml(c, v) {
+  if (c.level === "none") return "";
+  const r = resolve(c, v);
+  const m = r.m;
+  if (c.level === "off") {
+    return `<div class="lvlbox"><div class="lvlhead"><span id="lvh">Thinking</span><span class="for mono">locked</span></div>
+      <div class="levels" role="radiogroup" aria-labelledby="lvh" aria-disabled="true">${ALL.map((l) => `<button class="lv" role="radio" aria-checked="${l === "off"}" ${l === "off" ? "" : 'aria-disabled="true"'} tabindex="-1">${l}</button>`).join("")}</div>
+      <div class="note info">This function wants a plain answer: thinking is always off. Models that can't turn thinking off are unavailable.</div>
+      <div class="eff">Runs with <b class="mono">${m?.id ?? "?"} · off</b></div></div>`;
+  }
+  const defLabel = r.via ? `from ${r.via}` : c.inheritLevel?.label ?? "default";
+  const def = c.level === "optional" || r.via
+    ? `<button class="lv def" role="radio" data-level="" aria-checked="${!v.level}" tabindex="${!v.level ? 0 : -1}"
+        title="Don't set a level: ${defLabel} decides">${defLabel} <span class="rv">${r.unresolved ? "unresolved" : `${r.via && !r.roleLevel ? "pi default " : ""}${r.inheritedLevel}`}${m && r.inheritedLevel !== clamp(r.inheritedLevel, m) ? `→${clamp(r.inheritedLevel, m)}` : ""}</span></button><span class="sep" aria-hidden="true"></span>`
+    : "";
+  const chips = ALL.map((l) => {
+    const ok = !m || m.lv.includes(l);
+    const why = l === "off" ? "always reasons" : "not offered";
+    return `<button class="lv" role="radio" data-level="${l}" aria-checked="${v.level === l}" tabindex="${v.level === l ? 0 : -1}"
+      ${ok ? "" : `aria-disabled="true" title="${m.id}: ${why}"`}>${l}</button>`;
+  }).join("");
+  let notes = "";
+  if (m && m.lv.length === 1) notes += `<div class="note info">${m.id} doesn't reason (<span class="mono">reasoning: false</span>): it always runs without thinking.</div>`;
+  else if (m && !m.lv.includes("off")) notes += `<div class="note info">${m.id} always reasons: <span class="mono">off</span> isn't available.</div>`;
+  if (r.unresolved) notes += `<div class="note" role="status">⚠ ${r.via} has no model yet: levels can't be checked, and runs fail until it is assigned in Settings → Roles.</div>`;
+  else if (r.via && v.level) notes += `<div class="note info">Stored as <span class="mono">${r.via}:${v.level}</span>. If ${r.via} is reassigned to a model without <span class="mono">${v.level}</span>, pi clamps it.</div>`;
+  if (S.clampNote) notes += `<div class="note" role="status">⚠ ${S.clampNote}</div>`;
+  const effLevel = `${r.level}${v.level ? "" : ` (${defLabel})`}`;
+  const effText = r.unresolved ? `nothing until ${r.via} is assigned` : `${m?.id ?? "?"} · ${effLevel}`;
+  return `<div class="lvlbox ${S.pulse ? "pulse" : ""}">
+    <div class="lvlhead"><span id="lvh">Thinking</span><span class="for mono">for ${r.via ? r.via + " → " : ""}${m?.id ?? "unassigned"}</span></div>
+    <div class="levels" role="radiogroup" aria-labelledby="lvh">${def}${chips}</div>
+    ${notes}
+    <div class="eff">Runs with <b class="mono">${effText}</b>${v.via ? ` <span class="tag">via ${v.via}</span>` : ""}</div>
+    <div class="foot"><span class="kbd"><kbd>Enter</kbd> model → thinking · <kbd>Esc</kbd> done</span><span class="spacer"></span><button class="btn" data-act="done">Done</button></div>
+  </div>`;
+}
+function popHtml(c, v) {
+  const dir = c.variant === "chip" ? "up" : "down";
+  const tabs = c.roles ? `<div class="tabs" role="tablist"><button role="tab" data-tab="models" aria-selected="${S.tab === "models"}">Models</button><button role="tab" data-tab="roles" aria-selected="${S.tab === "roles"}">Roles</button></div>` : "";
+  const body = S.tab === "roles" && c.roles
+    ? `<div class="list" role="grid" aria-label="Roles">${rolesHtml(c, v)}</div>`
+    : `<div class="pop-head"><div class="r1"><select id="mprov" aria-label="All Providers"><option value="">All Providers</option>${[...new Set(MODELS.map((m) => m.p))].sort().map((p) => `<option value="${p}" ${p === S.provider ? "selected" : ""}>${p}</option>`).join("")}</select>
+         <button class="favs" id="mfavs" aria-pressed="${S.favOnly}" title="Favorites only">\u2605 Favs</button></div>
+         <input id="mfilter" placeholder="Filter models\u2026" aria-label="Filter models" role="combobox" aria-expanded="true" value="${S.filter}" /></div>
+       <div class="list" role="grid" aria-label="Models">${rowsHtml(c, v)}</div>`;
+  return `<div class="pop ${dir}" id="pop" role="dialog" aria-modal="false" aria-label="Choose model${c.level === "none" ? "" : " and thinking"}">${tabs}${body}${levelHtml(c, v)}</div>`;
+}
+
+/* ── render: stage ────────────────────────────────────────────── */
+function stageHtml() {
+  const c = C(), v = V();
+  const pop = S.open ? popHtml(c, v) : "";
+  if (c.variant === "chip") {
+    return `<div class="crumb">${c.group} › ${c.name}</div><div class="host composer-host">
+      <div class="chatfill">${c.id === "live" ? `<div class="bubble me">Deep review of the bridge module, please.</div><div class="bubble">On it…</div>` : `<div class="bubble">📁 ~/Project/pi-agent-dashboard: start a new session</div>`}</div>
+      <div class="composer"><div class="input">Ask pi…</div><div class="toolbar"><span class="anchor">${triggerHtml(c, v)}${pop}</span><span class="kbd">⏎ send</span></div></div></div>`;
+  }
+  const title = { settings: "Default model", openspec: "Runs with", automation: "Model", roles: "@planning", blackhole: "Chain entry #2", grammar: "LLM model",
+    rolesNaming: "@naming", hermes: "LLM override", systemone: "Decision model", modelonly: "Fallback model" }[c.id];
+  const hint = { settings: "Used for new sessions. Default = let pi decide.", openspec: "Leave as session to keep the session's model and level.",
+    automation: "Model the automation runs with.", roles: "What @planning resolves to.", blackhole: "Fallback chain: tried in order.", grammar: "Corrections run without thinking.",
+    rolesNaming: "Used to name sessions. Keep it fast.", hermes: "Leave as Hermes default to use its own model.", systemone: "Quick JSON decisions, no thinking.", modelonly: "Same component, levelMode \"none\"." }[c.id];
+  return `<div class="crumb">${c.group} › ${c.name}</div><div class="host">
+    <div class="field"><label for="trig">${title}</label><div class="anchor">${triggerHtml(c, v)}${pop}</div><div class="hint">${hint}</div></div>
+    <div class="field"><label>Other setting</label><div class="kbd" style="padding-top:8px">…</div></div></div>`;
+}
+
+/* ── render: side ─────────────────────────────────────────────── */
+function sideHtml() {
+  const c = C(), v = V(), r = resolve(c, v);
+  return `<h2>${c.name}</h2>
+    <div class="card"><h3>Stored / sent</h3><pre class="store">${c.store(v)}</pre>
+      ${c.level === "none" ? "" : `<p style="margin-top:8px">Effective: <span class="mono">${r.unresolved ? `unresolved (${r.via} unassigned)` : `${r.model ?? "?"} · ${r.level}`}</span>${r.level !== r.wanted ? ` <span class="pill warn">pi clamps ${r.wanted}→${r.level}</span>` : ""}</p>`}</div>
+    ${c.consumers ? `<div class="card"><h3>Who calls the model</h3><p>${c.consumers}</p></div>` : ""}
+    ${c.bug ? `<div class="card"><h3 class="bug">Today</h3><p>${c.bug}</p></div>` : ""}
+    <div class="card"><h3>With the shared picker</h3><p>${c.why}</p></div>
+    ${c.roles ? `<div class="card"><h3>Roles here: ${roleModeOf(c)}</h3>${roleModeOf(c) === "once"
+      ? `<p>A session can't follow a role, so a role pick resolves <b>now</b> (<span class="mono">useRolePick</span>): <span class="mono">set_model</span> + <span class="mono">set_thinking_level</span> with the role's model and level. The trigger keeps a <span class="mono">via @role</span> tag until the model is changed directly. Unassigned roles are disabled.</p>`
+      : `<p>Stores <span class="mono">@role</span> or <span class="mono">@role:level</span>. Without a suffix the role's own level applies (or pi default when the role has none); a chip writes an override suffix. Resolved by the shared resolver at run time, so Settings → Roles changes apply here. Unassigned roles can be stored but are flagged.</p>`}</div>` : `<div class="card"><h3>Roles here</h3><p>No Roles tab: ${c.id.startsWith("roles") ? "this is a role's own assignment (no nesting)." : "this setting takes a concrete model."}</p></div>`}
+    <div class="card"><h3>Contract (one component)</h3><pre class="store">&lt;ModelPicker
+  value={{ model?, level? }}   // model: "provider/id" | "@role" | undefined
+  onChange={(next) =&gt; …}
+  levelMode="none" | "off" | "optional" | "required"
+  inheritModel?={{ label, resolved }}
+  inheritLevel?={{ label, resolved }}
+  allowRoles? roleMode="once" | "follows"
+  variant="chip" | "field" /&gt;</pre>
+      <ul style="margin-top:8px">
+        <li><span class="mono">level: undefined</span> = unset (inherit). <span class="mono">"off"</span> = explicit no thinking. Never collapsed.</li>
+        <li>Primitive <span class="mono">ui:model-selector</span> gains the same optional props; plugins that pass none keep today's model-only picker.</li>
+        <li><span class="mono">levelMode="off"</span>: for plain-completion functions. Level locked to off, models without <span class="mono">off</span> disabled.</li>
+        <li><span class="mono">ui:thinking-level-selector</span> stays for compatibility, no new uses.</li>
+      </ul></div>
+    <div class="card"><h3>pi rules the picker follows</h3><ul>
+      <li>Levels: <span class="mono">off minimal low medium high xhigh max</span>. <span class="mono">off</span> = no thinking.</li>
+      <li><span class="mono">reasoning: false</span> → only <span class="mono">off</span>.</li>
+      <li><span class="mono">thinkingLevelMap[x] = null</span> removes a level, incl. <span class="mono">off</span> (always-reasoning models). <span class="mono">xhigh</span>/<span class="mono">max</span> only when mapped.</li>
+      <li>Unsupported level → pi clamps to the nearest supported level <b>above</b>, else below. So <span class="mono">off</span> on an always-reasoning model becomes its lowest level.</li>
+      <li><span class="mono">off</span> = request sent with no <span class="mono">reasoning</span>: Anthropic <span class="mono">thinkingEnabled:false</span>, Google budget 0 (or lowest level if it can't), OpenAI omits effort (provider default).</li>
+      <li>Plain completions (namer, grammar, brief, system-one) pass no <span class="mono">reasoning</span>, i.e. they behave as <span class="mono">off</span>.</li>
+      <li>No level given → pi uses <span class="mono">defaultThinkingLevel</span> (built-in <span class="mono">medium</span>), clamped.</li>
+      <li>Ref grammar <span class="mono">provider/id[:level]</span>, <span class="mono">@role[:level]</span>; <span class="mono">:off</span> is valid.</li>
+    </ul></div>`;
+}
+
+function render() {
+  $("#ctxNav").innerHTML = navHtml();
+  $("#stage").innerHTML = stageHtml();
+  $("#side").innerHTML = sideHtml();
+  S.pulse = false;
+  runProbe();
+}
+
+/* ── interaction ──────────────────────────────────────────────── */
+function pickModel(l) {
+  const c = C(), v = V();
+  S.clampNote = null;
+  if (l?.startsWith("@") && roleModeOf(c) === "once") {
+    // useRolePick: fresh resolve → set_model, then set_thinking_level (skipped + notice when unsupported).
+    const role = ROLES[l.slice(1)], m = byLabel(role.ref);
+    v.model = role.ref; v.via = l;
+    if (role.level && m.lv.includes(role.level)) v.level = role.level;
+    else if (role.level) S.clampNote = `${l}'s level ${role.level} isn't offered by ${m.id}: level left at ${v.level ?? "default"}.`;
+    if (v.level && !m.lv.includes(v.level)) { const was = v.level; v.level = clamp(was, m); S.clampNote = `${was} isn't offered by ${m.id}: set to ${v.level}.`; }
+    S.pulse = true; return;
+  }
+  if (l?.startsWith("@")) {
+    // follows: the role's own level applies; an override is chosen afterwards as @role:level.
+    v.model = l; v.via = undefined;
+    if (v.level) S.clampNote = `Level reset to ${l}'s own; pick a chip to override (${l}:level).`;
+    v.level = c.level === "required" ? (ROLES[l.slice(1)].level ?? PI_DEFAULT_LEVEL) : undefined;
+    if (c.level === "none" || c.level === "off") S.open = false; else S.pulse = true;
+    return;
+  }
+  const before = v.level;
+  v.model = l || undefined; v.via = undefined;
+  if (before && c.level !== "none") {
+    const r = resolve(c, { ...v, level: undefined });
+    const m = r.m;
+    if (m && !m.lv.includes(before)) { v.level = clamp(before, m); S.clampNote = `${before} isn't offered by ${m.id}: set to ${v.level} (pi's rule: next level up, else down).`; }
+  }
+  if (c.level === "none") S.open = false; else S.pulse = true;
+}
+$("#ctxNav").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ctx]"); if (!b) return;
+  S.ctx = b.dataset.ctx; S.open = false; S.tab = "models"; S.clampNote = null; render();
+});
+$("#stage").addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.closest("#trig")) { S.open = !S.open; S.clampNote = null; S.filter = ""; S.tab = V().model?.startsWith("@") || V().via ? "roles" : "models"; return render(); }
+  if (!S.open) return;
+  if (!t.closest("#pop")) { S.open = false; return render(); }
+  const tab = t.closest("[data-tab]"); if (tab) { S.tab = tab.dataset.tab; return render(); }
+  const lv = t.closest(".lv");
+  if (lv && C().level === "off") return;
+  if (lv) {
+    if (lv.getAttribute("aria-disabled") === "true") return;
+    V().level = lv.dataset.level || undefined; S.clampNote = null;
+    if (C().level === "required" && !V().level) return;
+    S.open = false; return render();
+  }
+  if (t.closest('[data-act="done"]')) { S.open = false; return render(); }
+  const star = t.closest("[data-star]");
+  if (star) { const l = star.dataset.star; S.favs.has(l) ? S.favs.delete(l) : S.favs.add(l); return refreshList(); }
+  const favs = t.closest("#mfavs");
+  if (favs) { S.favOnly = !S.favOnly; favs.setAttribute("aria-pressed", String(S.favOnly)); return refreshList(); }
+  if (t.closest("#mprov, #mfilter")) return;
+  const row = t.closest(".row");
+  if (row && row.getAttribute("aria-disabled") === "true") return;
+  if (row) { pickModel(row.dataset.model); if (C().level === "off") S.open = false; return render(); }
+});
+// Outside-click close. Ignore detached targets: a stage click re-renders before the
+// event reaches document, so its target is no longer inside #stage.
+document.addEventListener("click", (e) => {
+  if (!S.open || !e.target.isConnected) return;
+  if (e.target.closest("#stage") || e.target.closest("#ctxNav") || e.target.closest("header")) return;
+  S.open = false; render();
+});
+/* Filter controls update only the list, so the input keeps focus + caret. */
+function refreshList() { const list = document.querySelector("#pop .list[aria-label=Models]"); if (list) list.innerHTML = rowsHtml(C(), V()); runProbe(); }
+$("#stage").addEventListener("input", (e) => { if (e.target.id === "mfilter") { S.filter = e.target.value; refreshList(); } });
+$("#stage").addEventListener("change", (e) => { if (e.target.id === "mprov") { S.provider = e.target.value; refreshList(); } });
+document.addEventListener("keydown", (e) => { if (S.open && e.key === "Escape") { S.open = false; render(); $("#trig")?.focus(); } });
+$("#themeSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const t = b.dataset.t, root = document.documentElement;
+  root.dataset.theme = t === "light" ? "light" : "dark";
+  if (t === "nord") root.dataset.palette = "nord"; else delete root.dataset.palette;
+  document.querySelectorAll("#themeSeg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  runProbe();
+});
+function runProbe() {
+  const badge = $("#probeBadge");
+  if (!window.__probeRoot) return;
+  const f = [...document.querySelectorAll("#stage, #side, #ctxNav")].flatMap(window.__probeRoot);
+  window.__lastProbe = f;
+  badge.className = `pill ${f.length ? "bad" : "ok"}`;
+  badge.textContent = f.length ? `${f.length} probe failure${f.length > 1 ? "s" : ""}` : "0 probe failures";
+  badge.title = f.join("\n") || "Contrast + text size OK";
+}
+/* deep links: ?ctx=roles&open=1&model=openai-codex/gpt-6-sol&level=off&theme=light */
+const q = new URLSearchParams(location.search);
+if (q.get("ctx")) S.ctx = q.get("ctx");
+if (q.has("model")) V().model = q.get("model") || undefined;
+if (q.has("level")) V().level = q.get("level") || undefined;
+if (q.get("open")) S.open = true;
+if (q.get("tab")) S.tab = q.get("tab");
+render();
+if (q.get("theme")) $(`#themeSeg [data-t="${q.get("theme")}"]`).click();
+</script>
+</body>
+</html>

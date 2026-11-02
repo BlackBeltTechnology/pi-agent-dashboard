@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-mcp-core",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Host-free library over pi's built-in MCP configuration: Pi-global + trusted-folder mcp.json readers, validated atomic writers, live state from `pi mcp list`, and the `mcp-client.config` service contract. Shared by the dashboard server, the mcp-client / mcp-server plugins and apple-tools. Not a plugin.",
   "license": "MIT",
   "publishConfig": {
@@ -32,7 +32,7 @@
     "!**/*.test.ts"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.10.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0",
     "ajv": "^8.17.1"
   },
   "devDependencies": {

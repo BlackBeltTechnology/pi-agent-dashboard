@@ -1,0 +1,7 @@
+# service-secrets "Secret references and resolvers" is MODIFIED by this change and by
+# absorb-service-secrets-into-vault. Neither blocks the other: whichever archives second
+# rebases its delta onto the other's archived text (tasks.md 13.1, design.md Risks).
+# add-connector-layer/design.md "Threat model" carries a cross-change edit pointing here (tasks.md 13.2).
+related:
+  - absorb-service-secrets-into-vault
+  - add-connector-layer

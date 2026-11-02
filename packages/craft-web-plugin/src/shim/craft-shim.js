@@ -40,7 +40,7 @@
  * (event -> boolean, default `event.isTrusted === true`) and `opts.profile`
  * (default `win.__CRAFT_PROFILE__`) are test seams only.
  */
-const SHIM_VERSION = 3;
+const SHIM_VERSION = 4;
 
 (function () {
   "use strict";
@@ -56,6 +56,16 @@ const SHIM_VERSION = 3;
     pdf: "application/pdf",
     txt: "text/plain",
     csv: "text/csv",
+    mp4: "video/mp4",
+    mov: "video/quicktime",
+    m4v: "video/x-m4v",
+    webm: "video/webm",
+    wav: "audio/wav",
+    mp3: "audio/mpeg",
+    m4a: "audio/mp4",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
   };
   var TITLE_RE = /Unhandled egui viewport command: Title\("((?:[^"\\]|\\.)*)"\)/;
   /** v1 rule (no profile): `<name>[ •] - <App>Craft`, dash, en dash or em dash. */
@@ -134,6 +144,7 @@ const SHIM_VERSION = 3;
     // ---- state -------------------------------------------------------------
     var awaitingName = null; // normalized open-name stem(s) once `open` was handled
     var openHandled = false;
+    var mediaGate = false; // a media drop already went through: the app's loop is running
     var appTicked = false;
     var deliverDrop = null;
     var opened = false;
@@ -261,6 +272,19 @@ const SHIM_VERSION = 3;
       var file = new win.File([toU8(msg.bytes)], name, {
         type: MIME_BY_EXT[(/\.([A-Za-z0-9]+)$/.exec(name) || [])[1]] || "application/octet-stream",
       });
+      deliverDrop = function () {
+        dropFile(file);
+        if (fallbackMs !== null) win.setTimeout(openedFallback, fallbackMs);
+      };
+      // The app drops files that arrive before its first update tick (measured with WordCraft 0.8.0:
+      // a drop right after `ready` is ignored). Its first viewport-title signal proves the loop runs;
+      // deliver after that, or after DROP_FALLBACK_MS when no such signal ever comes.
+      if (appTicked || mediaGate) scheduleDrop();
+      else win.setTimeout(scheduleDrop, DROP_FALLBACK_MS);
+    }
+
+    /** Synthetic drop of one file onto the canvas (host-originated: `ownDrop` lets it past the drop blocker). */
+    function dropFile(file) {
       var dt;
       try {
         dt = new win.DataTransfer();
@@ -269,41 +293,60 @@ const SHIM_VERSION = 3;
         dt = null;
       }
       if (!dt) dt = { files: [file], items: [{ kind: "file", type: file.type, getAsFile: function () { return file; } }], types: ["Files"] };
-      deliverDrop = function () {
-        var canvas = getCanvas();
-        var target = canvas || win;
-        var rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
-        var x = rect ? rect.left + rect.width / 2 : 0;
-        var y = rect ? rect.top + rect.height / 2 : 0;
-        ownDrop = true;
-        try {
-          ["dragenter", "dragover", "drop"].forEach(function (type) {
-            var Ctor = win.DragEvent || win.MouseEvent || win.Event;
-            var ev;
+      var canvas = getCanvas();
+      var target = canvas || win;
+      var rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+      var x = rect ? rect.left + rect.width / 2 : 0;
+      var y = rect ? rect.top + rect.height / 2 : 0;
+      ownDrop = true;
+      try {
+        ["dragenter", "dragover", "drop"].forEach(function (type) {
+          var Ctor = win.DragEvent || win.MouseEvent || win.Event;
+          var ev;
+          try {
+            ev = new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer: dt });
+          } catch (_e) {
+            ev = new win.Event(type, { bubbles: true, cancelable: true });
+          }
+          if (!ev.dataTransfer) {
             try {
-              ev = new Ctor(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, dataTransfer: dt });
+              Object.defineProperty(ev, "dataTransfer", { value: dt });
             } catch (_e) {
-              ev = new win.Event(type, { bubbles: true, cancelable: true });
+              /* ignore */
             }
-            if (!ev.dataTransfer) {
-              try {
-                Object.defineProperty(ev, "dataTransfer", { value: dt });
-              } catch (_e) {
-                /* ignore */
-              }
-            }
-            target.dispatchEvent(ev);
+          }
+          target.dispatchEvent(ev);
+        });
+      } finally {
+        ownDrop = false;
+      }
+    }
+
+    // ---- open-media: one referenced medium per message, acknowledged (media projects) ----------
+    // Only for a profile with `mediaProject`; never arms the opened fallback (that belongs to the project
+    // `open`), and never after the project was handed over.
+    function handleOpenMedia(msg) {
+      if (!profile || !profile.mediaProject || openHandled) return;
+      var name = typeof msg.name === "string" ? msg.name : "";
+      if (!name || !msg.bytes) return;
+      var file = new win.File([toU8(msg.bytes)], name, {
+        type: MIME_BY_EXT[(/\.([A-Za-z0-9]+)$/.exec(name) || [])[1]] || "application/octet-stream",
+      });
+      var deliver = function () {
+        raf(function () {
+          raf(function () {
+            win.setTimeout(function () {
+              dropFile(file);
+              mediaGate = true;
+              win.setTimeout(function () {
+                post("open-media-ack", { name: name });
+              }, DROP_SETTLE_MS);
+            }, DROP_SETTLE_MS);
           });
-        } finally {
-          ownDrop = false;
-        }
-        if (fallbackMs !== null) win.setTimeout(openedFallback, fallbackMs);
+        });
       };
-      // The app drops files that arrive before its first update tick (measured with WordCraft 0.8.0:
-      // a drop right after `ready` is ignored). Its first viewport-title signal proves the loop runs;
-      // deliver after that, or after DROP_FALLBACK_MS when no such signal ever comes.
-      if (appTicked) scheduleDrop();
-      else win.setTimeout(scheduleDrop, DROP_FALLBACK_MS);
+      if (appTicked || mediaGate) deliver();
+      else win.setTimeout(deliver, DROP_FALLBACK_MS);
     }
 
     function scheduleDrop() {
@@ -911,6 +954,7 @@ const SHIM_VERSION = 3;
       var d = e.data;
       if (!d || typeof d !== "object" || nonce === null || d.nonce !== nonce) return;
       if (d.type === "open") handleOpen(d);
+      else if (d.type === "open-media") handleOpenMedia(d);
       else if (d.type === "control") handleControl(d);
       else if (d.type === "save-result") {
         var p = pendingSaves.shift();

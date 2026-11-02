@@ -3,7 +3,7 @@
  * `session-card-flows` claim (`SessionFlowActionsClaim`).
  *
  * The FLOWS subcard carries flow STATUS only, so it renders IFF the session has
- * any flow event (live or replayed). It no longer depends on `flowsList`, edit
+ * any flow event (live or replayed). It no longer depends on the flow catalog, edit
  * mode or extension presence — those gate the flow ACTIONS, which live in the
  * `session-card-action-bar` claim (see `flowsActionsGate.ts`).
  *

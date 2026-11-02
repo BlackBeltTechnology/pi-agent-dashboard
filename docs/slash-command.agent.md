@@ -6,7 +6,7 @@ Pull-only condensed map. Source: docs/slash-command.md. Slash command routing.
 Documents how dashboard bridge routes typed `/foo` chat text to pi handlers. Extension command dispatch (step 9) = ONE in-process call `pi.sendUserMessage(text,{expandPromptTemplates:true,deliverAs})`, ungated (pi 1.0.0 floor). Every session kind. Paths B/C/D retired by `retire-slash-dispatch-via-expand-prompt-templates`.
 
 ## Routing Order
-`command-handler.ts::parseSendPrompt` + `bridge.ts::sessionPrompt` process `send_prompt` in order: 1 `!!`→silent bash `pi.exec`; 2 `!`→bash+LLM; 3 `/compact`→`compact()`; 4 `/quit`|`/exit`→`shutdown()`; 5 `/reload`→`reload()`; 6 `/new`→`spawnNew()`; 7 `/model`→`setModel()`; 8 `/<name>` user flow (`getFlowsList()`)→`pi.events.emit("flow:run")`; 9 `/<name>` extension command (`source:"extension"`, not `DASHBOARD_NATIVE_COMMANDS`)→ `pi.sendUserMessage(text,{expandPromptTemplates:true,deliverAs})`; 10 `/` fall-through→`expandPromptTemplateFromDisk`+`pi.sendUserMessage`; 11 no prefix→passthrough. Steps 1-7 parseSendPrompt, step 8 sessionPrompt, step 9 retired+replaced. Steps 10-11 unchanged.
+`command-handler.ts::parseSendPrompt` + `bridge.ts::sessionPrompt` process `send_prompt` in order: 1 `!!`→silent bash `pi.exec`; 2 `!`→bash+LLM; 3 `/compact`→`compact()`; 4 `/quit`|`/exit`→`shutdown()`; 5 `/reload`→`reload()`; 6 `/new`→`spawnNew()`; 7 `/model`→`setModel()`; 8 ~~user flow fast-path (`getFlowsList()`→`flow:run`)~~ REMOVED (See change: flows-dock-chip-and-panel-actions); 9 `/<name>` extension command (incl. pi-flows `/<flow-name> <task>`) (`source:"extension"`, not `DASHBOARD_NATIVE_COMMANDS`)→ `pi.sendUserMessage(text,{expandPromptTemplates:true,deliverAs})`; 10 `/` fall-through→`expandPromptTemplateFromDisk`+`pi.sendUserMessage`; 11 no prefix→passthrough. Steps 1-7 parseSendPrompt, step 8 removed, step 9 retired+replaced. Steps 10-11 unchanged.
 
 Step 9 history — Paths B/C/D RETIRED: B `pi.dispatchCommand` never shipped; C headless bridge→`dispatch_extension_command`→server→keeper UDS→pi stdin (dispatch-router.ts deleted); D tmux/Win-Terminal error. Also deleted `hasDispatchCommand`, `connection` param + `DispatchConnection`, `keeperManager.writeRpc`/`writeRpcToSockPath`, `headlessPidRegistry.writeRpc`. Kept `isHeadlessRpcSession` (live caller bridge registration).
 
@@ -28,11 +28,11 @@ Mermaid flowchart: parseSendPrompt → ParsedPrompt branches (bash/compact/shutd
 - Decision 5: Test shape — `bridge-slash-command-routing.test.ts`, stub `sendUserMessage`+`getCommands`, assert flag + emission sequence + old-pi error gate; `pi-version-tracker.test.ts`.
 
 ## Two-Step Fix
-RETIRED — now single-step: sessionPrompt → flow? (step 8) → `isExtensionSlashCommand` (step 9 detect) → false: steps 10-11 sendUserMessage; true: started + `pi.sendUserMessage(text,{expandPromptTemplates:true,deliverAs})` + completed (sync throw→error). Ungated. No RPC route, no session-kind probe.
+RETIRED — now single-step: sessionPrompt → `isExtensionSlashCommand` (step 9 detect) → false: steps 10-11 sendUserMessage; true: started + `pi.sendUserMessage(text,{expandPromptTemplates:true,deliverAs})` + completed (sync throw→error). Ungated. No RPC route, no session-kind probe.
 
 ## Empirical Verification
 From `notes/preflight-empirical-checks.md`.
-- Q1: typed `/flows:*` broken same way — YES. `getFlowsList()` = user flows only; pi-flows names never match; falls through. Buttons mask via `flow_management`.
+- Q1: typed `/flows:*` broken same way — YES (pre-fix). `getFlowsList()` = user flows only; pi-flows names never matched. Fixed: fast-path removed, typed `/<flow-name>` routes via step 9. See change: flows-dock-chip-and-panel-actions.
 - Q2: `sendUserMessage` sites in command-handler.ts — line 264 (slash else-arm) needs gate YES; 286/453/455/458 (sendUserMessageWithImages internals) NO; 495 (handleBashCommand) NO. Two sites need gate: `bridge.ts::sessionPrompt` fallback + `command-handler.ts:264`.
 
 ## Detection Helper

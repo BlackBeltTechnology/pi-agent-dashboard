@@ -590,8 +590,8 @@ describe('private workspaces (E11)', () => {
 
 describe('allowlist (E12, E13)', () => {
   it('an allowlisted specifier is not reported (E12)', () => {
-    const ws = fixture({}, { 'index.js': 'await import("@pi/anthropic-messages");' });
-    const allowlist = [{ workspace: 'packages/fixture', specifier: '@pi/anthropic-messages', reason: 'E404 on the registry' }];
+    const ws = fixture({}, { 'index.js': 'await import("@example-legacy/example-ext");' });
+    const allowlist = [{ workspace: 'packages/fixture', specifier: '@example-legacy/example-ext', reason: 'E404 on the registry' }];
 
     expect(run(ws, ['index.js'], { allowlist })).toEqual([]);
     // Without the allowlist the very same input must fail — otherwise the test proves nothing.
@@ -608,11 +608,8 @@ describe('allowlist (E12, E13)', () => {
     expect(findings[0].severity).toBe('error');
   });
 
-  it('the shipped allowlist is itself valid and carries the E404 rationale', () => {
+  it('the shipped allowlist is itself valid', () => {
     expect(validateAllowlist(ALLOWLIST)).toEqual([]);
-    const entry = ALLOWLIST.find((e) => e.specifier === '@pi/anthropic-messages');
-    expect(entry).toBeDefined();
-    expect(entry.reason).toMatch(/E404/);
   });
 });
 

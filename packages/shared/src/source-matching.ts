@@ -129,7 +129,7 @@ export function sourcesMatch(a: string, b: string): boolean {
 	// Cross-kind: git ↔ npm. Match the git repo name against the npm
 	// package's unscoped name (strip @scope/). Handles packages migrated from
 	// a git source to a published npm scope without updating every
-	// registration (e.g. pi-anthropic-messages).
+	// registration.
 	const npmKey = ka.kind === "npm" ? ka : kb.kind === "npm" ? kb : null;
 	if (gitKey && npmKey) {
 		const unscoped = npmKey.name.replace(/^@[^/]+\//, "").toLowerCase();
@@ -139,7 +139,7 @@ export function sourcesMatch(a: string, b: string): boolean {
 	// Cross-kind: npm ↔ raw (local path). Match the local path basename
 	// against the npm package's unscoped name. Handles a local checkout
 	// (`pi install -l <path>`) of a package whose manifest source is the
-	// npm scope (e.g. pi-anthropic-messages after its npm rescope).
+	// npm scope (e.g. after an npm rescope).
 	if (npmKey && rawKey) {
 		const basename = localPathBasename(rawKey.source);
 		const unscoped = npmKey.name.replace(/^@[^/]+\//, "").toLowerCase();

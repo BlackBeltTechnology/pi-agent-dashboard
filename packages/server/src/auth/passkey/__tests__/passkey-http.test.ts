@@ -109,7 +109,9 @@ describe("user directory routes", () => {
   });
 
   it("a remote operate session cannot bootstrap an empty directory", async () => {
-    await build({ providers: {} });
+    // The github session must come from a still-configured provider (a removed provider's
+    // sessions are rejected). See change: close-security-map-high-findings (D3).
+    await build({ providers: { github: { clientId: "cid", clientSecret: "cs" } }, allowedUsers: ["*@x"] });
     const { signToken } = await import("../../auth.js");
     const cookie = `pi_dash_token=${signToken({ sub: "a@x", name: "A", username: "a", provider: "github", tier: "operate" }, SECRET)}`;
     const r = await remote("POST", "/api/users", cookie, { name: "X" });

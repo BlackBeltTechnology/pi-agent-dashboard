@@ -476,3 +476,60 @@ describe("classifyProof (#E1)", () => {
     expect(classifyProof(transport, { pin: F, localFp: L })).toBe("unverified");
   });
 });
+
+describe("challengePinnedServer TLS validation (prove-vault-bridge-tls D7)", () => {
+  const OFF = { NODE_TLS_REJECT_UNAUTHORIZED: "0" };
+
+  it("refuses an https origin with tls-verify-disabled and makes no request", async () => {
+    const s = makeServer();
+    const fetchImpl = vi.fn();
+    const res = await challengePinnedServer({
+      baseUrl: "https://dash.example:8443",
+      pin: pinOf(s),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      env: OFF,
+    });
+    expect(res).toMatchObject({ accept: false, cause: "tls-verify-disabled" });
+    expect(res.reason).toContain("NODE_TLS_REJECT_UNAUTHORIZED");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("leaves an http origin alone while validation is disabled", async () => {
+    const s = makeServer();
+    const fetchImpl = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+      const nonce = JSON.parse(String(init?.body)).nonce as string;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { fingerprint: s.fingerprint, publicKey: s.publicKeyB64, signature: s.sign(nonce) } }),
+      } as unknown as Response;
+    });
+    const res = await challengePinnedServer({
+      baseUrl: "http://dash.example:8000",
+      pin: pinOf(s),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      env: OFF,
+    });
+    expect(res.accept).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates an https origin as before when validation is enabled", async () => {
+    const s = makeServer();
+    const fetchImpl = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+      const nonce = JSON.parse(String(init?.body)).nonce as string;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { fingerprint: s.fingerprint, publicKey: s.publicKeyB64, signature: s.sign(nonce) } }),
+      } as unknown as Response;
+    });
+    const res = await challengePinnedServer({
+      baseUrl: "https://dash.example:8443",
+      pin: pinOf(s),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      env: {},
+    });
+    expect(res.accept).toBe(true);
+  });
+});

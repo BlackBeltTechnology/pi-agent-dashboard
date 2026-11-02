@@ -118,12 +118,14 @@ RUN npm install -g @earendil-works/pi-coding-agent@1.3.0 openspec \
  && { openspec --version || true; }
 
 # 1.4b Flow-plugin e2e peers (change: add-flow-plugin-e2e-tests). The pi-flows
-# engine + the anthropic-messages bridge peer are BAKED here; test-entrypoint.sh
-# selectively wires them per PI_TEST_PEERS (both|no-am|legacy|bad-registration)
-# so the L3 harness can drive real flows + assert the bridge state machine. Kept
-# non-fatal on version probe, fatal on install, same as the pi install above.
-ARG PI_FLOWS_VERSION=0.8.0
-ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
+# engine is BAKED here; test-entrypoint.sh wires it per PI_TEST_PEERS (both) so
+# the L3 harness can drive real flows. The Claude peer package is no longer baked
+# (change: retire-anthropic-messages-bridge). Kept non-fatal on version probe,
+# fatal on install, same as the pi install above.
+# >= 0.8.1: no project-local skill sync at session_start and a no-op
+# setEditFlowFlag on an unchanged value, so flows leaves repos clean
+# (change: stop-flows-edit-mode-project-writes).
+ARG PI_FLOWS_VERSION=0.8.1
 # pi-dashboard-subagents is the ONLY producer of `tool_execution_update` for a
 # subagent: its `extensions/agent.ts` drives `createProgressEmitter` ->
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
@@ -132,10 +134,8 @@ ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
 ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.5.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
-      "@blackbelt-technology/pi-anthropic-messages@${PI_ANTHROPIC_MESSAGES_VERSION}" \
       "@blackbelt-technology/pi-dashboard-subagents@${PI_DASHBOARD_SUBAGENTS_VERSION}" \
  && ls -d /usr/local/lib/node_modules/@blackbelt-technology/pi-flows \
-         /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages \
          /usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents
 
 # Enable corepack so `pnpm` resolves to the version pinned by the root
@@ -191,6 +191,10 @@ ARG PI_DASHBOARD_FIXTURE_PLUGINS=""
 # (so the npm/cli#4828 lockfile-nuke hack — which dropped
 # @rollup/rollup-linux-x64-gnu on the linux build — is no longer needed).
 RUN pnpm install --frozen-lockfile \
+ # The Linux keyring binding statically links libdbus (AFL-2.1 OR GPL-2.0-or-later);
+ # its LICENSE.third-party.md ships in node_modules and nothing below prunes it.
+ # Fail the build if it is ever missing. See change: encrypt-credentials-at-rest (D5).
+ && ls /app/node_modules/@napi-rs/keyring-linux-*-gnu/LICENSE.third-party.md >/dev/null \
  && pnpm run build \
  # Link the root package so `pi-dashboard` is on PATH.
  && npm link \
@@ -204,7 +208,12 @@ RUN pnpm install --frozen-lockfile \
 # root:root ownership on first use, which a container running as `pi` cannot
 # write. Create them here, owned by pi, so the copy-on-first-use hands the
 # volume to the user that actually runs.
-RUN mkdir -p /home/pi/.pi /home/pi/.zrok2 && chown pi:pi /home/pi/.pi /home/pi/.zrok2
+# /home/pi/.pi-key holds the credential data key file (mode 0700 dir, 0600 file) on
+# its OWN volume, so a copy of the /home/pi/.pi state volume carries no key.
+# See change: encrypt-credentials-at-rest (design D6).
+RUN mkdir -p /home/pi/.pi /home/pi/.zrok2 /home/pi/.pi-key \
+ && chown pi:pi /home/pi/.pi /home/pi/.zrok2 /home/pi/.pi-key \
+ && chmod 0700 /home/pi/.pi-key
 
 # Out-of-root fixture dir for the agent path-gate e2e (tool-read-outside-grantable).
 # See change: ask-agent-file-access-in-chat.
@@ -216,7 +225,7 @@ ENV HOME=/home/pi
 
 # 1.6 Network + storage surface.
 EXPOSE 8000 9999
-VOLUME ["/home/pi/.pi", "/home/pi/.zrok2"]
+VOLUME ["/home/pi/.pi", "/home/pi/.zrok2", "/home/pi/.pi-key"]
 
 # 2.3 Entrypoint seeds auth, starts tmux, execs pi-dashboard.
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

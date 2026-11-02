@@ -166,7 +166,6 @@ describe("root derivation (E11/E12/E15)", () => {
     for (const r of [
       "quota-plugin/src",
       "demo-plugin/src",
-      "flows-anthropic-bridge-plugin/src",
       "grammar-plugin/src",
       "roles-plugin/src",
       "gmail-plugin/src/client",

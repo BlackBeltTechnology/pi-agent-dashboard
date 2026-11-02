@@ -207,14 +207,15 @@ export function resolveFlowSlot(input: {
   attachment: FlowAttachment | null;
   idle: IdleLoad;
   lastFlowStartedAt?: unknown;
-  flowsList: ReadonlyArray<{ name: string }>;
+  /** The session's flow catalog (plugin `flow_catalog`). */
+  flows: ReadonlyArray<{ name: string }>;
 }): FlowSlot {
-  const { live, liveStates, attachment, idle, lastFlowStartedAt, flowsList } = input;
+  const { live, liveStates, attachment, idle, lastFlowStartedAt, flows } = input;
   const running = findRunning(live, liveStates);
   if (running) return { mode: "live", flowState: running, attachmentConsumed: !!attachment };
 
   if (attachment && !isAttachmentConsumed(attachment.baselineStartedAt, lastFlowStartedAt)) {
-    if (flowsList.length > 0 && !flowsList.some((f) => f.name === attachment.name)) {
+    if (flows.length > 0 && !flows.some((f) => f.name === attachment.name)) {
       return { mode: "error", error: { kind: "unavailable" }, attachmentConsumed: false };
     }
     if (idle.kind === "loading") return { mode: "loading", attachmentConsumed: false };

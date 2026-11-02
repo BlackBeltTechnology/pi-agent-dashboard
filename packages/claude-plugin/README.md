@@ -2,8 +2,9 @@
 
 Lets Claude Code on your own machine start the local
 [pi-agent-dashboard](https://github.com/BlackBeltTechnology/pi-agent-dashboard) and then
-list, prompt, abort and spawn pi sessions through the dashboard's REST API. The plugin is
-two skills and one shell script. It has no server, no MCP server and no hooks.
+list, prompt, abort and spawn pi sessions through the dashboard's REST API, and get notified
+when a pi session asks a question or changes status. The plugin is three skills and two shell
+scripts. It has no server, no MCP server and no hooks.
 
 ## Install
 
@@ -66,6 +67,7 @@ Rules:
 |---|---|
 | `pi-dashboard-bootstrap` | Runs `ensure-dashboard.sh` once, in the foreground. It reports whether the dashboard is up, starts it detached when it is down, and prints the `BASE` URL. It never starts a second instance. |
 | `pi-dashboard-control` | Drives the running dashboard with curl against `BASE`: health, sessions, prompt, abort, spawn. |
+| `pi-dashboard-watch` | Follows `GET BASE/api/events/stream` with `watch-events.sh`, run under Claude Code's Monitor tool: one notification per question opened or closed, status change, or session added or removed. |
 
 If no `pi-dashboard` command or app is installed, Claude asks before running a one-time global
 install of the latest release (about 1 GB, about a minute; it adds the `pi-dashboard` command and

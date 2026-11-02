@@ -3,9 +3,8 @@ import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { ANTHROPIC_PEER_SOURCE } from "../../lib/package/anthropic-peer.js";
+import { claudeCompatStore } from "../../lib/claude-compat/claude-compat-store.js";
 import { packageQueue } from "../../lib/package/package-queue.js";
-import { peerAutoInstallStore } from "../../lib/package/peer-auto-install-store.js";
 import { LandingPage } from "../shell/LandingPage.js";
 
 function TestRouter({ children, path = "/" }: { children: React.ReactNode; path?: string }) {
@@ -29,7 +28,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   packageQueue.__resetForTests();
-  peerAutoInstallStore.__resetForTests();
+  claudeCompatStore.__resetForTests();
 });
 
 function renderPage(props: Partial<React.ComponentProps<typeof LandingPage>> = {}) {
@@ -282,138 +281,73 @@ describe("Step ② create (F9–F12)", () => {
   });
 });
 
-describe("Step ① peer status (F13, F14, X8, P1)", () => {
-  const PEER_KEY = "@pi/anthropic-messages";
-  interface Net {
-    probe?: { ok: boolean; reason?: string };
-    entry: Record<string, unknown> | null;
-    calls: { health: number; recommended: number; installPosts: number };
-  }
+// Step ① compat status. See change: retire-anthropic-messages-bridge (test-plan #E16, #X2).
+describe("Step ① Claude subscription compat status (E16, X2)", () => {
+  const COMPAT_URL = "/api/preferences/claude-subscription-compat";
+  interface Net { compat: boolean; write: "ok" | "network"; patches: unknown[]; reads: number }
   let net: Net;
-  function stubNet() {
+  beforeEach(() => {
+    net = { compat: false, write: "ok", patches: [], reads: 0 };
+    claudeCompatStore.__resetForTests();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: any) => {
         const ok = (b: unknown) => ({ ok: true, status: 200, json: async () => b }) as any;
-        if (url.includes("/api/packages/install")) {
-          net.calls.installPosts++;
-          return ok({ success: true, data: { operationId: `op-${net.calls.installPosts}` } });
-        }
-        if (url.includes("/api/packages/recommended")) {
-          net.calls.recommended++;
-          return ok({ success: true, data: { recommended: net.entry ? [{ id: "pi-anthropic-messages", ...net.entry }] : [] } });
-        }
-        if (url.includes("/api/health")) {
-          net.calls.health++;
-          return ok({ plugins: net.probe ? [{ id: "flows-anthropic-bridge", lastProbe: { peers: { [PEER_KEY]: net.probe } } }] : [] });
+        if (url.includes(COMPAT_URL)) {
+          if (init?.method === "PATCH") {
+            net.patches.push(JSON.parse(init.body));
+            if (net.write === "network") throw new TypeError("Failed to fetch");
+            net.compat = JSON.parse(init.body).value;
+            return ok({ claudeSubscriptionCompat: net.compat });
+          }
+          net.reads++;
+          return ok({ claudeSubscriptionCompat: net.compat });
         }
         return ok({});
       }),
     );
-  }
-  beforeEach(() => {
-    net = { entry: { activeInPi: false }, calls: { health: 0, recommended: 0, installPosts: 0 } };
-    stubNet();
-    packageQueue.__resetForTests();
-    peerAutoInstallStore.__resetForTests();
   });
+  afterEach(() => claudeCompatStore.__resetForTests());
 
-  const peerProps = { providersReady: true, pinnedCount: 0, anthropicAuthenticated: true as boolean | null, onCreateProject: vi.fn() };
-  const status = () => screen.getByTestId("onboarding-step-1-peer-status");
-  const complete = (opId: string, success: boolean, error?: string) =>
-    window.dispatchEvent(new CustomEvent("pi-package-event", { detail: { type: "package_operation_complete", operationId: opId, action: "install", source: ANTHROPIC_PEER_SOURCE, success, error } }));
-
-  it("F13 rule 1: import failure → failed-to-load warning, no action", async () => {
-    net.probe = { ok: false, reason: "import failed: x" };
-    renderPage(peerProps);
-    await waitFor(() => expect(status().textContent).toMatch(/failed to load/i));
-    expect(within(status()).queryByRole("button")).toBeNull();
-  });
-
-  it("F13 rule 2: resolving probe → no peer status content, even when the entry is not active", async () => {
-    net.probe = { ok: true };
-    renderPage(peerProps);
-    await waitFor(() => expect(net.calls.health).toBeGreaterThan(0));
-    await waitFor(() => expect(net.calls.recommended).toBeGreaterThan(0));
-    expect(status().textContent).toBe("");
-  });
-
-  it("F13 rules 3–5: store deciding/running → in-progress; failed → warning + Retry; installed → nothing", async () => {
-    renderPage(peerProps);
-    await waitFor(() => expect(within(status()).getByTestId("onboarding-step-1-peer-install")).toBeTruthy()); // rule 6 first
-    await act(async () => { await peerAutoInstallStore.ensureInstall("sign-in"); });
-    await waitFor(() => expect(status().textContent).toMatch(/Installing/));
-    act(() => complete("op-1", false, "npm ERR! code E404"));
-    await waitFor(() => expect(within(status()).getByTestId("onboarding-step-1-peer-retry")).toBeTruthy());
-    expect(status().textContent).toMatch(/install didn't finish/i);
-    expect(status().textContent).not.toContain("E404");
-    expect(within(status()).getByTestId("onboarding-step-1-peer-retry").className).not.toContain(PRIMARY);
-    await act(async () => { fireEvent.click(within(status()).getByTestId("onboarding-step-1-peer-retry")); });
-    await waitFor(() => expect(status().textContent).toMatch(/Installing/));
-    act(() => complete("op-2", true));
-    await waitFor(() => expect(status().textContent).toBe(""));
-  });
-
-  it("F13 rule 6: authenticated + not active → warning with a secondary Install", async () => {
-    renderPage(peerProps);
-    const btn = await screen.findByTestId("onboarding-step-1-peer-install");
-    expect(status().textContent).toMatch(/need.*pi-anthropic-messages/i);
-    expect(btn.className).not.toContain(PRIMARY);
-  });
-
-  it("F13 rule 7: already active → nothing", async () => {
-    net.entry = { activeInPi: true };
-    renderPage(peerProps);
-    await waitFor(() => expect(net.calls.recommended).toBeGreaterThan(0));
-    expect(status().textContent).toBe("");
-  });
-
-  it("F14: manual Install vetoed by a fresh import failure; a clean probe enqueues once", async () => {
-    renderPage(peerProps);
-    const btn = await screen.findByTestId("onboarding-step-1-peer-install");
-    net.probe = { ok: false, reason: "import failed: x" };
-    await act(async () => { fireEvent.click(btn); });
-    await waitFor(() => expect(status().textContent).toMatch(/failed to load/i));
-    expect(net.calls.installPosts).toBe(0);
-  });
-
-  it("F14: manual Install with a clean probe enqueues one global install and shows progress", async () => {
-    renderPage(peerProps);
-    const btn = await screen.findByTestId("onboarding-step-1-peer-install");
-    await act(async () => { fireEvent.click(btn); });
-    await waitFor(() => expect(net.calls.installPosts).toBe(1));
-    await waitFor(() => expect(status().textContent).toMatch(/Installing/));
-  });
-
-  it("X8: Retry install → in progress, then no peer status after success", async () => {
-    renderPage(peerProps);
-    await screen.findByTestId("onboarding-step-1-peer-install");
-    await act(async () => { await peerAutoInstallStore.ensureInstall("sign-in"); });
-    act(() => complete("op-1", false, "boom"));
-    const retry = await screen.findByTestId("onboarding-step-1-peer-retry");
-    await act(async () => { fireEvent.click(retry); });
-    await waitFor(() => expect(status().textContent).toMatch(/Installing/));
-    act(() => complete("op-2", true));
-    await waitFor(() => expect(status().textContent).toBe(""));
-  });
+  const status = () => screen.queryByTestId("onboarding-step-1-compat-notice");
 
   it.each([
-    ["step 1 pending", { providersReady: false, anthropicAuthenticated: true }, false],
-    ["step 1 done, anthropic false", { providersReady: true, anthropicAuthenticated: false }, false],
-    ["step 1 done, anthropic unknown", { providersReady: true, anthropicAuthenticated: null }, false],
-    ["step 1 done, anthropic true", { providersReady: true, anthropicAuthenticated: true }, true],
-  ])("P1: %s → Landing requests peer state: %s", async (_label, props, requests) => {
-    renderPage({ pinnedCount: 0, onCreateProject: vi.fn(), ...props });
-    // Let every effect + fetch microtask chain settle, without a timer barrier.
-    await act(async () => {
-      for (let i = 0; i < 50; i++) await Promise.resolve();
-    });
-    if (requests) {
-      await waitFor(() => expect(net.calls.health).toBeGreaterThan(0));
-      await waitFor(() => expect(net.calls.recommended).toBeGreaterThan(0));
+    ["authenticated, off", true, false, true],
+    ["authenticated, on", true, true, false],
+    ["not authenticated, off", false, false, false],
+    ["not authenticated, on", false, true, false],
+  ])("E16: %s → notice shown: %s", async (_l, authed, on, shown) => {
+    net.compat = on;
+    renderPage({ providersReady: true, pinnedCount: 0, anthropicAuthenticated: authed, onCreateProject: vi.fn() });
+    await act(async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); });
+    if (shown) {
+      await waitFor(() => expect(status()).toBeTruthy());
+      const btn = screen.getByTestId("onboarding-step-1-compat-turn-on");
+      expect(btn.className).toContain("bg-[var(--bg-tertiary)]");
+      expect(btn.className).not.toContain("accent-solid");
+      const live = screen.getByTestId("onboarding-step-1-compat-status");
+      expect(live.getAttribute("aria-live")).toBe("polite");
     } else {
-      expect(net.calls.health + net.calls.recommended).toBe(0);
+      expect(status()).toBeNull();
     }
+    // Step ② controls stay usable either way.
+    expect((screen.getByTestId("onboarding-step-2-create") as HTMLButtonElement).disabled).toBe(false);
+    if (!authed) expect(net.reads).toBe(0);
+  });
+
+  it("Turn on from Landing sets the switch, hides the notice, installs nothing", async () => {
+    renderPage({ providersReady: true, pinnedCount: 0, anthropicAuthenticated: true, onCreateProject: vi.fn() });
+    fireEvent.click(await screen.findByTestId("onboarding-step-1-compat-turn-on"));
+    await waitFor(() => expect(status()).toBeNull());
+    expect(net.patches).toEqual([{ value: true }]);
+  });
+
+  it("X2 (Landing): network failure reverts to the notice with an error toast", async () => {
+    net.write = "network";
+    renderPage({ providersReady: true, pinnedCount: 0, anthropicAuthenticated: true, onCreateProject: vi.fn() });
+    fireEvent.click(await screen.findByTestId("onboarding-step-1-compat-turn-on"));
+    await waitFor(() => expect(screen.getAllByText(/not saved/i).length).toBeGreaterThan(0));
+    await waitFor(() => expect(status()).toBeTruthy());
   });
 });
 

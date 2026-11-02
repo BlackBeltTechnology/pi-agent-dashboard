@@ -1,0 +1,6 @@
+blocked_by:
+  - change: encrypt-credentials-at-rest
+    reason: "kit stores connector secrets through ctx.credentials; they must be encrypted at rest before plugins are told to put API keys there (design D5)"
+related:
+  - add-connector-layer
+  - add-supervised-tool-approval

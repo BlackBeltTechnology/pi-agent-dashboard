@@ -7,3 +7,5 @@ F16: menu Run Flow… → in-page probe opens the card menu when the live panel 
 Needs PI_E2E_SEED=1.
 
 Summary (moved from directory AGENTS.md row): L3 attach-flow-before-run F15/F16.
+
+F15/F16 drive Open/Run from the FLOWS chip; summary expanded via `expandSummary`. See change: flows-dock-chip-and-panel-actions.

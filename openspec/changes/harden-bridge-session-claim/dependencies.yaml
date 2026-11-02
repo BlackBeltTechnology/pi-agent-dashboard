@@ -1,0 +1,23 @@
+blocked_by:
+  - change: scope-pids-to-namespace
+    reason: "scope-pids-to-namespace MODIFIES bridge-connection-contention 'A same-process reconnect is not a contention' (pid-target gate + two scenarios). This change MODIFIES the same requirement to add the origin-equality precondition and copies THAT change's block, not main's. Archive scope-pids-to-namespace first; if this archives first, scope-pids-to-namespace must re-copy the block and keep the origin sentence."
+related:
+  - close-loopback-legacy-window
+  - device-key-mutual-check
+  - add-plugin-isolation-and-public-routes
+  - add-plugin-connector-kit
+  - close-security-map-high-findings
+  - add-web-chat-plugin
+# close-loopback-legacy-window: removes the 'grace' / 'legacy-token' bridge admissions this change's hub-local test names as NOT locally admitted;
+#   no shared requirement (it edits other pi-gateway-auth requirements, not 'Remote bridges authenticate as paired devices').
+# device-key-mutual-check: device revoke / ticket deviceId semantics the origin binding relies on; no shared requirement of this change.
+# add-plugin-isolation-and-public-routes: adds a spawn-scoped bridge credential admission. When it archives, its admission value must be
+#   classified in isLocallyAdmitted (design D3) or isolated sessions lose hub-local-only lane handlers. Different pi-gateway-auth requirements.
+# add-plugin-connector-kit: registers lane handlers through registerPiRequestHandler; any handler that returns a credential must pass
+#   { hubLocalOnly: true } (design D3 rule).
+# close-security-map-high-findings: edits flows-plugin/src/server/flow-files.ts (readFileGuarded) in the same file this change touches
+#   (registerPiRequestHandler options); code-level merge only, no shared requirement.
+# add-web-chat-plugin: registers server-side lane handlers (tool_request kb_search / api_* / escalate_to_human / guard_ready) for
+#   spawn-isolated sessions. Its spawn-scoped admission is not in isLocallyAdmitted, so those handlers must NOT be hubLocalOnly; the
+#   guard test (tasks 3.6) needs an explicit non-hub-local-only verdict row for them when it lands. Lane meta (origin/channel) is
+#   available to them; the conversation is identified by the owning socket's session id, which the ownership gate (task 3.1) now guarantees.

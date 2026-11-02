@@ -5,15 +5,16 @@
  * forwards all pi events, and relays commands back.
  */
 
+import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { appendIdentityLog } from "./bridge-identity-log.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { shouldActivateBridge } from "./bridge-activation.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
-import type { FlowInfo, } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AbortLatch } from "./abort-latch.js";
 import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
@@ -58,6 +59,7 @@ import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-tok
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { createPathGate } from "./path-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
@@ -131,6 +133,13 @@ export default function (pi: ExtensionAPI) {
     // `adopt-model-resolve-handler-and-roles-ownership`; the legacy `flow:`
     // prefix was dropped in `add-agent-role-model-tools` (design D11).
     activateRoleManager(pi);
+
+    // Claude subscription compat rewrite on EVERY pi this extension loads
+    // into — main sessions and subagent children alike — reading the switch
+    // value the connected bridge mirrors process-globally. Runs before the
+    // re-entry guard so children get it too. See change:
+    // seed-claude-compat-on-upgrade.
+    claudeCompatExtension(() => getBridgeState().claudeSubscriptionCompat === true)(pi as never);
 
     // Anthropic-messages payload transforms (system prompt rewrite + tool
     // filter/remap) are handled by the installed @benvargas/pi-claude-code-use
@@ -223,23 +232,9 @@ function initBridge(pi: ExtensionAPI) {
   }
   inst.applyDefaultModel = applyDefaultModel;
 
-  /** Query pi-flows for available flows via synchronous event RPC */
-  function getFlowsList(): FlowInfo[] {
-    const probe: any = {};
-    try {
-      pi.events?.emit("flow:list-flows", probe);
-    } catch { /* ignore */ }
-    return (probe.flows as FlowInfo[] | undefined) ?? [];
-  }
-  inst.getFlowsList = getFlowsList;
-
-  /** Send flows_list message to the dashboard server */
-  function sendFlowsList() {
-    const flows = getFlowsList();
-    console.error(`[dashboard] sendFlowsList: ${flows.length} flows, sessionId=${inst.sessionId.slice(0,8)}`);
-    inst.connection.send({ type: "flows_list", sessionId: inst.sessionId, flows });
-  }
-  inst.sendFlowsList = sendFlowsList;
+  // The flow list is plugin-owned (flows plugin bridge publishes a catalog
+  // event); core no longer probes or sends it. See change:
+  // flows-dock-chip-and-panel-actions (D8).
 
 
   inst.heartbeatTimer = null;
@@ -338,6 +333,7 @@ function initBridge(pi: ExtensionAPI) {
   // Global auto-naming toggle, relayed by the server via `preferences_update`.
   // Default true so a bridge that registers before the first push still names.
   inst.autoNameSessions = true;
+  inst.claudeSubscriptionCompat = false;
   // → inst.autoNamer (BridgeInstance field; unset until assigned)
   // The namer's durable state set is carried across reload as VALUES, never as
   // the namer object: its closures would retain a stale connection, session id
@@ -1122,6 +1118,7 @@ function initBridge(pi: ExtensionAPI) {
   const vaultDelivery = createVaultDelivery({
     send: (m) => inst.connection.sendIfOpen(m),
     sessionId: () => inst.sessionId ?? "",
+    certValidation: () => inst.connection.certValidation,
     log: (line) => console.log(line),
   });
   inst.vaultDelivery = vaultDelivery;
@@ -1470,24 +1467,10 @@ function initBridge(pi: ExtensionAPI) {
       inst.connection.send({ type: "spawn_new_session", sessionId: inst.sessionId, cwd: process.cwd() });
     },
     sessionPrompt: async (text, delivery, promptId) => {
-      // Route slash commands: management events, flow:run, extension dispatch, then fallback.
-      // See change: fix-extension-slash-commands-in-dashboard.
-      if (text.startsWith("/") && pi.events) {
-        const cmdText = text.slice(1);
-        const spaceIdx = cmdText.indexOf(" ");
-        const cmdName = spaceIdx === -1 ? cmdText : cmdText.slice(0, spaceIdx);
-        const cmdArgs = spaceIdx === -1 ? "" : cmdText.slice(spaceIdx + 1);
-
-        // Flow fast-path: typed /<user-defined-flow-name> wins over extension dispatch.
-        const flowsList = getFlowsList();
-        if (flowsList.some(f => f.name === cmdName)) {
-          // Non-turn slash route: settle any optimistic idle bubble so it does
-          // not hang to the 30s timeout. See change: optimistic-prompt-progress.
-          inst.connection.send({ type: "prompt_received", sessionId: inst.sessionId, fresh: false });
-          pi.events.emit("flow:run", { flowName: cmdName, task: cmdArgs.trim() || undefined });
-          return;
-        }
-      }
+      // Route slash commands: extension dispatch, then fallback. A typed
+      // `/<flow-name>` is pi-flows' own registered command, dispatched like any
+      // extension command (the bridge's flow fast-path is gone). See change:
+      // fix-extension-slash-commands-in-dashboard; flows-dock-chip-and-panel-actions (D8).
 
       // Extension-command dispatch (routing step 9). When matched, the helper
       // emits its own command_feedback events and we MUST NOT fall through.
@@ -1698,6 +1681,7 @@ function initBridge(pi: ExtensionAPI) {
                 source: "tui",
                 pid: process.pid,
                 provisional: true,
+                ...(targetManager?.certValidation ? { certValidation: "enforced" as const } : {}),
               });
             },
           });
@@ -1818,7 +1802,7 @@ function initBridge(pi: ExtensionAPI) {
   inst.applyBc = applyBc;
 
   // Local wrappers that sync bc around extracted module calls
-  function sendStateSync(opts?: { liveTailOpen?: boolean }) { const bc = syncBc(); _sendStateSync(bc, getFlowsList, opts); applyBc(bc); inst.connection.noteRegistered(); }
+  function sendStateSync(opts?: { liveTailOpen?: boolean }) { const bc = syncBc(); _sendStateSync(bc, opts); applyBc(bc); inst.connection.noteRegistered(); }
   function replaySessionEntries(opts?: { liveTailOpen?: boolean }) { _replaySessionEntries(syncBc(), opts); }
   inst.replaySessionEntries = replaySessionEntries;
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
@@ -1958,6 +1942,16 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     return fanoutAdmission.onToolCall(event);
   }));
+  // Agent credential guard — always on, no setting. Registered BEFORE the path gate so a
+  // blocked call never shows a gate prompt and a grant / YOLO / gate-off cannot override it.
+  // Deliberately NOT wrapped in the fail-open `safe()`: the guard maps an internal error to a
+  // block of that one call. Stale bridge instances (after reload) pass through.
+  // See change: encrypt-credentials-at-rest (D12).
+  const credentialGuardHandler = createCredentialGuardToolCallHandler(
+    createCredentialGuard({ env: process.env, homedir: os.homedir(), log: (line) => console.log(line) }),
+    isActive,
+  );
+  pi.on("tool_call", credentialGuardHandler as any);
   // Agent path gate — registered AFTER the fan-out admission handler (and after the
   // bridge's own forwarder) and deliberately NOT wrapped in the fail-open `safe()`:
   // its own try/catch maps any internal error to a block. Stale bridge instances

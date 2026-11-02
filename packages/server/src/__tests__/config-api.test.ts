@@ -154,6 +154,26 @@ describe("config-api", () => {
       expect(written.auth.providers.github.clientId).toBe("x");
     });
 
+    // #E106 — a Settings save payload lacking `groupTiers` keeps the stored map
+    // (config-file-only key). See change: close-security-map-high-findings (D3).
+    it("Settings save without groupTiers retains the stored auth.groupTiers", () => {
+      fs.writeFileSync(
+        configFile,
+        JSON.stringify({
+          auth: {
+            providers: { github: { clientId: "x", clientSecret: "y" } },
+            allowedUsers: ["octocat"],
+            groupTiers: { ops: "operate" },
+          },
+        }),
+      );
+      const result = writeConfigPartial({ auth: { allowedUsers: ["octocat", "hubot"] } });
+      expect(result.success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.auth.allowedUsers).toEqual(["octocat", "hubot"]);
+      expect(written.auth.groupTiers).toEqual({ ops: "operate" });
+    });
+
     // ── fix-trusted-networks-no-oauth regression tests ─────────────────
     // These assert that auth.bypassHosts and auth.bypassUrls are persisted
     // through PUT /api/config. Before the fix, the auth-merge block only

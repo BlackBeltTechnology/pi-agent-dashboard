@@ -2,16 +2,19 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import Fastify from "fastify";
+import { httpProofHeaders } from "@blackbelt-technology/pi-dashboard-shared/local-credential-proof.js";
+import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { COOKIE_NAME, signToken } from "../auth/auth.js";
 import { validateWsUpgrade } from "../auth/auth-plugin.js";
 import { parseBearerHeader, registerBearerAuth } from "../auth/bearer-auth.js";
+import { createLocalCredentialVerifier } from "../auth/local-credential.js";
 import { createNetworkGuardHook } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
 import { WsTicketStore } from "../auth/ws-ticket.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager } from "../pairing/pairing.js";
+import { simulateTlsSocket, TEST_TLS_HEADER } from "./helpers/channel-fixture.js";
 import {
   bearer,
   DAY_MS,
@@ -496,13 +499,15 @@ describe("browser bearer expiry + rotation", () => {
 
   it("AX2 an expired bearer cannot rotate", async () => {
     const d = mkBrowser();
-    const before = a.bytes();
+    // The only permitted change is the first-exposure mark: the request is plain HTTP (prove-vault-bridge-tls D4).
+    const rowsNoExposure = (bytes: string) => JSON.parse(bytes).map(({ exposure: _e, ...r }: Record<string, unknown>) => r);
+    const before = rowsNoExposure(a.bytes());
     at(T0 + 604_801_000);
     const res = await rotate(a, d.token);
     expect(res.statusCode).toBe(401);
     expect(body(res).code).toBe("bearer_expired");
     expect(body(res).token).toBeUndefined();
-    expect(a.bytes()).toBe(before);
+    expect(rowsNoExposure(a.bytes())).toEqual(before);
   });
 
   it("AX3 a revoked bearer cannot rotate and no row is recreated", async () => {
@@ -550,5 +555,92 @@ describe("browser bearer expiry + rotation", () => {
     const ok = await rotate(a, d.token);
     expect(ok.statusCode).toBe(200);
     expect(body(ok).token).not.toBe(d.token);
+  });
+});
+
+// ── prove-vault-bridge-tls: exposure record per channel (test-plan #E4) + TLS-only refusal (#E8) ──
+
+describe("bearer exposure by channel", () => {
+  const LOCAL_TOKEN = "exposure-token-0123456789abcdefghijklmnopqrstuvwxyz";
+  let expApp: FastifyInstance;
+  let expPort: number;
+  let expReg: PairedDeviceRegistry;
+  let lines: string[];
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(async () => {
+    expReg = new PairedDeviceRegistry(path.join(tmpDir, "exposure.json"));
+    expApp = Fastify();
+    simulateTlsSocket(expApp);
+    const verifier = createLocalCredentialVerifier({ token: LOCAL_TOKEN, acceptLegacyToken: true, log: () => {} });
+    expApp.addHook("onRequest", async (request) => {
+      verifier.stamp(request.raw, { kind: "http", boundAt: Date.now() - 1000 });
+    });
+    expApp.decorateRequest("isAuthenticated", false);
+    registerBearerAuth(expApp, { registry: expReg });
+    expApp.post("/api/ws-ticket", async () => ({ ok: true }));
+    await expApp.listen({ port: 0, host: "127.0.0.1" });
+    expPort = (expApp.server.address() as { port: number }).port;
+    lines = [];
+    logSpy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      lines.push(a.join(" "));
+    });
+  });
+
+  afterEach(async () => {
+    logSpy.mockRestore();
+    await expApp.close();
+  });
+
+  const post = (bearerToken: string, extra: Record<string, string> = {}) =>
+    fetch(`http://127.0.0.1:${expPort}/api/ws-ticket`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${bearerToken}`, ...extra },
+    });
+
+  const fresh = () => expReg.add("dev", "manual", "operate", undefined, { channel: "tls" });
+
+  it("E4 marks exposure for forwarded-TLS, plain, bare-loopback and legacy-token rows; not for proven TLS or a local proof", async () => {
+    // A proof is good for exactly one request: minted fresh per row.
+    const proofHeaders = () => httpProofHeaders(LOCAL_TOKEN, `http://127.0.0.1:${expPort}/api/ws-ticket`, "POST");
+    const rows: Array<{ name: string; headers: (t: string) => Record<string, string>; exposed: boolean }> = [
+      { name: "a: TLS listener, no header", headers: () => ({ [TEST_TLS_HEADER]: "1" }), exposed: false },
+      { name: "b: TLS listener + X-Forwarded-For", headers: () => ({ [TEST_TLS_HEADER]: "1", "x-forwarded-for": "198.51.100.7" }), exposed: true },
+      { name: "c: plain, remote-looking", headers: () => ({}), exposed: true },
+      { name: "d: plain loopback, no proof", headers: () => ({}), exposed: true },
+      { name: "e: legacy raw local token", headers: () => ({ "x-pi-local-token": LOCAL_TOKEN }), exposed: true },
+      { name: "f: valid local proof", headers: proofHeaders, exposed: false },
+    ];
+    for (const row of rows) {
+      const { device, token: t } = fresh();
+      const res = await post(t, row.headers(t));
+      expect(res.status, row.name).toBe(200);
+      expect(expReg.deviceTrust(device.id), row.name).toBe(row.exposed ? "exposed" : "eligible");
+      const mine = lines.filter((l) => l.includes("bearer-exposed") && l.includes(`id=${device.id.slice(0, 8)}`));
+      expect(mine, row.name).toHaveLength(row.exposed ? 1 : 0);
+      for (const l of lines) {
+        expect(l).not.toContain(t);
+        expect(l).not.toContain(crypto.createHash("sha256").update(t).digest("hex"));
+      }
+      if (row.exposed) expect(mine[0]).toContain("channel=plain");
+    }
+  });
+
+  it("E8 a pi_tls_ bearer off a proven channel is refused 401 with the named cause and the device is marked", async () => {
+    const { device, token: t } = expReg.add("bridge", "manual", "operate", undefined, { channel: "tls", purpose: "bridge" });
+    const lan = await post(t);
+    expect(lan.status).toBe(401);
+    expect(await lan.json()).toMatchObject({ error: "tls_only_token_untrusted_channel" });
+    expect(expReg.deviceTrust(device.id)).toBe("exposed");
+
+    const { device: d2, token: t2 } = expReg.add("bridge2", "manual", "operate", undefined, { channel: "tls", purpose: "bridge" });
+    const forwarded = await post(t2, { "x-forwarded-for": "198.51.100.7" });
+    expect(forwarded.status).toBe(401);
+    expect(await forwarded.json()).toMatchObject({ error: "tls_only_token_untrusted_channel" });
+    expect(expReg.deviceTrust(d2.id)).toBe("exposed");
+
+    const { token: t3 } = expReg.add("bridge3", "manual", "operate", undefined, { channel: "tls", purpose: "bridge" });
+    const ok = await post(t3, { [TEST_TLS_HEADER]: "1" });
+    expect(ok.status).toBe(200);
   });
 });

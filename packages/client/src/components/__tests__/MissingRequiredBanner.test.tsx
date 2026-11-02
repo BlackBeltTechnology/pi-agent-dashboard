@@ -33,12 +33,12 @@ function makeEntry(
 	overrides: Partial<EnrichedRecommendedExtension>,
 ): EnrichedRecommendedExtension {
 	return {
-		id: "pi-anthropic-messages",
-		source: "git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
-		displayName: "pi-anthropic-messages",
+		id: "example-required-ext",
+		source: "git@github.com:example/example-required-ext.git",
+		displayName: "example-required-ext",
 		fallbackDescription: "Protocol bridge…",
 		status: "required",
-		unlocks: ["Tool calls on anthropic-messages providers"],
+		unlocks: ["Example capability"],
 		description: "Protocol bridge…",
 		installed: { scope: null },
 		activeInPi: false,
@@ -83,7 +83,7 @@ describe("MissingRequiredBanner", () => {
 		});
 		render(<MissingRequiredBanner />);
 		expect(screen.getByTestId("missing-required-banner")).toBeTruthy();
-		expect(screen.getByText(/pi-anthropic-messages is not installed/)).toBeTruthy();
+		expect(screen.getByText(/example-required-ext is not installed/)).toBeTruthy();
 	});
 
 	it("renders a combined message when 2+ required entries are missing", () => {

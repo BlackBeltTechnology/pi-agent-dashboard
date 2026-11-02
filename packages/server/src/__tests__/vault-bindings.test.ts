@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createBinding, isDeliverableEnvName, isReservedEnvName } from "../vault/vault-bindings.js";
 import { buildDeliverySnapshot } from "../vault/vault-grants.js";
 import { createVaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let file: string;
@@ -22,7 +23,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe("env binding names", () => {
   it("E6: only GEMINI_API_KEY is accepted; every other candidate is a validation error", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const names = [
       "GEMINI_API_KEY", "gemini_key", "PATH", "Path", "LD_PRELOAD", "GIT_SSH_COMMAND",
       "PI_CODING_AGENT_DIR", "HTTPS_PROXY", "XDG_CONFIG_HOME", "JAVA_TOOL_OPTIONS",
@@ -50,7 +51,7 @@ describe("env binding names", () => {
   });
 
   it("rejects a duplicate binding name", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await createBinding(store, { name: "GEMINI_API_KEY" });
     await expect(createBinding(store, { name: "GEMINI_API_KEY" })).rejects.toMatchObject({ code: "invalid_request" });
   });
@@ -61,7 +62,7 @@ describe("env binding names", () => {
       bindings: [{ name: "PATH", target: "env", defaultAccountId: "a1" }],
       grants: [{ subject: "dir:hub:/work/p", bindingName: "PATH" }],
     }));
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const snap = buildDeliverySnapshot(store.readDocument().doc, { deviceId: "hub", dir: "/work/p" });
     expect(snap.entries.find((e) => e.name.toUpperCase() === "PATH")).toBeUndefined();
     expect(snap.entries).toEqual([]);

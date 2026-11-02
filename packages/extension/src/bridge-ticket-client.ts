@@ -16,6 +16,9 @@
  * See change: add-pi-gateway-transport-identity (D10b).
  */
 
+import { TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/tls-only-token.js";
+import { checkTlsCall } from "./bridge-tls-checks.js";
+
 /** Env var carrying a paired-device bearer for the dashboard being dialled. */
 export const DEVICE_TOKEN_ENV = "PI_DASHBOARD_TOKEN";
 
@@ -25,7 +28,13 @@ type TicketMintCause =
   | "refused"
   /** The URL answered, but it is not the dashboard's HTTP listener (or is broken). */
   | "wrong-origin"
-  | "malformed";
+  | "malformed"
+  /** A `pi_tls_` token with a non-`https` origin: refused, no request. See change: prove-vault-bridge-tls (D9). */
+  | "tls-only-token"
+  /** Certificate validation is disabled in the process: refused, no request. See change: prove-vault-bridge-tls (D7). */
+  | "tls-verify-disabled"
+  /** The hub refused a `pi_tls_` bearer that reached it over a relaying (TLS-terminating) channel. */
+  | "tls-only-token-relayed";
 
 export type TicketMintResult =
   | { ok: true; ticket: string }
@@ -56,6 +65,8 @@ export async function mintBridgeTicket(input: {
   /** Where `httpBase` came from (`resolveDashboardHttpOrigin().source`), named in a wrong-origin reason. */
   originSource?: string;
   fetchImpl?: typeof fetch;
+  /** Read per call for the TLS checks; defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
 }): Promise<TicketMintResult> {
   if (!input.token) {
     return {
@@ -64,6 +75,8 @@ export async function mintBridgeTicket(input: {
       reason: `no paired-device bearer: set ${DEVICE_TOKEN_ENV} to a token from this dashboard's pairing flow`,
     };
   }
+  const refusal = checkTlsCall({ origin: input.httpBase, token: input.token, env: input.env ?? process.env });
+  if (refusal) return { ok: false, cause: refusal.cause, reason: refusal.reason };
   const doFetch = input.fetchImpl ?? fetch;
   const url = `${input.httpBase}/api/ws-ticket`;
   const wrongOrigin = (what: string): TicketMintResult => ({
@@ -94,6 +107,15 @@ export async function mintBridgeTicket(input: {
     return { ok: false, cause: "unreachable", reason: `ticket mint failed: ${(err as Error).message}` };
   }
   if (!res.ok) {
+    if (res.status === 401 && (await isRelayedTlsOnlyRefusal(res))) {
+      return {
+        ok: false,
+        cause: "tls-only-token-relayed",
+        reason:
+          `ticket mint at ${url} was answered 401 ${TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL}: the https origin is a TLS-terminating ` +
+          "tunnel or proxy, not the dashboard's own HTTPS listener — point PI_DASHBOARD_HTTP_URL at the dashboard's native HTTPS address",
+      };
+    }
     if (res.status === 401 || res.status === 403) {
       return {
         ok: false,
@@ -114,6 +136,16 @@ export async function mintBridgeTicket(input: {
     return { ok: false, cause: "malformed", reason: "ticket mint returned no ticket" };
   }
   return { ok: true, ticket };
+}
+
+/** Does a 401 body carry the hub's `tls_only_token_untrusted_channel` error? Never throws. */
+async function isRelayedTlsOnlyRefusal(res: Response): Promise<boolean> {
+  try {
+    const body = (await res.json()) as { error?: unknown } | null;
+    return body?.error === TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL;
+  } catch {
+    return false;
+  }
 }
 
 /**

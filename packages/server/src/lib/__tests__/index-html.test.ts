@@ -54,7 +54,7 @@ describe("createIndexHtmlSender", () => {
 
   async function get(sendDir: string, headers: Record<string, string> = {}) {
     const app = Fastify();
-    const sender = createIndexHtmlSender(sendDir);
+    const sender = createIndexHtmlSender(sendDir, { trustedTypesMode: "report" });
     app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply));
     const res = await app.inject({ method: "GET", url: "/", headers });
     await app.close();
@@ -78,7 +78,7 @@ describe("createIndexHtmlSender", () => {
     const file = path.join(dir, "index.html");
     fs.writeFileSync(file, HTML);
     const app = Fastify();
-    const sender = createIndexHtmlSender(dir);
+    const sender = createIndexHtmlSender(dir, { trustedTypesMode: "report" });
     app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply));
     expect((await app.inject("/")).body).toContain("root");
     fs.writeFileSync(file, HTML.replace("root", "changed-root"));

@@ -62,11 +62,13 @@ export function bundleRoot(env = process.env) {
  * a list of what is missing. Mirrors `server-launch-helpers/start-server.sh`
  * and `node-spawn.ts::buildNodeImportArgvParts`. The shared package is a
  * materialized copy under `node_modules/@blackbelt-technology/` (bundle-server).
+ * So is the server: `packages/<dir>` is not shipped, and this boots the SAME
+ * entry the app launches (`getBundledCliPath`). See change: slim-windows-install-file-count.
  */
 export function bundleLayout(root, platform = process.platform) {
   const nodeBin = platform === "win32" ? join(root, "..", "node", "node.exe") : join(root, "..", "node", "bin", "node");
   const loader = join(root, "node_modules", "@blackbelt-technology", "pi-dashboard-shared", "src", "platform", "native-ts-register.mjs");
-  const cli = join(root, "packages", "server", "src", "cli.ts");
+  const cli = join(root, "node_modules", "@blackbelt-technology", "pi-dashboard-server", "src", "cli.ts");
   const missing = [];
   if (!existsSync(loader)) missing.push(loader);
   if (!existsSync(cli)) missing.push(cli);

@@ -191,7 +191,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
         const ctxB = makeCtx("B", dir);
         const bc = makeBc(conn, "A", ctxB);
         const err = runSessionStartUnderSafe([
-          () => handleSessionChange(bc, ctxB, () => []),
+          () => handleSessionChange(bc, ctxB),
           () => conn.connect(),
         ]);
         expect(err).toBeUndefined(); // no throw on the happy path
@@ -227,7 +227,7 @@ describe("bridge resume/switch/fork survives session replacement (#393)", () => 
       const ctxB = makeCtx("B", throwingCwd);
       const bc = makeBc(conn, "A", ctxB);
       const err = runSessionStartUnderSafe([
-        () => handleSessionChange(bc, ctxB, () => []),
+        () => handleSessionChange(bc, ctxB),
         () => conn.connect(),
       ]);
       // After the fix, safeCwd swallows the getter throw, so handleSessionChange

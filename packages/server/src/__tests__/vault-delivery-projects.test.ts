@@ -14,6 +14,7 @@ import { UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { createVaultDeliveryHub, type VaultDeliveryHubDeps } from "../vault/vault-delivery-hub.js";
 import { createVaultProjects } from "../vault/vault-projects.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
@@ -30,19 +31,27 @@ const mkHub = (extra: Partial<VaultDeliveryHubDeps> = {}) =>
     send: (sessionId, msg) => { sent.push({ sessionId, msg: msg as VaultSnapshotMessage }); return true; },
     isDeliveryEnabled: () => enabled,
     getGraceHours: () => 24,
-    isTls: () => tls,
+    // `tls` stands for "this remote device's bridge is on a proven TLS channel" (prove-vault-bridge-tls).
+    getChannel: (id) =>
+      origins[id]?.local
+        ? { admission: "unix", provenTls: false, ticketTls: false }
+        : origins[id]?.deviceId && origins[id]?.deviceId !== UNATTRIBUTED_REMOTE
+          ? { admission: "device-ticket", provenTls: tls, ticketTls: tls, ticketDeviceId: origins[id]?.deviceId }
+          : { admission: "local-ticket", provenTls: tls, ticketTls: tls },
+    getDeviceTrust: () => "eligible",
+    isTlsBridgesLive: () => true,
     isSessionConnected: (id) => !disconnected.has(id),
     pushDelayMs: 10,
     ...extra,
   });
 
 const req = (sessionId: string, over: Partial<VaultSyncRequestMessage> = {}): VaultSyncRequestMessage => ({
-  type: "vault_sync_request", sessionId, cwd: "/work/p", tracked: [], reason: "connect", ...over,
+  type: "vault_sync_request", sessionId, cwd: "/work/p", tracked: [], reason: "connect", certValidation: "enforced", ...over,
 });
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-hub-projects-"));
-  store = createVaultStore(path.join(dir, "vault.json"));
+  store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
   sent = []; enabled = true; tls = false; disconnected.clear();
   origins = {};
 });

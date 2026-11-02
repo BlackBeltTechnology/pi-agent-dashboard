@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Each client holds one device key per server
-A client SHALL hold an Ed25519 device key for each server fingerprint it pairs with, and SHALL NOT use one key for two servers, so two servers cannot link the same device. The private key SHALL never leave the client. A browser SHALL keep it as a non-extractable WebCrypto key in IndexedDB of the page's own origin; the Electron app SHALL keep it in the main process with the private part under operating-system credential encryption (held in memory only for the run when that encryption is unavailable, exactly as the bearer); the mobile shell SHALL keep it in its keyring store. A key SHALL be created only when the user starts pairing with that server, not for servers that are merely listed; the one exception is a device that already holds a working credential for a server and no key, which MAY create and bind a key as stated in "An already-paired device binds its key with its credential". The Electron app SHALL generate the key in memory when the user sends the request (or redeems a code) and SHALL persist it only when the request is approved, discarding it on reject, expiry, "Stop waiting" or crash. A browser SHALL keep the key for a live request so that reloading the request page resumes it, and SHALL delete it when the request is rejected or expires. A client whose environment has no Ed25519 WebCrypto (for example a page on plain `http` to a LAN address) SHALL pair without a device key and SHALL NOT fail the pairing. Forgetting a server SHALL delete its key. When a device pairs again with a server that answered `revoked`, it SHALL create a new key first.
+A client SHALL hold an Ed25519 device key for each server fingerprint it pairs with, and SHALL NOT use one key for two servers, so two servers cannot link the same device. The private key SHALL never leave the client. A browser SHALL keep it as a non-extractable WebCrypto key in IndexedDB of the page's own origin; the Electron app SHALL keep it in the main process with the private part under operating-system credential encryption (held in memory only for the run when that encryption is unavailable, exactly as the bearer); the mobile shell SHALL keep it in its keyring store. A key SHALL be created only when the user starts pairing with that server, not for servers that are merely listed; the one exception is a device that already holds a working credential for a server and no key, which MAY create and bind a key as stated in "An already-paired device binds its key with its credential". The Electron app SHALL generate the key in memory when the user sends the request (or redeems a code) and SHALL persist it only when the request is approved, discarding it on reject, expiry, "Stop waiting" or crash. A browser SHALL keep the key for a live request so that reloading the request page resumes it, and SHALL delete it when the request is rejected or expires. A client whose environment has no Ed25519 WebCrypto (for example a page on plain `http` to a LAN address) SHALL pair without a device key and SHALL NOT fail the pairing. Forgetting a server SHALL delete its key. When a device pairs again with a server that answered `revoked` or `expired`, it SHALL create a new key first, because the old key is still held by the old record and would be ignored.
 
 #### Scenario: Keys are per server
 - **WHEN** one browser pairs with servers `F1` and `F2`
@@ -21,12 +21,17 @@ A client SHALL hold an Ed25519 device key for each server fingerprint it pairs w
 - **WHEN** the user chooses "Pair again"
 - **THEN** the client SHALL create a new key for that server before it requests access, and SHALL submit the new key
 
+#### Scenario: Pairing again after expiry rotates the key
+- **GIVEN** the server answered `expired` for this device's key
+- **WHEN** the user chooses "Pair again"
+- **THEN** the client SHALL create a new key for that server before it requests access, and SHALL submit the new key, not the old one
+
 #### Scenario: Electron key is persisted only on approval
 - **WHEN** the Electron app sends a knock with a freshly generated key and the operator denies it, it expires, the user stops waiting, or the app quits
 - **THEN** no private key and no key entry SHALL remain in the keyring
 
 ### Requirement: The device check proves the server first and answers a signed proof once
-The identity challenge reply SHALL carry a `deviceNonce` (see `server-identity-keypair`). A client that holds a device key for a server SHALL send a device proof to a route only after the identity challenge at that route proved the pinned or advertised fingerprint, and SHALL send nothing to a route in any refused, unproven or unreachable outcome. The client SHALL give the identity challenge and the device-status request 2 seconds each; on a timeout it SHALL abort the request, show "Status unknown", discard nothing, and re-run both steps the next time the server list is opened. The proof SHALL be `POST /api/pair/device-status` with `{ deviceNonce, pub, sig }`, where `sig` is the base64url Ed25519 signature, by the device key, over the UTF-8 text `pi-devcheck/v2`, the server fingerprint and `deviceNonce` joined by line feeds. The route SHALL be public, SHALL NOT widen any CORS or origin rule, and SHALL consume the nonce on first presentation, valid or not, so a nonce is accepted once. A valid proof SHALL be answered `{ status, tier?, scope? }` where `status` is `paired` (the key is bound to an active device, or is an active companion), `revoked` (it is bound to a revoked device) or `unknown`; `tier` and `scope: "full"` are present only when a full device key is `paired`, and a companion key answers `scope: "status-only"` with no `tier`. An invalid signature, a malformed field, an unknown, expired or already used nonce, or a peer over the limit SHALL all be answered `{ status: "unverified" }` with the same HTTP status, so nothing reveals whether a key exists. The signed text names the server fingerprint, so a proof made for one server SHALL NOT be accepted by another. Device-status requests SHALL be limited to 60 per minute per peer address, counting valid and invalid requests; the limiter's tracking map SHALL be bounded, and the limit SHALL NOT affect the identity challenge.
+The identity challenge reply SHALL carry a `deviceNonce` (see `server-identity-keypair`). A client that holds a device key for a server SHALL send a device proof to a route only after the identity challenge at that route proved the pinned or advertised fingerprint, and SHALL send nothing to a route in any refused, unproven or unreachable outcome. Where the client resolves a host name to address literals before it sends anything (the Electron main process, for an `http` host: "Proof and use are bound to the same address" in `electron-server-windows`), the device proof, the key bind and a knock carrying a key SHALL go only to the address literal whose challenge proved the pin in that same selection; an `https` route keeps its name. The client SHALL give the identity challenge and the device-status request 2 seconds each; on a timeout it SHALL abort the request, show "Status unknown", discard nothing, and re-run both steps the next time the server list is opened. The proof SHALL be `POST /api/pair/device-status` with `{ deviceNonce, pub, sig }`, where `sig` is the base64url Ed25519 signature, by the device key, over the UTF-8 text `pi-devcheck/v2`, the server fingerprint and `deviceNonce` joined by line feeds. The route SHALL be public, SHALL NOT widen any CORS or origin rule, and SHALL consume the nonce on first presentation, valid or not, so a nonce is accepted once. A valid proof SHALL be answered `{ status, tier?, scope? }` where `status` is `paired` (the key is bound to an active device whose bearer can still authenticate, or is an active companion of such a device), `expired` (the key is bound to an active device whose bearer can no longer authenticate: its 7-day expiry has passed with no previous bearer still inside its rotation grace window, or its 30-day absolute lifetime has passed, or an expiry field cannot be parsed, judged by the same rule that answers `401 bearer_expired`; a device with no expiry never answers `expired`), `revoked` (it is bound to a revoked device) or `unknown`. `revoked` SHALL win over `expired`: a held record answers `revoked` whatever its expiry. `tier` and `scope: "full"` are present only when a full device key is `paired`; a companion key that is `paired` answers `scope: "status-only"` with no `tier`; `expired` and `revoked` carry neither. An invalid signature, a malformed field, an unknown, expired or already used nonce, or a peer over the limit SHALL all be answered `{ status: "unverified" }` with the same HTTP status, so nothing reveals whether a key exists. The signed text names the server fingerprint, so a proof made for one server SHALL NOT be accepted by another. Device-status requests SHALL be limited to 60 per minute per peer address, counting valid and invalid requests; the limiter's tracking map SHALL be bounded, and the limit SHALL NOT affect the identity challenge.
 
 #### Scenario: Known key answers paired with its tier
 - **GIVEN** a device with tier `operate` whose key is bound
@@ -41,6 +46,36 @@ The identity challenge reply SHALL carry a `deviceNonce` (see `server-identity-k
 - **GIVEN** the device holding the key was revoked and not yet deleted
 - **WHEN** it posts a valid proof
 - **THEN** the reply SHALL be `{ status: "revoked" }`
+
+#### Scenario: Expired device answers expired
+- **GIVEN** a browser-declared device whose bearer passed its 7-day expiry and was not rotated, and no previous bearer is inside its grace window
+- **WHEN** it posts a valid proof
+- **THEN** the reply SHALL be `{ status: "expired" }` with no `tier` and no `scope`
+
+#### Scenario: Expiry boundaries are exclusive
+- **GIVEN** a browser device with `expiresAt` T, and a second browser device whose absolute lifetime ends at L while its `expiresAt` is later than L
+- **WHEN** valid proofs are posted for the first at T minus 1 ms and at T, and for the second at L minus 1 ms and at L
+- **THEN** the replies SHALL be `paired` then `expired` for the first and `paired` then `expired` for the second, the same limits that refuse the bearer with `bearer_expired`
+
+#### Scenario: Grace-window bearer keeps the device paired
+- **GIVEN** a device whose current bearer has expired a moment after a rotation, while its previous bearer is still inside its grace window
+- **WHEN** it posts a valid proof
+- **THEN** the reply SHALL be `{ status: "paired", tier, scope: "full" }`, and after the grace window ends `{ status: "expired" }`
+
+#### Scenario: Device without an expiry never expires
+- **GIVEN** a device whose bearer has no expiry (issued without a browser-holder declaration)
+- **WHEN** it posts a valid proof at any time
+- **THEN** the reply SHALL be `paired`
+
+#### Scenario: Revoked wins over expired
+- **GIVEN** a device that was revoked and whose bearer would also have expired by now
+- **WHEN** it posts a valid proof
+- **THEN** the reply SHALL be `{ status: "revoked" }`
+
+#### Scenario: Expired companion
+- **GIVEN** a companion key of a device whose bearer has expired
+- **WHEN** it posts a valid proof
+- **THEN** the reply SHALL be `{ status: "expired" }`
 
 #### Scenario: Companion key answers status only
 - **GIVEN** a companion key bound to an active device
@@ -121,6 +156,11 @@ A public key SHALL appear at most once across the primary keys and companion key
 - **GIVEN** a revoked device holds key `K`
 - **WHEN** a new request submits `K`
 - **THEN** the request SHALL pair without a key
+
+#### Scenario: Rotation keeps the key and companions
+- **GIVEN** a browser device holding primary key `K` and one companion
+- **WHEN** it rotates its bearer
+- **THEN** the same device row SHALL keep its id, `K` and the companion, the proof with `K` SHALL still answer `paired`, and no key SHALL be re-registered
 
 ### Requirement: Device key is registered when pairing is approved
 A pairing request MAY carry the device key as `deviceKey: { deviceNonce, pub, sig }`, where `deviceNonce` comes from an identity challenge the client verified at most 60 seconds earlier and `sig` is made by that key over the UTF-8 text `pi-devbind/v1`, the server fingerprint and `deviceNonce` joined by line feeds. `POST /api/pair/request` (knock) and `POST /api/pair/redeem` (QR) SHALL accept it. The server SHALL verify the proof and consume the nonce when the request arrives and SHALL ignore a `deviceKey` that fails verification or whose public key is already held; the pairing SHALL proceed without a key in those cases and the refusal SHALL NOT change the response. A verified key SHALL be held with the pending device, shown to the operator as a short key id, and bound to the device row only when the operator approves. A denied, expired or locked-out request SHALL discard it. Each device row SHALL hold at most one primary key.
@@ -220,7 +260,7 @@ A browser opened from another dashboard A SHALL be able to pass a companion key 
 - **THEN** the device SHALL stay paired with its full key, and the companion's proofs SHALL answer `unknown`
 
 ### Requirement: Server rows show the state the device check reports
-A client that holds a device key for a server SHALL run the device check on the grouped server row only after the identity challenge at the route proved the fingerprint, and SHALL show the server row in one of these states: **Paired · tier** (`paired`, scope `full`; the tier shown with the same names as the Paired devices tier choice: Observe, Control, Operate), **Paired · status only** (`paired`, scope `status-only`; the row's Open action goes to that server's own page because access lives there), **Access removed** (`revoked`; primary action "Pair again"), **Not paired** (`unknown` with no credential held, or no key and no credential held on a client that knows its own credentials; primary action is the pair action of the row), **Paired · key pending** (a credential is held and no key is registered yet; the client binds a key as stated in "An already-paired device binds its key with its credential"), **Status unknown** (the challenge reply had no `deviceNonce`, or the check answered `unverified` or not at all: an older server, a rejected or rate-limited proof, a browser with no key for that server). A client with no key SHALL send no proof. A client SHALL NOT discard its credential or key because of a device-status answer, including `unknown`; it SHALL discard them only when the credential itself is refused (a `401`, or a refused device-cookie exchange) at a route that proved the server's identity. When the answer is `revoked`, the client SHALL keep its stored credential and key. When the answer is `unknown` for a client that holds a credential, the client SHALL verify the credential with its next authenticated call: refused → it SHALL discard the credential and key and show Not paired; accepted → it SHALL show "Paired · key pending" and bind a key.
+A client that holds a device key for a server SHALL run the device check on the grouped server row only after the identity challenge at the route proved the fingerprint, and SHALL show the server row in one of these states: **Paired · tier** (`paired`, scope `full`; the tier shown with the same names as the Paired devices tier choice: Observe, Control, Operate), **Paired · status only** (`paired`, scope `status-only`; the row's Open action goes to that server's own page because access lives there), **Access removed** (`revoked`; primary action "Pair again"), **Access expired** (`expired`: the device is known but its bearer can no longer authenticate; primary action "Pair again"), **Not paired** (`unknown` with no credential held, or no key and no credential held on a client that knows its own credentials; primary action is the pair action of the row), **Paired · key pending** (a credential is held and no key is registered yet; the client binds a key as stated in "An already-paired device binds its key with its credential"), **Status unknown** (the challenge reply had no `deviceNonce`, or the check answered `unverified` or not at all: an older server, a rejected or rate-limited proof, a browser with no key for that server). A client with no key SHALL send no proof. A client SHALL NOT discard its credential or key because of a device-status answer, including `unknown`; it SHALL discard them only when the credential itself is refused (a `401`, or a refused device-cookie exchange) at a route that proved the server's identity. A `401` with `bearer_expired` at such a route is a credential refusal like any other: the client SHALL then discard the credential and the device key together, because the expired bearer cannot work again and the old key is still held by the old record, so a new pairing makes a new key. When the answer is `revoked` or `expired`, the client SHALL keep its stored credential and key (the answer alone discards nothing), and "Pair again" SHALL create a new key. When the answer is `unknown` for a client that holds a credential, the client SHALL verify the credential with its next authenticated call: refused → it SHALL discard the credential and key and show Not paired; accepted → it SHALL show "Paired · key pending" and bind a key.
 
 #### Scenario: Paired row
 - **WHEN** the check answers `paired` with `tier: "control"` and `scope: "full"`
@@ -230,10 +270,28 @@ A client that holds a device key for a server SHALL run the device check on the 
 - **WHEN** the check answers `revoked`
 - **THEN** the row SHALL read "Access removed" with "Pair again", and the stored credential and key SHALL remain on the device
 
+#### Scenario: Expired row offers Pair again
+- **WHEN** the check answers `expired`
+- **THEN** the row SHALL read "Access expired" with "Pair again", and the stored credential and key SHALL remain until the credential is refused
+
+#### Scenario: Expired credential refused at a proven route is discarded
+- **GIVEN** the row reads "Access expired"
+- **WHEN** the client presents its bearer at the route that proved the server and receives `401` with `bearer_expired`
+- **THEN** the client SHALL discard the credential and the device key, and the row SHALL read Not paired with the pair action of the row
+
+#### Scenario: Expired answer at an unproven route discards nothing
+- **WHEN** an `expired` answer, or a `401 bearer_expired`, comes from a route whose challenge did not prove the server
+- **THEN** the client SHALL discard nothing
+
 #### Scenario: Undo needs no re-pairing
 - **GIVEN** the row read "Access removed" and the operator then undid the revoke
 - **WHEN** the next check answers `paired`
 - **THEN** the row SHALL read Paired again and the original credential SHALL work without pairing
+
+#### Scenario: Undo after the bearer expired reads Access expired
+- **GIVEN** the row read "Access removed" and the device's bearer passed its expiry while the device was held
+- **WHEN** the operator undoes the revoke and the next check runs
+- **THEN** the check SHALL answer `expired` and the row SHALL read "Access expired" with "Pair again", not Paired
 
 #### Scenario: Purged device becomes Not paired only when its credential is refused
 - **GIVEN** the row read "Access removed" and the revoked device was deleted for good, so the next check answers `unknown`
@@ -265,12 +323,16 @@ A client that holds a device key for a server SHALL run the device check on the 
 - **THEN** the row SHALL read "Status unknown", and nothing SHALL be discarded
 
 ### Requirement: Device-key events are observable without secrets
-The server SHALL log one line for each device-key binding or replacement, each key registration ignored at pairing, each companion allowed or removed, each revoke, restore and purge, and each change of the `revoked` answer for a key (the first `revoked` answer for a short key id after a different answer, at most once per key id per 10 minutes), naming the device id prefix and a short key id (a prefix of the key's hash). It SHALL log one line per peer when the device-status limit trips. It SHALL NOT log a full public key, a signature, a nonce, a bearer or a cookie, and SHALL NOT log every `revoked` answer. Lines for ignored or rate-limited proofs SHALL be throttled like knock refusals.
+The server SHALL write one audit line, with the shared audit emitter and the shape of the existing revoke line (`[pairing] <verb> id=<8-character device id prefix> key=<short key id> …`, values sanitised, `actor=` and `ip=` added when a request caused the event), for each device-key binding or replacement (`key_bound`, `key_replaced`), each key or companion ignored at pairing (`key_ignored`), each companion allowed or removed (`companion_allowed`, `companion_removed`), and each change of the `revoked` answer for a key (`revoked_answer`: the first `revoked` answer for a short key id after a different answer, at most once per key id per 10 minutes). Revoke, restore, delete-now and purge are audited as stated in `bearer-device-auth` ("Revoked devices are held, refused and restorable") with the same shape and are not repeated here. The short key id is `dk:` followed by 12 base64url characters of the key's hash, which the emitter keeps unchanged. It SHALL write one line per peer when the device-status limit trips. It SHALL NOT write a full public key, a signature, a nonce, a bearer or a cookie, SHALL NOT log every `revoked`, `expired` or other answer, and SHALL throttle lines for ignored or rate-limited proofs like knock refusals.
 
 #### Scenario: Binding is logged without key material
 - **WHEN** a device binds a key
-- **THEN** the log SHALL contain the device id prefix and the short key id and SHALL NOT contain the key, a signature or a token
+- **THEN** one line `[pairing] key_bound id=<8> key=dk:<12> actor=<actor> ip=<peer>` SHALL be written and it SHALL NOT contain the key, a signature or a token
 
 #### Scenario: Repeated revoked answers are not logged each time
 - **WHEN** a revoked device's client checks 100 times in a minute
-- **THEN** the server SHALL log at most one `revoked` line for that key in that period
+- **THEN** the server SHALL log at most one `revoked` answer line for that key in that period
+
+#### Scenario: Expired answers are not logged each time
+- **WHEN** an expired device's client checks 100 times in a minute
+- **THEN** the server SHALL write no line per answer

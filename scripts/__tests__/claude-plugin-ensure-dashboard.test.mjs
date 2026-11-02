@@ -484,6 +484,18 @@ describe("bootstrap lock", () => {
     expect(fs.readdirSync(lockDir(ctx, port))).toEqual([]);
   });
 
+  it("E32b: a fresh lock whose holder file is still empty (mid-write) counts as live → busy, lock untouched", async () => {
+    const ctx = sandbox();
+    const port = await freePort();
+    fs.mkdirSync(lockDir(ctx, port));
+    fs.writeFileSync(path.join(lockDir(ctx, port), "holder"), "");
+    const r = await ctx.run([], { PI_DASHBOARD_PORT: String(port), PIDB_TEST_LOCK_WAIT_S: "3" });
+    expect(r.stdout).toBe("STATUS=busy\n");
+    expect(r.status).toBe(3);
+    noLaunch(ctx);
+    expect(fs.readdirSync(lockDir(ctx, port))).toEqual(["holder"]);
+  });
+
   it("E33: a holder-less lock older than a minute is reclaimed", async () => {
     const ctx = sandbox();
     const port = await freePort();
@@ -576,7 +588,11 @@ describe("error handling", () => {
     const port = await freePort();
     const env = { PI_DASHBOARD_PORT: String(port), STUB_BOOT_DELAY_MS: "2000", PIDB_TEST_READY_S: "15", PIDB_TEST_LOCK_WAIT_S: "20" };
     const [a, b] = await Promise.all([ctx.run([], env), ctx.run([], env)]);
-    expect(ctx.calls("pi-dashboard")).toHaveLength(1);
+    // Intermittent in full-suite CI only (not reproducible locally): on failure, carry both runs'
+    // output and the stub call log so the race path can be read from the CI log.
+    const trace = () =>
+      ["== A", `status=${a.status} ms=${a.ms}`, a.stdout, a.stderr, "== B", `status=${b.status} ms=${b.ms}`, b.stdout, b.stderr, "== stub log", ...ctx.calls().map((c) => `${c.name}\t${c.argv}`)].join("\n");
+    expect(ctx.calls("pi-dashboard"), trace()).toHaveLength(1);
     expect([a.stdout, b.stdout].map((s) => s.split("\n")[0]).sort()).toEqual(["STATUS=already-running", "STATUS=started"]);
     expect(a.status).toBe(0);
     expect(b.status).toBe(0);

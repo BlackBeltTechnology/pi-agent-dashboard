@@ -16,7 +16,7 @@ describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
 		expect(_internal.looksLikePiEcosystem("pi-web-access")).toBe(false);
 		expect(_internal.looksLikePiEcosystem("pi-agent-browser")).toBe(false);
 		expect(_internal.looksLikePiEcosystem("pi-flows")).toBe(false);
-		expect(_internal.looksLikePiEcosystem("pi-anthropic-messages")).toBe(false);
+		expect(_internal.looksLikePiEcosystem("pi-example-ext")).toBe(false);
 	});
 
 	it("rejects scoped pi-* packages that are NOT in the whitelist", () => {

@@ -7,7 +7,7 @@
  *
  * The flow's YAML path is emitted by pi-flows in the `flow:flow-started`
  * event (`source: flow.source`) and stored on `FlowState.flowSource` by the
- * flow reducer; an attached idle flow carries it from `flowsList`.
+ * flow reducer; an attached idle flow carries it from the flow catalog.
  *
  * See change: add-ui-popover-primitive, attach-flow-before-run.
  */

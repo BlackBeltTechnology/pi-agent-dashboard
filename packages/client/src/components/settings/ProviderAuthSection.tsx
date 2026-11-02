@@ -22,10 +22,12 @@
  *     old device-code poll's "no budget" asymmetry is unified away.
  *   - a failed or malformed status renders an inline error + Retry and never
  *     reaches an ErrorBoundary.
- *   - the AnthropicPeerHint post-install latch.
+ *   - an Anthropic subscription sign-in asks to turn on Claude subscription
+ *     compat (never installs a package); the anthropic row carries its switch.
  *
  * See changes: redesign-providers-settings-page, fix-corrupt-auth-json-500,
- * dispatch-provider-auth-event, warn-missing-anthropic-messages-peer.
+ * dispatch-provider-auth-event, warn-missing-anthropic-messages-peer,
+ * retire-anthropic-messages-bridge.
  */
 
 import type { LegacyProviderIdEntry, OAuthFlowStatus, ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -44,26 +46,21 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ANTHROPIC_PEER_SOURCE,
-  IMPORT_FAILURE_PREFIX,
-  useAnthropicPeerProbe,
-} from "../../hooks/useAnthropicPeerProbe.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
-import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { type ProviderHealth, refreshProviderModels, testProvider } from "../../lib/api/providers-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import {
-  type PeerAutoInstallState,
-  peerAutoInstallStore,
-  usePeerAutoInstall,
-} from "../../lib/package/peer-auto-install-store.js";
+import { claudeCompatStore } from "../../lib/claude-compat/claude-compat-store.js";
 import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
-import { PeerAutoInstallStatus } from "./PeerAutoInstallStatus.js";
+import {
+  ClaudeCompatRowControl,
+  ClaudeCompatSignInPrompt,
+  ClaudeCompatUninstallNotice,
+  compatSaveFailedText,
+} from "./ClaudeCompatControls.js";
 import {
   type AddDialogFlowState,
   API_TYPE_OPTIONS,
@@ -342,16 +339,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   }, []);
   const reconcileTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const { messages, showToast, dismissToast } = useToast();
-  // One probe read for the whole section — per-row hooks would fan out one
-  // /api/health fetch per provider. See change: warn-missing-anthropic-messages-peer.
-  const { peerMissing, peerReason, peerResolving, importFailed } = useAnthropicPeerProbe();
-  // Automatic peer install that follows an Anthropic sign-in (module-level store,
-  // so the outcome survives this section unmounting). See change: streamline-first-run.
-  const autoInstall = usePeerAutoInstall();
-  // A mounted surface that sees the peer resolving drops installed/failed.
-  useEffect(() => {
-    if (peerResolving) peerAutoInstallStore.notifyPeerResolving();
-  }, [peerResolving, autoInstall.outcome]);
+  // Claude subscription compat prompt, asked once per Anthropic subscription
+  // sign-in completion. See change: retire-anthropic-messages-bridge.
+  const [compatPrompt, setCompatPrompt] = useState(false);
+  const showCompatSaveFailed = useCallback(() => showToast(compatSaveFailedText(), "error"), [showToast]);
 
   const refetchProviders = useCallback(async () => {
     try {
@@ -445,9 +436,15 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // picker entry is gone) and lands the single dispatch.
     setDialogProvider(undefined);
     handleChanged();
-    // Anthropic subscription sign-in only: decide the peer install, detached —
-    // the sign-in is never blocked (the call never throws).
-    if (id === "anthropic") void peerAutoInstallStore.ensureInstall("sign-in");
+    // Anthropic subscription sign-in only: ask to turn on Claude subscription
+    // compat, detached so the sign-in is never blocked. A live read decides;
+    // an unreadable switch still asks (Turn on is harmless when already on).
+    // See change: retire-anthropic-messages-bridge (C2).
+    if (id === "anthropic") {
+      void claudeCompatStore.read().then((value) => {
+        if (value !== true) setCompatPrompt(true);
+      });
+    }
     // pi 1.0.0 `/login` follow-up: only a completed Radius sign-in asks, and
     // only when the Pi-global mcp.json is not already configured. A failed read
     // (503/409) means no offer — never an error on a sign-in that succeeded.
@@ -718,6 +715,11 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     <div className="space-y-4">
       <Toast messages={messages} onDismiss={dismissToast} />
 
+      {compatPrompt && (
+        <ClaudeCompatSignInPrompt onClose={() => setCompatPrompt(false)} onSaveFailed={showCompatSaveFailed} />
+      )}
+      <ClaudeCompatUninstallNotice />
+
       {radiusOffer && (
         <RadiusMcpOffer
           info={radiusOffer}
@@ -885,10 +887,7 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
               kind={authRowKind(p)}
               onChanged={handleChanged}
               showToast={showToast}
-              peerMissing={p.id === "anthropic" && peerMissing}
-              peerReason={peerReason}
-              peerImportFailed={importFailed}
-              autoInstall={p.id === "anthropic" ? autoInstall : undefined}
+              onCompatSaveFailed={p.id === "anthropic" ? showCompatSaveFailed : undefined}
               onEditKey={saveApiKey}
             />
           ))}
@@ -935,17 +934,13 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
 
 // ── Auth rows (subscription / api-key / environment) ─────────────────────────
 
-function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, peerReason, peerImportFailed = false, autoInstall, onEditKey }: {
+function AuthRow({ provider, kind, onChanged, showToast, onCompatSaveFailed, onEditKey }: {
   provider: ProviderAuthStatus;
   kind: RowKind;
   onChanged: () => void;
   showToast: (text: string, variant?: ToastVariant) => void;
-  peerMissing?: boolean;
-  peerReason?: string;
-  /** Probe reports the peer found but failing to import. */
-  peerImportFailed?: boolean;
-  /** Present only on the `anthropic` row: the automatic peer-install state. */
-  autoInstall?: PeerAutoInstallState;
+  /** Present only on the `anthropic` row: shows the Claude subscription compat switch. */
+  onCompatSaveFailed?: () => void;
   onEditKey: (id: string, key: string) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -1084,30 +1079,11 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
         </div>
       )}
 
-      {/* Anthropic peer surfaces — only on the authenticated Anthropic subscription row.
-          Precedence (design D3b): import-failure hint > auto-install surface > hint. */}
-      {autoInstall && kind === "subscription" && provider.authenticated && (
-        <div role="status" aria-live="polite" data-testid="anthropic-peer-autoinstall-live">
-          {autoInstall.outcome !== null && !peerImportFailed && (
-            <PeerAutoInstallStatus
-              outcome={autoInstall.outcome}
-              message={autoInstall.message}
-              onRetry={() => void peerAutoInstallStore.retry()}
-              testId="anthropic-peer-autoinstall"
-              retryTestId="anthropic-peer-autoinstall-retry"
-            />
-          )}
-        </div>
+      {/* Claude subscription compat — only on the authenticated anthropic subscription row.
+          See change: retire-anthropic-messages-bridge. */}
+      {onCompatSaveFailed && kind === "subscription" && provider.authenticated && (
+        <ClaudeCompatRowControl onSaveFailed={onCompatSaveFailed} />
       )}
-      <AnthropicPeerHint
-        show={
-          peerMissing &&
-          kind === "subscription" &&
-          provider.authenticated &&
-          (peerImportFailed || autoInstall?.outcome == null)
-        }
-        reason={peerReason}
-      />
 
       {error && (
         <div className="flex items-center gap-1 mt-1 text-xs text-red-400">
@@ -1116,89 +1092,6 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
         </div>
       )}
     </div>
-  );
-}
-
-// ── Anthropic bridge-peer hint ───────────────────────────────────────────────
-
-/**
- * Inline advisory under the Connected marker when the bridge's probe reports
- * the `@pi/anthropic-messages` peer unresolved. Copy leads with the next step,
- * not with a failure (the OAuth sign-in itself succeeded).
- *
- * See change: warn-missing-anthropic-messages-peer.
- */
-function AnthropicPeerHint({ show, reason }: { show: boolean; reason?: string }) {
-  const { install, statusFor, messageFor } = usePackageOperations("global", undefined);
-  // Explicit latch: `statusFor(source) === "success"` auto-clears after 3 s and
-  // would silently revert to the warning + Install button (D6b). Released when
-  // the probe reports the peer resolving (i.e. `show` goes false).
-  const [installed, setInstalled] = useState(false);
-  const status = statusFor(ANTHROPIC_PEER_SOURCE);
-  const message = messageFor(ANTHROPIC_PEER_SOURCE);
-
-  useEffect(() => {
-    if (status === "success") setInstalled(true);
-  }, [status]);
-  useEffect(() => {
-    if (!show) setInstalled(false);
-  }, [show]);
-
-  if (!show) return null;
-
-  if (installed) {
-    return (
-      <InlineMessage
-        severity="info"
-        icon={mdiCheck}
-        testId="anthropic-peer-hint"
-        title={i18nT("providers.anthropicPeerInstalled", undefined, "Peer installed — applies on the next pi session start")}
-      />
-    );
-  }
-
-  // An import failure means the package IS installed; installing again is wrong,
-  // so both the control AND the copy switch away from "install this".
-  const importFailed = typeof reason === "string" && reason.startsWith(IMPORT_FAILURE_PREFIX);
-  const pending = status === "queued" || status === "running";
-
-  return (
-    <InlineMessage
-      severity="warning"
-      icon={mdiAlert}
-      testId="anthropic-peer-hint"
-      title={importFailed
-        ? i18nT("providers.anthropicPeerImportFailedTitle", undefined, "The Anthropic peer package is installed but failed to load")
-        : i18nT("providers.anthropicPeerMissingTitle", undefined, "One more step: install the Anthropic peer package")}
-      actions={
-        importFailed ? undefined : (
-          <button
-            type="button"
-            onClick={() => install(ANTHROPIC_PEER_SOURCE)}
-            disabled={pending}
-            className="focus-ring px-2 py-1 text-[11px] rounded border border-current bg-transparent disabled:opacity-60"
-          >
-            {pending
-              ? i18nT("common.installing", undefined, "Installing…")
-              : i18nT("providers.installPeer", undefined, "Install peer")}
-          </button>
-        )
-      }
-    >
-      <div>
-        {importFailed
-          ? i18nT("providers.anthropicPeerImportFailedBody", undefined, "Claude is connected, but the bridge could not import")
-          : i18nT("providers.anthropicPeerMissingBody", undefined, "Claude is connected, but the bridge cannot resolve")}{" "}
-        <code className="font-mono">@blackbelt-technology/pi-anthropic-messages</code>
-        {i18nT(
-          "providers.anthropicPeerMissingBody2",
-          undefined,
-          ", so flows stay in waiting_peers and tool calls fall back.",
-        )}
-      </div>
-      {reason && <div className="mt-0.5 opacity-80">{reason}</div>}
-      {message && <div className="mt-0.5 opacity-80">{message}</div>}
-    </InlineMessage>
   );
 }
 

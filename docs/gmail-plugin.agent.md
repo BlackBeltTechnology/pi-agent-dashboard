@@ -129,7 +129,7 @@ Pull-only condensed map. Source: docs/gmail-plugin.md. Codes, routes, files, ste
 - Else → `gmail_error: Gmail returned HTTP 403`. Google text never echoed.
 
 ## Storage
-- `~/.pi/agent/plugin-credentials.json`: plaintext 0600, namespace `gmail`.
+- `~/.pi/agent/plugin-credentials.json`: 0600, AES-256-GCM envelope at rest, namespace `gmail`. No key → reads/writes `store_locked`. Remedy: `credential-vault.md` §12.
 - `client`: `clientId`, `clientSecret`, optional `projectId`.
 - `acct:<sub>`: email, alias, tier, scopes, refresh, access, expiry, status, testing hint, added.
 - `upsertFromSignIn` merges re-auth, keeps alias. Revoke: Google first, local delete even on remote fail. Disable/uninstall keeps grants.
@@ -168,4 +168,5 @@ Pull-only condensed map. Source: docs/gmail-plugin.md. Codes, routes, files, ste
 - Mail content attacker-controlled; without `untrusted-content-guard` only write confirms guard.
 - Attachments: reject traversal + overwrite; symlinks refused. Parent-dir swap mid-save = residual TOCTOU.
 - Logs: email, op, outcome. No tokens. Revoke fail → manual <https://myaccount.google.com/permissions>.
+- Creds encrypted at rest. Same-user agent bash reads keychain on Linux, Windows, some macOS signatures. Threat model: `credential-vault.md` §12.9.
 - Auto setup: loopback-only; secret absent from view/logs; downloads deleted `finally`; redirect guard on `accounts.google.com`. See change: add-gmail-plugin.

@@ -362,7 +362,15 @@ function zipNames(zip: Buffer): string[] {
 /** View-only claim (D1 type C, Wave 3): LightCraft on a CC0 DNG (raw.pixls.us). */
 const VIEW_ROW = { appId: "lightcraft", claimId: "lightcraft", label: "LightCraft", fixture: "sample.dng", fixtureSource: "craft/sample.dng", titled: false } as CraftRow;
 
-const APP_IDS = [...new Set([...ROWS, ...SIBLING_ROWS, VIEW_ROW].map((r) => r.appId))];
+/**
+ * Media project (add-craft-web-media-projects): FilmCraft `.fcproj` + the media it references. Not in `ROWS`
+ * (those scenarios assume one fixture file); it has its own describe below. `story.fcproj` references
+ * `clips/a.mp4` (present) and `clips/gone.mp4` (never seeded).
+ */
+const MEDIA_ROW = { appId: "filmcraft", claimId: "filmcraft", label: "FilmCraft", fixture: "story.fcproj", fixtureSource: "craft/story.fcproj", titled: false } as CraftRow;
+const MEDIA_CLIP = fs.readFileSync(path.join(FIXTURE_DIR, "craft", "clips", "a.mp4"));
+
+const APP_IDS = [...new Set([...ROWS, ...SIBLING_ROWS, VIEW_ROW, MEDIA_ROW].map((r) => r.appId))];
 const rowBytes = (r: CraftRow): Buffer => fs.readFileSync(path.join(FIXTURE_DIR, r.fixtureSource));
 const modeOf = (r: CraftRow): string => `file-mode-craft-web/${r.claimId}`;
 
@@ -1071,5 +1079,93 @@ test.describe("craft-web WordCraft-only (edit-office-in-pane-with-craft-web)", (
     await expect(page.getByTestId("craft-frame")).toHaveCount(1);
     await expect(page.getByTestId("craft-frame-host")).toHaveAttribute("data-phase", "open");
     await expect(page.getByTestId("craft-reloaded")).toHaveCount(0);
+  });
+});
+
+
+// ---------------------------------------------------------------- FilmCraft media projects (add-craft-web-media-projects)
+
+type FilmProject = { project: { items: Record<string, { kind?: { Media?: { media: { File: { path: string } } } } }> } };
+const filmPaths = (b: Buffer | string): string[] =>
+  Object.values((JSON.parse(b.toString()) as FilmProject).project.items).flatMap((i) => (i.kind?.Media ? [i.kind.Media.media.File.path] : []));
+const MEDIA_CLEANUP = ["story.fcproj", "clips", "secret.txt"];
+
+test.describe("craft-web FilmCraft media project (story.fcproj + clips/)", () => {
+  test.describe.configure({ timeout: 300_000 });
+
+  /** Seed `story.fcproj` (optionally edited) and the one present clip, out of band. */
+  const seed = (project: string = rowBytes(MEDIA_ROW).toString()) => {
+    inBox(`mkdir -p ${JSON.stringify(ABS("clips"))} && chmod 777 ${JSON.stringify(ABS("clips"))}`);
+    writeBytesOob("clips/a.mp4", MEDIA_CLIP);
+    writeBytesOob(MEDIA_ROW.fixture, Buffer.from(project));
+  };
+  test.afterEach(() => inBox(`rm -rf ${MEDIA_CLEANUP.map((f) => JSON.stringify(ABS(f))).join(" ")}`));
+
+  test("X1 (test-plan #X1): a missing medium is counted, and a save keeps both original paths", async ({ page }) => {
+    seed();
+    const { host } = await freshEditor(page, MEDIA_ROW.fixture, MEDIA_ROW);
+    await expect(host).toHaveAttribute("data-phase", "open");
+    await expect(page.getByTestId("craft-media-missing")).toContainText("1");
+    await focusApp(page.getByTestId("craft-frame"));
+    await page.waitForTimeout(800);
+    await page.keyboard.press("ControlOrMeta+s");
+    await confirmFirstOverwrite(page);
+    await expect.poll(() => !readBytesOob(MEDIA_ROW.fixture).equals(rowBytes(MEDIA_ROW)), { timeout: 30_000 }).toBe(true);
+    const saved = readBytesOob(MEDIA_ROW.fixture);
+    expect(filmPaths(saved)).toEqual(["clips/a.mp4", "clips/gone.mp4"]);
+    expect(saved.toString()).not.toContain("/files/");
+  });
+
+  test("X2 (test-plan #X2): a reference outside the project folder is never requested", async ({ page }) => {
+    seed(rowBytes(MEDIA_ROW).toString().replace("clips/gone.mp4", "../secret.txt"));
+    inBox(`echo top-secret > ${JSON.stringify(path.posix.join(path.posix.dirname(FIXTURE_GIT), "secret.txt"))}`);
+    const raw: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/file/raw")) raw.push(decodeURIComponent(new URL(r.url()).searchParams.get("path") ?? ""));
+    });
+    const { host } = await freshEditor(page, MEDIA_ROW.fixture, MEDIA_ROW);
+    await expect(host).toHaveAttribute("data-phase", "open");
+    await expect(page.getByTestId("craft-media-missing")).toContainText("1");
+    expect(raw.filter((p) => p.includes("secret"))).toEqual([]);
+    expect(raw).toContain("clips/a.mp4");
+    inBox(`rm -f ${JSON.stringify(path.posix.join(path.posix.dirname(FIXTURE_GIT), "secret.txt"))}`);
+  });
+
+  test("R1 (test-plan #R1): round trip — FilmCraft JSON on disk, original paths, no document data in the URL", async ({ page }) => {
+    seed();
+    const { iframe } = await freshEditor(page, MEDIA_ROW.fixture, MEDIA_ROW);
+    expect((await iframe.getAttribute("src")) ?? "").not.toContain("story");
+    await focusApp(iframe);
+    await page.waitForTimeout(800);
+    await page.keyboard.press("ControlOrMeta+s");
+    await confirmFirstOverwrite(page);
+    await expect.poll(() => !readBytesOob(MEDIA_ROW.fixture).equals(rowBytes(MEDIA_ROW)), { timeout: 30_000 }).toBe(true);
+    const saved = readBytesOob(MEDIA_ROW.fixture);
+    expect((JSON.parse(saved.toString()) as { format: string }).format).toBe("filmcraft.project");
+    expect(filmPaths(saved)).toContain("clips/a.mp4");
+    expect(saved.toString()).not.toContain("/files/");
+  });
+
+  test("P1 (test-plan #P1, one tab): 3 media of 64 MiB are delivered and the project opens without a crash", async ({ page }) => {
+    // Zero-filled stand-ins: the delivery path (read, transfer, drop) is what is measured, not decoding.
+    // Three, not four: the harness's /fixtures is a 256 MiB tmpfs, so 4 x 64 MiB cannot be seeded there.
+    inBox(`mkdir -p ${JSON.stringify(ABS("clips"))} && chmod 777 ${JSON.stringify(ABS("clips"))}`);
+    const names = ["big1.mp4", "big2.mp4", "big3.mp4"];
+    for (const n of names) inBox(`head -c 67108864 /dev/zero > ${JSON.stringify(ABS(`clips/${n}`))} && chmod 666 ${JSON.stringify(ABS(`clips/${n}`))}`);
+    const base = JSON.parse(rowBytes(MEDIA_ROW).toString()) as FilmProject;
+    const proto = Object.values(base.project.items).find((i) => i.kind?.Media);
+    base.project.items = Object.fromEntries(names.map((n, i) => [String(i + 1), JSON.parse(JSON.stringify(proto).replace("clips/a.mp4", `clips/${n}`))]));
+    writeBytesOob(MEDIA_ROW.fixture, Buffer.from(JSON.stringify(base)));
+    let crashed = false;
+    page.on("crash", () => {
+      crashed = true;
+    });
+    const card = await spawnFreshGitSession(page);
+    await openInPane(page, await sessionIdOf(card), MEDIA_ROW.fixture);
+    await page.getByTestId(modeOf(MEDIA_ROW)).click();
+    await expect(page.getByTestId("craft-frame-host")).toHaveAttribute("data-phase", "open", { timeout: 120_000 });
+    await page.waitForTimeout(3_000);
+    expect(crashed).toBe(false);
+    await expect(page.getByTestId("craft-media-missing")).toHaveCount(0);
   });
 });

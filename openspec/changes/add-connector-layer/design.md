@@ -113,7 +113,7 @@ The dashboard's auth is layered: `auth-plugin.ts` global `onRequest` hook bypass
 
 ## Threat model (store holds live third-party secrets)
 
-- Secrets live in the credential vault (`~/.pi/dashboard/vault.json`): plaintext at 0600, same posture as existing provider creds. Protection is file permissions + the layered request auth above, not at-rest encryption.
+- Secrets live in the credential vault (`~/.pi/dashboard/vault.json`): 0600 and encrypted at rest (AES-256-GCM whole-file envelope, data key in the OS keychain or an explicit key file) by `encrypt-credentials-at-rest`, which lands first. Protection is file permissions, at-rest encryption against copies, backups and sync, and the layered request auth above. A same-user process that can read the keychain entry is NOT stopped (see that change's threat model).
 - The vault is a separate file from `auth.json` (smaller blast radius if one store leaks), and it is dashboard-owned, so it is outside the pi-session single-writer space.
 - `search_connectors` / `get_connector_schema` / REST list endpoints **never** return secret material.
 - Invoke routes gated by `networkGuard`; loopback bypass means local single-user has no friction, remote/exposed use is gated.

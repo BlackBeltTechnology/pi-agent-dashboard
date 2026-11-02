@@ -1,0 +1,13 @@
+name: failing
+description: >
+  One-step e2e flow that fails on purpose (faux `model-error` scenario): the
+  agent's model answers with stopReason "error", so the flow completes with a
+  failed status. Drives the "failed flow stays collapsed" scenario of
+  flows-dock-chip.spec.ts. See change: flows-dock-chip-and-panel-actions.
+task_required: false
+
+steps:
+  - id: alpha
+    type: agent
+    agent: e2e-alpha
+    task: "[[faux:model-error]] failing e2e step"

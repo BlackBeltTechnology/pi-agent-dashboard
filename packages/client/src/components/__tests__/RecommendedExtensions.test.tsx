@@ -38,9 +38,9 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 
 function makeEntry(overrides: Partial<EnrichedRecommendedExtension>): EnrichedRecommendedExtension {
   return {
-    id: "pi-anthropic-messages",
-    source: "git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
-    displayName: "pi-anthropic-messages",
+    id: "example-required-ext",
+    source: "git@github.com:example/example-required-ext.git",
+    displayName: "example-required-ext",
     fallbackDescription: "fallback",
     status: "required",
     unlocks: [],

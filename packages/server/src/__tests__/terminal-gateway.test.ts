@@ -145,4 +145,27 @@ describe("TerminalGateway", () => {
       vi.useRealTimers();
     }
   });
+
+  // #E102 — a terminal socket carries the admitting session's tier so the auth-reload sweep can
+  // close it. See change: close-security-map-high-findings (D3, OA5).
+  it("#E102 sessionTier stamp: present → socket carries it and the sweep closes it when it yields null; absent → never swept", async () => {
+    const { sweepRevokedSockets } = await import("../pairing/ws-tier-gate.js");
+    let tier: "operate" | null = "operate";
+    const stamped = attachedSocket();
+    stamped.gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, { destroy: vi.fn() } as any, Buffer.alloc(0), undefined, undefined, () => tier);
+    expect(typeof stamped.ws.sessionTier).toBe("function");
+
+    const unstamped = attachedSocket();
+    unstamped.gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, { destroy: vi.fn() } as any, Buffer.alloc(0));
+    expect(unstamped.ws.sessionTier).toBeUndefined();
+
+    const log = vi.fn();
+    const sweepBoth = () =>
+      sweepRevokedSockets({ terminal: { clients: [stamped.ws, unstamped.ws] } }, log);
+    expect(sweepBoth().total).toBe(0); // session still live
+    tier = null;
+    expect(sweepBoth().total).toBe(1);
+    expect(stamped.ws.close).toHaveBeenCalledWith(4401, expect.any(String));
+    expect(unstamped.ws.close).not.toHaveBeenCalled();
+  });
 });

@@ -1,0 +1,3 @@
+# agent-event-stream-routes.ts
+
+`registerAgentEventStreamRoutes(fastify,{networkGuard,hub,isResolverActive,heartbeatMs?})`. `GET /api/events/stream` (observe) SSE: `?session=` ids / `?types=` (`AGENT_EVENT_TYPES`; unknown → 400 before hijack). `reply.hijack()` (no compress), keeps `reply.getHeaders()` (CORS). Frames: `retry`+`ready {sessions?,types?}`, open questions as `question_opened`, then hub events `id: N`; `: ping` every `EVENT_STREAM_HEARTBEAT_MS`=20 s (unref). Per-event `canAccessSession` with request principal + hub owner. Drop client past 1 MiB buffered. Close on `res` close (not `req`) and `preClose` (server.close waits otherwise). MCP-denylisted. See change: add-agent-event-stream.

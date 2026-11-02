@@ -10,9 +10,13 @@ import {
   buildAuthorizeUrl,
   buildProviderRegistry,
   buildRedirectUri,
+  classifyProviderConfig,
   COOKIE_NAME,
   ensureAuthSecret,
+  isOpenEnrolment,
   isUserAllowed,
+  openEnrolmentOf,
+  PUBLIC_IDP_HOSTS,
   parseAuthCookie,
   type ResolvedProvider,
   signToken,
@@ -371,5 +375,113 @@ describe("auth-off tunnel surface stays reachable (S9, S10, S11)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toHaveProperty("authEnabled");
+  });
+});
+
+// ─── Public-IdP classification (close-security-map-high-findings D3) ─────────
+
+describe("classifyProviderConfig — config-only decision table (#E59–#E72)", () => {
+  const fetchSpy = vi.fn();
+  beforeEach(() => {
+    fetchSpy.mockReset();
+    vi.stubGlobal("fetch", fetchSpy);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const oidc = (issuerUrl: string) => classifyProviderConfig("oidc", { issuerUrl });
+
+  it("#E59 key github with no issuerUrl is public", () => {
+    expect(classifyProviderConfig("github", {})).toBe("public");
+    expect(classifyProviderConfig("github")).toBe("public");
+  });
+  it("#E60 key google with no issuerUrl is public", () => {
+    expect(classifyProviderConfig("google", {})).toBe("public");
+  });
+  it("#E61 the key is irrelevant: keycloak + accounts.google.com issuer is public", () => {
+    expect(classifyProviderConfig("keycloak", { issuerUrl: "https://accounts.google.com" })).toBe("public");
+    expect(oidc("https://accounts.google.com")).toBe("public");
+  });
+  it.each(["https://github.com", "https://gitlab.com", "https://appleid.apple.com"])("#E63-#E65 oidc issuer %s is public", (issuer) => {
+    expect(oidc(issuer)).toBe("public");
+  });
+  it.each([
+    "https://login.microsoftonline.com/common/v2.0",
+    "https://login.microsoftonline.com/consumers/v2.0",
+    "https://login.microsoftonline.com/organizations/v2.0",
+    "https://login.microsoftonline.com/common",
+    "https://login.microsoftonline.com/COMMON/v2.0",
+  ])("#E66 multi-tenant Microsoft issuer %s is public", (issuer) => {
+    expect(oidc(issuer)).toBe("public");
+  });
+  it.each([
+    "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0",
+    "https://login.microsoftonline.com",
+    "https://login.microsoftonline.com/common-x/v2.0",
+  ])("#E67 single-tenant / bare Microsoft issuer %s is non-public", (issuer) => {
+    expect(oidc(issuer)).toBe("non-public");
+  });
+  it.each([
+    "https://accounts.google.com.evil.example",
+    "https://sso.github.com",
+    "https://evilgithub.com",
+    "https://xaccounts.google.com",
+    "https://github.com..",
+    "https://gitlab.com.evil",
+  ])("#E68 lookalike host %s is non-public (exact match, no wildcards)", (issuer) => {
+    expect(oidc(issuer)).toBe("non-public");
+  });
+  it.each(["https://GITHUB.COM", "https://github.com.", "https://github.com:443", "http://accounts.google.com"])(
+    "#E69 host normalisation: %s is public",
+    (issuer) => {
+      expect(oidc(issuer)).toBe("public");
+    },
+  );
+  it("#E70 userinfo tricks: the host is the part after the @", () => {
+    expect(oidc("https://accounts.google.com@evil.example")).toBe("non-public");
+    expect(oidc("https://evil.example@accounts.google.com")).toBe("public");
+  });
+  it("#E71 self-hosted keycloak and a non-built-in key without issuerUrl are non-public", () => {
+    expect(classifyProviderConfig("keycloak", { issuerUrl: "https://sso.example.com/realms/acme" })).toBe("non-public");
+    expect(classifyProviderConfig("okta", {})).toBe("non-public");
+    expect(classifyProviderConfig("okta", undefined)).toBe("non-public");
+  });
+  it.each(["not a url", "//", "", undefined, 42])("#E72 unparseable issuerUrl %j is non-public (G13), no throw", (issuer) => {
+    expect(() => oidc(issuer as string)).not.toThrow();
+    expect(oidc(issuer as string)).toBe("non-public");
+  });
+
+  it("never touches the network", () => {
+    for (const k of ["github", "google", "oidc", "keycloak"]) classifyProviderConfig(k, { issuerUrl: "https://accounts.google.com" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("the fixed set is exactly the five documented hosts", () => {
+    expect([...PUBLIC_IDP_HOSTS].sort()).toEqual(
+      ["accounts.google.com", "appleid.apple.com", "github.com", "gitlab.com", "login.microsoftonline.com"].sort(),
+    );
+  });
+});
+
+describe("isOpenEnrolment / openEnrolmentOf (same emptiness as isUserAllowed + resolveGroupTier)", () => {
+  const providers = {
+    github: { clientId: "a", clientSecret: "b" },
+    keycloak: { clientId: "a", clientSecret: "b", issuerUrl: "https://sso.example.com/realms/acme" },
+  };
+  it("empty/unset allowedUsers and groupTiers is open; either set lifts it", () => {
+    expect(isOpenEnrolment(undefined, undefined)).toBe(true);
+    expect(isOpenEnrolment([], {})).toBe(true);
+    expect(isOpenEnrolment([""], undefined)).toBe(false); // blank entry is a non-empty list
+    expect(isOpenEnrolment([], { ops: "operate" })).toBe(false);
+  });
+  it("lists each configured provider with mode refused (public) / open (non-public); none when bounded", () => {
+    expect(openEnrolmentOf(providers, [], undefined)).toEqual([
+      { provider: "github", mode: "refused" },
+      { provider: "keycloak", mode: "open" },
+    ]);
+    expect(openEnrolmentOf(providers, ["a@b.c"], undefined)).toEqual([]);
+    expect(openEnrolmentOf(providers, undefined, { ops: "operate" })).toEqual([]);
+    expect(openEnrolmentOf(undefined, [], undefined)).toEqual([]);
   });
 });

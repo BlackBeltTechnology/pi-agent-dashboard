@@ -465,13 +465,6 @@
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "9cf3db8a4e00aba8:1",
-      "count": 1,
-      "reason": "github-dismissed (#128, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "9f8b559045ac19db:1",
       "count": 1,
       "reason": "github-dismissed (#131, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
@@ -482,13 +475,6 @@
       "lineHash": "cbfa693d22ed7f6a:1",
       "count": 1,
       "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/file-routes.ts",
-      "lineHash": "ec24b8f2ba47aa26:1",
-      "count": 1,
-      "reason": "github-dismissed (#129, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
     },
     {
       "ruleId": "js/path-injection",
@@ -503,20 +489,6 @@
       "lineHash": "eebfa8d11b146b09:1",
       "count": 1,
       "reason": "github-dismissed (#434, false positive): false-positive: redirect target is constrained by sanitizeReturnUrl (same-origin path only; rejects //, /\\, control chars, origin re-parse; tests E20-E28); CodeQL cannot model the sanitizer"
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/openspec-routes.ts",
-      "lineHash": "127822a9f00fade4:1",
-      "count": 1,
-      "reason": "github-dismissed (#138, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
-    },
-    {
-      "ruleId": "js/path-injection",
-      "file": "packages/server/src/routes/session-routes.ts",
-      "lineHash": "ea9598a5d28676f9:1",
-      "count": 1,
-      "reason": "github-dismissed (#333, false positive): False positive for a path-containment feature: the flagged expression IS the containment/verification guard, not a gap in one. Reviewed in bulk (same class) during ship of add-access-grants-and-review."
     },
     {
       "ruleId": "js/path-injection",

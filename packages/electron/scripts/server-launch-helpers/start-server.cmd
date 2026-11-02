@@ -33,7 +33,7 @@ rem Entry: RAW Windows path (Node path.resolve()s the main entry under any
 rem --import loader, so a file:// entry breaks).
 set "SVR_URL=%SVR_DIR:\=/%"
 set "LOADER_URL=file:///%SVR_URL%node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs"
-set "CLI=%SVR_DIR%packages\server\src\cli.ts"
+set "CLI=%SVR_DIR%node_modules\@blackbelt-technology\pi-dashboard-server\src\cli.ts"
 
 rem If user passed no args, default to "start"
 if "%~1"=="" (

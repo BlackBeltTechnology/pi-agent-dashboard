@@ -17,6 +17,9 @@ import { flowsActionsAvailable, hasFlowsCommand } from "../client/flowsActionsGa
 import { __resetFlowsAvailabilityForTests } from "../client/flowsAvailability.js";
 
 const cmds = (...names: string[]) => names.map((name) => ({ name }));
+/** The plugin `flow_catalog` event. See change: flows-dock-chip-and-panel-actions. */
+const catalogEvent = (flows: Array<{ name: string }>) =>
+  ({ eventType: "flow_catalog", timestamp: 1, data: { catalogKey: "catalog", flows } }) as never;
 
 const COMMANDS: Array<{ label: string; list: string[] | null; signal: boolean }> = [
   { label: "none published", list: null, signal: false },
@@ -38,11 +41,11 @@ describe("flowsActionsAvailable (E24)", () => {
   let n = 0;
   for (const c of COMMANDS) {
     for (const events of [0, 1]) {
-      for (const flowsList of [[], [{ name: "f" }]]) {
-        it(`commands ${c.label} × events ${events} × flowsList ${flowsList.length} → ${c.signal || events > 0 ? "open" : "closed"}`, () => {
+      for (const catalog of [[], [{ name: "f" }]]) {
+        it(`commands ${c.label} × events ${events} × catalog ${catalog.length} → ${c.signal || events > 0 ? "open" : "closed"}`, () => {
           const sid = `e24-${++n}`;
           if (c.list) publishSessionData(sid, "commandsList", cmds(...c.list));
-          publishSessionData(sid, "flowsList", flowsList);
+          publishSessionEvent(sid, catalogEvent(catalog));
           if (events) publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
           expect(flowsActionsAvailable(sid)).toBe(c.signal || events > 0);
           clearSessionEvents(sid);
@@ -55,8 +58,9 @@ describe("flowsActionsAvailable (E24)", () => {
     expect(hasFlowsCommand(cmds("flows:new", "flows:delete") as never)).toBe(true);
   });
 
-  it("flowsList alone never opens the gate", () => {
-    publishSessionData("e24-list-only", "flowsList", [{ name: "f" }]);
+  it("a flow catalog alone never opens the gate (it is not flow activity)", () => {
+    publishSessionEvent("e24-list-only", catalogEvent([{ name: "f" }]));
     expect(flowsActionsAvailable("e24-list-only")).toBe(false);
+    clearSessionEvents("e24-list-only");
   });
 });

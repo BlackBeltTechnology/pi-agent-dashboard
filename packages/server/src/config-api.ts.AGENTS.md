@@ -23,3 +23,5 @@ Merges nested `piTrustMirror.sources` on PUT and refreshes the snapshot. See cha
 
 `writeConfigPartial` merges the `editor` sub-object (no restart). See change: gate-changed-on-disk-by-content.
 `writeConfigPartial` merges `auth.capabilityRoutePlugins` (`!== undefined`, so `[]` clears the trust list). See change: add-plugin-capability-routes.
+
+`writeConfigPartial` deep-merges `security` (sibling keys kept); `security.trustedTypes: null` deletes the key (emptied `security` removed); restart flagged only when the normalized value changes; computed `trustedTypesEnvOverride` is dropped on write. `GET /api/config` (`system-routes.ts`) adds `trustedTypesEnvOverride` (recognized `PI_DASHBOARD_TRUSTED_TYPES` or null). See change: enforce-trusted-types-default.

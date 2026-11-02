@@ -34,12 +34,12 @@ export interface PluginRequirementReport {
 
 /**
  * Latest bridge-status probe forwarded from the pi-side extension (for
- * status-emitting bridges like flows-anthropic-bridge). Omitted when the
+ * status-emitting bridges). Omitted when the
  * plugin has no bridge or hasn't reported yet.
  */
 export interface BridgeProbeSnapshot {
   status: "probing" | "waiting_peers" | "active" | "degraded";
-  /** Per-peer probe results keyed by the peer spec (e.g. "@pi/anthropic-messages"). */
+  /** Per-peer probe results keyed by the peer spec (e.g. "pi-flows"). */
   peers: Record<string, { ok: boolean; reason?: string }>;
   /** Unix-ms timestamp when the bridge emitted this snapshot. */
   at: number;

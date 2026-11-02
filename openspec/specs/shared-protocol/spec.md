@@ -26,7 +26,7 @@ Extension → Server:
 - **THEN** it SHALL include `LoadSessionEventsResultMessage` and `LoadSessionEventsErrorMessage`
 
 ### Requirement: Session heartbeat protocol
-The bridge extension SHALL send `session_heartbeat` messages at a fixed interval (15 seconds) to keep the session alive on the server. The server SHALL maintain a heartbeat timeout (45 seconds) per connected session. If no heartbeat is received within the timeout, the server SHALL unregister the session.
+The bridge extension SHALL send `session_heartbeat` messages at a fixed interval (15 seconds) to keep the session alive on the server. The server SHALL maintain a heartbeat timeout (180 seconds) per connected session. If no heartbeat is received within the timeout, the server SHALL unregister the session.
 
 The server SHALL implement sleep-aware heartbeat detection: if the elapsed wall-clock time since the timer was set exceeds 2× the expected timeout (indicating system sleep/wake), the server SHALL grant one grace period (reset the timer) instead of immediately unregistering.
 
@@ -38,7 +38,7 @@ Extension → Server:
 - **THEN** the server SHALL keep the session registered
 
 #### Scenario: Heartbeat timeout
-- **WHEN** no heartbeat is received for 45 seconds (and no sleep detected)
+- **WHEN** no heartbeat is received for 180 seconds (and no sleep detected)
 - **THEN** the server SHALL unregister the session
 
 #### Scenario: Sleep-wake grace period

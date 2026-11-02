@@ -20,6 +20,8 @@ export type ShimMessage =
   | { type: "navigate-blocked"; nonce: string; url: string }
   /** Wasm trap / Rust panic before opened (shim v2). */
   | { type: "start-failed"; nonce: string; detail?: string }
+  /** Shim v4: the synthetic drop of one `open-media` medium has settled (media projects). */
+  | { type: "open-media-ack"; nonce: string; name: string }
   /**
    * Answer to a host `control` (shim v3). Fields stay `unknown` on purpose: the HOST validates them (a malformed
    * reply becomes a tool error, not a silent drop). `code`: "not-ready" | "unsupported" from the shim itself.
@@ -29,6 +31,8 @@ export type ShimMessage =
 export type HostMessage =
   | { type: "control"; nonce: string; id: number; method: string; params?: unknown }
   | { type: "open"; nonce: string; name: string; bytes: ArrayBuffer }
+  /** Media projects (shim v4): one referenced medium, dropped before the project; answered by `open-media-ack`. */
+  | { type: "open-media"; nonce: string; name: string; bytes: ArrayBuffer }
   /** `own`: an acknowledged overwrite of the tab's own file (shim v2 `cleanOnAckedSave`). */
   | { type: "save-result"; nonce: string; ok: boolean; error?: string; own?: boolean };
 
@@ -72,6 +76,10 @@ const PARSERS: Record<string, (d: Fields) => Record<string, unknown> | null> = {
     return url === null ? null : { url };
   },
   "start-failed": (d) => ({ detail: str(d.detail) ?? undefined }),
+  "open-media-ack": (d) => {
+    const name = str(d.name);
+    return name === null ? null : { name };
+  },
   "control-result": (d) =>
     typeof d.id === "number" && Number.isFinite(d.id) ? { id: d.id, ok: d.ok, result: d.result, error: d.error, code: d.code } : null,
 };

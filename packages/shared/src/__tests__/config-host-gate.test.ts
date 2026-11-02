@@ -108,3 +108,17 @@ describe("#E32 parseHostGateMode decision table", () => {
     expect(parseHostGateMode("yes", "enforce")).toBe("report");
   });
 });
+
+describe("#E2 security.trustedTypes loader", () => {
+  it("passes the raw value through, unvalidated", () => {
+    write({ security: { trustedTypes: "report" } });
+    expect(loadConfig().security?.trustedTypes).toBe("report");
+    write({ security: { trustedTypes: 5 } });
+    expect(loadConfig().security?.trustedTypes).toBe(5);
+  });
+
+  it("absent stays undefined", () => {
+    write({});
+    expect(loadConfig().security?.trustedTypes).toBeUndefined();
+  });
+});

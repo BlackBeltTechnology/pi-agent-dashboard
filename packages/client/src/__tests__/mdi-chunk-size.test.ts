@@ -87,7 +87,19 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // 607,648 B vs the 593 KiB cap before merging harden-auth-credentials). Merged with develop: 608,974 B in this
 // test's own gzip, 718 B over the 594 KiB cap; 595 KiB (609,280 B) would leave ~300 B, so 596 KiB
 // (610,304 B, ~1.3 KB headroom for CI's compressor variance). Smallest step with headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 596 * 1024;
+// prove-vault-bridge-tls (2026-10-25): 596 -> 598 KiB. The Settings dialog, the Built-in HTTPS switch and the token
+// dialog changes are lazy chunks; unavoidably in the entry: the session-header vault chip's eight-cause refusal view
+// (`trustDetail` icon + cause + remedy, shown in the chat header) with its English fallbacks, the `vault.*` /
+// `gateway.tls.*` / `settings.*` en catalog keys, and the `paired-devices-api` purpose/refusal plumbing (+~1.2 KB gz)
+// -> 610,877 B on CI, 573 B over the old cap; 597 KiB (611,328 B) would leave only ~450 B, so 598 KiB (612,352 B,
+// ~1.5 KB headroom for CI's compressor variance). Smallest step with headroom; not a general raise.
+// flows-dock-chip-and-panel-actions (2026-11-01): 598 -> 599 KiB. Size win first: the flow action dialogs and the
+// pencil popover are lazy chunks (FlowActionDialogs.tsx, FlowEditPopover.tsx; -~1.4 KB gz vs. eager). What stays is
+// the FLOWS chip itself, which claims the hot `composer-context-group` slot and so must not suspend
+// (lazy-plugin-claims policy): the chip, the shared flow-actions hook, the catalog hook + timings and the pill
+// copy. 612,367 B on CI, 15 B over the old cap; 599 KiB (613,376 B) leaves ~1 KB for CI's compressor variance.
+// Smallest KiB step that clears it; not a general raise.
+const INDEX_GZ_CAP_BYTES = 599 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

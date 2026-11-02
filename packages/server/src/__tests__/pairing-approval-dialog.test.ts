@@ -353,7 +353,7 @@ describe("E12 — premature redemption kept when not denied", () => {
     expect(mgr.poll(a.pendingId)).toEqual({ status: "unknown" });
     const pb = mgr.poll(b.pendingId);
     expect(pb.status).toBe("approved");
-    if (pb.status === "approved") expect(reg.verify(pb.token)).not.toBeNull();
+    if (pb.status === "approved") expect(reg.verify(pb.token, "tls")).not.toBeNull();
   });
 });
 
@@ -500,7 +500,7 @@ describe("X8 — logs carry no metadata or secrets", () => {
     if (!r1.ok) throw new Error("redeem failed");
     mgr.approvePending(r1.pendingId, wrong(r1.confirmCode));
     const ok = mgr.approvePending(r1.pendingId, r1.confirmCode);
-    const polled = mgr.poll(r1.pendingId);
+    const polled = mgr.poll(r1.pendingId, undefined, "tls"); // proven channel: this test is about transition lines, not exposure
     const p2 = mgr.createPayload()!;
     const r2 = mgr.redeem(p2.code, meta);
     if (!r2.ok) throw new Error("redeem failed");

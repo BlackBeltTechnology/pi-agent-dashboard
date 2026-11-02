@@ -41,7 +41,6 @@ caller's tier. Do not edit the table by hand.
 | `set_model` | control | POST /api/session/:id/model |
 | `set_thinking_level` | control | POST /api/session/:id/thinking-level |
 | `flow_control` | control | POST /api/session/:id/flow-control |
-| `extension_ui_response` | control | POST /api/session/:id/extension-ui-response |
 | `attach_proposal` | control | POST /api/session/:id/attach-proposal |
 | `detach_proposal` | control | POST /api/session/:id/detach-proposal |
 | `list_archived_sessions` | observe | GET /api/sessions/archived |
@@ -118,7 +117,6 @@ caller's tier. Do not edit the table by hand.
 | `force_kill` | operate | Session lifecycle: force_kill |
 | `kill_process` | operate | Session lifecycle: kill_process |
 | `set_session_tags` | control | Bridge verb: set_session_tags |
-| `prompt_response` | control | Bridge verb: prompt_response |
 | `edit_followup_entry` | control | Bridge verb: edit_followup_entry |
 | `history_backfill` | observe | Bridge verb: history_backfill |
 | `config_auth_providers_id` | control | DELETE /api/config/auth/providers/:id |

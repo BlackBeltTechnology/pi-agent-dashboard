@@ -1,12 +1,13 @@
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DEVICE_TOKEN_ENV,
   mintBridgeTicket,
   readDeviceToken,
   withTicket,
 } from "../bridge-ticket-client.js";
+import { createRemoteUpgradePreparer } from "../remote-upgrade-preparer.js";
 
 /**
  * §6 made bridge auth mandatory on the TCP listener while nothing on this side
@@ -155,5 +156,151 @@ describe("mint failure taxonomy", () => {
     await new Promise<void>((r) => server.close(() => r()));
     const r = await mintBridgeTicket({ httpBase: `http://127.0.0.1:${port}`, token: "t" });
     expect(r).toMatchObject({ ok: false, cause: "unreachable" });
+  });
+});
+
+/**
+ * Remote TLS credential calls: certificate validation is enforced at every call,
+ * and a `pi_tls_` token never leaves for a non-https origin.
+ * See change: prove-vault-bridge-tls (D7, D9; test-plan #E12, #X5, #X6).
+ */
+describe("TLS credential-call checks (prepareConnect)", () => {
+  const VERIFY_OFF = "NODE_TLS_REJECT_UNAUTHORIZED";
+  const TLS_TOKEN = "pi_tls_secret-bearer-xyz";
+
+  function rig(env: Record<string, string | undefined>, fetchImpl?: typeof fetch) {
+    const out: string[] = [];
+    const fetchSpy = vi.fn(
+      fetchImpl ??
+        ((async () => ({ ok: true, status: 200, json: async () => ({ data: { ticket: "tkt" } }) })) as unknown as typeof fetch),
+    );
+    const prepare = createRemoteUpgradePreparer({
+      env,
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+      log: { log: (...a: unknown[]) => out.push(a.join(" ")), error: (...a: unknown[]) => out.push(a.join(" ")) },
+      record: () => {},
+      isPinned: () => true,
+    });
+    return { prepare, out, fetchSpy };
+  }
+
+  it("#E12(a) an invalid PI_DASHBOARD_HTTP_URL is reported first, even with validation disabled", async () => {
+    const { prepare, out, fetchSpy } = rig({
+      PI_DASHBOARD_TOKEN: "t",
+      PI_DASHBOARD_HTTP_URL: "not a url",
+      [VERIFY_OFF]: "0",
+    });
+    await expect(prepare("wss://dash.example:8443")).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(out.some((l) => l.includes("bad-http-url"))).toBe(true);
+    expect(out.join("\n")).not.toContain("tls-verify-disabled");
+  });
+
+  it("#E12(b) a pi_tls_ token with a plaintext gateway is refused with tls-only-token", async () => {
+    const { prepare, out, fetchSpy } = rig({ PI_DASHBOARD_TOKEN: TLS_TOKEN });
+    await expect(prepare("ws://dash.example:9999")).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const line = out.find((l) => l.includes("tls-only-token")) ?? "";
+    expect(line).toContain("wss://");
+    expect(out.join("\n")).not.toContain(TLS_TOKEN);
+  });
+
+  it("#E12(c) a pi_tls_ token with a plaintext HTTP override is refused with tls-only-token", async () => {
+    const { prepare, out, fetchSpy } = rig({
+      PI_DASHBOARD_TOKEN: TLS_TOKEN,
+      PI_DASHBOARD_HTTP_URL: "http://dash.example:8000",
+    });
+    await expect(prepare("wss://dash.example:8443")).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(out.some((l) => l.includes("tls-only-token"))).toBe(true);
+  });
+
+  it("#E12(d) a pi_tls_ token mints from the https origin and dials the plain gateway", async () => {
+    const { prepare, fetchSpy } = rig({
+      PI_DASHBOARD_TOKEN: TLS_TOKEN,
+      PI_DASHBOARD_URL: "ws://dash.example:9999",
+      PI_DASHBOARD_HTTP_URL: "https://dash.example:8443",
+    });
+    const res = await prepare("ws://dash.example:9999");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("https://dash.example:8443/api/ws-ticket");
+    expect(res).toEqual({ url: "ws://dash.example:9999?ticket=tkt" });
+  });
+
+  it("#E12(e) a wss endpoint with validation disabled is refused naming the variable", async () => {
+    const { prepare, out, fetchSpy } = rig({ PI_DASHBOARD_TOKEN: "plain-token", [VERIFY_OFF]: "0" });
+    await expect(prepare("wss://dash.example:8443")).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const line = out.find((l) => l.includes("tls-verify-disabled")) ?? "";
+    expect(line).toContain(VERIFY_OFF);
+  });
+
+  it("#E12(f) a plain token over plain ws is unaffected by validation being disabled", async () => {
+    const { prepare, fetchSpy } = rig({ PI_DASHBOARD_TOKEN: "plain-token", [VERIFY_OFF]: "0" });
+    const res = await prepare("ws://dash.example:9999");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("http://dash.example:8000/api/ws-ticket");
+    expect(res).toEqual({ url: "ws://dash.example:9999?ticket=tkt" });
+  });
+
+  it("#E12(g) a local socket is unaffected by validation being disabled", async () => {
+    const { prepare, fetchSpy } = rig({ [VERIFY_OFF]: "0" });
+    await expect(prepare("ws+unix:///tmp/gw.sock:/")).resolves.toBeUndefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("#X5 flipping validation off at runtime refuses the next reconnect's mint", async () => {
+    const env: Record<string, string | undefined> = { PI_DASHBOARD_TOKEN: "plain-token" };
+    const { prepare, out, fetchSpy } = rig(env);
+    await expect(prepare("wss://dash.example:8443")).resolves.toEqual({ url: "wss://dash.example:8443?ticket=tkt" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    env[VERIFY_OFF] = "0";
+    await expect(prepare("wss://dash.example:8443")).rejects.toThrow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // no second fetch, hence no dial
+    expect(out.some((l) => l.includes("tls-verify-disabled"))).toBe(true);
+  });
+
+  it("the mint itself refuses a pi_tls_ token for a non-https origin and a disabled-validation https origin", async () => {
+    const fetchImpl = vi.fn();
+    const plain = await mintBridgeTicket({
+      httpBase: "http://dash.example:8000",
+      token: TLS_TOKEN,
+      env: {},
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(plain).toMatchObject({ ok: false, cause: "tls-only-token" });
+    const off = await mintBridgeTicket({
+      httpBase: "https://dash.example:8443",
+      token: TLS_TOKEN,
+      env: { [VERIFY_OFF]: "0" },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(off).toMatchObject({ ok: false, cause: "tls-verify-disabled" });
+    expect(off.ok === false && off.reason).toContain(VERIFY_OFF);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("#X6 a relayed pi_tls_ token reads as tls-only-token-relayed, not unpaired or revoked", async () => {
+    const relayed = (async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "tls_only_token_untrusted_channel" }),
+    })) as unknown as typeof fetch;
+    const { prepare, out } = rig({ PI_DASHBOARD_TOKEN: TLS_TOKEN }, relayed);
+    await expect(prepare("wss://dash.example:8443")).rejects.toThrow();
+    const lines = out.filter((l) => l.includes("bridge ticket"));
+    expect(lines.some((l) => l.includes("tls-only-token-relayed"))).toBe(true);
+    expect(out.join("\n")).not.toMatch(/unpaired|revoked/);
+  });
+
+  it("an ordinary 401 still reads as refused (unpaired or revoked)", async () => {
+    const r = await mintBridgeTicket({
+      httpBase: "https://dash.example:8443",
+      token: "plain",
+      env: {},
+      fetchImpl: (async () => ({ ok: false, status: 401, json: async () => ({ error: "unauthorized" }) })) as unknown as typeof fetch,
+    });
+    expect(r).toMatchObject({ ok: false, cause: "refused" });
   });
 });

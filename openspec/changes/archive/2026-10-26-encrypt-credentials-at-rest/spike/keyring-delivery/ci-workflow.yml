@@ -1,0 +1,168 @@
+# Reference copy of the THROWAWAY workflow run on branch spike/napi-keyring-delivery (deleted after the run).
+# To re-run: copy to .github/workflows/ and probe.cjs to .github/spike-keyring/ on a spike/* branch.
+
+# THROWAWAY spike (encrypt-credentials-at-rest): @napi-rs/keyring 2.1.2 delivery on real
+# CI runners for every OS/arch the dashboard ships. Push-triggered on this branch only.
+# Every step uses `set +e` / Continue so all phases run; results are `RESULT <label> <json>` lines.
+name: spike-napi-keyring
+on:
+  push:
+    branches: [spike/napi-keyring-delivery]
+permissions:
+  contents: read
+env:
+  KEYRING: "@napi-rs/keyring@2.1.2"
+  BUNDLED_NODE: v24.22.0
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: 22.19.0 }
+          - { os: ubuntu-latest, node: 24.22.0 }
+          - { os: ubuntu-24.04-arm, node: 24.22.0 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: .github/spike-keyring }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}" }
+      - name: probe
+        run: |
+          set +e
+          W="$RUNNER_TEMP/w"; mkdir -p "$W"; cp .github/spike-keyring/probe.cjs "$W"; cd "$W"
+          npm init -y >/dev/null; npm i --no-audit --no-fund "$KEYRING" >/dev/null 2>&1
+          echo "PKGS $(ls node_modules/@napi-rs | tr '\n' ' ') | $(ldd --version | head -1) | BUS=${DBUS_SESSION_BUS_ADDRESS:-unset}"
+          timeout 60 node probe.cjs linux-runner-env; echo "EXIT linux-runner-env $?"
+          timeout 60 env -u DBUS_SESSION_BUS_ADDRESS node probe.cjs linux-no-bus; echo "EXIT linux-no-bus $?"
+          sudo apt-get update -qq >/dev/null 2>&1; sudo apt-get install -y -qq keyutils >/dev/null 2>&1
+          echo "DBUS_LAUNCH_PRESENT=$(command -v dbus-launch || echo none)"
+          NB="env -u DBUS_SESSION_BUS_ADDRESS"
+          $NB node probe.cjs linux-nobus-set set pi-dash-spike-ku data-key-v1 c3Bpa2UtZHVtbXk=
+          echo "KEYCTL_USER $(keyctl show @u 2>&1 | grep -v '^Keyring' | tr -s ' ' | tr '\n' ' ' | cut -c1-300)"
+          echo "KEYCTL_SESSION $(keyctl show @s 2>&1 | grep -v '^Keyring' | tr -s ' ' | tr '\n' ' ' | cut -c1-300)"
+          $NB node probe.cjs linux-nobus-get-same-session get pi-dash-spike-ku data-key-v1
+          $NB keyctl session - node probe.cjs linux-nobus-get-new-session get pi-dash-spike-ku data-key-v1
+          $NB node probe.cjs linux-nobus-del del pi-dash-spike-ku data-key-v1
+          PROBE_OPTS='{"linux":{"store":"secret-service"}}' timeout 60 $NB node probe.cjs linux-nobus-pinned-secret-service; echo "EXIT linux-nobus-pinned $?"
+          sudo apt-get install -y -qq gnome-keyring dbus-x11 libsecret-tools >/dev/null 2>&1
+          echo "DBUS_LAUNCH_PRESENT_AFTER=$(command -v dbus-launch || echo none)"
+          timeout 60 env -u DBUS_SESSION_BUS_ADDRESS node probe.cjs linux-no-bus-after-dbus-x11; echo "EXIT linux-no-bus-after-dbus-x11 $?"
+          timeout 120 dbus-run-session -- sh -c 'printf pw | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1; PROBE_OPTS={\"linux\":{\"store\":\"secret-service\"}} node probe.cjs linux-ss-unlocked-pinned'
+          timeout 120 dbus-run-session -- sh -c 'gnome-keyring-daemon --start --components=secrets >/dev/null 2>&1; PROBE_OPTS={\"linux\":{\"store\":\"secret-service\"}} node probe.cjs linux-ss-not-unlocked-pinned'
+          timeout 120 dbus-run-session -- sh -c '
+            printf pw | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
+            node probe.cjs linux-ss-unlocked
+            node probe.cjs linux-ss-inspect-set set pi-dashboard-credential-key data-key-v1 c3Bpa2UtZHVtbXk=
+            echo "SECRETTOOL_ATTRS $(secret-tool search --all service pi-dashboard-credential-key 2>&1 | grep -E "^attribute|^label|^schema" | tr "\n" " ")"
+            echo "LOOKUP service+account bytes=$(secret-tool lookup service pi-dashboard-credential-key account data-key-v1 2>/dev/null | wc -c)"
+            echo "LOOKUP service+username bytes=$(secret-tool lookup service pi-dashboard-credential-key username data-key-v1 2>/dev/null | wc -c)"
+            node probe.cjs linux-ss-inspect-del del pi-dashboard-credential-key data-key-v1'
+          echo "EXIT linux-ss $?"
+          timeout 120 dbus-run-session -- sh -c 'gnome-keyring-daemon --start --components=secrets >/dev/null 2>&1; node probe.cjs linux-ss-not-unlocked'
+          echo "EXIT linux-ss-not-unlocked $?"
+          sudo mkdir -p /mnt/nx && sudo mount -t tmpfs -o noexec,size=128m tmpfs /mnt/nx && sudo chown "$USER" /mnt/nx
+          cp -r node_modules probe.cjs /mnt/nx/ && (cd /mnt/nx && timeout 60 node probe.cjs linux-noexec); echo "EXIT linux-noexec $?"
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: .github/spike-keyring }
+      - name: probe (shipped Docker base + alpine, x64, no session bus)
+        run: |
+          set +e
+          for img in node:24-bookworm-slim node:22-alpine node:24-alpine; do
+            docker run --rm -v "$PWD/.github/spike-keyring/probe.cjs:/p/probe.cjs:ro" "$img" sh -c \
+              "mkdir /w && cd /w && npm init -y >/dev/null && npm i --no-audit --no-fund $KEYRING >/dev/null 2>&1; echo \"PKGS $img \$(ls node_modules/@napi-rs | tr '\n' ' ')\"; cp /p/probe.cjs . && timeout 60 node probe.cjs docker-$img"
+          done
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, arch: arm64 }
+          - { os: macos-15-intel, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: "/.github/spike-keyring/\n/packages/electron/entitlements.plist", sparse-checkout-cone-mode: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24.22.0" }
+      - name: probe
+        run: |
+          set +e
+          t() { perl -e 'alarm shift; exec @ARGV' "$@"; }   # 142 = SIGALRM (timeout / blocked prompt)
+          ENT="$PWD/packages/electron/entitlements.plist"
+          W="$RUNNER_TEMP/w"; mkdir -p "$W"; cp .github/spike-keyring/probe.cjs "$W"; cd "$W"
+          npm init -y >/dev/null; npm i --no-audit --no-fund "$KEYRING" >/dev/null 2>&1
+          echo "PKGS $(ls node_modules/@napi-rs | tr '\n' ' ') | $(sw_vers -productVersion) | $(security default-keychain) | $(security show-keychain-info 2>&1 | head -1)"
+          echo "BINDING_SIG $(codesign -dv node_modules/@napi-rs/keyring-darwin-*/*.node 2>&1 | grep -E 'TeamIdentifier|flags=' | tr '\n' ' ')"
+          t 60 node probe.cjs mac-setup-node; echo "EXIT mac-setup-node $?"
+          # Bundled Node exactly as packages/electron/scripts/download-node.sh fetches it
+          curl -fsSL "https://nodejs.org/dist/$BUNDLED_NODE/node-$BUNDLED_NODE-darwin-${{ matrix.arch }}.tar.gz" | tar xz
+          BN="$W/node-$BUNDLED_NODE-darwin-${{ matrix.arch }}/bin/node"
+          echo "BUNDLED_SIG $(codesign -dv "$BN" 2>&1 | grep -E 'TeamIdentifier|flags=' | tr '\n' ' ') DLV=$(codesign -d --entitlements - "$BN" 2>&1 | grep -c disable-library-validation)"
+          t 60 "$BN" probe.cjs mac-bundled-node; echo "EXIT mac-bundled-node $?"
+          cp "$BN" bn-full; codesign --force --sign - --options runtime --entitlements "$ENT" bn-full >/dev/null 2>&1
+          sed '/disable-library-validation/,+1d' "$ENT" > ent-nodlv.plist
+          cp "$BN" bn-nodlv; codesign --force --sign - --options runtime --entitlements ent-nodlv.plist bn-nodlv >/dev/null 2>&1
+          echo "SIP $(csrutil status 2>&1 | tr '\n' ' ') | AMFI_BOOTARGS=$(nvram boot-args 2>&1 | tr '\n' ' ')"
+          echo "ENT_CHECK full_DLV=$(codesign -d --entitlements - bn-full 2>&1 | grep -c disable-library-validation) nodlv_DLV=$(codesign -d --entitlements - bn-nodlv 2>&1 | grep -c disable-library-validation) nodlv_runtime=$(codesign -dv bn-nodlv 2>&1 | grep -c 'runtime')"
+          t 60 ./bn-full probe.cjs mac-resigned-full-ent; echo "EXIT mac-resigned-full-ent $?"
+          t 60 ./bn-nodlv probe.cjs mac-resigned-no-dlv; echo "EXIT mac-resigned-no-dlv $?"
+          # OS-tool view of the entry + ACL: item created by setup-node's node, read by other binaries
+          node probe.cjs mac-inspect-set set pi-dashboard-credential-key data-key-v1 c3Bpa2UtZHVtbXk=
+          echo "SECURITY_ATTRS $(security find-generic-password -s pi-dashboard-credential-key -a data-key-v1 2>&1 | grep -E '"svce"|"acct"|"labl"|class|keychain:' | tr -s ' ' | tr '\n' ' ')"
+          t 30 security find-generic-password -s pi-dashboard-credential-key -a data-key-v1 -w >/dev/null 2>&1; echo "ACL security-w exit=$? (142=timeout/prompt)"
+          t 30 "$BN" probe.cjs mac-acl-bundled-node get pi-dashboard-credential-key data-key-v1; echo "EXIT mac-acl-bundled-node $?"
+          t 30 ./bn-full probe.cjs mac-acl-adhoc-node get pi-dashboard-credential-key data-key-v1; echo "EXIT mac-acl-adhoc-node $?"
+          node probe.cjs mac-inspect-del del pi-dashboard-credential-key data-key-v1
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, node: 24.22.0 }
+          - { os: windows-latest, node: 22.19.0 }
+          - { os: windows-11-arm, node: 24.22.0 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: .github/spike-keyring }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}" }
+      - name: probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $W = Join-Path $env:RUNNER_TEMP 'w'; New-Item -ItemType Directory -Force $W | Out-Null
+          Copy-Item .github/spike-keyring/probe.cjs $W; Set-Location $W
+          npm init -y *> $null; npm i --no-audit --no-fund $env:KEYRING *> $null
+          "PKGS " + ((Get-ChildItem node_modules/@napi-rs).Name -join ' ') + " | os-arch=$env:PROCESSOR_ARCHITECTURE | user=$env:USERNAME"
+          node probe.cjs win-native
+          node probe.cjs win-inspect-set set pi-dashboard-credential-key data-key-v1 c3Bpa2UtZHVtbXk=
+          "CMDKEY " + ((cmdkey /list | Select-String -Pattern 'pi-dashboard' -Context 0,2 | Out-String) -replace '\s+', ' ')
+          node probe.cjs win-inspect-del del pi-dashboard-credential-key data-key-v1
+          if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {
+            # Electron win32-arm64 leg ships x64 Node + x64 native modules (emulated): replicate both layouts
+            $v = $env:BUNDLED_NODE
+            Invoke-WebRequest "https://nodejs.org/dist/$v/node-$v-win-x64.zip" -OutFile nx64.zip
+            Expand-Archive nx64.zip -DestinationPath nx64
+            $X = "$W/nx64/node-$v-win-x64/node.exe"
+            & $X probe.cjs win-arm-x64node-arm64binding
+            $W64 = Join-Path $env:RUNNER_TEMP 'w64'; New-Item -ItemType Directory -Force $W64 | Out-Null
+            Copy-Item probe.cjs $W64; Push-Location $W64
+            npm init -y *> $null; npm i --no-audit --no-fund --cpu=x64 $env:KEYRING *> $null
+            "PKGS-x64 " + ((Get-ChildItem node_modules/@napi-rs).Name -join ' ')
+            & $X probe.cjs win-arm-x64node-x64binding
+            Pop-Location
+          }

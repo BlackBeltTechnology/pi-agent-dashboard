@@ -18,6 +18,7 @@
  */
 import crypto from "node:crypto";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import { isProvenTls } from "./proven-tls.js";
 
 /** Core WS route scopes — the only scopes a ticket may ever be bound to. */
 const CORE_WS_ROUTE_SCOPES = ["browser", "terminal", "live", "bridge"] as const;
@@ -74,11 +75,28 @@ interface TicketEntry {
    */
   principalExpiresAt?: number;
   expiresAt: number;
+  /** The minting request was on the hub's own TLS socket with no forwarding header (`bridge` scope). */
+  provenTls?: boolean;
+  /** How a `bridge` ticket was minted: with a device bearer, or by a genuinely-local bearer-less caller. */
+  mintedBy?: "device" | "local";
+}
+
+/** Facts the minting request proves, recorded on the ticket. See change: prove-vault-bridge-tls (D3). */
+export interface TicketMintMeta {
+  provenTls: boolean;
+  mintedBy: "device" | "local";
 }
 
 /** Outcome of a single-use consumption attempt, with the cause named. */
 export type TicketConsumption =
-  | { ok: true; deviceId?: string; principal?: Principal; principalExpiresAt?: number }
+  | {
+      ok: true;
+      deviceId?: string;
+      principal?: Principal;
+      principalExpiresAt?: number;
+      provenTls?: boolean;
+      mintedBy?: "device" | "local";
+    }
   | { ok: false; reason: "missing" | "unknown" | "expired" | "wrong-scope" };
 
 /**
@@ -158,6 +176,7 @@ export class WsTicketStore {
     scope: CoreWsRouteScope,
     deviceId?: string,
     identity?: { principal: Principal; principalExpiresAt?: number },
+    meta?: TicketMintMeta,
   ): string {
     // Lazy sweep on each mint clears abandoned (minted-but-unconsumed) tickets
     // so the map can't grow unbounded without a background timer.
@@ -169,6 +188,7 @@ export class WsTicketStore {
       principal: identity?.principal,
       principalExpiresAt: identity?.principalExpiresAt,
       expiresAt: this.now() + TICKET_TTL_MS,
+      ...(meta ? { provenTls: meta.provenTls, mintedBy: meta.mintedBy } : {}),
     });
     return ticket;
   }
@@ -204,6 +224,8 @@ export class WsTicketStore {
       deviceId: entry.deviceId,
       principal: entry.principal,
       principalExpiresAt: entry.principalExpiresAt,
+      provenTls: entry.provenTls,
+      mintedBy: entry.mintedBy,
     };
   }
 
@@ -214,4 +236,20 @@ export class WsTicketStore {
       if (entry.expiresAt < t) this.tickets.delete(ticket);
     }
   }
+}
+
+/**
+ * Mint a `bridge` ticket recording what the MINTING request proves: whether it arrived on the hub's own
+ * TLS socket with no forwarding header, and whether a device bearer or a genuinely-local caller minted it.
+ * See change: prove-vault-bridge-tls (D3).
+ */
+export function mintBridgeTicket(
+  store: WsTicketStore,
+  deviceId: string | undefined,
+  req: Parameters<typeof isProvenTls>[0],
+): string {
+  return store.mint("bridge", deviceId, undefined, {
+    provenTls: isProvenTls(req),
+    mintedBy: deviceId ? "device" : "local",
+  });
 }

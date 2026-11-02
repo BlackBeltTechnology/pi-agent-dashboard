@@ -530,6 +530,39 @@ describe("loopback fallback (fix-gateway-socket-stale-owner)", () => {
     expect(g.bridgeListeners().listeners).toEqual([]);
   });
 
+  // #978: pure-TCP path (Windows / PI_GATEWAY_TCP) must fail startup, not run degraded.
+  it("pure-TCP policy: a held pi port fails startup and leaves no listener", async () => {
+    const port = await freePort();
+    await hold(port, "127.0.0.1");
+    const g = mk();
+    const err = await startGatewayListeners(g, { tcp: { host: "127.0.0.1", port }, reason: "t" }, { piPort: port, log }).catch(
+      (e) => e as Error,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(String(err)).toContain(String(port));
+    expect(String(err)).toMatch(/EADDRINUSE/);
+    expect(g.bridgeListeners().listeners).toEqual([]);
+  });
+
+  it("start() on a held port: tcpListening() rejects; an unobserved bind failure raises no unhandled rejection", async () => {
+    const port = await freePort();
+    await hold(port, "127.0.0.1");
+    const onUnhandled = vi.fn();
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const g = mk();
+      g.start(port, "127.0.0.1");
+      await new Promise((r) => setTimeout(r, 50));
+      expect(onUnhandled).not.toHaveBeenCalled();
+      expect(g.bridgeListeners().listeners).toEqual([]);
+      const g2 = mk();
+      g2.start(port, "127.0.0.1");
+      await expect(g2.tcpListening()).rejects.toThrow(/EADDRINUSE/);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   // X4
   it.skipIf(process.getuid?.() === 0)("aborts without a fallback on a permission error", async () => {
     const ro = path.join(tmp, "ro");

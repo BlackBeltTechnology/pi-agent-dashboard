@@ -93,7 +93,6 @@ export default defineConfig({
       "packages/dashboard-plugin-runtime",
       "packages/automation-plugin",
       "packages/flows-plugin",
-      "packages/flows-anthropic-bridge-plugin",
       "packages/roles-plugin",
       // System-1 decision adapter + its settings/supervisor plugin.
       // See change: add-system-one-registry.

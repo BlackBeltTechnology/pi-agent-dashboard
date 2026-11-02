@@ -2398,3 +2398,109 @@ describe("SettingsPanel — Add-ons issue badge", () => {
     expect(screen.queryByTestId("nav-addons-issues")).toBeNull();
   });
 });
+
+// ─── Security ▸ open-enrolment banner (close-security-map-high-findings D3) ──
+
+describe("SettingsPanel — Security open-enrolment banner (#F1–#F3)", () => {
+  const authConfig = {
+    ...mockConfig,
+    auth: {
+      secret: "***",
+      providers: { github: { clientId: "id1", clientSecret: "***" } },
+      allowedUsers: [] as string[],
+    },
+  };
+
+  /** `diag` answers GET /api/auth/diagnostics; `saved` flips after the PUT so a re-fetch sees new posture. */
+  function fetchWithDiagnostics(diag: () => any | Error | "403") {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/auth/diagnostics") {
+        const v = diag();
+        if (v instanceof Error) return Promise.reject(v);
+        if (v === "403") return Promise.resolve({ ok: false, status: 403, json: () => Promise.resolve({ error: "insufficient_scope" }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { authActive: true, openEnrolment: v } }) });
+      }
+      if (url === "/api/config" && options?.method === "PUT") {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      if (url === "/api/config") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: authConfig }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/security");
+  });
+  afterEach(() => cleanup());
+
+  it("#F1 no banner for []; role=status text banner naming the provider and mode (refused / open); above the provider list; no secret", async () => {
+    global.fetch = fetchWithDiagnostics(() => []);
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("bypass-urls-textarea"));
+    await waitFor(() =>
+      expect((global.fetch as any).mock.calls.some(([u]: [string]) => u === "/api/auth/diagnostics")).toBe(true),
+    );
+    expect(screen.queryByTestId("open-enrolment-banner")).toBeNull();
+    cleanup();
+
+    global.fetch = fetchWithDiagnostics(() => [
+      { provider: "github", mode: "refused" },
+      { provider: "keycloak", mode: "open" },
+    ]);
+    render(<SettingsPanel />);
+    const banner = await screen.findByTestId("open-enrolment-banner");
+    expect(banner.getAttribute("role")).toBe("status");
+    // text, not colour-only
+    expect(within(banner).getByTestId("open-enrolment-github").textContent).toMatch(/github.*refused/i);
+    expect(within(banner).getByTestId("open-enrolment-keycloak").textContent).toMatch(/keycloak.*every issuer account/i);
+    // above the provider list
+    const github = screen.getAllByText(/GitHub/i)[0];
+    expect(banner.compareDocumentPosition(github) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // no secret in the DOM
+    expect(document.body.textContent).not.toMatch(/clientSecret|\*\*\*secret|id1secret/);
+  });
+
+  it("#F2 a caller below operate (diagnostics 403): no banner, no error toast/alert, no console error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    global.fetch = fetchWithDiagnostics(() => "403");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("bypass-urls-textarea"));
+    await waitFor(() =>
+      expect((global.fetch as any).mock.calls.some(([u]: [string]) => u === "/api/auth/diagnostics")).toBe(true),
+    );
+    expect(screen.queryByTestId("open-enrolment-banner")).toBeNull();
+    // (the page may carry unrelated alerts; none may mention the refused diagnostics fetch)
+    for (const a of screen.queryAllByRole("alert")) expect(a.textContent).not.toMatch(/diagnostic|enrolment|sign-in|403|insufficient/i);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it("#F3 the banner refreshes after a successful save; a failing re-fetch keeps the prior state without crashing", async () => {
+    let posture: any = [{ provider: "github", mode: "refused" }];
+    let failNext = false;
+    global.fetch = fetchWithDiagnostics(() => (failNext ? new Error("network down") : posture));
+    render(<SettingsPanel />);
+    await screen.findByTestId("open-enrolment-banner");
+
+    // save adds an allowed user; the server's posture is now empty
+    posture = [];
+    fireEvent.change(screen.getByPlaceholderText(/octocat/), { target: { value: "octocat" } });
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() => expect(screen.queryByTestId("open-enrolment-banner")).toBeNull());
+
+    // fetch failure after a later save: banner set stays as the last payload (here: none), no crash
+    failNext = true;
+    posture = [{ provider: "github", mode: "refused" }];
+    fireEvent.change(screen.getByPlaceholderText(/octocat/), { target: { value: "octocat\nhubot" } });
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+    await waitFor(() =>
+      expect((global.fetch as any).mock.calls.filter(([u]: [string]) => u === "/api/auth/diagnostics").length).toBeGreaterThanOrEqual(3),
+    );
+    expect(screen.queryByTestId("open-enrolment-banner")).toBeNull();
+    expect(screen.getByTestId("bypass-urls-textarea")).toBeTruthy();
+  });
+});

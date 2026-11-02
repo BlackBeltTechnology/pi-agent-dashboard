@@ -33,7 +33,7 @@ async function spawnSession(client: BusClient, cwd: string): Promise<string> {
 
 /**
  * P1 (L3) — goal plugin_action reaches the working handler (test-plan #P1).
- * Exemplar: tests/e2e/anthropic-bridge-activation.spec.ts. Harness port from
+ * Exemplar: the (since removed) anthropic bridge activation spec. Harness port from
  * `.pi-test-harness.json` via DASHBOARD_PORT (never hardcode :18000).
  *
  * The `BusClient` is a headless Node WS client, so this spec drives it DIRECTLY

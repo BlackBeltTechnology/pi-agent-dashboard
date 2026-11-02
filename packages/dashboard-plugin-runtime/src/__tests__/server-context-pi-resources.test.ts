@@ -74,3 +74,30 @@ describe("ServerPluginContext pi-resources seams", () => {
     expect(ctx.onPiResourcesInvalidated?.(() => {})).toBe(unsub);
   });
 });
+
+// close-security-map-high-findings (D1, H1; test-plan #E27–#E29): the guarded-read seam is OPTIONAL, forwarded
+// verbatim and not trust-gated. The host implementation lives in the server package (`dashboard-state-guard.ts`,
+// `agent-credential-guard.test.ts`).
+describe("ServerPluginContext.readFileGuarded seam", () => {
+  it("reads as undefined on a context built without the dep (an older host): callers must fail closed", () => {
+    expect(createServerPluginContext(baseDeps(), "flows").readFileGuarded).toBeUndefined();
+  });
+
+  it("forwards the host function verbatim to every plugin id (not trust-gated), including its `null` and rejections", async () => {
+    const seen: string[] = [];
+    const host = async (p: string): Promise<string | null> => {
+      seen.push(p);
+      if (p.endsWith("auth.json")) return null;
+      if (p.endsWith("missing")) throw Object.assign(new Error("gone"), { code: "ENOENT" });
+      return "body";
+    };
+    for (const id of ["flows", "automation", "some-untrusted-plugin"]) {
+      const ctx = createServerPluginContext({ ...baseDeps(), readFileGuarded: host }, id);
+      expect(ctx.readFileGuarded).toBe(host);
+      await expect(ctx.readFileGuarded?.("/a/auth.json")).resolves.toBeNull();
+      await expect(ctx.readFileGuarded?.("/a/ok.txt")).resolves.toBe("body");
+      await expect(ctx.readFileGuarded?.("/a/missing")).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    expect(seen).toHaveLength(9);
+  });
+});

@@ -85,7 +85,7 @@ describe("generated plugin-sources.css (E13)", () => {
     expect(roots).toContain(`${pkg}/src/client`);
   });
 
-  it.each(["grammar-plugin", "quota-plugin", "flows-anthropic-bridge-plugin", "roles-plugin", "demo-plugin"])(
+  it.each(["grammar-plugin", "quota-plugin", "roles-plugin", "demo-plugin"])(
     "%s (client code directly under src/) is covered by its src line",
     (pkg) => {
       expect(roots).toContain(`${pkg}/src`);

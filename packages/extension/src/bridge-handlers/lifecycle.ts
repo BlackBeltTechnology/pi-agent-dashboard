@@ -128,7 +128,7 @@ function handleSessionChange(inst: BridgeInstance, ctx: any, usageSeed?: ReturnT
   }
   inst.renewGitTracker();
   const bc = inst.syncBc();
-  _handleSessionChange(bc, ctx, inst.getFlowsList, usageSeed);
+  _handleSessionChange(bc, ctx, usageSeed);
   inst.applyBc(bc);
   // A new session id needs its own `pi_version_update` (below-floor flag).
   // After applyBc, so syncBc() carries the NEW session id.
@@ -605,6 +605,8 @@ export function registerSessionStart(inst: BridgeInstance): void {
       // fresh session, did not.
       // See change: fix-tmux-session-shutdown-leak (D6).
       pid: process.pid,
+      // See change: prove-vault-bridge-tls (D7).
+      ...(inst.connection.certValidation ? { certValidation: "enforced" as const } : {}),
       // The spawn correlation token, echoed back so the server can match THIS
       // register to the spawn that produced it. This is a fresh session's FIRST
       // register, and it omitted the token entirely: tier-1 correlation never
@@ -679,9 +681,6 @@ export function registerSessionStart(inst: BridgeInstance): void {
       sessionId: inst.sessionId,
       commands,
     });
-
-    // Send initial flows list
-    inst.sendFlowsList();
 
     // Send available models
     inst.cachedModelRegistry = (ctx as any).modelRegistry;
@@ -976,7 +975,7 @@ export function registerSessionStart(inst: BridgeInstance): void {
     scheduler.start();
 
     // Register flow event listeners (pi-flows emits these via pi.events)
-    registerFlowEventListeners(inst.syncBc(), () => inst.sessionReady, inst.getFlowsList);
+    registerFlowEventListeners(inst.syncBc(), () => inst.sessionReady);
 
     // Extension UI System (Phase 1): subscribe to invalidate once per
     // session, then run the discovery probe. The probe is synchronous

@@ -224,7 +224,10 @@ describe("HeadlessPidRegistry orphan cleanup", () => {
     // {ok:true, forced:false} on the first post-SIGTERM poll (≤ 200 ms).
     // See change: fix-keeper-kill-escalation.
     let sigtermSent = false;
-    const killSpy = vi.spyOn(process, "kill").mockImplementation((_p, sig) => {
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((p, sig) => {
+      // The test process does not lead its own process group: a -pid probe
+      // finds no group, so killProcess keeps the single-pid ladder (#912).
+      if (p < 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
       if (sig === 0) {
         if (sigtermSent) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
         return true;

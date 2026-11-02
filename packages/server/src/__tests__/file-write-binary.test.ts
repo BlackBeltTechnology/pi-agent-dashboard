@@ -15,7 +15,7 @@ import type { PluginClaim } from "@blackbelt-technology/pi-dashboard-shared/dash
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { createRouteTierGate } from "../auth/route-tier-gate.js";
@@ -673,5 +673,88 @@ describe("core cwd admission on the editor-pane save (core-file-cwd-admission, t
     });
     expect(await read("report.docx")).toBe("OLD-CONTENT");
     await fsp.rm(repo, { recursive: true, force: true });
+  });
+});
+
+/**
+ * pi-agent credential files are never a write-binary target, and the hash read goes through the checked handle
+ * (a hard link yields neither a write nor a SHA-1). See change: close-security-map-high-findings
+ * (D1, H6; test-plan #E12–#E14, #X9).
+ */
+describe("credential files are not write-binary targets", () => {
+  const CRED = "BINCRED-MARKER-1d4e";
+  const HEX40 = /[0-9a-f]{40}/;
+  let home: string;
+  let prevHome: string | undefined;
+  const agentFile = (n: string) => path.join(home, ".pi", "agent", n);
+
+  beforeEach(async () => {
+    prevHome = process.env.HOME;
+    home = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "wb-home-")));
+    process.env.HOME = home;
+    await fsp.mkdir(path.join(home, ".pi", "agent"), { recursive: true });
+    for (const n of ["auth.json", "providers.json", "mcp.json", "auth.json.bak.json"]) await fsp.writeFile(agentFile(n), CRED);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    process.env.HOME = prevHome;
+    await fsp.rm(home, { recursive: true, force: true });
+  });
+
+  it("#E12 an x.docx hard-linked to auth.json: 403, no sha1 / 40-hex string in the body, credential bytes + mtime unchanged", async () => {
+    await fsp.link(agentFile("auth.json"), path.join(cwd, "x.docx"));
+    const before = await fsp.stat(agentFile("auth.json"));
+    app = makeApp({ cwds: [cwd] });
+    const res = await post(app, { cwd, path: "x.docx", expectSha1: "0".repeat(40) }); // deliberately wrong
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "target is not a writable handler file in scope" });
+    expect(res.body).not.toMatch(HEX40);
+    expect(res.body).not.toContain("sha1");
+    const after = await fsp.stat(agentFile("auth.json"));
+    expect(await fsp.readFile(agentFile("auth.json"), "utf-8")).toBe(CRED);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it("#E13 a credential target under a claimed `.json` extension is refused in overwrite and copy mode; nothing is created", async () => {
+    app = makeApp({ cwds: [home], claim: { extensions: [".json"] } });
+    const listing = await fsp.readdir(path.join(home, ".pi", "agent"));
+    for (const target of [".pi/agent/auth.json", ".pi/agent/providers.json", ".pi/agent/mcp.json", ".pi/agent/auth.json.bak.json"]) {
+      for (const mode of ["overwrite", "copy"] as const) {
+        const res = await post(app, { cwd: home, path: target, mode, expectSha1: sha1(CRED), ...(mode === "copy" ? { siblingExt: ".json" } : {}) });
+        expect(res.statusCode, `${mode} ${target}`).toBe(403);
+        expect(res.body, `${mode} ${target}`).not.toMatch(HEX40);
+      }
+    }
+    expect(await fsp.readdir(path.join(home, ".pi", "agent"))).toEqual(listing);
+    expect(await fsp.readFile(agentFile("auth.json"), "utf-8")).toBe(CRED);
+  });
+
+  it("#E14 an ordinary claimed file still saves (overwrite with the matching sha1, and copy)", async () => {
+    app = makeApp({ cwds: [cwd] });
+    expect((await post(app, { cwd, path: "report.docx", expectSha1: sha1(SEED) })).statusCode).toBe(200);
+    expect(await read("report.docx")).toBe("NEW");
+    const copy = await post(app, { cwd, path: "report.docx", mode: "copy" });
+    expect(copy.statusCode).toBe(200);
+  });
+
+  it("#X9 a swap to a credential hard link before the hash read opens the handle: 403, no sha1 of the credential", async () => {
+    app = makeApp({ cwds: [cwd] });
+    const target = path.join(cwd, "report.docx");
+    const realOpen = fsp.open.bind(fsp);
+    let swapped = false;
+    vi.spyOn(fsp, "open").mockImplementation((async (p: import("node:fs").PathLike, ...rest: unknown[]) => {
+      if (!swapped && String(p) === target) {
+        swapped = true;
+        await fsp.rm(target);
+        await fsp.link(agentFile("auth.json"), target);
+      }
+      return (realOpen as (...a: unknown[]) => Promise<import("node:fs/promises").FileHandle>)(p, ...rest);
+    }) as never);
+    const res = await post(app, { cwd, path: "report.docx", expectSha1: "f".repeat(40) });
+    expect(swapped).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "target is not a writable handler file in scope" });
+    expect(res.body).not.toMatch(HEX40);
+    expect(await fsp.readFile(agentFile("auth.json"), "utf-8")).toBe(CRED);
   });
 });

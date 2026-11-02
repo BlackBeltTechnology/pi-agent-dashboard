@@ -1,0 +1,3 @@
+blocked_by:
+  - change: automate-windows-remote-qa
+    reason: "needs the qa/remote harness incl. its --host/--user/--key/--port/--known-hosts flags (amended D7), zip staging by basename + QA_NPM_SPEC pinned to the zip version (amended D4), BOM + 127.0.0.1 load-compat (fixes the F7 localhost penalty), QA_NPM_SPEC in 01-install.ps1, and the qa-windows-ps1-compat guard test this change extends"

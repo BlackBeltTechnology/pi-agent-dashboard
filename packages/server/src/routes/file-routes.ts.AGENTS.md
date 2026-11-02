@@ -36,3 +36,5 @@ Core cwd admission (all gates): `routeAdmission` dep (default = own `sessionMana
 
 Body reads open through `openStateChecked`/`readFileStateChecked` (post-open dev/ino recheck against the always-refused dashboard files); md-read stays on its original read and is covered by the state check in `isWritableMdTarget`. See change: close-container-loopback-impersonation (D8).
 Containment sites branch on `containmentAllows(decision, resolved)`; the raw pre-check uses `decidePassive(..., {allowGrant:false})`. See change: codeql-file-containment-barrier.
+
+Post-open credential recheck at every content site: digest + md-read + eml + eml-attachment + rendered-pdf (checked open right before converter) map `DashboardStateRefused` → 403 `path outside working directory`; raw/render/sheet same; raw open-time refusals reset media headers (`openRefusal`) so JSON body is not a 500. See change: close-security-map-high-findings (D1).

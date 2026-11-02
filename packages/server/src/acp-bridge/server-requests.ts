@@ -106,7 +106,6 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "path_grant_result":
     case "path_yolo_result":
     case "dashboard_identity":
-    case "request_flows_refresh":
     case "credentials_updated":
     case "mcp_token_minted":
     case "plugin_reply":

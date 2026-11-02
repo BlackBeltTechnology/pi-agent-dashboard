@@ -1,5 +1,7 @@
-import { expect, type Page, test } from "./fixtures.js";
+import { COOKIE_NAME, signToken } from "../../packages/server/src/auth/auth.js";
+import { expect, narrowTrust, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { BASE_URL } from "./lifecycle.js";
 
 /**
  * L3 browser behaviour for the chat-gateway TEAM CONTROLS configuration
@@ -203,5 +205,75 @@ test.describe("chat-gateway team controls surface", () => {
 			timeout: 30_000,
 		});
 		expect(`${await state.innerText()}|${await ceilingLine.innerText()}`).toBe(before);
+	});
+});
+
+/**
+ * D2 (change: close-security-map-high-findings, test-plan #E55): the chat gateway
+ * stays armed and answering while the MCP surface no longer offers
+ * `prompt_response`.
+ *
+ * Honest scope: the fake platform has no click/answer ingress (it is driven by
+ * `inbound.jsonl` text messages only), so "answer via chat control delivered once,
+ * observe refused" cannot be exercised end to end here. That half is pinned at L1
+ * (`authorize.test.ts` E52–E54, `gateway-team-controls.test.ts`
+ * `prompt_response` permitted at control). This row proves the runtime half: the
+ * real harness `/mcp` lacks the tool for an operate token and answers the standard
+ * unknown-tool error, while the gateway's armed state is unchanged.
+ */
+test.describe("D2 — chat answers stay; MCP answer tool is gone", () => {
+	const E2E_AUTH_SECRET = "e2e-auth-secret-32-chars-longxxxx";
+	const SESSION_USER = {
+		sub: "e2e@example.com",
+		name: "e2e operator",
+		username: "e2e",
+		provider: "github",
+	};
+	const MCP_VERSION = "2026-07-28";
+	const META = { "io.modelcontextprotocol/protocolVersion": MCP_VERSION };
+
+	test("E55: operate token's tools/list lacks prompt_response; the gateway is still armed", async ({
+		page,
+		request,
+		context,
+	}) => {
+		const sessionToken = signToken(SESSION_USER, E2E_AUTH_SECRET);
+		await narrowTrust(request, { trustedNetworks: [], auth: { bypassUrls: ["/v1/"] } });
+		await context.addCookies([{ name: COOKIE_NAME, value: sessionToken, url: BASE_URL }]);
+		const minted = await request.post("/api/paired-devices", {
+			headers: { cookie: `${COOKIE_NAME}=${sessionToken}`, "content-type": "application/json" },
+			data: { label: `e2e-d2-${Date.now()}`, tier: "operate" },
+		});
+		expect(minted.ok(), `mint failed: HTTP ${minted.status()}`).toBe(true);
+		const token = ((await minted.json()) as { data: { token: string } }).data.token;
+		const mcp = (payload: Record<string, unknown>) =>
+			request.post("/mcp", {
+				headers: {
+					authorization: `Bearer ${token}`,
+					"mcp-protocol-version": MCP_VERSION,
+					"content-type": "application/json",
+				},
+				data: payload,
+			});
+
+		const list = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: META } });
+		expect(list.status()).toBe(200);
+		const names = ((await list.json()) as { result: { tools: Array<{ name: string }> } }).result.tools.map(
+			(t) => t.name,
+		);
+		expect(names).not.toContain("prompt_response");
+		expect(names).not.toContain("extension_ui_response");
+
+		const call = await mcp({
+			jsonrpc: "2.0",
+			id: 2,
+			method: "tools/call",
+			params: { _meta: META, name: "prompt_response", arguments: { sessionId: "x" } },
+		});
+		expect(call.status()).toBe(404);
+		expect(call.headers()["www-authenticate"]).toBeUndefined();
+
+		await gotoSettings(page);
+		await expect(page.getByTestId("team-disarm-state")).toHaveText("armed");
 	});
 });

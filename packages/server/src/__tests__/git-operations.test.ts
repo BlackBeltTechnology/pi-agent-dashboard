@@ -653,7 +653,9 @@ describe("redactGitText", () => {
       expect(small[Math.floor(small.length * 0.99) - 1]).toBeLessThan(10);
       const big = run(mk(1_000_000, unit), 20);
       const med = (a: number[]) => a[Math.floor(a.length / 2)];
-      expect(med(big)).toBeLessThanOrEqual(20 * Math.max(med(small), 0.05));
+      // 10× the input. Linear plus GC on 1 MB strings measured ~22× on a loaded CI runner
+      // (release ci-checks, v0.11.0); quadratic would be ~100×. 40× keeps the quadratic catch.
+      expect(med(big)).toBeLessThanOrEqual(40 * Math.max(med(small), 0.05));
     }
   });
 });

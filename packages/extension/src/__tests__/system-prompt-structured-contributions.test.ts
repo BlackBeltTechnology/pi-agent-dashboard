@@ -115,7 +115,9 @@ describe("first-party injectors keep structured contributions provider-visible",
     expect(text).toContain(CONTEXT_DELIMITER);
     expect(text).toContain("── dox doctrine ──");
     expect(text).toContain('prefer a role ref `model: "@<role>"`');
-    expect(text).toContain("@fast → anthropic/claude-haiku-4-5");
+    // The roles fragment points at `list_roles` instead of listing roles.
+    // See change: roles-discovery-via-list-roles (#1091).
+    expect(text).toContain("Call `list_roles`");
     expect(text).toContain("<mcp_servers>");
     // Exactly one of each fragment.
     expect(text.split(CONTEXT_DELIMITER)).toHaveLength(2);

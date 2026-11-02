@@ -10,7 +10,8 @@ import {
 /**
  * L3 browser behaviour for the redesigned Add-provider flow
  * (change: redesign-providers-settings-page). Covers test-plan rows F1, F5,
- * F6 (both suppression directions), F13 and X6.
+ * F6 (both suppression directions) and X6 (F13, the peer hint, was removed by
+ * change: retire-anthropic-messages-bridge).
  *
  * The dialog is PRESENTATION ONLY (design D4): the section owns every flow's
  * poll timers and outcome. These scenarios stage `GET /api/provider-auth/status`
@@ -211,44 +212,6 @@ test.describe("redesign-providers-settings-page — Add-provider flow (L3)", () 
     await search.press("Enter");
     await expect(page.getByTestId("dialog-sign-in")).toHaveCount(0);
     await expect(search).toBeVisible();
-  });
-
-  // ── F13 — the peer hint never attaches to Add-provider surfaces ───────────
-  test("F13: unconfigured anthropic with a failing peer probe shows no hint in the list, picker or pane", async ({
-    page,
-  }) => {
-    // Make the probe STRICTLY report the peer missing (ok === false), so the
-    // hint is genuinely armed — the gate must withhold it, not the probe.
-    const health = await (await page.request.get("/api/health")).json();
-    const plugins: Array<Record<string, unknown>> = Array.isArray(health.plugins) ? health.plugins : [];
-    const bridgeRow = (plugins.find((p) => p?.id === "flows-anthropic-bridge") ?? {}) as Record<string, unknown>;
-    bridgeRow.id = "flows-anthropic-bridge";
-    const lastProbe = (bridgeRow.lastProbe ?? {}) as Record<string, unknown>;
-    lastProbe.peers = {
-      ...((lastProbe.peers ?? {}) as Record<string, unknown>),
-      "@pi/anthropic-messages": { ok: false, reason: "e2e fixture: peer unresolved" },
-    };
-    bridgeRow.lastProbe = lastProbe;
-    health.plugins = plugins.some((p) => p?.id === "flows-anthropic-bridge") ? plugins : [...plugins, bridgeRow];
-    await page.route("**/api/health", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(health) }),
-    );
-
-    routeProviderData(page, {
-      statuses: [unconfiguredAuthCode("anthropic", "Anthropic"), unconfiguredAuthCode("openai", "OpenAI")],
-    });
-    await openProvidersSettings(page);
-
-    // No row exists (the list carries only credentialed providers)…
-    await expect(page.locator('[data-testid="provider-row"][data-row-id="anthropic"]')).toHaveCount(0);
-    await expect(page.getByTestId("anthropic-peer-hint")).toHaveCount(0);
-
-    // …and the picker and its pane carry no hint either.
-    const picker = await openAddPicker(page);
-    await expect(page.getByTestId("anthropic-peer-hint")).toHaveCount(0);
-    await picker.getByRole("option", { name: /^Anthropic/ }).click();
-    await expect(page.getByText("Sign in to Anthropic")).toBeVisible();
-    await expect(page.getByTestId("anthropic-peer-hint")).toHaveCount(0);
   });
 
   // ── X6 — a refusal that lands after the dialog closed surfaces inline ─────

@@ -1,7 +1,6 @@
 /**
  * Session-related REST API routes.
  */
-import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import type { SessionListItem } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -12,6 +11,7 @@ import { evaluateContainment } from "../access/containment-gate.js";
 import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
 import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { canAccessSession, gateHttpSession, sessionPrincipalOf } from "../identity/session-access.js";
+import { DashboardStateRefused, dashboardStateRefuses, readFileStateChecked } from "../lib/dashboard-state-guard.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
@@ -537,6 +537,13 @@ export function registerSessionRoutes(
       // Resolve and ensure path is within cwd
       const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
       const rel = relative(session.cwd, absPath);
+      // Dashboard-state + pi-agent credential refusal (real path, both tiers) BEFORE the in-cwd shortcut:
+      // a session cwd of `$HOME` contains `.pi/agent/auth.json` and `.pi/dashboard/local/token`.
+      // See change: close-security-map-high-findings (D1, F1).
+      if (await dashboardStateRefuses(absPath)) {
+        reply.code(403);
+        return { success: false, error: "path outside session directory" } satisfies ApiResponse;
+      }
       let viaGrant = false;
       if (rel.startsWith("..") || isAbsolute(rel)) {
         // The tenth containment site (design D19). A path grant admits here
@@ -560,10 +567,10 @@ export function registerSessionRoutes(
         // swapped after the containment check would be served.
         const content = viaGrant
           ? await readFileVerifiedUtf8(absPath)
-          : await readFile(absPath, "utf-8");
+          : await readFileStateChecked(absPath, "utf-8");
         return { success: true, data: { content } } satisfies ApiResponse;
       } catch (err) {
-        if (err instanceof VerifiedReadRefused) {
+        if (err instanceof VerifiedReadRefused || err instanceof DashboardStateRefused) {
           reply.code(403);
           return { success: false, error: "path outside session directory" } as ApiResponse;
         }

@@ -31,4 +31,4 @@ See change: unify-pi-core-into-package-queue.
 
 ## streamline-first-run
 
-`getSourceOp(source): SourceOp | null` — read-only per-source accessor. Pending (running/queued) wins, an `install` over other actions; else sticky terminal state (`error` before `success`) carrying the action of the last terminal op (`lastTerminalAction`, set in `completeRunning`, cleared with the sticky state on `enqueue`/auto-clear/reset). Lets `peer-auto-install-store` follow an install and tell a `remove` success from an `install` success. See change: streamline-first-run.
+`getSourceOp(source): SourceOp | null` — read-only per-source accessor. Pending (running/queued) wins, an `install` over other actions; else sticky terminal state (`error` before `success`) carrying the action of the last terminal op (`lastTerminalAction`, set in `completeRunning`, cleared with the sticky state on `enqueue`/auto-clear/reset). Lets a caller follow an install and tell a `remove` success from an `install` success (first consumer, the peer auto-install store, removed by change: retire-anthropic-messages-bridge). See change: streamline-first-run.

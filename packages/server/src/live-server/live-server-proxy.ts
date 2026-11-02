@@ -48,6 +48,10 @@ function filterSetCookie(value: string | string[] | undefined): string[] | undef
 /** A request/upgrade header bag the credential stripper edits in place. */
 type HeaderBag = Record<string, unknown>;
 
+/** The request shape the channel classifier reads (`socket.encrypted` + headers). */
+type ProxyRequestLike = Pick<import("node:http").IncomingMessage, "socket" | "headers">;
+type DeviceBearerCheck = (token: string, req: ProxyRequestLike | undefined) => boolean;
+
 /**
  * Strip dashboard credentials from headers bound for the preview upstream:
  * every `pi_dash_*` cookie, and an `Authorization` header that verifies as a
@@ -55,7 +59,9 @@ type HeaderBag = Record<string, unknown>;
  */
 function stripDashboardCredentials(
   headers: HeaderBag,
-  isDeviceBearer: (token: string) => boolean,
+  isDeviceBearer: DeviceBearerCheck,
+  req: ProxyRequestLike | undefined,
+  isKnownBearer: (token: string) => boolean,
 ): HeaderBag {
   const cookie = headers.cookie;
   if (typeof cookie === "string") {
@@ -67,7 +73,10 @@ function stripDashboardCredentials(
   if (typeof authz === "string") {
     const m = /^Bearer\s+(.+)$/i.exec(authz.trim());
     // Device bearers and the host's own operator (`pi_op_`) bearer are dashboard credentials.
-    if (m && (isDeviceBearer(m[1]) || m[1].startsWith("pi_op_"))) delete headers.authorization;
+    // `isDeviceBearer` judges (and records the channel of) the request; `isKnownBearer` then strips EVERY
+    // registry-known bearer, so a refused `pi_tls_` bearer is never forwarded off-hub.
+    // See change: prove-vault-bridge-tls (D4).
+    if (m && (isDeviceBearer(m[1], req) || isKnownBearer(m[1]) || m[1].startsWith("pi_op_"))) delete headers.authorization;
   }
   return headers;
 }
@@ -109,8 +118,13 @@ function staysInside(path: string, prefix: string): boolean {
 }
 
 export interface LiveProxyDeps {
-  /** Does this token verify as a dashboard device bearer? Absent ⇒ never strip `Authorization`. */
-  isDeviceBearer?: (token: string) => boolean;
+  /**
+   * Does this token verify as a dashboard device bearer on THIS request's channel? Absent ⇒ never
+   * strip `Authorization`. Receives the request so the registry can record a non-proven channel.
+   */
+  isDeviceBearer?: DeviceBearerCheck;
+  /** Is this token ANY bearer the registry knows (valid, expired or refused)? Always stripped. */
+  isKnownBearer?: (token: string) => boolean;
   /**
    * The raw file-read gate for a static target's real path, re-run on EVERY static
    * request. Absent ⇒ static targets serve nothing (fail closed).
@@ -171,6 +185,7 @@ export function registerLiveServerProxy(
   deps: LiveProxyDeps = {},
 ) {
   const isDeviceBearer = deps.isDeviceBearer ?? (() => false);
+  const isKnownBearer = deps.isKnownBearer ?? (() => false);
   // Register the `@fastify/reply-from` proxy plugin. live-server-proxy is now
   // the SOLE consumer of the `from` decorator — the editor proxy that used to
   // provide it was deleted in change: remove-external-editor-integration, which
@@ -253,7 +268,7 @@ export function registerLiveServerProxy(
         headers.host = `${host}:${target.port}`;
         // Dashboard credentials never reach the previewed app; its own cookies
         // and bearer pass through. See change: retire-trusted-networks-bypass (D5).
-        stripDashboardCredentials(headers as HeaderBag, isDeviceBearer);
+        stripDashboardCredentials(headers as HeaderBag, isDeviceBearer, request.raw, isKnownBearer);
         // The hop to the loopback upstream is a PROXIED hop: mark it so nothing the
         // upstream does with this request can pass for "genuinely local".
         headers["x-forwarded-for"] = [headers["x-forwarded-for"], request.ip].filter(Boolean).join(", ");
@@ -368,6 +383,7 @@ export function handleLiveServerUpgrade(
   const subPath = rest.startsWith("?") ? `/${rest}` : rest.startsWith("/") ? rest : "/";
   const host = upstreamHost(target.host);
   const isDeviceBearer = deps.isDeviceBearer ?? (() => false);
+  const isKnownBearer = deps.isKnownBearer ?? (() => false);
 
   const upstream = net.connect(target.port, host, () => {
     // Clear the connect-phase timeout once the socket is established; the pipe
@@ -375,7 +391,7 @@ export function handleLiveServerUpgrade(
     upstream.setTimeout(0);
     // Dashboard credentials never reach the previewed app (same rule as the
     // HTTP path); a forwarded Referer loses any capability segment.
-    const forwarded = stripDashboardCredentials({ ...request.headers } as HeaderBag, isDeviceBearer);
+    const forwarded = stripDashboardCredentials({ ...request.headers } as HeaderBag, isDeviceBearer, request, isKnownBearer);
     // A proxied hop: the upstream must never see this upgrade as genuinely local.
     forwarded["x-forwarded-for"] = [forwarded["x-forwarded-for"], request.socket?.remoteAddress]
       .filter(Boolean)

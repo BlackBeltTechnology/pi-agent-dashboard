@@ -99,6 +99,7 @@ import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
+import { TrustedTypesSection } from "./TrustedTypesSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
 import { DefaultGroupingField } from "./DefaultGroupingField.js";
@@ -145,6 +146,12 @@ interface AuthConfig {
    * localhost base. See change: config-override-oauth-redirect-base.
    */
   redirectBaseUrl?: string;
+}
+
+/** One entry of `GET /api/auth/diagnostics` `openEnrolment`: `refused` = public IdP, login refused. */
+interface OpenEnrolmentEntry {
+  provider: string;
+  mode: "refused" | "open";
 }
 
 interface MemoryLimitsConfig {
@@ -283,6 +290,10 @@ interface Config {
   agentPathGate?: { enabled: boolean; timeoutSeconds: number };
   /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
   agentPathGateEnvOverride?: "on" | "off" | null;
+  /** Raw stored security knobs; `trustedTypes` is `off | report | enforce` when valid. See change: enforce-trusted-types-default. */
+  security?: { trustedTypes?: unknown };
+  /** Computed by GET /api/config (never persisted): the recognized `PI_DASHBOARD_TRUSTED_TYPES` value, or null. */
+  trustedTypesEnvOverride?: "off" | "report" | "enforce" | null;
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -354,7 +365,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", windowsBashSource: "sessions", autoStart: "sessions", editor: "general",
-  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
+  trustedNetworks: "security", network: "security", pairing: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security", security: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -464,6 +475,11 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if ((config.hostGate?.mode ?? "enforce") !== (original.hostGate?.mode ?? "enforce")) {
     partial.hostGate = { mode: config.hostGate?.mode ?? "enforce" };
+  }
+  // Trusted Types: written as `security.trustedTypes`; Default (key absent in the draft) sends `null`,
+  // which removes the stored key. See change: enforce-trusted-types-default.
+  if (config.security?.trustedTypes !== original.security?.trustedTypes) {
+    partial.security = { trustedTypes: config.security?.trustedTypes ?? null };
   }
   // Agent path gate: two flat fields, written whole (server shallow-merges the sub-object).
   {
@@ -680,6 +696,32 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     serverHeapInvalid ||
     subagentCapInvalid;
   const [message, setMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
+  // Security ▸ open-enrolment posture, server-derived (live auth state). Fetched on mount and after
+  // a successful save; a refused fetch (caller below `operate`) or a failure keeps the prior
+  // state and renders no error. See change: close-security-map-high-findings (D3).
+  const [openEnrolment, setOpenEnrolment] = useState<OpenEnrolmentEntry[]>([]);
+  const refreshOpenEnrolment = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/api/auth/diagnostics`);
+      if (!res?.ok) return;
+      const body = await res.json();
+      const list = body?.data?.openEnrolment;
+      if (Array.isArray(list)) {
+        setOpenEnrolment(
+          list.filter(
+            (e: unknown): e is OpenEnrolmentEntry =>
+              typeof e === "object" && e !== null && typeof (e as OpenEnrolmentEntry).provider === "string" &&
+              ((e as OpenEnrolmentEntry).mode === "refused" || (e as OpenEnrolmentEntry).mode === "open"),
+          ),
+        );
+      }
+    } catch {
+      // keep the prior state
+    }
+  }, []);
+  useEffect(() => {
+    void refreshOpenEnrolment();
+  }, [refreshOpenEnrolment]);
   // Restart is a slow op: the HTTP ack returns immediately but the effect lands
   // when the server re-broadcasts `server_restarting` with our requestId. Hold
   // pending until that correlated event (confirm:"ws"), with a timeout fallback.
@@ -1081,7 +1123,10 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     const results = await Promise.allSettled(tasks.map((tk) => tk.run()));
     // The config save may have mirrored the Default model into pi's file.
     // (The config task is queued first, so it is `results[0]` when present.)
-    if (configDirty && results[0]?.status === "fulfilled") setPiSettingsRefreshKey((k) => k + 1);
+    if (configDirty && results[0]?.status === "fulfilled") {
+      setPiSettingsRefreshKey((k) => k + 1);
+      void refreshOpenEnrolment();
+    }
     const failed: string[] = [];
     let restartRequired = false;
     results.forEach((r, i) => {
@@ -1106,7 +1151,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     }
     setSaving(false);
     return failed.length === 0;
-  }, [config, original, isDirty, configDirty, configPartial, draftSources, refreshGitSourceReadout, fieldsInvalid, t]);
+  }, [config, original, isDirty, configDirty, configPartial, draftSources, refreshGitSourceReadout, refreshOpenEnrolment, fieldsInvalid, t]);
 
   // ── Unsaved-changes navigation guards ─────────────────────────────────────
   const [pendingNav, setPendingNav] = useState<string | null>(null);
@@ -2518,6 +2563,24 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
                     {t("settings.authDescription", undefined, "Configure OAuth providers to protect external (Gateway) access. Localhost is always open.")}
                   </p>
+                  {openEnrolment.length > 0 && (
+                    <div
+                      role="status"
+                      data-testid="open-enrolment-banner"
+                      className="mb-3 rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-primary)]"
+                    >
+                      <p className="font-medium">{t("settings.openEnrolmentTitle", undefined, "Sign-in is not restricted")}</p>
+                      <ul className="mt-1 list-disc pl-4">
+                        {openEnrolment.map((e) => (
+                          <li key={e.provider} data-testid={`open-enrolment-${e.provider}`}>
+                            {e.mode === "refused"
+                              ? t("settings.openEnrolmentRefused", { provider: e.provider }, "Sign-in via {provider} is refused: it is a public identity provider and neither Allowed Users nor auth.groupTiers is set. Add allowed users below to enable sign-in.")
+                              : t("settings.openEnrolmentOpen", { provider: e.provider }, "{provider} is open to every issuer account: neither Allowed Users nor auth.groupTiers is set. Add allowed users below to restrict it.")}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {["github", "google", "keycloak", "oidc"].map((key) => (
                     <ProviderSection
                       key={key}
@@ -2646,6 +2709,14 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                   onModeChange={(mode) => update((c) => { c.hostGate = { mode }; })}
                   onAllowedHostsChange={(hosts) => update((c) => { c.allowedHosts = hosts; })}
                   onNavigate={navigate}
+                />
+                <TrustedTypesSection
+                  value={config.security?.trustedTypes}
+                  envOverride={config.trustedTypesEnvOverride ?? null}
+                  onChange={(mode) => update((c) => {
+                    const { trustedTypes: _drop, ...rest } = c.security ?? {};
+                    c.security = mode === undefined ? rest : { ...rest, trustedTypes: mode };
+                  })}
                 />
                 <AgentPathGateSection
                   value={config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 }}

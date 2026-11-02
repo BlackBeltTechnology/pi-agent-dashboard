@@ -336,3 +336,45 @@ describe("E54 — exec injects SVC_<ID>_<NAME> into the child only", () => {
     expect(process.env.SVC_OBS_PASSWORD).toBeUndefined();
   });
 });
+
+describe("E46 — the resolver refuses the host data key (encrypt-credentials-at-rest D10)", () => {
+  const refs = [
+    "keychain:pi-dashboard-credential-key/data-key-v1",
+    "keychain:pi-dashboard-credential-key/other",
+    "keychain:PI-Dashboard-Credential-Key/data-key-v1",
+  ];
+
+  it("resolveSecretRef → secret-unavailable on darwin and linux, no tool looked up or run", async () => {
+    for (const platform of ["darwin", "linux"] as const) {
+      for (const ref of refs) {
+        const runner = recordingRunner(() => ({ stdout: "THE-DATA-KEY\n" }));
+        const resolveBinary = vi.fn((n: string) => `/usr/bin/${n}`);
+        const r = await resolveSecretRef(ref, resolverDeps({ run: runner.run, platform, resolveBinary }));
+        expect(r).toMatchObject({ ok: false, reason: "secret-unavailable" });
+        expect(JSON.stringify(r)).not.toContain("THE-DATA-KEY");
+        expect(runner.calls).toHaveLength(0);
+        expect(resolveBinary).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it("ensure reports unavailable/secret-unavailable and spawns nothing", async () => {
+    for (const ref of refs.slice(0, 2)) {
+      writeDefinitions(root, [{ ...obsDef(), secrets: { password: { ref } } }]);
+      const runner = recordingRunner(() => ({ stdout: "THE-DATA-KEY\n" }));
+      const { manager } = makeManager(root, { platform: "darwin", run: runner.run });
+      expect(await manager.ensure("obs")).toMatchObject({ state: "unavailable", reason: "secret-unavailable" });
+      expect(runner.calls).toHaveLength(0);
+    }
+  });
+});
+
+describe("E47 — an ordinary keychain ref resolves exactly as before", () => {
+  it("keychain:pi-dashboard/obs goes through the stub tool once", async () => {
+    const runner = recordingRunner(() => ({ stdout: "kc-value\n" }));
+    const r = await resolveSecretRef("keychain:pi-dashboard/obs", resolverDeps({ run: runner.run, platform: "linux" }));
+    expect(r).toEqual({ ok: true, value: "kc-value" });
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0].args).toEqual(["lookup", "service", "pi-dashboard", "account", "obs"]);
+  });
+});

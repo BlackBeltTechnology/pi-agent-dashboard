@@ -109,7 +109,7 @@ describe("sourcesMatch", () => {
 		expect(
 			sourcesMatch(
 				"git@github.com:BlackBeltTechnology/pi-flows.git",
-				"git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+				"git@github.com:Example/example-ext.git",
 			),
 		).toBe(false);
 	});
@@ -127,8 +127,8 @@ describe("sourcesMatch", () => {
 		).toBe(true);
 		expect(
 			sourcesMatch(
-				"../pi-anthropic-messages/",
-				"git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+				"../example-ext/",
+				"git@github.com:Example/example-ext.git",
 			),
 		).toBe(true);
 		expect(
@@ -160,15 +160,15 @@ describe("sourcesMatch", () => {
 	it("cross-matches a git URL against an npm install whose unscoped name is the repo", () => {
 		expect(
 			sourcesMatch(
-				"https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
-				"npm:@blackbelt-technology/pi-anthropic-messages",
+				"https://github.com/Example/example-ext.git",
+				"npm:@example/example-ext",
 			),
 		).toBe(true);
 		// order-independent
 		expect(
 			sourcesMatch(
-				"npm:@blackbelt-technology/pi-anthropic-messages@0.3.2",
-				"git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+				"npm:@example/example-ext@0.3.2",
+				"git@github.com:Example/example-ext.git",
 			),
 		).toBe(true);
 	});
@@ -176,27 +176,27 @@ describe("sourcesMatch", () => {
 	it("does not cross-match a git URL against an unrelated npm package", () => {
 		expect(
 			sourcesMatch(
-				"https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
+				"https://github.com/Example/example-ext.git",
 				"npm:@blackbelt-technology/pi-image-fit-extension",
 			),
 		).toBe(false);
 	});
 
 	it("cross-matches an npm install against a local path whose basename is the unscoped name", () => {
-		// A local checkout (`pi install -l ../pi-anthropic-messages`) of a
+		// A local checkout (`pi install -l ../example-ext`) of a
 		// package whose manifest source is the npm scope. See change:
 		// suppress-hidden-session-auto-navigation (develop regression follow-up).
 		expect(
 			sourcesMatch(
-				"npm:@blackbelt-technology/pi-anthropic-messages",
-				"../pi-anthropic-messages",
+				"npm:@example/example-ext",
+				"../example-ext",
 			),
 		).toBe(true);
 		// order-independent + trailing slash + version suffix tolerated
 		expect(
 			sourcesMatch(
-				"../pi-anthropic-messages/",
-				"npm:@blackbelt-technology/pi-anthropic-messages@0.3.2",
+				"../example-ext/",
+				"npm:@example/example-ext@0.3.2",
 			),
 		).toBe(true);
 		// unscoped npm name also matches
@@ -206,7 +206,7 @@ describe("sourcesMatch", () => {
 	it("does not cross-match an npm package against an unrelated local path", () => {
 		expect(
 			sourcesMatch(
-				"npm:@blackbelt-technology/pi-anthropic-messages",
+				"npm:@example/example-ext",
 				"../pi-web-access",
 			),
 		).toBe(false);

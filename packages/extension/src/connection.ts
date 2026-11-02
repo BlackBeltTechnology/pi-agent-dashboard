@@ -6,7 +6,10 @@
 import { normalizeQuiesceMs } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import { WebSocket as WsWebSocket } from "ws";
 
+import { certValidationFor } from "./bridge-tls-checks.js";
+import { bridgeDialUrl } from "./connect-target.js";
 import { isLoopbackEndpoint as defaultLoopbackClassifier } from "./endpoint-resolution.js";
+import { isRemoteEndpoint } from "./remote-registration-gate.js";
 
 /** One migration decision, accepted or refused. The bridge's ONLY record
  * channel for re-targeting — wired to `transportDiagnostics` in bridge.ts so
@@ -985,10 +988,23 @@ export class ConnectionManager {
     if (!this.intentionalClose) this.scheduleReconnect();
   }
 
-  private openSocket(dialUrl: string = this.url, plan?: DialPlan): void {
+  /**
+   * `"enforced"` when the TLS checks apply to the current endpoint (a remote
+   * `wss:` one with validation not disabled); declared on `session_register` and
+   * the vault sync request. See change: prove-vault-bridge-tls (D7).
+   */
+  get certValidation(): "enforced" | undefined {
+    return certValidationFor(this.url);
+  }
+
+  private openSocket(rawDialUrl: string = this.url, plan?: DialPlan): void {
+    // A path-less `wss://` endpoint dials the bridge route; a remote `wss` dial
+    // always validates the certificate, whatever the process env says.
+    const dialUrl = bridgeDialUrl(rawDialUrl);
     const headers = this.headers || plan?.headers ? { ...this.headers, ...plan?.headers } : undefined;
     const wsOptions: Record<string, unknown> = {};
     if (headers) wsOptions.headers = headers;
+    if (dialUrl.startsWith("wss:") && isRemoteEndpoint(dialUrl)) wsOptions.rejectUnauthorized = true;
     if (plan?.createConnection) wsOptions.createConnection = plan.createConnection;
     this.identityFailure = null;
     this.dialVerified = false;

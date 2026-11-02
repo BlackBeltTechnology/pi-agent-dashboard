@@ -1,0 +1,3 @@
+# __tests__/retired-anthropic-messages-gate.test.mjs — index
+
+#E18 removal gate: `git ls-files` scan for retired identifiers (`flows-anthropic-bridge`, `pi-anthropic-messages`, legacy `@pi/anthropic-messages`, `anthropic-messages-source`, `anthropic-peer-names`, `PI_ANTHROPIC_MESSAGES`, peer probe/auto-install names) → zero offenders outside history and planning text (`openspec/changes/**` — archives, this and other in-flight changes, `openspec/specs/` until archive, `Prompt stories/`, `mockups/`, `docs/qa/archived-*`, kb index, CHANGELOG) and the `INTENDED` allowlist (uninstall notice + copy, doctor guidance, FAQ/README uninstall note). Also: plugin dir gone; no stale allowlist entry. See change: retire-anthropic-messages-bridge.

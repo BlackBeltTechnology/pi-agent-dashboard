@@ -11,6 +11,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerBearerAuth } from "../../auth/bearer-auth.js";
 import { createNetworkGuard } from "../../auth/localhost-guard.js";
+import { ROUTE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
+import { WS_MESSAGE_TIERS } from "@blackbelt-technology/pi-dashboard-shared/ws-message-tiers.js";
 import { createRouteTierGate } from "../../auth/route-tier-gate.js";
 import { createMemoryEventStore } from "../../persistence/memory-event-store.js";
 import { PairedDeviceRegistry } from "../../pairing/paired-devices.js";
@@ -414,6 +416,42 @@ describe("question REST roads", () => {
     expect((await post(app, id, { answer: "Resume" }, as(anna))).statusCode).toBe(409);
     expect((await post(app, id, { answer: "Resume" }, as(bela))).statusCode).toBe(404);
     expect((await app.inject({ method: "POST", url: `/api/questions/${id}/summarize`, headers: as(bela) })).statusCode).toBe(404);
+  });
+
+  // See change: close-security-map-high-findings (test-plan #E50): removing the MCP
+  // answer tools (D2) leaves every non-MCP answer road exactly as it was.
+  describe("non-MCP answer roads unchanged (test-plan #E50)", () => {
+    it("POST /api/questions/:id/answer delivers a non-file prompt exactly once", async () => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1"));
+      const id = idOf(store);
+      const { app, send } = await makeApp(store);
+      expect((await post(app, id, { answer: "Resume" })).statusCode).toBe(200);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith("s1", {
+        type: "prompt_response",
+        sessionId: "s1",
+        promptId: "p1",
+        answer: "Resume",
+        source: "dashboard-default",
+      });
+      expect((await post(app, id, { answer: "Resume" })).statusCode).toBe(409);
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it("a file-kind question is still refused (403) and nothing is sent", async () => {
+      const { store } = makeStore();
+      store.onTracked("s1", promptMsg("s1", "p1", { metadata: { kind: "agent-path-gate" } }));
+      const { app, send } = await makeApp(store);
+      expect((await post(app, idOf(store), { answer: "Resume" })).statusCode).toBe(403);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it("the dashboard WS `prompt_response` stays control; the access-prompt road stays operate", () => {
+      expect(WS_MESSAGE_TIERS.prompt_response).toBe("control");
+      expect(ROUTE_TIERS.find((r) => r.method === "POST" && r.path === "/api/access/prompts/:promptId")?.tier).toBe("operate");
+      expect(ROUTE_TIERS.find((r) => r.method === "POST" && r.path === "/api/questions/:id/answer")?.tier).toBe("control");
+    });
   });
 
   describe("tier gate + unknown id (test-plan #X7)", () => {

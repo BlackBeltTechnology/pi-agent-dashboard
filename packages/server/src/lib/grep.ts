@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Worker } from "node:worker_threads";
 import { workerExecArgv } from "../attachments/fit-worker-pool.js";
-import { isDashboardStateDirSync } from "./dashboard-state-guard.js";
+import { isAgentCredentialFileSync, isDashboardStateDirSync } from "./dashboard-state-guard.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -222,6 +222,9 @@ export function grepWithJsScan(cwd: string, query: string, opts: GrepOptions = {
         continue;
       }
       if (!entry.isFile()) continue;
+      // Never read a pi-agent credential file (by name; a symlink dirent is not a file and is skipped above).
+      // See change: close-security-map-high-findings (D1).
+      if (isAgentCredentialFileSync(full)) continue;
       filesScanned++;
       let body: string;
       try {

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createVaultImport } from "../vault/vault-import.js";
 import { registerVaultRoutes } from "../vault/vault-routes.js";
 import { createVaultStore, type VaultStore } from "../vault/vault-store.js";
+import { testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let store: VaultStore;
@@ -34,7 +35,7 @@ async function mkApp() {
 
 beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "vault-imp-"));
-  store = createVaultStore(path.join(dir, "vault.json"));
+  store = createVaultStore({ codec: testVaultCodec(), path: path.join(dir, "vault.json") });
   envFile = path.join(dir, ".env");
   authFile = path.join(dir, "auth.json");
   fs.writeFileSync(envFile, "GEMINI_API_KEY=abcdefgh12\nSHORT_KEY=abc\n");

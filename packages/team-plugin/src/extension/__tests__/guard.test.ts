@@ -145,6 +145,36 @@ describe("E34: path gate rooted at a project", () => {
   });
 });
 
+describe("#971: dangling-symlink escape (shared tool-path-resolve)", () => {
+  it("a write through an in-root dangling link to outside is rejected", () => {
+    fs.symlinkSync(path.join(other, "new.txt"), path.join(ws, "dangle"));
+    expect(decideToolCall("write", { path: "dangle" }, policy()).allow).toBe(false);
+    expect(decideToolCall("write", { path: path.join(ws, "dangle") }, policy()).allow).toBe(false);
+  });
+
+  it("a relative dangling link under a symlinked dir is resolved from the link's real parent", () => {
+    // ws/sub -> ws/a/b/real (in-root dir); ws/a/b/real/esc -> ../../../../../uk-bob/workspace/new.txt
+    // (dangling, relative: resolved from the link's REAL parent it climbs to tmp, i.e. out of ws).
+    const real = path.join(ws, "a", "b", "real");
+    fs.mkdirSync(real, { recursive: true });
+    fs.symlinkSync(real, path.join(ws, "sub"));
+    fs.symlinkSync(path.join("..", "..", "..", "..", "..", "uk-bob", "workspace", "new.txt"), path.join(real, "esc"));
+    expect(decideToolCall("write", { path: "sub/esc" }, policy()).allow).toBe(false);
+  });
+
+  it("an in-root dangling link to an in-root target stays allowed", () => {
+    fs.symlinkSync(path.join(ws, "later.txt"), path.join(ws, "ok-link"));
+    expect(decideToolCall("write", { path: "ok-link" }, policy()).allow).toBe(true);
+  });
+
+  it("a symlink loop fails closed (no throw)", () => {
+    fs.symlinkSync(path.join(ws, "b"), path.join(ws, "a"));
+    fs.symlinkSync(path.join(ws, "a"), path.join(ws, "b"));
+    expect(() => decideToolCall("write", { path: "a" }, policy())).not.toThrow();
+    expect(decideToolCall("write", { path: "a" }, policy()).allow).toBe(false);
+  });
+});
+
 describe("extension entry", () => {
   it("registers tool_call and announces readiness only with a valid policy", () => {
     vi.useFakeTimers();

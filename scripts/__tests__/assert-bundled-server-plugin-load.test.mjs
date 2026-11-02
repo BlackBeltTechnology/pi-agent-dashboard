@@ -52,7 +52,7 @@ function fixture({ cli = true, node = true, native = true } = {}) {
     writeFileSync(abs, '');
   };
   if (native) write('node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs');
-  if (cli) write('packages/server/src/cli.ts');
+  if (cli) write('node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts');
   if (node) {
     write('../node/bin/node');
     write('../node/node.exe');
@@ -71,7 +71,7 @@ describe('bundle layout', () => {
     expect(layout.missing).toEqual([]);
     expect(layout.nodeBin).toBe(join(root, '..', 'node', 'bin', 'node'));
     expect(layout.loader).toBe(join(root, 'node_modules', '@blackbelt-technology', 'pi-dashboard-shared', 'src', 'platform', 'native-ts-register.mjs'));
-    expect(layout.cli).toBe(join(root, 'packages', 'server', 'src', 'cli.ts'));
+    expect(layout.cli).toBe(join(root, 'node_modules', '@blackbelt-technology', 'pi-dashboard-server', 'src', 'cli.ts'));
   });
 
   it('uses node.exe on win32', () => {
@@ -155,7 +155,7 @@ describe('native TS loader (E31)', () => {
   });
 
   it('the entry stays raw on win32 (Node path.resolve()s the main entry)', () => {
-    const layout = { loader: 'C:\\b #1\\native-ts-register.mjs', cli: 'B:\\b\\packages\\server\\src\\cli.ts' };
+    const layout = { loader: 'C:\\b #1\\native-ts-register.mjs', cli: 'B:\\b\\node_modules\\@blackbelt-technology\\pi-dashboard-server\\src\\cli.ts' };
     const argv = bootArgv(layout, [], 'win32');
     // `#` and the space are percent-encoded, so the loader URL is not cut at a fragment.
     expect(argv[1]).toBe('file:///C:/b%20%231/native-ts-register.mjs');

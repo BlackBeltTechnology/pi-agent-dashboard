@@ -17,6 +17,7 @@
 import type { TLSSocket } from "node:tls";
 import type { PairPollData } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { isTier, TIERS } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import { TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/tls-only-token.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { describeApprovalRefusal } from "../auth/approval-refusal.js";
@@ -26,6 +27,7 @@ import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admissio
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
 import { hasLocalCredential } from "../auth/local-credential.js";
+import { bearerChannelOf, isProvenChannel } from "../auth/proven-tls.js";
 import { createLocalTrustContext, hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
 import { isLocallyTrusted, type LanInterface } from "../auth/localhost-guard.js";
 import {
@@ -36,7 +38,7 @@ import {
   knockPeerInput,
   knockPeerState,
 } from "../pairing/knock-admission.js";
-import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
+import { BRIDGE_TOKEN_REQUIRES_HTTPS, type PairedDeviceRegistry, type PairedDeviceView } from "../pairing/paired-devices.js";
 import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
 import { localEndpoints } from "../tunnel/tunnel-endpoints.js";
@@ -240,7 +242,7 @@ export function registerBearerRotateRoute(fastify: FastifyInstance, deps: { regi
     // Only the exact string "browser" is a declaration; anything else is none (A-G11).
     const declared =
       body !== null && typeof body === "object" && (body as Record<string, unknown>).holder === "browser";
-    const result = registry.rotate(presented, declared);
+    const result = registry.rotate(presented, declared, { channel: bearerChannelOf(request.raw) });
     if (result.ok) {
       auditLine("pairing", "rotated", { id: auditPrefix(result.id), ip: request.ip });
       return { token: result.token, expiresAt: result.expiresAt };
@@ -261,6 +263,8 @@ export function registerBearerRotateRoute(fastify: FastifyInstance, deps: { regi
         return refuse(409, "holder_declaration_required");
       case "persist_failed":
         return refuse(500, "rotation_failed");
+      case "tls_only_untrusted_channel":
+        return refuse(401, TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL);
       case "rate_limited":
         reply.header("Retry-After", String(result.retryAfterS ?? 60));
         return refuse(429, "rate_limited");
@@ -292,6 +296,8 @@ export function registerPairingRoutes(
      * list so the browser Settings flow and the CLI share one source (D8).
      */
     getReachableUrls?: () => string[];
+    /** Certificate-backed `https://` URLs of the native TLS listener (named in a refused bridge-token issue). */
+    getTlsListenerUrls?: () => string[];
     /** Bound HTTP port, used to enumerate loopback/LAN endpoints. A thunk so
      * a `port: 0` server reports the real bound port per request. */
     getPort?: () => number;
@@ -583,7 +589,7 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: "pendingId required" };
       }
-      const result = pairing.poll(pendingId, request.body?.holder);
+      const result = pairing.poll(pendingId, request.body?.holder, bearerChannelOf(request.raw));
       // Route delegation (D7): the one approved answer that carries the token also
       // names the server's https origins. Filtered here, not in PairingManager.poll,
       // so knock and QR redemption both get it and the QR payload `urls` stay as minted.
@@ -635,12 +641,13 @@ export function registerPairingRoutes(
   // ── Dashboard: mint a device token for an MCP client (operator-only) ──
   // Deliberately NOT in PUBLIC_PAIRING_PREFIXES: this route issues durable
   // credentials and requires an operator credential, not a pairing code (D5).
-  fastify.post<{ Body: { label?: unknown; tier?: unknown } }>(
+  fastify.post<{ Body: { label?: unknown; tier?: unknown; purpose?: unknown } }>(
     "/api/paired-devices",
     { preHandler: operatorGuard },
-    async (request, reply): Promise<ApiResponse<{ device: PairedDeviceView; token: string }>> => {
+    async (request, reply): Promise<ApiResponse<{ device: PairedDeviceView; token: string }> & { httpsUrl?: string }> => {
       const label = request.body?.label;
       const tier = request.body?.tier;
+      const purpose = request.body?.purpose;
       if (typeof label !== "string") {
         reply.code(400);
         return { success: false, error: "label must be a string" };
@@ -659,10 +666,30 @@ export function registerPairingRoutes(
           error: `label must be 1..${MAX_DEVICE_LABEL_BYTES} UTF-8 bytes`,
         };
       }
+      // `purpose` is absent or "bridge" (D9); `bridge` forces tier `operate`, which bridge-ticket
+      // minting needs. Both are validated BEFORE the registry is touched, so a refusal leaves no row.
+      if (purpose !== undefined && purpose !== "bridge") {
+        reply.code(400);
+        return { success: false, error: 'purpose must be "bridge" when present' };
+      }
+      if (purpose === "bridge" && tier !== undefined && tier !== "operate") {
+        reply.code(400);
+        return { success: false, error: "a bridge token is always tier operate" };
+      }
+      const channel = bearerChannelOf(request.raw);
+      if (purpose === "bridge" && !isProvenChannel(channel)) {
+        // A bridge token is never handed out plain-and-exposed by accident.
+        const httpsUrl = deps.getTlsListenerUrls?.()[0];
+        reply.code(403);
+        return { success: false, error: BRIDGE_TOKEN_REQUIRES_HTTPS, ...(httpsUrl ? { httpsUrl } : {}) };
+      }
       // The plaintext token rides this ONE response and is never retrievable
       // again (D4) — same plaintext-once semantics as the pairing ceremony.
-      // No tier → the manual source default (`observe`, D1).
-      const minted = registry.add(trimmed, "manual", isTier(tier) ? tier : undefined);
+      // No tier → the manual source default (`observe`, D1). The delivering channel decides exposure.
+      const minted = registry.add(trimmed, "manual", isTier(tier) ? tier : undefined, undefined, {
+        channel,
+        ...(purpose === "bridge" ? { purpose: "bridge" as const } : {}),
+      });
       auditLine("pairing", "minted", {
         id: auditPrefix(minted.device.id),
         tier: minted.device.tier,

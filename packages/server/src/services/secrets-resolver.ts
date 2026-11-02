@@ -4,11 +4,17 @@
  * find-generic-password … -w`, Linux `secret-tool lookup`, 10 s timeout).
  *
  * A ref that cannot be resolved is `secret-unavailable` — there is NEVER a
- * fallback to another backend (a keychain ref never consults the store). The
- * dashboard never writes a keychain entry: `security add-generic-password -w
- * <value>` puts the value in argv. Hints never carry a value.
- * See change: add-service-registry-core (D8).
+ * fallback to another backend (a keychain ref never consults the store). This
+ * module never writes a keychain entry: `security add-generic-password -w
+ * <value>` puts the value in argv. The ONE keychain write in the dashboard is
+ * the host data key (service `pi-dashboard-credential-key`), made by the
+ * native-module keychain worker in `auth/credential-key.ts`, never here. This
+ * resolver REFUSES that service, before looking up or running any tool, so a
+ * service definition cannot pull the data key into a container env. Hints
+ * never carry a value.
+ * See change: add-service-registry-core (D8), encrypt-credentials-at-rest (D10).
  */
+import { CREDENTIAL_KEYCHAIN_SERVICE } from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
 import type { ServiceDefinition } from "@blackbelt-technology/pi-dashboard-shared/services/schema.js";
 import type { CommandRunner } from "./command-runner.js";
 import { SecretsCorruptError, type SecretsStore } from "./secrets-store.js";
@@ -71,40 +77,50 @@ export function keychainArgv(
   return null;
 }
 
+async function resolveKeychainRef(rest: string, deps: SecretResolverDeps): Promise<SecretResolution> {
+  const slash = rest.indexOf("/");
+  if (slash <= 0) return unavailable("malformed keychain ref (expected keychain:<service>/<account>)");
+  const service = rest.slice(0, slash);
+  // D10: the host data key is never resolvable, whatever the platform. Case-insensitive on purpose.
+  if (service.trim().toLowerCase() === CREDENTIAL_KEYCHAIN_SERVICE) {
+    return unavailable("this keychain service is reserved for the dashboard and cannot be referenced");
+  }
+  const argv = keychainArgv(deps.platform, service, rest.slice(slash + 1));
+  if (!argv) return unavailable(`keychain refs are not supported on ${deps.platform}`);
+  const bin = deps.resolveBinary(argv.tool);
+  if (!bin) return unavailable(`${argv.tool} is not installed`);
+  const r = await deps.run(bin, argv.args, { timeoutMs: KEYCHAIN_TIMEOUT_MS });
+  if (r.timedOut) return unavailable(`${argv.tool} did not answer within ${KEYCHAIN_TIMEOUT_MS / 1000} s (locked keychain or pending prompt?)`);
+  if (r.code !== 0) return unavailable(`${argv.tool} could not read the item (missing, locked, or no session bus)`);
+  const value = r.stdout.replace(/\r?\n$/, "");
+  return value.length > 0 ? { ok: true, value } : unavailable(`${argv.tool} returned an empty value`);
+}
+
+function resolveStoreRef(rest: string, deps: SecretResolverDeps): SecretResolution {
+  const slash = rest.indexOf("/");
+  if (slash <= 0) return unavailable(`malformed store ref ${JSON.stringify(`store:${rest}`)}`);
+  try {
+    const v = deps.store.get(rest.slice(0, slash), rest.slice(slash + 1));
+    return v === undefined ? unavailable(`secret ${rest} is not set (pi-dashboard service secret set …)`, "unset") : { ok: true, value: v };
+  } catch (err) {
+    if (err instanceof SecretsCorruptError) {
+      return unavailable(`the secret store is corrupt; backup: ${err.backupPath ?? "not written"}`);
+    }
+    return unavailable("the secret store could not be read");
+  }
+
+}
+
 export async function resolveSecretRef(ref: string, deps: SecretResolverDeps): Promise<SecretResolution> {
   const colon = ref.indexOf(":");
   const scheme = ref.slice(0, colon);
   const rest = ref.slice(colon + 1);
-  if (scheme === "store") {
-    const slash = rest.indexOf("/");
-    if (slash <= 0) return unavailable(`malformed store ref ${JSON.stringify(ref)}`);
-    try {
-      const v = deps.store.get(rest.slice(0, slash), rest.slice(slash + 1));
-      return v === undefined ? unavailable(`secret ${rest} is not set (pi-dashboard service secret set …)`, "unset") : { ok: true, value: v };
-    } catch (err) {
-      if (err instanceof SecretsCorruptError) {
-        return unavailable(`the secret store is corrupt; backup: ${err.backupPath ?? "not written"}`);
-      }
-      return unavailable("the secret store could not be read");
-    }
-  }
+  if (scheme === "store") return resolveStoreRef(rest, deps);
   if (scheme === "env") {
     const v = deps.env[rest];
     return typeof v === "string" && v.length > 0 ? { ok: true, value: v } : unavailable(`env var ${rest} is not set`, "unset");
   }
-  if (scheme === "keychain") {
-    const slash = rest.indexOf("/");
-    if (slash <= 0) return unavailable("malformed keychain ref (expected keychain:<service>/<account>)");
-    const argv = keychainArgv(deps.platform, rest.slice(0, slash), rest.slice(slash + 1));
-    if (!argv) return unavailable(`keychain refs are not supported on ${deps.platform}`);
-    const bin = deps.resolveBinary(argv.tool);
-    if (!bin) return unavailable(`${argv.tool} is not installed`);
-    const r = await deps.run(bin, argv.args, { timeoutMs: KEYCHAIN_TIMEOUT_MS });
-    if (r.timedOut) return unavailable(`${argv.tool} did not answer within ${KEYCHAIN_TIMEOUT_MS / 1000} s (locked keychain or pending prompt?)`);
-    if (r.code !== 0) return unavailable(`${argv.tool} could not read the item (missing, locked, or no session bus)`);
-    const value = r.stdout.replace(/\r?\n$/, "");
-    return value.length > 0 ? { ok: true, value } : unavailable(`${argv.tool} returned an empty value`);
-  }
+  if (scheme === "keychain") return resolveKeychainRef(rest, deps);
   return unavailable(`unknown secret ref scheme ${JSON.stringify(scheme)}`);
 }
 

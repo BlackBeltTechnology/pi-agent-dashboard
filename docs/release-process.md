@@ -165,10 +165,18 @@ On `v*` tag push, `publish.yml`:
    Fires only when `github-release` succeeded AND `is_prerelease != 'true'`
    — prereleases stay quiet. `continue-on-error: true` — webhook failure
    never reds release. Reads repo secret `DISCORD_RELEASE_WEBHOOK` via env
-   `DISCORD_WEBHOOK_URL`; secret unset → step logs skip, exits 0. Posts
-   release name/url/body (`gh release view`) as one embed, body truncated at
-   3800 chars; `allowed_mentions: { parse: [] }` blocks @everyone / role /
-   user pings.
+   `DISCORD_WEBHOOK_URL`; secret unset → step logs skip, exits 0.
+   Sparse `actions/checkout@v4` of `scripts/discord-release-announce.mjs`.
+   `gh release view "$TAG" --json name,url,body > release.json`, then
+   `node scripts/discord-release-announce.mjs release.json "$TAG"`.
+   Script posts FULL body, no truncation. Splits on line boundaries into
+   ≤ 4000-char embeds, one embed per message, sequential (`?wait=true`).
+   Titles `Released <name>`; continuations `Released <name> (i/N)`. Title
+   ≤ 256 chars (name shortened with `…`). Empty body → `_No release notes._`.
+   Every message `allowed_mentions: { parse: [] }` blocks @everyone / role /
+   user pings. HTTP 429 → waits `retry_after`, max 5 retries per message;
+   `retry_after` > 60 s aborts. Other failure → exits non-zero with Discord
+   status + body, never webhook URL.
 
 Release lands as **draft** — nothing published until *Publish* clicked on
 GitHub Releases page.
@@ -204,7 +212,9 @@ git push origin v<version>
 ## Discord Announcement
 
 Automatic. `discord-announce` job in `publish.yml` posts release notes to
-community Discord after `github-release` succeeds. Best-effort — see
+community Discord `#releases` (announcement channel) after `github-release`
+succeeds. Posts full release body via `scripts/discord-release-announce.mjs`
+(split into ≤ 4000-char embeds; v0.10.0 ≈ 37k chars → ~10 messages). Best-effort — see
 [What CI Does](#what-ci-does) job 4.
 
 One-time setup:
@@ -212,6 +222,10 @@ One-time setup:
 1. Discord channel → Edit Channel → Integrations → Webhooks → New Webhook.
 2. Copy webhook URL.
 3. `gh secret set DISCORD_RELEASE_WEBHOOK` (repo secret).
+
+Partial failure: may leave only first messages posted. Recovery: delete
+partial messages in `#releases`, then GitHub Actions → release run →
+"Re-run failed jobs" on `discord-announce`.
 
 Rollback: delete `DISCORD_RELEASE_WEBHOOK` secret (job skips, exits 0) or
 delete `discord-announce` job.

@@ -21,7 +21,6 @@ import type {
   DecoratorDescriptor,
   ExtensionUiModule,
   FileEntry,
-  FlowInfo,
   FollowUpEntryView,
   GoalRecord,
   ImageContent,
@@ -296,6 +295,16 @@ export interface HistoryBackfillResultMessage {
   servedTo: number;
   /** Still-servable events in the gap; 0 = nothing more. Client stop rule. */
   remainingGapCount: number;
+  /**
+   * Top-level tool calls whose `tool_execution_start` is in `events` and that
+   * are still open, evaluated at serve time (same synchronous step as the
+   * send, so a later-stored end always follows this result on the wire).
+   * Open = no stored end, non-synthetic `agent_start`, `agent_end` or
+   * assistant `message_start` after the start. Optional and additive: absent
+   * means none; absent on refusals and on relocated (`movedTo`) sessions.
+   * See change: fix-backfill-elides-live-tools (D1).
+   */
+  openToolCallIds?: string[];
   error?: "not_subscribed" | "in_flight" | "out_of_range" | "stale_generation";
 }
 
@@ -303,12 +312,6 @@ export interface BrowserCommandsListMessage {
   type: "commands_list";
   sessionId: string;
   commands: CommandInfo[];
-}
-
-export interface BrowserFlowsListMessage {
-  type: "flows_list";
-  sessionId: string;
-  flows: FlowInfo[];
 }
 
 export interface BrowserExtensionUiRequestMessage {
@@ -1238,7 +1241,6 @@ export type ServerToBrowserMessage =
   | SessionHistoryWindowMessage
   | HistoryBackfillResultMessage
   | BrowserCommandsListMessage
-  | BrowserFlowsListMessage
   | BrowserExtensionUiRequestMessage
   | BrowserUiDismissMessage
   | BrowserFilesListMessage

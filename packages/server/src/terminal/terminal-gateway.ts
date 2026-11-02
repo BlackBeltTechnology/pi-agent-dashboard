@@ -6,6 +6,8 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
+import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
+import type { TieredSocket } from "../pairing/ws-tier-gate.js";
 import type { TerminalManager } from "./terminal-manager.js";
 
 const TERMINAL_PATH_PREFIX = "/ws/terminal/";
@@ -31,6 +33,12 @@ export interface TerminalGateway {
      * owner check at upgrade must not outlive the credential that passed it.
      */
     principalExpiresAt?: number,
+    /**
+     * Live tier of the login session that admitted the socket (null ⇒ revoked). Stamped on
+     * the socket so the auth-reload sweep can close it; absent (ticket / local) ⇒ never
+     * swept. See change: close-security-map-high-findings (D3).
+     */
+    sessionTier?: () => Tier | null,
   ): void;
   /** Close the WebSocket server. */
   close(): void;
@@ -51,6 +59,7 @@ export function createTerminalGateway(manager: TerminalManager): TerminalGateway
     head: Buffer,
     authorize?: (termId: string) => boolean,
     principalExpiresAt?: number,
+    sessionTier?: () => Tier | null,
   ): void {
     // `parseTerminalId` is a startsWith/slice on the raw URL, so a `?ticket=…`
     // query rides the id; strip it before the lookup (unchanged for plain URLs).
@@ -66,6 +75,7 @@ export function createTerminalGateway(manager: TerminalManager): TerminalGateway
     }
 
     wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
+      if (sessionTier) (ws as TieredSocket).sessionTier = sessionTier;
       manager.attach(termId, ws);
       if (typeof principalExpiresAt === "number") {
         const lifetime = Object.assign(ws, { principalExpiresAt }) as unknown as LifetimeSocket;

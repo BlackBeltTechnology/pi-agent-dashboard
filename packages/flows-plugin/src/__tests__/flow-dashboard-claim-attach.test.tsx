@@ -2,8 +2,8 @@
  * FlowDashboardClaim with an attached (not-started) flow.
  *
  * Render harness: primitive registry (FlowSummary.test.tsx), session events via
- * publishSessionEvent(s) (FlowsSessionStateContext.test.tsx), flowsList via
- * publishSessionData, mocked fetch (flow-agent-card-code-source.test.tsx).
+ * publishSessionEvent(s) (FlowsSessionStateContext.test.tsx), the flow catalog
+ * via a `flow_catalog` event, mocked fetch (flow-agent-card-code-source.test.tsx).
  * Instance continuity is asserted via DOM identity of the `flow-dashboard` root:
  * React reuses the root DOM node only when the FlowDashboard instance is kept,
  * so `===` on it is the mount counter.
@@ -17,12 +17,12 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   PluginContextProvider,
-  publishSessionData,
   publishSessionEvent,
   publishSessionEvents,
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,7 +39,11 @@ import {
   getAttachment,
   setAttachment,
 } from "../client/flow-attach-store.js";
+import { flowCollapseKey } from "../client/flow-collapse-storage.js";
 import type { FlowAttachment } from "../client/flow-idle-state.js";
+import { useIsolatedLocalStorage } from "./flows-test-harness.js";
+
+useIsolatedLocalStorage();
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = () => {};
@@ -67,6 +71,22 @@ registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.formatDuration, ((ms: number) =>
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.formatTokens, ((n: number) => `${n}`) as never);
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.zoomControls, (() => null) as never);
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.popover, (({ children }: { children?: React.ReactNode }) => <>{children}</>) as never);
+// Header actions (Open flow… / Edit…) open these. See change: flows-dock-chip-and-panel-actions.
+registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.confirmDialog, (() => null) as never);
+registerUiPrimitive(
+  registry,
+  UI_PRIMITIVE_KEYS.searchableSelectDialog,
+  (({ title, options, onSelect }: { title: string; options: Array<{ value: string; label: string }>; onSelect: (v: string) => void }) => (
+    <div data-testid="flow-picker">
+      {title}
+      {options.map((o) => (
+        <button type="button" key={o.value} onClick={() => onSelect(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )) as never,
+);
 
 // ── Fixtures ───────────────────────────────────────────────────────
 const yamlFor = (name: string) => `
@@ -104,8 +124,12 @@ const started = (flowName: string, ts: number, extra: Record<string, unknown> = 
 const completed = (flowName: string, ts: number, status = "success") =>
   ev("flow_complete", ts, { flowName, status });
 
-function flows(...names: string[]): FlowInfo[] {
+function flows(...names: string[]): FlowCatalogEntry[] {
   return names.map((name) => ({ name, description: `${name} desc`, taskRequired: false, source: `/p/${name}/flow.yaml` }));
+}
+/** Publish the session's flow catalog (the plugin `flow_catalog` event). */
+function publishCatalog(sid: string, list: FlowCatalogEntry[]) {
+  publishSessionEvent(sid, ev("flow_catalog", 1, { catalogKey: "catalog", flows: list }));
 }
 
 function okFetch() {
@@ -127,8 +151,14 @@ function attach(sid: string, name: string, over: Partial<FlowAttachment> = {}): 
   return a;
 }
 
-function renderClaim(sid: string, opts: { requests?: readonly InteractiveUiRequestSnapshot[] } = {}) {
+function renderClaim(sid: string, opts: { requests?: readonly InteractiveUiRequestSnapshot[]; collapsed?: boolean } = {}) {
   const send = vi.fn();
+  // Panels default to collapsed; these cases inspect the body, so seed expanded
+  // unless a case asks otherwise. See change: flows-dock-chip-and-panel-actions (D10).
+  if (!opts.collapsed) {
+    localStorage.setItem(flowCollapseKey("dashboard", sid), "false");
+    localStorage.setItem(flowCollapseKey("summary", sid), "false");
+  }
   const requests = opts.requests;
   const session = { id: sid } as DashboardSession;
   const utils = render(
@@ -191,7 +221,7 @@ describe("attach while history is still loading (E8)", () => {
 describe("starting the attached flow updates the panel in place (F1)", () => {
   it("keeps the instance, selection and dialog; shows Abort", async () => {
     const sid = nextSid();
-    publishSessionData(sid, "flowsList", flows("e2e:synthetic"));
+    publishCatalog(sid, flows("e2e:synthetic"));
     attach(sid, "e2e:synthetic");
     renderClaim(sid);
     await screen.findByTestId("flow-dashboard");
@@ -668,11 +698,11 @@ describe("storage unavailable (X5)", () => {
 describe("attached flow no longer available (X6)", () => {
   it("error header + Close", async () => {
     const sid = nextSid();
-    publishSessionData(sid, "flowsList", flows("A"));
+    publishCatalog(sid, flows("A"));
     attach(sid, "A");
     renderClaim(sid);
     await screen.findByTestId("flow-dashboard");
-    act(() => publishSessionData(sid, "flowsList", flows("B")));
+    act(() => publishCatalog(sid, flows("B")));
     expect(screen.getByTestId("flow-slot-message").textContent).toMatch(/no longer available/);
     expect(screen.getByTestId("flow-idle-close")).toBeTruthy();
   });
@@ -755,5 +785,43 @@ describe("preserved card interactions (#E14)", () => {
     expect(dialog.textContent).toContain("e2e-beta");
     expect(cards()[1].getAttribute("data-selected")).toBe("true");
     expect(cards()[0].getAttribute("data-selected")).toBe("false");
+  });
+});
+
+// ── Panel never opens on its own ───────────────────────────────────
+// See change: flows-dock-chip-and-panel-actions (D10, task 5.3, test-plan E25).
+describe("panel defaults to collapsed (E25) and the reported reopen (5.3)", () => {
+  const dashCollapsed = () => root()?.querySelector(".group-collapse")?.classList.contains("collapsed") ?? null;
+  const summaryExpanded = () => screen.getByTestId("flow-summary-panel-toggle").getAttribute("aria-expanded");
+
+  it("no stored state: a starting flow shows only its header; completing / failing keeps it collapsed", () => {
+    for (const status of ["success", "error"]) {
+      const sid = nextSid();
+      publishSessionEvent(sid, started("L", 10));
+      const { unmount } = renderClaim(sid, { collapsed: true });
+      expect(dashCollapsed()).toBe(true);
+      act(() => publishSessionEvent(sid, completed("L", 20, status)));
+      expect(summaryExpanded()).toBe("false");
+      expect(screen.queryAllByTestId("agent-card")).toHaveLength(0);
+      unmount();
+    }
+  });
+
+  it("5.3 repro: collapsing the running panel stays collapsed when the flow completes and on reselect", () => {
+    const sid = nextSid();
+    // The user had expanded the live panel, then collapsed it while it ran.
+    localStorage.setItem(flowCollapseKey("dashboard", sid), "false");
+    publishSessionEvent(sid, started("L", 10));
+    const first = renderClaim(sid, { collapsed: true });
+    fireEvent.click(root()!.querySelector("span.cursor-pointer") as HTMLElement);
+    expect(dashCollapsed()).toBe(true);
+    act(() => publishSessionEvent(sid, completed("L", 20)));
+    // The completed panel is a different collapse kind with no stored choice:
+    // before this change it defaulted to expanded and "reopened".
+    expect(summaryExpanded()).toBe("false");
+    // Selecting the session again remounts the claim: still collapsed.
+    first.unmount();
+    renderClaim(sid, { collapsed: true });
+    expect(summaryExpanded()).toBe("false");
   });
 });

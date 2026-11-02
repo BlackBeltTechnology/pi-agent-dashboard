@@ -357,6 +357,37 @@ describe("launchDashboardServer — port-conflict classification", () => {
     expect(err).not.toBeInstanceOf(PortConflictError);
   });
 
+  it("#977: child exits 1 while a non-dashboard service holds the port \u2192 probe classifies it as a port conflict", async () => {
+    const child = makeFakeChild();
+    let calls = 0;
+    const probe = probeSpy(async () => {
+      calls++;
+      if (calls === 1) {
+        // Foreground bind failure: exits 1 before the probe can see the conflict.
+        (child as unknown as { exitCode: number }).exitCode = 1;
+        return { running: false };
+      }
+      return { running: false, portConflict: true };
+    });
+    await expect(launchDashboardServer(baseOpts({ _spawnNodeScript: spawnSpy(() => child), _isDashboardRunning: probe })))
+      .rejects.toBeInstanceOf(PortConflictError);
+  });
+
+  it("#977: a probe failure after the early exit keeps the generic EarlyExitError", async () => {
+    const child = makeFakeChild();
+    let calls = 0;
+    const probe = probeSpy(async () => {
+      calls++;
+      if (calls === 1) {
+        (child as unknown as { exitCode: number }).exitCode = 1;
+        return { running: false };
+      }
+      throw new Error("probe down");
+    });
+    const err = await launchDashboardServer(baseOpts({ _spawnNodeScript: spawnSpy(() => child), _isDashboardRunning: probe })).catch((e) => e);
+    expect(err).toBeInstanceOf(EarlyExitError);
+  });
+
   it("isPortConflictExitCode is the single classification predicate", () => {
     expect(isPortConflictExitCode(RECOVERY_PORT_CONFLICT_EXIT_CODE)).toBe(true);
     expect(isPortConflictExitCode(1)).toBe(false);

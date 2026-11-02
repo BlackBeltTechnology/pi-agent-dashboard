@@ -29,9 +29,13 @@ export function FlowSummary({
   onSendPrompt,
   session,
   sessionId,
+  headerActions,
 }: {
   flowState: FlowState;
   onDismiss: () => void;
+  /** Run again / Open flow… / Edit…, before Dismiss; stays visible collapsed.
+   *  See change: flows-dock-chip-and-panel-actions. */
+  headerActions?: ReactNode;
   onSendPrompt?: (text: string) => void;
   /** Parent session — threaded to the frozen cards for their detail/popout affordances. */
   session?: DashboardSession;
@@ -118,6 +122,7 @@ export function FlowSummary({
             {totalFiles > 0 ? ` · ${totalFiles} files` : ""}
           </span>
         </span>
+        {headerActions}
         <button
           onClick={onDismiss}
           className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"

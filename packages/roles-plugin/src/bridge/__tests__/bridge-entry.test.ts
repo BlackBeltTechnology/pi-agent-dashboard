@@ -39,7 +39,7 @@ function fakePi(roles: Record<string, unknown> | "throw" | "none") {
 const withAgent = (): Opts => ({ selectedTools: ["read", "Agent"], toolGuidelines: {} });
 
 describe("roles-plugin bridge entry", () => {
-  it("appends one sorted bullet naming roles and models (E23)", () => {
+  it("appends one pointer bullet to list_roles, listing no roles (E23)", () => {
     const pi = fakePi({ review: "openai-codex/gpt-6-sol", fast: "anthropic/claude-haiku-4-5" });
     activate(pi);
     const opts = withAgent();
@@ -47,8 +47,8 @@ describe("roles-plugin bridge entry", () => {
     expect(opts.toolGuidelines.Agent).toHaveLength(1);
     const bullet = opts.toolGuidelines.Agent[0];
     expect(bullet).toContain('model: "@<role>"');
-    expect(bullet.indexOf("@fast → anthropic/claude-haiku-4-5")).toBeGreaterThan(-1);
-    expect(bullet.indexOf("@fast")).toBeLessThan(bullet.indexOf("@review"));
+    expect(bullet).toContain("list_roles");
+    expect(bullet).not.toMatch(/@fast|@review|anthropic\/|openai-codex\//);
   });
 
   // test-plan #E21 — the handler reads only `systemPromptOptions`.
@@ -59,16 +59,14 @@ describe("roles-plugin bridge entry", () => {
     const opts = withAgent();
     expect(() => pi.fireCustom(opts)).not.toThrow();
     expect(opts.toolGuidelines.Agent).toHaveLength(1);
-    expect(opts.toolGuidelines.Agent[0]).toContain("@fast → anthropic/claude-haiku-4-5");
+    expect(opts.toolGuidelines.Agent[0]).toContain("list_roles");
   });
 
-  it("lists at most 12 roles, sorted (E23)", () => {
+  it("never truncates: 14 roles yield the same pointer text as 1", () => {
     const roles = Object.fromEntries(
       Array.from({ length: 14 }, (_, i) => [`r${String(i).padStart(2, "0")}`, `p/m${i}`]),
     );
-    const g = buildRoleGuideline(roles);
-    expect(g).toBeDefined();
-    expect(g!.match(/@r\d\d/g)).toEqual(Array.from({ length: 12 }, (_, i) => `@r${String(i).padStart(2, "0")}`));
+    expect(buildRoleGuideline(roles)).toBe(buildRoleGuideline({ fast: "p/m" }));
   });
 
   it("adds nothing for empty-valued built-ins or no roles (E23)", () => {
@@ -81,13 +79,13 @@ describe("roles-plugin bridge entry", () => {
     }
   });
 
-  it("keeps a :level suffix ref and appends after existing Agent guidelines", () => {
+  it("accepts a :level suffix ref and appends after existing Agent guidelines", () => {
     const pi = fakePi({ deep: "anthropic/claude-opus-5-5:high" });
     activate(pi);
     const opts: Opts = { selectedTools: ["Agent"], toolGuidelines: { Agent: ["existing"] } };
     pi.fire(opts);
     expect(opts.toolGuidelines.Agent[0]).toBe("existing");
-    expect(opts.toolGuidelines.Agent[1]).toContain("@deep → anthropic/claude-opus-5-5:high");
+    expect(opts.toolGuidelines.Agent[1]).toContain("list_roles");
   });
 
   it("does nothing without the Agent tool or without a roles listener (E24)", () => {

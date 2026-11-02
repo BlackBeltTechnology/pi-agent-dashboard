@@ -23,6 +23,9 @@
         "pdfcraft": {
           "$ref": "#/definitions/app"
         },
+        "filmcraft": {
+          "$ref": "#/definitions/app"
+        },
         "cadcraft": {
           "$ref": "#/definitions/app"
         },

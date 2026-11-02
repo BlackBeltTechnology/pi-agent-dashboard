@@ -30,7 +30,6 @@ import { DEFAULTS, KNOWN_KEYS } from "../../../blackhole-plugin/src/shared/black
 import { BrowserSettings } from "../../../browser-plugin/src/client/BrowserSettings.js";
 import { ChatGatewaySettings } from "../../../chat-gateway/src/client/ChatGatewaySettings.js";
 import { CostSettings } from "../../../cost-estimator/src/client/CostEstimator.js";
-import { FlowsAnthropicBridgeSettings } from "../../../flows-anthropic-bridge-plugin/src/FlowsAnthropicBridgeSettings.js";
 import { FlowsSettings } from "../../../flows-plugin/src/client/FlowsSettings.js";
 import { GoalPluginSettings } from "../../../goal-plugin/src/client/GoalPluginSettings.js";
 import { GrammarSettings } from "../../../grammar-plugin/src/GrammarSettings.js";
@@ -210,7 +209,6 @@ const PLUGINS: PluginCase[] = [
     ], ready: "browser-settings", minSwitches: 3 },
   { dir: "chat-gateway", Component: ChatGatewaySettings as unknown as () => React.ReactElement, configs: { "chat-gateway": {} }, routes: [["/api/chat-gateway/bindings", { bindings: [], status: { running: false, boundChannels: 0, pendingSpawns: 0 } }]], ready: "chat-gateway-settings", minSwitches: 3 },
   { dir: "cost-estimator", Component: CostSettings, configs: { "cost-estimator": { seatPlan: "custom", seatMonthlyUsd: 25, seats: 3, gapCapMinutes: 15 } }, ready: "cost-seats", minSwitches: 0 },
-  { dir: "flows-anthropic-bridge-plugin", Component: FlowsAnthropicBridgeSettings, configs: { "flows-anthropic-bridge": {} }, routes: [["/status", { sessions: [] }]], ready: "flows-anthropic-bridge-settings", minSwitches: 0 },
   { dir: "grammar-plugin", Component: GrammarSettings, configs: { grammar: { enabled: true, autoCheck: true } }, ready: "grammar-enabled", minSwitches: 3 },
   { dir: "quota-plugin", Component: QuotaSettings, configs: { quota: { enabled: true } }, routes: [["/api/quota", PROVIDERS_QUOTA]], ready: "quota-settings", minSwitches: 2 },
   { dir: "mcp-client-plugin", Component: McpSettings, routes: [["/effective", { scope: "global", servers: [MCP_SERVER], layers: [] }], ["/live", { ok: true, servers: {}, errors: [] }], ["/schema", {}]], ready: "mcp-settings", minSwitches: 1 },
@@ -322,7 +320,7 @@ describe("plugin settings consistency — kit adoption (#E6)", () => {
 });
 
 describe("plugin settings consistency — no identity header (#E7)", () => {
-  const E7 = ["apple-tools", "flows-anthropic-bridge-plugin", "grammar-plugin", "quota-plugin", "system-one-plugin", "mcp-client-plugin"];
+  const E7 = ["apple-tools", "grammar-plugin", "quota-plugin", "system-one-plugin", "mcp-client-plugin"];
   it.each(PLUGINS.filter((c) => E7.includes(c.dir)).map((c) => [c.dir, c] as const))(
     "%s: no text node equals the plugin displayName or id",
     async (_dir, c) => {

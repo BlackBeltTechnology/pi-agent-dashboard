@@ -9,6 +9,8 @@ Owns the host-pressure signal. `PiGatewayOptions.onHostPressure(sessionId, press
 
 Forwards `session_register.usageSeed` to `register` via `normalizeUsageSeed` (finite non-negative numbers, else dropped). See change: count-non-message-usage.
 
+`channelOf(sessionId)` follows the routing entry. `handleTlsUpgrade` (ticket-only, device tickets only, 503 when gateway not started). `closeTlsBridges()`. `onRoutingChanged` option. Channel stored on every transport. See change: prove-vault-bridge-tls.
+
 ## Loopback fallback (fix-gateway-socket-stale-owner)
 
 - `startLoopbackFallback(port, reason)` binds `127.0.0.1:<port>`, requires local token or ticket (no tokenless grace, per-listener `requireLocalCredential`), awaits `listening`/`error`; needs `bridgeAuth`.
@@ -21,3 +23,5 @@ Explicit `session_unregister` handler passes `{ endSource: "bridge_unregister" }
 `bridgeAuth.verifyCredential` (the `local-credential` verifier) replaces `verifyLocalToken`: `verifyClient` stamps the verdict (TCP only, never unix), takes `boundAt` before the bind, records a `WeakMap<req,{binding,nonce,mac}>` for a proof admission, and `wss.on('headers')` appends `X-Pi-Local-Proof-Server` iff recorded and not a unix upgrade. See change: loopback-credential-proof (D5).
 
 `stop()` stays synchronous; the socket teardown it hands off (`unbindGatewaySocket`) is tracked and exposed via `stopped(): Promise<void>` (never rejects). `server.stop()` awaits it right after `piGateway.stop()` — so `stop()` never resolves while teardown can still touch HOME (nightly flake: post-teardown `[gateway] could not lock` warn → vitest `EnvironmentTeardownError`).
+
+`start()` stays sync `void`; bind outcome via `tcpListening(): Promise<void>` (#978) — resolves on `listening` (or at once when no TCP start), rejects on bind `error` (tears down wss, clears `tcpKind`); pre-handled so an unobserved failure raises no unhandled rejection. Post-bind TCP errors logged `[pi-gateway] TCP listener error`. `startLoopbackFallback` awaits the same `startTcp` promise.

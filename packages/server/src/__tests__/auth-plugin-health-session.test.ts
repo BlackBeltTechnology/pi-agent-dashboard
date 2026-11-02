@@ -24,7 +24,7 @@ afterEach(async () => {
 async function makeApp(): Promise<FastifyInstance> {
   const a = Fastify();
   await registerAuthPlugin(a, {
-    authConfig: { secret: SECRET, providers: { github: { clientId: "cid", clientSecret: "cs" } } } as AuthConfig,
+    authConfig: { secret: SECRET, providers: { github: { clientId: "cid", clientSecret: "cs" } }, allowedUsers: ["*@example.com", "*@x"] } as AuthConfig,
     port: 8000,
   });
   a.get("/api/health", async (request) => ({

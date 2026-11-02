@@ -28,7 +28,7 @@ function makeRig() {
     } as any,
     preferencesStore: {
       getPinnedDirectories: () => [], setPinnedDirectories: () => {}, getSessionOrder: () => ({}),
-      setSessionOrder: () => {}, getAutoNameSessions: () => false,
+      setSessionOrder: () => {}, getAutoNameSessions: () => false, getClaudeSubscriptionCompat: () => false,
     } as any,
     pendingForkRegistry: createPendingForkRegistry(),
     directoryService: makeFakeDirectoryService().service,

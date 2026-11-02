@@ -102,6 +102,7 @@ import {
   readRuntimeRequest,
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { recognizeTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
 import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -242,6 +243,13 @@ export function registerSystemRoutes(
     directoryService?: DirectoryService;
     /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
     onVaultConfigChanged?: () => void;
+    /**
+     * Called after a `PUT /api/config` that touched `tls`, BEFORE the listener reconcile: withdraw values from, and
+     * close, TLS-admitted bridges when Accept bridges or the listener turned off. See change: prove-vault-bridge-tls (D2).
+     */
+    onTlsBridgeSwitchChanged?: () => void;
+    /** True while a first-plaintext-exposure registry write has not persisted; reported on `/api/health`. */
+    exposureWritePending?: () => boolean;
     /** Optional TLS listener: status in `/api/health.tls`, endpoints, reconcile after a `tls` config write. See change: add-tailscale-cert-tls. */
     tls?: Pick<TlsListener, "status" | "tlsListenerUrls" | "reconcile">;
     piGateway?: PiGateway;
@@ -472,10 +480,13 @@ export function registerSystemRoutes(
       // render the toggle inert with the reason. See change: ask-agent-file-access-in-chat.
       const gateEnv = process.env.PI_DASHBOARD_AGENT_PATH_GATE?.trim().toLowerCase();
       const agentPathGateEnvOverride = gateEnv === "off" || gateEnv === "on" ? gateEnv : null;
+      // `trustedTypesEnvOverride`: the recognized `PI_DASHBOARD_TRUSTED_TYPES` value (env beats config), else null.
+      // COMPUTED, never persisted. See change: enforce-trusted-types-default (D5).
+      const trustedTypesEnvOverride = recognizeTrustedTypesMode(process.env.PI_DASHBOARD_TRUSTED_TYPES);
       // `tls.sources[].solver.configured` (ACME): projected from the vault listing, never a secret.
       // See change: add-acme-dns01-certs.
       const redacted = await projectAcmeConfigured(readConfigRedacted());
-      return { success: true, data: { ...redacted, reachability, agentPathGateEnvOverride } };
+      return { success: true, data: { ...redacted, reachability, agentPathGateEnvOverride, trustedTypesEnvOverride } };
     },
   );
 
@@ -501,13 +512,17 @@ export function registerSystemRoutes(
       }
       const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
       const cfg = configModule.loadConfig();
+      const tlsEndpoints = deps.tls?.tlsListenerUrls() ?? [];
       const endpoints = collectEndpoints({
         providerEndpoints,
         publicBaseUrls: configModule.resolvePublicBaseUrls(cfg),
         port: config.port,
-        tlsEndpoints: deps.tls?.tlsListenerUrls() ?? [],
+        tlsEndpoints,
       });
-      return { success: true, data: { endpoints } } satisfies ApiResponse;
+      // `tlsEndpoints` names the certificate-backed listener URLs on their own, so the token dialog can point at
+      // the native HTTPS address (a tunnel endpoint of the same shape is not a bridge target).
+      // See change: prove-vault-bridge-tls (D8).
+      return { success: true, data: { endpoints, tlsEndpoints } } satisfies ApiResponse;
     },
   );
 
@@ -673,6 +688,9 @@ export function registerSystemRoutes(
       // work is scheduled, never awaited here. A reconcile failure is reported in TLS
       // status; the config stays as written. See change: add-tailscale-cert-tls (D7).
       if (partial.tls !== undefined) {
+        // BEFORE the reconcile: closing the listener waits for upgraded (bridge) sockets, which `closeAllConnections`
+        // does not reach, so withdraw values and close TLS-admitted bridges first. See change: prove-vault-bridge-tls (D2).
+        deps.onTlsBridgeSwitchChanged?.();
         try {
           await deps.tls?.reconcile();
         } catch (err) {
@@ -798,6 +816,10 @@ export function registerSystemRoutes(
           source,
           authActive: Boolean((fastify as any)._reloadAuth),
           providerCount: Object.keys(cfg.auth?.providers ?? {}).length,
+          // Live (from the auth plugin's authState, not config.json): providers with no
+          // allowlist/group map; `refused` = public IdP (login refused), `open` = allow-all.
+          // See change: close-security-map-high-findings (D3).
+          openEnrolment: (fastify as any)._authOpenEnrolment?.() ?? [],
         },
       } satisfies ApiResponse;
     },
@@ -1390,6 +1412,9 @@ export function registerSystemRoutes(
       // Pi runtime divergence, under two distinct labels (see readPiDivergence).
       // See change: select-pi-runtime-install (design D5).
       piRuntime: readPiDivergence(),
+      // A first plaintext-exposure write has not persisted: the hub refuses all remote vault delivery while true.
+      // See change: prove-vault-bridge-tls (D4).
+      pairing: { exposureWritePending: deps.exposureWritePending?.() === true },
       // Per-hop dropped-frame counters (observability for silently-dropped
       // WS frames). `serverToBrowser` = frames the fanout skipped under
       // back-pressure, split transcript vs blocking; `bridgeToServer` = the max

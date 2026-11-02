@@ -66,7 +66,9 @@ describe("emitEventToSession caller inventory (task 6.22)", () => {
 
   it("flows declares exactly the event types it emits; automation declares none of its own", () => {
     const m = loadManifests();
-    expect([...(m.get("flows")!.manifest.emits ?? [])].sort()).toEqual(["dashboard-flows:report-files", "flow:run"]);
+    // flow:set-edit-mode: the explicit per-project edit-mode action.
+    // See change: stop-flows-edit-mode-project-writes (D5).
+    expect([...(m.get("flows")!.manifest.emits ?? [])].sort()).toEqual(["dashboard-flows:report-files", "flow:run", "flow:set-edit-mode"]);
     expect(m.get("automation")!.manifest.emits).toEqual([]);
   });
 });

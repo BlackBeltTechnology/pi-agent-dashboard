@@ -450,6 +450,16 @@ jobs:
         if: ${{ inputs.source_only_bundle == false }}
         run: node packages/electron/scripts/assert-bundled-plugins-complete.mjs
 
+      - name: Assert bundle layout (workspace source ships once)
+        # Built-bundle layout gate: `resources/server/packages/` holds ONLY `dist`
+        # (the served client), the server entry exists under node_modules, and the
+        # synthetic package.json has `workspaces: []` (kept as the bundled-root marker). A leftover
+        # `packages/<dir>` is a second copy of every workspace package that nothing
+        # reads and the NSIS install pays for. Node-native — Windows-safe.
+        # See change: slim-windows-install-file-count (design D2).
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-bundle-layout.mjs packages/electron/resources/server
+
       - name: Assert no wmic in bundle (PowerShell-only Windows introspection)
         # Enforces spec scenario "No wmic shell-invocation anywhere in shipped
         # code" (change: replace-wmic-with-powershell). wmic removed by default
@@ -546,6 +556,8 @@ jobs:
           #     `codesign --verify --deep --strict` after an ad-hoc sign of a COPY
           #     (runs on every leg, not only those with APPLE_IDENTITY).
           node scripts/scan-packaged-symlinks.mjs "$APP_PATH/Contents/Resources" "$APP_PATH"
+          # Packaged file-count budget (whole resources/ dir). See change: slim-windows-install-file-count (D3).
+          node scripts/assert-bundle-file-budget.mjs "$APP_PATH/Contents/Resources" --platform darwin --arch ${{ matrix.arch }}
           node scripts/assert-packaged-preloads.mjs
           bash scripts/codesign-strict-check.sh "$APP_PATH"
           # 2. Wrap into a DMG + emit latest-mac.yml + app-update.yml. Do NOT
@@ -575,6 +587,8 @@ jobs:
           echo "Packaged dir: $PKG_DIR"
           # Forge 8 / packager 20 guards (refresh-electron-bundled-components D7).
           node scripts/scan-packaged-symlinks.mjs "$PKG_DIR/resources" "$PKG_DIR"
+          # Packaged file-count budget (whole resources/ dir). See change: slim-windows-install-file-count (D3).
+          node scripts/assert-bundle-file-budget.mjs "$PKG_DIR/resources" --platform linux --arch ${{ matrix.arch }}
           node scripts/assert-packaged-preloads.mjs
           # 2. AppImage + latest-linux.yml + app-update.yml from the packaged dir.
           npx electron-builder --linux AppImage \
@@ -582,6 +596,32 @@ jobs:
             --config electron-builder.yml \
             -c.linux.artifactName='PI-Dashboard-${version}-${{ matrix.arch }}.${ext}' \
             --publish never
+
+      - name: Assert the bundled Node can load the OS-keychain binding (macOS)
+        # The credential data key is read through @napi-rs/keyring, loaded by the
+        # BUNDLED Node (Resources/node/bin/node). The darwin .node is signed by a
+        # third-party team, so the hardened runtime refuses it unless that Node
+        # carries com.apple.security.cs.disable-library-validation (spike row 10).
+        # GitHub macOS runners have SIP disabled and load the binding even
+        # without DLV (CI spike C14/C15), so the gate is STATIC and runs on EVERY
+        # darwin leg: `codesign -d --entitlements -` must list DLV, and
+        # `codesign --verify` must pass on the .node. The load round-trip is a
+        # smoke: blocking when APPLE_IDENTITY is set, advisory without a signing
+        # identity. Hand-off to macos-notarization: Resources/node/bin/node MUST
+        # be signed with DLV. See change: encrypt-credentials-at-rest (D5, E90).
+        if: matrix.platform == 'darwin'
+        shell: bash
+        # APPLE_IDENTITY is not wired into this reusable workflow yet (no secret is
+        # declared under workflow_call); the macos-notarization change adds it, which
+        # flips the smoke from advisory to blocking with no edit here.
+        run: |
+          set -euo pipefail
+          cd packages/electron
+          APP_PATH=$(find out -maxdepth 2 -name '*.app' -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Forge .app not found under out/"; exit 1
+          fi
+          node scripts/assert-mac-bundled-node-keyring.mjs "$APP_PATH" --arch=${{ matrix.arch }}
 
       - name: Gate the macOS update stream on the minimum supported OS
         # Raising the macOS floor strands already-shipped 10.15/11 clients. Left
@@ -889,6 +929,9 @@ jobs:
           $pkgDir = "out\PI-Dashboard-win32-${{ matrix.arch }}"
           node scripts\scan-packaged-symlinks.mjs "$pkgDir\resources" "$pkgDir"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Packaged file-count budget (whole resources/ dir). See change: slim-windows-install-file-count (D3).
+          node scripts\assert-bundle-file-budget.mjs "$pkgDir\resources" --platform win32 --arch ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts\assert-packaged-preloads.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -980,7 +1023,65 @@ jobs:
           # Launch + server-start validation runs on a VM (qa/tests/07-electron-
           # bootstrap-v2.ps1 + windows-nsis-launch.ps1 via the
           # automate-windows-remote-qa harness) or by manual install on a desktop.
+          # Install timing — INFORMATIONAL, never fails the job. One sample on a
+          # shared runner is directional evidence, not proof; the acceptance
+          # metric is the packaged file count (assert-bundle-file-budget.mjs).
+          # The Stopwatch brackets the whole install script: `Setup.exe /S`
+          # dominates; the post-install polling returns on the first probe.
+          # See change: slim-windows-install-file-count (D4).
+          $installWatch = [System.Diagnostics.Stopwatch]::StartNew()
           ./qa/tests/windows-nsis-install.ps1 -Setup $setupPath
+          $installWatch.Stop()
+          # $LASTEXITCODE is $null when the script ended without `exit`; `$null -ne 0` is TRUE in
+          # PowerShell and would end the step here, skipping every later NSIS check.
+          if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          try {
+            $installDir = Join-Path $env:LOCALAPPDATA "Programs\PI Dashboard"
+            # Same predicate as assert-bundle-file-budget.mjs: regular files only,
+            # reparse points (symlinks/junctions) neither counted nor followed.
+            $installedFiles = 0
+            $stack = New-Object System.Collections.Generic.Stack[string]
+            $stack.Push($installDir)
+            while ($stack.Count -gt 0) {
+              $d = $stack.Pop()
+              foreach ($e in [System.IO.Directory]::EnumerateFileSystemEntries($d)) {
+                $attr = [System.IO.File]::GetAttributes($e)
+                if ($attr -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+                if ($attr -band [System.IO.FileAttributes]::Directory) { $stack.Push($e) } else { $installedFiles++ }
+              }
+            }
+            $seconds = [math]::Round($installWatch.Elapsed.TotalSeconds, 1)
+            $image = if ($env:ImageOS) { "$($env:ImageOS) $($env:ImageVersion)" } else { "unknown" }
+            Write-Host "install_seconds=$seconds installed_file_count=$installedFiles runner_image=$image"
+            @(
+              "### NSIS install timing (win32-$arch, informational)",
+              "",
+              "| Metric | Value |",
+              "|---|---|",
+              "| install_seconds | $seconds |",
+              "| installed_file_count | $installedFiles |",
+              "| runner image | $image |"
+            ) -join "`n" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } catch {
+            Write-Host "::warning::install timing summary failed: $($_.Exception.Message)"
+          }
           ./qa/tests/windows-nsis-no-permachine.ps1
           ./qa/tests/windows-nsis-branding.ps1 -Setup $setupPath
           ./qa/tests/windows-nsis-uninstall.ps1
+
+      # NSIS UPGRADE from the previous release (x64 only, same reasons as the smoke
+      # step). The bundle ships the bridge extension ONCE, under
+      # resources\server\node_modules\@blackbelt-technology\pi-dashboard-extension; a user upgrading
+      # from a release that registered `...\server\packages\extension` must end up with the new path
+      # only. Installs the latest published release's Setup.exe, then this build's over it.
+      # No published release → the script SKIPs (exit 0). See change: slim-windows-install-file-count (X4).
+      - name: Upgrade NSIS install from the previous release
+        if: matrix.platform == 'win32' && matrix.arch == 'x64'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $setup = Get-ChildItem "packages/electron/out/make/nsis/PI-Dashboard-Setup-*-x64.exe" | Select-Object -First 1
+          ./qa/tests/windows-nsis-upgrade.ps1 -Setup $setup.FullName
+          if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

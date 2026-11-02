@@ -11,14 +11,20 @@
  *
  * See change: retire-trusted-networks-bypass (D5; test-plan E25, E26, X1).
  */
+import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo, Socket } from "node:net";
+import os from "node:os";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNetworkGuardHook, type GuardDenialLogEntry } from "../auth/localhost-guard.js";
+import { bearerChannelOf } from "../auth/proven-tls.js";
 import { createLiveCapabilityHook, LiveCapabilityStore } from "../live-server/live-capability.js";
 import type { LiveServerManager } from "../live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "../live-server/live-server-proxy.js";
+import { createDeviceTokenServices } from "../pairing/device-token-services.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 
 const DEVICE_BEARER = "pi-device-bearer-token";
 const APP_TOKEN = "app-own-token";
@@ -429,5 +435,99 @@ describe("X1 — upstream down", () => {
     expect(res.body).not.toContain(token);
     expect(JSON.stringify(res.headers)).not.toContain(token);
     expect(con.lines.join("\n")).not.toContain(token);
+  });
+});
+
+// ── prove-vault-bridge-tls: bearer exposure at the non-REST call sites (test-plan #E9) ──
+
+describe("E9 — non-REST bearer call sites record exposure", () => {
+  let upstream: Upstream;
+  let dir: string;
+  let reg: PairedDeviceRegistry;
+
+  beforeEach(async () => {
+    upstream = new Upstream();
+    await upstream.start();
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-exposure-"));
+    reg = new PairedDeviceRegistry(path.join(dir, "paired.json"));
+  });
+  afterEach(async () => {
+    await upstream.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const deps = () => ({
+    isDeviceBearer: (t: string, req: Parameters<typeof bearerChannelOf>[0]) => reg.verify(t, bearerChannelOf(req)) !== null,
+    isKnownBearer: (t: string) => reg.isKnownBearer(t),
+  });
+
+  it("(a) a plaintext live-server WS upgrade exposes the device", async () => {
+    const { device, token } = reg.add("dev", "manual", "operate", undefined, { channel: "tls" });
+    const manager = managerFor(() => upstream.port);
+    const front = http.createServer((_q, r) => r.writeHead(404).end());
+    const socks = new Set<Socket>();
+    front.on("connection", (s) => {
+      socks.add(s);
+      s.on("close", () => socks.delete(s));
+    });
+    front.on("upgrade", (req, socket, head) => handleLiveServerUpgrade(manager, req, socket, head, deps()));
+    await new Promise<void>((r) => front.listen(0, "127.0.0.1", r));
+    const port = (front.address() as AddressInfo).port;
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request({
+        host: "127.0.0.1",
+        port,
+        path: "/live/vite-5173/hmr",
+        headers: { Connection: "Upgrade", Upgrade: "websocket", Authorization: `Bearer ${token}` },
+      });
+      req.on("upgrade", (_res, socket) => {
+        socket.once("data", () => {
+          socket.destroy();
+          resolve();
+        });
+        socket.write("ping");
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    expect(reg.deviceTrust(device.id)).toBe("exposed");
+    expect(upstream.upgrades[0].headers).not.toHaveProperty("authorization");
+    for (const s of socks) s.destroy();
+    await new Promise<void>((r) => front.close(() => r()));
+  });
+
+  it("(b) the plugin host service with no request marks the device exposed", () => {
+    const { device, token } = reg.add("dev", "manual", "operate", undefined, { channel: "tls" });
+    const services = createDeviceTokenServices(reg);
+    expect(services.verifyDeviceToken(token)).toBe(device.id);
+    expect(reg.deviceTrust(device.id)).toBe("exposed");
+    const second = reg.add("dev2", "manual", "observe", undefined, { channel: "tls" });
+    expect(services.verifyDeviceTokenTier(second.token)).toEqual({ id: second.device.id, tier: "observe" });
+    expect(reg.deviceTrust(second.device.id)).toBe("exposed");
+    const third = reg.add("dev3", "manual", "observe", undefined, { channel: "tls" });
+    expect(services.verifyDeviceToken(third.token, { socket: { encrypted: true }, headers: {} } as never)).toBe(third.device.id);
+    expect(reg.deviceTrust(third.device.id)).toBe("eligible");
+  });
+
+  it("(c) a pi_tls_ bearer on a plaintext proxy request is never forwarded and exposes the device", async () => {
+    const { device, token } = reg.add("bridge", "manual", "operate", undefined, { channel: "tls", purpose: "bridge" });
+    const store = new LiveCapabilityStore();
+    const capToken = store.mint("vite-5173", { kind: "local" }).token;
+    const app = Fastify({ logger: false });
+    app.decorateRequest("isAuthenticated", false);
+    app.addHook("onRequest", createLiveCapabilityHook(store));
+    app.addHook("onRequest", createNetworkGuardHook({ trustedNetworks: () => [], logDenial: () => {} }));
+    registerLiveServerProxy(app, managerFor(() => upstream.port), deps());
+    await app.ready();
+    const res = await app.inject({
+      method: "GET",
+      url: `/live/vite-5173/~c/${capToken}/x`,
+      remoteAddress: REMOTE,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).headers).not.toHaveProperty("authorization");
+    expect(reg.deviceTrust(device.id)).toBe("exposed");
+    await app.close();
   });
 });

@@ -15,12 +15,12 @@ Documents how dashboard bridge routes typed `/foo` text from chat input to pi ha
 5. `/reload` → `reload()` callback
 6. `/new` → `spawnNew()` callback
 7. `/model <provider/id>` → `setModel(provider, id)` callback
-8. `/<name>` matching user-defined flow from `getFlowsList()` → `pi.events.emit("flow:run", {flowName, task})`
+8. ~~`/<name>` user-defined flow fast-path (`getFlowsList()` → `flow:run`)~~ REMOVED. See change: flows-dock-chip-and-panel-actions. Typed `/<flow-name>` is pi-flows' registered command → step 9.
 9. `/<name>` matching extension command (`source: "extension"` in `pi.getCommands()`, not in `DASHBOARD_NATIVE_COMMANDS`) → `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})`. Single in-process call; every session kind; no session-kind probe.
 10. `/` prefix fall-through → `expandPromptTemplateFromDisk` then `pi.sendUserMessage` (skills, prompt templates, unknown slashes)
 11. No prefix → `pi.sendUserMessage(text)` passthrough
 
-Steps 1-7 live in `parseSendPrompt`. Step 8 lives in `bridge.ts::sessionPrompt`. Step 9 added by change `fix-extension-slash-commands-in-dashboard`; retired + replaced by change `retire-slash-dispatch-via-expand-prompt-templates`. Steps 10-11 are existing fallbacks and UNCHANGED.
+Steps 1-7 live in `parseSendPrompt`. Step 8 removed from `bridge.ts::sessionPrompt` (See change: flows-dock-chip-and-panel-actions). Step 9 added by change `fix-extension-slash-commands-in-dashboard`; retired + replaced by change `retire-slash-dispatch-via-expand-prompt-templates`. Steps 10-11 are existing fallbacks and UNCHANGED.
 
 Step 9 history — Paths B/C/D RETIRED by change `retire-slash-dispatch-via-expand-prompt-templates`:
 
@@ -46,9 +46,7 @@ flowchart TD
   B -->|slash| SP["bridge.ts<br/>sessionPrompt(text)"]
   B -->|passthrough| PT["sendUserMessageWithImages -> pi.sendUserMessage"]
 
-  SP --> F{Flow fast-path:<br/>name in getFlowsList()?}
-  F -->|yes| FR["pi.events.emit('flow:run',{flowName,task})"]
-  F -->|no| X{Step 9 detect:<br/>isExtensionSlashCommand(text, getCommands())}
+  SP --> X{Step 9 detect:<br/>isExtensionSlashCommand(text, getCommands())}
   X -->|false| FB["steps 10-11:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage(expanded,{deliverAs:'followUp'})"]
   X -->|true| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}<br/>sync throw -> {status:'error'}"]
 ```
@@ -164,9 +162,7 @@ Cross-reference: design.md Decision 5.
 
 ```mermaid
 flowchart TD
-  S["bridge.ts::sessionPrompt(text)"] --> FF{User-defined flow?<br/>(step 8)}
-  FF -->|yes| FR["pi.events.emit('flow:run', ...)"]
-  FF -->|no| G["isExtensionSlashCommand(text, pi.getCommands())<br/>(pure helper, step 9 detect)"]
+  S["bridge.ts::sessionPrompt(text)"] --> G["isExtensionSlashCommand(text, pi.getCommands())<br/>(pure helper, step 9 detect)"]
   G -->|false| FB["steps 10-11 fall-through:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage"]
   G -->|true| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}"]
   IS -.->|sync throw| ER["emit command_feedback {status:'error', message:<thrown>}"]
@@ -182,7 +178,7 @@ From `notes/preflight-empirical-checks.md`.
 
 ### Q1: typed `/flows:*` broken same way?
 
-YES. `getFlowsList()` returns user-defined flow names only. pi-flows-registered command names (`flows:new`, `flows:edit`, `flows:delete`, `flows`, `roles`) never match the user-defined set. Branch falls through to `pi.sendUserMessage`. Buttons mask the bug via `flow_management` ws message.
+YES (pre-fix). `getFlowsList()` returned user-defined flow names only; pi-flows command names never matched. Fixed by change `flows-dock-chip-and-panel-actions`: fast-path removed, typed `/<flow-name>` now routes via step 9 (`tryDispatchExtensionCommand`). Name collision with another extension command → pi command precedence.
 
 Confirmed via `echo '{"type":"prompt","message":"/flows:new","id":"1"}' | pi --mode rpc` → pi-flows extension dispatches correctly via RPC `session.prompt`.
 

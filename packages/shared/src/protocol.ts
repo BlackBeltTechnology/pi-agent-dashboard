@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
@@ -148,6 +148,12 @@ export interface SessionRegisterMessage {
   cwd: string;
   name?: string;
   source: SessionSource;
+  /**
+   * Declared by a bridge that enforced TLS certificate validation on this (TLS)
+   * connection. Absent on plain `ws`, the local socket and old bridges.
+   * See change: prove-vault-bridge-tls (D7).
+   */
+  certValidation?: "enforced";
   /** Bridge extension identity (D8). Absent on pre-overlay bridges. */
   extensionIdentity?: BridgeExtensionIdentity;
   model?: string;
@@ -445,12 +451,6 @@ export interface CommandsListMessage {
   type: "commands_list";
   sessionId: string;
   commands: CommandInfo[];
-}
-
-export interface FlowsListMessage {
-  type: "flows_list";
-  sessionId: string;
-  flows: FlowInfo[];
 }
 
 export interface ExtensionUiRequestMessage {
@@ -907,6 +907,8 @@ export interface VaultSyncRequestMessage {
   origin?: string;
   tracked: string[];
   reason: "connect" | "startup" | "reload" | "new" | "resume" | "fork";
+  /** See `SessionRegisterMessage.certValidation`. See change: prove-vault-bridge-tls (D7). */
+  certValidation?: "enforced";
 }
 
 /**
@@ -923,6 +925,8 @@ export interface VaultSnapshotMessage {
   /** Present only when `status === "ok"`. */
   entries: Array<{ name: string; value: string }>;
   graceHours: number;
+  /** Which proof a refused (`denied`) session is missing; never a value. See change: prove-vault-bridge-tls (D8). */
+  trustDetail?: import("./vault-delivery.js").VaultTrustDetail;
 }
 
 /** Bridge → server: how each granted name was applied (names and outcomes only). */
@@ -1104,7 +1108,6 @@ export type ExtensionToServerMessage =
   | SessionHeartbeatMessage
   | EventForwardMessage
   | CommandsListMessage
-  | FlowsListMessage
   | ExtensionUiRequestMessage
   | FilesListMessage
   | GitInfoUpdateMessage
@@ -1406,11 +1409,6 @@ export interface RegisterRejectedExtensionMessage {
   reason: string;
 }
 
-export interface RequestFlowsRefreshMessage {
-  type: "request_flows_refresh";
-  sessionId: string;
-}
-
 export interface CredentialsUpdatedMessage {
   type: "credentials_updated";
   /**
@@ -1645,11 +1643,18 @@ export interface PluginEmitEventExtensionMessage {
  * whenever the value changes (`piGateway.broadcast`). The bridge gates its
  * automatic session naming on `autoNameSessions`. See change:
  * add-auto-session-naming.
+ *
+ * Both fields are optional on the wire: senders send the full snapshot, and
+ * the bridge applies each field only when it is a boolean, so an older server
+ * or a partial message never resets the other value. See change:
+ * retire-anthropic-messages-bridge (design D3).
  */
 export interface PreferencesUpdateExtensionMessage {
   type: "preferences_update";
   /** Global auto-naming toggle; bridge attempts naming only when true. */
-  autoNameSessions: boolean;
+  autoNameSessions?: boolean;
+  /** Claude subscription compat switch; when true the docs-section rewrite applies on anthropic runs. */
+  claudeSubscriptionCompat?: boolean;
 }
 
 /**
@@ -1726,7 +1731,6 @@ export type ServerToExtensionMessage =
   | PathYoloResultMessage
   | VaultSnapshotMessage
   | DashboardIdentityMessage
-  | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage
   | PluginReplyMessage

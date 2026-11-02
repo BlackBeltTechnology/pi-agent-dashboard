@@ -69,7 +69,7 @@ export const RESERVED_EVENT_TYPES: ReadonlySet<string> = new Set([
   "subagent_created", "subagent_started", "subagent_completed", "subagent_failed",
   // bridge control / protocol message types
   "event_forward", "entry_persisted", "session_register", "session_unregister",
-  "session_heartbeat", "replay_complete", "commands_list", "flows_list",
+  "session_heartbeat", "replay_complete", "commands_list",
   "extension_ui_request", "usage_recorded", "prompt_request", "prompt_dismiss",
   "prompt_cancel", "notify", "plugin_pi_message", "plugin_request", "queue_update",
   "bridge_diagnostic",

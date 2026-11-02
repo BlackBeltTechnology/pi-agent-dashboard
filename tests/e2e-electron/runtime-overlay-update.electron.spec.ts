@@ -229,8 +229,11 @@ test("X12: a broken overlay falls back to the bundled runtime", async () => {
       .toBe(`bundled|${BROKEN}`);
     // Bundled extension re-registered: nothing points into the broken overlay.
     await expect.poll(() => underVersion(BROKEN).test(settingsText(home)), { timeout: 30_000 }).toBe(false);
-    // The bundle registers its workspace copy: `<resources>/server/packages/extension`.
-    expect(settingsText(home)).toMatch(/server(?:\/|\\\\)packages(?:\/|\\\\)extension"/);
+    // The bundle registers its canonical node_modules copy (workspace source ships once):
+    // `<resources>/server/node_modules/@blackbelt-technology/pi-dashboard-extension`.
+    expect(settingsText(home)).toMatch(
+      /server(?:\/|\\\\)node_modules(?:\/|\\\\)@blackbelt-technology(?:\/|\\\\)pi-dashboard-extension"/,
+    );
   } finally {
     await stop(app, home);
   }

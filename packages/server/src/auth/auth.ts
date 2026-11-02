@@ -130,6 +130,86 @@ async function resolveProvider(
   };
 }
 
+// ─── Public-IdP classification + open enrolment ─────────────────────────────
+
+/**
+ * Hosts of public identity providers: any account on them can authenticate, so an
+ * empty allowlist there means "every account on the internet". Exact host match
+ * (no suffix/subdomain wildcards). `login.microsoftonline.com` counts only with a
+ * multi-tenant path segment (see `MICROSOFT_PUBLIC_TENANTS`). Growing the set is one line.
+ * See change: close-security-map-high-findings (D3).
+ */
+export const PUBLIC_IDP_HOSTS: ReadonlySet<string> = new Set([
+  "accounts.google.com",
+  "github.com",
+  "gitlab.com",
+  "login.microsoftonline.com",
+  "appleid.apple.com",
+]);
+
+const MICROSOFT_HOST = "login.microsoftonline.com";
+const MICROSOFT_PUBLIC_TENANTS: ReadonlySet<string> = new Set(["common", "consumers", "organizations"]);
+
+export type ProviderClass = "public" | "non-public";
+export type EnrolmentMode = "refused" | "open";
+
+/**
+ * Classify a provider from CONFIGURATION alone (never OIDC discovery — H8, so a
+ * provider whose discovery failed is classified like a healthy one): public when
+ * the key is `github`/`google` (fixed public endpoints) or the host of its
+ * `issuerUrl` is in `PUBLIC_IDP_HOSTS`. An `issuerUrl` that does not parse into a
+ * host is non-public (G13: login is impossible anyway). Pure, never throws.
+ */
+export function classifyProviderConfig(
+  key: string,
+  providerConfig?: { issuerUrl?: unknown } | null,
+): ProviderClass {
+  if (key === "github" || key === "google") return "public";
+  const issuer = providerConfig?.issuerUrl;
+  if (typeof issuer !== "string" || issuer.length === 0) return "non-public";
+  let url: URL;
+  try {
+    url = new URL(issuer);
+  } catch {
+    return "non-public";
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (!PUBLIC_IDP_HOSTS.has(host)) return "non-public";
+  if (host === MICROSOFT_HOST) {
+    const tenant = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase() ?? "";
+    return MICROSOFT_PUBLIC_TENANTS.has(tenant) ? "public" : "non-public";
+  }
+  return "public";
+}
+
+/**
+ * Open enrolment = no allowlist AND no group map: the same emptiness
+ * `isUserAllowed` and `resolveGroupTier` treat as "allow every account".
+ */
+export function isOpenEnrolment(
+  allowedUsers: readonly string[] | undefined,
+  groupTiers: Record<string, Tier> | undefined,
+): boolean {
+  return (!allowedUsers || allowedUsers.length === 0) && (!groupTiers || Object.keys(groupTiers).length === 0);
+}
+
+/**
+ * Providers in open enrolment, with their mode: `refused` (public IdP — login is
+ * refused) or `open` (non-public — allow-all + warning). Empty when an allowlist
+ * or group map is set. Iterates the CONFIGURED providers.
+ */
+export function openEnrolmentOf(
+  providers: Record<string, AuthProviderConfig> | undefined,
+  allowedUsers: readonly string[] | undefined,
+  groupTiers: Record<string, Tier> | undefined,
+): Array<{ provider: string; mode: EnrolmentMode }> {
+  if (!providers || !isOpenEnrolment(allowedUsers, groupTiers)) return [];
+  return Object.entries(providers).map(([provider, cfg]) => ({
+    provider,
+    mode: classifyProviderConfig(provider, cfg) === "public" ? "refused" : "open",
+  }));
+}
+
 // ─── Auth Secret Management ─────────────────────────────────────────────────
 
 /** Minimum recommended `auth.secret` length in characters (32 hex = 16 bytes of entropy at worst). */

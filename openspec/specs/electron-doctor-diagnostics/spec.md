@@ -89,7 +89,7 @@ The Doctor SHALL run a fixed battery of checks covering the Electron shell, bund
 #### Scenario: Electron-only server-code and starter rows
 
 - **WHEN** the report is generated
-- **THEN** a `Dashboard server code` row (section `server`, Electron-only) checks for the bundled server CLI at `<resourcesPath>/server/packages/server/src/cli.ts`, falling back to `detectDashboardPackage()`, reporting `ok` with the resolved version/path (bundled version read from `<resourcesPath>/server/packages/server/package.json`, or the detected package's `package.json`) or `error` "Not found — required for the dashboard server" when neither resolves
+- **THEN** a `Dashboard server code` row (section `server`, Electron-only) checks for the bundled server CLI at `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`, falling back to `detectDashboardPackage()`, reporting `ok` with the resolved version/path (bundled version read from `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/package.json`, or the detected package's `package.json`) or `error` "Not found — required for the dashboard server" when neither resolves
 - **AND** a `Server starter` row (section `server`) is emitted ONLY when the server is running, with its status taken from `probeServer().starter` — `ok` when a starter string is present, `warning` "Unknown (old server?)" when it is absent
 
 #### Scenario: Report never rejects on internal failure

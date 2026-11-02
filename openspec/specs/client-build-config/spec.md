@@ -34,7 +34,7 @@ The Vite build configuration SHALL not hardcode `8000` as the proxy target port.
 
 The Tailwind v4 entry stylesheet (`packages/client/src/index.css`) SHALL cover every package shipping client-side React components with Tailwind utility classes, so that utilities referenced only in plugin source are not purged from the production stylesheet. Client-bearing packages that are not plugins (`client-utils/src`, `dashboard-plugin-runtime/src`) keep explicit `@source` directives in `index.css`.
 
-Plugin coverage SHALL come from `packages/client/src/generated/plugin-sources.css`, which `index.css` imports and the dashboard Vite plugin generates from manifests (`dashboard-plugin-loader` "Client-side plugin entries are bundled by Vite"). It SHALL hold one explicit `@source` directive per client-bearing plugin under `<repo>/packages`, fixture or not (independent of the build's fixture policy, so dev and production builds generate the same file): `@source "../../../<plugin>/src/client"` (paths relative to `generated/`), or `@source "../../../<plugin>/src"` for a plugin whose client components live directly under `src/` (e.g. `grammar-plugin`, `quota-plugin`, `flows-anthropic-bridge-plugin`, `roles-plugin`, `demo-plugin`), plus one directive per claim `module` directory outside those.
+Plugin coverage SHALL come from `packages/client/src/generated/plugin-sources.css`, which `index.css` imports and the dashboard Vite plugin generates from manifests (`dashboard-plugin-loader` "Client-side plugin entries are bundled by Vite"). It SHALL hold one explicit `@source` directive per client-bearing plugin under `<repo>/packages`, fixture or not (independent of the build's fixture policy, so dev and production builds generate the same file): `@source "../../../<plugin>/src/client"` (paths relative to `generated/`), or `@source "../../../<plugin>/src"` for a plugin whose client components live directly under `src/` (e.g. `grammar-plugin`, `quota-plugin`, `roles-plugin`, `demo-plugin`), plus one directive per claim `module` directory outside those.
 
 A bare star glob over sibling `src/client` directories (e.g. `@source "../../*/src/client"`) does NOT expand in this Tailwind v4 setup and additionally embeds the comment-terminating `*/` sequence; explicit enumeration is therefore required. A plugin author SHALL NOT hand-edit `index.css` or the generated file: the previous rule that an author adds a `@source` line by hand is removed, because the line is now derived from the manifest.
 
@@ -66,9 +66,9 @@ A repository test SHALL enumerate every plugin package whose manifest declares a
 
 #### Scenario: Plugins without a src/client directory are covered
 
-- **GIVEN** `grammar-plugin`, `quota-plugin` and `flows-anthropic-bridge-plugin` keep their settings components directly under `src/`
+- **GIVEN** `grammar-plugin`, `quota-plugin` and `roles-plugin` keep their settings components directly under `src/`
 - **WHEN** `packages/client/src/generated/plugin-sources.css` is inspected
-- **THEN** it SHALL contain directives covering `grammar-plugin/src`, `quota-plugin/src` and `flows-anthropic-bridge-plugin/src`
+- **THEN** it SHALL contain directives covering `grammar-plugin/src`, `quota-plugin/src` and `roles-plugin/src`
 
 #### Scenario: Previously missing plugins are covered
 

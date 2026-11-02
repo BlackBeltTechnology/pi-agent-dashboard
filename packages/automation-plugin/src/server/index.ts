@@ -159,6 +159,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     triggerKinds: () => engineRef?.registry.kinds() ?? new Set(["schedule"]),
     workSourceIds: () => engineRef?.workSources.ids() ?? new Set<string>(),
     scanGlobalScope: () => ctx.getPluginConfig<AutomationPluginConfig>()?.scanGlobalScope !== false,
+    readFileGuarded: ctx.readFileGuarded,
   });
   // plugin_action handler: run/stop/create dispatch to the SAME engine cores
   // and writer the REST routes call (no HTTP re-entry). Fan-out routes this

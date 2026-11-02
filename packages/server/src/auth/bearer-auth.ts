@@ -21,10 +21,12 @@
  */
 import type { TLSSocket } from "node:tls";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/tls-only-token.js";
 import type { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { auditLine, auditPrefix } from "./audit-log.js";
 import { hasProxyForwardingHeaders } from "./localhost-guard.js";
 import { isLoopbackRange } from "./loopback.js";
+import { bearerChannelOf } from "./proven-tls.js";
 import { isSecureOrigin } from "./secure-origin.js";
 
 /** Extract a `Bearer` token from an Authorization header, or null. */
@@ -44,6 +46,12 @@ export const DEVICE_COOKIE = "pi_dash_device";
 /** Route pattern of the browser-bearer rotation (the one route whose refusals are audited, D2). */
 export const ROTATE_ROUTE = "/api/paired-devices/rotate";
 /** 401 body for an expired browser bearer (distinct from revoked/unknown, which carry no `code`). */
+/** 401 body for a `pi_tls_` bearer presented off a proven channel (a named cause, not "unpaired or revoked"). */
+const TLS_ONLY_UNTRUSTED_BODY = {
+  success: false as const,
+  error: TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL,
+  code: TLS_ONLY_TOKEN_UNTRUSTED_CHANNEL,
+};
 const BEARER_EXPIRED_BODY = { success: false as const, error: "bearer_expired", code: "bearer_expired" as const };
 /** 400 days — `PairedDeviceRegistry` rows carry no expiry; revocation is the kill switch. */
 const DEVICE_COOKIE_MAX_AGE_S = 400 * 24 * 60 * 60;
@@ -110,7 +118,11 @@ export function registerBearerAuth(
     if ((request as any).isAuthenticated) return;
     const headerToken = parseBearerHeader(request.headers.authorization);
     const token = headerToken ?? deviceCookieToken(request);
-    const verdict = token ? deps.registry.verifyDetailed(token) : null;
+    // The channel is judged from the request itself and the registry records any off-channel use.
+    const verdict = token ? deps.registry.verifyDetailed(token, bearerChannelOf(request.raw)) : null;
+    // A TLS-only bearer off a proven channel is marked, then refused with a distinct, named cause.
+    // See change: prove-vault-bridge-tls (D4, D9).
+    if (verdict?.status === "tls_only_refused") return reply.code(401).send(TLS_ONLY_UNTRUSTED_BODY);
     // A PRESENTED Authorization bearer is always judged, before any network
     // trust: an expired browser bearer is a distinct 401 the client re-pairs
     // on, even from a loopback / trusted peer. (A cookie-carried bearer that
@@ -145,7 +157,7 @@ export function registerDeviceSessionRoutes(
 ): void {
   fastify.post("/api/device-session", async (request, reply) => {
     const bearer = parseBearerHeader(request.headers.authorization);
-    if (!bearer || !deps.registry.verify(bearer)) {
+    if (!bearer || !deps.registry.verify(bearer, bearerChannelOf(request.raw))) {
       reply.code(401);
       return { success: false as const, error: "device bearer required" };
     }

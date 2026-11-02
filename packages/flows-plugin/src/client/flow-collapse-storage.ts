@@ -6,11 +6,19 @@
  * try/catch-swallow pattern of `useSidebarState.ts`; a localStorage failure
  * (quota / disabled / private mode) degrades to in-memory state and never throws.
  *
- * Default is expanded (false) for any session never collapsed.
+ * Default is COLLAPSED (true) for any session with no stored choice: the panel
+ * never expands on its own when a flow starts, completes or fails. Open flow…
+ * expands it via `setFlowCollapsed` (same-tab writes notify mounted toggles).
  *
- * See change: fix-flow-ui-graph-zoom-summary.
+ * See change: fix-flow-ui-graph-zoom-summary; flows-dock-chip-and-panel-actions (D10).
  */
 import { useCallback, useEffect, useState } from "react";
+
+/** Default for a session with no stored collapse choice. */
+const FLOW_COLLAPSE_DEFAULT = true;
+
+/** Same-tab listeners per key, so an explicit write reaches mounted toggles. */
+const keyListeners = new Map<string, Set<(v: boolean) => void>>();
 
 export type FlowCollapseKind = "summary" | "dashboard";
 
@@ -51,6 +59,14 @@ export function usePersistedToggle(
 
   useEffect(() => {
     setValue(key ? readBoolean(key, fallback) : fallback);
+    if (!key) return;
+    let set = keyListeners.get(key);
+    if (!set) keyListeners.set(key, (set = new Set()));
+    set.add(setValue);
+    return () => {
+      set.delete(setValue);
+      if (set.size === 0) keyListeners.delete(key);
+    };
   }, [key, fallback]);
 
   const toggle = useCallback(() => {
@@ -75,5 +91,17 @@ export function useFlowCollapsePersisted(
   sessionId: string | undefined,
   kind: FlowCollapseKind,
 ): [boolean, () => void] {
-  return usePersistedToggle(sessionId ? flowCollapseKey(kind, sessionId) : null, false);
+  return usePersistedToggle(sessionId ? flowCollapseKey(kind, sessionId) : null, FLOW_COLLAPSE_DEFAULT);
+}
+
+/**
+ * Explicit write (Open flow… expands): persists `collapsed` for the session's
+ * panel kind(s) and updates every mounted toggle for that key in this tab.
+ */
+export function setFlowCollapsed(sessionId: string, kinds: readonly FlowCollapseKind[], collapsed: boolean): void {
+  for (const kind of kinds) {
+    const key = flowCollapseKey(kind, sessionId);
+    writeBoolean(key, collapsed);
+    for (const fn of keyListeners.get(key) ?? []) fn(collapsed);
+  }
 }

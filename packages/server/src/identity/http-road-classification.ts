@@ -187,6 +187,8 @@ export function classifyHttpRoad(
     return { road: "session-handler" }; // list, archived list, archived/:id
   }
   if (seg === "events" || seg === "session-change") {
+    // The agent event stream filters every event by owner itself (change: add-agent-event-stream).
+    if (seg === "events" && second === "stream") return { road: "session-handler" };
     return second === ":sessionId" ? { road: "session", param: "sessionId" } : undefined;
   }
   if (seg === "session-diff" || seg === "session-file") return { road: "session-handler" };

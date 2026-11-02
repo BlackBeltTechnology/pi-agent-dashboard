@@ -74,3 +74,26 @@ describe("E12 — shared verb-tier table is generated and fresh", () => {
     expect(tampered).not.toBe(verbTiersContent);
   });
 });
+
+// See change: close-security-map-high-findings (test-plan #E47): the answer tools
+// never reach a generated artifact (tools.ts, README catalogue, shared verb-tier file).
+describe("E47 — answer tools are absent from every generated artifact", () => {
+  const NAMES = ["prompt_response", "extension_ui_response"] as const;
+  const artifacts: Array<[string, () => string]> = [
+    ["generated/tools.ts", () => fs.readFileSync(GENERATED, "utf8")],
+    ["README tools block", () => readmeBlock()],
+    ["verb-tiers.generated.ts", () => fs.readFileSync(VERB_TIERS_FILE, "utf8")],
+  ];
+
+  it.each(artifacts)("%s has zero occurrences of either name", (_label, read) => {
+    const text = read();
+    for (const n of NAMES) expect(text.split(n).length - 1, n).toBe(0);
+  });
+
+  it("a fresh build agrees (freshness + tier file equals GENERATED_TOOLS name+tier)", () => {
+    const { content, verbTiersContent } = build(routeTier);
+    expect(fs.readFileSync(GENERATED, "utf8")).toBe(content);
+    expect(fs.readFileSync(VERB_TIERS_FILE, "utf8")).toBe(verbTiersContent);
+    expect(GENERATED_VERB_TIERS).toEqual(GENERATED_TOOLS.map((t) => ({ name: t.name, tier: t.tier })));
+  });
+});

@@ -39,7 +39,9 @@ export type PinVerdictCause =
   | "not-pinned"
   | "fingerprint-mismatch"
   | "signature-invalid"
-  | "unreachable";
+  | "unreachable"
+  /** `NODE_TLS_REJECT_UNAUTHORIZED=0` on a TLS call: refused before any request. See change: prove-vault-bridge-tls (D7). */
+  | "tls-verify-disabled";
 
 export interface PinVerdict {
   accept: boolean;
@@ -126,16 +128,38 @@ export function decidePinnedIdentity({ pin, nonce, response }: PinDecisionInput)
   return { accept: true, cause: "verified", reason: `verified: server identity ${pin.fingerprint}` };
 }
 
+/** The process variable that, set to `0`, turns TLS certificate validation off. */
+export const TLS_VERIFY_ENV = "NODE_TLS_REJECT_UNAUTHORIZED";
+
+/** True when certificate validation is disabled in `env` (read per call, never cached). */
+export function tlsVerifyDisabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env[TLS_VERIFY_ENV]?.trim() === "0";
+}
+
 export interface ChallengeInput {
   /** Origin of the dashboard, e.g. `https://host:8000`. */
   baseUrl: string;
   pin: ServerPin | undefined;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** Read per call for {@link tlsVerifyDisabled}; defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
 }
 
-/** Challenge the server at `baseUrl` and apply {@link decidePinnedIdentity}. */
+/**
+ * Challenge the server at `baseUrl` and apply {@link decidePinnedIdentity}.
+ *
+ * An `https:` origin is refused with `tls-verify-disabled`, with no request made,
+ * while certificate validation is disabled in the process. See change: prove-vault-bridge-tls (D7).
+ */
 export async function challengePinnedServer(input: ChallengeInput): Promise<PinVerdict> {
+  if (/^https:/i.test(input.baseUrl) && tlsVerifyDisabled(input.env)) {
+    return {
+      accept: false,
+      cause: "tls-verify-disabled",
+      reason: `refused: ${TLS_VERIFY_ENV}=0 disables certificate validation; ${input.baseUrl} is not contacted (trust a private CA with NODE_EXTRA_CA_CERTS instead)`,
+    };
+  }
   const doFetch = input.fetchImpl ?? fetch;
   // Fresh per challenge — a captured signature must not replay.
   const nonce = crypto.randomBytes(24).toString("base64url");

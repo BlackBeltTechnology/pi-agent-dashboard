@@ -47,6 +47,7 @@ import { resolveSpawnRuntime } from "@blackbelt-technology/pi-dashboard-shared/p
 import { resolveNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { getBundledNodeDir, getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { MANAGED_DIR } from "./managed-paths.js";
+import { getBundledCliPath } from "./launch-source.js";
 import { pickNodeForServer } from "./pick-node.js";
 import { isApiKeyConfigured } from "./wizard-state.js";
 
@@ -64,6 +65,22 @@ function getPkgVersion(pkgJsonPath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The bundled server's CLI + version, from the ONE shipped copy:
+ * `<resources>/server/node_modules/@blackbelt-technology/pi-dashboard-server/{src/cli.ts,package.json}`.
+ * `null` without a resources path (dev run). `version` is `null` when the manifest is unreadable.
+ * See change: slim-windows-install-file-count (D2).
+ */
+export function bundledServerInfo(
+  resourcesPath: string | undefined,
+): { cliPath: string; exists: boolean; version: string | null } | null {
+  if (!resourcesPath) return null;
+  const cliPath = getBundledCliPath(resourcesPath);
+  const exists = existsSync(cliPath);
+  const version = exists ? getPkgVersion(path.resolve(path.dirname(cliPath), "..", "package.json")) : null;
+  return { cliPath, exists, version };
 }
 
 /**
@@ -338,20 +355,16 @@ async function runDoctorInner(): Promise<DoctorReport> {
 
   // ── Dashboard server code (Electron-only path) ──────────────
   const resourcesPath = (process as { resourcesPath?: string }).resourcesPath;
-  const bundledServerCli = resourcesPath
-    ? path.join(resourcesPath, "server", "packages", "server", "src", "cli.ts")
-    : null;
-  const hasBundledServer = !!(bundledServerCli && existsSync(bundledServerCli));
+  const bundled = bundledServerInfo(resourcesPath);
+  const bundledServerCli = bundled?.cliPath ?? null;
+  const hasBundledServer = !!bundled?.exists;
 
   const dashboard = detectDashboardPackage();
   let dashVersion: string | null = null;
   if (dashboard.found && dashboard.path) {
     dashVersion = getPkgVersion(dashboard.path);
   }
-  if (hasBundledServer && !dashVersion && resourcesPath) {
-    const bundledPkg = path.join(resourcesPath, "server", "packages", "server", "package.json");
-    dashVersion = getPkgVersion(bundledPkg);
-  }
+  if (hasBundledServer && !dashVersion) dashVersion = bundled?.version ?? null;
   checks.push({
     name: "Dashboard server code",
     section: "server",

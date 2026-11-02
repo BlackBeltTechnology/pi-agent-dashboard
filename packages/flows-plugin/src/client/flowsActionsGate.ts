@@ -6,7 +6,7 @@
  * Open iff pi-flows is active in the session's cwd — a command named `flows` or
  * starting with `flows:` in `commandsList`, the removed `flows:new` alone NOT
  * counting — OR the session has any flow event (live or replayed). Never gates on
- * `flowsList` length, so an active-but-empty cwd still offers New / Edit….
+ * flow catalog length, so an active-but-empty cwd still offers New / Edit….
  * Closed by default: no `commandsList` published yet → closed.
  *
  * Synchronous and side-effect-free; reads `getSessionData` directly like

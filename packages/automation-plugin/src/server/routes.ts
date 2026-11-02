@@ -138,12 +138,23 @@ export interface AutomationRouteHooks {
    * See change: fix-home-folder-scope-double-arm.
    */
   scanGlobalScope?: () => boolean;
+  /**
+   * Host guard for reading file CONTENT returned to a client (`result.md`, `automation.yaml`, `prompt.md`):
+   * `null` when the dashboard-state / pi-agent-credential guard refuses the real path (a symlink or hard
+   * link inside the cwd to a credential file). An absent hook (older host) behaves as `null`: each read takes
+   * its existing failed-read branch, never a plain `fs` read. See change: close-security-map-high-findings (D1, H1).
+   */
+  readFileGuarded?: (absPath: string) => Promise<string | null>;
 }
 
 export function mountAutomationRoutes(
   fastify: FastifyInstance,
   hooks: AutomationRouteHooks = {},
 ): void {
+  /** Content read through the host guard; `null` = refused or no seam (fail closed). Other failures reject. */
+  const guardedRead = async (absPath: string): Promise<string | null> =>
+    hooks.readFileGuarded ? hooks.readFileGuarded(absPath) : null;
+
   /**
    * Parse + admit a request cwd (shape → presence → tri-state admission) BEFORE `fn` runs,
    * releasing the admission token afterwards. A supplied cwd is admitted in every scope
@@ -295,7 +306,6 @@ export function mountAutomationRoutes(
     const bySession = !q.runId && !!q.sessionId;
     const required = q.scope ? q.scope !== "global" : !bySession;
     return withCwd(reply, q.cwd, required, async (cwd) => {
-      const fs = await import("node:fs");
       const path = await import("node:path");
       const { findRunBySessionId, resolveRunDir } = await import("./run-store.js");
       // By session id: the run monitor's fallback once the run session is
@@ -312,7 +322,7 @@ export function mountAutomationRoutes(
           const dir = resolveRunDir(base, rec.runId);
           let result: string | undefined;
           try {
-            if (dir) result = fs.readFileSync(path.join(dir, "result.md"), "utf-8");
+            if (dir) result = (await guardedRead(path.join(dir, "result.md"))) ?? undefined;
           } catch { /* not finished yet */ }
           return { status: rec.status, runId: rec.runId, name: rec.name, ...(result !== undefined ? { result } : {}) };
         }
@@ -331,7 +341,9 @@ export function mountAutomationRoutes(
         return { error: "result not found" };
       }
       try {
-        return { result: fs.readFileSync(path.join(dir, "result.md"), "utf-8") };
+        const result = await guardedRead(path.join(dir, "result.md"));
+        if (result === null) throw new Error("refused");
+        return { result };
       } catch {
         reply.code(404);
         return { error: "result not found" };
@@ -433,14 +445,15 @@ export function mountAutomationRoutes(
         reply.code(400);
         return { error: `invalid automation name: "${q.name}"` };
       }
-      const fs = await import("node:fs");
       const path = await import("node:path");
       const { parseAutomationYaml } = await import("./automation-schema.js");
       const base = scopeBaseFor(scope, cwd);
       const dir = path.join(base, ".pi", "automation", q.name);
       let rawText: string;
       try {
-        rawText = fs.readFileSync(path.join(dir, "automation.yaml"), "utf-8");
+        const text = await guardedRead(path.join(dir, "automation.yaml"));
+        if (text === null) throw new Error("refused");
+        rawText = text;
       } catch {
         reply.code(404);
         return { error: "automation not found" };
@@ -458,7 +471,7 @@ export function mountAutomationRoutes(
       let promptBody: string | undefined;
       if (config.action?.kind === "prompt") {
         try {
-          promptBody = fs.readFileSync(path.join(dir, "prompt.md"), "utf-8");
+          promptBody = (await guardedRead(path.join(dir, "prompt.md"))) ?? "";
         } catch {
           promptBody = "";
         }

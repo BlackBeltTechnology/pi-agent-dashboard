@@ -4,7 +4,7 @@
 #
 # Asserts the same four-point "healthy launch" contract as the Linux
 # smoke (08-electron-real-launch.sh):
-#   1. Main process reaches a healthy /api/health within 120 s.
+#   1. Main process reaches a healthy /api/health within 300 s.
 #   2. /api/health.launchSource == "electron" (the server's launch-source
 #      field; there is no `starter` key in the health response).
 #   3. ~/.pi/dashboard/server.log is non-empty (catches spawnDetached
@@ -201,9 +201,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Poll /api/health. 120 s gives the slower x64 leg margin for a cold
-# first-run bootstrap (fresh ~/.pi, no caches).
-DEADLINE=$((SECONDS + 120))
+# Poll /api/health. 300 s gives the slower x64 leg margin for a cold
+# first-run bootstrap (fresh ~/.pi, no caches; the v0.11.0 cut's intel leg
+# needed >120 s with 26 plugins + token rotation — healthy, just late).
+DEADLINE=$((SECONDS + 300))
 HEALTH_BODY=""
 while [ $SECONDS -lt $DEADLINE ]; do
   sleep 2
@@ -219,7 +220,7 @@ while [ $SECONDS -lt $DEADLINE ]; do
 done
 
 if [ -z "$HEALTH_BODY" ]; then
-  echo "FAIL: /api/health did not respond within 120s"
+  echo "FAIL: /api/health did not respond within 300s"
   echo "  Last 60 lines of Electron stdout:"
   tail -60 "$ELECTRON_LOG" 2>/dev/null || echo "  (no log)"
   exit 1

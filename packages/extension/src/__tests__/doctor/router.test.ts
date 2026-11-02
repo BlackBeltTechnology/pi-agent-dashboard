@@ -80,12 +80,13 @@ describe("router over real modules", () => {
 	it("routes a symptom phrase to exactly one module", () => {
 		expect(routeSymptom(modules, "flow won't show")).toBe("plugins-bridges");
 		expect(routeSymptom(modules, "pi version mismatch")).toBe("pi-resolution");
-		expect(routeSymptom(modules, "waiting_peers")).toBe("peers");
+		expect(routeSymptom(modules, "pi-flows missing")).toBe("peers");
 	});
 
 	it("builds a deterministic symptom map (first declaration wins)", () => {
 		const map = buildSymptomMap(modules);
-		expect(map.get("waiting peers")).toBe("peers");
+		// `waiting_peers` left with the deleted bridge (change: retire-anthropic-messages-bridge).
+		expect(map.get("peer not resolving")).toBe("peers");
 	});
 
 	it("orders the sweep env → pi → peers → plugins → runtime", () => {

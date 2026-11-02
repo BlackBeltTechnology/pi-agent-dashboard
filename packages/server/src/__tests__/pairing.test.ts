@@ -158,7 +158,7 @@ describe("D12 compare-code approval", () => {
     const poll = mgr.poll(r.pendingId);
     expect(poll.status).toBe("approved");
     if (poll.status === "approved") {
-      expect(reg.verify(poll.token)).not.toBe(null);
+      expect(reg.verify(poll.token, "tls")).not.toBe(null);
     }
     // Second poll → code consumed, unknown.
     expect(mgr.poll(r.pendingId).status).toBe("unknown");
@@ -620,7 +620,7 @@ describe("D2 — revoke + approve refuse a device bearer; approve label bounded"
     });
     expect(res.statusCode).toBe(401);
     expect(reg.list().some((d) => d.id === b.device.id)).toBe(true);
-    expect(reg.verify(b.token)).not.toBe(null);
+    expect(reg.verify(b.token, "tls")).not.toBe(null);
   });
 
   it("E11: device bearer cannot revoke itself", async () => {
@@ -652,7 +652,7 @@ describe("D2 — revoke + approve refuse a device bearer; approve label bounded"
       headers: { "x-test-session": "1" },
     });
     expect(res.statusCode).toBe(200);
-    expect(reg.verify(b.token)).toBe(null);
+    expect(reg.verify(b.token, "tls")).toBe(null);
   });
 
   it("E14: local-token operator revokes", async () => {
@@ -662,7 +662,7 @@ describe("D2 — revoke + approve refuse a device bearer; approve label bounded"
       headers: { "x-pi-local-token": "local-secret-token" },
     });
     expect(res.statusCode).toBe(200);
-    expect(reg.verify(b.token)).toBe(null);
+    expect(reg.verify(b.token, "tls")).toBe(null);
   });
 
   it("E15: the mint route inherits the device refusal", async () => {
@@ -1213,5 +1213,55 @@ describe("AE75 pairing response carries expiresAt for a browser holder", () => {
     } finally {
       fake.restore();
     }
+  });
+});
+
+// ── prove-vault-bridge-tls: QR collection decides exposure at poll(), not approve() (test-plan #E6) ──
+
+describe("E6 — QR/knock collection channel", () => {
+  // approve() makes no exposure decision, so only the COLLECTING channel is a parameter.
+  const collect = (channelPoll: "tls" | "plain", holder?: unknown) => {
+    const { mgr, reg } = mkManager();
+    const p = mgr.createPayload()!;
+    const r = mgr.redeem(p.code);
+    if (!r.ok) throw new Error("redeem failed");
+    const approved = mgr.approve(p.code, r.confirmCode);
+    if (!approved.ok) throw new Error("approve failed");
+    const afterApprove = reg.deviceTrust(approved.device.id);
+    const polled = mgr.poll(r.pendingId, holder, channelPoll);
+    return { reg, id: approved.device.id, afterApprove, polled };
+  };
+
+  it("(a) collected from plain LAN → exposed", () => {
+    const { reg, id, afterApprove } = collect("plain");
+    expect(afterApprove).toBe("eligible");
+    expect(reg.deviceTrust(id)).toBe("exposed");
+  });
+
+  it("(b) collected over TLS → unexposed; same token, never pi_tls_", () => {
+    const { reg, id, afterApprove, polled } = collect("tls");
+    expect(afterApprove).toBe("eligible");
+    expect(reg.deviceTrust(id)).toBe("eligible");
+    if (polled.status !== "approved") throw new Error("not approved");
+    expect(polled.token.startsWith("pi_tls_")).toBe(false);
+    expect(reg.verify(polled.token, "tls")).toMatchObject({ id });
+  });
+
+  it("(c) a late holder:browser declaration still returns expiresAt", () => {
+    const { polled, reg, id } = collect("tls", "browser");
+    if (polled.status !== "approved") throw new Error("not approved");
+    expect(typeof polled.expiresAt).toBe("number");
+    expect(reg.deviceTrust(id)).toBe("eligible");
+  });
+
+  it("a poll with no channel argument fails closed (plain)", () => {
+    const { mgr, reg } = mkManager();
+    const p = mgr.createPayload()!;
+    const r = mgr.redeem(p.code);
+    if (!r.ok) throw new Error("redeem failed");
+    const a = mgr.approve(p.code, r.confirmCode);
+    if (!a.ok) throw new Error("approve failed");
+    mgr.poll(r.pendingId);
+    expect(reg.deviceTrust(a.device.id)).toBe("exposed");
   });
 });

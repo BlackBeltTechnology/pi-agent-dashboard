@@ -81,8 +81,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Multi-user governance under L1 allowlist / L2 admins; optional to `createChatGateway`.
 - Implemented: tier model, chokepoint, workspace scoping, bound-workspace attach confinement, outbound filter/pacer, audit log (`command-log.json`), channel provisioning (`channels.json`), binding store (`bindings.json`), durable disarm latch (`disarm.json`), per-thread mirror levels, dashboard config surface (tasks 8.x), L3 Playwright specs (10g.1–10g.6; 10g.7 at L1). Remaining: manual test guild QA (9.6, 10h.1, 10h.2).
 - Tier ladder: `observe` < `control` < `operate`.
-- Verb tiers read from `GENERATED_TOOLS`; allowed chat verbs restricted to `CHAT_COMMAND_ALLOWLIST` (includes `disarm`).
-- Chat-local verbs declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`).
+- Verb tiers read from `GENERATED_TOOLS` (exception: `prompt_response`, no MCP row, tier from `wsMessageTier`; see change: close-security-map-high-findings); allowed chat verbs restricted to `CHAT_COMMAND_ALLOWLIST` (includes `disarm`).
+- Chat-local verbs declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`, `prompt_response` -> `wsMessageTier`).
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers.
 - Global ceiling defaults to `observe`; `clampTier` caps, never raises.
 - Resolution: explicit ID outranks role; roles cap at `control`; `operate` requires explicit ID.

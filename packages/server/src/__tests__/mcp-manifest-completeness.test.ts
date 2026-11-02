@@ -251,3 +251,38 @@ describe("improve-gmail-plugin-setup-ux E29 — gmail setup + filters routes are
     expect(isDenylisted(path)).toBe(true);
   });
 });
+
+// See change: close-security-map-high-findings (D2, test-plan #E46, #E51): the answer
+// tools leave the MCP surface, the REST route stays registered + tiered for the browser.
+describe("E46/E51 — prompt-answer tools are denylisted; the REST route stays", () => {
+  const REASON = "agent prompt answers stay human-in-the-loop";
+  const ROUTE = "/api/session/:id/extension-ui-response";
+
+  it("three denylist entries carry the human-in-the-loop reason; the old duplicate-of reason is gone", () => {
+    for (const pattern of ["prompt_response", "extension_ui_response", ROUTE]) {
+      const entry = DENYLIST.find((e) => e.pattern === pattern);
+      expect(entry, pattern).toBeDefined();
+      expect(entry?.reason, pattern).toContain(REASON);
+    }
+    expect(DENYLIST.some((e) => e.reason === "duplicate-of:extension_ui_response")).toBe(false);
+  });
+
+  it("no manifest row binds them and neither name is a generated tool", () => {
+    for (const row of MANIFEST) {
+      expect(["prompt_response", "extension_ui_response"], row.name).not.toContain(row.name);
+      if (row.bind.kind === "rest") expect(row.bind.path).not.toBe(ROUTE);
+      if (row.bind.kind === "session") expect(row.bind.message).not.toBe("prompt_response");
+    }
+    const names = GENERATED_TOOLS.map((t) => t.name);
+    expect(names).not.toContain("prompt_response");
+    expect(names).not.toContain("extension_ui_response");
+    expect(isDenylisted("prompt_response")).toBe(true);
+    expect(isDenylisted(ROUTE)).toBe(true);
+  });
+
+  it("the REST route is still registered on the real server and tiered control", () => {
+    expect(apiRoutes().some((r) => r.method === "POST" && r.path === ROUTE)).toBe(true);
+    expect(ROUTE_TIERS.find((e) => e.method === "POST" && e.path === ROUTE)?.tier).toBe("control");
+    expect(hasRouteTier("POST", ROUTE)).toBe(true);
+  });
+});

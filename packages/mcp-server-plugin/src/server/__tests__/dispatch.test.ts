@@ -793,3 +793,106 @@ describe("tools/call always answers a CallToolResult", () => {
     expect((r.body as { result: unknown }).result).toEqual(already);
   });
 });
+
+// ── close-security-map-high-findings D2: no MCP tool answers an agent prompt ──
+// See change: close-security-map-high-findings (test-plan #E44, #E45, #E48).
+const ANSWER_TOOLS = ["prompt_response", "extension_ui_response"] as const;
+
+describe("E44 — tools/list never advertises the answer tools (D2)", () => {
+  const cells: Array<[string, McpCaller]> = [
+    ["per-session token (control)", sessionCaller("A")],
+    ["device observe", callerAt("observe")],
+    ["device control", callerAt("control")],
+    ["device operate", callerAt("operate")],
+  ];
+
+  it.each(cells)("%s lists neither answer tool", async (_label, caller) => {
+    const r = await dispatchRpc(req("tools/list"), MODERN, caller, deps());
+    const names = toolNames(r);
+    for (const n of ANSWER_TOOLS) expect(names).not.toContain(n);
+  });
+
+  it("the operate list is exactly the manifest (158 rows) and stays within the size bounds", async () => {
+    const r = await dispatchRpc(req("tools/list"), MODERN, callerAt("operate"), deps());
+    const names = toolNames(r);
+    expect(names).toHaveLength(GENERATED_TOOLS.length);
+    expect(names).toHaveLength(158);
+    expect(names.length).toBeGreaterThan(100);
+    expect(names.length).toBeLessThan(200);
+  });
+});
+
+describe("E45 — tools/call on a removed answer tool is the standard unknown-tool error (D2)", () => {
+  const callers: Array<[string, McpCaller]> = [
+    ["observe", callerAt("observe")],
+    ["control", callerAt("control")],
+    ["operate", callerAt("operate")],
+    ["session token", sessionCaller("A")],
+  ];
+  const spellings = [
+    "prompt_response",
+    "extension_ui_response",
+    "Prompt_Response",
+    "prompt-response",
+    "prompt_response ",
+  ];
+
+  for (const [label, caller] of callers) {
+    for (const withArgs of [true, false]) {
+      it(`${label} (${withArgs ? "with" : "without"} args) — every spelling equals the reference unknown-tool error`, async () => {
+        const sendToSession = vi.fn(() => true);
+        const d = deps({ sendToSession });
+        const args = withArgs ? { sessionId: "B", promptId: "p1", response: "yes" } : {};
+        const reference = await dispatchRpc(
+          req("tools/call", { name: "no_such_tool_xyz", arguments: args }),
+          MODERN,
+          caller,
+          d,
+        );
+        expect(reference.status).toBe(404);
+        const refBody = reference.body as unknown as { error: { code: number; message: string; data?: unknown } };
+        expect(refBody.error.code).toBe(RPC_METHOD_NOT_FOUND);
+        for (const name of [...spellings]) {
+          const r = await dispatchRpc(req("tools/call", { name, arguments: args }), MODERN, caller, d);
+          expect(r.status, name).toBe(404);
+          expect(r.wwwAuthenticate, name).toBeUndefined();
+          const body = r.body as unknown as { error: { code: number; message: string; data?: unknown } };
+          // Same code + shape; the message only echoes the requested name.
+          expect(body.error.code, name).toBe(RPC_METHOD_NOT_FOUND);
+          expect(body.error.message, name).toBe(`Unknown tool: ${name}`);
+          expect(body.error.message).not.toBe("insufficient_scope");
+          expect(Object.keys(body.error).sort(), name).toEqual(Object.keys(refBody.error).sort());
+          expect(r.body, name).toEqual({
+            ...(reference.body as object),
+            error: { ...refBody.error, message: `Unknown tool: ${name}` },
+          });
+        }
+        expect(sendToSession).not.toHaveBeenCalled();
+        expect(d.invokeTool).not.toHaveBeenCalled();
+      });
+    }
+  }
+});
+
+// See change: close-security-map-high-findings (test-plan #E48).
+describe("E48 — control tier excludes the answer tools; force_kill still needs operate (D2)", () => {
+  it("a control caller's list has no answer tool", async () => {
+    const r = await dispatchRpc(req("tools/list"), MODERN, callerAt("control"), deps());
+    for (const n of ANSWER_TOOLS) expect(toolNames(r)).not.toContain(n);
+    expect(toolNames(r)).not.toContain("force_kill");
+  });
+
+  it("force_kill at control → refused scope=operate; at operate → terminates", async () => {
+    const inject = vi.fn(async (_opts: InjectOptions) => ({ statusCode: 200, body: { success: true, data: {} } }));
+    const refused = await callTool("force_kill", { sessionId: "S2" }, deps({ inject }), callerAt("control"));
+    expect(refused.status).toBe(403);
+    expect((refused.body as unknown as { error: { data: { scope: string } } }).error.data.scope).toBe("operate");
+    expect(inject).not.toHaveBeenCalled();
+
+    const ok = await callTool("force_kill", { sessionId: "S2" }, deps({ inject }), callerAt("operate"));
+    expect(ok.status).toBe(200);
+    expect(inject).toHaveBeenCalledWith(
+      expect.objectContaining({ method: "POST", url: "/api/session/S2/lifecycle", payload: { action: "force_kill" } }),
+    );
+  });
+});

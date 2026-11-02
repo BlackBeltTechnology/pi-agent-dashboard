@@ -69,6 +69,8 @@ function makePrefs(): PreferencesStore {
     getAutoInitWorktreeOnSpawn: () => false,
     getAutoNameSessions: () => true,
     setAutoNameSessions: () => {},
+    getClaudeSubscriptionCompat: () => false,
+    setClaudeSubscriptionCompat: () => {},
     getLiveServers: () => [],
     setLiveServers: () => {},
     setAutoInitWorktreeOnSpawn: () => {},

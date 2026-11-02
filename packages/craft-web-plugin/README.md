@@ -16,6 +16,7 @@ build runs in a sandboxed, opaque-origin frame inside the pane, and every save g
 | PhotoCraft 0.10.0 | `.psd`; `.png .jpg .jpeg .webp .tif .tiff` | `.psd` in place; rasters → new `<stem>.psd` next to the file |
 | VectorCraft 0.16.0 | `.svg` | new `<stem>.vectorcraft` next to the file |
 | DeckCraft 0.7.0 | `.deckcraft`; `.pptx` | `.deckcraft` in place; `.pptx` → new `<stem>.deckcraft` |
+| FilmCraft 0.12.0 | `.fcproj` (+ the media it references, from the project's folder) | in place; media keep their original paths |
 | LightCraft 0.9.1 | `.dng .cr2 .cr3 .nef .arw .raf .orf .rw2` | view only (exports download to the device) |
 
 - **Opt-in** — `defaultEnabled: false`; per-app switches `apps.<app>.enabled` (default `true`) are enforced

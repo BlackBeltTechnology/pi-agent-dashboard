@@ -6,12 +6,16 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import type { FlowState, FlowInfo, CommandInfo, DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { isFlowEvent, reduceFlowEvent } from "../flow-reducer.js";
 
 export interface FlowsSessionServerState {
-  /** Available flows for this session (from pi-flows extension). */
-  flows: FlowInfo[];
+  /** Available flows for this session (the plugin flow catalog). */
+  flows: FlowCatalogEntry[];
+  /** True once a `flow_catalog` arrived for this session. See change:
+   *  flows-dock-chip-and-panel-actions (D4). */
+  catalogKnown?: boolean;
   /** Available commands for this session. */
   commands: CommandInfo[];
   /** Current flow state derived from event stream. Null when no flow active. */
@@ -49,10 +53,11 @@ class StateStore {
     return changed;
   }
 
-  /** Update available flows list (from pi flows_list message). */
-  setFlows(sessionId: string, flows: FlowInfo[]): void {
+  /** Update the session's flow catalog (from a forwarded `flow_catalog` event). */
+  setFlows(sessionId: string, flows: FlowCatalogEntry[]): void {
     const s = this.ensure(sessionId);
     s.flows = flows;
+    s.catalogKnown = true;
   }
 
   /** Update available commands list. */

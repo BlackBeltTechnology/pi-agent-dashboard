@@ -1,0 +1,7 @@
+blocked_by:
+  - change: scope-pids-to-namespace
+    reason: "the pid target model (resolvePidTarget, pidNamespace) is defined there"
+  - change: guard-restored-headless-identity
+    reason: "force-kill-handler MODIFIED blocks are rebased on guard-restored-headless-identity's versions (which rebase scope-pids-to-namespace); task 2.3 plugs probeProcessStart into its injectable registry probe"
+  - change: group-aware-kill-process
+    reason: "command-executor 'Cross-platform tree termination uses killProcess' MODIFIED block is based on the text synced by its archive (PR #1069)"

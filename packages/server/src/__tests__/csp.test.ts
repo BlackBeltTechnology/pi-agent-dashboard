@@ -170,7 +170,7 @@ describe("sendIndexWithImportMap under a nonce-based script-src (E94)", () => {
   it("the baseline does not adopt nonces yet: no nonce attribute is emitted without one", async () => {
     expect(buildCsp()).not.toContain("nonce-");
     const app = Fastify();
-    const sender = createIndexHtmlSender(dir);
+    const sender = createIndexHtmlSender(dir, { trustedTypesMode: "report" });
     app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply));
     const res = await app.inject("/");
     expect(res.body).toContain('<script type="importmap">');
@@ -180,7 +180,7 @@ describe("sendIndexWithImportMap under a nonce-based script-src (E94)", () => {
 
   it("with a per-response nonce the importmap tag carries it", async () => {
     const app = Fastify();
-    const sender = createIndexHtmlSender(dir);
+    const sender = createIndexHtmlSender(dir, { trustedTypesMode: "report" });
     app.get("/", (_req, reply) => sender.sendIndexWithImportMap(reply, { nonce: "n1" }));
     const res = await app.inject("/");
     expect(res.body).toContain('<script type="importmap" nonce="n1">');
@@ -191,20 +191,27 @@ describe("sendIndexWithImportMap under a nonce-based script-src (E94)", () => {
 // ── harden-client-sinks (D7): independent PI_DASHBOARD_TRUSTED_TYPES mode ──
 const TT = "require-trusted-types-for 'script'";
 
+/** Object-form resolver, mode only (env = the raw `PI_DASHBOARD_TRUSTED_TYPES`, no config). */
+const rtt = (env: string | undefined, cspMode: CspMode): CspMode =>
+  resolveTrustedTypesMode({ env, config: undefined, cspMode }).mode;
+
 describe("resolveTrustedTypesMode (#E17)", () => {
   const CSP_RAW = [undefined, "off", "report", "enforce"] as const;
-  it.each(CSP_RAW)("TT unset / junk follows CSP %s: off iff CSP off, else report", (cspRaw) => {
+  it.each(CSP_RAW)("TT unset / empty follows CSP %s: off iff CSP off, else report", (cspRaw) => {
     const csp = resolveCspMode(cspRaw);
-    for (const tt of [undefined, "junk", ""]) {
-      expect(resolveTrustedTypesMode(tt, csp)).toBe(csp === "off" ? "off" : "report");
+    for (const tt of [undefined, "", "  "]) {
+      expect(rtt(tt, csp)).toBe(csp === "off" ? "off" : "report");
     }
+  });
+  it.each(CSP_RAW)("TT junk resolves to report whatever CSP %s (no-lockout; warned by the resolver)", (cspRaw) => {
+    expect(rtt("junk", resolveCspMode(cspRaw))).toBe("report");
   });
   it.each(CSP_RAW)("explicit TT values win over CSP %s", (cspRaw) => {
     const csp = resolveCspMode(cspRaw);
-    for (const tt of ["off", "report", "enforce"] as const) expect(resolveTrustedTypesMode(tt, csp)).toBe(tt);
+    for (const tt of ["off", "report", "enforce"] as const) expect(rtt(tt, csp)).toBe(tt);
   });
   it("CSP enforce + TT unset → report (existing enforce users get no TT enforcement)", () => {
-    expect(resolveTrustedTypesMode(undefined, "enforce")).toBe("report");
+    expect(rtt(undefined, "enforce")).toBe("report");
   });
 });
 
@@ -323,7 +330,7 @@ describe("strict CSP emission", () => {
   async function build(csp: CspMode, tt: CspMode, vite: { on: boolean } = { on: false }) {
     const app = Fastify({ logger: false });
     registerCsp(app, csp, tt);
-    const sender = createIndexHtmlSender(dir);
+    const sender = createIndexHtmlSender(dir, { trustedTypesMode: tt });
     const html = (reply: Parameters<typeof cspNonceFor>[0]) => sender.sendIndexWithImportMap(reply, { nonce: cspNonceFor(reply) });
     const viteStub = (reply: Parameters<typeof cspNonceFor>[0]) => {
       if (!vite.on) return false;
@@ -376,7 +383,7 @@ describe("strict CSP emission", () => {
   });
 
   it.each(["off", "report", undefined] as const)("WE12: enforce mode, TT %s", async (ttRaw) => {
-    const tt = resolveTrustedTypesMode(ttRaw, "enforce");
+    const tt = rtt(ttRaw, "enforce");
     const app = await build("enforce", tt);
     const res = await get(app);
     const en = hv(res, EN);
@@ -395,7 +402,7 @@ describe("strict CSP emission", () => {
   });
 
   it.each(["off", undefined, "report", "enforce"] as const)("WE13: CSP off, TT %s", async (ttRaw) => {
-    const tt = resolveTrustedTypesMode(ttRaw, "off");
+    const tt = rtt(ttRaw, "off");
     const raw = Fastify({ logger: false });
     let hooks = 0;
     const orig = raw.addHook.bind(raw);
@@ -430,10 +437,12 @@ describe("strict CSP emission", () => {
   describe("WE14: TT directive topology across the mode matrix", () => {
     const combos = MODES.flatMap((csp) => (["off", "report", "enforce", undefined] as const).flatMap((tt) => [false, true].map((dev) => [csp, tt, dev] as const)));
     it.each(combos)("CSP %s × TT %s × vite-dev %s", async (csp, ttRaw, dev) => {
-      const tt = resolveTrustedTypesMode(ttRaw, csp);
+      const tt = rtt(ttRaw, csp);
       const app = await build(csp, tt, { on: dev });
       const res = await get(app);
       assertTtTopology(hv(res, RO), hv(res, EN), tt);
+      // #E3: the document states the mode the headers carry (production HTML; the Vite stub has no shell).
+      if (!dev) expect(res.body).toContain(`<meta name="pi-trusted-types" content="${tt}">`);
       await app.close();
     });
   });
@@ -670,7 +679,7 @@ describe("strict CSP emission", () => {
     const sample = async (withCsp: boolean) => {
       const app = Fastify({ logger: false });
       if (withCsp) registerCsp(app, csp, "off");
-      const sender = createIndexHtmlSender(dir);
+      const sender = createIndexHtmlSender(dir, { trustedTypesMode: "report" });
       app.get("/", (_req, reply) => (withCsp ? sender.sendIndexWithImportMap(reply, { nonce: cspNonceFor(reply) }) : sender.sendIndexWithImportMap(reply)));
       await app.ready();
       for (let i = 0; i < 500; i++) await app.inject("/"); // warm up

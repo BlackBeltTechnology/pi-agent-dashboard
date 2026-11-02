@@ -1051,7 +1051,7 @@ describe("E14 — a manually minted device token reaches /mcp", () => {
       await mountMcpRoutes(app, {
         tokens: new McpTokenRegistry(),
         verifyDeviceToken: () => null,
-        verifyDeviceTokenTier: (t: string) => registry.verify(t),
+        verifyDeviceTokenTier: (t: string) => registry.verify(t, "tls"),
         invokeTool,
         serverInfo: { name: "pi-dashboard", version: "0.7.0" },
         log: { info: () => {}, warn: () => {}, error: () => {} },

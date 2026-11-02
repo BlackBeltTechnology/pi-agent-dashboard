@@ -51,7 +51,7 @@ describe("E7 — /api/health localProof only for a bare-loopback caller (real se
     fs.writeFileSync(path.join(dash, "config.json"), JSON.stringify({}), { mode: 0o600 });
     resetConfigSnapshot();
     handle = await createTestServer({
-      authConfig: { secret: SECRET, providers: github } as AuthConfig,
+      authConfig: { secret: SECRET, providers: github, allowedUsers: ["*@example.com"] } as AuthConfig,
     });
 
     // 1. bare loopback → told to authorize
@@ -88,7 +88,7 @@ describe("E8 — a valid session is recognised on observe routes under strict; a
     const a = Fastify();
     await a.register(fastifyCookie);
     await registerAuthPlugin(a, {
-      authConfig: { secret: SECRET, providers: github } as AuthConfig,
+      authConfig: { secret: SECRET, providers: github, allowedUsers: ["*@example.com"] } as AuthConfig,
       port: 8000,
       localToken: "tok",
       localTrust: createLocalTrustContext("tok", () => true),
@@ -136,7 +136,7 @@ describe("E9 — /auth/login: a bare-loopback tab sees the remedy, not a provide
   async function makeApp(): Promise<FastifyInstance> {
     const a = Fastify();
     await a.register(fastifyCookie);
-    await registerAuthPlugin(a, { authConfig: { secret: SECRET, providers: github } as AuthConfig, port: 8000, localToken: "tok", localTrust: ctx });
+    await registerAuthPlugin(a, { authConfig: { secret: SECRET, providers: github, allowedUsers: ["*@example.com"] } as AuthConfig, port: 8000, localToken: "tok", localTrust: ctx });
     await a.ready();
     return a;
   }

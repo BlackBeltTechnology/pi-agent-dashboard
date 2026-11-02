@@ -28,14 +28,32 @@
  * Deliberately NOT built on `access/verified-read.ts`: that is grant-only and
  * `lstat`-based, and would regress in-scope symlink reads.
  *
- * See change: close-container-loopback-impersonation (D8).
+ * **pi-agent credential files** (`AGENT_CREDENTIAL_NAMES`) are a second always-refused
+ * class: `<agentDir>/<name>` and any same-directory `<name>.*` sibling (quarantine /
+ * backup copies). The agent dirs are `resolvePiAgentDir()` (server env only) ∪
+ * `<home>/.pi/agent`, de-duplicated on real path and recomputed per call (so a HOME /
+ * `PI_CODING_AGENT_DIR` change is followed). Only the entry whose OWN basename matches
+ * is refused (`models.json.d/frag.json` is admitted); hard links and swapped symlinks
+ * are caught by the post-open (dev, ino) recheck. Case: exact compare on a
+ * case-sensitive volume, folded only where a cached per-dir probe says the volume folds
+ * (a failed probe counts as folding: over-refuse, never under-refuse).
+ * To protect a new pi credential file: add its name to `AGENT_CREDENTIAL_NAMES` (fixed
+ * list, no glob) and to `docs/security/residual-risks.md`.
+ *
+ * Residuals (accepted): a session's own `PI_CODING_AGENT_DIR` override is invisible to
+ * the server (only the server env is read); the JS grep walker reads a hard-linked
+ * credential file before the route's identity filter drops its matches; the
+ * `rendered-pdf` converter takes a path, so a swap after its last checked open is
+ * not caught (its output is a PDF rendering, never the bytes).
+ *
+ * See change: close-container-loopback-impersonation (D8), close-security-map-high-findings (D1).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { getDashboardConfigDir, resolvePiAgentDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 type DashboardStateTier = "always" | "gated";
 
@@ -86,6 +104,161 @@ async function realDashboardDir(): Promise<string> {
   return cachedReal;
 }
 
+/**
+ * Fixed, auditable set of pi-agent credential files (relative to an agent dir; `/` separates
+ * path segments). No glob: `settings.json`, `trust.json` etc. stay readable.
+ */
+const AGENT_CREDENTIAL_NAMES: readonly string[] = [
+  "auth.json",
+  "mcp-auth.json",
+  "providers.json",
+  "plugin-credentials.json",
+  "models.json",
+  "mcp.json",
+  "system-one/auth.json",
+];
+
+/** Real, de-duplicated agent dirs (server env ∪ `<home>/.pi/agent`); recomputed per call, never cached. */
+async function agentCredentialDirs(): Promise<string[]> {
+  const dirs = [resolvePiAgentDir(), path.join(os.homedir(), ".pi", "agent")];
+  const real = await Promise.all(dirs.map((d) => realpathLoose(path.resolve(d))));
+  return [...new Set(real)];
+}
+
+function agentCredentialDirsSync(): string[] {
+  const dirs = [resolvePiAgentDir(), path.join(os.homedir(), ".pi", "agent")];
+  return [...new Set(dirs.map((d) => realpathLooseSync(path.resolve(d))))];
+}
+
+function realpathLooseSync(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    const parent = path.dirname(p);
+    if (parent === p) return p;
+    return path.join(realpathLooseSync(parent), path.basename(p));
+  }
+}
+
+const swapCase = (s: string): string =>
+  [...s].map((c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase())).join("");
+
+/** One probe per directory per process: does its volume fold case? (failure ⇒ true: over-refuse.) */
+const foldProbes = new Map<string, Promise<boolean>>();
+function volumeFolds(dir: string): Promise<boolean> {
+  let probe = foldProbes.get(dir);
+  if (!probe) {
+    probe = (async () => {
+      const base = path.basename(dir);
+      const swapped = swapCase(base);
+      if (swapped === base) return true; // no letters to swap: cannot tell
+      const alt = path.join(path.dirname(dir), swapped);
+      try {
+        const a = await fs.stat(alt);
+        const o = await fs.stat(dir);
+        return a.dev === o.dev && a.ino === o.ino;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+          try {
+            await fs.stat(dir);
+            return false; // the real dir exists, the swapped name does not: case-sensitive
+          } catch {
+            return true; // ENOENT on both: cannot tell
+          }
+        }
+        return true;
+      }
+    })();
+    foldProbes.set(dir, probe);
+  }
+  return probe;
+}
+
+/** Test seam: drop the cached volume probes. */
+export function __resetCredentialVolumeProbes(): void {
+  foldProbes.clear();
+}
+
+/** Segments of a credential name joined onto an agent dir. */
+const credFile = (dir: string, name: string): string => path.join(dir, ...name.split("/"));
+
+/**
+ * Does REAL `realTarget` name a credential file of agent dir `dir` (exact entry or a same-dir `<name>.*` sibling)?
+ * Exact compare first; the volume probe runs ONLY when a case-folded compare matches but the exact one does
+ * not (so an unrelated path costs no probe), and then decides whether the fold counts.
+ */
+async function isCredentialIn(dir: string, realTarget: string): Promise<boolean> {
+  const matches = (fold: boolean, t: string, c: string): boolean => (fold ? norm(t) === norm(c) : t === c);
+  const nameMatch = (fold: boolean, cred: string): boolean => {
+    const base = path.basename(cred);
+    const tb = path.basename(realTarget);
+    if (!matches(fold, path.dirname(realTarget), path.dirname(cred))) return false;
+    return matches(fold, tb, base) || (tb.length > base.length && matches(fold, tb.slice(0, base.length + 1), `${base}.`));
+  };
+  let foldOnly = false;
+  for (const name of AGENT_CREDENTIAL_NAMES) {
+    const cred = credFile(dir, name);
+    if (nameMatch(false, cred)) return true;
+    if (nameMatch(true, cred)) foldOnly = true;
+  }
+  if (foldOnly && (await volumeFolds(dir))) return true;
+  // A credential file that is itself a symlink: its destination is the credential too.
+  for (const name of AGENT_CREDENTIAL_NAMES) {
+    const cred = credFile(dir, name);
+    let real: string;
+    try {
+      real = await fs.realpath(cred);
+    } catch {
+      continue;
+    }
+    if (real !== cred && real === realTarget) return true;
+  }
+  return false;
+}
+
+/** Is REAL path `realTarget` a pi-agent credential file (or same-dir `<name>.*` sibling)? */
+async function isAgentCredentialReal(realTarget: string): Promise<boolean> {
+  for (const dir of await agentCredentialDirs()) {
+    if (await isCredentialIn(dir, realTarget)) return true;
+  }
+  return false;
+}
+
+/**
+ * Synchronous "is this file a pi-agent credential file?" for the JS grep walker, so it never reads one.
+ * Basename pre-filter first (cheap), then a `realpathSync` compare. Folds case unconditionally (a
+ * differently-cased name is merely skipped by the search fallback).
+ */
+export function isAgentCredentialFileSync(full: string): boolean {
+  const base = norm(path.basename(full));
+  const candidate = AGENT_CREDENTIAL_NAMES.some((n) => {
+    const b = norm(path.basename(n));
+    return base === b || base.startsWith(`${b}.`);
+  });
+  if (!candidate) return false;
+  let real: string;
+  try {
+    real = realpathSync(full);
+  } catch {
+    return false;
+  }
+  const targetDir = norm(path.dirname(real));
+  const targetBase = norm(path.basename(real));
+  for (const dir of agentCredentialDirsSync()) {
+    for (const name of AGENT_CREDENTIAL_NAMES) {
+      const cred = credFile(dir, name);
+      const b = norm(path.basename(cred));
+      if (norm(path.dirname(cred)) === targetDir && (targetBase === b || targetBase.startsWith(`${b}.`))) return true;
+      try {
+        if (norm(realpathSync(cred)) === norm(real)) return true;
+      } catch {
+        /* absent */
+      }
+    }
+  }
+  return false;
+}
+
 /** The tier of a path that is ALREADY a real path, relative to the real dashboard dir; `null` outside it. */
 function tierWithin(realDir: string, realTarget: string): DashboardStateTier | null {
   const rel = path.relative(norm(realDir), norm(realTarget));
@@ -98,12 +271,15 @@ function tierWithin(realDir: string, realTarget: string): DashboardStateTier | n
 
 /**
  * Is `target` (any spelling: relative symlinks, `~` already expanded) inside the
- * dashboard state dir, and which tier? Realpath-based, so a symlink INTO the dir
- * and a `$HOME` symlink are both seen through.
+ * dashboard state dir (and which tier), or a pi-agent credential file (`"always"`)? Realpath-based, so
+ * a symlink INTO the dir and a `$HOME` symlink are both seen through.
  */
 export async function isDashboardStatePath(target: string): Promise<DashboardStateTier | null> {
   const [realDir, realTarget] = await Promise.all([realDashboardDir(), realpathLoose(path.resolve(target))]);
-  return tierWithin(realDir, realTarget);
+  const tier = tierWithin(realDir, realTarget);
+  if (tier === "always") return tier;
+  if (await isAgentCredentialReal(realTarget)) return "always";
+  return tier;
 }
 
 /**
@@ -142,7 +318,58 @@ async function alwaysRefusedFiles(realDir: string): Promise<string[]> {
     }
   };
   await walk(path.join(realDir, "local"), 0);
+  // pi-agent credential files + their same-dir `<name>.*` siblings (one readdir per credential dir).
+  for (const dir of await agentCredentialDirs()) {
+    let folds: boolean | undefined; // probed lazily: only when a case-only sibling match needs it
+    const byDir = new Map<string, string[]>();
+    for (const name of AGENT_CREDENTIAL_NAMES) {
+      const cred = credFile(dir, name);
+      out.push(cred);
+      const d = path.dirname(cred);
+      byDir.set(d, [...(byDir.get(d) ?? []), path.basename(cred)]);
+    }
+    for (const [d, bases] of byDir) {
+      let names: string[];
+      try {
+        names = await fs.readdir(d);
+      } catch {
+        continue; // best effort: the named files above are still rechecked
+      }
+      for (const n of names) {
+        if (bases.some((b) => n.startsWith(`${b}.`))) {
+          out.push(path.join(d, n));
+        } else if (bases.some((b) => norm(n).startsWith(`${norm(b)}.`))) {
+          folds ??= await volumeFolds(dir);
+          if (folds) out.push(path.join(d, n));
+        }
+      }
+    }
+  }
   return out;
+}
+
+/** (dev, ino) of every always-refused file that exists right now. Build once per request, reuse across checks. */
+export type AlwaysRefusedIdentities = ReadonlyArray<{ dev: number | bigint; ino: number | bigint }>;
+export async function alwaysRefusedIdentities(): Promise<AlwaysRefusedIdentities> {
+  const out: Array<{ dev: number | bigint; ino: number | bigint }> = [];
+  for (const file of await alwaysRefusedFiles(await realDashboardDir())) {
+    try {
+      const st = await fs.stat(file);
+      out.push({ dev: st.dev, ino: st.ino });
+    } catch {
+      /* absent: cannot be the opened file */
+    }
+  }
+  return out;
+}
+
+/** Is `(dev, ino)` an always-refused file? Pass a prebuilt `identities` list to amortize across many checks. */
+export async function identityIsAlwaysRefused(
+  id: { dev: number | bigint; ino: number | bigint },
+  identities?: AlwaysRefusedIdentities,
+): Promise<boolean> {
+  const list = identities ?? (await alwaysRefusedIdentities());
+  return list.some((f) => f.ino === id.ino && f.dev === id.dev);
 }
 
 /**
@@ -152,17 +379,7 @@ async function alwaysRefusedFiles(realDir: string): Promise<string[]> {
  * of the HANDLE; a vanished always-refused file simply cannot match.
  */
 export async function handleIsAlwaysRefused(handle: { stat(): Promise<{ dev: number | bigint; ino: number | bigint }> }): Promise<boolean> {
-  const hs = await handle.stat();
-  const realDir = await realDashboardDir();
-  for (const file of await alwaysRefusedFiles(realDir)) {
-    try {
-      const st = await fs.stat(file);
-      if (st.ino === hs.ino && st.dev === hs.dev) return true;
-    } catch {
-      /* absent: cannot be the opened file */
-    }
-  }
-  return false;
+  return identityIsAlwaysRefused(await handle.stat());
 }
 
 let cachedSyncFor = "";
@@ -226,5 +443,21 @@ export async function readFileStateChecked(p: string, encoding?: BufferEncoding)
     return encoding ? await fh.readFile(encoding) : await fh.readFile();
   } finally {
     await fh.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Plugin seam (`ServerPluginContext.readFileGuarded`): UTF-8 read of `absPath` that resolves `null` when
+ * the guard refuses it — decided on the REAL path (both tiers, caller from the request scope) and again
+ * on the opened handle's (dev, ino). Other failures (ENOENT, EISDIR, EACCES) reject unchanged.
+ * See change: close-security-map-high-findings (D1, H1).
+ */
+export async function readFileGuarded(absPath: string): Promise<string | null> {
+  if (await dashboardStateRefuses(absPath)) return null;
+  try {
+    return await readFileStateChecked(absPath, "utf-8");
+  } catch (err) {
+    if (err instanceof DashboardStateRefused) return null;
+    throw err;
   }
 }

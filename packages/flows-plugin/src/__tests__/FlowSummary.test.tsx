@@ -6,9 +6,14 @@
  * is independent. See change: expandable-flow-summary-rows.
  */
 
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { initPluginConfigs, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type React from "react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { FlowHeaderActions } from "../client/FlowHeaderActions.js";
+import { useIsolatedLocalStorage, entry, fetchMock, registry as harnessRegistry, publishCatalog, started, tree as harnessTree } from "./flows-test-harness.js";
+
+useIsolatedLocalStorage();
 
 // jsdom does not implement scrollIntoView; the selection effect calls it.
 beforeAll(() => {
@@ -23,6 +28,14 @@ import {
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { FlowAgentState, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { FlowSummary } from "../client/FlowSummary.js";
+import { flowCollapseKey } from "../client/flow-collapse-storage.js";
+
+// Panels default to collapsed now; these cases inspect the body, so the
+// session's summary starts expanded. See change: flows-dock-chip-and-panel-actions (D10).
+beforeEach(() => {
+  localStorage.clear();
+  localStorage.setItem(flowCollapseKey("summary", "s1"), "false");
+});
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(
@@ -357,5 +370,96 @@ describe("FlowAgentCard preserved interactions (#E14)", () => {
     // The Details click must not change the selection.
     expect(cardA.getAttribute("data-selected")).toBe("true");
     expect(cardB.getAttribute("data-selected")).toBe("false");
+  });
+});
+
+// ── Header actions (Run again / Open flow… / Edit…) ─────────────────────────
+// See change: flows-dock-chip-and-panel-actions (test-plan E23).
+describe("FlowSummary header actions (E23)", () => {
+  const sessionTree = (sid: string, state: FlowState) =>
+    harnessTree(
+      <FlowSummary
+        flowState={state}
+        onDismiss={() => {}}
+        sessionId={sid}
+        headerActions={<FlowHeaderActions sessionId={sid} flowName={state.flowName} variant="summary" />}
+      />,
+    );
+  const q = (id: string) => screen.queryByTestId(id) as HTMLButtonElement | null;
+  let n = 0;
+  const setup = (catalog: "has" | "lacks" | "empty", running: boolean) => {
+    const sid = `sum-hdr-${++n}`;
+    if (catalog === "has") publishCatalog(sid, [entry("demo-flow"), entry("other")]);
+    if (catalog === "lacks") publishCatalog(sid, [entry("other")]);
+    if (catalog === "empty") publishCatalog(sid, []);
+    if (running) publishSessionEvents(sid, [started("other", 50)]);
+    render(sessionTree(sid, makeState([agent({ stepId: "one" })])));
+  };
+
+  beforeAll(() => {
+    for (const k of [UI_PRIMITIVE_KEYS.markdownContent, UI_PRIMITIVE_KEYS.zoomControls, UI_PRIMITIVE_KEYS.agentCard] as const) {
+      registerUiPrimitive(harnessRegistry, k, (() => null) as never);
+    }
+    registerUiPrimitive(harnessRegistry, UI_PRIMITIVE_KEYS.formatDuration, ((ms: number) => `${ms}ms`) as never);
+    registerUiPrimitive(harnessRegistry, UI_PRIMITIVE_KEYS.formatTokens, ((x: number) => `${x}`) as never);
+  });
+  beforeEach(() => {
+    initPluginConfigs({ flows: {} });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("catalog has F, nothing running → Run again, Open flow…, Edit… enabled, visible while collapsed", () => {
+    localStorage.setItem(flowCollapseKey("summary", `sum-hdr-${n + 1}`), "true");
+    setup("has", false);
+    expect(screen.getByTestId("flow-summary-panel-toggle").getAttribute("aria-expanded")).toBe("false");
+    expect(q("flow-header-run-again")?.disabled).toBe(false);
+    expect(q("flow-header-open")?.disabled).toBe(false);
+    expect(q("flow-header-edit-button")?.disabled).toBe(false);
+    // Order: actions sit before Dismiss.
+    const header = screen.getByTestId("flow-header-actions-summary").parentElement as HTMLElement;
+    const kids = Array.from(header.children);
+    expect(kids.indexOf(screen.getByTestId("flow-header-actions-summary"))).toBeLessThan(kids.indexOf(screen.getByText("Dismiss")));
+  });
+
+  it("catalog lacks F → no Run again, Open still offered", () => {
+    setup("lacks", false);
+    expect(q("flow-header-run-again")).toBeNull();
+    expect(q("flow-header-open")).toBeTruthy();
+  });
+
+  it("empty catalog → no Run again, no Open", () => {
+    setup("empty", false);
+    expect(q("flow-header-run-again")).toBeNull();
+    expect(q("flow-header-open")).toBeNull();
+    expect(q("flow-header-edit-button")).toBeTruthy();
+  });
+
+  it("a flow running → visible actions disabled with the reason; hidden wins over disabled", () => {
+    setup("has", true);
+    for (const id of ["flow-header-run-again", "flow-header-open"]) {
+      expect(q(id)?.disabled).toBe(true);
+      expect(q(id)?.title).toBe("A flow is running");
+    }
+    cleanup();
+    setup("lacks", true);
+    expect(q("flow-header-run-again")).toBeNull();
+    expect(q("flow-header-open")?.disabled).toBe(true);
+  });
+
+  it("Run again starts the same flow (no task required → no dialog)", () => {
+    const send = vi.fn();
+    const sid = `sum-hdr-${++n}`;
+    publishCatalog(sid, [entry("demo-flow")]);
+    render(
+      harnessTree(
+        <FlowSummary flowState={makeState([agent({ stepId: "one" })])} onDismiss={() => {}} sessionId={sid} headerActions={<FlowHeaderActions sessionId={sid} flowName="demo-flow" variant="summary" />} />,
+        send,
+      ),
+    );
+    fireEvent.click(q("flow-header-run-again") as HTMLButtonElement);
+    expect(send).toHaveBeenCalledWith({ type: "flow_management", sessionId: sid, action: "run", flowName: "demo-flow", task: undefined });
   });
 });

@@ -1,7 +1,6 @@
 import {
   type InteractiveUiRequestSnapshot,
   usePluginSend,
-  useSessionData,
   useSessionEvents,
   useSessionInteractiveRequests,
   useT,
@@ -10,12 +9,13 @@ import {
 import { BreadcrumbSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/BreadcrumbSlot";
 import { useMobile } from "@blackbelt-technology/pi-dashboard-client-utils/useMobile";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { DashboardSession, FlowInfo, FlowState, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, FlowState, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiLoading, mdiPlay, mdiRobotOutline, mdiStop } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
+import { FlowHeaderActions } from "./FlowHeaderActions.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { FlowQuestionCard } from "./FlowQuestionCard.js";
 import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
@@ -29,6 +29,7 @@ import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
 import { fetchFlowFile, type FlowNodeFiles, useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
 import { buildIdleFlowState, type FlowAttachment, type FlowSlot, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
 import { makeSafeSend } from "./send-safe.js";
+import { useFlowCatalog } from "./useFlowCatalog.js";
 
 /**
  * Selection survives run progress; it resets only when the displayed flow
@@ -116,6 +117,7 @@ export function FlowDashboard({
   sessionId,
   idle,
   nodeFiles,
+  headerActions,
 }: {
   flowState: FlowState;
   /** All flow states (one per distinct flow run this session) for tab navigation */
@@ -134,6 +136,9 @@ export function FlowDashboard({
   idle?: FlowDashboardIdle;
   /** Reported agent / handler file paths, from the claim's poll. */
   nodeFiles?: FlowNodeFiles | null;
+  /** Header actions (Open flow… / Edit…, or Run again / Open / Edit for the
+   *  completed summary). See change: flows-dock-chip-and-panel-actions. */
+  headerActions?: ReactNode;
 }) {
   const isMobile = useMobile();
   const t = useT();
@@ -233,6 +238,7 @@ export function FlowDashboard({
         onDismiss={onDismiss}
         onSendPrompt={onSendPrompt}
         sessionId={sessionId}
+        headerActions={headerActions}
       />
     );
   }
@@ -304,6 +310,7 @@ export function FlowDashboard({
         >
           <Icon path={mdiRobotOutline} size={0.4} className="inline mr-0.5" />AUTO
         </button>
+        {headerActions}
         {idle && <IdleControls idle={idle} />}
         {isRunning && (
           <button
@@ -524,7 +531,6 @@ function FlowQuestionsSection({
 
 type FlowQuestionCardType = "select" | "input" | "confirm" | "editor" | "multiselect";
 
-const EMPTY_FLOWS: FlowInfo[] = [];
 const LOADING: IdleLoad = Object.freeze({ kind: "loading" }) as IdleLoad;
 
 /**
@@ -690,7 +696,9 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   const { flowState, flowStates, lastFlowStartedAt, lastAutonomousMode, lastRejection } =
     useFlowsSessionState(sessionId);
   const events = useSessionEvents(sessionId);
-  const flowsList = useSessionData<FlowInfo[]>(sessionId, "flowsList") ?? EMPTY_FLOWS;
+  // Viewed session's flow panel: re-asks while the catalog is unknown.
+  // See change: flows-dock-chip-and-panel-actions (D3, D5).
+  const { flows: catalogFlows } = useFlowCatalog(sessionId, { autoAsk: true });
   const attachment = useFlowAttachment(sessionId);
   // Reported agent / handler file paths. Polling lives here (not in the panel)
   // because the panel does not render while the attached flow is loading or has
@@ -707,7 +715,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
     attachment,
     idle: idleLoad,
     lastFlowStartedAt,
-    flowsList,
+    flows: catalogFlows,
   });
 
   // Baseline from the first non-empty snapshot when attached on an empty
@@ -768,7 +776,8 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   }
 
   const shown = idleDisplayState ?? slot.flowState!;
-  const flowInfo = flowsList.find((f) => f.name === shown.flowName);
+  const flowInfo = catalogFlows.find((f) => f.name === shown.flowName);
+  const headerVariant = isIdle ? "idle" : shown.status === "running" ? "live" : "summary";
 
   return (
     <>
@@ -779,6 +788,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
         session={session}
         sessionId={sessionId}
         nodeFiles={nodeFiles}
+        headerActions={<FlowHeaderActions sessionId={sessionId} flowName={shown.flowName} variant={headerVariant} />}
         idle={
           isIdle
             ? {

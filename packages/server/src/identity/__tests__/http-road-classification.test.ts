@@ -95,6 +95,16 @@ describe("classifyHttpRoad — roads", () => {
     expect(row?.tier).toBe("observe");
   });
 
+  it("flows edit-mode routes: both GETs observe, the global-default PUT operate (#E12)", () => {
+    // See change: stop-flows-edit-mode-project-writes (D5).
+    expect(hasRouteTier("GET", "/api/plugins/flows/edit-mode-default")).toBe(true);
+    expect(hasRouteTier("GET", "/api/plugins/flows/edit-mode-state")).toBe(true);
+    expect(hasRouteTier("PUT", "/api/plugins/flows/edit-mode-default")).toBe(true);
+    expect(routeTier("GET", "/api/plugins/flows/edit-mode-default")).toBe("observe");
+    expect(routeTier("GET", "/api/plugins/flows/edit-mode-state")).toBe("observe");
+    expect(routeTier("PUT", "/api/plugins/flows/edit-mode-default")).toBe("operate");
+  });
+
   it("core plugin management is plugins.*; plugin-owned routes are namespaced plugin:<id>:<verb>", () => {
     const toggle = classifyHttpRoad("POST", "/api/plugins/:id/toggle");
     expect(toggle).toMatchObject({ road: "non-session", action: "plugins.write", resource: { kind: "plugin" } });

@@ -30,8 +30,9 @@ pi reads `packages[]`, NOT `dashboardPluginBridges`. A bridge listed ONLY in
 bug. A correctly registered bridge appears in BOTH; `reconcilePluginBridgePackages`
 (dashboard ≥ 0.5.4) writes both on restart.
 
-The four dashboard bridges: `dashboard-flows`,
-`dashboard-flows-anthropic-bridge`, `dashboard-goal`, `dashboard-automation`.
+The three dashboard bridges: `dashboard-flows`, `dashboard-goal`,
+`dashboard-automation`. (`dashboard-flows-anthropic-bridge` was removed by change
+retire-anthropic-messages-bridge; a leftover entry is stale and can be dropped.)
 
 Activation: a bridge re-probes peers only on `session_start`. Status
 `waiting_peers` names WHICH peer failed (see `peers` module); `degraded` means a
@@ -42,8 +43,8 @@ partial load. A disabled dashboard plugin auto-deregisters its bridge entirely.
   latter but not the former → misregistered (flag it).
 - `/api/health` (server-enriched): each plugin's `bridgeLoadedFrom` should be
   `packages[]`, not `dashboardPluginBridges`-only or missing.
-- Anthropic bridge not active → report status + the per-peer probe result from
-  the `peers` module.
+- Claude subscription compat: the flows-plugin bridge logs `[flows-plugin] claude-compat: state=…`
+  once per session; report the switch value (`GET /api/preferences/claude-subscription-compat`).
 - **doctrine configured but kb extension not loaded**: when the project's
   `.pi/dashboard/knowledge_base.json` supplies a `doctrine` key but
   `pi-dashboard-kb-extension` is ABSENT from `settings.json#packages[]`, report

@@ -4,9 +4,12 @@
  * See change: add-credential-vault (task 6.7). Fetch stubs answer with a JSON content-type
  * (`vault-api.ts` reads replies through `fetchJsonResponse`); see change: retro-ux-credential-vault.
  */
+
+import { CREDENTIAL_LOCK_REASONS, credentialRemedy } from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setGlobalApiBase } from "../../../../lib/api/api-context.js";
+import type { VaultOverview } from "../../../../lib/vault/vault-api.js";
 import { VaultSection } from "../VaultSection.js";
 import { callsTo, fail, html, makeOverview, ok as okResponse, stubVaultFetch } from "./vault-fixtures.js";
 
@@ -487,5 +490,98 @@ describe("VaultSection — corrupt vault (X6)", () => {
       expect(controls.length, id).toBeGreaterThan(0);
       for (const control of controls) expect(control.disabled, id).toBe(true);
     }
+  });
+});
+
+// ── encrypt-credentials-at-rest: locked and read-only pages (test-plan F1, F3, F8) ──
+const WRITE_CONTROL_IDS = [
+  "vault-account-new", "vault-account-rotate", "vault-account-revoke",
+  "vault-variable-new", "vault-variable-delete", "vault-binding-default", "vault-grant-open", "vault-grant-remove",
+  "vault-checkout-revoke", "vault-plugin-approve", "vault-import-review", "vault-import-file",
+];
+const fullOverview = (status: unknown): VaultOverview =>
+  makeOverview({
+    status: status as VaultOverview["status"],
+    accounts: [
+      { id: "a1", provider: "gemini", kind: "key", namespace: "user", label: "personal" },
+      { id: "a2", provider: "gemini", kind: "key", namespace: "user", label: "work" },
+    ],
+    bindings: [{ name: "GEMINI_API_KEY", target: "env", defaultAccountId: "a1" }],
+    grants: [{ subject: "repo:github.com/acme/app", bindingName: "GEMINI_API_KEY", state: "ok" }],
+    confirmations: [{ deviceId: "hub", dir: "/src/app", repoKey: "github.com/acme/app" }],
+    plugins: [{ pluginId: "demo", displayName: "Demo", declared: ["GEMINI_API_KEY", "POLY_PIZZA_KEY"] }],
+  });
+const stubStatus = (status: unknown) =>
+  stubVaultFetch({
+    overview: () => fullOverview(status),
+    handler: (c) => (c.url === "/api/vault/import/candidates" ? okResponse([{ id: "c1", label: "skill .env", exists: true }]) : undefined),
+  });
+const writeControls = (id: string) => screen.getAllByTestId(id) as Array<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>;
+const expectWriteControls = (disabled: boolean) => {
+  for (const id of WRITE_CONTROL_IDS) {
+    const controls = writeControls(id);
+    expect(controls.length, id).toBeGreaterThan(0);
+    for (const control of controls) expect(control.disabled, id).toBe(disabled);
+  }
+};
+
+describe("VaultSection — locked vault", () => {
+  afterEach(() => cleanup());
+  for (const reason of CREDENTIAL_LOCK_REASONS) {
+    it(`F1: ${reason} shows the reason and its remedy and disables every write control`, async () => {
+      stubStatus({ state: "locked", reason });
+      render(<VaultSection />);
+      const banner = await screen.findByTestId("vault-locked");
+      expect(banner.getAttribute("role")).toBe("alert");
+      expect(screen.getByTestId("vault-lock-reason").textContent).toContain(reason);
+      expect(screen.getByTestId("vault-lock-remedy").textContent).toBe(credentialRemedy(reason));
+      expectWriteControls(true);
+    });
+  }
+
+  it("F1: the remedy names the reset command or the key-file variable", async () => {
+    stubStatus({ state: "locked", reason: "key_mismatch" });
+    render(<VaultSection />);
+    expect((await screen.findByTestId("vault-lock-remedy")).textContent).toContain("credentials reset --vault");
+    cleanup();
+    stubStatus({ state: "locked", reason: "keychain_unavailable" });
+    render(<VaultSection />);
+    expect((await screen.findByTestId("vault-lock-remedy")).textContent).toContain("PI_DASHBOARD_DATA_KEY_FILE");
+  });
+
+  it("F3: an unknown future reason still renders as locked with controls disabled, never as ok", async () => {
+    stubStatus({ state: "locked", reason: "x_new" });
+    render(<VaultSection />);
+    expect((await screen.findByTestId("vault-locked")).textContent).toContain("x_new");
+    expect(screen.getByTestId("vault-lock-remedy").textContent).toBe(credentialRemedy("x_new"));
+    expectWriteControls(true);
+  });
+
+  it("F3: an unknown future state is treated as locked, never as ok", async () => {
+    stubStatus({ state: "frozen" });
+    render(<VaultSection />);
+    await screen.findByTestId("vault-locked");
+    expectWriteControls(true);
+  });
+
+  it("F8: a plaintext vault with no key lists its accounts, shows reason and remedy, and disables every write control", async () => {
+    stubStatus({ state: "ok", writable: false, reason: "keychain_unavailable" });
+    render(<VaultSection />);
+    const banner = await screen.findByTestId("vault-read-only");
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(screen.queryByTestId("vault-locked")).toBeNull();
+    expect(screen.getAllByTestId("vault-account-label").map((e) => e.textContent)).toEqual(["personal", "work"]);
+    expect(screen.getByTestId("vault-lock-reason").textContent).toContain("keychain_unavailable");
+    expect(screen.getByTestId("vault-lock-remedy").textContent).toContain("PI_DASHBOARD_DATA_KEY_FILE");
+    expectWriteControls(true);
+  });
+
+  it("F8: the same status with writable:true leaves the controls enabled and shows no banner", async () => {
+    stubStatus({ state: "ok", writable: true });
+    render(<VaultSection />);
+    await screen.findByTestId("vault-account-a1");
+    expect(screen.queryByTestId("vault-read-only")).toBeNull();
+    expect(screen.queryByTestId("vault-locked")).toBeNull();
+    expectWriteControls(false);
   });
 });

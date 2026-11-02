@@ -162,6 +162,11 @@ export const CRAFT_APPS: readonly CraftApp[] = [
     "non-linear video editing: import, sequence, timeline, export",
     { list: COMMANDS_JSON, describe: ["describe", "<id>"], run: "[--project P --save] exec <id> [key=value…] | run script.jsonl [--keep-going]" },
     { confinement: false, toolClass: "small", tools: 17, bridgeFlag: "--bridge" },
+    undefined,
+    {
+      webVersion: "0.12.0",
+      webFidelityNote: "FilmCraft rewrites the project when it saves; media are delivered from the project's folder and keep their original paths. A copy is the safe way to compare.",
+    },
   ),
   app(
     "lightcraft",

@@ -19,10 +19,11 @@
  * See change: adopt-server-driven-intent-rendering.
  */
 import type { IntentNode } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/intent-types.js";
-import type { FlowInfo, CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 
 export interface RenderActionsInput {
-  flows: FlowInfo[];
+  flows: FlowCatalogEntry[];
   commands: CommandInfo[];
 }
 

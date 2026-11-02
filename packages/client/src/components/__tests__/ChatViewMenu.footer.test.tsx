@@ -51,6 +51,67 @@ describe("ChatViewMenu footer", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "setSessionDisplayPrefs", override: null }));
   });
 
+  // See change: fix-dock-peek-join-and-view-menu-close (test-plan #T4).
+  it("Reset keeps the popover open", () => {
+    open();
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
+  });
+
+  // The popover stays open, so an edit can follow Reset before the server echo:
+  // it must not resurrect the cleared override.
+  it("an edit right after Reset does not restore the cleared override", () => {
+    const { send } = open(CHANGED);
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    fireEvent.click(screen.getByText("Debug events"));
+    const last = send.mock.calls.at(-1)?.[0];
+    expect(last.override).toBeTruthy();
+    expect(last.override).not.toHaveProperty("reasoning");
+  });
+
+  it("a stale echo arriving after Reset does not resurrect the cleared override", () => {
+    const send = vi.fn();
+    const ui = (override: Record<string, unknown> | undefined) => (
+      <DisplayPrefsProvider value={{ global: G, getSessionOverride: () => override as never }}>
+        <ChatViewMenu sessionId="s1" send={send} currentOverride={override as never} />
+      </DisplayPrefsProvider>
+    );
+    const { rerender } = render(ui(CHANGED));
+    fireEvent.click(screen.getByText("View"));
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    rerender(ui({ ...CHANGED })); // older echo, new object, same content
+    fireEvent.click(screen.getByText("Debug events"));
+    expect(send.mock.calls.at(-1)?.[0].override).not.toHaveProperty("reasoning");
+  });
+
+  it("a pending Reset in one session never leaks into the next session's edits", () => {
+    const send = vi.fn();
+    const ui = (sid: string, override: Record<string, unknown> | undefined) => (
+      <DisplayPrefsProvider value={{ global: G, getSessionOverride: () => override as never }}>
+        <ChatViewMenu sessionId={sid} send={send} currentOverride={override as never} />
+      </DisplayPrefsProvider>
+    );
+    const { rerender } = render(ui("s1", CHANGED));
+    fireEvent.click(screen.getByText("View"));
+    fireEvent.click(screen.getByTestId("chat-view-reset"));
+    const B = { tokenStatsBar: !G.tokenStatsBar };
+    rerender(ui("s2", B)); // switched before s1's echo
+    fireEvent.click(screen.getByText("Debug events"));
+    const last = send.mock.calls.at(-1)?.[0];
+    expect(last.sessionId).toBe("s2");
+    expect(last.override).toMatchObject(B);
+  });
+
+  // test-plan #T5: open after success, no success text in the footer.
+  it("Set as global success keeps the popover open without a status message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    const { send } = open(CHANGED);
+    fireEvent.click(screen.getByTestId("chat-view-set-global"));
+    await waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ override: null })));
+    expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
+    expect(screen.queryByTestId("chat-view-set-global-error")).toBeNull();
+  });
+
   it("disables Reset and Set as global without an override", () => {
     open({});
     expect((screen.getByTestId("chat-view-reset") as HTMLButtonElement).disabled).toBe(true);
@@ -91,6 +152,8 @@ describe("ChatViewMenu footer", () => {
     fireEvent.click(screen.getByTestId("chat-view-set-global"));
     await waitFor(() => expect(screen.getByTestId("chat-view-set-global-error")).toBeTruthy());
     expect(send).not.toHaveBeenCalled();
+    // test-plan #T6
+    expect(screen.queryByTestId("chat-view-popover")).not.toBeNull();
   });
 });
 

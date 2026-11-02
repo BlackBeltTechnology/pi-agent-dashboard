@@ -25,7 +25,6 @@
  * See change: add-editor-pane-file-handlers (D4).
  */
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -37,6 +36,7 @@ import {
 import type { PluginClaim } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import { DIGEST_CEILING_BYTES, extOf } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { FastifyInstance } from "fastify";
+import { DashboardStateRefused, openStateChecked } from "../lib/dashboard-state-guard.js";
 import { admitFileCwd } from "../lib/file-cwd-admission.js";
 import { serializeWrite } from "../lib/file-write-lock.js";
 import { within } from "../lib/path-containment.js";
@@ -113,10 +113,20 @@ interface Query {
 const SHA1_RE = /^[0-9a-f]{40}$/;
 const MAX_COPY_ATTEMPTS = 99;
 
+/**
+ * SHA-1 of `file`, read through the post-open (dev, ino) recheck so a hard link to a pi-agent
+ * credential file yields no hash (rejects `DashboardStateRefused`).
+ * See change: close-security-map-high-findings (D1, H6).
+ */
 async function sha1OfFile(file: string): Promise<string> {
   const hash = createHash("sha1");
-  for await (const chunk of createReadStream(file))
-    hash.update(chunk as Buffer);
+  const fh = await openStateChecked(file);
+  try {
+    for await (const chunk of fh.createReadStream({ autoClose: false }))
+      hash.update(chunk as Buffer);
+  } finally {
+    await fh.close().catch(() => {});
+  }
   return hash.digest("hex");
 }
 
@@ -164,7 +174,13 @@ async function overwrite(
   if (!current.isFile()) return fail(403, "target is not a regular file");
   if (current.size > DIGEST_CEILING_BYTES)
     return fail(409, "file too large to verify", { mtime: current.mtimeMs });
-  const currentSha1 = await sha1OfFile(real).catch(() => null);
+  let currentSha1: string | null;
+  try {
+    currentSha1 = await sha1OfFile(real);
+  } catch (err) {
+    if (err instanceof DashboardStateRefused) return fail(403, "target is not a writable handler file in scope");
+    currentSha1 = null;
+  }
   if (currentSha1 === null) return fail(409, "file no longer exists");
   if (currentSha1 !== expectSha1) {
     return fail(409, "file changed on disk since it was loaded", {

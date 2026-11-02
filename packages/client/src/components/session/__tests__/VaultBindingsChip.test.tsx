@@ -271,3 +271,55 @@ describe("X6 — an unreadable vault disables grant and confirm", () => {
     expect(posts("/api/vault/confirmations")).toHaveLength(0);
   });
 });
+
+// ── F4 (test-plan prove-vault-bridge-tls) — a refused session names the missing proof ──
+
+describe("F4 — trustDetail names the cause with an icon and a remedy", () => {
+  type Row = { detail: string; outcome: string; cause: RegExp; remedy: RegExp };
+  const ROWS: Row[] = [
+    { detail: "unattributed", outcome: "untrusted", cause: /not tied to a paired device/i, remedy: /PI_DASHBOARD_TOKEN/ },
+    { detail: "local-unproven", outcome: "untrusted", cause: /did not prove it is local/i, remedy: /local socket|local proof/i },
+    { detail: "device-inactive", outcome: "untrusted", cause: /revoked or has expired/i, remedy: /pair the device again/i },
+    { detail: "plain-transport", outcome: "transport-insecure", cause: /no proven TLS connection/i, remedy: /Accept bridges[\s\S]*wss:\/\//i },
+    { detail: "bearer-exposed", outcome: "transport-insecure", cause: /plain HTTP/i, remedy: /new token[\s\S]*HTTPS/i },
+    { detail: "history-unknown", outcome: "transport-insecure", cause: /predates TLS tracking/i, remedy: /new token[\s\S]*HTTPS/i },
+    { detail: "ticket-plain", outcome: "transport-insecure", cause: /ticket was issued over plain HTTP/i, remedy: /wss:\/\/[\s\S]*PI_DASHBOARD_HTTP_URL/ },
+    { detail: "bridge-outdated", outcome: "transport-insecure", cause: /cannot confirm it validates certificates/i, remedy: /update pi-dashboard on the device/i },
+  ];
+
+  for (const r of ROWS) {
+    it(`${r.detail}: icon + cause + remedy, text >= 12 px`, async () => {
+      await open({
+        bindings: [{ name: "A_KEY", state: "no-account" }],
+        outcome: r.outcome,
+        trustDetail: r.detail,
+        lastContactAt: 1_700_000_000_000,
+      });
+      const box = screen.getByTestId("vault-trust-detail");
+      expect(box.getAttribute("data-detail")).toBe(r.detail);
+      expect(box.querySelector("svg"), "icon").not.toBeNull();
+      expect(within(box).getByTestId("vault-trust-cause").textContent).toMatch(r.cause);
+      expect(within(box).getByTestId("vault-trust-remedy").textContent).toMatch(r.remedy);
+      // jsdom does not run Tailwind: pin the size on the classes (a text-xs/sm/base token, no sub-12px arbitrary size).
+      expect(box.innerHTML).not.toMatch(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/);
+      for (const el of [within(box).getByTestId("vault-trust-cause"), within(box).getByTestId("vault-trust-remedy")]) {
+        expect(el.className).toMatch(/\btext-(?:xs|sm|base)\b/);
+      }
+      // No value, no bearer in the text.
+      expect(document.body.textContent).not.toMatch(/pi_tls_[A-Za-z0-9_-]{8,}/);
+    });
+  }
+
+  it("the cause does not replace the existing outcome line", async () => {
+    await open({ bindings: [{ name: "A_KEY", state: "no-account" }], outcome: "transport-insecure", trustDetail: "plain-transport" });
+    expect(screen.getByTestId("vault-project-line").textContent).toContain("transport-insecure");
+  });
+
+  it("no trustDetail (or an unknown one) renders no trust box", async () => {
+    await open({ bindings: [{ name: "A_KEY", state: "delivered" }], project: PROJECT });
+    expect(screen.queryByTestId("vault-trust-detail")).toBeNull();
+    cleanup();
+    await open({ bindings: [{ name: "A_KEY", state: "no-account" }], outcome: "untrusted", trustDetail: "made-up-detail" });
+    expect(screen.queryByTestId("vault-trust-detail")).toBeNull();
+  });
+});

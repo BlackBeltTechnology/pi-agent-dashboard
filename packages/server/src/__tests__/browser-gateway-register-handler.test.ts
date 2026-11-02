@@ -268,6 +268,7 @@ describe("bridge re-register of an archived session (X2)", () => {
         getPinnedDirectories: () => [], setPinnedDirectories: () => {},
         getSessionOrder: () => ({}), setSessionOrder: () => {},
         getAutoNameSessions: () => false,
+        getClaudeSubscriptionCompat: () => false,
       } as any,
       pendingForkRegistry: createPendingForkRegistry(),
       directoryService: makeFakeDirectoryService().service,

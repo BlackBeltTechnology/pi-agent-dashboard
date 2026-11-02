@@ -12,6 +12,11 @@
 #       Pi-global mcp.json (the startup migration removes an old one).
 # - X8  Degradation is clean: an unminted bearer gets an immediate 401 from the
 #       live server and the loopback source is not locked out.
+# - D2  The live /mcp surface never advertises the prompt-answer tools and
+#       `tools/call prompt_response` is the unknown-tool error (change:
+#       close-security-map-high-findings). Uses a device token minted over the
+#       loopback operator road; a per-session token needs a live pi session, so that
+#       cell is covered by the L1 dispatch tests. SKIPs when no token can be minted.
 
 set -euo pipefail
 
@@ -94,3 +99,47 @@ if [ "$HTTP_CODE" != "401" ]; then
   exit 1
 fi
 echo "PASS: X8 clean 401 for an unminted bearer (loopback not locked out)"
+
+# ── D2 — the live /mcp surface has no prompt-answer tool ────────────────────
+echo "--- D2: tools/list lacks prompt_response / extension_ui_response; tools/call is unknown-tool"
+MINT_JSON=$(timeout 10 curl -s --max-time 5 -X POST "$BASE/api/paired-devices" \
+  -H "content-type: application/json" \
+  -d '{"label":"qa-33-d2","tier":"operate"}' 2>/dev/null || echo "")
+D2_TOKEN=$(printf '%s' "$MINT_JSON" | node -e '
+  let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+    try { const j=JSON.parse(s); process.stdout.write(String((j.data&&j.data.token)||"")); } catch { process.stdout.write(""); }
+  });')
+if [ -z "$D2_TOKEN" ]; then
+  echo "SKIP: D2 could not mint a device token over loopback (operator auth required here)"
+  exit 0
+fi
+MCP_V="2026-07-28"
+mcp_call() {
+  timeout 10 curl -s --max-time 5 -w '\n%{http_code}' -X POST "$BASE/mcp" \
+    -H "Authorization: Bearer $D2_TOKEN" \
+    -H "mcp-protocol-version: $MCP_V" \
+    -H "content-type: application/json" -d "$1"
+}
+LIST_OUT=$(mcp_call '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"'"$MCP_V"'"}}}')
+LIST_CODE=$(printf '%s' "$LIST_OUT" | tail -n1)
+LIST_BODY=$(printf '%s' "$LIST_OUT" | sed '$d')
+if [ "$LIST_CODE" != "200" ]; then
+  echo "FAIL: D2 tools/list answered $LIST_CODE (want 200)"
+  exit 1
+fi
+if printf '%s' "$LIST_BODY" | grep -Eq '"name":"(prompt_response|extension_ui_response)"'; then
+  echo "FAIL: D2 tools/list still advertises a prompt-answer tool"
+  exit 1
+fi
+if ! printf '%s' "$LIST_BODY" | grep -q '"name":"list_sessions"'; then
+  echo "FAIL: D2 tools/list lacks list_sessions (surface not actually listed)"
+  exit 1
+fi
+CALL_OUT=$(mcp_call '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"'"$MCP_V"'"},"name":"prompt_response","arguments":{"sessionId":"qa-none","promptId":"p","answer":"x"}}}')
+CALL_CODE=$(printf '%s' "$CALL_OUT" | tail -n1)
+CALL_BODY=$(printf '%s' "$CALL_OUT" | sed '$d')
+if [ "$CALL_CODE" != "404" ] || ! printf '%s' "$CALL_BODY" | grep -q 'Unknown tool: prompt_response'; then
+  echo "FAIL: D2 tools/call prompt_response answered $CALL_CODE / $CALL_BODY (want 404 Unknown tool)"
+  exit 1
+fi
+echo "PASS: D2 /mcp lacks both answer tools; prompt_response is the unknown-tool error"

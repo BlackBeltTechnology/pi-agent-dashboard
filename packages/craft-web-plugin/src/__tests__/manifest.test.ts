@@ -306,3 +306,29 @@ describe("live control profiles (add-craft-live-control)", () => {
     expect(profileErrors([{ ...base, control: { ...ctl, allowedCommands: [] } }]).join()).toMatch(/allowedCommands is empty/);
   });
 });
+
+describe("media projects (add-craft-web-media-projects #E10)", () => {
+  const film = CRAFT_APP_PROFILES.find((p) => p.appId === "filmcraft") as CraftAppProfile;
+  it("FilmCraft owns the .fcproj edit claim with a validator route; .ecproj stays unclaimed", () => {
+    expect(film.claims.map((c) => [c.id, c.extensions, c.mode])).toEqual([["filmcraft", [".fcproj"], "edit"]]);
+    expect(Object.keys(ROUTES)).toContain(".fcproj");
+    expect(CRAFT_APP_PROFILES.flatMap((p) => p.claims.flatMap((c) => c.extensions))).not.toContain(".ecproj");
+    expect(CRAFT_APP_PROFILES.filter((p) => p.mediaProject).map((p) => p.appId)).toEqual(["filmcraft"]);
+  });
+  it("only a media-project profile tells the frame (other apps' profile hash unchanged)", () => {
+    expect(frameProfile(film).mediaProject).toBe(true);
+    for (const p of CRAFT_APP_PROFILES.filter((x) => x.appId !== "filmcraft")) expect("mediaProject" in frameProfile(p)).toBe(false);
+  });
+  it("profileErrors names the app for a bad media bound or a missing claim", () => {
+    const m = film.mediaProject as NonNullable<CraftAppProfile["mediaProject"]>;
+    const withM = (x: Partial<typeof m>) => profileErrors([{ ...film, mediaProject: { ...m, ...x } }]).join("\n");
+    expect(withM({})).toBe("");
+    expect(withM({ mediaMaxFiles: 0 })).toMatch(/^filmcraft: mediaProject mediaMaxFiles 0 must be a positive integer/);
+    expect(withM({ mediaMaxBytes: m.mediaMaxTotalBytes + 1 })).toMatch(/mediaMaxBytes exceeds mediaMaxTotalBytes/);
+    expect(withM({ projectMaxBytes: HANDLER_MAX_BYTES + 1 })).toMatch(/projectMaxBytes .* exceeds claim filmcraft maxBytes/);
+    expect(profileErrors([{ ...film, claims: [{ ...film.claims[0], extensions: [".other"] }] }]).join("\n")).toMatch(/mediaProject needs an edit claim for \.fcproj/);
+  });
+  it("FilmCraft's registry web version and fidelity note back the claim", () => {
+    expect(getApp("filmcraft")?.webVersion).toBe("0.12.0");
+  });
+});

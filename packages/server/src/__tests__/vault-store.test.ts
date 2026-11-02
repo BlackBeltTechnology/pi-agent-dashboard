@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetQuarantineDedupForTests } from "../auth/locked-json-file.js";
 import { createVaultStore, MIN_VALUE_LENGTH, VaultError } from "../vault/vault-store.js";
+import { readVaultDoc, testVaultCodec } from "./helpers/vault-test-codec.js";
 
 let dir: string;
 let file: string;
@@ -31,7 +32,7 @@ const add = (store: ReturnType<typeof createVaultStore>, value: string, label = 
 
 describe("vault store — account storage", () => {
   it("E1: values of 7 characters are rejected, 8 and 9 are stored", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     expect(MIN_VALUE_LENGTH).toBe(8);
     await expect(add(store, "1234567")).rejects.toMatchObject({ name: "VaultError", code: "value_too_short" });
     expect(fs.existsSync(file)).toBe(false);
@@ -41,7 +42,7 @@ describe("vault store — account storage", () => {
   });
 
   it.skipIf(process.platform === "win32")("E2: no file after listing; mode 0600 after the first add", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     expect(await store.listAccounts()).toEqual([]);
     expect(fs.existsSync(file)).toBe(false);
     await add(store, "abcdefgh12");
@@ -51,22 +52,22 @@ describe("vault store — account storage", () => {
   it("E3: an account of an unknown kind and namespace is byte-identical after a write", async () => {
     const unknown = { id: "x1", provider: "p", kind: "oauth", namespace: "service:x", label: "svc", extra: { n: [1, 2] }, value: "zzzzzzzzzz" };
     fs.writeFileSync(file, JSON.stringify({ futureField: { a: 1 }, accounts: [unknown] }), { mode: 0o600 });
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await add(store, "abcdefgh12");
-    const after = JSON.parse(fs.readFileSync(file, "utf-8")) as { accounts: unknown[]; futureField: unknown };
+    const after = readVaultDoc(file) as { accounts: unknown[]; futureField: unknown };
     expect(JSON.stringify(after.accounts[0])).toBe(JSON.stringify(unknown));
     expect(after.futureField).toEqual({ a: 1 });
     expect(after.accounts).toHaveLength(2);
   });
 
   it("E4: two concurrent adds both survive", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await Promise.all([add(store, "abcdefgh12", "a"), add(store, "abcdefgh34", "b")]);
     expect((await store.listAccounts()).map((a) => a.label).sort()).toEqual(["a", "b"]);
   });
 
   it("listings never carry a stored value", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const view = await add(store, "abcdefgh12");
     expect(JSON.stringify(view)).not.toContain("abcdefgh12");
     expect(JSON.stringify(await store.listAccounts())).not.toContain("abcdefgh12");
@@ -75,7 +76,7 @@ describe("vault store — account storage", () => {
 
   it("getKeyValue returns nothing for a non-key kind", async () => {
     fs.writeFileSync(file, JSON.stringify({ accounts: [{ id: "o1", provider: "p", kind: "oauth", namespace: "user", label: "l", value: "zzzzzzzzzz" }] }));
-    expect(createVaultStore(file).getKeyValue("o1")).toBeUndefined();
+    expect(createVaultStore({ codec: testVaultCodec(), path: file }).getKeyValue("o1")).toBeUndefined();
   });
 });
 
@@ -83,7 +84,7 @@ describe("vault store — corrupt file", () => {
   it("E5: refuses the write, keeps a byte-equal backup, and leaks no content", async () => {
     const bytes = '{"a":"sk-live-ABCDEFGH';
     fs.writeFileSync(file, bytes, { mode: 0o600 });
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const err = await add(store, "abcdefgh12").then(() => null, (e: unknown) => e as Error);
     expect(err).toBeInstanceOf(VaultError);
     expect((err as VaultError).code).toBe("vault_corrupt");
@@ -121,10 +122,10 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   const CF = "cf-secret-1234567890";
   const CF2 = "cf-secret-0987654321";
   const tlsAccounts = (f: string) =>
-    (JSON.parse(fs.readFileSync(f, "utf8")).accounts as Array<Record<string, unknown>>).filter((a) => a.kind === "tls-solver");
+    (readVaultDoc(f).accounts as Array<Record<string, unknown>>).filter((a) => a.kind === "tls-solver");
 
   it.skipIf(process.platform === "win32")("E12: two upserts leave ONE account holding the second value, mode 0600", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const entry = (value: string) => ({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value }] });
     await store.upsertTlsSecrets(entry(CF));
     const first = (await store.listAccounts())[0];
@@ -137,7 +138,7 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   });
 
   it("listings never carry the value; generic getKeyValue / rotateAccount refuse the account", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] });
     const [acc] = await store.listAccounts();
     expect(JSON.stringify(acc)).not.toContain(CF);
@@ -147,7 +148,7 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   });
 
   it("keeps the 8-character minimum", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await expect(
       store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: "1234567" }] }),
     ).rejects.toMatchObject({ code: "value_too_short" });
@@ -155,7 +156,7 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   });
 
   it("E31: acme-dns pair is atomic — a failing 2nd label leaves the 1st unchanged", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const pair = (user: string, key: string) => ({
       sourceId: "home",
       provider: "acme-dns",
@@ -173,7 +174,7 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   });
 
   it("E31: an I/O failure while persisting the pair leaves both labels unchanged", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     const pair = (user: string, key: string) => ({
       sourceId: "home",
       provider: "acme-dns",
@@ -190,7 +191,7 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   });
 
   it("deleteTlsNamespace / listTlsNamespaces: only that namespace, other accounts and unknown kinds untouched", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await add(store, "user-key-0001", "mine");
     await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] });
     await store.upsertTlsSecrets({ sourceId: "lab", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF2 }] });
@@ -202,7 +203,7 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   });
 
   it("deleteTlsNamespace writes nothing when there is nothing to delete (no vault file created)", async () => {
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await store.deleteTlsNamespace("home");
     expect(fs.existsSync(file)).toBe(false);
     await add(store, "user-key-0001");
@@ -217,16 +218,16 @@ describe("vault store — tls-solver accounts (add-acme-dns01-certs E12, E31, E1
   it("unknown kinds still round-trip through a tls upsert", async () => {
     const unknown = { id: "x1", provider: "p", kind: "future-kind", namespace: "future:z", label: "l", value: "future-secret" };
     fs.writeFileSync(file, JSON.stringify({ futureField: { a: 1 }, accounts: [unknown] }), { mode: 0o600 });
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] });
-    const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+    const doc = readVaultDoc(file);
     expect(doc.futureField).toEqual({ a: 1 });
-    expect(doc.accounts[0]).toEqual(unknown);
+    expect((doc.accounts as unknown[])[0]).toEqual(unknown);
   });
 
   it("a corrupt vault refuses writes and secret reads; listTlsNamespaces is empty", async () => {
     fs.writeFileSync(file, "{ not json", { mode: 0o600 });
-    const store = createVaultStore(file);
+    const store = createVaultStore({ codec: testVaultCodec(), path: file });
     await expect(
       store.upsertTlsSecrets({ sourceId: "home", provider: "cloudflare", entries: [{ label: "cloudflareToken", value: CF }] }),
     ).rejects.toMatchObject({ code: "vault_corrupt" });

@@ -81,7 +81,7 @@ describe("the bridge's durable credential (tasks 6.2, 6.5, 6.6)", () => {
     const { token } = registry.add("laptop-bridge");
     const store = new WsTicketStore();
     // The bearer authenticates the MINT (a REST call), never the socket.
-    expect(registry.verify(token)).not.toBeNull();
+    expect(registry.verify(token, "tls")).not.toBeNull();
     expect(store.consume(store.mint("bridge"), "bridge")).toBe(true);
   });
 
@@ -102,13 +102,13 @@ describe("the bridge's durable credential (tasks 6.2, 6.5, 6.6)", () => {
   it("a revoked device cannot obtain a ticket", () => {
     const { device, token } = registry.add("laptop-bridge");
     expect(registry.revoke(device.id)).toBe(true);
-    expect(registry.verify(token)).toBeNull();
+    expect(registry.verify(token, "tls")).toBeNull();
   });
 
   it("revocation survives a reload from disk", () => {
     const { device, token } = registry.add("laptop-bridge");
     registry.revoke(device.id);
     const reloaded = new PairedDeviceRegistry(path.join(dir, "paired-devices.json"));
-    expect(reloaded.verify(token)).toBeNull();
+    expect(reloaded.verify(token, "tls")).toBeNull();
   });
 });

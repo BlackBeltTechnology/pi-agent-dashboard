@@ -12,13 +12,29 @@
  * atomic rename — and never create the file. Deliberately NOT
  * `connector-auth.json` (claimed by add-connector-layer with another schema).
  *
+ * At rest the file is the encrypted envelope of `credential-at-rest-encryption`:
+ * the store takes a REQUIRED codec and the plugin-facing API is unchanged. A
+ * file this process cannot read (wrong key, damaged/newer envelope, no key
+ * available) rejects every operation with `store_locked` + a non-secret
+ * `reason`; a locked file is never quarantined or overwritten. Before a write
+ * takes the lock, key readiness is resolved (D4) so the keychain is never
+ * waited on while holding it.
+ *
  * See change: expose-plugin-credential-and-oauth-seams (D2).
+ * See change: encrypt-credentials-at-rest (D1, D3, D4).
  */
 
 import os from "node:os";
 import path from "node:path";
 import {
+  type CredentialLockReason,
+  credentialRemedy,
+} from "@blackbelt-technology/pi-dashboard-shared/credential-encryption.js";
+import { CredentialLockedError } from "./credential-envelope.js";
+import { ensureCredentialKey } from "./credential-key.js";
+import {
   corruptUnbackedRefusal,
+  type JsonFileCodec,
   type NotPromise,
   readJsonChecked,
   withLockedJsonFile,
@@ -50,15 +66,49 @@ export type PluginCredentialErrorCode =
   | "invalid_record"
   | "record_too_large"
   | "too_many_keys"
-  | "namespace_too_large";
+  | "namespace_too_large"
+  /** The file is locked (or no data key is available): carries a non-secret `reason`. */
+  | "store_locked";
 
 export class PluginCredentialError extends Error {
   readonly code: PluginCredentialErrorCode;
-  constructor(code: PluginCredentialErrorCode, message: string) {
+  /** Set only for `store_locked`: why the file is locked. Never carries file content. */
+  readonly reason?: CredentialLockReason;
+  constructor(code: PluginCredentialErrorCode, message: string, reason?: CredentialLockReason) {
     super(message);
     this.name = "PluginCredentialError";
     this.code = code;
+    if (reason !== undefined) this.reason = reason;
   }
+}
+
+/** `store_locked` with the shared remedy text; names the reason, never any content. */
+function storeLocked(reason: CredentialLockReason): PluginCredentialError {
+  return new PluginCredentialError(
+    "store_locked",
+    `Plugin credential store is locked (${reason}). ${credentialRemedy(reason)}`,
+    reason,
+  );
+}
+
+/** Map the codec's write refusal onto the plugin-facing error; everything else passes through. */
+function mapCodecError(err: unknown): unknown {
+  return err instanceof CredentialLockedError ? storeLocked(err.reason) : err;
+}
+
+/**
+ * Write prologue (D4): make sure a data key is available BEFORE the store lock
+ * is taken. Only consults the key singleton when the codec has no key yet (a
+ * deferred key is created here, on the first credential write); with a key in
+ * hand it is a no-op. Throws `store_locked` when no key can be had.
+ */
+async function ensureWritable(codec: JsonFileCodec): Promise<void> {
+  if (codec.unavailableReason() === undefined) return;
+  const state = await ensureCredentialKey();
+  const reason = codec.unavailableReason();
+  if (reason === undefined) return;
+  // A transient creation-lock refusal is not cached by the singleton: report it as such.
+  throw storeLocked(state.state === "unavailable" && state.transient ? state.reason : reason);
 }
 
 const MAX_KEY_LENGTH = 200;
@@ -134,13 +184,17 @@ function checkNamespaceCaps(ns: Namespace): void {
  * not back up, applies `fn`, enforces the caps, and rewrites the whole file
  * atomically (an emptied namespace is dropped).
  */
-function mutateNamespace<T>(
+async function mutateNamespace<T>(
   filePath: string,
   pluginId: string,
+  codec: JsonFileCodec,
   fn: (ns: Namespace) => T & NotPromise<T>,
 ): Promise<T> {
+  await ensureWritable(codec);
   return withLockedJsonFile(filePath, (): T & NotPromise<T> => {
-    const checked = readJsonChecked<FileData>(filePath, LOG_TAG);
+    const checked = readJsonChecked<FileData>(filePath, LOG_TAG, codec);
+    // A locked envelope is never backed up as corrupt and never overwritten.
+    if (checked.locked) throw storeLocked(checked.locked);
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal(filePath);
     const data: FileData = Object.assign(Object.create(null), checked.data);
     const ns = namespaceOf(data, pluginId);
@@ -148,24 +202,41 @@ function mutateNamespace<T>(
     checkNamespaceCaps(ns);
     if (Object.keys(ns).length === 0) delete data[pluginId];
     else data[pluginId] = ns;
-    writeJsonAtomic(filePath, data, checked.corrupt ? 0o600 : undefined);
+    try {
+      writeJsonAtomic(filePath, data, checked.corrupt ? 0o600 : undefined, codec);
+    } catch (err) {
+      throw mapCodecError(err);
+    }
     return result;
-  }, { logTag: LOG_TAG });
+  }, { logTag: LOG_TAG, codec });
+}
+
+export interface PluginCredentialStoreOptions {
+  /** REQUIRED. Production: `getCredentialCodec("plugin-credentials")`; tests: a codec over a fixed key. */
+  codec: JsonFileCodec;
+  /** Default `~/.pi/agent/plugin-credentials.json`. */
+  path?: string;
 }
 
 export function createPluginCredentialStore(
   pluginId: string,
-  filePath: string = defaultPluginCredentialsPath(),
+  options: PluginCredentialStoreOptions,
 ): PluginCredentialStore {
+  const codec = (options as Partial<PluginCredentialStoreOptions> | undefined)?.codec;
+  if (!codec || typeof codec.decode !== "function") {
+    throw new TypeError("createPluginCredentialStore requires a credential codec");
+  }
+  const filePath = options.path ?? defaultPluginCredentialsPath();
   validateKey(pluginId, "namespace");
 
   const readNs = (): Namespace => {
-    const { data } = readJsonChecked<FileData>(filePath, LOG_TAG);
-    return namespaceOf(data, pluginId);
+    const checked = readJsonChecked<FileData>(filePath, LOG_TAG, codec);
+    if (checked.locked) throw storeLocked(checked.locked);
+    return namespaceOf(checked.data, pluginId);
   };
 
   const mutate = <T>(fn: (ns: Namespace) => T & NotPromise<T>): Promise<T> =>
-    mutateNamespace(filePath, pluginId, fn);
+    mutateNamespace(filePath, pluginId, codec, fn);
 
   return {
     async get(key) {

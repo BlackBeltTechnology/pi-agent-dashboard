@@ -173,7 +173,7 @@ async function makeApp(redirectBaseUrl?: string) {
     secret: "test-secret-32-chars-long-abcdef",
     // GitHub is the one built-in provider that resolves with no network I/O
     // (static endpoints, no OIDC discovery).
-    providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+    providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
     ...(redirectBaseUrl !== undefined ? { redirectBaseUrl } : {}),
   };
   await registerAuthPlugin(app, { authConfig, port: PORT });
@@ -224,7 +224,7 @@ describe("auth routes — redirect_uri emission", () => {
     app = await makeApp(OVERRIDE);
     await (app as any)._reloadAuth({
       secret: "test-secret-32-chars-long-abcdef",
-      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
       redirectBaseUrl: "https://new.example.com",
     } satisfies AuthConfig);
 
@@ -239,7 +239,7 @@ describe("auth routes — redirect_uri emission", () => {
     app = await makeApp(OVERRIDE);
     await (app as any)._reloadAuth({
       secret: "test-secret-32-chars-long-abcdef",
-      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
     } satisfies AuthConfig);
 
     const res = await app.inject({ method: "GET", url: "/auth/start/github" });
@@ -457,7 +457,7 @@ describe("warnOnInvalidRedirectBase", () => {
     const app = Fastify();
     const base: AuthConfig = {
       secret: "test-secret-32-chars-long-abcdef",
-      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
     };
     await registerAuthPlugin(app, {
       authConfig: { ...base, redirectBaseUrl: "pi.example.com" },
@@ -641,7 +641,7 @@ describe("S6: register and reload each log the resolved base and its tier", () =
     logs.length = 0;
     await (app as any)._reloadAuth({
       secret: "test-secret-32-chars-long-abcdef",
-      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
     } satisfies AuthConfig);
     const lines = logs.filter((l) => l.includes("OAuth redirect base"));
     expect(lines).toHaveLength(1);
@@ -673,7 +673,7 @@ describe("S7: a mid-flow base change is diagnosable", () => {
     vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => logs.push(a.join(" ")));
     await (app as any)._reloadAuth({
       secret: "test-secret-32-chars-long-abcdef",
-      providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      providers: { github: { clientId: "cid", clientSecret: "csecret" } }, allowedUsers: ["*@example.com", "*@x"],
       redirectBaseUrl: "https://moved.example.com",
     } satisfies AuthConfig);
 

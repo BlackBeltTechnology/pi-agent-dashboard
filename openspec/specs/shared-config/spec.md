@@ -22,7 +22,8 @@ The shared config module SHALL read configuration from `~/.pi/dashboard/config.j
 | `auth` | object \| undefined | undefined | Optional OAuth authentication configuration |
 | `auth.secret` | string | (auto-generated) | JWT signing secret |
 | `auth.providers` | object | `{}` | Map of provider name → credentials |
-| `auth.allowedUsers` | string[] | `[]` | User allowlist: emails, usernames, or `*@domain` wildcards. Empty = allow all |
+| `auth.allowedUsers` | string[] | `[]` | User allowlist: emails, usernames, or `*@domain` wildcards. Empty = allow all only for non-public providers; public providers (`github`, `google`, or an issuer on the public IdP host set) refuse login when both `allowedUsers` and `groupTiers` are empty |
+| `auth.groupTiers` | object \| undefined | undefined | Config-file-only map of OIDC `groups` claim value → session tier (`"observe"`, `"control"` or `"operate"`; entries with any other tier are dropped, a map with no valid entry reads as unset). When non-empty the highest matching group wins and no match refuses login; a non-empty map also lifts the open-enrolment refusal of public providers (see `oauth-authentication`). The Settings save path preserves the stored value and does not edit it |
 | `lastServer` | string \| undefined | undefined | Last-used server address (`host:port`) for reconnection |
 
 Invalid `spawnStrategy` values SHALL fall back to `"tmux"`.
@@ -73,6 +74,15 @@ When `auth` is undefined or not present, authentication SHALL be completely disa
 - **WHEN** `~/.pi/dashboard/config.json` contains `{ "auth": { ..., "allowedUsers": ["octocat", "user@example.com", "*@company.com"] } }`
 - **THEN** `loadConfig()` SHALL return `auth.allowedUsers` as `["octocat", "user@example.com", "*@company.com"]`
 
+#### Scenario: Config with groupTiers
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "auth": { ..., "groupTiers": { "dash-view": "observe", "dash-ops": "operate", "bad": "root" } } }`
+- **THEN** `loadConfig()` SHALL return `auth.groupTiers` as `{ "dash-view": "observe", "dash-ops": "operate" }`
+- **AND** a `groupTiers` with no valid entry SHALL read as unset
+
+#### Scenario: Settings save preserves groupTiers
+- **WHEN** the Settings panel saves `auth` without a `groupTiers` field while the file contains one
+- **THEN** the persisted file SHALL retain the stored `auth.groupTiers`
+
 #### Scenario: Config with lastServer
 - **WHEN** `~/.pi/dashboard/config.json` contains `{ "lastServer": "workstation.local:8000" }`
 - **THEN** `loadConfig()` SHALL return `lastServer: "workstation.local:8000"`
@@ -80,6 +90,11 @@ When `auth` is undefined or not present, authentication SHALL be completely disa
 #### Scenario: Config without lastServer
 - **WHEN** `~/.pi/dashboard/config.json` does not include `lastServer`
 - **THEN** `loadConfig()` SHALL return `lastServer: undefined`
+
+#### Scenario: Empty allowedUsers does not mean allow-all for a public provider
+- **WHEN** `~/.pi/dashboard/config.json` contains a `github` provider and neither `auth.allowedUsers` nor `auth.groupTiers`
+- **THEN** `loadConfig()` SHALL return the `auth` object unchanged, with no allowlist injected
+- **AND** login through that provider SHALL be refused as specified by `oauth-authentication`
 
 ### Requirement: Config file schema additions for Electron
 The shared config module SHALL include a new field:

@@ -57,6 +57,17 @@ interface Props {
   iconOnly?: boolean;
 }
 
+/** Order-insensitive identity of an override; `null`, `undefined` and `{}` are all "no override". */
+function overrideKey(o: PartialDisplayPrefs | null | undefined): string {
+  if (!o) return "";
+  const sortDeep = (v: unknown): unknown =>
+    v && typeof v === "object"
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortDeep((v as Record<string, unknown>)[k])]))
+      : v;
+  const s = JSON.stringify(sortDeep(o));
+  return s === "{}" ? "" : s;
+}
+
 export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = false }: Props): React.ReactElement {
   const { global } = useDisplayPrefsContext();
   const prefs = useDisplayPrefs(sessionId);
@@ -93,26 +104,47 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
     };
   }, [open]);
 
+  // Last override sent but not yet echoed back (`undefined` = none in flight). The popover
+  // stays open after Reset, so an edit can follow before the echo; basing it on the sent
+  // value keeps it from resurrecting the cleared override.
+  // See change: fix-dock-peek-join-and-view-menu-close.
+  // Cleared only by the MATCHING echo: an older echo arriving later must not drop it.
+  const sentRef = useRef<PartialDisplayPrefs | null | undefined>(undefined);
+  // The menu instance is reused across sessions: a value pending for the old one never applies.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by the bound session
+  useEffect(() => {
+    sentRef.current = undefined;
+  }, [sessionId]);
+  useEffect(() => {
+    if (sentRef.current !== undefined && overrideKey(currentOverride) === overrideKey(sentRef.current)) {
+      sentRef.current = undefined;
+    }
+  }, [currentOverride]);
+
   const patch = useCallback((delta: DisplayPrefsPatch) => {
+    const base = sentRef.current === undefined ? currentOverride : (sentRef.current ?? undefined);
     const next: PartialDisplayPrefs = {
-      ...(currentOverride ?? {}),
+      ...(base ?? {}),
       ...delta,
     };
     if (delta.toolCalls) {
-      next.toolCalls = { ...(currentOverride?.toolCalls ?? {}), ...delta.toolCalls };
+      next.toolCalls = { ...(base?.toolCalls ?? {}), ...delta.toolCalls };
     }
     if (delta.customEventGroups) {
       next.customEventGroups = {
-        ...(currentOverride?.customEventGroups ?? {}),
+        ...(base?.customEventGroups ?? {}),
         ...delta.customEventGroups,
       };
     }
+    sentRef.current = next;
     send({ type: "setSessionDisplayPrefs", sessionId, override: next });
   }, [currentOverride, send, sessionId]);
 
   const clearOverride = useCallback(() => {
+    // Keeps the popover open: the user sees the rows return to global.
+    // See change: fix-dock-peek-join-and-view-menu-close.
+    sentRef.current = null;
     send({ type: "setSessionDisplayPrefs", sessionId, override: null });
-    setOpen(false);
   }, [send, sessionId]);
 
   /** Promote this session's effective view to the global default, then drop the override. */

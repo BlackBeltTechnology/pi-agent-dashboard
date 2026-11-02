@@ -18,7 +18,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, reseatTimedNotifies, retailPendingInteractiveRows, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, reseatTimedNotifies, retailPendingInteractiveRows, seedRunningToolCall, type SessionState } from "../lib/chat/event-reducer.js";
 import {
   createHistoryGapRow,
   createHistoryGapState,
@@ -101,9 +101,9 @@ export interface MessageHandlerSetters {
   setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
   setSessionStates: React.Dispatch<React.SetStateAction<Map<string, SessionState>>>;
   setSessionCommands: React.Dispatch<React.SetStateAction<Map<string, CommandInfo[]>>>;
-  // Note: setSessionFlows removed. flows-plugin reads `flowsList` from
-  // the per-session-data store directly. See change:
-  // pluginize-flows-via-registry.
+  // Note: setSessionFlows removed. The flow list is plugin-owned (flows plugin
+  // catalog event). See change: pluginize-flows-via-registry;
+  // flows-dock-chip-and-panel-actions.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   /** Per-session set of rel-paths that changed on disk (editor-pane banner). See change: split-editor-workspace. */
   setChangedOnDisk: React.Dispatch<React.SetStateAction<Map<string, Map<string, number>>>>;
@@ -950,13 +950,6 @@ export function useMessageHandler(
         publishSessionData(msg.sessionId, "commandsList", msg.commands);
         break;
 
-      case "flows_list":
-        // Mirrored to the plugin-runtime per-session-data store so
-        // flows-plugin's SessionFlowActionsClaim and FlowsCommandRoutes
-        // can read the flows list. The shell does not retain it.
-        publishSessionData(msg.sessionId, "flowsList", msg.flows);
-        break;
-
       case "files_list":
         setFileResults({ query: msg.query, files: msg.files });
         break;
@@ -1149,7 +1142,11 @@ export function useMessageHandler(
 
       /**
        * Splice a backfilled segment into the gap. Touches `messages[]` and
-       * NOTHING ELSE (D10): it does not move `maxSeqMapRef` (backfilled seqs
+       * NOTHING ELSE (D10) — with ONE exception: each spliced call the server
+       * reports open (`openToolCallIds`) that `current.toolCalls` lacks gains a
+       * complete running entry, so its real end, the `session_ended` heal, the
+       * stale reconcile and the superseded heal can all close it
+       * (fix-backfill-elides-live-tools D2). It does not move `maxSeqMapRef` (backfilled seqs
        * are below the live high-water mark by construction), does not
        * `publishSessionEvents` (a live-event fan-out — replaying history into
        * it would double-count plugin state), and does not write to
@@ -1207,15 +1204,26 @@ export function useMessageHandler(
              */
             // Re-seat ts-placed notifies so a backfilled row older than a
             // notify ends above it. See change: collapse-and-order-notify-rows (D5).
+            // Calls the server reports still open at serve time stay running
+            // instead of eliding. See change: fix-backfill-elides-live-tools (D2).
+            const openIds = new Set(msg.openToolCallIds ?? []);
+            const spliced = finalizeBackfillSegment(seg.messages, openIds);
             const messages = reseatTimedNotifies([
               ...current.messages.slice(0, at + 1),
               // Correctness floor before merge: no orphaned spinner, no
               // permanently-streaming bubble (D5).
-              ...finalizeBackfillSegment(seg.messages),
+              ...spliced,
               ...current.messages.slice(at + 1),
             ]);
+            let toolCalls = current.toolCalls;
+            const segmentStart = msg.events[0]?.event.timestamp;
+            for (const row of spliced) {
+              if (row.role !== "toolResult" || row.toolStatus !== "running" || !row.toolCallId) continue;
+              if (!openIds.has(row.toolCallId)) continue;
+              toolCalls = seedRunningToolCall(toolCalls, row, current.assistantInferenceSeq, segmentStart);
+            }
             const next = new Map(prev);
-            next.set(msg.sessionId, { ...current, messages });
+            next.set(msg.sessionId, { ...current, messages, toolCalls });
             return next;
           });
         }

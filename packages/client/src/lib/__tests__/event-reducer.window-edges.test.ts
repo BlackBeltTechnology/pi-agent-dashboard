@@ -198,3 +198,29 @@ describe("finalizeBackfillSegment — the backfill seam (E24, E25, E26, E27)", (
     for (let i = 0; i < after.length; i++) expect(after[i]).toBe(seg.messages[i]);
   });
 });
+
+// A call the backfill response reports open stays running through the splice.
+// See change: fix-backfill-elides-live-tools (D2) — test-plan #E14, #E15.
+describe("finalizeBackfillSegment — server-reported open calls (#E14, #E15)", () => {
+  const seg = () =>
+    fold([
+      evt("tool_execution_start", { toolCallId: "a", toolName: "Agent", args: {} }),
+      evt("tool_execution_start", { toolCallId: "b", toolName: "Bash", args: {} }),
+      evt("tool_execution_start", { toolCallId: "n", toolName: "Bash", args: {}, parentToolCallId: "a" }),
+    ]);
+  const statusOf = (msgs: ReturnType<typeof finalizeBackfillSegment>) =>
+    new Map(msgs.filter((m) => m.toolCallId !== undefined).map((m) => [m.toolCallId, m.toolStatus]));
+
+  it("#E14: a listed id stays running, an unlisted one elides, a nested start makes no row", () => {
+    const rows = statusOf(finalizeBackfillSegment(seg().messages, new Set(["a"])));
+    expect(rows.get("a")).toBe("running");
+    expect(rows.get("b")).toBe("elided");
+    expect(rows.has("n")).toBe(false);
+  });
+
+  it("#E15: without an open set every still-running row elides, as before", () => {
+    const rows = statusOf(finalizeBackfillSegment(seg().messages));
+    expect(rows.get("a")).toBe("elided");
+    expect(rows.get("b")).toBe("elided");
+  });
+});

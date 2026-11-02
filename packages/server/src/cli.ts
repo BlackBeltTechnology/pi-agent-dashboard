@@ -97,6 +97,7 @@ import {
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { assertNodeVersionSupported, warnTsLoaderState } from "./auth/node-guard.js";
+import { cmdCredentials } from "./cli/credentials-command.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
 import { resolveLiveSpawnRuntime } from "./runtime-resolution.js";
@@ -107,14 +108,14 @@ import { servicesPaths } from "./services/paths.js";
 const SUBCOMMANDS = ["start", "stop", "restart", "status", "runtime", "open"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 /** Words dispatched to their own command (before `parseArgs`), not to a daemon subcommand. */
-const COMMAND_WORDS = ["token", "service", "pair", "login", "api"] as const;
+const COMMAND_WORDS = ["token", "service", "pair", "login", "api", "credentials"] as const;
 type CommandWord = (typeof COMMAND_WORDS)[number];
 /** Flags whose NEXT token is their value, never the subcommand word. */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(["--port", "--host", "--pi-port", "--url", "--data", "--code", "--name", "--tier"]);
 
 /** The one-line usage printed for an unknown subcommand word (exit 2). */
 export const CLI_USAGE =
-  "usage: pi-dashboard [start|stop|restart|status|runtime|open|pair|token|service|login|api] [flags]  (no word: run in the foreground)";
+  "usage: pi-dashboard [start|stop|restart|status|runtime|open|pair|token|service|login|api|credentials] [flags]  (no word: run in the foreground)";
 
 export type ArgvClass =
   | { kind: "none" }
@@ -1944,6 +1945,12 @@ async function main() {
       const { flags } = parseArgs(rest);
       const config = buildConfig(flags, () => {});
       process.exit(await cmdPair(rest, { port: config.port, host: config.host }));
+    }
+    if (cls.word === "credentials") {
+      // status | decrypt | reset: local-only, no value printed. See change: encrypt-credentials-at-rest (8.1).
+      const { flags } = parseArgs(rest);
+      const config = buildConfig(flags, () => {});
+      process.exit(await cmdCredentials(rest, { port: config.port, host: config.host }));
     }
     if (cls.word === "login") {
       const { flags } = parseArgs(rest);

@@ -8,7 +8,7 @@
  * degrades to the call-site English fallback when a key/locale is missing.
  *
  * English is NOT stored here — it lives inline as the `t(key, vars, English)`
- * fallback at each call site (matching roles-plugin / flows-anthropic-bridge).
+ * fallback at each call site (matching roles-plugin).
  * The `hu` catalog below MUST keep key parity with those call sites.
  *
  * See change: add-grammar-settings-plugin.

@@ -90,3 +90,5 @@ Security ▸ *Network access* (was Trusted Networks; `Section id="network-access
 General page: bespoke 'Editor large-file limit (MB)' control (`editor-large-file-limit-input`, integer 1–256, inline error blocks Save), `computeConfigPartial` emits `{ editor: { largeFileLimitMb } }`, `CONFIG_FIELD_PAGE.editor = general`. See change: gate-changed-on-disk-by-content.
 
 Chat-display section gains the `settings.chatMotion` `ToggleField` (deferred until Save, hint `settings.hint.chatMotion`). See change: add-fluid-chat-motion.
+
+Security ▸ Authentication shows an open-enrolment banner (`data-testid="open-enrolment-banner"`, `role="status"`, text per provider: refused vs open) from `GET /api/auth/diagnostics` `openEnrolment`; fetched on mount and after a successful config save; non-ok/failed fetch keeps prior state, no banner/error. i18n `settings.openEnrolment{Title,Refused,Open}` in en-source + hu + zh-CN. See change: close-security-map-high-findings (D3).

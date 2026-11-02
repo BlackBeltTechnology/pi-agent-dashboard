@@ -3,6 +3,7 @@
  * Extracted from server.ts for clarity.
  */
 
+import { buildPreferencesUpdate } from "./preferences-relay.js";
 import { VAULT_DELIVERY_FEATURE } from "@blackbelt-technology/pi-dashboard-shared/vault-delivery.js";
 import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -591,10 +592,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     // so it gates naming on the right value from its first turn (config push,
     // register arm). Change arm is the PATCH route broadcast.
     // See change: add-auto-session-naming.
-    piGateway.sendToSession(sessionId, {
-      type: "preferences_update",
-      autoNameSessions: preferencesStore.getAutoNameSessions(),
-    });
+    // Full snapshot (auto-naming + Claude subscription compat).
+    // See change: retire-anthropic-messages-bridge (design D3).
+    piGateway.sendToSession(sessionId, buildPreferencesUpdate(preferencesStore));
 
     // Announce which grant store this dashboard writes (re-read every time, never
     // cached) so the bridge's path gate can decide whether "Always allow" is
@@ -968,8 +968,6 @@ export function wireEvents(deps: EventWiringDeps): void {
   }
   replayController.setOnExit(exitReplay);
 
-  // Debounce flows refresh to prevent infinite loop between sessions in same cwd
-  const recentFlowsRefresh = new Set<string>();
   // Per-session timestamp of the most recent `lastActivityAt` broadcast.
   // In-memory state updates on every activity event; the WebSocket broadcast
   // is throttled to at most one per `LAST_ACTIVITY_BROADCAST_INTERVAL_MS` per
@@ -1925,6 +1923,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (pendingInitialPromptRegistry) {
         const prompt = pendingInitialPromptRegistry.consume(msg.cwd);
         if (prompt) {
+          // The preferences snapshot must reach the bridge before its first
+          // prompt: `onSessionRegistered` pushes it too, but its order relative
+          // to this branch is not guaranteed. Same socket → FIFO, so the bridge
+          // applies the compat switch before the run starts.
+          // See change: retire-anthropic-messages-bridge (design D3, #E10).
+          piGateway.sendToSession(sessionId, buildPreferencesUpdate(preferencesStore));
           piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: prompt });
         }
       }
@@ -2224,30 +2228,9 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    if (msg.type === "flows_list") {
-      browserGateway.sendToSubscribers(sessionId, {
-        type: "flows_list",
-        sessionId,
-        flows: msg.flows,
-      });
-
-      // Tell other connected sessions in the same cwd to rediscover flows
-      // (debounced to avoid infinite loop: A→refresh B→B sends flows→refresh A→...)
-      if (!recentFlowsRefresh.has(sessionId)) {
-        recentFlowsRefresh.add(sessionId);
-        setTimeout(() => recentFlowsRefresh.delete(sessionId), 5_000);
-        const session = sessionManager.get(sessionId);
-        if (session) {
-          for (const sid of piGateway.getConnectedSessionIds()) {
-            if (sid === sessionId || recentFlowsRefresh.has(sid)) continue;
-            const other = sessionManager.get(sid);
-            if (other && other.cwd === session.cwd) {
-              piGateway.sendToSession(sid, { type: "request_flows_refresh", sessionId: sid });
-            }
-          }
-        }
-      }
-    }
+    // An older bridge's legacy flow-list message falls through unhandled: the
+    // flow list is plugin-owned (flows plugin catalog event). See change:
+    // flows-dock-chip-and-panel-actions (D8).
 
     if (msg.type === "git_info_update") {
       // Compose live worktree state from bridge + server-cached base ref

@@ -12,6 +12,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { extOf } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
+import { dashboardStateRefuses } from "./dashboard-state-guard.js";
 import { safeRealpath, within } from "./path-containment.js";
 
 interface HandlerTargetClaim {
@@ -53,6 +54,9 @@ export async function isWritableHandlerTarget(
     const ext = extOf(requested);
     if (!ext || !opts.claim.extensions.includes(ext)) return null;
     const real = await safeRealpath(requested);
+    // Dashboard state + pi-agent credential files (real path, both tiers) are never a write target, whatever
+    // extension a claim declares. See change: close-security-map-high-findings (D1, H6).
+    if (await dashboardStateRefuses(real)) return null;
     const dir = await fs.realpath(path.dirname(requested));
     if (!within(dir, root)) return null;
     if ((opts.mode ?? "overwrite") === "overwrite") {

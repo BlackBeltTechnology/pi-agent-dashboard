@@ -53,9 +53,9 @@ export interface IndexHtmlSender {
 /** Sender over `<clientDir>/index.html`. The mtime-cached read holds the raw file; the map is inserted per call (nonce varies). */
 export function createIndexHtmlSender(
   clientDir: string,
-  opts: { trustedTypesMode?: "off" | "report" | "enforce" } = {},
+  opts: { trustedTypesMode: "off" | "report" | "enforce" },
 ): IndexHtmlSender {
-  const ttMode = opts.trustedTypesMode ?? "report";
+  const ttMode = opts.trustedTypesMode;
   const file = path.join(clientDir, "index.html");
   let cached: { mtimeMs: number; size: number; html: string } | undefined;
 

@@ -305,7 +305,15 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   while (true) {
     // Early-exit detection (beats timeout per spec).
     if (child.exitCode !== null) {
-      throw classifyChildExit(child.exitCode, child.signalCode ?? null, opts.port);
+      const exitErr = classifyChildExit(child.exitCode, child.signalCode ?? null, opts.port);
+      // #977: a foreground bind failure exits 1 before the probe below can see the
+      // conflict. Ask the probe once (C2: the normal path's conflict signal is the
+      // probe, not a second exit code); a failed probe keeps the generic verdict.
+      if (exitErr instanceof EarlyExitError) {
+        const after = await probe(opts.port).catch(() => undefined);
+        if (after?.portConflict) throw new PortConflictError(opts.port);
+      }
+      throw exitErr;
     }
     let status;
     try {

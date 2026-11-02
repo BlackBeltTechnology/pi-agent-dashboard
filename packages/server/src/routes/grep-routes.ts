@@ -10,12 +10,14 @@
  * See change: split-editor-workspace, core-file-cwd-admission.
  */
 
+import fs from "node:fs/promises";
 import path from "node:path";
 import { containmentAllows } from "@blackbelt-technology/pi-dashboard-shared/containment-guard.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { grantedSubjects } from "../access/access-grants.js";
 import { decidePassive } from "../access/containment-gate.js";
+import { alwaysRefusedIdentities, identityIsAlwaysRefused } from "../lib/dashboard-state-guard.js";
 import { admitFileCwd, cwdAnchors } from "../lib/file-cwd-admission.js";
 import { GrepTimeoutError, runGrep } from "../lib/grep.js";
 import type { RouteAdmissionDeps } from "../lib/route-admission.js";
@@ -94,6 +96,30 @@ export function registerGrepRoutes(
         }),
       );
       matches = contained.filter((m): m is NonNullable<typeof m> => m !== null);
+
+      // Gate 2b — identity: drop matches in a file whose (dev, ino) is an always-refused file (a hard
+      // link to a pi-agent credential, the token or the identity key is invisible to a path check).
+      // The identity list is built once per request; one `stat` per DISTINCT matched path.
+      // Residual: the JS walker has read such a file into memory by now (content is never returned).
+      // See change: close-security-map-high-findings (D1, G4).
+      if (matches.length > 0) {
+        const identities = await alwaysRefusedIdentities();
+        const verdicts = new Map<string, Promise<boolean>>();
+        const refusedByIdentity = (rel: string): Promise<boolean> => {
+          const abs = path.resolve(admitted.cwd, rel);
+          let v = verdicts.get(abs);
+          if (!v) {
+            v = fs.stat(abs).then(
+              (st) => identityIsAlwaysRefused(st, identities),
+              () => true, // cannot identify it: fail closed
+            );
+            verdicts.set(abs, v);
+          }
+          return v;
+        };
+        const keep = await Promise.all(matches.map(async (m) => !(await refusedByIdentity(m.path))));
+        matches = matches.filter((_, i) => keep[i]);
+      }
 
       return { success: true, data: { matches } } satisfies ApiResponse;
     },
