@@ -51,7 +51,7 @@ async function probeNetworkDenied(apiBase: string, fetchImpl: typeof fetch): Pro
     }
     if (res.status !== 403) return null;
     const body = (await res.json().catch(() => null)) as { error?: unknown; hint?: unknown; reason?: unknown } | null;
-    if (body?.error !== "network_not_allowed") return null;
+    if (body?.error !== NETWORK_NOT_ALLOWED) return null;
     return {
       ...(typeof body.hint === "string" ? { hint: body.hint } : {}),
       ...(body.reason === "local_proof_required" ? { reason: "local_proof_required" as const } : {}),
