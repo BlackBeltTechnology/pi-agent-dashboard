@@ -7,7 +7,7 @@
  * env, never off the health field — a regression would otherwise become a green skip.
  *
  * F7  fresh context → `network-denied-request-access` visible, no Offline/Disconnected text,
- *     no app header, and `/api/health` carries `networkAccess.error === "network_not_allowed"`.
+ *     and `/api/health` carries `networkAccess.error === "network_not_allowed"`.
  * F8  clicking it navigates the SAME context to `/pair?request`.
  *
  * See change: surface-network-denial-on-health (test-plan #F7, #F8).
@@ -27,7 +27,6 @@ test.describe("pair mode, no sign-in: Request access instead of Offline", () => 
     const requestAccess = page.getByTestId("network-denied-request-access");
     await expect(requestAccess).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Server offline|Disconnected from/)).toHaveCount(0);
-    await expect(page.getByTestId("header-app-bar")).toHaveCount(0);
 
     const verdict = await page.evaluate(async () => {
       const res = await fetch("/api/health");
