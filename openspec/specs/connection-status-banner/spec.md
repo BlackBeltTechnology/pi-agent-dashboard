@@ -4,12 +4,18 @@ Surface active-connection state above the UI shell, distinguishing a transport o
 ## Requirements
 
 ### Requirement: Visible disconnection banner
-The dashboard SHALL display a persistent banner above the main UI shell whenever the active client WebSocket has been in a non-`OPEN` state continuously for more than 3 seconds. The banner SHALL clearly identify the targeted server and indicate that retries are in progress.
+The dashboard SHALL display a persistent banner above the main UI shell whenever the active client WebSocket has been in a non-`OPEN` state continuously for more than 3 seconds, unless the "Network not allowed" surface or the local-proof remedy is shown for the active server, which then replaces it. The banner SHALL clearly identify the targeted server and indicate that retries are in progress.
 
 #### Scenario: Banner appears after threshold
 - **WHEN** the active WebSocket has been in a non-`OPEN` state for more than 3 seconds
+- **AND** no network denial or local-proof state is known for the active server
 - **THEN** a banner SHALL be rendered above the main UI shell
 - **AND** the banner SHALL contain the text "Disconnected from <host>. Retrying…" where `<host>` is the currently-targeted server
+
+#### Scenario: Network denial replaces the disconnection banner
+- **WHEN** the active WebSocket has been in a non-`OPEN` state for more than 3 seconds
+- **AND** the network-denial probe reports a denial (403 or `networkAccess` health verdict) for the active server
+- **THEN** the "Network not allowed" surface SHALL be shown instead of "Disconnected from <host>. Retrying…" and no "Server offline" indicator SHALL be shown
 
 #### Scenario: Banner hidden when connected
 - **WHEN** the active WebSocket is in the `OPEN` state
@@ -39,7 +45,7 @@ The banner SHALL disappear as soon as the active WebSocket transitions back to `
 - **THEN** the banner SHALL be hidden in the next render cycle
 
 ### Requirement: Network-not-allowed state distinct from offline
-The dashboard SHALL render a **distinct "Network not allowed" presentation**, separate from the "Disconnected / Retrying" offline banner, when a failure is caused by the server's network guard (HTTP 403 with `error: "network_not_allowed"`) rather than by a transport-level outage. The two states SHALL be visually and textually distinguishable so the user can tell "the server is up but my network is not permitted" from "the server is offline".
+The dashboard SHALL render a **distinct "Network not allowed" presentation**, separate from the "Disconnected / Retrying" offline banner, when a failure is caused by the server's network guard rather than by a transport-level outage. A guard denial is either an HTTP 403 with `error: "network_not_allowed"`, or a `200` from `GET {apiBase}/api/health` whose body carries `networkAccess.error === "network_not_allowed"` (the server's verdict for this caller). A `200` carrying `localProof: "required"` takes precedence and keeps its local-proof presentation. The health probe SHALL go through the client's credentialed fetch path, which attaches only the bearer of the probed server's own origin, so a paired browser is judged as itself and no bearer reaches another origin. The two states SHALL be visually and textually distinguishable so the user can tell "the server is up but my network is not permitted" from "the server is offline".
 
 The "Network not allowed" presentation SHALL include the server-supplied `hint` (remedy), the sign-in flow when the server offers one, and the existing "Settings → Servers" action as a secondary affordance (for switching servers). Neither the hint nor any affordance SHALL direct the user to add their network to a trusted-networks setting. When the knock is refused, the presentation SHALL show the refusal reason the server returned.
 
@@ -71,7 +77,7 @@ It SHALL additionally offer a "Request access" action, presented as the surface'
 - **THEN** the surface SHALL show the refusal reason and SHALL NOT suggest trusting the network
 
 #### Scenario: Transport outage still shows offline banner
-- **WHEN** the active WebSocket is in a non-`OPEN` state for more than 3 seconds due to a transport failure (no 403 policy denial)
+- **WHEN** the active WebSocket is in a non-`OPEN` state for more than 3 seconds due to a transport failure (no 403 policy denial and no `networkAccess` health verdict)
 - **THEN** the existing "Disconnected from <host>. Retrying…" banner SHALL be shown
 - **AND** the "Network not allowed" surface SHALL NOT be shown
 
@@ -79,3 +85,25 @@ It SHALL additionally offer a "Request access" action, presented as the surface'
 - **WHEN** `/api/health` returns 200 for the served origin but a guarded endpoint (e.g. `/api/browse`) returns 403 `network_not_allowed`
 - **THEN** the dashboard SHALL NOT label the server "offline"
 - **AND** SHALL render the "Network not allowed" surface for the denied action
+
+#### Scenario: Unpaired remote browser with authentication disabled sees Request access
+- **GIVEN** a server in `network.trustMode: "pair"` with `pairing.acceptLanRequests: true` and no sign-in method (no OAuth provider, passkeys off), serving the page itself (the active server is the page origin)
+- **AND** a remote browser with no device cookie, bearer or session
+- **WHEN** the browser loads the dashboard and its WebSocket is refused
+- **THEN** `/api/health` SHALL answer `200` with `networkAccess: { error: "network_not_allowed", hint }`
+- **AND** the dashboard SHALL render the "Network not allowed" surface with the Request access action, not "Disconnected from <host>. Retrying…" or an Offline chip
+- **AND** activating Request access SHALL navigate the same browsing context to `/pair?request`
+
+#### Scenario: Paired browser on a cross-origin server sees offline during an outage
+- **GIVEN** a browser paired with an active server that is not the page origin, holding that server's bearer
+- **WHEN** the WebSocket drops for a transport reason and the health probe is answered
+- **THEN** the probe SHALL carry that server's own bearer (and no other origin's credential), the answer SHALL NOT carry `networkAccess`, and the "Disconnected / Retrying" banner SHALL be shown
+
+#### Scenario: Local-proof field wins
+- **WHEN** `/api/health` answers `200` with `localProof: "required"`
+- **THEN** the client SHALL show the `pi-dashboard open` remedy, not the Request access surface
+
+#### Scenario: Server with a sign-in method keeps its login redirect
+- **GIVEN** a server with a sign-in method configured (OAuth provider or passkeys), in `network.trustMode: "pair"`
+- **WHEN** an unpaired, signed-out remote browser loads the dashboard and its WebSocket reports `auth_required`
+- **THEN** the redirect to the sign-in page SHALL behave exactly as before this change

@@ -276,6 +276,91 @@ jobs:
           fi
           (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
 
+  # ── e2e-pair-mode: the pair-mode VARIANT-harness leg ─────────────────────
+  # `tests/e2e/pair-mode-request-access.spec.ts` needs a harness booted with
+  # PI_E2E_TRUST_MODE=pair + PI_E2E_OAUTH=0 (change: surface-network-denial-on-health).
+  e2e-pair-mode:
+    name: e2e (pair mode, variant harness)
+    # Same label gate as the shard matrix: dispatch/nightly always, PRs opt-in.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'e2e-browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Issue #1082 harness: `pair` trust mode, no sign-in method (PI_E2E_OAUTH=0), LAN knocks on.
+      # The faucet locks the Playwright host out of every guarded route, so it cannot be a shared
+      # default; the spec skips elsewhere. PI_E2E_SEED is mandatory (onboarding "Add folder" CTA).
+      - name: Run pair-mode Request access E2E (variant harness)
+        run: pnpm exec playwright test tests/e2e/pair-mode-request-access.spec.ts --reporter=list,html
+        env:
+          CI: "1"
+          PI_E2E_SEED: "1"
+          PI_E2E_OAUTH: "0"
+          PI_E2E_TRUST_MODE: "pair"
+          PW_E2E_BOOT_TIMEOUT_MS: "1200000"
+          TEST_COPY_MODE: "1"
+
+      # Own HTML report (NOT a blob): this leg does not join `merge-report`.
+      - name: Upload HTML report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-pair-mode
+          path: playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload harness boot log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-up-log-pair-mode
+          path: test-results/test-up.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload harness failure bundle
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-failure-pair-mode
+          path: test-results/harness-failure.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Tear down harness
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="test-results/.e2e-managed"
+          if [ ! -f "$marker" ]; then
+            echo "no managed-run marker — globalTeardown (or attach mode) already handled teardown"
+            exit 0
+          fi
+          ws="$(node -p "JSON.parse(require('node:fs').readFileSync('test-results/.e2e-managed','utf8')).workspace" 2>/dev/null || true)"
+          if [ -z "$ws" ] || [ ! -d "$ws" ]; then
+            echo "marker has no usable workspace — nothing to tear down"
+            exit 0
+          fi
+          (cd "$ws" && "$GITHUB_WORKSPACE/docker/test-down.sh")
+
   # ── e2e-bounds-variants: the capability-bounds VARIANT-harness legs ────────
   # Two specs from change `harden-server-capability-bounds` need a harness booted
   # with a non-default faucet, so neither can be a shared-harness default:

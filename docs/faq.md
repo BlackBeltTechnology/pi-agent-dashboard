@@ -778,6 +778,8 @@ See change: warn-unreachable-trusted-networks.
 
 Symptom: device via zrok / ngrok / `tailscale serve` gets 403 `network_not_allowed` (or login redirect, WS 401/403). `trustedNetworks` contains `127.0.0.1` (or `127.0.0.0/8`, `127.*`, `0.0.0.0/0`, `::1`).
 
+Same denial also shows on `/api/health`: `200` + `networkAccess: { error: "network_not_allowed", hint }`. Field present iff guard would refuse that caller. Constant value — no mode, no list, no address. Banner then shows Request access, not Offline. See change: surface-network-denial-on-health.
+
 Cause: tunnel agent relays from `127.0.0.1` socket. Injects `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Real-IP` / `Forwarded`.
 - Loopback-range peer + any such header = relayed loopback.
 - Relayed loopback never matches a trusted entry. Predicate: `isTrustedSource` in `packages/server/src/auth/localhost-guard.ts`.

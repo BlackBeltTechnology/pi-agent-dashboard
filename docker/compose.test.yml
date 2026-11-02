@@ -158,6 +158,9 @@ services:
       # exemption spec (csp-report-sink-oauth.spec.ts). Locks the Playwright host out of every
       # other route; run only that spec there. See change: harden-cors-and-csp-reporting.
       PI_E2E_OAUTH_NO_BYPASS: "${PI_E2E_OAUTH_NO_BYPASS:-}"
+      # PI_E2E_TRUST_MODE=pair seeds `network.trustMode: "pair"` + `pairing.acceptLanRequests: true` before boot
+      # (variant harness for pair-mode-request-access.spec.ts). See change: surface-network-denial-on-health.
+      PI_E2E_TRUST_MODE: "${PI_E2E_TRUST_MODE:-}"
       # Throttle-cadence arm (change: reduce-bridge-tick-bandwidth). When "1",
       # test-entrypoint stages the SYNTHETIC Agent-tick producer
       # (qa/fixtures/faux-agent-ticks.ext.ts) and SKIPS the real subagents

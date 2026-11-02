@@ -301,9 +301,9 @@ Residuals (stated):
   - no verified local credential: token or `pi_dash_local` proof cookie.
   - knock pre-switch gates pass (`knockPeerGate`, `packages/server/src/pairing/knock-admission.ts`): Host admitted (enforce semantics), private on-link raw socket peer, no proxy-forwarding header.
 - Thunk `createRequestAccessAvailable(knockPeerDeps, localTrust)` wired in `packages/server/src/server.ts`. Passed to vault + services routes as `requestAccessAvailable`.
-- Never reads `pairing.acceptLanRequests` or live-knock state. Discloses only verdict `POST /api/pair/request` already returns to same caller: `host_not_admitted` | `knock_not_lan`. Sole exception to `canDiscloseAccessPosture`. `/api/health` posture stays withheld.
+- Never reads `pairing.acceptLanRequests` or live-knock state. Discloses only verdict `POST /api/pair/request` already returns to same caller: `host_not_admitted` | `knock_not_lan`. Recorded exceptions to `canDiscloseAccessPosture`: this verdict, and `/api/health` `networkAccess` (caller's own denial only). `/api/health` posture stays withheld. See change: surface-network-denial-on-health.
 - Body: exactly 5 keys `success,error,message,reason,remedies`. No address, subnet, host, device or vault names.
-- Reachable: credential-less callers a trusted-network entry admits. Untrusted LAN browsers get `network_not_allowed` + banner Request access instead.
+- Reachable: credential-less callers a trusted-network entry admits. Untrusted LAN browsers get `network_not_allowed` — `403` on guarded routes, `200` + `networkAccess` on `/api/health` — + banner Request access instead.
 - Client: Settings → Vault callout row links to refusing server `/pair?request`. Same origin → same tab. Other server → new tab, `noopener`. Target rule `requestAccessTarget` (`packages/client/src/lib/pairing/request-access-target.ts`), shared with `ConnectionStatusBanner`.
 - Switch off → landing explains `knock_disabled`.
 - Follow-up `retire-trusted-networks-bypass`: extends knock eligibility inside `knockPeerGate` / `knockPeerState`. Remedy follows. See change: add-request-access-remedy.

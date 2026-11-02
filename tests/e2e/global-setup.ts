@@ -233,6 +233,9 @@ export default async function globalSetup(): Promise<void> {
     // written through `PUT /api/config`.
     // See change: config-override-oauth-redirect-base.
     PI_E2E_OAUTH: process.env.PI_E2E_OAUTH ?? "1",
+    // PI_E2E_TRUST_MODE=pair is a VARIANT-harness faucet (never defaulted): see
+    // pair-mode-request-access.spec.ts. See change: surface-network-denial-on-health.
+    PI_E2E_TRUST_MODE: process.env.PI_E2E_TRUST_MODE ?? "",
     // PI_BROWSER_RELAY_FAKE is deliberately NOT defaulted here. `1` forces the
     // browser plugin enabled AND seeds a live Fake relay instance, which makes
     // `isLiveViewActive()` true for EVERY session: the `content-view` slot then

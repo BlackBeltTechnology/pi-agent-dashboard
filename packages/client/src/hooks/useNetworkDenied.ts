@@ -8,9 +8,11 @@
  * `intervalMs` until it connects; any other answer clears the denial. A transport
  * failure is NOT a denial. A 200 carrying `localProof: "required"` is the strict-default
  * "this tab needs proof" state. See changes: distinguish-offline-from-network-denied,
- * add-lan-knock-pairing (design D10), close-container-loopback-impersonation (D3).
+ * add-lan-knock-pairing (design D10), close-container-loopback-impersonation (D3),
+ * surface-network-denial-on-health (a 200 `networkAccess` verdict is a denial too).
  */
 import { LOCAL_PROOF_REQUIRED } from "@blackbelt-technology/pi-dashboard-shared/local-proof-signal.js";
+import { NETWORK_NOT_ALLOWED } from "@blackbelt-technology/pi-dashboard-shared/network-denial-signal.js";
 import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "./useWebSocket.js";
 
@@ -35,14 +37,21 @@ async function probeNetworkDenied(apiBase: string, fetchImpl: typeof fetch): Pro
     const res = await fetchImpl(`${apiBase}/api/health`, { signal: AbortSignal.timeout(3000) });
     // Strict default: `/api/health` answers 200 to a bare-loopback tab but says it needs proof.
     if (res.status === 200) {
-      const ok = (await res.json().catch(() => null)) as { localProof?: unknown } | null;
-      return ok?.localProof === LOCAL_PROOF_REQUIRED
-        ? { reason: "local_proof_required", hint: `Run \`${LOCAL_PROOF_COMMAND}\` on this machine to authorize this browser.` }
-        : null;
+      const ok = (await res.json().catch(() => null)) as { localProof?: unknown; networkAccess?: { error?: unknown; hint?: unknown } | null } | null;
+      if (ok?.localProof === LOCAL_PROOF_REQUIRED) {
+        return { reason: "local_proof_required", hint: `Run \`${LOCAL_PROOF_COMMAND}\` on this machine to authorize this browser.` };
+      }
+      // The server's verdict for THIS caller: its network guard would refuse the request.
+      // See change: surface-network-denial-on-health (D6).
+      const na = ok?.networkAccess;
+      if (na && typeof na === "object" && na.error === NETWORK_NOT_ALLOWED) {
+        return typeof na.hint === "string" ? { hint: na.hint } : {};
+      }
+      return null;
     }
     if (res.status !== 403) return null;
     const body = (await res.json().catch(() => null)) as { error?: unknown; hint?: unknown; reason?: unknown } | null;
-    if (body?.error !== "network_not_allowed") return null;
+    if (body?.error !== NETWORK_NOT_ALLOWED) return null;
     return {
       ...(typeof body.hint === "string" ? { hint: body.hint } : {}),
       ...(body.reason === "local_proof_required" ? { reason: "local_proof_required" as const } : {}),

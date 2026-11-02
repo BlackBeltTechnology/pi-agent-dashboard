@@ -90,3 +90,30 @@ describe("GET /api/health — compatibility", () => {
     expect(mockReadCurrent).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("GET /api/health — networkAccess verdict resilience", () => {
+  // See change: surface-network-denial-on-health (test-plan #X1, #X2).
+  const health = async (extra: Record<string, unknown>) => {
+    const app = Fastify({ logger: false });
+    registerSystemRoutes(app, { ...makeHealthDeps(), ...extra } as never);
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/api/health", remoteAddress: "192.168.16.31" });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+    return JSON.parse(res.body);
+  };
+
+  it("X1 a throwing verdict omits the field", async () => {
+    const body = await health({ readNetworkVerdict: () => { throw new Error("boom"); } });
+    expect(body.ok).toBe(true);
+    expect(body.networkAccess).toBeUndefined();
+  });
+
+  it("X2 an absent dep omits the field", async () => {
+    expect((await health({})).networkAccess).toBeUndefined();
+  });
+
+  it("a refusing verdict adds the field", async () => {
+    expect((await health({ readNetworkVerdict: () => true })).networkAccess?.error).toBe("network_not_allowed");
+  });
+});

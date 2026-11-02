@@ -14,6 +14,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
+import { GENERIC_NETWORK_DENIED_HINT, type HealthNetworkAccessField, NETWORK_NOT_ALLOWED } from "@blackbelt-technology/pi-dashboard-shared/network-denial-signal.js";
 import { LOCAL_PROOF_REQUIRED } from "@blackbelt-technology/pi-dashboard-shared/local-proof-signal.js";
 import { ToolResolver, whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
@@ -22,7 +23,7 @@ import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/
 import { RESTART_QUIESCE_MS, SHUTDOWN_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, PiMirrorResult, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AccessGrantHealth } from "../access/access-health.js";
 import {
   computeBindReachability,
@@ -236,6 +237,8 @@ export function registerSystemRoutes(
     networkGuard: NetworkGuard;
     /** Strict-proof context: `/api/health` adds `localProof: "required"` for a bare-loopback caller that lacks proof. See change: close-container-loopback-impersonation (D3). */
     localTrust?: LocalTrustContext;
+    /** True when the caller's request would be refused by the REST network guard (pure, no side effects). Absent → no `networkAccess` field. See change: surface-network-denial-on-health (D2). */
+    readNetworkVerdict?: (request: FastifyRequest) => boolean;
     version?: string;
     directoryService?: DirectoryService;
     /** Called after a `PUT /api/config` that touched `vault`, so delivery switches apply live. See change: add-credential-vault. */
@@ -330,7 +333,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readPiTrustLive, readCspReports, readTrustedNetworks, readPushErrors } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readPiTrustLive, readCspReports, readTrustedNetworks, readPushErrors, readNetworkVerdict } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -1227,6 +1230,14 @@ export function registerSystemRoutes(
         };
       } catch { /* keep null */ }
     }
+    // Caller's own network-guard verdict (omitted on throw / absent dep).
+    // See change: surface-network-denial-on-health (D3).
+    const networkAccessField = (req: FastifyRequest): HealthNetworkAccessField => {
+      try {
+        if (readNetworkVerdict?.(req)) return { networkAccess: { error: NETWORK_NOT_ALLOWED, hint: GENERIC_NETWORK_DENIED_HINT } };
+      } catch { /* omit */ }
+      return {};
+    };
     // Push errors name local config (file paths, missing keys): same
     // disclosure gate. Absent key when undisclosable or push is disabled.
     // See change: add-server-push-notifications.
@@ -1260,7 +1271,7 @@ export function registerSystemRoutes(
       // A bare-loopback caller the strict default refuses for want of proof is told so (the
       // remedy is `pi-dashboard open`). Absent for every other caller. See change:
       // close-container-loopback-impersonation (D3).
-      ...(needsLocalProof(request, deps.localTrust) ? { localProof: LOCAL_PROOF_REQUIRED } : {}),
+      ...(needsLocalProof(request, deps.localTrust) ? { localProof: LOCAL_PROOF_REQUIRED } : networkAccessField(request)),
       ...(tlsStatus ? { tls: tlsStatus } : {}),
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).

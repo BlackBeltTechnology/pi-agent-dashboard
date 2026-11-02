@@ -428,6 +428,26 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:$([ "${PI_E2E_OAUTH_NO_BYPASS:-}" = "1" ] && echo "[]" || echo "[/]") + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
   fi
 
+  # --- Trust-mode seed (PI_E2E_TRUST_MODE=pair) ---------------------------------
+  # Boots the harness the way issue #1082 reports it: `network.trustMode: "pair"` with LAN
+  # knocks accepted and no sign-in method, so an unpaired Playwright peer (non-loopback behind
+  # the published port) is refused by the network guard. VARIANT-harness faucet: it locks the
+  # host out of every guarded route, so only the specs written for it may run there
+  # (pair-mode-request-access.spec.ts; it skips elsewhere). Merge-only; unset = harness unchanged.
+  # See change: surface-network-denial-on-health.
+  if [ "${PI_E2E_TRUST_MODE:-}" = "pair" ]; then
+    node -e '
+      const fs = require("node:fs");
+      const out = process.argv[1];
+      let cfg = {};
+      try { cfg = JSON.parse(fs.readFileSync(out, "utf8")); } catch {}
+      cfg.network = { ...(cfg.network ?? {}), trustMode: "pair", trustModeOrigin: "operator" };
+      cfg.pairing = { ...(cfg.pairing ?? {}), acceptLanRequests: true };
+      fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+    ' "${PI_DIR}/dashboard/config.json"
+    echo "[test-entrypoint] PI_E2E_TRUST_MODE=pair: seeded network.trustMode=pair + pairing.acceptLanRequests=true → config.json"
+  fi
+
   # --- Browse-root seed: the add-folder dialog browses `/fixtures/sample-git`, outside $HOME ---
   # `/api/browse*` only serves `$HOME` + pinned directories (harden-server-capability-bounds B8), so without a
   # pin every spec that spawns a session through the dialog stalls at `add-folders-status-path`. Merge-only.

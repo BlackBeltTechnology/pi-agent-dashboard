@@ -108,6 +108,7 @@ Main-window bridge: `packages/electron/src/preload-main.ts` → `piDashboard.ope
 ## Revocation
 
 - Refused = exchange `401`, or `403` with `error: "network_not_allowed"` (`classifyExchange`).
+- Same denial also reaches clients as `200` + `networkAccess.error` on `/api/health` (public exception of guard). `classifyExchange` unchanged — exchange is a guarded route, never 200-with-signal.
 - Before load: refused ⇒ `needs pairing`, no load. Offer Pair again / Forget.
 - Open window: `session.webRequest.onCompleted` on `origin/api/*` triggers only on `401`/`403`. Never reads bodies.
 - Trigger ⇒ re-run exchange. Rate limit 5 min (`RECHECK_MIN_INTERVAL_MS`) per window.
