@@ -14,7 +14,10 @@
  */
 import { expect, test } from "./fixtures.js";
 
-test.skip(() => process.env.PI_E2E_TRUST_MODE !== "pair", "needs the pair-mode variant harness (PI_E2E_TRUST_MODE=pair)");
+test.skip(
+  () => process.env.PI_E2E_TRUST_MODE !== "pair",
+  "variant harness: runs on the `e2e-pair-mode` CI leg (PI_E2E_TRUST_MODE=pair); see .github/workflows/ci-e2e-browser.yml",
+);
 
 test.describe.configure({ mode: "serial" });
 

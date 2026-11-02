@@ -16,7 +16,6 @@ import { signToken } from "../auth/auth.js";
 import { evaluateNetworkPass, setNetworkDenialObserver } from "../auth/localhost-guard.js";
 import { networkOnlySnapshot } from "../auth/network-trust-telemetry.js";
 import { createLocalTrustContext } from "../auth/local-proof.js";
-import { resetConfigSnapshot } from "../config-snapshot.js";
 import { proofFetch } from "../test-support/local-credential-stamp.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 import { type TrustModeHome, useTrustModeHome } from "../test-support/trust-mode-home.js";

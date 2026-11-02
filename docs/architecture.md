@@ -3651,6 +3651,8 @@ Both views are load-bearing because the router and the guard disagree about dot-
 
 **Denial contract.** `403` with body `{ success: false, error: "network_not_allowed", reason, hint }` — clients branch on `error`. Recorded in the buffer behind `GET /api/tunnel/block-events`, which powers the "Trust this network?" prompt. Logged as `[network-guard] denied reason=… path=… ip=…` — path + socket-peer IP + reason only; no body, no token.
 
+**Second denial surface: `/api/health`.** Health is a public exception, so the guard never refuses it. Health answers `200` carrying `networkAccess: { error: "network_not_allowed", hint }` — present iff `evaluateNetworkPass` (`packages/server/src/auth/localhost-guard.ts`) would refuse THIS caller and `localProof: "required"` not already reported (localProof wins). Constant value: no mode, no list, no address. Presence = caller's own admission only. No block event, no grant prompt, no telemetry — health never reaches `sendNetworkDenied`. Verdict reads admission list through 1 s TTL memo (≤1 config `statSync`/s); local / token / authenticated callers short-circuit first. Constants: `packages/shared/src/network-denial-signal.ts`. Client `useNetworkDenied` maps the field to denial → banner offers Request access, not Offline. See change: surface-network-denial-on-health.
+
 **Second port.** Optional model-proxy second-port Fastify instance runs ONLY the proxy gate, no universal guard. Safe solely because it binds `127.0.0.1` (asserted by `packages/server/src/__tests__/model-proxy-second-port.test.ts`). If that bind ever becomes configurable, install the universal guard there too.
 
 **Namespace-coverage test.** `packages/server/src/__tests__/network-guard-namespace-coverage.test.ts` enumerates the real route table with plugin routes loaded. Fails if any non-static/non-`/auth`/non-public route sits outside the guarded namespaces or the enumerated independently-authenticated set (`/mcp`).
@@ -6203,7 +6205,7 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 - Host normalised (`normalizeHost`): lower-case, one trailing dot removed, brackets and zone id stripped, IPv4-mapped IPv6 as IPv4.
 - Route proof, two concurrent calls per route:
   - identity challenge (`POST /api/pair/challenge`, route scheme): proof + latency.
-  - `GET /api/health`: access. `403 network_not_allowed` → "Network not allowed".
+  - `GET /api/health`: access. `403 network_not_allowed` → "Network not allowed". A `200` carrying `networkAccess.error` means same denial but this checker ignores it (`server-route-check.ts` unchanged; `surface-network-denial-on-health` design D6).
 
 | Challenge | Health | Route state |
 | --- | --- | --- |

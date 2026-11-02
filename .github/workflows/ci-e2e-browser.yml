@@ -307,7 +307,7 @@ jobs:
       # The faucet locks the Playwright host out of every guarded route, so it cannot be a shared
       # default; the spec skips elsewhere. PI_E2E_SEED is mandatory (onboarding "Add folder" CTA).
       - name: Run pair-mode Request access E2E (variant harness)
-        run: pnpm exec playwright test tests/e2e/pair-mode-request-access.spec.ts
+        run: pnpm exec playwright test tests/e2e/pair-mode-request-access.spec.ts --reporter=list,html
         env:
           CI: "1"
           PI_E2E_SEED: "1"
@@ -316,14 +316,15 @@ jobs:
           PW_E2E_BOOT_TIMEOUT_MS: "1200000"
           TEST_COPY_MODE: "1"
 
-      - name: Upload blob report
+      # Own HTML report (NOT a blob): this leg does not join `merge-report`.
+      - name: Upload HTML report
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: blob-report-pair-mode
-          path: blob-report
+          name: playwright-report-pair-mode
+          path: playwright-report
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 14
 
       - name: Upload harness boot log
         if: ${{ always() }}
@@ -583,7 +584,7 @@ jobs:
 
   # ── merge-report: one HTML artifact for the whole sharded run ─────────────
   merge-report:
-    needs: [e2e, e2e-browser-relay, e2e-pair-mode]
+    needs: [e2e, e2e-browser-relay]
     # NOT a bare `always()`: that also runs this job when the label gate SKIPPED
     # `e2e`. There are then zero blob artifacts, `merge-reports` fails, and every
     # UNLABELED PR grows a red "CI E2E Browser / merge-report" check — exactly
