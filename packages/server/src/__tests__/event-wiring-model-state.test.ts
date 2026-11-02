@@ -90,6 +90,18 @@ describe("event-wiring: current model is not historical model state", () => {
     expect(sessionManager.get(SID)).toMatchObject({ model: BONSAI, thinkingLevel: "low" });
   });
 
+  it.each([false, true])("publishes a live selection made inside a replay window at replay exit (skipWipe=%s)", (skipped) => {
+    const { replayState, broadcast, event } = makeRig();
+    replayState.controller.begin(SID, { skipped });
+    event("model_select", historicalSelection);
+    // Suppressed while replaying (no status flicker)...
+    expect(broadcast).not.toHaveBeenCalledWith(SID, expect.objectContaining({ model: BONSAI }));
+    replayState.controller.complete(SID);
+    // ...but the replay-exit update must carry it, or the browser keeps the
+    // registered model (clients prefer live session metadata).
+    expect(broadcast).toHaveBeenCalledWith(SID, expect.objectContaining({ model: BONSAI, thinkingLevel: "low" }));
+  });
+
   it("still honors a later live user selection", () => {
     const { sessionManager, broadcast, event } = makeRig();
     event("model_select", historicalSelection);

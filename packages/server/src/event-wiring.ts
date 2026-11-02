@@ -950,6 +950,11 @@ export function wireEvents(deps: EventWiringDeps): void {
         browserGateway.broadcastSessionUpdated(sessionId, {
           status: session.status,
           currentTool: session.currentTool ?? null,
+          // A live (unmarked) model_select inside the replay window updated the
+          // record without a broadcast; publish it here, since clients prefer
+          // live session metadata over the transcript.
+          model: session.model,
+          thinkingLevel: session.thinkingLevel,
           openspecPhase: null,
           openspecChange: null,
         });
