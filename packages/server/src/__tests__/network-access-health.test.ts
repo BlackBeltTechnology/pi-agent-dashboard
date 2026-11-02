@@ -51,7 +51,7 @@ async function boot(
   handle = await createTestServer(extra);
   return handle;
 }
-const oauth = { authConfig: { secret: SECRET, providers: github } as AuthConfig };
+const oauth = { authConfig: { secret: SECRET, providers: github, allowedUsers: ["*@x"] } as AuthConfig };
 
 async function get(url: string, headers: Record<string, string> = {}, remoteAddress = REMOTE) {
   const res = await handle!.server.inject({ method: "GET", url, remoteAddress, headers });

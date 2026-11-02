@@ -51,7 +51,7 @@ import fastifyCookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { listGrants as listAccessGrants, setGrantsChangedListener, setSessionGrantsChangedListener } from "./access/access-grants.js";
 import { snapshotAccessGrantHealth } from "./access/access-health.js";
 import { AccessPlaneRegistry, isGrantPromptKilled } from "./access/access-plane.js";
@@ -3915,7 +3915,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   const server: DashboardServer = {
-    inject: ((opts: never) => fastify.inject(opts)) as FastifyInstance["inject"],
+    inject: fastify.inject.bind(fastify) as FastifyInstance["inject"],
     sessionManager,
     eventStore,
     browserGateway,
