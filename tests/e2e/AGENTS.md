@@ -38,6 +38,7 @@ One row per file.
 | `hermes-model-override.spec.ts` | → `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | → `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `known-server-stale-name.spec.ts` | → `known-server-stale-name.spec.ts.AGENTS.md` |
+| `pair-mode-request-access.spec.ts` | F7/F8 (variant harness `PI_E2E_TRUST_MODE=pair`, `PI_E2E_OAUTH=0`; skips elsewhere): unpaired browser shows `network-denied-request-access` (not Offline), health carries `networkAccess`; click → same-context `/pair?request`. See change: surface-network-denial-on-health. |
 | `peer-shared-bridge.spec.ts` | → `peer-shared-bridge.spec.ts.AGENTS.md` |
 | `large-selection.spec.ts` | → `large-selection.spec.ts.AGENTS.md` |
 | `large-session-resume-replay.spec.ts` | → `large-session-resume-replay.spec.ts.AGENTS.md` |

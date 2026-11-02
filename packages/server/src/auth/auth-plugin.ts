@@ -550,7 +550,7 @@ export async function registerAuthPlugin(
     // Skip health endpoint (public) — but still tag a valid session cookie, so the
     // health disclosure predicate (`canDiscloseAccessPosture`) sees a signed-in
     // off-box browser. Tagging only: health never refuses. See change: add-acme-dns01-certs.
-    if (request.url === "/api/health") {
+    if (request.url.split("?", 1)[0] === "/api/health") {
       tagSessionCookie(request);
       return;
     }

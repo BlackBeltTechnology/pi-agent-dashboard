@@ -127,3 +127,46 @@ describe("useNetworkDenied — local proof required", () => {
     expect(connecting).not.toHaveBeenCalled();
   });
 });
+
+// See change: surface-network-denial-on-health (test-plan #F1–#F4, #X7).
+describe("useNetworkDenied — 200 networkAccess verdict", () => {
+  const verdict = { error: "network_not_allowed", hint: "H" };
+  const run = async (body: unknown, status = 200) => {
+    const fetchImpl = vi.fn(() => json(status, body));
+    const r = renderHook(() => useNetworkDenied("offline", "", { fetchImpl: fetchImpl as never }));
+    await act(async () => {});
+    return r.result.current;
+  };
+
+  it("F1 a 200 verdict is a denial with the hint", async () => {
+    expect(await run({ ok: true, networkAccess: verdict })).toEqual({ hint: "H" });
+  });
+
+  it("F2 local-proof wins over the verdict", async () => {
+    expect((await run({ localProof: "required", networkAccess: verdict }))?.reason).toBe("local_proof_required");
+  });
+
+  it("F3 malformed verdicts", async () => {
+    expect(await run({ networkAccess: { error: "other" } })).toBeNull();
+    expect(await run({ networkAccess: { error: "network_not_allowed", hint: 42 } })).toEqual({});
+    expect(await run({ networkAccess: "x" })).toBeNull();
+  });
+
+  it("F4 the verdict clears once the server admits the caller", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(() => json(200, { ok: true, networkAccess: verdict }))
+      .mockImplementation(() => json(200, { ok: true }));
+    const { result } = renderHook(() => useNetworkDenied("offline", "", { fetchImpl: fetchImpl as never, intervalMs: 1000 }));
+    await act(async () => {});
+    expect(result.current).toEqual({ hint: "H" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(result.current).toBeNull();
+  });
+
+  it("X7 an expired presented bearer answers 401 → not a denial, no throw", async () => {
+    expect(await run({ error: "bearer_expired" }, 401)).toBeNull();
+  });
+});

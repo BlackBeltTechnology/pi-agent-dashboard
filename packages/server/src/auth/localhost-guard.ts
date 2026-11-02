@@ -5,6 +5,7 @@
 
 import { isIPv4, isIPv6 } from "node:net";
 import os from "node:os";
+import { GENERIC_NETWORK_DENIED_HINT, NETWORK_NOT_ALLOWED } from "@blackbelt-technology/pi-dashboard-shared/network-denial-signal.js";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { redactCapability } from "../live-server/capability-redact.js";
@@ -407,11 +408,11 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply, localTr
   // distinguish-offline-from-network-denied.
   reply.code(403).send({
     success: false,
-    error: "network_not_allowed",
+    error: NETWORK_NOT_ALLOWED,
     // Identical in every trust mode: this body goes to credential-less callers
     // and must not disclose the mode or point at a trusted list.
     reason: "Source IP is not loopback and the request is not authenticated.",
-    hint: "Pair this device (Request access) or sign in.",
+    hint: GENERIC_NETWORK_DENIED_HINT,
   });
 }
 
@@ -433,36 +434,50 @@ function hasNetworkPassCondition(
   request: FastifyRequest,
   opts: { readTrusted: () => string[]; localToken?: string; localTrust?: LocalTrustContext },
 ): boolean {
+  const { passed, trustedList } = evaluateNetworkPass(request, opts);
+  // Telemetry stays on the guard paths: refusals included, so the loopback-entry
+  // warning keeps firing.
+  if (trustedList) noteTrustedList(trustedList);
+  // Admitted by the network match alone — counted once per request (the
+  // per-route guard and the universal hook both evaluate it).
+  if (passed === "trusted") noteNetworkOnlyAdmission(request as unknown as NetworkOnlySource);
+  return passed !== null;
+}
+
+/** Which arm of the network pass predicate admitted a request (`null` = refused). */
+export type NetworkPassArm = "local" | "strict-exception" | "token" | "auth" | "trusted";
+
+/**
+ * PURE network-pass core: same ordered arms as the guards, but no telemetry and
+ * no request mutation. `trustedList` is set iff the core read the admission list.
+ * Shared by the guards (via `hasNetworkPassCondition`) and `GET /api/health`'s
+ * `networkAccess` verdict so the two cannot drift.
+ * See change: surface-network-denial-on-health (D2).
+ */
+export function evaluateNetworkPass(
+  request: FastifyRequest,
+  opts: { readTrusted: () => string[]; localToken?: string; localTrust?: LocalTrustContext },
+): { passed: NetworkPassArm | null; trustedList?: string[] } {
   const headers = request.headers as Record<string, unknown>;
-  // Genuine same-host origin (loopback AND no proxy-forwarding header). A tunnel
-  // presenting as 127.0.0.1 injects a forwarding header and is NOT exempted here
-  // (D10, narrowed). Under `requireLocalProof` it additionally needs proof.
-  if (isLocallyTrusted({ ip: request.ip, headers }, opts.localTrust)) return true;
+  // Genuine same-origin (loopback AND no proxy-forwarding header). Under `requireLocalProof` it additionally needs proof.
+  if (isLocallyTrusted({ ip: request.ip, headers }, opts.localTrust)) return { passed: "local" };
   // Strict exceptions for a bare local caller: READ observe-tier REST routes, and
-  // the `/v1/*` model proxy (local pi processes call it with no proof; admission is
-  // unchanged by design — a documented trade-off).
+  // the `/v1/*` model proxy (admission unchanged by design — a documented trade-off).
   if (
     opts.localTrust?.strict() &&
     isGenuinelyLocal(request.ip, headers) &&
     (isObserveApiRequest(request) || isModelProxyRequest(request))
   ) {
-    return true;
+    return { passed: "strict-exception" };
   }
   // Affirmative local-IPC token.
-  if (opts.localToken && hasLocalCredential(headers)) return true;
+  if (opts.localToken && hasLocalCredential(headers)) return { passed: "token" };
   // Credentials BEFORE the network match, so a request that holds one is never
-  // classified (or counted) as network-only. Admission outcomes are unchanged:
-  // both are "allow". See change: retire-trusted-networks-bypass (D3).
-  if ((request as any).isAuthenticated) return true;
-  const trusted = opts.readTrusted();
-  noteTrustedList(trusted);
-  if (isTrustedSource(request.ip, headers, trusted, opts.localTrust)) {
-    // Admitted by the network match alone — counted once per request (the
-    // per-route guard and the universal hook both evaluate it).
-    noteNetworkOnlyAdmission(request as unknown as NetworkOnlySource);
-    return true;
-  }
-  return false;
+  // classified as network-only. See change: retire-trusted-networks-bypass (D3).
+  if ((request as any).isAuthenticated) return { passed: "auth" };
+  const trustedList = opts.readTrusted();
+  if (isTrustedSource(request.ip, headers, trustedList, opts.localTrust)) return { passed: "trusted", trustedList };
+  return { passed: null, trustedList };
 }
 
 /**

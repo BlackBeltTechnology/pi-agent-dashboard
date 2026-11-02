@@ -7,3 +7,5 @@ OAuth `onRequest` gate skips exactly `POST` on `/__pi/csp-report/{baseline,stric
 ## harden-auth-credentials (B16r)
 
 `issueState(request, reply)` + `setSessionCookie(request, reply, token)` key `secure` on `isSecureOrigin(request, base is https)` (`secure-origin.ts`); passkey `issueSession` passes `reply.request`. `trustProxy` stays off. See change: harden-auth-credentials.
+
+- surface-network-denial-on-health: `/api/health` session tagging compares query-stripped path (`url.split("?",1)[0]`), exact equality, so `/api/health?x` tags a signed-in caller. See change: surface-network-denial-on-health.

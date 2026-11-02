@@ -122,3 +122,5 @@ Wires `CspReportStore` + `registerCspReportSink`; `corsOpts()` carries `allowZro
 ## harden-peer-address-identity
 
 mDNS browser gets `ownFingerprint: serverIdentity.fingerprint`; `registerKnownServersRoutes` gets `ownFingerprint`. See change: harden-peer-address-identity.
+
+- surface-network-denial-on-health: builds `readNetworkVerdict` (1 s TTL memo over `admissionList` → `evaluateNetworkPass`, refused iff `passed===null`) for `registerSystemRoutes`; `DashboardServer.inject` (tests only) exposes `fastify.inject`. See change: surface-network-denial-on-health.

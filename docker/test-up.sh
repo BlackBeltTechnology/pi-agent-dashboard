@@ -249,6 +249,8 @@ export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}
 # PI_DASHBOARD_CSP=enforce boots the server with the ENFORCING CSP (default: report-only). Both are passed through
 # to the container (compose.test.yml). Exported explicitly: compose substitutes from the SHELL environment.
 export PI_E2E_CANARY="${PI_E2E_CANARY:-}"
+# Variant faucet: `pair` boots the harness in trust mode pair (empty = unchanged). See change: surface-network-denial-on-health.
+export PI_E2E_TRUST_MODE="${PI_E2E_TRUST_MODE:-}"
 export PI_DASHBOARD_CSP="${PI_DASHBOARD_CSP:-}"
 export PI_DASHBOARD_TRUSTED_TYPES="${PI_DASHBOARD_TRUSTED_TYPES:-}"
 CANARY_STAGE_DIR="${HOST_CWD}/.pi-test-canary"

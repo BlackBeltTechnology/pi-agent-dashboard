@@ -116,6 +116,7 @@ import { ensureLocalToken } from "./auth/local-token.js";
 import {
   createLanInterfaceProvider,
   createNetworkGuard,
+  evaluateNetworkPass,
   createNetworkGuardHook,
   isLocallyTrusted,
   isPluginScopePeerLocal,
@@ -545,6 +546,8 @@ export interface DashboardServer {
   browserGateway: BrowserGateway;
   /** Resolved HTTP port after start() (useful for port:0 in tests). Returns null if not listening. */
   httpPort(): number | null;
+  /** @internal Tests only: `fastify.inject` on the wired app, so a test can present a non-loopback peer (`remoteAddress`). See change: surface-network-denial-on-health. */
+  inject: FastifyInstance["inject"];
   /** The optional TLS listener (off by default). See change: add-tailscale-cert-tls. */
   readonly tls: TlsListener;
   /** Resolved pi gateway port after start(). Returns null if not listening. */
@@ -2604,6 +2607,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { localToken, localTrust },
   );
 
+  // `/api/health` `networkAccess` verdict: the REST pass predicate evaluated purely
+  // (no telemetry / block events). The admission list goes through a 1 s TTL memo so
+  // attacker-paced health requests cost at most one config `statSync` per second.
+  // See change: surface-network-denial-on-health (D2).
+  let verdictList: { at: number; list: string[] } | undefined;
+  const memoAdmissionList = (): string[] => {
+    const now = Date.now();
+    if (!verdictList || now - verdictList.at >= 1000 || now < verdictList.at) {
+      verdictList = { at: now, list: admissionList() };
+    }
+    return verdictList.list;
+  };
+  const readNetworkVerdict = (request: FastifyRequest): boolean =>
+    evaluateNetworkPass(request, { readTrusted: memoAdmissionList, localToken, localTrust }).passed === null;
+
   // Session control REST API (wraps WebSocket-only operations)
   registerSessionApi(fastify, {
     sessionManager,
@@ -3020,7 +3038,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     live: () => piTrustMirror.live,
     readSnapshot: () => piTrustMirror.readSnapshot(),
   });
-  registerSystemRoutes(fastify, { onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
+  registerSystemRoutes(fastify, { readNetworkVerdict, onVaultConfigChanged: () => void vaultDelivery.pushNow(), tls: tlsListener, sessionManager, preferencesStore, metaPersistence, config, networkGuard, localTrust, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, toolResultStats, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readPiTrustLive: piTrustQuery.counters, readCspReports: () => cspReportStore.snapshot(), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount(), provisioning: () => provisioning.registry.stats() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -3806,6 +3824,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   const server: DashboardServer = {
+    inject: ((opts: never) => fastify.inject(opts)) as FastifyInstance["inject"],
     sessionManager,
     eventStore,
     browserGateway,

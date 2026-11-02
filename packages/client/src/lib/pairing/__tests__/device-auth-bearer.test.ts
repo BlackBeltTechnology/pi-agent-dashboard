@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { clearAccessToken, setAccessToken } from "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useNetworkDenied } from "../../../hooks/useNetworkDenied.js";
 import { setGlobalApiBase } from "../../api/api-context.js";
 import {
   clearDeviceBearer,
@@ -450,5 +452,33 @@ describe("harden-auth-credentials: per-origin bearer slots + rotation", () => {
       expect(warn).toHaveBeenCalledTimes(1);
       expect(assign).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("surface-network-denial-on-health F5: the health probe is judged as itself, origin-scoped", () => {
+  beforeEach(() => {
+    resetDeviceAuthRuntimeForTests();
+    clearAccessToken();
+    localStorage.clear();
+    setGlobalApiBase("");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    clearAccessToken();
+    localStorage.clear();
+  });
+
+  it("carries the probed origin's slot bearer, never the page-origin identity token", async () => {
+    const SLOT_B = "http://b.example:8000";
+    setAccessToken("ID", 300); // page-origin identity token
+    putSlot(SLOT_B, "SLOT");
+    const { spy } = installOver(() => json(200, { ok: true }));
+    const { result } = renderHook(() => useNetworkDenied("offline", SLOT_B));
+    await act(async () => {});
+    const probe = spy.mock.calls.find((c) => urlOf(c) === `${SLOT_B}/api/health`);
+    expect(probe).toBeDefined();
+    expect(authOf(probe as unknown[])).toBe("Bearer SLOT");
+    expect(spy.mock.calls.some((c) => authOf(c) === "Bearer ID")).toBe(false);
+    expect(result.current).toBeNull();
   });
 });

@@ -88,6 +88,7 @@ Files in this directory. One row per source file.
 | `mdns-discovery.ts` | mDNS `_pi-dashboard._tcp` advertise + discover. Identity-derived names `pi-dashboard-<id12>-<port>`, TXT… → see `mdns-discovery.ts.AGENTS.md` |
 | `models-json-reader.ts` | ONE shared pure reader for user-authored `~/.pi/agent/models.json`, consumed by BOTH registry paths… → see `models-json-reader.ts.AGENTS.md` |
 | `nav-intent.ts` | Navigation-intent wire types + `navIntentRequestFor(view)`. See change: harden-client-sinks. |
+| `network-denial-signal.ts` | `NETWORK_NOT_ALLOWED`, `GENERIC_NETWORK_DENIED_HINT`, `HealthNetworkAccessField`: generic 403 body constants + additive `/api/health` `networkAccess` field. Dependency-free (client value-imports). See change: surface-network-denial-on-health. |
 | `node-version.ts` | Single source of truth for Node-version predicates. `isAffectedNode(version)` flags nodejs/node#58515… → see `node-version.ts.AGENTS.md` |
 | `notify.ts` | `normalizeNotifyLevel(level)` — maps an unrecognized notify level to `"info"`. → see `notify.ts.AGENTS.md` |
 | `openspec-activity-detector.ts` | Detects OpenSpec activity from tool-execution events. `detectOpenSpecActivity(toolName, args, cwd)` — `cwd` REQUIRED, from server state — returns `{… → see `openspec-activity-detector.ts.AGENTS.md` |
