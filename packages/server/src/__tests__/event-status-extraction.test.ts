@@ -56,6 +56,28 @@ describe("extractSessionUpdates", () => {
   });
 });
 
+describe("extractSessionUpdates — live model state", () => {
+  const model = "halogen-qwen3.8-flash-next";
+  const provider = "m5-qwen";
+
+  it("does not replace the registered model or thinking level with a historical selection", () => {
+    const event = makeEvent("model_select", {
+      model: { provider: "prism-local", id: "bonsai2-27b-mtp" },
+      thinkingLevel: "low",
+    });
+    expect(extractSessionUpdates(event, false, true)).toBeNull();
+    expect(extractSessionUpdates(event)).toEqual({
+      model: "prism-local/bonsai2-27b-mtp", thinkingLevel: "low",
+    });
+  });
+
+  it.each(["message_start", "message_end"])("does not undo an explicit selection from %s metadata", (eventType) => {
+    const event = makeEvent(eventType, { message: { role: "assistant", provider, model } });
+    expect(extractSessionUpdates(event)).toBeNull();
+    expect(extractSessionUpdates(event, false, true)).toBeNull();
+  });
+});
+
 // ── Compaction signal (test-plan #E9) ──
 // `SessionStatus` has no compacting member, so the reload dispatcher's
 // busy-session refusal reads a dedicated boolean derived from the two

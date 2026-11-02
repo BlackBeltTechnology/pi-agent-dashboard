@@ -49,6 +49,7 @@ export const NODE_ENV_TESTS: readonly string[] = [
   "src/lib/__tests__/command-filter.test.ts",
   "src/lib/__tests__/context-gradient.test.ts",
   "src/lib/__tests__/cwd-visibility.test.ts",
+  "src/lib/__tests__/current-model-state.test.ts",
   "src/lib/__tests__/diff-tree.test.ts",
   "src/lib/__tests__/embedded-app-shell.test.ts",
   "src/lib/__tests__/event-reducer-agent-settled.test.ts",

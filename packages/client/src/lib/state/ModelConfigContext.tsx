@@ -4,8 +4,8 @@
  * dialogs (Explore / Propose / New Change) via a single React context provided
  * once at the app root.
  *
- * Sourced from App.tsx's existing `selectedState.model`,
- * `selectedState.thinkingLevel`, `modelsMap`, and `favoriteModels`; the setters
+ * Sourced from App.tsx's `currentModelState` (live session metadata, with
+ * transcript fallback), `modelsMap`, and `favoriteModels`; the setters
  * emit the existing `set_model` / `set_thinking_level` / `request_models`
  * browser messages. Chosen over prop-drilling seven values through
  * `SessionOpenSpecActions` at three mount sites (design Decision 2). Because
