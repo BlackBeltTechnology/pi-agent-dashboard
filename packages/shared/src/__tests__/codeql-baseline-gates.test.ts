@@ -108,7 +108,7 @@ function evidencePath(name: string): string {
   const active = path.join(repoRoot, "openspec", "changes", CHANGE_ID, "evidence", name);
   if (fs.existsSync(active)) return active;
   const archive = path.join(repoRoot, "openspec", "changes", "archive");
-  const dir = fs.readdirSync(archive).find((d) => d.endsWith(`-${CHANGE_ID}`));
+  const dir = fs.existsSync(archive) ? fs.readdirSync(archive).find((d) => d.endsWith(`-${CHANGE_ID}`)) : undefined;
   if (!dir) throw new Error(`evidence ${name} not found for ${CHANGE_ID}`);
   return path.join(archive, dir, "evidence", name);
 }

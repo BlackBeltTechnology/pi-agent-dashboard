@@ -256,6 +256,7 @@ describe("goal REST routes", () => {
       const res = await fastify.inject({ method: "DELETE", url: `/api/folders/goals/${g.id}?${q()}` });
       expect(res.statusCode).toBe(200);
       expect(await store.list(cwd)).toEqual([]);
+      expect(warnings).toHaveLength(1);
       const out = format(...(warnings[0] as [string, ...unknown[]]));
       expect(out).toContain(g.id);
       expect(out).toContain("boom");

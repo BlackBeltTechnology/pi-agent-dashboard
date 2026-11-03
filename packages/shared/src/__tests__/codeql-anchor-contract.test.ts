@@ -38,6 +38,8 @@ function checkAnchor(source: string, root: string, anchorRel = ANCHOR_REL): stri
   const errs: string[] = [];
   const src = stripComments(source);
   const anchorDir = path.dirname(anchorRel);
+  // Imports must be single-line: a multi-line import would not match and would
+  // then fail the "top-level code outside an exported function" check below.
   const importRe = /^import\s+(?:\{([^}]*)\}|(\w+))\s+from\s+["']([^"']+)["'];?\s*$/gm;
   const imported = new Map<string, string[]>(); // module → names
   for (const m of src.matchAll(importRe)) {
@@ -121,6 +123,9 @@ describe("codeql anchor contract", () => {
     expect(checkAnchor(fixture([...allImports, extra]), repoRoot).join("\n")).toContain(
       "packages/team-plugin/src/server/store.ts",
     );
+    // A multi-line extra import is not parsed as an import, and fails closed.
+    const multi = 'import {\n  x,\n} from "../../packages/team-plugin/src/server/store.ts";';
+    expect(checkAnchor(fixture([...allImports, multi]), repoRoot)).not.toEqual([]);
   });
 
   it("#E22 missing module or renamed export fails naming module and registrar", () => {
