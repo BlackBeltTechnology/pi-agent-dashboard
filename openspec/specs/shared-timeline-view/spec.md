@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change extract-minimal-chat-view. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Shared timeline renderer lives in client-utils
 
 The dashboard SHALL ship a single `MinimalChatView` React component in the workspace package `@blackbelt-technology/pi-dashboard-client-utils` under the subpath `./minimal-chat`. The package SHALL declare a corresponding `exports` entry so consumer plugins can import the component, its types, and its status union via the canonical subpath without traversing relative paths into a sibling package.
@@ -26,7 +28,7 @@ The component SHALL render the subagent-style timeline shape that both `packages
 - **WHEN** `MinimalChatView` is rendered with `mode="popout"`
 - **THEN** the root container SHALL be `flex h-full overflow-hidden`
 - **WHEN** rendered with `mode="inline"`
-- **THEN** the body container SHALL cap height with `max-h-[60vh] overflow-hidden`
+- **THEN** the root container SHALL size to its content, capped with `max-h-[60vh] overflow-hidden`, and the body SHALL scroll at the cap
 - **WHEN** rendered with `mode="row"`
 - **THEN** the component SHALL render only a single-line summary (status icon + title + optional activity) with no entry body
 
@@ -185,4 +187,3 @@ compile-time error in the shim (via `never` default).
 
 - **WHEN** `FlowArchitectDetail` receives `state.phase === "complete"`
 - **THEN** `MinimalChatView` SHALL be called with `status: "complete"`
-

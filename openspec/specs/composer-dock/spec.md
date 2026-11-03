@@ -521,7 +521,7 @@ Where another capability names the composer strip's OpenSpec group, its Git grou
 
 #### Scenario: Canvas chip tray anchor
 - **WHEN** the canvas chip tray anchors above the live composer stack
-- **THEN** it SHALL track the top edge of the dock, or of the composer card when no dock renders
+- **THEN** it SHALL render in the chip slot directly above the dock, or directly above the composer card when no dock renders
 
 ### Requirement: Folder home composer renders the dock
 
