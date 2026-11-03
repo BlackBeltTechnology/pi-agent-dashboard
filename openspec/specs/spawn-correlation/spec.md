@@ -38,7 +38,7 @@ The `spawnPiSession` function SHALL inject the minted `spawnToken` into the spaw
 
 #### Scenario: Existing env vars preserved
 - **WHEN** the dashboard server has its own environment containing `PI_DASHBOARD_URL`, `PATH`, etc.
-- **THEN** the spawned process SHALL receive those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`
+- **THEN** the spawned process SHALL receive those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`, except `PWD`, which names the spawn cwd (headless-spawn capability)
 
 #### Scenario: Token is not echoed to argv
 - **WHEN** the server inspects the spawned process command line

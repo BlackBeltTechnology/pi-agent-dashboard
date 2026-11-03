@@ -36,9 +36,9 @@
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 Issue #1079 acceptance: start the dashboard server from dir A, spawn a headless session in project B with context-mode installed, run `ctx_execute` printing `process.cwd()` + `process.env.PWD` and a Bash `pwd`; all print B's real path and context-mode memory is filed under B (test-plan: manual-only, #M1)
-- [ ] 5.2 tmux pane check: with server env `PWD=/launch/dir`, spawn a `tmux`-strategy session into dir B and run `node -e 'console.log(process.env.PWD)'` in the pane; prints B (test-plan: manual-only, #M2)
-- [ ] 5.3 Windows `wt` check: dashboard started from Git Bash in dir A, spawn a `wt`-strategy session into `C:\work\B`, run `node -e "console.log(process.env.PWD)"` in the tab; record whether wt.exe propagated `PWD` (test-plan: manual-only, #M3)
+- [x] 5.1 Issue #1079 acceptance: start the dashboard server from dir A, spawn a headless session in project B with context-mode installed, run `ctx_execute` printing `process.cwd()` + `process.env.PWD` and a Bash `pwd`; all print B's real path and context-mode memory is filed under B (test-plan: manual-only, #M1)
+- [x] 5.2 tmux pane check: with server env `PWD=/launch/dir`, spawn a `tmux`-strategy session into dir B and run `node -e 'console.log(process.env.PWD)'` in the pane; prints B (test-plan: manual-only, #M2)
+- [x] 5.3 Windows `wt` check: dashboard started from Git Bash in dir A, spawn a `wt`-strategy session into `C:\work\B`, run `node -e "console.log(process.env.PWD)"` in the tab; record whether wt.exe propagated `PWD` (test-plan: manual-only, #M3)
 
 ## 6. Docs and review
 
