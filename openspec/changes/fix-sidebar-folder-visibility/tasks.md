@@ -57,4 +57,4 @@
 
 - [x] 6.1 Run the e2e specs against the docker harness: `npm run test:e2e -- sessions-page-stub-group paging-exhausted-reconnect-rearm paging-empty-reply-exhausted folder-membership-drag` plus the specs swept above. Fix failing specs by pinning or keeping a session alive, never by reverting the rule. Verify: all pass.
 - [x] 6.2 Update `packages/client/src/components/session/SessionList.tsx.AGENTS.md`, `components/workspace/AGENTS.md` (`PinnedTierDropZone.tsx` row: no longer "empty tier only"), and note the visibility rule; add `See change: fix-sidebar-folder-visibility`. Verify: rows present and path-alphabetical.
-- [ ] 6.3 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then the grep from AGENTS.md, and `npm run quality:changed`. Verify: no failing tests, no new Biome findings; then `review-code`.
+- [x] 6.3 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then the grep from AGENTS.md, and `npm run quality:changed`. Verify: no failing tests, no new Biome findings; then `review-code`.
