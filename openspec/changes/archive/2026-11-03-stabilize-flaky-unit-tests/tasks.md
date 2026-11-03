@@ -43,4 +43,4 @@
 ## 4. Ship
 
 - [x] 4.1 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `review-code` on the diff. Verify: no failures; only test/fixture/AGENTS.md files changed.
-  - Note: full suite: 8 failures in 7 files, none in this diff; the 4 persistent ones (hermes-config upstream version, auth + localhost-guard SPA shell, spawn-correlation heap) fail identically on pristine `origin/develop`; the rest were load flakes, green on isolated rerun.
+  - Note: criterion applied as "no NEW failures relative to pristine `origin/develop`" (the local suite is not green on develop itself). Full suite: 8 failures in 7 files, none in this diff; baseline exclusions: the 4 persistent ones (hermes-config upstream version, auth + localhost-guard SPA shell, spawn-correlation heap) fail identically on pristine `origin/develop`; the rest were load flakes, green on isolated rerun.

@@ -10,7 +10,7 @@
  * `afterEach` reaps it and asserts it is gone (#1071).
  * See change: stabilize-flaky-unit-tests (test-plan E4, X1, X2, X5, X6).
  */
-import { execFileSync, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -54,10 +54,23 @@ async function reapStubChild(file: string) {
   await assertGone(pid);
 }
 
+/** Kill a still-running stub and wait for its exit (no-op once it has exited). */
+async function settleStub(c: ChildProcess) {
+  if (c.exitCode !== null || c.signalCode !== null) return;
+  const exited = new Promise((r) => c.once("exit", r));
+  c.kill("SIGKILL");
+  await exited;
+}
+
 const fakes: FakeObs[] = [];
+const stubs: ChildProcess[] = [];
 const tmpDirs: string[] = [];
 afterEach(async () => {
   for (const f of fakes.splice(0)) await f.close();
+  // Settle every stub BEFORE reading/removing its pid dir: a body that failed
+  // early (e.g. the pid wait timed out) never disposed it, and a stub still
+  // starting could spawn its grandchild after the dir is gone and leak it.
+  for (const c of stubs.splice(0)) await settleStub(c);
   for (const dir of tmpDirs.splice(0)) {
     try {
       await reapStubChild(path.join(dir, "pid"));
@@ -83,6 +96,7 @@ function manager(env: Record<string, string> = {}, grace = 5000) {
     spawn: (argv) => {
       const c = spawn(argv[0], argv.slice(1), { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env } });
       spawned.push(c);
+      stubs.push(c);
       return c;
     },
     disposeGraceMs: grace,
