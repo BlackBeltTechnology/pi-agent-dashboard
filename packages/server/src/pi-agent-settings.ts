@@ -515,7 +515,7 @@ export async function writePiRetryPolicy(input: unknown, deps: FsDeps = {}): Pro
 
   const r = await withPiSettingsLock<null, ParseFail>((state) => {
     if (state.parseError) return { fail: { error: "parse", parseError: state.parseError } };
-    // Preserve unknown keys at BOTH levels; overlay only the six known fields.
+    // Preserve unknown keys at BOTH levels; overlay only the seven known fields.
     const existingRetry = asObject(state.settings.retry);
     const existingProvider = asObject(existingRetry.provider);
     const nextProvider: Record<string, unknown> = {

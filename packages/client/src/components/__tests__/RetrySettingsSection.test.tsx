@@ -1,5 +1,5 @@
 /**
- * RetrySettingsSection — GLOBAL editor over pi's six native retry fields.
+ * RetrySettingsSection — GLOBAL editor over pi's seven native retry fields.
  * Tests inject load/save so no fetch is mocked.
  *
  * The section has NO private Save button: it commits through the panel's
@@ -56,7 +56,7 @@ async function mount(over: Partial<PiRetryPolicy> = {}, save = okSave()) {
   return { ...r, save, src, sources };
 }
 
-describe("RetrySettingsSection — all six native fields", () => {
+describe("RetrySettingsSection — all seven native fields", () => {
   it("shows pi's defaults when unset", async () => {
     const { getByTestId } = await mount();
     expect((getByTestId("retry-enabled-toggle") as HTMLInputElement).checked).toBe(true);
@@ -66,12 +66,13 @@ describe("RetrySettingsSection — all six native fields", () => {
     expect((getByTestId("retry-provider-maxdelay-input") as HTMLInputElement).value).toBe("60000");
   });
 
-  it("offers a control for each of the six fields", async () => {
+  it("offers a control for each of the seven fields", async () => {
     const { getByTestId } = await mount();
     for (const id of [
       "retry-enabled-toggle",
       "retry-maxretries-input",
       "retry-basedelay-input",
+      "retry-maxdelay-input",
       "retry-provider-timeout-input",
       "retry-provider-maxretries-input",
       "retry-provider-maxdelay-input",
@@ -92,7 +93,7 @@ describe("RetrySettingsSection — all six native fields", () => {
     expect((getByTestId("retry-provider-maxdelay-input") as HTMLInputElement).value).toBe("0");
   });
 
-  it("saves all six fields, omitting a blank timeout", async () => {
+  it("saves all seven fields, omitting a blank timeout", async () => {
     const save = okSave(3);
     const { getByTestId, src } = await mount({}, save);
     fireEvent.change(getByTestId("retry-maxretries-input"), { target: { value: "24" } });

@@ -61,7 +61,7 @@ describe("pi-agent-settings", () => {
       expect(readPiRetryPolicy(deps)).toEqual(PI_RETRY_DEFAULTS);
     });
 
-    it("reads all six fields", () => {
+    it("reads all seven fields", () => {
       seed({
         retry: { enabled: false, maxRetries: 24, baseDelayMs: 5000, maxAgentDelayMs: 9000, provider: { timeoutMs: 3600000, maxRetries: 5, maxRetryDelayMs: 0 } },
       });
@@ -115,7 +115,7 @@ describe("pi-agent-settings", () => {
       expect(json().retry.provider.futureProviderKnob).toBe(42);
     });
 
-    it("writes all six fields", async () => {
+    it("writes all seven fields", async () => {
       await writePiRetryPolicy(
         { enabled: false, maxRetries: 10, baseDelayMs: 4000, maxAgentDelayMs: 7000, provider: { timeoutMs: 1000, maxRetries: 3, maxRetryDelayMs: 0 } },
         deps,
