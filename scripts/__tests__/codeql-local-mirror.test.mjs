@@ -5,7 +5,9 @@
  *
  * See change: codeql-model-pack-and-mirror.
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { baselineOf, entry, ghAlert, git, gitOut, makeRepo, run, sarifOf, stateDirOf, write, writeBaselineFile } from "./fixtures/codeql-harness.mjs";
@@ -224,5 +226,119 @@ describe("--mirror-dismissal — repository (#M-remote)", () => {
     refused(repo, r);
     expect(r.stderr).toMatch(/not a plain github\.com repository URL/);
     expect(existsSync(join(repo.dir, BASELINE))).toBe(true);
+  });
+});
+
+// ── One-off GitHub comment sync (test-plan #X10, #X11) ─────────────────────────
+// evidence/sync-dismissal-comments.mjs against a PATCH-capable fake `gh`. The
+// change folder moves to the archive on ship; the locator follows it.
+// See change: fix-codeql-baseline-coverage.
+const SYNC_CHANGE = "fix-codeql-baseline-coverage";
+function syncScript() {
+  const root = join(import.meta.dirname, "..", "..", "openspec", "changes");
+  const active = join(root, SYNC_CHANGE, "evidence", "sync-dismissal-comments.mjs");
+  if (existsSync(active)) return active;
+  const d = readdirSync(join(root, "archive")).find((x) => x.endsWith(`-${SYNC_CHANGE}`));
+  return join(root, "archive", d, "evidence", "sync-dismissal-comments.mjs");
+}
+const FAKE_SYNC_GH = `
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+const st = JSON.parse(readFileSync(process.env.FAKE_SYNC_STATE, "utf8"));
+const argv = process.argv.slice(2);
+appendFileSync(process.env.FAKE_SYNC_LOG, JSON.stringify(argv) + "\\n");
+const n = /alerts\\/(\\d+)$/.exec(argv.find((a) => a.includes("/alerts/")) ?? "")?.[1];
+const a = st.alerts[n];
+const field = (k) => argv.find((x) => x.startsWith(k + "="))?.slice(k.length + 1);
+if (argv.includes("PATCH")) {
+  // Real GitHub: re-dismissing a dismissed alert is HTTP 400 (canary #57).
+  if (field("state") === "dismissed" && a.state === "dismissed") { process.stderr.write("Alert is already dismissed. (HTTP 400)"); process.exit(1); }
+  if (field("state") === "open") Object.assign(a, { state: "open", dismissed_reason: null, dismissed_comment: null });
+  else {
+    if (st.failPatch?.includes(Number(n))) { process.stderr.write("HTTP 502"); process.exit(1); }
+    Object.assign(a, { state: "dismissed", dismissed_reason: field("dismissed_reason"), dismissed_comment: field("dismissed_comment") });
+  }
+  writeFileSync(process.env.FAKE_SYNC_STATE, JSON.stringify(st));
+}
+process.stdout.write(JSON.stringify(a));
+`;
+function syncRun({ table, alerts, failPatch = [], args = [] }) {
+  const dir = mkdtempSync(join(tmpdir(), "sync-"));
+  const state = join(dir, "state.json");
+  const log = join(dir, "calls.jsonl");
+  const fake = join(dir, "gh.mjs");
+  writeFileSync(fake, FAKE_SYNC_GH);
+  const ghSh = join(dir, "gh");
+  writeFileSync(ghSh, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`, { mode: 0o755 });
+  writeFileSync(state, JSON.stringify({ alerts, failPatch }));
+  writeFileSync(join(dir, "table.json"), JSON.stringify(table));
+  const go = () => {
+    rmSync(log, { force: true });
+    const r = spawnSync(process.execPath, [syncScript(), "--table", join(dir, "table.json"), "--log", join(dir, "log.jsonl"), ...args], {
+      encoding: "utf8",
+      env: { ...process.env, PI_SYNC_GH_BIN: ghSh, FAKE_SYNC_STATE: state, FAKE_SYNC_LOG: log },
+    });
+    const calls = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+    return { ...r, calls, patches: calls.filter((c) => c.includes("PATCH")), state: () => JSON.parse(readFileSync(state, "utf8")) };
+  };
+  return { go, setFail: (f) => writeFileSync(state, JSON.stringify({ ...JSON.parse(readFileSync(state, "utf8")), failPatch: f })) };
+}
+const row = (text = "operator-authz: gate: x y:1; z") => ({ entryKey: "k", dismissedReason: "won't fix", reasonText: text });
+const dismissed = (n, o = {}) => ({ number: n, state: "dismissed", dismissed_reason: "won't fix", dismissed_comment: "old", ...o });
+
+describe("sync-dismissal-comments.mjs (#X10, #X11)", () => {
+  it("#X10 pre-flight aborts before any PATCH on an open, fixed or re-reasoned alert", () => {
+    for (const bad of [{ state: "open", dismissed_reason: null }, { state: "fixed" }, { dismissed_reason: "false positive" }]) {
+      const s = syncRun({ table: { 1: row(), 2: row() }, alerts: { 1: dismissed(1), 2: dismissed(2, bad) } }).go();
+      expect(s.status, JSON.stringify(bad)).not.toBe(0);
+      expect(s.patches).toEqual([]);
+    }
+  });
+
+  it("#X10 a mid-run 5xx stops non-zero; a re-run re-dismisses the alert it left open and resumes", () => {
+    const h = syncRun({ table: { 1: row(), 2: row(), 3: row() }, alerts: { 1: dismissed(1), 2: dismissed(2), 3: dismissed(3) }, failPatch: [2] });
+    const first = h.go();
+    expect(first.status).not.toBe(0);
+    expect(first.stderr).toMatch(/#2 failed after 1 patched \(alert is OPEN\)/);
+    expect(first.state().alerts[2].state).toBe("open");
+    expect(first.state().alerts[3].dismissed_comment).toBe("old"); // never touched
+    h.setFail([]);
+    const second = h.go();
+    expect(second.status, second.stderr).toBe(0);
+    const target = (c) => c.find((a) => a.includes("/alerts/")).replace(/.*\//, "");
+    // #1 already done (no call), #2 re-dismissed only, #3 reopened + re-dismissed.
+    expect(second.patches.map((c) => [target(c), c.find((a) => a.startsWith("state="))])).toEqual([
+      ["2", "state=dismissed"],
+      ["3", "state=open"],
+      ["3", "state=dismissed"],
+    ]);
+    const st = second.state();
+    for (const n of [1, 2, 3]) {
+      expect(st.alerts[n].state).toBe("dismissed");
+      expect(st.alerts[n].dismissed_reason).toBe("won't fix");
+      expect(st.alerts[n].dismissed_comment).toBe(`${row().reasonText} — See change: ${SYNC_CHANGE}`);
+    }
+  });
+
+  it("#X10 an open alert the script did not reopen still aborts the pre-flight", () => {
+    const s = syncRun({ table: { 1: row() }, alerts: { 1: dismissed(1, { state: "open", dismissed_reason: null }) } }).go();
+    expect(s.status).not.toBe(0);
+    expect(s.patches).toEqual([]);
+  });
+
+  it("#X11 236 chars → a 279-char comment is sent; 237 → refused before any gh call", () => {
+    const ok = syncRun({ table: { 1: row("a".repeat(236)) }, alerts: { 1: dismissed(1) } }).go();
+    expect(ok.status, ok.stderr).toBe(0);
+    const c = ok.patches.flat().find((a) => a.startsWith("dismissed_comment="));
+    expect(c.length - "dismissed_comment=".length).toBe(279);
+    const bad = syncRun({ table: { 1: row("a".repeat(236)), 2: row("a".repeat(237)) }, alerts: { 1: dismissed(1), 2: dismissed(2) } }).go();
+    expect(bad.status).not.toBe(0);
+    expect(bad.calls).toEqual([]);
+  });
+
+  it("--dry-run reads but never patches", () => {
+    const s = syncRun({ table: { 1: row() }, alerts: { 1: dismissed(1) }, args: ["--dry-run"] }).go();
+    expect(s.status, s.stderr).toBe(0);
+    expect(s.patches).toEqual([]);
+    expect(s.stdout).toContain("new: operator-authz: gate:");
   });
 });

@@ -276,11 +276,14 @@ npm run codeql -- --json        # exit 0 pass/skipped · 1 new alerts · 2 error
    one sub-question each): **fix**, **accept with a typed reason**
    (`accepted-risk: …`, `false-positive: …`), and — only for
    `js/path-injection`, `js/command-line-injection` and
-   `js/shell-command-constructed-from-input` — the **`operator-authz`** preset:
-   "Operator API behind the universal network guard (createNetworkGuardHook); an
-   admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR
-   callers are admitted without login." The preset is never offered for any other
-   rule (the argument does not hold for them). Accept with
+   `js/shell-command-constructed-from-input` — the **`operator-authz`** preset, a
+   template the answer fills in with the gate that bounds this sink:
+   `operator-authz: gate: <symbol> <repo-path>:<line>; <basis>` (≤ 236 chars,
+   gate first). Only `git-operations.ts`, `process-manager.ts` and
+   `spawn-preflight.ts` may use `operator-authz: control-tier: <basis>` instead.
+   No gate bounds the sink → it is a finding, not an `operator-authz` accept.
+   `codeql-baseline-gates.test.ts` enforces the form. The preset is never offered
+   for any other rule (the argument does not hold for them). Accept with
    `node scripts/codeql-local.mjs --accept <ruleId> <file> <lineHash> --reason "<reason>"`
    then `git add codeql-baseline.json`.
    **Accepts before fixes** within one batch of answers: a fix changes the
