@@ -19,11 +19,15 @@
  * narration.
  *
  * Default open state: `expanded = override ?? ((toolGroupDefaultCollapsed ||
- * isMobile) ? false : isRunning)`. The pref only changes the body's default
- * open state; the live header + animation key off `isRunning`, not `expanded`.
- * On mobile viewports a running group never auto-expands (caps DOM growth in
- * the non-virtualized streaming tail); a tap still opens it.
- * See change: harden-ios-safari-memory-and-ws-diagnostics.
+ * isMobile) ? false : isRunning && visibleMembers.length <= MAX)` (MAX =
+ * `RUNNING_AUTO_OPEN_MAX_MEMBERS`). The pref only
+ * changes the body's default open state; the live header + animation key off
+ * `isRunning`, not `expanded`. On mobile viewports a running group never
+ * auto-expands (caps DOM growth in the non-virtualized streaming tail); a tap
+ * still opens it. See change: harden-ios-safari-memory-and-ws-diagnostics.
+ * A running group above `RUNNING_AUTO_OPEN_MAX_MEMBERS` visible members (the
+ * running one included) stays collapsed too, so a new tool call never mounts a
+ * large burst in full (#1100). See change: fix-chat-transcript-layout (D1).
  *
  * See change: enhance-tool-call-grouping (was: group-tool-call-bursts).
  */
@@ -56,6 +60,9 @@ interface Props {
   onAbort?: () => void;
   onForceKill?: () => void;
 }
+
+/** Largest running burst (visible members, running one included) that auto-expands. */
+const RUNNING_AUTO_OPEN_MAX_MEMBERS = 8;
 
 function isGroup(item: ChatItem): item is ToolCallGroup {
   return (item as ToolCallGroup).type === "group";
@@ -185,8 +192,11 @@ export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Pro
   const isRunning = visibleMembers.some((m) => m.toolStatus === "running");
   // Pref only changes the body's default open state; the live header keys off
   // isRunning, not expanded. Manual override always wins. Mobile never
-  // auto-expands a running group.
-  const autoOpen = prefs.toolGroupDefaultCollapsed || isMobile ? false : isRunning;
+  // auto-expands a running group, and neither does a large one (#1100).
+  const autoOpen =
+    prefs.toolGroupDefaultCollapsed || isMobile
+      ? false
+      : isRunning && visibleMembers.length <= RUNNING_AUTO_OPEN_MAX_MEMBERS;
   const expanded = override ?? autoOpen;
   // One stop state per burst, shared by header + running rows. Called before
   // the vanish early-return (rules of hooks). See change: fix-chat-burst-tool-stop.

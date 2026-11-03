@@ -341,3 +341,69 @@ test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", 
     await expect(scrollToBottomBtn(page)).toBeVisible();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Collapsed burst estimate (#1083, change: fix-chat-transcript-layout D4).
+// The pre-measure estimate of every burst row is its COLLAPSED header height
+// (`COLLAPSED_BURST_ESTIMATE` in chat-virtual-rows.ts). A web-search result row
+// is absorbed into the adjacent burst (custom-entry-web-search.spec.ts), so the
+// burst row is the one that carries the over-reserve. Tasks 3.1, 3.5.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Keep in sync with COLLAPSED_BURST_ESTIMATE (packages/client/src/lib/chat/chat-virtual-rows.ts).
+const COLLAPSED_BURST_ESTIMATE = 16;
+
+async function settledBurstSession(page: Page, viewport: { width: number; height: number }) {
+  const card = await spawnFreshGitSession(page);
+  await card.click();
+  await page.setViewportSize(viewport);
+  await sendPrompt(page, "[[faux:burst-heterogeneous]] go");
+  await expect(page.getByText("burst complete").first()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId("tool-burst-body")).toHaveCount(0);
+}
+
+/** The burst's virtual row wrapper height + the virtualizer spacer (total size). */
+async function burstRowMetrics(page: Page) {
+  return page.evaluate(() => {
+    const group = document.querySelector('[data-testid="tool-burst-group"]') as HTMLElement;
+    const row = group.closest("[data-index]") as HTMLElement | null;
+    const spacer = row?.parentElement as HTMLElement | null;
+    return {
+      row: (row ?? group).getBoundingClientRect().height,
+      total: spacer ? spacer.getBoundingClientRect().height : Number.NaN,
+      virtual: row != null,
+    };
+  });
+}
+
+test.describe("collapsed burst estimate (#1083)", () => {
+  for (const vp of [
+    { name: "desktop", width: 1280, height: 900 },
+    { name: "mobile", width: 375, height: 812 },
+  ]) {
+    test(`3.1 the estimate matches the measured collapsed burst row (${vp.name})`, async ({ page }) => {
+      await settledBurstSession(page, { width: vp.width, height: vp.height });
+      const { row } = await burstRowMetrics(page);
+      console.log(`MEASURE collapsed burst row (${vp.name}): ${row}px`);
+      // Desktop is the calibration target (± 8 px); mobile headers are 44 px touch targets.
+      if (vp.name === "desktop") expect(Math.abs(row - COLLAPSED_BURST_ESTIMATE)).toBeLessThanOrEqual(8);
+      else expect(row).toBeGreaterThan(0);
+    });
+  }
+
+  test("#F6 expand then collapse returns the row and the total size to the collapsed value", async ({ page }) => {
+    await settledBurstSession(page, { width: 1280, height: 900 });
+    const before = await burstRowMetrics(page);
+
+    await page.getByTestId("tool-burst-header").click();
+    await expect(page.getByTestId("tool-burst-body")).toBeVisible();
+    await expect.poll(async () => (await burstRowMetrics(page)).row).toBeGreaterThan(before.row + 20);
+
+    await page.getByTestId("tool-burst-header").click();
+    await expect(page.getByTestId("tool-burst-body")).toHaveCount(0);
+    await expect.poll(async () => Math.abs((await burstRowMetrics(page)).row - before.row)).toBeLessThanOrEqual(1);
+    if (before.virtual) {
+      await expect.poll(async () => Math.abs((await burstRowMetrics(page)).total - before.total)).toBeLessThanOrEqual(1);
+    }
+  });
+});
