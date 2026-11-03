@@ -22,7 +22,7 @@ export function mapPluginSpawnOptions(opts: PluginSpawnOptions, ctx: ResolveSpaw
   const level = (opts as { thinkingLevel?: unknown }).thinkingLevel;
   const hasLevel = level !== undefined && level !== null && level !== "";
   if (hasLevel && !(typeof level === "string" && (THINKING_LEVELS as readonly string[]).includes(level))) {
-    console.warn("[plugin-spawn] ignoring invalid thinkingLevel");
+    console.warn("[plugin-hook] ignoring invalid thinkingLevel");
     warnings.push("invalid thinkingLevel ignored");
   }
 
