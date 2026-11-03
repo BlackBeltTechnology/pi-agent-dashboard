@@ -53,7 +53,7 @@ The `platform/binary-lookup.ts` module SHALL expose binary resolution that handl
 ### Requirement: Process primitive (kill, find-port, is-alive)
 The `platform/process.ts` module SHALL expose:
 - `findPortHolders(port, opts?)` — `netstat -ano` on Windows, `lsof -t -i :<port> -sTCP:LISTEN` on Unix; returns PIDs (excluding self) or `[]` on failure
-- `killProcess(pid, opts?)` — `taskkill /F /T /PID` on Windows (tree kill), `SIGTERM` → `SIGKILL` on Unix
+- `killProcess(pid, opts?)` — `taskkill /F /T /PID` on Windows (tree kill); on Unix `SIGTERM` → `SIGKILL` to the process group (`-pid`) when `pid` leads its own group that is not the caller's, else to `pid` alone
 - `isProcessAlive(pid)` — cross-platform via `process.kill(pid, 0)` (semantics identical on all OSes)
 - `killPidWithGroup(pid, signal, opts?)` — Unix signals the process group (`-pid`), Windows targets the pid directly
 
