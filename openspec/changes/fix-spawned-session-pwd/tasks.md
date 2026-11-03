@@ -43,4 +43,4 @@
 ## 6. Docs and review
 
 - [x] 6.1 Update `process-manager.ts.AGENTS.md` (`cwd` option / PWD contract), `worktree-init.ts.AGENTS.md` (`runAgent` PWD contract) and the `spawn-env-contributors.ts` row in `packages/server/src/spawn-process/AGENTS.md` (denylist gains `PWD`), plus the `mock-pi.cjs` env-dump mode in its fixtures `AGENTS.md` row if one exists, each `See change: fix-spawned-session-pwd`.
-- [ ] 6.2 Run the `review-code` skill on the diff; run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the verdict; `npm run quality:changed`. Verify: no findings left, tests green.
+- [x] 6.2 Run the `review-code` skill on the diff; run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the verdict; `npm run quality:changed`. Verify: no findings left, tests green.

@@ -1,8 +1,8 @@
-import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildHeadlessArgs,

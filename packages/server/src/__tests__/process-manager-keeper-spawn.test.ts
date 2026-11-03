@@ -17,6 +17,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   KeeperManager,
@@ -29,8 +31,6 @@ import {
   spawnPiSession,
   spawnWslTmux,
 } from "../spawn-process/process-manager.js";
-import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 
 // E12 (fix-spawned-session-pwd) needs the tmux / wsl-tmux / wt env sinks
 // captured. Partial mocks: only the launching entry points are stubbed, every
