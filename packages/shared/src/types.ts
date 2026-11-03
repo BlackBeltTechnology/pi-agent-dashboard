@@ -485,8 +485,9 @@ export interface DashboardSession {
   pidRecordedAt?: number;
   /**
    * Server-only: the pid namespace the bridge reported with `pid`, stored
-   * atomically with it (a register without `pid` clears both). Persisted with
-   * `pid`; stripped from every browser and peer payload. `null` = the bridge
+   * atomically with it in memory (a register without `pid` clears both).
+   * Persisted nowhere, like `pid` (design S5, decision A); a non-enumerable
+   * property, so no browser, peer or meta payload carries it. `null` = the bridge
    * sent a malformed report (resolves `unknown`); absent = legacy bridge.
    * See change: scope-pids-to-namespace.
    */
