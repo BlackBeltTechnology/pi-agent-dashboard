@@ -17,6 +17,25 @@ export const SEED_SESSIONS_COUNT = 125;
 
 const DAY_MS = 86_400_000;
 
+/**
+ * Date prefix of an existing `<prefix>_<sid>.jsonl|.meta.json` record, or
+ * `undefined`. A half-written pair is completed under the SAME prefix: the
+ * scanner derives the sidecar path from the JSONL basename.
+ */
+function existingPrefix(dir, sid) {
+  for (const f of fs.readdirSync(dir)) {
+    for (const suffix of [".jsonl", ".meta.json"]) {
+      if (f.endsWith(`_${sid}${suffix}`)) return f.slice(0, -`_${sid}${suffix}`.length);
+    }
+  }
+  return undefined;
+}
+
+/** Inverse of the `toISOString().replace(/:/g, "-")` prefix encoding. */
+function prefixTime(prefix) {
+  return Date.parse(prefix.replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3"));
+}
+
 /** True when `dir` already holds a `<prefix>_<sid><suffix>` record (any date prefix). */
 function hasRecord(dir, sid, suffix) {
   return fs.readdirSync(dir).some((f) => f.endsWith(`_${sid}${suffix}`));
@@ -41,9 +60,10 @@ export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
     const dir = path.join(sessionsRoot, dirEncoded);
     fs.mkdirSync(dir, { recursive: true });
 
-    const startedAt = baseTime + i * 1000;
+    const prior = existingPrefix(dir, sid);
+    const startedAt = prior ? prefixTime(prior) : baseTime + i * 1000;
     const endedAt = startedAt + 500;
-    const datePrefix = new Date(startedAt).toISOString().replace(/:/g, "-");
+    const datePrefix = prior ?? new Date(startedAt).toISOString().replace(/:/g, "-");
     const jsonlName = `${datePrefix}_${sid}.jsonl`;
     const metaName = `${datePrefix}_${sid}.meta.json`;
 
@@ -74,9 +94,10 @@ export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
   const stubDir = path.join(sessionsRoot, stubDirEncoded);
   fs.mkdirSync(stubDir, { recursive: true });
 
-  const stubStartedAt = baseTime - 100000000; // far older
+  const stubPrior = existingPrefix(stubDir, STUB_SESSION_ID);
+  const stubStartedAt = stubPrior ? prefixTime(stubPrior) : baseTime - 100000000; // far older
   const stubEndedAt = stubStartedAt + 500;
-  const stubDatePrefix = new Date(stubStartedAt).toISOString().replace(/:/g, "-");
+  const stubDatePrefix = stubPrior ?? new Date(stubStartedAt).toISOString().replace(/:/g, "-");
   const stubJsonlName = `${stubDatePrefix}_${STUB_SESSION_ID}.jsonl`;
   const stubMetaName = `${stubDatePrefix}_${STUB_SESSION_ID}.meta.json`;
 

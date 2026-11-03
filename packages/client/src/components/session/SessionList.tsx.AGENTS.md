@@ -53,7 +53,7 @@ Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do
 
 ## fix-sidebar-folder-visibility
 
-- `visibleUnpinned` (memo): unpinned, non-workspace folders shown. Tag/phase filter → `folderMatchesFilters`. Folders query → `folderMatchesFilters`. Else: alive session (post-`filterSessions`, hidden excluded) OR selected session while `sessionSearch` empty OR archive-search match.
+- `visibleUnpinned` (memo): unpinned, non-workspace folders shown. Tag/phase filter → `folderMatchesFilters`. Folders query → `folderMatchesFilters` OR (archive match AND cwd matches query). Else: alive session (post-`filterSessions`, hidden excluded) OR selected session while `sessionSearch` empty OR archive-search match.
 - `endedTotals` / stub group alone never reveals an unpinned folder. `stubGroupCwds` still feeds grouping (pinned/workspace stubs, Folders-filter reveal).
 - Empty-state gate: `visibleUnpinned.length === 0 && pinnedGroups.length === 0 && no workspaces` → "No active sessions".
 - `folderMatchesFilters` now `useCallback` (memo dep).

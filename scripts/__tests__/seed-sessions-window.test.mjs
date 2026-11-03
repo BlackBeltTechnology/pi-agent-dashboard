@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -64,5 +64,20 @@ describe("seed-sessions-window", () => {
     for (const d of readdirSync(tmp)) {
       expect(readdirSync(join(tmp, d))).toHaveLength(2);
     }
+  });
+
+  it("completes a half-written pair under the existing record's date prefix", () => {
+    const now = Date.UTC(2027, 0, 15, 9, 30);
+    seedSessionsWindow(tmp, now);
+    const stubDir = join(tmp, "--fixtures-stub-dir--");
+    const meta = readdirSync(stubDir).find((f) => f.endsWith(".meta.json"));
+    unlinkSync(join(stubDir, meta));
+    seedSessionsWindow(tmp, now + 2 * 86_400_000);
+    const files = readdirSync(stubDir).sort();
+    expect(files).toHaveLength(2);
+    expect(files[0].replace(/\.jsonl$/, "")).toBe(files[1].replace(/\.meta\.json$/, ""));
+    // …and with the original timestamp, so the stub stays outside the window.
+    const m = JSON.parse(readFileSync(join(stubDir, files[1]), "utf8"));
+    expect(new Date(m.startedAt).toISOString().replace(/:/g, "-")).toBe(files[0].split("_")[0]);
   });
 });

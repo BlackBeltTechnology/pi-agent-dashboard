@@ -210,6 +210,34 @@ describe("unpinned folder default visibility (#1086)", () => {
   });
 });
 
+describe("archive match under a Folders query (CodeRabbit #1107)", () => {
+  it("keeps a Folders-matching folder with archive matches visible even when no resident session matches the Session query", async () => {
+    vi.useFakeTimers();
+    try {
+      const item = { id: "arch1", name: "Archived arch1", cwd: "/a", groupPath: "/a", endedAt: 1000, archivedAt: 2000, sessionFile: "/tmp/arch1.jsonl" };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: () => Promise.resolve({ success: true, data: { items: [item] } }),
+      }));
+      mount({ sessions: [mk({ cwd: "/a", name: "unrelated" }), mk({ cwd: "/b", status: "active" })], endedTotalsMap: new Map([["/a", 1]]) });
+      openFilterFunnel();
+      fireEvent.click(screen.getByTestId("search-include-archive"));
+      setSidebarSearch("folders", "/a");
+      setSidebarSearch("sessions", "arch1");
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(folderShown("/a")).toBe(true);
+      expect(screen.getByText(/Archive matches/)).toBeTruthy();
+      // The Folders query still decides: a non-matching path stays hidden.
+      setSidebarSearch("folders", "/zzz");
+      expect(folderShown("/a")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("selected-session clause (design D3)", () => {
   it("E12: an ended-only folder holding the selected session stays visible with the selected card", () => {
     const sel = mk({ cwd: "/a" });

@@ -1410,7 +1410,12 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         // ended-only tag match still reveals the folder, and zero-match
         // folders are hidden (no empty shell). See change: add-session-tags.
         if (anyTagFilterActive) return folderMatchesFilters(g);
-        if (workspaceFilter.length > 0) return folderMatchesFilters(g);
+        if (workspaceFilter.length > 0) {
+          // An archive match keeps a path-matching folder reachable even when
+          // no resident session matches the Session query.
+          const hasArchiveMatch = (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0;
+          return folderMatchesFilters(g) || (hasArchiveMatch && g.cwd.toLowerCase().includes(workspaceFilter.trim().toLowerCase()));
+        }
         return (
           g.sessions.some((s) => s.status !== "ended") ||
           (sessionSearch.length === 0 && g.sessions.some((s) => s.id === selectedId)) ||
