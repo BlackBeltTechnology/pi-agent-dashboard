@@ -70,7 +70,7 @@ describe("session manager stores pidNamespace atomically with pid", () => {
   });
 });
 
-describe("E104: neither pid nor pidNamespace is persisted (S5, user decision A)", () => {
+describe("E104: neither pid nor pidNamespace is persisted (design S5, decision A)", () => {
   const dirs: string[] = [];
   afterEach(() => {
     for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });

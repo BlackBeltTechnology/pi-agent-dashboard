@@ -580,7 +580,11 @@ export function createMemorySessionManager(
         // overwrite a good reason with `unknown` (design D1).
         const wasEnded = session.status === "ended";
         const priorReason = session.closedReason;
-        Object.assign(session, updates);
+        // `register()` is the sole writer of `pidNamespace`: an assigned copy
+        // would be ENUMERABLE and leak onto every JSON egress (S6).
+        // See change: scope-pids-to-namespace.
+        const { pidNamespace: _ignored, ...rest } = updates;
+        Object.assign(session, rest);
         ensureEndedAt(session);
         // Also fire when an ended record has NO reason (an explicit `undefined`
         // key in `updates` can clear it): the invariant is "no ended session

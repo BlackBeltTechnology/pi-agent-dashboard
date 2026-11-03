@@ -26,10 +26,11 @@ Unreadable fields SHALL be omitted. The server SHALL store it atomically with `p
 - **WHEN** a `session_register` without `pidNamespace` is received
 - **THEN** the server SHALL record the namespace as unreported
 
-#### Scenario: The namespace is persisted with the pid
-- **WHEN** the server persists a session that has a `pid`
-- **THEN** it SHALL persist the session's `pidNamespace` with it
-- **AND** a session restored after a server restart SHALL resolve its pid target from that stored namespace
+#### Scenario: The namespace is never persisted apart from the pid
+- **WHEN** the server persists a session (`.meta.json`, archive rows)
+- **THEN** it SHALL NOT persist `pidNamespace`, because it persists no `pid` either
+- **AND** a session restored after a server restart SHALL carry neither, so no stale namespace can outlive the pid it described
+- **AND** a reattaching bridge SHALL supply both again with its `session_register`
 
 #### Scenario: The namespace is not sent to browsers or peers
 - **WHEN** the server serializes a session for a browser (session list, session update, REST) or for a paired peer

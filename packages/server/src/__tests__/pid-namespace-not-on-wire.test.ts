@@ -50,6 +50,14 @@ describe("E105: pidNamespace never leaves the server", () => {
     assertClean({ type: "session_updated", sessionId: "s1", updates: { ...sm.get("s1") } });
   });
 
+  it("update() cannot install an enumerable copy (register is the sole writer)", () => {
+    const sm = setup();
+    sm.update("s1", { pidNamespace: { ...RL, hostId: "boot-LEAK" } } as never);
+    expect(sm.get("s1")?.pidNamespace).toEqual(RL);
+    assertClean(sm.get("s1"));
+    expect(JSON.stringify(sm.get("s1"))).not.toContain("boot-LEAK");
+  });
+
   it("REST session GET and a paired-peer payload (plain JSON of the record)", () => {
     const sm = setup();
     assertClean(sm.get("s1"));

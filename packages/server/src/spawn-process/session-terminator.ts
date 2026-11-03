@@ -235,7 +235,8 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
       return opts.spawnToken ? reclaimByToken(opts.spawnToken) : done("no-identity");
     }
 
-    // 3–4. Already gone (before identity, so a dead pid is never "refused"), or
+    // 3–4. Already gone (before the identity GUARD, so a dead pid is never
+    // identity-"refused"; the target refusal above precedes any probe), or
     // gone within the grace window.
     if (isGone(pid) || (await exitedWithin(pid, opts.graceMs))) return done("confirmed-dead", pid);
 
