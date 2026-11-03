@@ -82,4 +82,4 @@ Files in this directory. One row per source file.
 | `useWebSocket.ts` | WebSocket lifecycle: connects `url`, parses `ServerToBrowserMessage`, exposes `send`/`onMessage`/`status`/`ws`… → see `useWebSocket.ts.AGENTS.md` |
 | `useZoomPan.ts` | Re-export shim. Forwards `@blackbelt-technology/pi-dashboard-client-utils/useZoomPan` (moved in `complete-flows-plugin-migration` Layer 0). |
 | `useAcpAgents.ts` | Configured ACP agents `{id,name}` from `GET /api/acp/agents`; module-cached; empty on failure. `useAcpAgents()`. See change: add-acp-session-driver. |
-| `useAgentAwareSpawn.ts` | Wraps a `handleSpawnSession` callback to add the folder's REMEMBERED agent when none given (board / landing spawns). See change: add-acp-session-driver. |
+| `useAgentAwareSpawn.ts` | Wraps a `handleSpawnSession` callback to add the folder's REMEMBERED agent when none given (board / landing spawns). See change: add-acp-session-driver. Pi effective agent + no caller `model`/`thinkingLevel` → fills `getEffectiveSpawnChoice(cwd)`; remembered ACP agent wins (no model). See change: add-spawn-model-choice. |

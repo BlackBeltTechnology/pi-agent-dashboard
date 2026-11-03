@@ -50,3 +50,5 @@ See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions
 Constant / same-origin navigation sink carries a `client-sinks: allow — <reason>` annotation. See change: harden-client-sinks.
 
 Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do not count as held). See change: add-session-ui-deep-links-for-agents.
+
+See change: add-spawn-model-choice. Folder spawn forwards `AgentSpawnPicker` choice into opts. Initialize (menu item + both banners) → `initializeSpawnOpts(cwd, PROJECT_INIT_PROMPT)` (pi + effective choice). Card sibling → `siblingSpawnOpts(s)` (ACP agent, or pi model/thinking).

@@ -2862,6 +2862,23 @@ See change: add-git-checkout-root-resolver.
 - origin `live` = latest ACCEPTED non-empty `commands_list` (`SessionCommandRegistry.getEntry().receivedAt`) among sessions with `piGateway.isSessionConnected` and cwd EXACTLY equal (trailing sep stripped + `canonicalPath`); else `scan` (enabled skills as `skill:<n>`, prompts as `<n>`); else `none`.
 - Each command carries `scope` folder|global (path in `local.*` / local-scope packages / under `<cwd>/.pi`, else global). Impl `packages/server/src/pi/folder-commands.ts`.
 - Spawn choices: `spawn_session` / `send_prompt` / `resume_session` gain optional `model`, `thinkingLevel`. Validator `packages/server/src/browser-handlers/spawn-choice.ts` (`validateSpawnChoice`, `resolveResumeChoice`): model `provider/id` ≤200 chars, charset-restricted, no empty/dash-led segment; `:<level>` suffix split only when no `thinkingLevel` field; thinkingLevel ∈ `THINKING_LEVELS`; invalid → dropped + `console.warn`.
+- Spawn-choice resolver: `resolveSpawnChoice(input, {defaultModel, readRoles})` in `packages/server/src/browser-handlers/spawn-choice.ts`. One resolver for all spawn roads: WS `spawn_session`, REST `POST /api/session/spawn`, plugin `spawnSession` hook (+ MCP `spawn_session`), bridge `spawn_new_session`. Returns `{choice, warnings}`. Never throws.
+- `model` accepts `provider/id`, `provider/id:<level>`, `@role`, `@role:<level>`. `@role` resolved ONCE at spawn via `readRoleConfigFromDisk()` (`~/.pi/agent/providers.json#roles`) + `resolveModelRef`. Roles file read only for `@` refs. Spawned session keeps concrete model. No role following.
+- Role level precedence: `thinkingLevel` field > ref `:<level>` suffix > role-assigned level. Level never appended to `--model`. Literal refs keep `validateSpawnChoice` rules. Thinking-only choice pairs with `config.defaultModel`. Empty string = absent. `agent` + model/thinking → empty choice + warning.
+- Road policy:
+  - REST strict → `400` before any side effect (owner token, queued intents, spawn).
+  - WS lenient → drop + `console.warn` + `spawn_result.choiceWarning` (client warning toast; bus `SpawnOptions.onWarning`).
+  - Plugin hook lenient → `PluginSpawnResult.warning`. Literal `model` passes through verbatim (`mapPluginSpawnOptions`, `packages/server/src/spawn-process/plugin-spawn-choice.ts`). `agent` + `model`/`thinkingLevel` rejected (`validatePluginAcpSpawn`).
+  - Bridge log-only.
+- Bridge inheritance: `buildSpawnNewSessionMessage` (`packages/extension/src/spawn-new-session.ts`) adds current `model` + `thinkingLevel` to `spawn_new_session`. Unknown model or throw → plain frame.
+- Pending registries (`pending-attach-registry.ts`, `pending-initial-prompt-registry.ts`) gain `withdraw(cwd, value)`: removes NEWEST matching entry. Failed WS / REST / plugin spawn withdraws only its own intents.
+- Web client:
+  - Per-folder memory `packages/client/src/lib/spawn/spawn-choice-memory.ts`: localStorage `pi-dashboard:spawn-choice:<cwd>`, `{model?, thinkingLevel?}`, `@role` stored verbatim.
+  - `getEffectiveSpawnChoice` = remembered ?? Settings default, per field. Settings defaults mirrored by App via `setSpawnDefaults`.
+  - Chip `packages/client/src/components/spawn/SpawnChoiceChip.tsx` (ModelSelector + Role tab + `default` entries) in `WorktreeSpawnDialog` (`modelChoice="show"|"hidden"`) and `AgentSpawnPicker` menu (chevron always rendered).
+  - Quick spawns (folder button, OpenSpec board via `useAgentAwareSpawn`, Initialize project) use effective choice when agent is pi.
+  - Sibling spawn copies source `model`/`thinkingLevel` (`siblingSpawnOpts`, `lib/spawn/spawn-opts.ts`).
+- See change: add-spawn-model-choice.
 - Thinking-only spawn → config `defaultModel` so bridge default thinking cannot override. `SessionFlags.thinking` → `--thinking`; `--model`/`--thinking` on fresh + `continue` argv; fork keeps parent model; tmux pane escapes each token (`shellEscape`).
 - Ended-session composer (`useEndedSessionComposer`): folder command list + catalogue models replace absent bridge lists. Folder list kept until live `commands_list` arrives (no empty flash).
 - Model/thinking pick stored client-side per session; sent on resuming `send_prompt`/`resume_session` (continue only; applied to that resume's `spawnPiSession`, never via cwd-keyed `pendingResumeRegistry`); dropped once session no longer ended.
@@ -6758,7 +6775,7 @@ The `.pi/skills/pi-dashboard/` directory is both a local project skill (discover
 | `POST /api/session/:id/rename` | Rename a session |
 | `POST /api/session/:id/hide` | Hide session |
 | `POST /api/session/:id/unhide` | Unhide session |
-| `POST /api/session/spawn` | Spawn new session in a directory |
+| `POST /api/session/spawn` | Spawn new session in a directory. Body `{cwd, agent?, model?, thinkingLevel?, initialPrompt?, attachProposal?}`; `@role` resolved once; invalid choice → 400 (before side effects) |
 | `POST /api/session/:id/resume` | Resume or fork ended session |
 | `POST /api/session/:id/flow-control` | Abort flow or toggle autonomous |
 | `POST /api/session/:id/model` | Set provider + model |

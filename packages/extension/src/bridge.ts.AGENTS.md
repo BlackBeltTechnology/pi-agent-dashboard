@@ -28,3 +28,5 @@ Inits `inst.claudeSubscriptionCompat = false`; registers `registerCompatPreferen
 Default export registers shared `claudeCompatExtension(() => getBridgeState().claudeSubscriptionCompat === true)` on EVERY pi, before `initBridge` and its subagent re-entry guard → main sessions + subagent children get the rewrite; no plugin opts in. `registerCompatPreferenceProbe` removed. See change: seed-claude-compat-on-upgrade.
 
 `getFlowsList`/`sendFlowsList` + `/<flow-name>` sessionPrompt fast-path removed; typed flow commands ride extension dispatch. See change: flows-dock-chip-and-panel-actions.
+
+See change: add-spawn-model-choice. `spawnNew` sends `buildSpawnNewSessionMessage(...)` (inherits current model + thinking level).
