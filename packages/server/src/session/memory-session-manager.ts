@@ -5,10 +5,11 @@
 
 import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { ClosedReason, DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { emptyUsageTotals, STATS_EXTRACTOR_VERSION, type UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
+import { sanitizePidNamespace } from "./pid-target.js";
 import { projectPluginRefs } from "./plugin-refs.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
-import { STATS_EXTRACTOR_VERSION, emptyUsageTotals, type UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 
 /**
  * Snapshot window constants (D4). The specs state the same numbers.
@@ -97,6 +98,12 @@ export interface RegisterSessionParams {
   firstMessage?: string;
   startedAt?: number;
   pid?: number;
+  /**
+   * The bridge's `session_register.pidNamespace`, untrusted. Sanitised and
+   * stored atomically with `pid`; dropped when `pid` is absent.
+   * See change: scope-pids-to-namespace.
+   */
+  pidNamespace?: unknown;
   /**
    * Why the bridge is registering this session. Forwarded from the
    * `session_register` protocol message (see
@@ -485,6 +492,17 @@ export function createMemorySessionManager(
         // See change: add-followup-edit-and-steer-cancel.
         pendingQueues: { steering: [], followUp: [] },
       };
+      // `pidNamespace`: atomic with `pid` (replaced on every register, cleared
+      // without a pid, malformed ⇒ `null` which resolves `unknown`). A
+      // NON-ENUMERABLE own property, so no JSON egress (browser, REST, peer,
+      // meta) can carry it, while `update()`'s in-place `Object.assign` keeps it.
+      // See change: scope-pids-to-namespace (S6, S7).
+      Object.defineProperty(session, "pidNamespace", {
+        value: params.pid !== undefined ? sanitizePidNamespace(params.pidNamespace) : undefined,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
       sessions.set(params.id, session);
       mgr.onChange?.(params.id, {
         registerReason: params.registerReason,

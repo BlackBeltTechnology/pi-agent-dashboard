@@ -17,3 +17,5 @@ Ladder (design D1):
 Contracts: empty `sessionId` = token-only call (no record / registry-by-id rung). Never calls `process.kill` (`no-direct-process-kill` invariant); signals only via `killProcess`, probes via `signalZero`. `isProcessAlive` untouched. Callers: reaper (`graceMs:0, verifyIdentity, stampManualClose`), caps `reclaim` (same), `createAbortSpawnedRun` (+`spawnToken`), `shutdownSession` (`graceMs:SHUTDOWN_GRACE_MS, verifyIdentity:false`).
 
 See change: fix-session-reclaim-tmux.
+
+Resolves pid target once before registry rung (registry pid as `ownEntryPid`). Unattended non-`host` ⇒ `refused-identity` before liveness. `TerminateOptions.operator`; operator + non-local ⇒ new outcome `not-local` (registry rung still runs). Deps `pidContext`, `resolvePidTarget`. See change: scope-pids-to-namespace.

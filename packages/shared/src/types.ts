@@ -4,6 +4,21 @@
 import type { HostPressure } from "./host-pressure.js";
 
 /**
+ * The pid namespace a pi process reported with its pid (`session_register.pidNamespace`).
+ * `kind: "wsl"` carries the WSL `distro`. `nsId` is the Linux `/proc/self/ns/pid`
+ * link; `hostId` the Linux `boot_id`, else the hostname. Unreadable fields are
+ * omitted. Built by `buildPidNamespace()` (`pid-namespace.ts`).
+ * See change: scope-pids-to-namespace.
+ */
+export interface PidNamespace {
+  platform: string;
+  kind: "host" | "wsl";
+  distro?: string;
+  nsId?: string;
+  hostId?: string;
+}
+
+/**
  * The auto-namer's enumerated durable state set: carried across an extension
  * reload as VALUES (never the namer object, whose closures would hold a stale
  * connection and ctx) and persisted into `.meta.json` so a permanent stop also
@@ -468,6 +483,14 @@ export interface DashboardSession {
    * See change: fix-session-reclaim-tmux.
    */
   pidRecordedAt?: number;
+  /**
+   * Server-only: the pid namespace the bridge reported with `pid`, stored
+   * atomically with it (a register without `pid` clears both). Persisted with
+   * `pid`; stripped from every browser and peer payload. `null` = the bridge
+   * sent a malformed report (resolves `unknown`); absent = legacy bridge.
+   * See change: scope-pids-to-namespace.
+   */
+  pidNamespace?: PidNamespace | null;
   /** Active child processes detected by bridge process scanner. Server
    *  enriches each with classification fields. See change:
    *  classify-process-list-entries. */

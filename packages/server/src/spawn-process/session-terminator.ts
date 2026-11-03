@@ -8,8 +8,10 @@
  * entry when one exists — never on the spawn strategy. The registry only holds
  * headless spawns, so a registry-only kill leaks a tmux/wt `pi` (#459).
  *
- * Ladder (design D1): stamp close reason → registry kill (an ATTEMPT, never a
- * verdict) → resolve pid → already-gone probe → optional grace poll → identity
+ * Ladder (design D1): stamp close reason → resolve the pid TARGET once (which
+ * namespace `session.pid` lives in; scope-pids-to-namespace D2/D7) → registry
+ * kill (an ATTEMPT, never a verdict) → refuse a non-local target (unattended:
+ * `refused-identity`; operator: `not-local`) → resolve pid → already-gone probe → optional grace poll → identity
  * guard (unattended only) → `killProcess` → confirm by errno-aware `signalZero`
  * (only ESRCH proves death) → withdraw the close stamp when not confirmed.
  *
@@ -25,13 +27,27 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { findPidsBySpawnToken as defaultFindPidsBySpawnToken } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  resolvePidTarget as defaultResolvePidTarget,
+  isNonLocalTarget,
+  operatorMaySignal,
+  type PidTarget,
+  type ServerPidContext,
+} from "../session/pid-target.js";
+import { getServerPidContext } from "../session/server-pid-context.js";
 import type { HeadlessPidRegistry } from "./headless-pid-registry.js";
 
 /** Tolerance between a pi's start time and the server stamping its pid (ms). */
 export const IDENTITY_TOLERANCE_MS = 2000;
 const GRACE_POLL_MS = 100;
 
-export type TerminateOutcome = "confirmed-dead" | "unconfirmed" | "refused-identity" | "no-identity";
+/**
+ * `not-local`: an OPERATOR termination whose recorded pid is not in this host's
+ * namespace (remote origin, WSL, a container, or `unknown` on POSIX). Nothing was
+ * signalled; the caller reports an unconfirmed termination.
+ * See change: scope-pids-to-namespace.
+ */
+export type TerminateOutcome = "confirmed-dead" | "unconfirmed" | "refused-identity" | "no-identity" | "not-local";
 
 export interface TerminateResult {
   outcome: TerminateOutcome;
@@ -49,6 +65,13 @@ export interface TerminateOptions {
   verifyIdentity?: boolean;
   /** Stamp in-memory `closedReason: "manual"` before signalling (unattended callers). */
   stampManualClose?: boolean;
+  /**
+   * An operator action (shutdown). Absent/false = unattended (reaper, caps,
+   * automation): every non-`host` target is refused. An operator may also signal
+   * `unknown` on a Windows server (Q8); other non-local targets are `not-local`.
+   * Independent of `verifyIdentity`. See change: scope-pids-to-namespace.
+   */
+  operator?: boolean;
 }
 
 /** An empty `sessionId` means "token-only": no record or registry-by-id rung, only the spawn-token rung. */
@@ -70,6 +93,9 @@ interface TerminatorPrimitives {
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   warn?: (message: string) => void;
+  /** The server's own pid namespace (default: computed once at startup). */
+  pidContext?: ServerPidContext;
+  resolvePidTarget?: typeof defaultResolvePidTarget;
 }
 
 export interface SessionTerminatorDeps extends TerminatorPrimitives {
@@ -87,6 +113,8 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const warn = deps.warn ?? ((m: string) => console.warn(m));
   const { sessionManager, headlessPidRegistry } = deps;
+  const resolvePidTarget = deps.resolvePidTarget ?? defaultResolvePidTarget;
+  const pidContext = (): ServerPidContext => deps.pidContext ?? getServerPidContext();
 
   /** Alive unless ESRCH proves otherwise (EPERM etc. read as alive). */
   const isGone = (pid: number): boolean => signalZero(pid) === "esrch";
@@ -115,16 +143,23 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     return survivor === undefined ? done("confirmed-dead", pids[0]) : done("unconfirmed", survivor);
   }
 
-  /** Step 1: registry attempt. Returns the registry's pid, captured BEFORE the kill. */
-  async function registryRung(sessionId: string): Promise<number | undefined> {
-    if (sessionId === "") return undefined;
-    const registryPid = headlessPidRegistry.getPid(sessionId);
+  /** Step 1: registry attempt (an attempt flag only; liveness decides). */
+  async function registryRung(sessionId: string): Promise<void> {
+    if (sessionId === "") return;
     try {
       await headlessPidRegistry.killBySessionId(sessionId);
     } catch {
       /* an attempt flag only; liveness decides */
     }
-    return registryPid;
+  }
+
+  /**
+   * Refusal for a recorded `session.pid` outside this host's namespace, decided
+   * BEFORE any liveness probe (a foreign ESRCH proves nothing here).
+   */
+  function targetRefusal(target: PidTarget, opts: TerminateOptions): TerminateOutcome | undefined {
+    if (opts.operator === true) return operatorMaySignal(target, pidContext()) ? undefined : "not-local";
+    return target.kind === "host" ? undefined : "refused-identity";
   }
 
   /** Step 4: poll for a graceful exit (shutdown has sent the advisory message first). */
@@ -169,11 +204,32 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
   }
 
   async function ladder(sessionId: string, opts: TerminateOptions): Promise<TerminateResult> {
-    // 1. Registry rung.
-    const registryPid = await registryRung(sessionId);
+    // 0. Resolve the recorded pid's target ONCE, before the registry rung, with
+    // the registry's pid (captured before its kill deletes the entry) as the
+    // own-spawn evidence — so the registry kill cannot change the verdict (D7).
+    // Token-only (`""`) has no session to resolve.
+    const session = sessionId === "" ? undefined : sessionManager.get(sessionId);
+    const registryPid = sessionId === "" ? undefined : headlessPidRegistry.getPid(sessionId);
+    const sessionPid = session?.pid;
+    const target = session && sessionPid !== undefined ? resolvePidTarget(session, pidContext(), registryPid) : undefined;
+
+    // 1. Registry rung — runs whatever the target: a registry entry is the
+    // server's own spawn, local by construction (S8).
+    await registryRung(sessionId);
+
+    // 1b. A non-local recorded pid is never probed or signalled.
+    if (target && sessionPid !== undefined) {
+      const refusal = targetRefusal(target, opts);
+      if (refusal !== undefined) {
+        warn(
+          `[session-terminator] not signalling pid ${sessionPid} for session ${sessionId}: target ${target.kind}` +
+            (isNonLocalTarget(target) ? " (not on this host)" : " (namespace unverifiable)"),
+        );
+        return done(refusal, sessionPid);
+      }
+    }
 
     // 2. Resolve the pid.
-    const sessionPid = sessionId === "" ? undefined : sessionManager.get(sessionId)?.pid;
     const pid = sessionPid ?? registryPid;
     if (pid === undefined) {
       return opts.spawnToken ? reclaimByToken(opts.spawnToken) : done("no-identity");

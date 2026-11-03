@@ -24,6 +24,14 @@ on:
       - "packages/extension/src/bridge.ts"
       - "qa/tests/28-gateway-windows.ps1"
       - "qa/tests/29-gateway-posix-no-tcp.sh"
+      # Pid-target kill safety (scope-pids-to-namespace).
+      - "packages/server/src/session/pid-target.ts"
+      - "packages/server/src/spawn-process/session-terminator.ts"
+      - "packages/server/src/browser-handlers/session-action-handler.ts"
+      - "packages/shared/src/pid-namespace.ts"
+      - "qa/tests/54-pid-target.sh"
+      - "qa/tests/54-windows-pid-target.ps1"
+      - "qa/tests/lib/pid-target-probe.ts"
       - ".github/workflows/ci-gateway-platform.yml"
 
 # Least-privilege default: jobs that need more declare it at job level.
@@ -64,6 +72,10 @@ jobs:
           echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
       - name: Default start binds no bridge TCP port
         run: bash qa/tests/29-gateway-posix-no-tcp.sh
+      # X80/X81: non-local pids are never signalled (X81 needs root + unshare).
+      # See change: scope-pids-to-namespace.
+      - name: Pid target — non-local pids never signalled
+        run: bash qa/tests/54-pid-target.sh
 
   windows:
     name: loopback fallback + credential ACLs (windows-latest)
@@ -82,3 +94,10 @@ jobs:
         env:
           QA_REPO_ROOT: ${{ github.workspace }}
         run: ./qa/tests/28-gateway-windows.ps1
+      # X82–X86: WSL pids never taskkilled; legacy native pi stoppable (Q8).
+      # See change: scope-pids-to-namespace.
+      - name: Pid target on Windows
+        shell: pwsh
+        env:
+          QA_REPO_ROOT: ${{ github.workspace }}
+        run: ./qa/tests/54-windows-pid-target.ps1
