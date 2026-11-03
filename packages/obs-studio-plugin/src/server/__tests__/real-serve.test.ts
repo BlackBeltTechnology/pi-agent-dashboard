@@ -54,16 +54,27 @@ async function reapStubChild(file: string) {
   await assertGone(pid);
 }
 
-/** Kill a still-running stub and wait for its exit (no-op once it has exited). */
-async function settleStub(c: ChildProcess) {
-  if (c.exitCode !== null || c.signalCode !== null) return;
+const stubExited = (c: ChildProcess) => c.exitCode !== null || c.signalCode !== null;
+
+/**
+ * Kill a still-running stub and wait for its exit (no-op once it has exited).
+ * An EOF-ignoring stub spawns its grandchild and then records the pid. A kill
+ * landing between the two would orphan an unrecorded grandchild, so first wait
+ * (bounded) until the pid is recorded or the stub is gone.
+ */
+async function settleStub({ c, pidFile }: { c: ChildProcess; pidFile?: string }) {
+  if (pidFile) {
+    const file = pidFile;
+    await vi.waitFor(() => expect(stubExited(c) || fs.existsSync(file)).toBe(true), { timeout: 2000, interval: 20 }).catch(() => {});
+  }
+  if (stubExited(c)) return;
   const exited = new Promise((r) => c.once("exit", r));
   c.kill("SIGKILL");
   await exited;
 }
 
 const fakes: FakeObs[] = [];
-const stubs: ChildProcess[] = [];
+const stubs: Array<{ c: ChildProcess; pidFile?: string }> = [];
 const tmpDirs: string[] = [];
 afterEach(async () => {
   for (const f of fakes.splice(0)) await f.close();
@@ -96,7 +107,7 @@ function manager(env: Record<string, string> = {}, grace = 5000) {
     spawn: (argv) => {
       const c = spawn(argv[0], argv.slice(1), { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env } });
       spawned.push(c);
-      stubs.push(c);
+      stubs.push({ c, pidFile: env.STUB_IGNORE_EOF ? env.STUB_CHILD_PID_FILE : undefined });
       return c;
     },
     disposeGraceMs: grace,
