@@ -6,7 +6,7 @@ Plugin server. Password never enters this process. See change: add-obs-studio-pl
 |------|---------|
 | `__tests__/helpers.ts` | `obsApp` (routes + fake bridge children), `stateCli`. |
 | `__tests__/host-gates.test.ts` | E17 behind real tier gate + bearer auth + network guard + real identity seam. |
-| `__tests__/real-serve.test.ts` | X3 real `pi-obs serve --stdio` behind `fixtures/stub-exec.mjs`. |
+| `__tests__/real-serve.test.ts` | X3 real `pi-obs serve --stdio` behind `fixtures/stub-exec.mjs`. `afterEach` reaps the orphaned EOF-ignoring grandchild via `STUB_CHILD_PID_FILE` + `killProcess`, asserts gone (bounded 2 s poll); `readStubPid` throws on malformed file. See change: stabilize-flaky-unit-tests (#1071). |
 | `__tests__/routes.test.ts` | E16–E18, X2, X4, X6, P2; review follow-ups (failed state read not cached, endpoint change reopens bridge). |
 | `bridge.ts` | `BridgeManager`: lazy piped `service exec … serve --stdio` child per instance; id-correlated; 5 s → `obs-timeout` + terminate; stdin-EOF dispose then kill after 5 s; `restarts`/`lastError`. |
 | `dashboard-cli-argv.ts` | `dashboardCliArgv`: server `process.execPath` + `--import` loader args + CLI entry (`PI_DASHBOARD_BIN` overrides). |
