@@ -70,6 +70,15 @@ interface Props {
   onSelectLevel?: (level: string) => void;
 
   /**
+   * Opt-in `default` entry at the top of the model panel (spawn-choice chips):
+   * choosing it clears a remembered model so the Settings default applies.
+   * See change: add-spawn-model-choice (D6).
+   */
+  onSelectDefaultModel?: () => void;
+  /** Opt-in `default` entry leading the thinking-level group (merged chip only). */
+  onSelectDefaultLevel?: () => void;
+
+  /**
    * Opt-in disable of the trigger. Default (undefined/false) leaves the trigger
    * openable even with an empty catalogue — the composer's recovery path (see
    * change: open-empty-model-selector). Surfaces that legitimately want a dead
@@ -800,7 +809,20 @@ function useGridKeyboard({
 }
 
 /** Single-choice thinking-level group appended to the popover (arrows move focus; Enter/Space picks). */
-function LevelRadioGroup({ levels, current, onPick }: { levels: readonly string[]; current?: string; onPick: (level: string) => void }) {
+function LevelRadioGroup({
+  levels,
+  current,
+  onPick,
+  onPickDefault,
+  defaultChecked,
+}: {
+  levels: readonly string[];
+  current?: string;
+  onPick: (level: string) => void;
+  /** Leading `default` radio (clears a remembered level). See change: add-spawn-model-choice. */
+  onPickDefault?: () => void;
+  defaultChecked?: boolean;
+}) {
   const headingId = `${useId()}-level-h`;
   const onKey = (e: React.KeyboardEvent) => {
     if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
@@ -817,6 +839,20 @@ function LevelRadioGroup({ levels, current, onPick }: { levels: readonly string[
         {i18nT("thinking.level", undefined, "Thinking level")}
       </div>
       <div role="radiogroup" aria-labelledby={headingId} className="flex flex-wrap gap-1" onKeyDown={onKey}>
+        {onPickDefault && (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={defaultChecked === true}
+            tabIndex={-1}
+            data-level="default"
+            data-testid="level-default-entry"
+            onClick={onPickDefault}
+            className="focus-ring tap-target px-2.5 rounded-md border border-dashed border-[var(--border-secondary)] text-xs font-mono text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+          >
+            {i18nT("spawnChoice.default", undefined, "default")}
+          </button>
+        )}
         {levels.map((l) => (
           <button
             key={l}
@@ -926,7 +962,7 @@ function useDismissOutside(open: boolean, panelRef: React.RefObject<HTMLElement 
   }, [open, panelRef, triggerRef, close]);
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole, level, levelPlaceholder, levelTag, supportedLevels, onSelectLevel }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole, level, levelPlaceholder, levelTag, supportedLevels, onSelectLevel, onSelectDefaultModel, onSelectDefaultLevel }: Props) {
   const [open, setOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Which cell of the active row the combobox's `aria-activedescendant` points at.
@@ -1015,6 +1051,12 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     },
     [onSelectLevel],
   );
+
+  const closeThen = useCallback((fn?: () => void) => {
+    fn?.();
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
 
   const handleRolePick = useCallback(
     (role: string) => {
@@ -1150,6 +1192,19 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
             data-testid="model-dropdown"
             id={dropdownId}
           >
+          {onSelectDefaultModel && (
+            <div className="flex-none border-b border-[var(--border-secondary)] px-2 py-1.5">
+              <button
+                type="button"
+                data-testid="model-default-entry"
+                aria-pressed={tag === "default"}
+                onClick={() => closeThen(onSelectDefaultModel)}
+                className="focus-ring tap-target px-2.5 rounded-md border border-dashed border-[var(--border-secondary)] text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+              >
+                {i18nT("spawnChoice.defaultModel", undefined, "default model")}
+              </button>
+            </div>
+          )}
           {rolesAvailable && <RoleTabs tab={tab} setTab={setTab} baseId={dropdownId} />}
           {rolesAvailable && tab === "role" ? (
             <RoleList rows={roleRows} current={current} onPick={handleRolePick} baseId={dropdownId} />
@@ -1187,7 +1242,16 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
               )}
             </div>
           )}
-          {merged && <LevelRadioGroup levels={thinkingLevelsFor(supportedLevels)} current={level} onPick={handleLevelPick} />}
+          {merged && (
+            <LevelRadioGroup
+              levels={thinkingLevelsFor(supportedLevels)}
+              current={level}
+              onPick={handleLevelPick}
+              {...(onSelectDefaultLevel
+                ? { onPickDefault: () => closeThen(onSelectDefaultLevel), defaultChecked: levelTag === "default" }
+                : {})}
+            />
+          )}
           </div>
         </LayerPortal>
       )}

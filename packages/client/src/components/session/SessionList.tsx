@@ -69,6 +69,7 @@ import { useYoloAppBar, YoloBarLink } from "../access-grant/YoloIndicators.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
+import { initializeSpawnOpts, siblingSpawnOpts } from "../../lib/spawn/spawn-opts.js";
 import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsule.js";
 import { isProjectSetupOutdated, projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { SignedInUserBar } from "../identity/UserBar.js";
@@ -189,7 +190,7 @@ interface Props {
    * See change: archive-sessions-lazy-load.
    */
   archivedCountMap?: Map<string, number>;
-  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; agent?: string }) => void;
+  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; agent?: string; model?: string; thinkingLevel?: string }) => void;
   spawningCwds?: Set<string>;
   /**
    * Add/remove a cwd from the spawning set (placeholder + disabled-button).
@@ -1920,7 +1921,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…"), `● ${t("common.update", undefined, "update")}`),
       icon: mdiTextBoxCheckOutline,
       tone: isProjectSetupOutdated(initStatus) ? "caution" : undefined,
-      onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: PROJECT_INIT_PROMPT }),
+      onSelect: () => onSpawnSession?.(group.cwd, undefined, initializeSpawnOpts(group.cwd, PROJECT_INIT_PROMPT)),
     });
     // Broken-session cleanup — housekeeping, NOT a tier-0 banner. Hidden at zero.
     // In the DIRECTORY group by spec (does not depend on the MAINTENANCE group).
@@ -2041,9 +2042,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             onRename={onRename ? (name) => onRename(session.id, name) : undefined}
             onShutdown={onShutdown}
             onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
-            // A sibling inherits the source session's agent (ACP agent id, or pi) with no picker.
-            // See change: add-acp-session-driver (D16).
-            onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined, s.driver === "acp" && s.acpAgentId ? { agent: s.acpAgentId } : undefined) : undefined}
+            // A sibling inherits the source session's agent (ACP agent id) or, for pi, its
+            // model + thinking level, with no picker.
+            // See changes: add-acp-session-driver (D16), add-spawn-model-choice (D7).
+            onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined, siblingSpawnOpts(s)) : undefined}
             onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
               // Reuse existing worktree dialogs: proposal-aware path
               // when attached, plain path otherwise. No new state.
@@ -2286,7 +2288,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               cwd={group.cwd}
               status={initStatus}
               isProjectRoot={isProjectRoot}
-              onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
+              onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, initializeSpawnOpts(c, PROJECT_INIT_PROMPT)) : undefined}
               onStatusChange={refetchInit}
               compact
             />
@@ -2332,7 +2334,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
             // own — an unpinned dir with an unknown git probe must not reach
             // tier 0. See change: add-folder-action-banner (D-D2).
             isProjectRoot={isProjectRoot}
-            onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
+            onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, initializeSpawnOpts(c, PROJECT_INIT_PROMPT)) : undefined}
             onStatusChange={refetchInit}
             compact={!showFolderBanner}
           />
@@ -2448,10 +2450,12 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               // fix-openspec-board-worktree-button-gating.
               showWorktree={resolveWorktreeAvailability({ cwd: group.cwd, sessions: group.sessions, folderGitMap, gitWorktreeEnabled }).available && !!onSpawnSession}
               cwd={group.cwd}
-              onSpawnSession={(agent) => {
+              onSpawnSession={(agent, choice) => {
                 if (isCollapsed) setFolderCollapsed(group.cwd, false);
-                // No agent → the exact pre-change call (cwd only).
+                // No agent and no model choice → the exact pre-change call (cwd only).
+                // See change: add-spawn-model-choice (D7).
                 if (agent) onSpawnSession?.(group.cwd, undefined, { agent });
+                else if (choice) onSpawnSession?.(group.cwd, undefined, { ...choice });
                 else onSpawnSession?.(group.cwd);
               }}
               onSpawnWorktree={() => {

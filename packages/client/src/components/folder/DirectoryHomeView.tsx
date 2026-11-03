@@ -174,8 +174,9 @@ export function DirectoryHomeView({
       // object as the 2nd arg would serialize `[object Object]` as the proposal.
       const id = onSpawnSession(spawnCwd, undefined, {
         ...(text ? { initialPrompt: text } : {}),
-        ...(effectiveModel ? { model: effectiveModel } : {}),
-        ...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
+        // pi only: an ACP agent takes no model / thinking. See change: add-spawn-model-choice (D7).
+        ...(!agent && effectiveModel ? { model: effectiveModel } : {}),
+        ...(!agent && effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
         ...(agent ? { agent } : {}),
         ...extra,
       });
@@ -351,6 +352,7 @@ export function DirectoryHomeView({
         <Suspense fallback={null}>
         <LazyWorktreeSpawnDialog
           cwd={cwd}
+          modelChoice="hidden"
           onCancel={() => {
             setWorktreeOpen(false);
             setRunLocation("folder");

@@ -29,8 +29,12 @@ interface Props {
    * `isGitRepo && gitWorktreeEnabled && !!onSpawnWorktree`.
    */
   showWorktree: boolean;
-  /** `agent` = configured ACP agent id; absent → pi (today's call, byte-identical). */
-  onSpawnSession: (agent?: string) => void;
+  /**
+   * `agent` = configured ACP agent id; absent → pi. `choice` = the folder's
+   * effective model · thinking for a pi spawn (omitted when empty).
+   * See change: add-spawn-model-choice.
+   */
+  onSpawnSession: (agent?: string, choice?: { model?: string; thinkingLevel?: string }) => void;
   onSpawnWorktree?: () => void;
 }
 
@@ -43,8 +47,8 @@ export function FolderSpawnButtons({
 }: Props) {
   return (
     <div className={`grid grid-cols-1 gap-2 ${showWorktree ? "sm:grid-cols-2" : ""}`}>
-      {/* Agent picker: renders THIS plain button unchanged when no ACP agent is configured.
-          See change: add-acp-session-driver (D16). */}
+      {/* Split button: agent choice (when ACP agents exist) + model · thinking chip.
+          See changes: add-acp-session-driver (D16), add-spawn-model-choice (D7). */}
       <AgentSpawnPicker
         cwd={cwd}
         onSpawn={onSpawnSession}

@@ -34,7 +34,9 @@ import {
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
+import { getEffectiveSpawnChoice, type SpawnChoice } from "../../lib/spawn/spawn-choice-memory.js";
 import { AgentSelect } from "../AgentSelect.js";
+import { SpawnChoiceChip } from "../spawn/SpawnChoiceChip.js";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
 import { WorktreeList } from "./WorktreeList.js";
@@ -75,8 +77,14 @@ interface Props {
    */
   onSpawn: (
     worktreePath: string,
-    opts?: { gitWorktreeBase?: string; attachProposal?: string; agent?: string },
+    opts?: { gitWorktreeBase?: string; attachProposal?: string; agent?: string; model?: string; thinkingLevel?: string },
   ) => void;
+  /**
+   * `"hidden"` when the host already owns the model choice (folder home
+   * composer): no chip, and no `model` / `thinkingLevel` in `onSpawn` opts.
+   * Default `"show"`. See change: add-spawn-model-choice (D7).
+   */
+  modelChoice?: "show" | "hidden";
   onCancel: () => void;
   /**
    * Fired at the TOP of every submit path (existing-worktree row click and
@@ -102,11 +110,14 @@ interface LoadedData {
   remoteBranches: GitBranchEntry[];
 }
 
-export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, attachProposal, onSpawnStart, onSpawnAbort }: Props) {
+export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, attachProposal, onSpawnStart, onSpawnAbort, modelChoice = "show" }: Props) {
   // The ONE agent for this dialog, preselected from the PARENT folder's memory.
   const acpAgents = useAcpAgents();
   const [agent, setAgent] = useState<string | undefined>(undefined);
   const agentName = agent ? acpAgents.find((a) => a.id === agent)?.name : undefined;
+  // The chip's latest effective pick; until it emits, read the parent folder's
+  // memory ?? Settings default at spawn time. See change: add-spawn-model-choice (D6).
+  const [choicePick, setChoicePick] = useState<SpawnChoice | null>(null);
   const [data, setData] = useState<LoadedData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState(initialBranch ?? "");
@@ -257,16 +268,22 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   // Always include attachProposal in opts when the prop was supplied;
   // never invent it. See change: openspec-worktree-spawn-button.
   const buildOpts = useCallback(
-    (gitWorktreeBase?: string): { gitWorktreeBase?: string; attachProposal?: string; agent?: string } | undefined => {
-      const opts: { gitWorktreeBase?: string; attachProposal?: string; agent?: string } = {};
+    (gitWorktreeBase?: string): Parameters<Props["onSpawn"]>[1] => {
+      const opts: NonNullable<Parameters<Props["onSpawn"]>[1]> = {};
       if (gitWorktreeBase) opts.gitWorktreeBase = gitWorktreeBase;
       if (attachProposal) opts.attachProposal = attachProposal;
       // One agent for BOTH spawn actions (existing worktree + create); pi → absent.
       // See change: add-acp-session-driver (D16, mockup S7).
       if (agent) opts.agent = agent;
+      // pi only, and only when the dialog owns the choice. See change: add-spawn-model-choice.
+      else if (modelChoice === "show") {
+        const choice = choicePick ?? getEffectiveSpawnChoice(cwd);
+        if (choice.model) opts.model = choice.model;
+        if (choice.thinkingLevel) opts.thinkingLevel = choice.thinkingLevel;
+      }
       return Object.keys(opts).length > 0 ? opts : undefined;
     },
-    [attachProposal, agent],
+    [attachProposal, agent, modelChoice, choicePick, cwd],
   );
   // Existing worktree rows spawn directly. Any required initialization is
   // a separate gated action (the folder-action-bar Initialize button).
@@ -461,7 +478,12 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
 
   return (
     <DialogChrome onCancel={onCancel} title={i18nT("worktree.worktreeSession", undefined, "+Worktree Session")}>
-      <AgentSelect cwd={cwd} onChange={setAgent} testId="worktree-dialog-agent" className="mb-4 flex items-center gap-2 text-[12px]" />
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
+        <AgentSelect cwd={cwd} onChange={setAgent} testId="worktree-dialog-agent" className="flex items-center gap-2 text-[12px]" />
+        {modelChoice === "show" && (
+          <SpawnChoiceChip cwd={cwd} disabled={agent !== undefined} onChange={setChoicePick} testId="worktree-dialog-model-choice" />
+        )}
+      </div>
       {/* ── existing worktrees ─────────────────────────────────────── */}
       <section className="mb-6" data-testid="worktree-dialog-existing">
         <h4 className="text-[12px] font-semibold text-[var(--text-secondary)] mb-2">
