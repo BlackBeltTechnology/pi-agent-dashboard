@@ -16,6 +16,7 @@ One row per file.
 | `archive-service-sessions-on-end.spec.ts` | → `archive-service-sessions-on-end.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | → `archived-attachment.spec.ts.AGENTS.md` |
 | `archived-session-view.spec.ts` | → `archived-session-view.spec.ts.AGENTS.md` |
+| `canvas-chip-tray-overlay.spec.ts` | L3 canvas chip tray in the composer-column slot (`composer-stack-anchor`): no chrome moves, transcript/scrollbar/Hide handle never covered, pinned re-pin (D6), editor-pane + `full`-mode fixed fallback, mobile, long label/path, two chips at 375×320. See change: fix-chat-transcript-layout. |
 | `canvas-egress-banner.spec.ts` | L3 |
 | `canvas-loopback-url-chip.spec.ts` | L3 |
 | `canvas-static-mockup.spec.ts` | L3 |

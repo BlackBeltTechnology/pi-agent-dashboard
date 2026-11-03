@@ -410,16 +410,17 @@ export function MinimalChatView({
     </div>
   );
 
-  // Inline mode uses a STABLE height (`h-[60vh]`, not `max-h-[60vh]`) so
-  // the container doesn't bounce as content streams in. The body's
-  // `flex-1 min-h-0 overflow-y-auto` (below) gives it a consistent
-  // scroll surface regardless of content size.
+  // Inline mode sizes to its content, capped at `max-h-[60vh]`: a fixed
+  // height left a large blank area under short content (#1083). The body's
+  // `flex-1 min-h-0 overflow-y-auto` (below) scrolls once the cap is reached.
+  // Streaming growth is monotone per entry; the live tail is clamped by
+  // `LiveEntry` (`max-h-36`), so no bounce.
   //
-  // See change: fix-flows-plugin-polish (stable inline height).
+  // See change: fix-chat-transcript-layout (D3; was fix-flows-plugin-polish).
   const containerClasses =
     mode === "popout"
       ? "flex flex-col h-full overflow-hidden"
-      : "flex flex-col h-[60vh] overflow-hidden";
+      : "flex flex-col max-h-[60vh] overflow-hidden";
 
   // Newest reasoning entry opens on mount while the producer is live, so a
   // just-finished block stays readable (main-chat parity). Mount-time only.
@@ -473,7 +474,7 @@ export function MinimalChatView({
   );
 
   return (
-    <div className={containerClasses}>
+    <div className={containerClasses} data-testid="minimal-chat-view" data-mode={mode}>
       {header}
       {body}
     </div>

@@ -52,7 +52,7 @@ export function CanvasServerChip({ chip }: Props) {
       >
         <Icon path={mdiServerNetwork} size={0.6} className="shrink-0 text-[var(--accent-blue)]" />
         <span className="min-w-0 truncate font-medium">{label}</span>
-        <span className="shrink-0 font-mono text-[var(--text-tertiary)]">{address}</span>
+        <span className="min-w-0 truncate font-mono text-[var(--text-tertiary)]">{address}</span>
       </button>
       {message && (
         <span data-testid="canvas-server-chip-status" className="pointer-events-auto text-xs text-[var(--accent-red)]">

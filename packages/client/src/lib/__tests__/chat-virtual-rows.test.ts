@@ -3,6 +3,7 @@ import {
   buildRowKeyToIndex,
   buildToolCallToRowIndex,
   buildTurnToFirstRowIndex,
+  COLLAPSED_BURST_ESTIMATE,
   computeRowTextChars,
   estimateVirtualRowSize,
   extendRangeWithSelection,
@@ -67,9 +68,12 @@ describe("virtualRowKey (CR-3)", () => {
 });
 
 describe("estimateVirtualRowSize (task 2.2)", () => {
-  it("estimates a burst taller than a turn separator", () => {
-    expect(estimateVirtualRowSize(burst("b"))).toBeGreaterThan(
-      estimateVirtualRowSize(msg({ id: "s", role: "turnSeparator" })),
+  // A burst row is estimated at its COLLAPSED header height (16 px measured,
+  // below a turn separator's 24): a collapsed burst is shorter than any single
+  // tool card it folds. See change: fix-chat-transcript-layout (D4).
+  it("estimates a collapsed burst shorter than a single tool card", () => {
+    expect(estimateVirtualRowSize(msg({ id: "t", role: "toolResult" }))).toBeGreaterThan(
+      estimateVirtualRowSize(burst("b")),
     );
   });
 
@@ -560,5 +564,49 @@ describe("buildRowKeyToIndex", () => {
     expect(map.get("g1")).toBe(2);
     expect(map.get("z")).toBe(3);
     expect(map.size).toBe(4);
+  });
+});
+
+/**
+ * A burst row's pre-measure estimate is its COLLAPSED header height (was a
+ * flat 220 px → blank space until measured, #1083). One constant for every
+ * burst row; O(1), never walks members. Test-plan #E10, #E11.
+ * See change: fix-chat-transcript-layout (D4).
+ */
+describe("estimateVirtualRowSize — collapsed burst estimate (fix-chat-transcript-layout)", () => {
+  const sizedBurst = (n: number, running = false): ToolBurstGroup => ({
+    type: "burst",
+    id: `b${n}`,
+    items: Array.from({ length: n }, (_, i) =>
+      msg({ id: `m${i}`, role: "toolResult", toolStatus: running && i === n - 1 ? "running" : "complete" }),
+    ),
+  });
+
+  it("#E10 returns COLLAPSED_BURST_ESTIMATE for every burst, independent of size and run state", () => {
+    // Collapsed header height (measured 16 px on desktop, task 3.1), far below the old 220.
+    expect(COLLAPSED_BURST_ESTIMATE).toBeGreaterThanOrEqual(12);
+    expect(COLLAPSED_BURST_ESTIMATE).toBeLessThanOrEqual(48);
+    for (const b of [sizedBurst(1), sizedBurst(8), sizedBurst(47), sizedBurst(3, true)]) {
+      expect(estimateVirtualRowSize(b)).toBe(COLLAPSED_BURST_ESTIMATE);
+      expect(estimateVirtualRowSize(b, 50_000)).toBe(COLLAPSED_BURST_ESTIMATE);
+    }
+  });
+
+  it("#E10 unclaimed custom and text/image arms are unchanged", () => {
+    expect(estimateVirtualRowSize(msg({ id: "c", role: "custom" }), 100_000)).toBe(160 + 240);
+    expect(estimateVirtualRowSize(msg({ id: "a", role: "assistant" }), 160)).toBe(140 + 40);
+    expect(
+      estimateVirtualRowSize(msg({ id: "u", role: "user", images: [{ data: "", mimeType: "image/png" }] as never }), 0),
+    ).toBe(96 + 300);
+  });
+
+  it("#E11 is O(1): never touches the burst's items", () => {
+    const b = { type: "burst", id: "trap" } as ToolBurstGroup;
+    Object.defineProperty(b, "items", {
+      get() {
+        throw new Error("estimate walked burst items");
+      },
+    });
+    expect(estimateVirtualRowSize(b)).toBe(COLLAPSED_BURST_ESTIMATE);
   });
 });
