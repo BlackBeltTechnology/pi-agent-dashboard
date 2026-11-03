@@ -70,7 +70,7 @@ export function setSpawnDefaults(next: { defaultModel?: string; defaultThinkingL
   for (const l of listeners) l();
 }
 
-export function getSpawnDefaults(): SpawnChoice {
+function getSpawnDefaults(): SpawnChoice {
   return defaults;
 }
 

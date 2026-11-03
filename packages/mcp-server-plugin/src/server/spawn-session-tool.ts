@@ -10,7 +10,7 @@ import type { PluginSpawnOptions, PluginSpawnResult } from "@blackbelt-technolog
 
 const OPTIONAL = ["agent", "model", "thinkingLevel", "initialPrompt"] as const;
 
-export function spawnSessionToolOptions(args: Record<string, unknown>): PluginSpawnOptions {
+function spawnSessionToolOptions(args: Record<string, unknown>): PluginSpawnOptions {
   const opts: PluginSpawnOptions = { cwd: args.cwd as string };
   for (const key of OPTIONAL) {
     const v = args[key];
