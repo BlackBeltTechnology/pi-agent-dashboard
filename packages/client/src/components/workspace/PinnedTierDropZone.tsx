@@ -1,16 +1,14 @@
 /**
- * PinnedTierDropZone — eject target for a `workspace-folder` drag when the
- * pinned tier is EMPTY.
+ * PinnedTierDropZone — eject target for a `workspace-folder` drag.
  *
- * Mounts outside the `visibleTopPinned.length > 0` gate in `SessionList`:
- * that gate renders nothing when the tier is empty, which is exactly when an
- * eject affordance is needed. Renders only while a `workspace-folder` drag is
- * active AND the tier is empty — rendering it alongside the pinned groups
- * would create two overlapping eject targets whose nearest-center resolution
- * is arbitrary. Being the sole affordance, it needs real geometry rather than
- * a zero-height hairline.
+ * Mounted by `SessionList`'s `WorkspaceFolderEjectZone`, which renders it for
+ * EVERY `workspace-folder` drag (read from dnd-kit's `active`), whether or not
+ * pinned groups are visible. Dropping on a pinned group ejects too; both
+ * resolve to `{ kind: "move", toWorkspaceId: null }`, so the two targets never
+ * conflict in outcome. Needs real geometry (min height), not a hairline, since
+ * it is the only eject target when the pinned tier is empty or filtered away.
  *
- * See design D4 / change: drag-folders-across-workspaces.
+ * See changes: drag-folders-across-workspaces, fix-sidebar-folder-visibility (D2).
  */
 import { useDroppable } from "@dnd-kit/core";
 import { t as i18nT } from "../../lib/i18n/i18n.js";

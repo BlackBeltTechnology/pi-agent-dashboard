@@ -15,12 +15,25 @@ export const STUB_DIR_CWD = "/fixtures/stub-dir";
 export const STUB_SESSION_ID = "019f0000-0000-7000-8000-000000000001";
 export const SEED_SESSIONS_COUNT = 125;
 
-export function seedSessionsWindow(sessionsRoot) {
+const DAY_MS = 86_400_000;
+
+/** True when `dir` already holds a `<prefix>_<sid><suffix>` record (any date prefix). */
+function hasRecord(dir, sid, suffix) {
+  return fs.readdirSync(dir).some((f) => f.endsWith(`_${sid}${suffix}`));
+}
+
+/**
+ * `now` anchors every timestamp: the boot sweep archives ended sessions older
+ * than `sessionList.archiveAfterDays` (default 30), so fixed calendar dates
+ * aged out and emptied the stub group. Day-granular (3 days before the seeding
+ * day), and idempotent by session id, so a re-seed on a later day adds nothing.
+ * See change: fix-sidebar-folder-visibility.
+ */
+export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
   fs.mkdirSync(sessionsRoot, { recursive: true });
 
   // 1. Seed 125 ended sessions in distinct directories (1 per dir) with recent timestamps
-  // Baseline time = 2026-09-01T12:00:00.000Z
-  const baseTime = 1788264000000;
+  const baseTime = Math.floor(now / DAY_MS) * DAY_MS - 3 * DAY_MS + DAY_MS / 2;
   for (let i = 0; i < SEED_SESSIONS_COUNT; i++) {
     const sid = `019f0000-0000-7000-8000-${String(i + 10).padStart(12, "0")}`;
     const cwd = `/fixtures/seed-win-${String(i).padStart(3, "0")}`;
@@ -34,14 +47,14 @@ export function seedSessionsWindow(sessionsRoot) {
     const jsonlName = `${datePrefix}_${sid}.jsonl`;
     const metaName = `${datePrefix}_${sid}.meta.json`;
 
-    if (!fs.existsSync(path.join(dir, jsonlName))) {
+    if (!hasRecord(dir, sid, ".jsonl")) {
       fs.writeFileSync(
         path.join(dir, jsonlName),
         `${JSON.stringify({ type: "session", id: sid, cwd })}\n`,
       );
     }
 
-    if (!fs.existsSync(path.join(dir, metaName))) {
+    if (!hasRecord(dir, sid, ".meta.json")) {
       fs.writeFileSync(
         path.join(dir, metaName),
         `${JSON.stringify({
@@ -67,14 +80,14 @@ export function seedSessionsWindow(sessionsRoot) {
   const stubJsonlName = `${stubDatePrefix}_${STUB_SESSION_ID}.jsonl`;
   const stubMetaName = `${stubDatePrefix}_${STUB_SESSION_ID}.meta.json`;
 
-  if (!fs.existsSync(path.join(stubDir, stubJsonlName))) {
+  if (!hasRecord(stubDir, STUB_SESSION_ID, ".jsonl")) {
     fs.writeFileSync(
       path.join(stubDir, stubJsonlName),
       `${JSON.stringify({ type: "session", id: STUB_SESSION_ID, cwd: STUB_DIR_CWD })}\n`,
     );
   }
 
-  if (!fs.existsSync(path.join(stubDir, stubMetaName))) {
+  if (!hasRecord(stubDir, STUB_SESSION_ID, ".meta.json")) {
     fs.writeFileSync(
       path.join(stubDir, stubMetaName),
       `${JSON.stringify({

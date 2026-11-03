@@ -8,7 +8,7 @@ import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-
 import { cardSectionFolderKey, isPluginSectionVisible, resolveCardSectionVisible, resolveFolderListMode } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useDndContext, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -1383,7 +1383,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
    * is visible only when at least one session passes ALL of them (ended
    * included). See change: add-session-tags.
    */
-  function folderMatchesFilters(group: DirectoryGroup): boolean {
+  const folderMatchesFilters = useCallback((group: DirectoryGroup): boolean => {
     const wf = workspaceFilter.trim().toLowerCase();
     const sf = sessionSearch.trim().toLowerCase();
     const folderHit = wf.length === 0 || group.cwd.toLowerCase().includes(wf);
@@ -1393,7 +1393,34 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     let pool = sf.length > 0 ? filterByQuery(group.sessions, sf) : group.sessions;
     if (anyTagFilterActive) pool = pool.filter(passesTagAxes);
     return pool.length > 0;
-  }
+  }, [workspaceFilter, sessionSearch, anyTagFilterActive, passesTagAxes]);
+
+  // Unpinned, non-workspace folders shown in the sidebar. Ended-only folders
+  // stay hidden by default, archived or not: a non-zero `endedTotals` entry
+  // (stub group) never reveals one on its own. Kept: an alive session
+  // (`g.sessions` is post-`filterSessions`, so a hidden one does not count),
+  // the selected session while no filter or Session search (archive search
+  // included) is active, the Folders/tag filters, and archive-search matches.
+  // Also feeds the empty-state gate. See change: fix-sidebar-folder-visibility.
+  const visibleUnpinned = useMemo(
+    () =>
+      visibleTopUnpinned.filter((g) => {
+        // Tag/phase active: folder visible iff ≥1 session passes ALL active
+        // narrowing axes (path + search + tag/phase), ENDED included — so an
+        // ended-only tag match still reveals the folder, and zero-match
+        // folders are hidden (no empty shell). See change: add-session-tags.
+        if (anyTagFilterActive) return folderMatchesFilters(g);
+        if (workspaceFilter.length > 0) return folderMatchesFilters(g);
+        return (
+          g.sessions.some((s) => s.status !== "ended") ||
+          (sessionSearch.length === 0 && g.sessions.some((s) => s.id === selectedId)) ||
+          // Archive-search matches keep an otherwise-ended folder
+          // visible so their `Archive matches` section is reachable.
+          (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0
+        );
+      }),
+    [visibleTopUnpinned, anyTagFilterActive, workspaceFilter, sessionSearch, selectedId, archivedMatchesByGroup, folderMatchesFilters],
+  );
 
   /**
    * Force-expand folders when a filter is active so users can immediately
@@ -3136,7 +3163,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         <WidgetBarProbe key={x.id} sessionId={x.id} onResult={onWidgetBarResult} />
       ))}
       <div aria-live="polite" className="sr-only" data-testid="lane-live-region">{laneAnnouncement}</div>
-      {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 && !stubGroupCwds ? (
+      {visibleUnpinned.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
         // `measuring.droppable.strategy = Always`: spring-load mounts folder
@@ -3231,37 +3258,17 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               ))}
             </SortableContext>
           )}
-          {/* Eject affordance for the EMPTY pinned tier — mounted OUTSIDE the
-              gate above, which renders nothing exactly when it is needed.
-              Sole eject target in this case, so it never coexists with the
-              pinned groups. See design D4. */}
-          {visibleTopPinned.length === 0 && activeDragType === "workspace-folder" && (
-            <li><PinnedTierDropZone /></li>
-          )}
+          {/* Eject affordance for every workspace-folder drag, whether or not
+              pinned groups are visible (dropping on a pinned group ejects
+              too — same outcome, so the targets never conflict). Gate reads
+              dnd-kit's own `active`, not the mirrored `activeDragType`.
+              See change: fix-sidebar-folder-visibility (D2, D4). */}
+          <WorkspaceFolderEjectZone />
           {/* Gap between pinned and unpinned is handled by flex gap */}
-          {/* Unpinned directory groups: rendered when the user is
-              actively filtering folders, OR when the folder contains
-              at least one alive session (active / idle / streaming).
-              Folders with only ended sessions stay hidden by default to
-              keep the sidebar focused on workspaces the user is
-              currently working in.
-              See change: pin-and-search-sessions. */}
-          {visibleTopUnpinned
-            .filter((g) => {
-              // Tag/phase active: folder visible iff ≥1 session passes ALL active
-              // narrowing axes (path + search + tag/phase), ENDED included — so an
-              // ended-only tag match still reveals the folder, and zero-match
-              // folders are hidden (no empty shell). See change: add-session-tags.
-              if (anyTagFilterActive) return folderMatchesFilters(g);
-              return workspaceFilter.length > 0
-                ? folderMatchesFilters(g)
-                : g.sessions.some((s) => s.status !== "ended") ||
-                  (endedTotalsMap?.get(g.cwd) ?? 0) > 0 ||
-                  // Archive-search matches keep an otherwise-ended folder
-                  // visible so their `Archive matches` section is reachable.
-                  (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0;
-            })
-            .map((group) => renderGroupWithWorkspaceMenu(group, false))}
+          {/* Unpinned directory groups: see `visibleUnpinned` for the
+              visibility rule. See changes: pin-and-search-sessions,
+              fix-sidebar-folder-visibility. */}
+          {visibleUnpinned.map((group) => renderGroupWithWorkspaceMenu(group, false))}
         </ul>
         </DndContext>
       )}
@@ -3480,6 +3487,19 @@ function EndedExpanderRow({
       )}
     </div>
   );
+}
+
+/**
+ * Eject drop zone, mounted inside `<DndContext>` and the sidebar `<ul>`. Renders
+ * its own `<li>` only while a `workspace-folder` drag is active, so an idle
+ * sidebar gains no node or flex gap. Reads dnd-kit's `active` (reset when the
+ * provider remounts) rather than mirrored drag state.
+ * See change: fix-sidebar-folder-visibility (D2, D4).
+ */
+function WorkspaceFolderEjectZone() {
+  const { active } = useDndContext();
+  if (active?.data.current?.type !== "workspace-folder") return null;
+  return <li><PinnedTierDropZone /></li>;
 }
 
 function FolderDragGutter({

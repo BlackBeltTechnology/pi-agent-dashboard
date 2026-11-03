@@ -50,3 +50,12 @@ See change: add-pending-question-stack — row 1 mounts `<QuestionStack sessions
 Constant / same-origin navigation sink carries a `client-sinks: allow — <reason>` annotation. See change: harden-client-sinks.
 
 Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do not count as held). See change: add-session-ui-deep-links-for-agents.
+
+## fix-sidebar-folder-visibility
+
+- `visibleUnpinned` (memo): unpinned, non-workspace folders shown. Tag/phase filter → `folderMatchesFilters`. Folders query → `folderMatchesFilters`. Else: alive session (post-`filterSessions`, hidden excluded) OR selected session while `sessionSearch` empty OR archive-search match.
+- `endedTotals` / stub group alone never reveals an unpinned folder. `stubGroupCwds` still feeds grouping (pinned/workspace stubs, Folders-filter reveal).
+- Empty-state gate: `visibleUnpinned.length === 0 && pinnedGroups.length === 0 && no workspaces` → "No active sessions".
+- `folderMatchesFilters` now `useCallback` (memo dep).
+- `WorkspaceFolderEjectZone` (module-local): reads `useDndContext().active`; renders `<li><PinnedTierDropZone/></li>` for every `workspace-folder` drag. Replaces `visibleTopPinned.length === 0 && activeDragType` gate. `activeDragType` kept for `useFlipOnLaneChange` only.
+- Tests: `__tests__/SessionList.folder-visibility.test.tsx`, eject block in `SessionList.folder-membership-drag.test.tsx` (thin `DndContext` mock tracks `active`).
