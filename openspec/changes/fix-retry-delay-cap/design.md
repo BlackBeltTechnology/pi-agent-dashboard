@@ -33,7 +33,7 @@ The `RetryTracker` constructor gains an optional injected `delayFn: (policy, att
 
 Every call goes through one guarded wrapper in `delayFor`, which keeps the existing dashboard guards around pi's arithmetic:
 1. Pre-guard (unchanged from today, `retry-tracker.ts:109`): `baseDelayMs <= 0` (including the parse-failure sentinel `0`) or `attempt < 1` → `0` (elapsed-only). pi's function is never consulted for these.
-2. `try { v = fn(policy, n) } catch { v = cappedDelay(policy, n) }`; a non-number `v` → `cappedDelay(policy, n)`.
+2. `try { v = fn(policy, n) } catch { v = cappedDelay(policy, n) }`; a non-number or non-finite `v` → `cappedDelay(policy, n)`.
 3. Post-guard: `!Number.isFinite(v) || v < 0` → `0`. A negative cap (pi sleeps ≈ 0) therefore renders elapsed-only rather than a negative countdown.
 
 `setDelayFn` stores the raw function, and the wrapper alone guarantees safety.
@@ -54,7 +54,7 @@ The client can't import pi-ai (browser bundle, no peer). `computeSchedule(maxRet
 
 ### D4: Server typed policy gains `maxAgentDelayMs`
 
-The change follows the existing field pattern: defaults, reader, validator (non-negative integer, consistent with the raw-editor rule at `pi-agent-settings.ts:240`), writer, and the `PiRetryPolicy` type in `pi-retry-api.ts`. The writer adds `maxAgentDelayMs: policy.maxAgentDelayMs` next to `baseDelayMs` inside the existing `{...existingRetry, …}` spread (`pi-agent-settings.ts:529-535`), so unknown-key preservation is unchanged. The client field uses the shared settings field kit (accessible name + description, `ms` unit chip), as `settings-panel` requires.
+The change follows the existing field pattern: defaults, reader, validator (non-negative integer, consistent with the raw-editor rule at `pi-agent-settings.ts:240`), writer, and the `PiRetryPolicy` type in `pi-retry-api.ts`. The writer adds `maxAgentDelayMs: policy.maxAgentDelayMs` next to `baseDelayMs` inside the existing `{...existingRetry, …}` spread (`pi-agent-settings.ts:529-535`), so unknown-key preservation is unchanged. The client field reuses the section's existing label-wrapped `NumField` (accessible name "Max delay (ms)", hint text), matching its six sibling retry fields.
 
 ## Risks / Trade-offs
 

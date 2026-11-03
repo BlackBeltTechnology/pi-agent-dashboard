@@ -16,7 +16,7 @@ import {
   SettingsDraftProvider,
   type SettingsDraftRegistry,
 } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { RetrySettingsSection } from "../settings/RetrySettingsSection.js";
+import { computeSchedule, RetrySettingsSection } from "../settings/RetrySettingsSection.js";
 import type { PiRetryPolicy } from "../../lib/api/pi-retry-api.js";
 
 afterEach(() => cleanup());
@@ -25,6 +25,7 @@ const DEFAULTS: PiRetryPolicy = {
   enabled: true,
   maxRetries: 3,
   baseDelayMs: 2000,
+  maxAgentDelayMs: 60000,
   provider: { maxRetries: 0, maxRetryDelayMs: 60000 },
 };
 
@@ -102,6 +103,7 @@ describe("RetrySettingsSection — all six native fields", () => {
       enabled: true,
       maxRetries: 24,
       baseDelayMs: 2000,
+      maxAgentDelayMs: 60000,
       provider: { maxRetries: 2, maxRetryDelayMs: 60000 },
     });
     // timeoutMs must be absent, not 0/null.
@@ -228,5 +230,75 @@ describe("RetrySettingsSection — validation, warnings, disclosures", () => {
     expect(container.querySelector('[data-testid*="project"]')).toBeNull();
     expect(container.querySelector('[data-testid*="session"]')).toBeNull();
     expect(container.textContent).not.toMatch(/\.pi\/settings\.json/);
+  });
+});
+
+/**
+ * pi caps every agent-level wait at `retry.maxAgentDelayMs` (pi-ai
+ * `retryDelayMs`). The preview must show pi's real, capped schedule.
+ * See change: fix-retry-delay-cap.
+ */
+describe("RetrySettingsSection — agent delay cap (fix-retry-delay-cap)", () => {
+  it("previews capped delays and the capped total (test-plan #E12)", async () => {
+    const { getByTestId } = await mount({ maxRetries: 11, baseDelayMs: 2700, maxAgentDelayMs: 60000 });
+    const preview = getByTestId("retry-schedule-preview").textContent ?? "";
+    // 2.7 + 5.4 + 10.8 + 21.6 + 43.2 + 60 × 6 = 443.7 s = 7.4 min
+    expect(getByTestId("retry-schedule-total").textContent).toBe("7.4 min");
+    expect(preview).toContain("2.7 s → 5.4 s → 10.8 s → 21.6 s → 43.2 s → 1.0 min");
+    expect(preview).not.toMatch(/\bh\b|days/);
+    expect(computeSchedule(11, 2700, 60000).totalMs).toBe(443700);
+  });
+
+  it("names the first capped attempt (test-plan #E13)", async () => {
+    const { getByTestId } = await mount({ maxRetries: 11, baseDelayMs: 2700, maxAgentDelayMs: 60000 });
+    expect(getByTestId("retry-cap-notice").textContent).toMatch(/attempt 6/);
+    expect(computeSchedule(11, 2700, 60000).capFromAttempt).toBe(6);
+  });
+
+  it("shows no cap notice when nothing is clamped (test-plan #E14)", async () => {
+    const { queryByTestId } = await mount({ maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 60000 });
+    expect(queryByTestId("retry-cap-notice")).toBe(null);
+    expect(computeSchedule(3, 2000, 60000).capFromAttempt).toBe(null);
+  });
+
+  it("caps the tail step too (test-plan #E15)", async () => {
+    const { getByTestId } = await mount({ maxRetries: 30, baseDelayMs: 2000, maxAgentDelayMs: 60000 });
+    expect(getByTestId("retry-schedule-preview").textContent).toContain("… → 1.0 min");
+  });
+
+  it("offers a labelled cap control and saves it (test-plan #E16)", async () => {
+    const save = okSave();
+    const { getByTestId, getByLabelText, src } = await mount({}, save);
+    const input = getByLabelText(/Max delay \(ms\)/) as HTMLInputElement;
+    expect(input).toBe(getByTestId("retry-maxdelay-input"));
+    expect(input.value).toBe("60000");
+    fireEvent.change(input, { target: { value: "5000" } });
+    await src().commit();
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]![0].maxAgentDelayMs).toBe(5000);
+  });
+
+  it.each(["-1", "1.5", ""])("rejects a cap of %o and does NOT save", async (bad) => {
+    const save = okSave();
+    const { getByTestId, src } = await mount({}, save);
+    fireEvent.change(getByTestId("retry-maxdelay-input"), { target: { value: bad } });
+    expect(getByTestId("retry-error").textContent).toMatch(/max delay/i);
+    await expect(src().commit()).rejects.toThrow();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("greys the cap control when retry is disabled (test-plan #E17)", async () => {
+    const { getByTestId } = await mount({ enabled: true });
+    fireEvent.click(getByTestId("retry-enabled-toggle"));
+    expect((getByTestId("retry-maxdelay-input") as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("stays O(1) for a huge legal attempt count (test-plan #P1)", () => {
+    const start = performance.now();
+    const s = computeSchedule(1_000_000_000, 2000, 60000);
+    expect(performance.now() - start).toBeLessThan(50);
+    // 2+4+8+16+32 s below the cap, then 60 s for the remaining 999_999_995.
+    expect(s.totalMs).toBe(62000 + 999_999_995 * 60000);
+    expect(s.capFromAttempt).toBe(6);
   });
 });

@@ -21,6 +21,7 @@ export const PI_RETRY_DEFAULTS: PiRetryPolicy = {
   enabled: true,
   maxRetries: 3,
   baseDelayMs: 2000,
+  maxAgentDelayMs: 60000,
   provider: { maxRetries: 0, maxRetryDelayMs: 60000 },
 };
 
