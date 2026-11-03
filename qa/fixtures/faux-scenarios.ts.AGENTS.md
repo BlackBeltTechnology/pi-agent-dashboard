@@ -29,3 +29,5 @@ Adds `chat-motion-stream` (≥ 4000 chars of prose + list + fenced code at defau
 Adds `gmail-filter-create` (`gmail_filter_create` a@fake.test, from `newsletter@dest.test`, remove `INBOX`; raises the tool's own confirm; then `gmail filter done`) for gmail-plugin L3 F3. See change: improve-gmail-plugin-setup-ux.
 
 Adds `subagent-long-stream-hold` (one `Agent` call → `subagent-long-stream-hold-inner`: `sleep 40` (restart window) → `buildStreamingBurst(10,60)` (~190 parent-store events, mostly `subagent_started` ticks) → `sleep 90` hold) + exported `LONG_STREAM_HOLD_TAIL`. Drives `tests/e2e/replay-live-tool-not-orphaned.backfill.spec.ts` #F15/#F16. See change: fix-backfill-elides-live-tools.
+
+See change: fix-chat-transcript-layout — adds `burst-large` (40 distinct quick bash calls in one step, then two `sleep 3` calls joining the burst; tail `large burst complete`), `canvas-write-md-and-server` (report.md write + server declare in ONE turn → file chip + server chip together), `canvas-declare-server-longpath` (loopback URL declare with a 120-char path → server chip with long `:port/path`).

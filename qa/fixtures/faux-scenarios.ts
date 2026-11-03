@@ -1385,6 +1385,25 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "burst complete" },
   },
 
+  // Large burst (#1100): one step issues 40 DISTINCT quick bash calls (so the
+  // semantic ×N pass never merges them), a 40-member collapsed burst, then
+  // two slow calls join it one after the other. The window between them is
+  // exactly "a new tool call joins a large collapsed burst": the burst must stay
+  // collapsed (cap 8) and mount no member row. Final text terminates the agent.
+  // See change: fix-chat-transcript-layout (task 1.13, test-plan #P1/#P2).
+  "burst-large": {
+    script: [
+      fauxAssistantMessage(
+        Array.from({ length: 40 }, (_, i) => fauxToolCall("bash", { command: `echo big-burst-${i}` })),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo big-late-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo big-late-two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("large burst complete")]),
+    ],
+    expect: { text: "large burst complete" },
+  },
+
   // Session-death fixture (heal-orphaned-tool-cards-on-session-end, #F6/#F7).
   // ONE long-sleeping bash call, so a tool card stays `running` for two minutes
   // — the window the E2E kills the pi process in. Nothing follows it: the
@@ -2001,6 +2020,44 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("long server declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // One turn that writes `report.md` (mobile: file chip) AND declares a server
+  // (server chip), so both chips stack in the slot at once. The chip expires at
+  // the NEXT turn's agent_start, hence one turn. See change:
+  // fix-chat-transcript-layout (test-plan #X2).
+  "canvas-write-md-and-server": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("write", { path: "report.md", content: "# Two chips\n\nBoth chips at once.\n" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxToolCall("canvas", { target: { kind: "server", port: 5173 }, title: "dev server" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("two chips declared")]),
+    ],
+    expect: { toolName: "canvas" },
+  },
+
+  // Loopback URL declare with a 120-char path: routes to the server chip carrying
+  // the path, so its address span (`:port/path`) must truncate inside the slot.
+  // See change: fix-chat-transcript-layout (test-plan #F13).
+  "canvas-declare-server-longpath": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("canvas", {
+            target: { kind: "url", url: `http://127.0.0.1:5173/${"deep/".repeat(23)}x` },
+            title: "dev server",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("long path server declared")]),
     ],
     expect: { toolName: "canvas" },
   },
