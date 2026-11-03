@@ -80,4 +80,17 @@ describe("seed-sessions-window", () => {
     const m = JSON.parse(readFileSync(join(stubDir, files[1]), "utf8"));
     expect(new Date(m.startedAt).toISOString().replace(/:/g, "-")).toBe(files[0].split("_")[0]);
   });
+
+  it("recreates a missing stub older than the preserved window sessions", () => {
+    const now = Date.UTC(2027, 0, 15, 9, 30);
+    seedSessionsWindow(tmp, now);
+    rmSync(join(tmp, "--fixtures-stub-dir--"), { recursive: true, force: true });
+    seedSessionsWindow(tmp, now + 2 * 86_400_000);
+    const read = (d) => {
+      const f = readdirSync(join(tmp, d)).find((x) => x.endsWith(".meta.json"));
+      return JSON.parse(readFileSync(join(tmp, d, f), "utf8"));
+    };
+    const windowStarts = readdirSync(tmp).filter((d) => d !== "--fixtures-stub-dir--").map((d) => read(d).startedAt);
+    expect(read("--fixtures-stub-dir--").endedAt).toBeLessThan(Math.min(...windowStarts));
+  });
 });

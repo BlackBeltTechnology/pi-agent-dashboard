@@ -2036,6 +2036,33 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     const endedTotal = endedTotalsMap?.get(group.cwd) ?? 0;
     const heldEnded = heldEndedByCwd.get(group.cwd) ?? 0;
     const isStub = !folderHasSessions && endedTotal > 0;
+    // Include-archive search matches, shared by the full body and a stub body
+    // (an archive match can reveal a stub). See change: fix-sidebar-folder-visibility.
+    const renderArchiveMatches = () => {
+      const matches = archivedMatchesByGroup?.get(group.cwd);
+      if (!matches || matches.length === 0) return null;
+      return (
+        <div className="mt-1 flex flex-col gap-1" data-testid={`archive-matches-${group.cwd}`}>
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] px-2 py-0.5 select-none">
+            {t("sessionList.archiveMatches", { count: matches.length }, `Archive matches (${matches.length})`)}
+          </div>
+          {matches.map((item) => (
+            <ArchivedSessionRow
+              key={`am-${item.id}`}
+              item={item}
+              onRestore={(id) => {
+                handleUnarchive(id);
+                if (archiveSearchKey) retryArchived(archiveSearchKey);
+              }}
+              onDeleted={() => {
+                if (archiveSearchKey) retryArchived(archiveSearchKey);
+              }}
+              onOpen={openArchivedSession}
+            />
+          ))}
+        </div>
+      );
+    };
     // session-list-group-by: effective mode, header chip, and the lanes this
     // folder renders (null ⇒ plain list, identical DOM to `none`).
     const groupMode = groupByMode(group.cwd);
@@ -2457,6 +2484,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               onToggle={toggleEndedExpanded}
               onRequestPage={requestEndedPage}
             />
+            {renderArchiveMatches()}
           </div>
         )}
         {!isCollapsed && !isStub && (
@@ -2759,31 +2787,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               archived rows grouped by each item's server-resolved groupPath,
               rendered beneath the folder's resident matches. The tag/phase /
               activeOnly axes never apply to archived rows. */}
-          {(() => {
-            const matches = archivedMatchesByGroup?.get(group.cwd);
-            if (!matches || matches.length === 0) return null;
-            return (
-              <div className="mt-1 flex flex-col gap-1" data-testid={`archive-matches-${group.cwd}`}>
-                <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] px-2 py-0.5 select-none">
-                  {t("sessionList.archiveMatches", { count: matches.length }, `Archive matches (${matches.length})`)}
-                </div>
-                {matches.map((item) => (
-                  <ArchivedSessionRow
-                    key={`am-${item.id}`}
-                    item={item}
-                    onRestore={(id) => {
-                      handleUnarchive(id);
-                      if (archiveSearchKey) retryArchived(archiveSearchKey);
-                    }}
-                    onDeleted={() => {
-                      if (archiveSearchKey) retryArchived(archiveSearchKey);
-                    }}
-                    onOpen={openArchivedSession}
-                  />
-                ))}
-              </div>
-            );
-          })()}
+          {renderArchiveMatches()}
           {/* Per-folder `Archive (N)` fold (archive-sessions-lazy-load): below
               the ended fold, collapsed by default, dashed separator,
               left-aligned (drawer read). First expand lazily fetches page 1
@@ -3169,7 +3173,22 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
       ))}
       <div aria-live="polite" className="sr-only" data-testid="lane-live-region">{laneAnnouncement}</div>
       {visibleUnpinned.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
-        <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
+        // Keep the dashboard add actions reachable when every folder is
+        // hidden, and name a filter-emptied list as such rather than as
+        // "No active sessions". See change: fix-sidebar-folder-visibility.
+        <div className="flex flex-col gap-2 p-2 pr-4">
+          {onOpenPinDialog && (
+            <DashboardSpawnButtons
+              onAddFolder={() => onOpenPinDialog?.()}
+              onNewWorkspace={onCreateWorkspace ? () => setNewWsOpen({ pendingFolder: null }) : undefined}
+            />
+          )}
+          <div className="p-2 text-sm text-[var(--text-tertiary)]">
+            {workspaceFilter.length > 0 || sessionSearch.length > 0 || anyTagFilterActive
+              ? t("sessionList.noMatchingFolders", undefined, "No matching folders")
+              : t("sessionList.noActiveSessions", undefined, "No active sessions")}
+          </div>
+        </div>
       ) : (
         // `measuring.droppable.strategy = Always`: spring-load mounts folder
         // droppables MID-DRAG, and the default `Optimized` strategy does not

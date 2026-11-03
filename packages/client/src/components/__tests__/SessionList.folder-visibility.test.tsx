@@ -238,6 +238,45 @@ describe("archive match under a Folders query (CodeRabbit #1107)", () => {
   });
 });
 
+describe("CodeRabbit #1107 round 2", () => {
+  it("renders the Archive matches section in a stub folder revealed by an archive match", async () => {
+    vi.useFakeTimers();
+    try {
+      const item = { id: "arch1", name: "Archived arch1", cwd: "/a", groupPath: "/a", endedAt: 1000, archivedAt: 2000, sessionFile: "/tmp/arch1.jsonl" };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: () => Promise.resolve({ success: true, data: { items: [item] } }),
+      }));
+      mount({ sessions: [mk({ cwd: "/b", status: "active" })], endedTotalsMap: new Map([["/a", 2]]) });
+      openFilterFunnel();
+      fireEvent.click(screen.getByTestId("search-include-archive"));
+      setSidebarSearch("sessions", "arch1");
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+      expect(folderShown("/a")).toBe(true);
+      expect(screen.getByTestId("archive-matches-/a")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the sidebar add actions when every folder is hidden", () => {
+    mount({ sessions: [mk({ cwd: "/a" })], endedTotalsMap: new Map([["/a", 1]]), onOpenPinDialog: () => {} });
+    expect(emptyMessageShown()).toBe(true);
+    expect(screen.getByTestId("dashboard-add-folder-btn")).toBeTruthy();
+  });
+
+  it("says 'No matching folders' (not 'No active sessions') when a filter hides every folder", () => {
+    mount({ sessions: [mk({ cwd: "/a", status: "active" })], onOpenPinDialog: () => {} });
+    setSidebarSearch("folders", "zzz");
+    expect(folderShown("/a")).toBe(false);
+    expect(emptyMessageShown()).toBe(false);
+    expect(screen.getByText("No matching folders")).toBeTruthy();
+    expect(screen.getByTestId("dashboard-add-folder-btn")).toBeTruthy();
+  });
+});
+
 describe("selected-session clause (design D3)", () => {
   it("E12: an ended-only folder holding the selected session stays visible with the selected card", () => {
     const sel = mk({ cwd: "/a" });

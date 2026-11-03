@@ -53,6 +53,9 @@ export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
 
   // 1. Seed 125 ended sessions in distinct directories (1 per dir) with recent timestamps
   const baseTime = Math.floor(now / DAY_MS) * DAY_MS - 3 * DAY_MS + DAY_MS / 2;
+  // Oldest window start actually on disk: a recreated stub must stay older than
+  // every preserved window session, or it lands inside the snapshot window.
+  let oldestWindowStart = Number.POSITIVE_INFINITY;
   for (let i = 0; i < SEED_SESSIONS_COUNT; i++) {
     const sid = `019f0000-0000-7000-8000-${String(i + 10).padStart(12, "0")}`;
     const cwd = `/fixtures/seed-win-${String(i).padStart(3, "0")}`;
@@ -62,6 +65,7 @@ export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
 
     const prior = existingPrefix(dir, sid);
     const startedAt = prior ? prefixTime(prior) : baseTime + i * 1000;
+    oldestWindowStart = Math.min(oldestWindowStart, startedAt);
     const endedAt = startedAt + 500;
     const datePrefix = prior ?? new Date(startedAt).toISOString().replace(/:/g, "-");
     const jsonlName = `${datePrefix}_${sid}.jsonl`;
@@ -95,7 +99,7 @@ export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
   fs.mkdirSync(stubDir, { recursive: true });
 
   const stubPrior = existingPrefix(stubDir, STUB_SESSION_ID);
-  const stubStartedAt = stubPrior ? prefixTime(stubPrior) : baseTime - 100000000; // far older
+  const stubStartedAt = stubPrior ? prefixTime(stubPrior) : Math.min(baseTime, oldestWindowStart) - 100000000; // far older
   const stubEndedAt = stubStartedAt + 500;
   const stubDatePrefix = stubPrior ?? new Date(stubStartedAt).toISOString().replace(/:/g, "-");
   const stubJsonlName = `${stubDatePrefix}_${STUB_SESSION_ID}.jsonl`;
