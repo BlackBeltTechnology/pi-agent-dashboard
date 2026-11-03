@@ -246,7 +246,19 @@ export interface SpawnSessionRequest {
   cwd: string;
   /** Configured ACP agent id; absent → pi. See change: add-acp-session-driver. */
   agent?: string;
+  /** `provider/id`, `provider/id:<level>`, `@role` or `@role:<level>`; `@role` resolves once at spawn time. pi only. See change: add-spawn-model-choice. */
+  model?: string;
+  /** Canonical thinking level (`off`…`xhigh`). For `@role` refs it beats the ref suffix and the role level. pi only. */
+  thinkingLevel?: string;
+  /** First prompt dispatched once the spawned session registers. */
+  initialPrompt?: string;
 }
+
+/** REST body: `SpawnSessionRequest` plus the REST-only attach intent (the plugin-hook road has no attach registry). See change: add-spawn-model-choice (D3). */
+export type RestSpawnSessionRequest = SpawnSessionRequest & {
+  /** OpenSpec change name attached to the session once it registers. */
+  attachProposal?: string;
+};
 
 export type SpawnSessionResponse = ApiResponse<{ message: string }>;
 

@@ -58,6 +58,7 @@ import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inline
 import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-token-delivery.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
+import { buildSpawnNewSessionMessage } from "./spawn-new-session.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { createPathGate } from "./path-gate/index.js";
@@ -1464,7 +1465,8 @@ function initBridge(pi: ExtensionAPI) {
     // See change: fix-terminal-session-dashboard-reload (D1/D3/D4).
     reload: terminalReload.reload,
     spawnNew: () => {
-      inst.connection.send({ type: "spawn_new_session", sessionId: inst.sessionId, cwd: process.cwd() });
+      // Inherits the current model + thinking level. See change: add-spawn-model-choice (D5).
+      inst.connection.send(buildSpawnNewSessionMessage(inst.sessionId, process.cwd(), () => syncBc()));
     },
     sessionPrompt: async (text, delivery, promptId) => {
       // Route slash commands: extension dispatch, then fallback. A typed

@@ -138,4 +138,19 @@ describe("pending-attach-registry", () => {
     );
     expect(src).not.toMatch(/spawn-recovery-window|spawnRegisterTimeoutMs/);
   });
+
+  // test-plan #X2 — see change: add-spawn-model-choice
+  it("X2: withdraw removes the newest matching entry only", () => {
+    const reg = createPendingAttachRegistry({ normalize: (c: string) => c });
+    reg.enqueue("/p", "A");
+    reg.enqueue("/p", "B");
+    reg.enqueue("/p", "A");
+    expect(reg.withdraw("/p", "A")).toBe(true);
+    expect(reg.size("/p")).toBe(2);
+    expect(reg.withdraw("/p", "Z")).toBe(false);
+    expect(reg.size("/p")).toBe(2);
+    expect(reg.consume("/p")).toBe("A");
+    expect(reg.consume("/p")).toBe("B");
+    expect(reg.consume("/p")).toBeNull();
+  });
 });
