@@ -110,10 +110,22 @@ function baseRowSize(role: ChatMessage["role"]): number {
   }
 }
 
+/**
+ * Pre-measure estimate for ANY burst row: its collapsed header height. A burst
+ * renders collapsed unless it is running-and-small or manually opened; running
+ * bursts sit at the tail and are measured on mount, so this governs first paint
+ * of historical, collapsed bursts only. Was a flat 220 px → ~190 px of blank
+ * spacer per unmeasured burst (#1083). Measured collapsed burst row in the
+ * docker harness (task 3.1): desktop 16 px (one `text-xs` header line, no
+ * padding); mobile 44 px (touch-target header), measured on mount.
+ * See change: fix-chat-transcript-layout (D4).
+ */
+export const COLLAPSED_BURST_ESTIMATE = 16;
+
 export function estimateVirtualRowSize(item: BurstItem, textChars = 0): number {
   // Burst/group rows keep type constants — their variance is small relative to
   // text rows and their aggregate text is folded into child cards.
-  if (isBurst(item)) return 220;
+  if (isBurst(item)) return COLLAPSED_BURST_ESTIMATE;
   if (isGroup(item)) return 64;
   const msg = item as ChatMessage;
   let textReserve = Math.min(Math.ceil(textChars / CHARS_PER_LINE) * LINE_PX, TEXT_RESERVE_CLAMP);

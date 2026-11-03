@@ -5,3 +5,5 @@ Declared-server confirm chip (`data-testid=canvas-server-chip`, carries only por
 See change: fix-canvas-chip-tray-overlay — chip chain is shrinkable inside the floating tray (`min-w-0 max-w-full` on the wrapper + button, `truncate` on the label, `shrink-0` on icon + `:port`); the button is `pointer-events-auto` because the tray itself is `pointer-events-none`.
 
 Probe moved to `useOpenCanvasTarget().openServer`; chip shows `:port/path`; no `onTap` prop; tap opens restricted preset at declared path. See change: improve-canvas-html-and-url-ux.
+
+See change: fix-chat-transcript-layout — address span (`:port/path`) `shrink-0` → `min-w-0 truncate`: a long declared path truncates with the label instead of overflowing the slot.

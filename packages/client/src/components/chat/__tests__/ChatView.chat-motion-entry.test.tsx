@@ -88,14 +88,17 @@ const entering = (c: HTMLElement) => c.querySelectorAll(ENTER).length;
 describe("ChatView live-arrival entry", () => {
   // E7 — entry seeding
   it("a first commit for a session animates nothing, then a live arrival animates only itself (E7)", () => {
-    const thirty = Array.from({ length: 30 }, (_, i) => tool(`t${i}`));
-    const { container, rerender } = render(tree({ state: stateOf(thirty) }));
+    // 7 history rows + 1 live = 8 visible burst members: the running burst still
+    // auto-expands (cap 8), so the live member's row mounts and can animate.
+    // A larger running burst stays collapsed. See change: fix-chat-transcript-layout (D1).
+    const history = Array.from({ length: 7 }, (_, i) => tool(`t${i}`));
+    const { container, rerender } = render(tree({ state: stateOf(history) }));
     expect(entering(container)).toBe(0);
 
-    rerender(tree({ state: stateOf([...thirty, tool("live", "running")]) }));
+    rerender(tree({ state: stateOf([...history, tool("live", "running")]) }));
     expect(entering(container)).toBe(1);
     // Latched: the class never re-triggers on a later re-render.
-    rerender(tree({ state: stateOf([...thirty, tool("live", "running")]) }));
+    rerender(tree({ state: stateOf([...history, tool("live", "running")]) }));
     expect(entering(container)).toBe(1);
   });
 

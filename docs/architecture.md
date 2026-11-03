@@ -1159,7 +1159,7 @@ First-party slots (React, possibly also descriptor):
 ```mermaid
 flowchart TB
   CV["ChatView (shrinkable)"] --> SB["SessionBanner (fixed)"]
-  SB --> AN["composer-stack-anchor (fixed, 0 px)"]
+  SB --> AN["composer-stack-anchor (fixed, content-height chip slot)"]
   AN --> DK
   subgraph DK["composer-dock (shrinkable)"]
     direction TB
@@ -1168,6 +1168,8 @@ flowchart TB
   end
   DK --> CI["CommandInput card: textarea + one toolbar row"]
 ```
+
+- `composer-stack-anchor` = canvas chip slot (`shrink-0 mx-5`, 0 px while no chip). `CanvasDriver` portals chip tray into it while live composer + chat pane visible. No live composer or `full` editor mode → fixed bottom-right overlay fallback. See change: fix-chat-transcript-layout.
 
 - Sibling of `CommandInput`, never inside it. Mounted by `ComposerDockHost.tsx` (hook boundary for `App.tsx`; also `DirectoryHomeView.tsx`). Visual join CSS only: `mx-5` inset (8px inside card edges, drawer look), `-mb-6 pb-6` tucks bottom edge 12px under card; `composer-root` drops its full-width `border-t` while dock visible (index.css sibling rule). team-app `ChatPane` embeds `CommandInput` bare: no dock.
 - Nothing renders for `readOnly` (archived) views or when no lane and no YOLO footer.

@@ -423,9 +423,9 @@ const NOOP_OPEN_LANE = () => {};
 
 export default function App() {
   const { t, language } = useI18n();
-  // Zero-height sentinel at the top of the LIVE composer stack. State-backed
+  // Canvas chip slot at the top of the LIVE composer stack. State-backed
   // (callback ref) so unmount yields `null` → CanvasDriver's safe-area fallback.
-  // See change: fix-canvas-chip-tray-overlay.
+  // See changes: fix-canvas-chip-tray-overlay, fix-chat-transcript-layout.
   const [composerAnchor, setComposerAnchor] = useState<HTMLElement | null>(null);
   // Pause all CSS animations while the window is hidden to the tray /
   // backgrounded, so the renderer + GPU stop continuous compositing.
@@ -2709,22 +2709,24 @@ export default function App() {
               });
             } : undefined}
           />
-          {/* Anchor for the floating canvas chip tray: 0 height, no gap unit, so it
-              leaves the pane's flex budget untouched. Live stack only — a frozen
-              underlay never anchors it. See change: fix-canvas-chip-tray-overlay. */}
+          {/* Canvas chip slot: content height (0 px while empty), inset `mx-5` like
+              the dock, directly above it. CanvasDriver portals the chip tray in, so
+              chips sit inside the chat column and the transcript shrinks to make
+              room (never covered). Not aria-hidden: it holds interactive chips. Live
+              stack only — a frozen underlay never provides it (→ fixed fallback).
+              See change: fix-chat-transcript-layout (D5); was fix-canvas-chip-tray-overlay. */}
           {!frozen && !readOnly && (
             <div
-              aria-hidden
               data-testid="composer-stack-anchor"
-              className="h-0 shrink-0"
+              className="shrink-0 mx-5"
               ref={setComposerAnchor}
             />
           )}
           {/* Composer dock: the session's live context (Processes, Changes, OpenSpec,
               Queue, Context lanes + the YOLO footer) directly above the composer card,
               replacing the context strip, StatusBar, QueuePanel and YoloComposerStrip.
-              `composer-stack-anchor` sits directly above it, so the canvas chip tray
-              tracks the dock's top edge, or the card's when no dock renders. The follow-up
+              `composer-stack-anchor` (the canvas chip slot) sits directly above it, so
+              chips sit on the dock's top edge, or the card's when no dock renders. The follow-up
               queue is DISPLAY-ONLY plus bridge-owned mutation senders (Edit/Remove/Promote/
               Clear all); `pendingQueues.followUp` is normalised inside the lanes hook.
               See change: add-composer-dock (task 8.1). */}
