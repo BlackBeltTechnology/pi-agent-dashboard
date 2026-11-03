@@ -10,7 +10,8 @@
   - Note: removing the `act` wrapper in `typeAndSettle` → E1 and F3 red (`onOpen` called with `src/editor.ts`). Restored; file 11/11 green (10 passed + 1 expected-fail E3 fixture).
 - [x] 1.7 Stress (test-plan P1: manual-only, sanity not the red step): run the file ≥50× under CPU load (4× `yes >/dev/null`, `HOME=$(mktemp -d)`), 0 failures. Verify: summary count in notes.
   - Note: 50/50 green under 4× `yes >/dev/null`, `HOME=$(mktemp -d)`.
-- [ ] 1.8 Close #1097 with a comment recording the production-impact conclusion (design.md #1097: reset on `mode`/`regex`/callback-identity change is intended; test-only fix) (test-plan E6: manual-only, with 2.3 and 3.11). Verify: comment posted.
+- [x] 1.8 Close #1097 with a comment recording the production-impact conclusion (design.md #1097: reset on `mode`/`regex`/callback-identity change is intended; test-only fix) (test-plan E6: manual-only, with 2.3 and 3.11). Verify: comment posted.
+  - Note: comment posted (issuecomment-6613024767); closes on merge via `Fixes #1097`.
 
 ## 2. #1070 — ProviderAddDialog AUTH-006 (verification only)
 
@@ -18,7 +19,8 @@
   - Note: `f93a27812` is an ancestor of `origin/develop`; `ProviderAddDialog.test.tsx` diff empty; `-t AUTH-006` green.
 - [x] 2.2 Stress (test-plan P2: manual-only): under 4× CPU hogs, `-t AUTH-006` ≥50× and the whole `ProviderAddDialog.test.tsx` ≥20× (closer to the CI shard load the issue failed under). Verify: 0 failures, counts in notes.
   - Note: under 4× CPU hogs: `-t AUTH-006` 50/50, whole file 20/20.
-- [ ] 2.3 Close #1070 manually, commenting `f93a27812` + the stress evidence (trailer uses `Refs #1070`, not `Fixes`) (test-plan E6: manual-only). Verify: issue closed; no code change.
+- [x] 2.3 Close #1070 manually, commenting `f93a27812` + the stress evidence (trailer uses `Refs #1070`, not `Fixes`) (test-plan E6: manual-only). Verify: issue closed; no code change.
+  - Note: closed with f93a27812 + stress evidence.
 
 ## 3. #1071 — real-serve orphan (systematic-debugging)
 
@@ -35,7 +37,8 @@
 - [x] 3.9 Soak (test-plan P3: manual-only): `real-serve.test.ts` 5× back-to-back; after each run no survivor (`pgrep -f "setInterval"` by the maintainer; the in-test assertion holds every run). Verify: counts in notes.
   - Note: 5/5 runs 9/9 green, 0 survivors (`pgrep -f "process.stdin.on('end'"`) after each.
 - [x] 3.10 Update the `stub-exec.mjs` row in `fixtures/AGENTS.md` (`STUB_CHILD_PID_FILE`). Verify: row mentions it.
-- [ ] 3.11 Reference follow-up issue #1103 (`service exec` signal forwarding, design.md Decision 4 option C; already filed) as `Refs #1103` in the commit trailer and PR description (test-plan E6: manual-only). Verify: trailer present; no edit to `bridge.ts` / `cli-service.ts` in this change.
+- [x] 3.11 Reference follow-up issue #1103 (`service exec` signal forwarding, design.md Decision 4 option C; already filed) as `Refs #1103` in the commit trailer and PR description (test-plan E6: manual-only). Verify: trailer present; no edit to `bridge.ts` / `cli-service.ts` in this change.
+  - Note: `Refs #1103` in commit trailer and PR body; no edit to `bridge.ts` / `cli-service.ts`.
 
 ## 4. Ship
 
