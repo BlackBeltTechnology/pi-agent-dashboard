@@ -8,7 +8,6 @@
 export const MOCK_ID_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/;
 /** Ring number segment (a ref segment, so no `/`). */
 export const RING_RE = /^[A-Za-z0-9-]+$/;
-export const SIDES = /** @type {const} */ (["current", "proposed"]);
 
 /**
  * @typedef {{ id: string, frame?: number, side?: "current"|"proposed", ring?: string }} Ref

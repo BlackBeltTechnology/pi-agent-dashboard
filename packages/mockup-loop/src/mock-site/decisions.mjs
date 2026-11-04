@@ -6,8 +6,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { MOCK_ID_RE } from "./refs.mjs";
 
-export const STATUSES = /** @type {const} */ (["accepted", "rejected", "open"]);
-export const NOTE_MAX = 500;
+const STATUSES = /** @type {const} */ (["accepted", "rejected", "open"]);
+const NOTE_MAX = 500;
 
 /** @typedef {{ status: "accepted"|"rejected", by: "user"|"agent", note?: string, at: string }} Decision */
 

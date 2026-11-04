@@ -33,12 +33,12 @@ export interface Mock {
   frames: Frame[];
 }
 
-export const MAX_TIP = 40;
+const MAX_TIP = 40;
 
 /** `<id>/<frame>/<side>` of the pane being rendered; rings derive their ref from it. */
 export const RefBase = createContext<string | null>(null);
 /** Top-level site URL of a ref (never the `?pane=` iframe URL). */
-export const refUrl = (ref: string): string => `${location.origin}${location.pathname}#${ref}`;
+const refUrl = (ref: string): string => `${location.origin}${location.pathname}#${ref}`;
 
 /** Link to a ref: navigates the TOP page (also from a phone iframe) and copies the URL. */
 export function RefLink({ to, className, children, title }: { to: string; className?: string; children: ReactNode; title?: string }): ReactElement {

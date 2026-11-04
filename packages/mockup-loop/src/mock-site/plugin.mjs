@@ -184,4 +184,3 @@ export function mockSite(options) {
   };
 }
 
-export { SITE_DIR };

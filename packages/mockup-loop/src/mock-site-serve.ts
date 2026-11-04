@@ -20,7 +20,7 @@ export const children = new Map<number, ChildProcess>();
 export type ServeResult = { ok: true; port: number; local: string; lan: string | null; root: string } | { ok: false; error: string };
 
 /** Ports the mock site must never take: 8000, PI_DASHBOARD_PORT, ~/.pi/dashboard/config.json port. */
-export function forbiddenPorts(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): Set<number> {
+function forbiddenPorts(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): Set<number> {
   const out = new Set<number>([8000]);
   const p = Number(env.PI_DASHBOARD_PORT);
   if (Number.isInteger(p) && p > 0) out.add(p);
@@ -61,7 +61,7 @@ function portInUse(port: number): Promise<boolean> {
   });
 }
 
-export function killChild(child: ChildProcess): Promise<void> {
+function killChild(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) return resolve();
     const t = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
