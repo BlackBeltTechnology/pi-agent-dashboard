@@ -207,6 +207,8 @@ test.describe("flow card grid geometry (L3)", () => {
     const handlerA = panel.locator("[data-step='load-ticket']").getByTitle("Open handler in editor");
     await expect(handlerA).toBeVisible();
     // Real pointer at the control's centre (never element.click()).
+    // The cards sit below the graph (update-flows-plugin D7): bring the control on screen first.
+    await handlerA.scrollIntoViewIfNeeded();
     const aBox = await handlerA.boundingBox();
     await page.mouse.click(aBox!.x + aBox!.width / 2, aBox!.y + aBox!.height / 2);
     await expect(page).toHaveURL(new RegExp(`/session/${sid}/editor\\?file=`));
@@ -215,6 +217,8 @@ test.describe("flow card grid geometry (L3)", () => {
     // the first open made the second card's control dead).
     const handlerB = panel.locator("[data-step='check-form']").getByTitle("Open handler in editor");
     await expect(handlerB).toBeVisible();
+    // The cards sit below the graph (update-flows-plugin D7): bring the control on screen first.
+    await handlerB.scrollIntoViewIfNeeded();
     const bBox = await handlerB.boundingBox();
     await page.mouse.click(bBox!.x + bBox!.width / 2, bBox!.y + bBox!.height / 2);
     await expect(page).toHaveURL(/check-form\.ts/);
@@ -223,6 +227,8 @@ test.describe("flow card grid geometry (L3)", () => {
 
     // #X1: an unreadable handler path is the editor pane's failure, not the card's.
     const handlerBad = panel.locator("[data-step='transcribe']").getByTitle("Open handler in editor");
+    // The cards sit below the graph (update-flows-plugin D7): bring the control on screen first.
+    await handlerBad.scrollIntoViewIfNeeded();
     const badBox = await handlerBad.boundingBox();
     await page.mouse.click(badBox!.x + badBox!.width / 2, badBox!.y + badBox!.height / 2);
     await expect(page).toHaveURL(/transcribe\.ts/);
