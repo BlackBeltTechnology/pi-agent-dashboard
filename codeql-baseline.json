@@ -94,9 +94,9 @@
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_smoke.yml",
-      "lineHash": "2f45bbc164d3316e:1",
+      "lineHash": "408f101050c0baa6:1",
       "count": 1,
-      "reason": "github-dismissed (#411, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
+      "reason": "accepted-risk: relocated pre-existing finding (merged install steps replace dismissed #226/#227/#409/#410/#412). Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning). See change: raise-node-floor-to-26."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
@@ -104,41 +104,6 @@
       "lineHash": "481bfa7b2741ca2c:1",
       "count": 1,
       "reason": "github-dismissed (#228, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
-    },
-    {
-      "ruleId": "actions/cache-poisoning/poisonable-step",
-      "file": ".github/workflows/_smoke.yml",
-      "lineHash": "5f8f4c93579c46ee:1",
-      "count": 1,
-      "reason": "github-dismissed (#410, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
-    },
-    {
-      "ruleId": "actions/cache-poisoning/poisonable-step",
-      "file": ".github/workflows/_smoke.yml",
-      "lineHash": "88c77860188c16af:1",
-      "count": 1,
-      "reason": "github-dismissed (#412, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
-    },
-    {
-      "ruleId": "actions/cache-poisoning/poisonable-step",
-      "file": ".github/workflows/_smoke.yml",
-      "lineHash": "8f013c5c380efa7e:1",
-      "count": 1,
-      "reason": "github-dismissed (#226, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
-    },
-    {
-      "ruleId": "actions/cache-poisoning/poisonable-step",
-      "file": ".github/workflows/_smoke.yml",
-      "lineHash": "b4afc76a94d10345:1",
-      "count": 1,
-      "reason": "github-dismissed (#409, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
-    },
-    {
-      "ruleId": "actions/cache-poisoning/poisonable-step",
-      "file": ".github/workflows/_smoke.yml",
-      "lineHash": "d47a83fab3adf366:1",
-      "count": 1,
-      "reason": "github-dismissed (#227, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
