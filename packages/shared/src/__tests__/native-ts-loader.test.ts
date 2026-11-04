@@ -178,6 +178,8 @@ describe("native-ts-register tiers", () => {
     expect(res.stderr).not.toMatch(/Error/);
     expect(res.status).toBe(0);
     expect(res.stdout.trim()).toBe("from-b json");
+    // Unit-level home of the old EOL-23 boot tiers (raise-node-floor-to-26, #E20).
+    expect(res.stderr).not.toMatch(/jiti|PI_DASHBOARD_TS_LOADER/);
   });
 
   it("tier 3 also rejects non-erasable syntax naming the file", () => {
@@ -189,6 +191,7 @@ describe("native-ts-register tiers", () => {
     const res = run(dir, "a.ts", [pathToFileURL(path.join(dir, "preload.mjs")).href]);
     expect(res.status).not.toBe(0);
     expect(res.stderr).toContain("e.ts");
+    expect(res.stderr).not.toMatch(/jiti|PI_DASHBOARD_TS_LOADER/);
   });
 
   // #E1 — decision table for the tier selector.
@@ -211,7 +214,7 @@ describe("native-ts-register guard", () => {
     });
     const res = run(dir, "x.ts", [pathToFileURL(path.join(dir, "preload.mjs")).href]);
     expect(res.status).not.toBe(0);
-    expect(res.stderr).toContain(">=22.19.0 <27");
+    expect(res.stderr).toContain(">=26.0.0 <27");
     expect(res.stderr).not.toMatch(/jiti|PI_DASHBOARD_TS_LOADER/);
     expect(res.stdout).not.toContain("ran");
   });

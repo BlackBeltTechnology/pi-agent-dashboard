@@ -16,7 +16,7 @@ The shared package SHALL ship a `--import`-able register module (`@blackbelt-tec
 
 `.tsx` is not supported by the loader.
 
-Every Node in the engines range SHALL boot through one of these tiers; the register module SHALL fail only when neither `module.registerHooks` nor `module.register` exists, naming the supported engines range. On Node lines with `registerHooks` the register module SHALL NOT emit a `DEP0205` deprecation warning. It SHALL suppress only the `stripTypeScriptTypes` `ExperimentalWarning`, in every thread that strips (every other warning still reaches stderr). Because `registerHooks` hooks also run for CommonJS `require()`, the hooks SHALL leave `require()` resolution of non-TypeScript modules unchanged.
+Every Node in the engines range SHALL boot through one of these tiers. The engines range is now Node 26 only, so the server boots exclusively through the `registerHooks` + `stripTypeScriptTypes` tier; the older tiers are retained in the register module and verified at unit level with a stubbed `node:module` API, not by booting the server on an end-of-life Node; the register module SHALL fail only when neither `module.registerHooks` nor `module.register` exists, naming the supported engines range. On Node lines with `registerHooks` the register module SHALL NOT emit a `DEP0205` deprecation warning. It SHALL suppress only the `stripTypeScriptTypes` `ExperimentalWarning`, in every thread that strips (every other warning still reaches stderr). Because `registerHooks` hooks also run for CommonJS `require()`, the hooks SHALL leave `require()` resolution of non-TypeScript modules unchanged.
 
 #### Scenario: NodeNext-style .js specifier resolves to the .ts source
 
@@ -51,13 +51,13 @@ Every Node in the engines range SHALL boot through one of these tiers; the regis
 
 #### Scenario: Same loader on every supported Node line
 
-- **WHEN** the dashboard server boots with the register module on Node 22.19, 23.1, 23.4, 24, 25 and 26
-- **THEN** `/api/health` SHALL respond on each
-- **AND** no `stripTypeScriptTypes` `ExperimentalWarning` SHALL be printed on any of them, and no `DEP0205` warning on the lines that have `registerHooks`
+- **WHEN** the dashboard server boots with the register module on Node 26
+- **THEN** `/api/health` SHALL respond
+- **AND** no `stripTypeScriptTypes` `ExperimentalWarning` and no `DEP0205` warning SHALL be printed
 
 #### Scenario: Node without a stripping API uses the bundled stripper
 
-- **WHEN** the server boots on Node 23.0 or 23.1 (no `stripTypeScriptTypes`, no `registerHooks`)
+- **WHEN** the register module runs against a `node:module` API with no `stripTypeScriptTypes` and no `registerHooks` (as on Node 23.0–23.1), verified with a stubbed module API
 - **THEN** the hooks SHALL be registered with `module.register` and types stripped with the bundled `amaro`
 - **AND** `amaro` SHALL NOT be loaded on any Node that has `stripTypeScriptTypes`
 
@@ -68,7 +68,7 @@ Every Node in the engines range SHALL boot through one of these tiers; the regis
 
 #### Scenario: Old Node without type stripping
 
-- **WHEN** the register module runs on Node 23.2–23.4 (`stripTypeScriptTypes` but no `registerHooks`)
+- **WHEN** the register module runs against a `node:module` API with `stripTypeScriptTypes` but no `registerHooks` (as on Node 23.2–23.4), verified with a stubbed module API
 - **THEN** the hooks SHALL be registered with `module.register` and types stripped with `stripTypeScriptTypes` in strip mode
 - **AND** no error SHALL mention `PI_DASHBOARD_TS_LOADER` or jiti
 

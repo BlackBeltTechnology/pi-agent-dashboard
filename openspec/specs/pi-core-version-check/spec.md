@@ -47,48 +47,18 @@ The server SHALL auto-reload all connected pi sessions after a successful core p
 - **THEN** all connected pi sessions SHALL be reloaded
 - **AND** the completion message SHALL include `sessionsReloaded` count
 
-### Requirement: Node engines floor tracks pi minimum supported Node
-
-The dashboard's declared Node engines floor SHALL be ≥ the Node minimum that `piCompatibility.minimum` requires. Pi 0.75.0 raised its Node floor from `22.18.0` to `22.19.0`; the dashboard SHALL mirror this transitively so users do not encounter pi-side Node errors after the dashboard reports "ready".
-
-The floor applies to two manifests:
-
-- Root `package.json::engines.node` (informational; surfaced by `npm install` warnings).
-- `packages/server/package.json::engines.node` (enforced for users installing the server package directly via npm).
-
-The runtime-side `packages/server/src/node-guard.ts::isAffectedNode` SHALL refuse to start on any Node version below the declared floor, with a clear stderr message naming the required version.
-
-#### Scenario: Root engines.node matches pi floor
-- **WHEN** `piCompatibility.minimum` is `"0.75.0"`
-- **THEN** root `package.json::engines.node` SHALL be `">=22.19.0 <25"` (lower bound matches pi 0.75.0's minimum Node; upper bound preserved at current ceiling)
-
-#### Scenario: Server engines.node matches pi floor
-- **WHEN** `piCompatibility.minimum` is `"0.75.0"`
-- **THEN** `packages/server/package.json::engines.node` SHALL be `">=22.19.0"` (no upper bound; the server consumes its host's Node)
-
-#### Scenario: node-guard refuses below floor
-- **WHEN** the server starts on Node `v22.18.0`
-- **AND** `piCompatibility.minimum` is `"0.75.0"`
-- **THEN** `assertNodeVersionSupported()` SHALL print the upgrade message and exit with code 1
-- **AND** the upgrade message SHALL name `>=22.19.0` as the required version
-
-#### Scenario: node-guard accepts at floor
-- **WHEN** the server starts on Node `v22.19.0` exactly
-- **THEN** `assertNodeVersionSupported()` SHALL return without exiting
-- **AND** the server proceeds to its normal startup path
-
 ### Requirement: Bundled Node version meets pi minimum Node
 
-The Electron-bundled Node version (`packages/electron/scripts/_node-version.sh::BUNDLED_NODE_VERSION`) SHALL meet or exceed the Node minimum that `piCompatibility.minimum` requires. This invariant SHALL be enforced by a repo-lint test so that a future bundled-Node downgrade cannot silently cross under the pi floor.
+The Electron-bundled Node version (`packages/electron/scripts/_node-version.sh::BUNDLED_NODE_VERSION`) SHALL meet or exceed both pi's minimum Node (the lower bound of pi's `engines.node`) and the dashboard server floor. This invariant SHALL be enforced by a repo-lint test so that a future bundled-Node downgrade cannot silently cross under either floor.
 
 #### Scenario: Bundled Node satisfies floor
-- **WHEN** `BUNDLED_NODE_VERSION` is `"v24.15.0"`
-- **AND** `piCompatibility.minimum` is `"0.75.0"` (requires Node `22.19.0`)
-- **THEN** the lint test SHALL pass because `24.15.0 > 22.19.0`
+- **WHEN** `BUNDLED_NODE_VERSION` is a `v26.x.y` release
+- **AND** pi's `engines.node` lower bound is `22.19.0` and the dashboard floor is `26.0.0`
+- **THEN** the lint test SHALL pass
 
 #### Scenario: Lint fires on bundled-Node regression
-- **WHEN** a hypothetical change lowers `BUNDLED_NODE_VERSION` to `"v22.18.0"`
-- **AND** `piCompatibility.minimum` still requires Node `22.19.0`
+- **WHEN** a hypothetical change sets `BUNDLED_NODE_VERSION` to `"v24.15.0"`
+- **AND** the dashboard floor is `26.0.0`
 - **THEN** the lint test SHALL fail with a message naming both versions and pointing to `_node-version.sh` as the file to edit
 
 ### Requirement: pi-core-updater resolves npm via ToolRegistry and inherits managed Node on PATH
@@ -425,3 +395,41 @@ Separately, the extension's devDependency `typebox` in `packages/extension/packa
 - **WHEN** `piCompatibility.recommended` is chosen
 - **THEN** it SHALL be a published `@earendil-works/pi-coding-agent` version
 - **AND** the release-deps checker SHALL fail if any manifest declares an `@mariozechner/pi-*` pi range
+
+### Requirement: Node engines floor is at or above pi minimum supported Node
+
+The dashboard's declared Node engines floor SHALL be greater than or equal to pi's own minimum Node — the lower bound of `engines.node` in the `@earendil-works/pi-coding-agent` package.json resolved by the dashboard (`piCompatibility.minimum` is a pi semver, not a Node version). It is a deliberate dashboard support-policy choice and MAY sit above pi's minimum; today it is `26.0.0` while pi requires `22.19.0`. A repo-lint test SHALL fail if the dashboard floor ever drops below pi's minimum Node, so users do not encounter pi-side Node errors after the dashboard reports "ready".
+
+The floor applies to two manifests:
+
+- Root `package.json::engines.node` (informational; surfaced by `npm install` warnings).
+- `packages/server/package.json::engines.node` (enforced for users installing the server package directly via npm).
+
+`assertNodeVersionSupported()` (`packages/server/src/auth/node-guard.ts`) SHALL refuse to start on any Node version below the declared floor, with a clear stderr message naming the required range.
+
+#### Scenario: Root engines.node declares the dashboard floor
+- **WHEN** root `package.json` is read
+- **THEN** `engines.node` SHALL be `">=26.0.0 <27"`
+
+#### Scenario: Server engines.node declares the dashboard floor
+- **WHEN** `packages/server/package.json` is read
+- **THEN** `engines.node` SHALL be `">=26.0.0"` (no upper bound; the server consumes its host's Node)
+
+#### Scenario: Dashboard floor at or above pi floor
+- **WHEN** pi's `engines.node` lower bound is `22.19.0`
+- **AND** the dashboard floor is `26.0.0`
+- **THEN** the repo-lint test SHALL pass
+
+#### Scenario: Lint fires when dashboard floor drops below pi floor
+- **WHEN** a hypothetical change sets the dashboard floor below pi's `engines.node` lower bound
+- **THEN** the repo-lint test SHALL fail naming both versions
+
+#### Scenario: node-guard refuses below floor
+- **WHEN** the server starts on Node `v24.15.0`
+- **THEN** `assertNodeVersionSupported()` SHALL print the upgrade message and exit with code 1
+- **AND** the upgrade message SHALL name `>=26.0.0 <27` as the required range
+
+#### Scenario: node-guard accepts at floor
+- **WHEN** the server starts on Node `v26.0.0` exactly
+- **THEN** `assertNodeVersionSupported()` SHALL return without exiting
+- **AND** the server proceeds to its normal startup path

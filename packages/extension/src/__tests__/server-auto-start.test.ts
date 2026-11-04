@@ -29,6 +29,14 @@ function makeDeps(overrides: Partial<AutoStartDeps> = {}): AutoStartDeps {
     resolveCliPath: () => join(tmpdir(), "host-install", "packages", "server", "src", "cli.ts"),
     lockDir: LOCK_DIR,
     lossPollIntervalMs: 5,
+    resolveServerNode: async () => ({
+      resolved: true,
+      nodeBinary: "/fake/node26/bin/node",
+      version: "v26.0.0",
+      step: "path",
+      range: ">=26.0.0 <27",
+      trail: [],
+    }),
     ...overrides,
   };
 }
@@ -867,5 +875,118 @@ describe("post-launch attach prefers the just-launched server (D-post, test-plan
     const [msg, level] = (deps.notify as any).mock.calls[0] as [string, string];
     expect(level).toBe("info");
     expect(msg).not.toMatch(/silent/i);
+  });
+});
+
+// ── raise-node-floor-to-26: server-spawn runtime resolution (#F1–#F3, #X1–#X3) ──
+
+describe("server Node resolution on the auto-start path", () => {
+  const RESOLVED = {
+    resolved: true as const,
+    nodeBinary: "/Users/x/.nvm/versions/node/v26.0.0/bin/node",
+    version: "v26.0.0",
+    step: "version-manager" as const,
+    manager: "nvm",
+    range: ">=26.0.0 <27",
+    trail: [],
+  };
+  const UNRESOLVED = {
+    resolved: false as const,
+    range: ">=26.0.0 <27",
+    trail: [
+      { step: "path" as const, candidate: "/usr/local/bin/node", version: "v24.15.0", outcome: "skipped" as const, reason: "outside server engines range >=26.0.0 <27 (found v24.15.0)" },
+      { step: "own-runtime" as const, candidate: "/pi/node", version: "v22.19.0", outcome: "skipped" as const, reason: "outside server engines range >=26.0.0 <27 (found v22.19.0)" },
+    ],
+  };
+
+  it("#F1: a reachable dashboard skips resolution entirely", async () => {
+    const resolveServerNode = vi.fn().mockResolvedValue(RESOLVED);
+    const deps = makeDeps({ isDashboardRunning: vi.fn().mockResolvedValue({ running: true }), resolveServerNode });
+    const r = await autoStartServer(baseConfig, deps);
+    expect(r.server?.port).toBe(8000);
+    expect(resolveServerNode).not.toHaveBeenCalled();
+  });
+
+  it("#F2: a resolved Node is logged once (path, version, step) and passed as nodeBin", async () => {
+    const log = vi.fn();
+    const deps = makeDeps({ resolveServerNode: vi.fn().mockResolvedValue(RESOLVED), log });
+    await autoStartServer(baseConfig, deps);
+    const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("server runtime:"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(RESOLVED.nodeBinary);
+    expect(lines[0]).toContain("v26.0.0");
+    expect(lines[0]).toContain("version-manager");
+    expect(deps.launchServer).toHaveBeenCalledWith(baseConfig, { nodeBin: RESOLVED.nodeBinary });
+  });
+
+  it("#X1: unresolved → no spawn, one log line, one warning naming range, pi version, remedy and server.log", async () => {
+    const log = vi.fn();
+    const deps = makeDeps({
+      resolveServerNode: vi.fn().mockResolvedValue(UNRESOLVED),
+      log,
+      piNodeVersion: "v22.19.0",
+      noticeState: {},
+    });
+    const r = await autoStartServer(baseConfig, deps);
+    expect(r).toEqual({});
+    expect(deps.launchServer).not.toHaveBeenCalled();
+    const refusals = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("refused: no Node"));
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toContain("port 8000");
+    expect(refusals[0]).toContain(">=26.0.0 <27");
+    expect(refusals[0]).toContain("/usr/local/bin/node (v24.15.0) skipped");
+    expect(refusals[0]).toContain("own-runtime /pi/node (v22.19.0) skipped");
+    expect(deps.notify).toHaveBeenCalledTimes(1);
+    const [msg, level] = (deps.notify as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(level).toBe("warning");
+    expect(msg).toContain("Node >=26.0.0 <27");
+    expect(msg).toContain("v22.19.0");
+    expect(msg).toMatch(/Node 26/);
+    expect(msg).toMatch(/desktop app/);
+    expect(msg).toContain(getDashboardServerLogPath());
+  });
+
+  it("#X2: the refusal notice is shown once per session", async () => {
+    const noticeState = {};
+    const notify = vi.fn();
+    for (let i = 0; i < 3; i++) {
+      await autoStartServer(
+        baseConfig,
+        makeDeps({ resolveServerNode: vi.fn().mockResolvedValue(UNRESOLVED), noticeState, notify, log: vi.fn() }),
+      );
+    }
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("#X3: a dashboard that comes up during resolution is attached, with no refusal notice", async () => {
+    let up = false;
+    const deps = makeDeps({
+      isDashboardRunning: vi.fn().mockImplementation(async () => ({ running: up })),
+      resolveServerNode: vi.fn().mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        up = true;
+        return UNRESOLVED;
+      }),
+      noticeState: {},
+      log: vi.fn(),
+    });
+    const r = await autoStartServer(baseConfig, deps);
+    expect(r.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
+    expect(deps.notify).not.toHaveBeenCalled();
+    expect(deps.launchServer).not.toHaveBeenCalled();
+  });
+
+  it("#F3: after a refusal the session connects once a dashboard becomes reachable", async () => {
+    const noticeState = {};
+    const refused = await autoStartServer(
+      baseConfig,
+      makeDeps({ resolveServerNode: vi.fn().mockResolvedValue(UNRESOLVED), noticeState, log: vi.fn() }),
+    );
+    expect(refused).toEqual({});
+    const later = await autoStartServer(
+      baseConfig,
+      makeDeps({ isDashboardRunning: vi.fn().mockResolvedValue({ running: true }), noticeState, log: vi.fn() }),
+    );
+    expect(later.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
   });
 });

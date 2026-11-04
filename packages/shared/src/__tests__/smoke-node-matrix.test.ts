@@ -7,9 +7,9 @@
  * cap without adding the matching leg would ship an *asserted* but unvalidated
  * major — exactly the failure mode issue #357 exposed.
  *
- * SUPPORTED ≠ admitted. The range `>=22.19.0 <27` also admits 23, which is EOL
- * and deliberately unlisted; the invariant is against the declared supported
- * set below, not against every major the range permits.
+ * Since change raise-node-floor-to-26 the supported set is `[26]` (range
+ * `>=26.0.0 <27`), plus an exact `26.0.0` floor leg; the Windows leg is pinned
+ * to 26 and the EOL-Node-23 boot job is gone (the guard refuses 23).
  *
  * A NEW file rather than an extension of `publish-workflow-contract.test.ts` —
  * that file covers `publish.yml` + `_electron-build.yml` and asserts nothing
@@ -39,7 +39,7 @@ const JOB = "standalone-install-smoke-linux";
  * Node majors this repo commits to validating in the install smoke. Update
  * together with root `package.json#engines.node` and the `_smoke.yml` matrix.
  */
-const SUPPORTED_NODE_MAJORS = [22, 24, 25, 26];
+const SUPPORTED_NODE_MAJORS = [26];
 
 /** Job-body slice — same helper shape as `publish-workflow-contract.test.ts`. */
 function extractJobBlock(yaml: string, jobName: string): string {
@@ -64,9 +64,8 @@ describe("_smoke.yml install matrix covers every supported Node major", () => {
   const yaml = fs.readFileSync(SMOKE_WORKFLOW_PATH, "utf8");
   const jobBlock = extractJobBlock(yaml, JOB);
 
-  const majors = [...jobBlock.matchAll(/^\s*node-version:\s*(\d+)\s*$/gm)].map((m) =>
-    Number(m[1]),
-  );
+  const versions = [...jobBlock.matchAll(/^\s*node-version:\s*(\d+(?:\.\d+\.\d+)?)\s*$/gm)].map((m) => m[1]);
+  const majors = versions.map((v) => Number(v.split(".")[0]));
 
   it("declares at least one leg per supported major", () => {
     expect(
@@ -103,5 +102,28 @@ describe("_smoke.yml install matrix covers every supported Node major", () => {
         `("${range}"): ${outside.join(", ")}. The smoke matrix must not claim ` +
         "to validate a Node the manifest refuses.",
     ).toEqual([]);
+  });
+});
+
+// test-plan #E18
+describe("_smoke.yml Node 26 only (raise-node-floor-to-26)", () => {
+  const yaml = fs.readFileSync(SMOKE_WORKFLOW_PATH, "utf8");
+
+  it("pins an exact 26.0.0 floor leg on Linux", () => {
+    expect(extractJobBlock(yaml, JOB)).toMatch(/^\s*node-version:\s*26\.0\.0\s*$/m);
+  });
+
+  it("pins the Windows leg to Node 26", () => {
+    const win = extractJobBlock(yaml, "standalone-install-smoke-windows");
+    expect(win).toMatch(/^\s*node-version:\s*\[26\]\s*$/m);
+  });
+
+  it("no longer carries the EOL-Node-23 boot job", () => {
+    expect(yaml).not.toMatch(/^  standalone-install-smoke-eol-node23:/m);
+  });
+
+  it("no install step relaxes engine-strict", () => {
+    const code = yaml.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+    expect(code).not.toContain("engine-strict=false");
   });
 });

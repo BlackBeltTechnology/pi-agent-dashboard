@@ -7,7 +7,6 @@
  * UDS / named pipe to pi's stdin verbatim. Outlives the dashboard server.
  *
  * CommonJS-pure: only Node built-ins. No jiti / tsx / typescript loader.
- * Mirrors the constraint pattern of `preload-fastify.cjs`.
  *
  * See: openspec/changes/add-rpc-stdin-dispatch-with-keeper-sidecar
  *   - specs/rpc-keeper-sidecar/spec.md

@@ -163,13 +163,19 @@ export function buildSpawnArgs(config: DashboardConfig): string[] {
  * See change: fix-bridge-server-start-diagnostics,
  * add-configurable-readiness-timeout.
  */
-export async function launchServer(config: DashboardConfig): Promise<LaunchResult> {
+export async function launchServer(
+  config: DashboardConfig,
+  launch: { nodeBin?: string } = {},
+): Promise<LaunchResult> {
   const cliPath = resolveServerCliPath();
   const args = buildSpawnArgs(config);
 
   try {
     const result = await launchDashboardServer({
       cliPath,
+      // Server Node chosen by server-spawn runtime resolution (pi's own Node
+      // may be below the server floor). See change: raise-node-floor-to-26.
+      ...(launch.nodeBin ? { nodeBin: launch.nodeBin } : {}),
       extraArgs: args,
       // Narrow overrides only (heap stamp + starter + marker strip). The
       // heap stamp must still ride along: a bridge-auto-started server

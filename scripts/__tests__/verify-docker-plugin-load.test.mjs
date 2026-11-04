@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { crutchProblems, hasPluginVerdict, parseHarnessState, pluginLoadProblems, verifyDockerPluginLoad } from '../verify-docker-plugin-load.mjs';
+import { crutchProblems, hasPluginVerdict, parseHarnessState, pluginLoadProblems, runtimeProblems, verifyDockerPluginLoad } from '../verify-docker-plugin-load.mjs';
 
 const tempDirs = [];
 
@@ -89,6 +89,29 @@ describe('no alias crutch is present', () => {
     expect(crutchProblems('HOME=/home/pi\nJITI_TSCONFIG_PATHS=true\n')).toEqual([
       expect.stringContaining('JITI_TSCONFIG_PATHS=true'),
     ]);
+  });
+});
+
+// See change: raise-node-floor-to-26 (test-plan #E23).
+describe('container runtime: Node 26 + node-pty PTY', () => {
+  it('passes for v26.x with a working PTY', () => {
+    expect(runtimeProblems('v26.13.0\nPTY_OK\n')).toEqual([]);
+  });
+
+  it('fails for a Node outside >=26.0.0 <27, naming the version', () => {
+    const p = runtimeProblems('v24.22.0\nPTY_OK\n');
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain('v24.22.0');
+    expect(p[0]).toContain('>=26.0.0 <27');
+  });
+
+  it('fails when node-pty cannot echo shell I/O', () => {
+    expect(runtimeProblems('v26.13.0\nPTY_FAIL\n')).toEqual(['node-pty did not echo shell I/O through a PTY']);
+    expect(runtimeProblems('v26.13.0\nError: Cannot find module \'node-pty\'\n')).toHaveLength(1);
+  });
+
+  it('fails on empty output (probe never ran)', () => {
+    expect(runtimeProblems('')).toHaveLength(2);
   });
 });
 

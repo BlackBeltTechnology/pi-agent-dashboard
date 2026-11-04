@@ -5883,25 +5883,23 @@ pi extensions + plugin bridges still load under pi's jiti (separate process).
 
 Both server-launch call sites (`packages/server/src/cli.ts` and `packages/extension/src/server-launcher.ts`) capture **both** stdout and stderr into `~/.pi/dashboard/server.log`. The CLI uses `stdio: ["ignore", logFd, logFd]` on its direct `spawn()` call; the bridge uses `spawnDetached({ stdoutFd: logFd, logFd })`. Without this parity, crash diagnostics from jiti / Fastify / ajv-compiler that reach stdout would be invisible via the bridge path while remaining visible via the CLI path. See change: `fix-bridge-autostart-diagnostics`.
 
-#### CJS preload for Fastify (nodejs/node#58515 mitigation)
+#### CJS preload for Fastify (removed)
 
-Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <native-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
-
-When the native loader's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node 22.0.0–22.18.x / 24.1.0–24.2.x.
-
-This is a **race-independent fix**: it doesn't try to close the timing window, it removes the racy code path from the execution trace. All four spawn sites (CLI daemon, bridge auto-start, Electron, restart orchestrator) share the resolver and the same injection pattern. See change: `preload-fastify-cjs`.
+The `--require preload-fastify.cjs` injection no longer exists. `preload-fastify.cjs` and `resolvePreloadFastifyPath()` are deleted; spawn argv carries no `--require`. The #58515 `Unexpected module status 3` assertion affects Node 22.0.0–22.18.x and 24.1.0–24.2.x only — all below the Node 26 server floor. See change: `raise-node-floor-to-26`.
 
 #### Node-version preflight
 
-Single source of truth: `packages/shared/src/node-version.ts`. Exports `MIN_SUPPORTED_NODE` (`"22.19.0"`), `meetsFloor(version, floor)`, `isAffectedNode(version)`, `isOutOfEnginesRange(version)`, `isUsableNodeVersion(version)`, `isAtOrAboveEnginesCap(version)`. Version predicates live solely here — single module, no platform-split checker.
+Single source of truth: `packages/shared/src/node-version.ts`. Exports `MIN_SERVER_NODE` (`"26.0.0"`), `MIN_PI_SPAWN_NODE` (`"22.19.0"`), `SERVER_ENGINES_RANGE` (`">=26.0.0 <27"`), `meetsFloor(version, floor)`, `isAffectedNode(version)`, `isOutOfEnginesRange(version)`, `isUsableNodeVersion(version)`, `isAtOrAboveEnginesCap(version)`. Version predicates live solely here — single module, no platform-split checker.
 
-Floor `22.19.0`. Affected ranges: `22.0.0–22.18.x` + `24.1.0–24.2.x` ([nodejs/node#58515](https://github.com/nodejs/node/issues/58515) — ESM loader assertion when Fastify's `@fastify/ajv-compiler` requires CJS modules). Engines cap `<27` bounds the dashboard's tested range; cap excess accepted, flagged.
+- Server floor `26.0.0`; range `>=26.0.0 <27`. Cap `<27` bounds tested range; cap excess flagged, not refused by the server guard.
+- `isUsableNodeVersion` = clean semver AND `!isOutOfEnginesRange`. No separate #58515 check.
+- `isAffectedNode` ([nodejs/node#58515](https://github.com/nodejs/node/issues/58515); `22.0.0–22.18.x` + `24.1.0–24.2.x`) used only by the pi-session spawn-ladder gate. Pi itself keeps `>=22.19.0`.
 
-Startup guard refuses bad Node: `packages/server/src/auth/node-guard.ts` `assertNodeVersionSupported()` runs pre-boot; exits(1) when `isAffectedNode` or `isOutOfEnginesRange` — server never starts (since change `bump-pi-compat-to-0-75`).
+Startup guard: `packages/server/src/auth/node-guard.ts` `assertNodeVersionSupported()` checks `isOutOfEnginesRange` only; exits(1) on failure. `buildEnginesRangeMessage` prints `Required: >=26.0.0 <27`, `nvm install 26 && nvm use 26`, `brew install node`. Managed hint printed only when `<managedDir>/node/.version` marker meets the range (marker read, no spawn). The former #58515 startup check and `buildNodeUpgradeMessage` are removed.
 
-Consumers: startup guard; Electron `lib/dependency-detector.ts` `isUsableNodeVersion` filter on detected system Node; spawn-runtime gate `evaluateVersionGate` (pi floor + affected-range check per candidate, cap excess passes with `capExceeded`).
+Consumers: startup guard; Electron `lib/dependency-detector.ts` `detectSystemNode` (accept-set Node 26 only, via `isUsableNodeVersion`); server spawn via `resolveServerRuntime()` (below); pi-session spawn-runtime gate `evaluateVersionGate`.
 
-Root `package.json` declares `"engines": { "node": ">=22.19.0 <27" }`; `packages/server/package.json` `"node": ">=22.19.0"` as npm-level advisories.
+Root `package.json` declares `"engines": { "node": ">=26.0.0 <27" }`; `packages/server/package.json` `"node": ">=26.0.0"`.
 
 #### Spawn runtime resolution
 
@@ -5914,13 +5912,66 @@ Four rungs, first hit wins:
 3. User Node — login-shell first on Electron arm, PATH first on terminal arms (`npm`/`docker`); then version-manager fs probe (`~/.nvm/alias/default`), no shell.
 4. Managed `<managedDir>/node`; else bundled; else `process.execPath` — terminal rung, never fails.
 
-Gate (`evaluateVersionGate`): pass pi engines floor + not nodejs/node#58515-affected; cap excess (`isAtOrAboveEnginesCap`, `<27`) accepted, flagged `capExceeded`. Floor read from spawned pi copy engines; fallback `MIN_SUPPORTED_NODE`.
+Gate (`evaluateVersionGate`): pass pi engines floor + not nodejs/node#58515-affected; cap excess (`isAtOrAboveEnginesCap`, `<27`) accepted, flagged `capExceeded`. Floor read from spawned pi copy engines; fallback `MIN_PI_SPAWN_NODE`.
 
 Publication: `runtime.resolved` written to `~/.pi/dashboard/config.json` every server start (`packages/server/src/runtime-publication.ts::publishResolvedRuntime`). Diagnostic-only; override never written. `pi-dashboard runtime` CLI subcommand prints resolved runtime.
 
 Spawn-time re-validation (`packages/server/src/runtime-resolution.ts`): boot-time resolution cached process-lifetime; re-validated per spawn — stat signature (size/mtime/realpath) + probe for shim-shaped paths.
 
 Doctor rows: resolved runtime (+ rung/via), ABI mismatch, legacy `~/.pi-dashboard/` dir orphan test. Home split: `~/.pi/dashboard/` = user config + published runtime state; `~/.pi-dashboard/` = machine-managed runtime, managed node_modules, logs.
+
+#### Server spawn runtime resolution (`resolveServerRuntime`)
+
+Resolves the Node binary that runs the dashboard **server**. Separate from the pi-session ladder above. Gate = `SERVER_ENGINES_RANGE` (`>=26.0.0 <27`). Source: `packages/shared/src/platform/spawn-runtime.ts`.
+
+Order, first in-range hit wins:
+
+1. `runtime.override` (`~/.pi/dashboard/config.json`).
+2. First `node` on PATH.
+3. Version-manager defaults: nvm `alias/default`, volta, asdf, mise, fnm.
+4. Managed `<managedDir>/node`.
+5. Starter's own runtime (`ownRuntime`; version from running process, never probed).
+
+```mermaid
+flowchart TD
+  S([resolveServerRuntime]) --> O{override in range?}
+  O -- yes --> R([resolved])
+  O -- no --> P{PATH node in range?}
+  P -- yes --> R
+  P -- no --> V{version-manager default in range?}
+  V -- yes --> R
+  V -- no --> M{managed node in range?}
+  M -- yes --> R
+  M -- no --> W{own runtime in range?}
+  W -- yes --> R
+  W -- no --> X([resolved false + trail])
+```
+
+Properties:
+
+- Not total: no match → `{resolved:false, range, trail}`.
+- No shell ever run. nvm without `alias/default` is not found.
+- ≤1 `--version` probe per distinct path (`execFile`).
+- `describeServerRuntimeTrail()` formats trail for logs.
+
+#### Bridge auto-start runtime + refusal
+
+Source: `packages/extension/src/server-auto-start.ts`. Inside the single-flight lock:
+
+- Resolves server Node via `resolveServerRuntime()`. Skipped when dashboard already answers.
+- Resolved: logs `server runtime: <path> <version> via <step>` (`appendAutoStartLog`); passes `nodeBin` to `launchServer` (`packages/extension/src/server-launcher.ts`).
+- Unresolved: re-probe port (attach if up, silent). Else logs `[auto-start] refused: no Node satisfying >=26.0.0 <27 ...; candidates: ...` and shows one `ui.notify` warning per session (range, pi's Node version, install Node 26 or desktop app, `~/.pi/dashboard/server.log` path).
+
+#### Electron server Node pick
+
+Source: `packages/electron/src/lib/pick-node.ts`. Order:
+
+1. Bundled Node (`BUNDLED_NODE_VERSION` v26.13.0; `BUNDLED_NODE_MAJOR` 26).
+2. System Node — pre-resolved by `launch-source.ts` via `resolveServerRuntime({ownRuntime:null})`, only when bundled Node missing.
+3. Electron executable with `ELECTRON_RUN_AS_NODE=1` — only if embedded Node (`process.versions.node`) in range. Electron 44 embeds 24.22.0 → never qualifies.
+4. `unavailable` — `launch-source` throws `pick.reason`; no `launchDashboardServer` call; `requestServerLaunch` → `{kind:"failed"}`.
+
+Electron dev / localLink launches need Node 26 on PATH or in a version manager.
 
 #### AppImage CLI self-recursion guard (Linux power-user mode)
 
@@ -7680,6 +7731,10 @@ See change: require-git-on-boot.
 ## Package manager (pnpm)
 
 Package manager: **pnpm**, pinned to `pnpm@11.15.1` via root `package.json` `packageManager` field + `corepack enable`.
+
+- Node 25+ ships no `corepack`. Node 26 = required runtime/dev Node.
+- Docker: `ARG COREPACK_VERSION=0.36.0`; `npm install -g "corepack@${COREPACK_VERSION}"` then `corepack enable`.
+- Dev setup: `npm install -g corepack && corepack enable`.
 
 Scope: pnpm drives ALL dev, CI, Docker, and build work. `npm` survives ONLY in locations listed below.
 

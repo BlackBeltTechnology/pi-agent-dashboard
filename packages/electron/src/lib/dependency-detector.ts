@@ -94,8 +94,8 @@ export function detectSystemNode(): DetectionResult {
       // harden-media-and-electron-args (D22).
       const version = execFileSync(base.path, ["--version"], { encoding: "utf-8", timeout: 5000 }).trim();
       // Usable iff the dashboard server would actually run on it: within
-      // engines range AND not nodejs/node#58515-affected. See change:
-      // unify-node-version-gate.
+      // the server engines range (>=26.0.0 <27). See change:
+      // unify-node-version-gate, raise-node-floor-to-26.
       if (isUsableNodeVersion(version)) {
         return base;
       }
@@ -104,7 +104,7 @@ export function detectSystemNode(): DetectionResult {
   // Fallback: scan well-known on-disk locations for a usable Node.
   // Required because GUI-launched apps on macOS don't inherit the user's
   // shell PATH (where nvm/volta/brew live), and the login-shell whichifier
-  // can return a Node that is itself below floor / in the affected range.
+  // can return a Node that is itself outside the server engines range.
   // See change: unify-node-version-gate.
   const scanned = scanForUsableNodeOnDisk();
   if (scanned) {
@@ -116,8 +116,8 @@ export function detectSystemNode(): DetectionResult {
 /**
  * Scan well-known on-disk dirs for a Node binary that is (a) executable
  * and (b) version-usable per the shared `isUsableNodeVersion` gate (within
- * engines range AND not nodejs/node#58515-affected). Returns the path of
- * the highest-version usable Node found.
+ * the server engines range `>=26.0.0 <27`). Returns the path of the
+ * highest-version usable Node found.
  *
  * Searched (in order):
  *   1. `~/.nvm/versions/node/<each>/bin/node`
@@ -126,8 +126,8 @@ export function detectSystemNode(): DetectionResult {
  *   4. `~/.volta/bin/node`
  *   5. `/usr/bin/node`
  *
- * No version-gate fallback to affected versions — the picker would
- * refuse to use them anyway, so emitting them here only wastes a probe.
+ * No fallback to out-of-range versions — the server guard would refuse
+ * them anyway, so emitting them here only wastes a probe.
  */
 function scanForUsableNodeOnDisk(): string | null {
   if (process.platform === "win32") return null; // Windows path is different; keep this Unix-only for now.

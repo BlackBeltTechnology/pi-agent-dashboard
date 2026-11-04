@@ -35,6 +35,14 @@ function makeDeps(over: Partial<AutoStartDeps> = {}): AutoStartDeps {
     log: vi.fn(),
     readinessBudgetMs: BUDGET,
     lossPollIntervalMs: 5,
+    resolveServerNode: async () => ({
+      resolved: true,
+      nodeBinary: "/fake/node26/bin/node",
+      version: "v26.0.0",
+      step: "path",
+      range: ">=26.0.0 <27",
+      trail: [],
+    }),
     ...over,
   };
 }
@@ -61,7 +69,7 @@ describe("worktree refusal", () => {
     const isolated = { piPort: 19042, port: 18042, autoStart: true };
     await autoStartServer(isolated, deps);
     expect(deps.launchServer).toHaveBeenCalledTimes(1);
-    expect(deps.launchServer).toHaveBeenCalledWith(isolated);
+    expect(deps.launchServer).toHaveBeenCalledWith(isolated, { nodeBin: "/fake/node26/bin/node" });
   });
 
   it("E17: a host install serving a worktree cwd still spawns", async () => {

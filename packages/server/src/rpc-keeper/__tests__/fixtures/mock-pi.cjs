@@ -56,11 +56,20 @@ if (mode === "writer") {
   // written just before a rotation cannot be the last one erased (E3).
   // ALSO consumes stdin lines like normal mode, so P1 can assert RPC lines
   // keep flowing to MOCK_PI_LOG while the child saturates the shared fd.
+  // MOCK_PI_WRITE_TAIL (bytes, optional): once the total is reached, wait
+  // MOCK_PI_WRITE_TAIL_DELAY_MS (default 300 — several rotation checks) and
+  // write that many 'a' bytes once, so a rotation that fired right after the
+  // last chunk cannot leave the final log empty (E5). Keep it < the chunk size:
+  // post-rotation segments are whole chunks below the cap, so a sub-chunk tail
+  // can never push the file to the cap. See change: raise-node-floor-to-26.
   // CommonJS-pure.
   const chunkSize = parseInt(process.env.MOCK_PI_WRITE_CHUNK || "4096", 10);
   const tickMs = parseInt(process.env.MOCK_PI_WRITE_TICK_MS || "5", 10);
   const total = parseInt(process.env.MOCK_PI_WRITE_TOTAL || "0", 10);
   const marker = process.env.MOCK_PI_MARKER || "";
+  const tail = parseInt(process.env.MOCK_PI_WRITE_TAIL || "0", 10);
+  const tailDelayMs = parseInt(process.env.MOCK_PI_WRITE_TAIL_DELAY_MS || "300", 10);
+  let tailTimer = null;
   if (!logPath && !marker) {
     process.stderr.write("[mock-pi] writer mode: MOCK_PI_LOG required for stdin lines\n");
   }
@@ -74,6 +83,9 @@ if (mode === "writer") {
     if (total > 0 && written >= total) return; // steady state: markers only
     process.stdout.write(chunk);
     written += chunkSize;
+    if (tail > 0 && total > 0 && written >= total) {
+      tailTimer = setTimeout(() => process.stdout.write(Buffer.alloc(tail, 0x61)), tailDelayMs);
+    }
   }, tickMs);
   const markerTimer = setInterval(() => {
     if (marker && (total === 0 || written >= total)) {
@@ -83,6 +95,7 @@ if (mode === "writer") {
   const finish = () => {
     clearInterval(writeTimer);
     clearInterval(markerTimer);
+    if (tailTimer) clearTimeout(tailTimer);
     process.exit(0);
   };
   process.stdin.setEncoding("utf8");

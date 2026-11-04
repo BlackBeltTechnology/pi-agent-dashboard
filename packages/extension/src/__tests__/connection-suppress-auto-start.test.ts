@@ -61,6 +61,7 @@ describe("autoStartServer respects shouldSuppressAutoStart", () => {
       discoverDashboard: vi.fn().mockResolvedValue([]),
       isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
       launchServer: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
+      resolveServerNode: async () => ({ resolved: true, nodeBinary: "/fake/node26/bin/node", version: "v26.0.0", step: "path", range: ">=26.0.0 <27", trail: [] }),
       notify: vi.fn(),
       resolveCliPath: () => join(tmpdir(), "host-install", "packages", "server", "src", "cli.ts"),
       // Isolate the single-flight lock from the shared `~/.pi/dashboard`

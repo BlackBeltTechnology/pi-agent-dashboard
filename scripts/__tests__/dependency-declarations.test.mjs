@@ -331,7 +331,12 @@ describe('public access (E24)', () => {
 describe.runIf(CI_SCENARIOS)('publish dry-run covers exactly the non-private set (E26)', () => {
   it('publishes every non-private workspace and skips every private one', () => {
     // npm writes its notices to stderr, so both streams are needed.
-    const r = spawnSync('npm', ['publish', '--workspaces', '--include-workspace-root', '--dry-run'], {
+    // `--force`: npm 11 (Node 26) checks the registry even under --dry-run and
+    // aborts the whole run on an already-published version ("You cannot
+    // publish over the previously published versions"); --force restores the
+    // npm 10 preview-everything behaviour. Nothing is published under
+    // --dry-run. See change: raise-node-floor-to-26.
+    const r = spawnSync('npm', ['publish', '--workspaces', '--include-workspace-root', '--dry-run', '--force'], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
       maxBuffer: 256 * 1024 * 1024,

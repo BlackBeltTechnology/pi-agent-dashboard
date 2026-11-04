@@ -126,8 +126,10 @@ Electron-bundled Node on the Electron arm, `process.execPath` on every other arm
 be total: it cannot fail to resolve on any arm.
 
 The version gate SHALL accept a candidate that satisfies the resolved pi package's `engines.node`
-floor (read from the package.json of the pi copy being spawned, falling back to the shared
-canonical floor when unreadable) AND is not in the nodejs/node#58515 affected range. The gate
+floor (read from the package.json of the pi copy being spawned, falling back to the shared pi
+spawn floor when unreadable) AND is not in the nodejs/node#58515 affected range. The pi spawn
+floor is distinct from the dashboard server floor: raising the server's `engines.node` floor SHALL
+NOT raise the floor applied to pi-session spawns. The gate
 SHALL reuse the shared affected-range predicate from `node-version.ts`, and any floor
 constant/comparator it needs SHALL live in that same module as the single defining occurrence —
 no consumer SHALL carry a private copy of either range. A
@@ -137,6 +139,14 @@ candidate in the affected range SHALL be treated exactly as if absent.
 The ladder governs pi-session spawns (processes that load the shared extension tree
 `~/.pi/agent/npm/node_modules`) only. The Electron arm SHALL continue to run the dashboard server
 itself on its bundled Node.
+
+#### Scenario: Pi-session gate ignores the dashboard server floor
+
+- **WHEN** the dashboard server floor is `26.0.0`
+- **AND** the spawned pi copy's `engines.node` is unreadable
+- **AND** the only user Node resolvable is `v24.15.0`
+- **THEN** the gate SHALL accept `v24.15.0` against the pi spawn floor `22.19.0`
+- **AND** the resolved pi-session spawn runtime SHALL be that Node
 
 #### Scenario: Override wins over user Node
 
@@ -329,3 +339,74 @@ resolved spawn runtime, so the shared tree is always built by the runtime that w
 - **WHEN** the ladder resolved the bundled Node (no user Node, no managed Node)
 - **THEN** extension installs SHALL use the bundled npm
 - **AND** the tree is built and loaded by the same runtime
+
+### Requirement: Server-spawn runtime resolution
+
+The shared ladder module in `packages/shared` SHALL also resolve the Node binary that runs the
+dashboard **server** when a starter cannot rely on a known-good runtime: the bridge's auto-start
+and the Electron app when no bundled Node exists. It SHALL use the same candidate probes as the
+pi-session ladder, but gated on the dashboard server's `engines.node` range (`>=26.0.0 <27`)
+instead of pi's floor. The order is: (1) the user-owned override `runtime.override` from
+`~/.pi/dashboard/config.json`; (2) the first `node` on the inherited `PATH`; (3) every existing
+version-manager default found by the existing filesystem probe (nvm `alias/default`, volta / asdf
+/ mise / fnm shims), each as its own candidate in that order — a below-floor default for one
+manager SHALL NOT hide a qualifying default for another; (4) the managed Node under `<managedDir>/node/`; (5) the starter's own runtime — pi's
+`process.execPath` for the bridge, Electron's executable in Node mode for the Electron app —
+whose version is read from the running process, not assumed. Every candidate, including (5),
+SHALL pass the gate to be selected; gate-failing, missing, or unparseable-version candidates
+(a `--version` output that is not a clean semver) are skipped with a recorded reason.
+
+Unlike the pi-session ladder this resolution SHALL NOT be total: when no candidate passes the gate
+it SHALL return an unresolved result carrying every skipped candidate and its reason. It SHALL NOT
+invoke a login shell or any other shell. A Node reachable only through shell initialisation (e.g.
+an nvm install with no `alias/default`) is therefore not found; this is an accepted trade-off
+because terminal-launched pi inherits the activated `PATH`.
+
+#### Scenario: pi on Node 24 with Node 26 on PATH
+
+- **WHEN** pi runs on Node `v24.15.0`
+- **AND** the first `node` on `PATH` is `v26.1.0`
+- **THEN** the resolved server runtime SHALL be the `PATH` Node `v26.1.0`
+
+#### Scenario: Version-manager default found without a shell
+
+- **WHEN** neither the override nor the `PATH` Node passes the gate
+- **AND** the nvm default alias names an installed `v26.0.0`
+- **THEN** the resolved server runtime SHALL be that Node, discovered by filesystem probe alone
+
+#### Scenario: Starter's own runtime used only when it qualifies
+
+- **WHEN** no earlier candidate passes the gate
+- **AND** the starter's own runtime reports `v26.2.0`
+- **THEN** the resolved server runtime SHALL be the starter's own runtime
+- **AND** when the starter's own runtime reports `v24.18.1` instead, it SHALL be skipped with a recorded reason
+
+#### Scenario: No qualifying Node
+
+- **WHEN** no candidate passes the gate (e.g. pi on `v22.19.0`, `PATH` Node `v24.15.0`, no managed
+  Node, no version-manager Node 26)
+- **THEN** resolution SHALL return an unresolved result listing each candidate with its version and
+  skip reason
+
+#### Scenario: No shell invocation
+
+- **WHEN** server-spawn runtime resolution runs on any platform
+- **THEN** no `sh`, `bash`, `zsh`, `cmd.exe` or PowerShell process SHALL be spawned by the resolver
+
+#### Scenario: Second version manager qualifies
+
+- **WHEN** the nvm default names `v24.15.0` and the volta shim runs `v26.0.0`
+- **AND** neither the override nor the `PATH` Node qualifies
+- **THEN** the resolved server runtime SHALL be the volta Node
+
+#### Scenario: Unparseable version is skipped
+
+- **WHEN** a candidate's `node --version` prints output that is not a clean semver
+- **THEN** that candidate SHALL be skipped with a recorded reason and resolution SHALL continue
+
+#### Scenario: Bounded probe cost
+
+- **WHEN** server-spawn runtime resolution runs with every candidate present and failing the gate
+- **THEN** it SHALL spawn at most one `node --version` probe per distinct candidate path (override,
+  `PATH` first hit, each existing version-manager default, managed) and none for the starter's own
+  runtime

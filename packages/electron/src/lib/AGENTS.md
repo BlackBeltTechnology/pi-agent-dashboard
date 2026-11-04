@@ -25,7 +25,7 @@ Files in this directory. One row per source file.
 | `managed-paths.ts` | Managed install paths, mirrored locally (no shared-pkg import for ESM resolution in packaged app). → see `managed-paths.ts.AGENTS.md` |
 | `pairing-client.ts` | `startPairing(target, deps)` → `PairingSession{send,stop,done}`. → see `pairing-client.ts.AGENTS.md` |
 | `pairing-code-client.ts` | In-app code redeem: decode pasted text, refuse wrong fingerprint before any request, prove at first https URL, redeem, wait approval, store bearer. No secrets logged. See change: group-servers-by-identity. |
-| `pick-node.ts` | `pickNodeForServer(PickNodeInput): PickNodeResult` — discriminated union… → see `pick-node.ts.AGENTS.md` |
+| `pick-node.ts` | `pickNodeForServer(PickNodeInput): PickNodeResult` — bundled → system → qualifying embedded → unavailable… → see `pick-node.ts.AGENTS.md` |
 | `quit-guard.ts` | `installQuitGuard(app, {isQuitting, requestQuit})`: `before-quit` → full quit (stop server, tray, exit) for… → see `quit-guard.ts.AGENTS.md` |
 | `remote-probe.ts` | Main-process remote-dashboard reachability probe, extracted from `remote-connect-window.ts` so `main.ts` can… → see `remote-probe.ts.AGENTS.md` |
 | `renderer-paths.ts` | `getWizardPreloadPath()`, `getRendererHtmlPath(name)`: resolve bundled wizard preload + `renderer/*.html`… → see `renderer-paths.ts.AGENTS.md` |

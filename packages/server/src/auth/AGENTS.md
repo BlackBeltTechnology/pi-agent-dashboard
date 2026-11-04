@@ -37,7 +37,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `mutation-origin-gate.ts` | Cross-site MUTATION gate (issue #625). `createMutationOriginGate(getOpts)` → Fastify `onRequest` hook: gates… → see `mutation-origin-gate.ts.AGENTS.md` |
 | `nav-intent.ts` | `NavIntents` — per-process-key HMAC navigation intents: `mint(principal, kind, target)` →… → see `nav-intent.ts.AGENTS.md` |
 | `network-trust-telemetry.ts` | In-memory network-only admission counters (`noteNetworkOnlyAdmission`, `networkOnlySnapshot`,… → see `network-trust-telemetry.ts.AGENTS.md` |
-| `node-guard.ts` | Re-exports `isAffectedNode`/`isOutOfEnginesRange` from shared `node-version.ts` (public API unchanged). → see `node-guard.ts.AGENTS.md` |
+| `node-guard.ts` | Re-exports `isOutOfEnginesRange`; engines-range refusal (`>=26.0.0 <27`) at server start. → see `node-guard.ts.AGENTS.md` |
 | `operate-required.ts` | `hasOperateAuthority(request, localTrust?)` (operate device bearer, session, principal, or… → see `operate-required.ts.AGENTS.md` |
 | `pi-legacy-credentials.ts` | Plain-text API keys in pi `settings.json`… → see `pi-legacy-credentials.ts.AGENTS.md` |
 | `pi-oauth-types.ts` | Local structural types for the slice of pi-ai's OAuth surface the server drives: `LoginPrompt`… → see `pi-oauth-types.ts.AGENTS.md` |

@@ -22,9 +22,9 @@
 #   8. cleanup
 #
 # Usage:
-#   ./scripts/test-standalone-npm-install-docker.sh                    # node:24-bookworm-slim (default)
-#   ./scripts/test-standalone-npm-install-docker.sh node:22-bookworm-slim   # supported floor
-#   ./scripts/test-standalone-npm-install-docker.sh node:22-alpine
+#   ./scripts/test-standalone-npm-install-docker.sh                    # node:26-bookworm-slim (default)
+#   ./scripts/test-standalone-npm-install-docker.sh node:26.0.0-bookworm-slim   # supported floor
+#   ./scripts/test-standalone-npm-install-docker.sh node:26-alpine
 #   ./scripts/test-standalone-npm-install-docker.sh --keep             # keep container + packs on exit
 #
 # Exit codes:
@@ -34,7 +34,7 @@
 
 set -euo pipefail
 
-IMAGE="node:24-bookworm-slim"
+IMAGE="node:26-bookworm-slim"
 KEEP=0
 while [[ $# -gt 0 ]]; do
   case "$1" in

@@ -244,7 +244,7 @@ export function makeCtx(stubs = {}) {
         STUB_TRACK_DIR: trackDir,
         STUB_CLI_TEMPLATE: cliTemplate,
         STUB_NPM_PREFIX: npmPrefix,
-        STUB_NODE_VERSION: "v24.15.0",
+        STUB_NODE_VERSION: "v26.13.0",
         ...env,
       };
       for (const k of Object.keys(fullEnv)) if (fullEnv[k] === undefined) delete fullEnv[k];

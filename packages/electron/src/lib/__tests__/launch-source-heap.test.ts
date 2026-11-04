@@ -20,6 +20,20 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/server-launcher.js", async (o
   launchDashboardServer,
 }));
 
+// No bundled Node in the test env: server-mode resolution supplies a
+// qualifying Node so the spawn proceeds (change raise-node-floor-to-26).
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js", async (orig) => ({
+  ...(await orig<typeof import("@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js")>()),
+  resolveServerRuntime: vi.fn(async () => ({
+    resolved: true,
+    nodeBinary: "/usr/local/bin/node26",
+    version: "v26.1.0",
+    step: "path",
+    range: ">=26.0.0 <27",
+    trail: [],
+  })),
+}));
+
 import { readServerMaxOldSpaceMb, spawnFromSource, stampServerHeap } from "../launch-source.js";
 
 const MARKER = "PI_DASHBOARD_HEAP_FLAG";
