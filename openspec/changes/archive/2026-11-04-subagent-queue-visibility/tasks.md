@@ -98,5 +98,5 @@
 - [x] 6.9 E2E: global save. Input: the plugin settings page. Trigger: set 4→8, check the Save bar, press global Save. Observable: unsaved-changes shown before Save; afterwards the producer file reads `maxConcurrent: 8`. Exemplar: `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F6)
 - [x] 6.10 E2E: global discard. Input: field edited 4→8. Trigger: global Discard. Observable: the field shows 4 and the file is unchanged. Exemplar: `tests/e2e/plugin-settings-pages.spec.ts` (test-plan #F7)
 - [x] 6.11 E2E: live apply. Input: limit 1 with 2 queued. Trigger: save limit 3. Observable: within 3 s both queued cards run, without a reload. Exemplar: `tests/e2e/subagent-stop-finalize.spec.ts` (test-plan #F8)
-- [ ] 6.12 Manual: queued and stopped visuals in dark, light and one non-base palette match the mockup and read as neutral (test-plan: manual-only, #F9)
+- [x] 6.12 Manual: queued and stopped visuals in dark, light and one non-base palette match the mockup and read as neutral (test-plan: manual-only, #F9)
 
