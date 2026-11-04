@@ -33,7 +33,8 @@ describe("evaluateHostApi — decision table", () => {
   });
 
   it("a range that is newer than the host by a minor is incompatible", () => {
-    expect(evaluateHostApi({ ...base, source: "installed", range: "^1.4.0" }).status?.compatible).toBe(false);
+    // Host is 1.4.0 (update-flows-plugin: manifest `replayEntryTypes`); one minor newer = ^1.5.0.
+    expect(evaluateHostApi({ ...base, source: "installed", range: "^1.5.0" }).status?.compatible).toBe(false);
   });
 
   it("workspace / bundled with an unsatisfied range: warn, never refuse", () => {
