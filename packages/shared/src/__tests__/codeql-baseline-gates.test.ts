@@ -73,22 +73,22 @@ function validateOperatorAuthzReason(key: string, reason: string, root: string):
     if (!CONTROL_TIER_FILES.has(file)) err(`control-tier: form not allowed for ${file}`);
     return errs;
   }
+  return [...errs, ...gateErrors(rest, root).map((m) => `${key}: ${m}`)];
+}
+
+/** `gate: <symbol> <repo-path>:<line>` — path exists, symbol in file, 1 ≤ line ≤ N. */
+function gateErrors(rest: string, root: string): string[] {
   const m = /^gate: (\S+) (\S+):(\S+?)(?:;|$)/.exec(rest);
-  if (!m) {
-    err("must be `gate: <symbol> <repo-path>:<line>` or `control-tier: <basis>`");
-    return errs;
-  }
+  if (!m) return ["must be `gate: <symbol> <repo-path>:<line>` or `control-tier: <basis>`"];
   const [, symbol, gatePath, lineRaw] = m;
   const abs = path.join(root, gatePath);
-  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
-    err(`gate path ${gatePath} does not exist`);
-    return errs;
-  }
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return [`gate path ${gatePath} does not exist`];
+  const errs: string[] = [];
   const text = fs.readFileSync(abs, "utf8");
-  if (!text.includes(symbol)) err(`gate symbol ${symbol} not found in ${gatePath}`);
+  if (!text.includes(symbol)) errs.push(`gate symbol ${symbol} not found in ${gatePath}`);
   const line = /^\d+$/.test(lineRaw) ? Number(lineRaw) : Number.NaN;
   const lines = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-  if (!Number.isInteger(line) || line < 1 || line > lines) err(`gate line ${lineRaw} outside 1..${lines} of ${gatePath}`);
+  if (!Number.isInteger(line) || line < 1 || line > lines) errs.push(`gate line ${lineRaw} outside 1..${lines} of ${gatePath}`);
   return errs;
 }
 
