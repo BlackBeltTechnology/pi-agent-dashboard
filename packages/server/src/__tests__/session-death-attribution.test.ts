@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRecoveryCandidate } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { sessionFromMeta } from "../session/session-scanner.js";
 
@@ -76,11 +76,48 @@ describe("session death attribution — central stamp", () => {
   });
 });
 
+describe("classifyCarrierLoss by pid target (X50–X52, scope-pids-to-namespace)", () => {
+  const esrch = vi.fn(() => {
+    throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+  });
+
+  it("X50: only `host` is probed; every other target is `unknown` with no probe", async () => {
+    const { classifyCarrierLoss } = await import("../session/death-reason.js");
+    esrch.mockClear();
+    expect(classifyCarrierLoss({ pid: 4242 }, { kind: "host" }, { kill: esrch })).toBe("process_gone");
+    expect(esrch).toHaveBeenCalledTimes(1);
+    esrch.mockClear();
+    for (const t of [{ kind: "foreign" }, { kind: "wsl", distro: "U" }, { kind: "legacy-wsl" }, { kind: "unknown" }] as const) {
+      expect(classifyCarrierLoss({ pid: 4242 }, t, { kill: esrch })).toBe("unknown");
+    }
+    expect(esrch).not.toHaveBeenCalled();
+  });
+
+  it("X51: a host pid that is alive or EPERM is `unknown`", async () => {
+    const { classifyCarrierLoss } = await import("../session/death-reason.js");
+    expect(classifyCarrierLoss({ pid: 4242 }, { kind: "host" }, { kill: () => {} })).toBe("unknown");
+    const eperm = () => {
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    };
+    expect(classifyCarrierLoss({ pid: 4242 }, { kind: "host" }, { kill: eperm })).toBe("unknown");
+  });
+
+  it("X52: no pid ⇒ `unknown`, no probe", async () => {
+    const { classifyCarrierLoss } = await import("../session/death-reason.js");
+    esrch.mockClear();
+    expect(classifyCarrierLoss({}, undefined, { kill: esrch })).toBe("unknown");
+    expect(classifyCarrierLoss({ originDeviceId: "d" } as { pid?: number }, { kind: "foreign" }, { kill: esrch })).toBe(
+      "unknown",
+    );
+    expect(esrch).not.toHaveBeenCalled();
+  });
+});
+
 describe("classifyCarrierLoss", () => {
   it("E14: no recorded pid yields `unknown` (never claims the process is gone)", async () => {
     const { classifyCarrierLoss } = await import("../session/death-reason.js");
-    expect(classifyCarrierLoss({ pid: undefined })).toBe("unknown");
-    expect(classifyCarrierLoss({})).toBe("unknown");
+    expect(classifyCarrierLoss({ pid: undefined }, { kind: "host" })).toBe("unknown");
+    expect(classifyCarrierLoss({}, undefined)).toBe("unknown");
   });
 
   it("E14: a REMOTE-origin pid is never probed locally — `unknown`, not `process_gone`", async () => {
@@ -93,7 +130,9 @@ describe("classifyCarrierLoss", () => {
     // The pid belongs to ANOTHER host's PID namespace; a local ESRCH says
     // nothing about a remote process (a running remote pi behind a dropped
     // tunnel is the common case), so the probe must not run at all.
-    expect(classifyCarrierLoss({ pid: 4242, originDeviceId: "remote-host" }, { kill })).toBe("unknown");
+    const { resolvePidTarget } = await import("../session/pid-target.js");
+    const remote = { pid: 4242, originDeviceId: "remote-host" };
+    expect(classifyCarrierLoss(remote, resolvePidTarget(remote, { platform: "linux" }), { kill })).toBe("unknown");
   });
 
   it("E14: an ESRCH probe yields `process_gone`", async () => {
@@ -103,12 +142,12 @@ describe("classifyCarrierLoss", () => {
       err.code = "ESRCH";
       throw err;
     };
-    expect(classifyCarrierLoss({ pid: 4242 }, { kill })).toBe("process_gone");
+    expect(classifyCarrierLoss({ pid: 4242 }, { kind: "host" }, { kill })).toBe("process_gone");
   });
 
   it("E14: a live (possibly recycled) pid downgrades to `unknown`", async () => {
     const { classifyCarrierLoss } = await import("../session/death-reason.js");
-    expect(classifyCarrierLoss({ pid: 4242 }, { kill: () => {} })).toBe("unknown");
+    expect(classifyCarrierLoss({ pid: 4242 }, { kind: "host" }, { kill: () => {} })).toBe("unknown");
   });
 
   it("E14: an unprobeable pid (EPERM) is `unknown`", async () => {
@@ -118,7 +157,7 @@ describe("classifyCarrierLoss", () => {
       err.code = "EPERM";
       throw err;
     };
-    expect(classifyCarrierLoss({ pid: 4242 }, { kill })).toBe("unknown");
+    expect(classifyCarrierLoss({ pid: 4242 }, { kind: "host" }, { kill })).toBe("unknown");
   });
 });
 

@@ -23,8 +23,9 @@ import {
   userMessageEvents,
 } from "@blackbelt-technology/pi-dashboard-shared/acp/to-dashboard-events.js";
 import { type AcpUpdate, parseSessionUpdate } from "@blackbelt-technology/pi-dashboard-shared/acp/update-model.js";
+import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent, PidNamespace } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type AcpConnection, createAcpConnection } from "./acp-connection.js";
 import { launchAgentProcess } from "./child-env.js";
 import type { EventLog } from "./event-log.js";
@@ -55,6 +56,11 @@ export interface AcpSessionAdapterOptions {
   sessionFile?: string;
   /** pid reported in `session_register` (host B: adapter pid; host A: omit — it is the server's). */
   reportPid?: number;
+  /**
+   * Namespace reported with `reportPid` (built in-process; defaults to this
+   * process's). Ignored without `reportPid`. See change: scope-pids-to-namespace.
+   */
+  reportPidNamespace?: PidNamespace;
   send: (m: ExtensionToServerMessage) => void;
   log: (line: string) => void;
   /** Durable event log (host B). */
@@ -135,7 +141,9 @@ export function createAcpSessionAdapter(opts: AcpSessionAdapterOptions): AcpSess
     sessionId,
     cwd: opts.cwd,
     source: "dashboard",
-    ...(opts.reportPid !== undefined ? { pid: opts.reportPid } : {}),
+    ...(opts.reportPid !== undefined
+      ? { pid: opts.reportPid, pidNamespace: opts.reportPidNamespace ?? processPidNamespace() }
+      : {}),
     hasUI: false,
     dashboardSpawned: true,
     ...(opts.spawnToken ? { spawnToken: opts.spawnToken } : {}),

@@ -607,3 +607,203 @@ describe("ToolBurstGroup — shared stop control", () => {
     err.mockRestore();
   });
 });
+
+/**
+ * Running-burst auto-open is bounded by size: at most 8 visible members
+ * (including the running one) auto-expand; a larger running burst stays
+ * collapsed with its live header and stop control. Test-plan #E1–#E8, #F2,
+ * #F3, #X4. See change: fix-chat-transcript-layout (design D1).
+ */
+describe("ToolBurstGroup — running auto-open size cap (fix-chat-transcript-layout)", () => {
+  function withViewport(mobile: boolean, run: () => void) {
+    const prev = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: mobile,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      run();
+    } finally {
+      window.matchMedia = prev;
+    }
+  }
+
+  function renderViewportBurst(
+    items: ChatItem[],
+    prefs: DisplayPrefs = { ...DISPLAY_PRESETS.standard, toolGroupDefaultCollapsed: false },
+    sessionOverride?: Partial<DisplayPrefs>,
+  ) {
+    const ui = (list: ChatItem[]) => (
+      <MobileProvider>
+        <ThemeProvider>
+          <DisplayPrefsProvider value={{ global: prefs, getSessionOverride: () => sessionOverride }}>
+            <ToolBurstGroup
+              burst={{ type: "burst", id: "b1", items: list }}
+              toolContext={toolContext}
+              onAbort={() => {}}
+            />
+          </DisplayPrefsProvider>
+        </ThemeProvider>
+      </MobileProvider>
+    );
+    const r = render(ui(items));
+    return { ...r, rerenderItems: (list: ChatItem[]) => r.rerender(ui(list)) };
+  }
+
+  const body = (c: HTMLElement) => c.querySelector('[data-testid="tool-burst-body"]');
+  const header = (c: HTMLElement) => c.querySelector('[data-testid="tool-burst-header"]') as HTMLElement;
+  /** Every member row (ToolCallStep) and the group frame carry `.border-l-2`. */
+  const memberRows = (c: HTMLElement) => c.querySelectorAll(".border-l-2").length - 1;
+  const done = (n: number, o: Partial<ChatMessage> = {}) =>
+    Array.from({ length: n }, (_, i) => tool({ toolName: "grep", args: { pattern: `p${i}` }, ...o }));
+  const running = (o: Partial<ChatMessage> = {}) =>
+    tool({ toolName: "bash", toolStatus: "running", args: { command: "sleep 60" }, ...o });
+
+  it("#E1 at the cap (7 done + 1 running = 8 visible) the body auto-expands", () => {
+    withViewport(false, () => {
+      const { container } = renderViewportBurst([...done(7), running()]);
+      expect(body(container)).not.toBeNull();
+      expect(header(container).textContent).toContain("Working");
+      expect(header(container).textContent).toContain("7 done");
+    });
+  });
+
+  it("#E2 just above the cap (8 done + 1 running = 9 visible) stays collapsed with a live header", () => {
+    withViewport(false, () => {
+      const { container } = renderViewportBurst([...done(8), running()]);
+      expect(body(container)).toBeNull();
+      const h = header(container).textContent ?? "";
+      expect(h).toContain("Working");
+      expect(h).toContain("8 done");
+      expect(container.querySelector('[data-testid="tool-burst-live-command"]')!.textContent).toContain("sleep 60");
+      expect(container.querySelector('[data-testid="tool-burst-stop-button"]')).not.toBeNull();
+    });
+  });
+
+  it("#E3 the #1100 repro (47 done + 1 running) mounts zero member rows", () => {
+    withViewport(false, () => {
+      const { container } = renderViewportBurst([...done(47), running()]);
+      expect(body(container)).toBeNull();
+      expect(memberRows(container)).toBe(0);
+      expect(header(container).textContent).toContain("Working");
+      expect(header(container).textContent).toContain("47 done");
+    });
+  });
+
+  it("#E4 small running bursts (1 and 2 visible) still auto-expand", () => {
+    withViewport(false, () => {
+      const one = renderViewportBurst([running()]);
+      expect(body(one.container)).not.toBeNull();
+      one.unmount();
+      const two = renderViewportBurst([...done(1), running()]);
+      expect(body(two.container)).not.toBeNull();
+    });
+  });
+
+  it("#E5 the cap counts VISIBLE members, not raw members", () => {
+    withViewport(false, () => {
+      // 6 grep (generic) + 1 running bash = 7 visible; 5 hidden `read` members.
+      const prefs = {
+        ...DISPLAY_PRESETS.standard,
+        toolGroupDefaultCollapsed: false,
+        toolCalls: { ...DISPLAY_PRESETS.standard.toolCalls, read: false },
+      };
+      const hidden = done(5, { toolName: "read" });
+      const sevenVisible = renderViewportBurst([...done(6), ...hidden, running()], prefs);
+      expect(body(sevenVisible.container)).not.toBeNull();
+      sevenVisible.unmount();
+      const nineVisible = renderViewportBurst([...done(8), running()], prefs);
+      expect(body(nineVisible.container)).toBeNull();
+    });
+  });
+
+  it("#E6 a manual toggle wins over the cap", () => {
+    withViewport(false, () => {
+      const { container } = renderViewportBurst([...done(47), running()]);
+      expect(body(container)).toBeNull();
+      fireEvent.click(header(container));
+      expect(body(container)).not.toBeNull();
+      fireEvent.click(header(container));
+      expect(body(container)).toBeNull();
+    });
+  });
+
+  it("#E7 pref × mobile × size: the body auto-opens only for (off, desktop, ≤8)", () => {
+    for (const pref of [false, true]) {
+      for (const mobile of [false, true]) {
+        for (const size of ["small", "large"] as const) {
+          withViewport(mobile, () => {
+            const items = size === "small" ? [...done(7), running()] : [...done(8), running()];
+            const prefs = { ...DISPLAY_PRESETS.standard, toolGroupDefaultCollapsed: pref };
+            const { container, unmount } = renderViewportBurst(items, prefs);
+            const shouldOpen = !pref && !mobile && size === "small";
+            expect(body(container) !== null, `pref=${pref} mobile=${mobile} size=${size}`).toBe(shouldOpen);
+            expect(header(container).textContent).toContain("Working");
+            unmount();
+          });
+        }
+      }
+    }
+  });
+
+  it("#E8 a per-session override (off) beats the global default (on)", () => {
+    withViewport(false, () => {
+      const global = { ...DISPLAY_PRESETS.standard, toolGroupDefaultCollapsed: true };
+      const { container } = renderViewportBurst([...done(2), running()], global, {
+        toolGroupDefaultCollapsed: false,
+      });
+      expect(body(container)).not.toBeNull();
+    });
+  });
+
+  it("#F2 crossing the cap mid-run collapses (accepted flap); a manually opened group stays open", () => {
+    withViewport(false, () => {
+      const base = [...done(7), running()];
+      const auto = renderViewportBurst(base);
+      expect(body(auto.container)).not.toBeNull();
+      auto.rerenderItems([...base, tool({ toolName: "grep", args: { pattern: "late" } })]);
+      expect(body(auto.container)).toBeNull();
+      expect(header(auto.container).textContent).toContain("Working");
+      expect(auto.container.querySelector('[data-testid="tool-burst-stop-button"]')).not.toBeNull();
+      auto.unmount();
+
+      const manual = renderViewportBurst(base);
+      fireEvent.click(header(manual.container)); // close (override=false)
+      fireEvent.click(header(manual.container)); // open (override=true)
+      manual.rerenderItems([...base, tool({ toolName: "grep", args: { pattern: "late" } })]);
+      expect(body(manual.container)).not.toBeNull();
+    });
+  });
+
+  it("#F3 a manually opened large burst stays mounted after running→done", () => {
+    withViewport(false, () => {
+      const r = running();
+      const members = done(46);
+      const { container, rerenderItems } = renderViewportBurst([...members, r]);
+      expect(body(container)).toBeNull();
+      fireEvent.click(header(container));
+      expect(body(container)).not.toBeNull();
+      rerenderItems([...members, { ...r, toolStatus: "complete" }]);
+      expect(body(container)).not.toBeNull();
+    });
+  });
+
+  it("#X4 hidden members never count toward the cap; elided members never count as done", () => {
+    withViewport(false, () => {
+      const prefs = {
+        ...DISPLAY_PRESETS.standard,
+        toolGroupDefaultCollapsed: false,
+        toolCalls: { ...DISPLAY_PRESETS.standard.toolCalls, read: false },
+      };
+      // 20 hidden read members + 1 elided + 1 complete + 1 running = 3 visible.
+      const { container } = renderViewportBurst(
+        [...done(20, { toolName: "read" }), tool({ toolStatus: "elided" }), ...done(1), running()],
+        prefs,
+      );
+      expect(body(container)).not.toBeNull();
+      expect(header(container).textContent).toContain("1 done");
+    });
+  });
+});

@@ -8,7 +8,7 @@ Server enriches forwarded `process_list` entries with `kind`/`label`/`sessionRef
 ### Requirement: Server classifies forwarded process-list entries
 When the server receives a `process_list` message from a bridge, it SHALL enrich each process entry with a `kind`, a human-readable `label`, and (when applicable) a `sessionRef`, before forwarding as `process_list_update` to subscribed browsers. Classification SHALL be a pure function of the entry's `command` and a `pidIndex` — a map of `pid → { sessionId, name, model }` built from all currently connected sessions' stored `pid` values.
 
-The server SHALL maintain or derive the `pidIndex` from `DashboardSession.pid` (populated from `session_register.pid`). Only sessions currently connected SHALL contribute to the index (avoids pid-reuse mislinks against dead sessions).
+The server SHALL maintain or derive the `pidIndex` from `DashboardSession.pid` (populated from `session_register.pid`). Only sessions currently connected, and whose pid target is `host`, SHALL contribute to the index. This avoids pid-reuse mislinks against dead sessions, and cross-namespace mislinks.
 
 #### Scenario: Sub-session named from registry
 - **WHEN** a `process_list` entry has a command whose basename is `pi` AND its `pid` is present in `pidIndex`
@@ -33,3 +33,7 @@ The server SHALL maintain or derive the `pidIndex` from `DashboardSession.pid` (
 #### Scenario: Stored processes carry classification for late subscribers
 - **WHEN** the server stores the forwarded processes on the session for replay to new subscribers
 - **THEN** the stored entries SHALL include the enriched `kind`/`label`/`sessionRef` fields
+
+#### Scenario: A foreign session's pid is not indexed
+- **WHEN** a local `pi` process's pid equals the pid of a connected session whose target is not `host`
+- **THEN** that process SHALL NOT be classified as that session's sub-session

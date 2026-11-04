@@ -44,4 +44,16 @@ describe("buildPiEnv", () => {
     expect(base.PI_DASHBOARD_SPAWN_TOKEN).toBe("tok_abc");
     expect(base.PI_KEEPER_PI_ARGS).toBe('["--foo"]');
   });
+
+  // test-plan #E13 — PWD survives first launch AND respawn.
+  // See change: fix-spawned-session-pwd.
+  it("keeps PWD on first launch and on respawn", () => {
+    const env = { PWD: "/work/p", PI_DASHBOARD_SPAWN_TOKEN: "t", PI_DASHBOARD_SPAWNED: "1" };
+    const first = buildPiEnv(env, true);
+    const again = buildPiEnv(env, false);
+    expect(first.PWD).toBe("/work/p");
+    expect(again.PWD).toBe("/work/p");
+    expect(first.PI_DASHBOARD_SPAWN_TOKEN).toBe("t");
+    expect(again.PI_DASHBOARD_SPAWN_TOKEN).toBeUndefined();
+  });
 });

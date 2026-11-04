@@ -5,8 +5,9 @@
  * `DndContext` handlers and drive the drag lifecycle directly. Collision
  * detection itself is unit-tested in `lib/__tests__/sidebar-dnd.test.ts`.
  *
- * Covers test-plan #F1-#F10, #F14, #F15, #F17.
- * See change: drag-folders-across-workspaces.
+ * Covers test-plan #F1-#F10, #F14, #F15 (drag-folders-across-workspaces) and
+ * #E21, #F1-#F3, #X1 (fix-sidebar-folder-visibility).
+ * See changes: drag-folders-across-workspaces, fix-sidebar-folder-visibility.
  */
 
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -18,6 +19,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { setSidebarSearch } from "./sidebar-search-helper.js";
 
 let handlers: {
   onDragStart?: (e: DragStartEvent) => void;
@@ -26,14 +28,28 @@ let handlers: {
   onDragCancel?: () => void;
 } = {};
 
+// Thin `DndContext` stand-in: captures the handlers AND tracks `active` the
+// way dnd-kit does (set on drag start, cleared on end/cancel, reset when the
+// provider remounts), exposed through a mocked `useDndContext`. Lets the
+// eject zone, which reads dnd-kit's `active`, follow the driven lifecycle.
+// See change: fix-sidebar-folder-visibility.
 vi.mock("@dnd-kit/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@dnd-kit/core")>();
+  const React = await import("react");
+  const ActiveCtx = React.createContext<unknown>(null);
   return {
     ...actual,
     DndContext: ({ children, ...rest }: any) => {
-      handlers = rest;
-      return <>{children}</>;
+      const [active, setActive] = React.useState<unknown>(null);
+      handlers = {
+        ...rest,
+        onDragStart: (e: DragStartEvent) => { setActive(e.active); rest.onDragStart?.(e); },
+        onDragEnd: (e: DragEndEvent) => { setActive(null); rest.onDragEnd?.(e); },
+        onDragCancel: () => { setActive(null); rest.onDragCancel?.(); },
+      };
+      return <ActiveCtx.Provider value={active}>{children}</ActiveCtx.Provider>;
     },
+    useDndContext: () => ({ ...actual.useDndContext(), active: React.useContext(ActiveCtx) }),
   };
 });
 
@@ -312,31 +328,108 @@ describe("spring-load and drag-collapse never persist collapse state", () => {
   });
 });
 
-describe("empty-tier eject zone", () => {
-  // #F17 — a non-empty pinned tier already offers eject targets; a second
-  // overlapping zone would make nearest-center resolution arbitrary.
-  it("is absent while a folder drag is active but the pinned tier is non-empty", () => {
-    renderList({ pinnedDirectories: [PINNED] });
-    act(() =>
-      handlers.onDragStart?.({
-        active: { id: A_FOLDER, data: { current: { type: "workspace-folder", wsId: "A" } } },
-      } as unknown as DragStartEvent),
-    );
-    expect(screen.queryByTestId("pinned-tier-drop-zone")).toBeNull();
-  });
+describe("eject zone (fix-sidebar-folder-visibility)", () => {
+  const start = (id: string, data: Record<string, unknown>) =>
+    act(() => handlers.onDragStart?.({ active: { id, data: { current: data } } } as unknown as DragStartEvent));
+  const zone = () => screen.queryByTestId("pinned-tier-drop-zone");
+  const listItems = () => screen.getByTestId("session-list-scroll").querySelector("ul")!.children.length;
 
   it("is absent when no drag is active", () => {
-    renderList();
-    expect(screen.queryByTestId("pinned-tier-drop-zone")).toBeNull();
+    renderList({ pinnedDirectories: [PINNED] });
+    expect(zone()).toBeNull();
   });
 
-  it("mounts when the pinned tier is empty and a workspace-folder drag starts", () => {
-    renderList();
+  // #E21 — present for every workspace-folder drag, whatever the pinned tier holds.
+  it.each([
+    ["no pinned folder", {}],
+    ["a visible pinned folder", { pinnedDirectories: [PINNED] }],
+  ])("mounts for a workspace-folder drag with %s", (_label, extra) => {
+    renderList(extra as Partial<ListProps>);
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    expect(zone()).not.toBeNull();
+  });
+
+  it("mounts for a workspace-folder drag while a Folders filter hides every pinned folder", () => {
+    renderList({ pinnedDirectories: [PINNED] });
+    setSidebarSearch("folders", "zzz");
+    expect(screen.queryByTestId(`folder-header-name-${PINNED}`)).toBeNull();
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    expect(zone()).not.toBeNull();
+  });
+
+  it.each([
+    ["session", "s1", { type: "session" }],
+    ["workspace", "A", { type: "workspace" }],
+    ["pinned-group", PINNED, { type: "pinned-group" }],
+  ])("stays absent for a %s drag", (_label, id, data) => {
+    renderList({ pinnedDirectories: [PINNED] });
+    start(id as string, data as Record<string, unknown>);
+    expect(zone()).toBeNull();
+  });
+
+  // #F1 — gone after the drag ends, by drop or by cancel. (Escape against the
+  // real DndContext is covered in the L3 drag spec.)
+  it("is removed after a drop on the zone and after a cancel", () => {
+    renderList({ pinnedDirectories: [PINNED] });
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    expect(zone()).not.toBeNull();
     act(() =>
-      handlers.onDragStart?.({
-        active: { id: A_FOLDER, data: { current: { type: "workspace-folder", wsId: "A" } } },
-      } as unknown as DragStartEvent),
+      handlers.onDragEnd?.(drag(A_FOLDER, { type: "workspace-folder", wsId: "A" }, "__pinned_tier__", { type: "pinned-tier" })),
     );
-    expect(screen.getByTestId("pinned-tier-drop-zone")).toBeTruthy();
+    expect(zone()).toBeNull();
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    expect(zone()).not.toBeNull();
+    act(() => handlers.onDragCancel?.());
+    expect(zone()).toBeNull();
+  });
+
+  // #F2 — an idle sidebar (and a non-folder drag) gains no list item.
+  it("adds a list item only during a workspace-folder drag", () => {
+    renderList({ pinnedDirectories: [PINNED] });
+    const baseline = listItems();
+    start("s1", { type: "session" });
+    expect(listItems()).toBe(baseline);
+    act(() => handlers.onDragCancel?.());
+    expect(listItems()).toBe(baseline);
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    expect(listItems()).toBe(baseline + 1);
+    act(() => handlers.onDragCancel?.());
+    expect(listItems()).toBe(baseline);
+  });
+
+  // #F3 — the zone and a pinned group are equivalent eject targets.
+  it.each([
+    ["the zone", "__pinned_tier__", { type: "pinned-tier" }],
+    ["a pinned group", PINNED, { type: "pinned-group" }],
+  ])("a drop on %s sends exactly one eject", (_label, overId, overData) => {
+    const s = renderList({ pinnedDirectories: [PINNED] });
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    act(() =>
+      handlers.onDragEnd?.(drag(A_FOLDER, { type: "workspace-folder", wsId: "A" }, overId as string, overData as Record<string, unknown>)),
+    );
+    expect(s.onMoveFolderToWorkspace).toHaveBeenCalledTimes(1);
+    expect(s.onMoveFolderToWorkspace).toHaveBeenCalledWith(A_FOLDER, null, undefined);
+    expect(s.onReorderPinnedDirs).not.toHaveBeenCalled();
+    expect(s.onReorderWorkspaceFolders).not.toHaveBeenCalled();
+  });
+
+  // #X1 — the DndContext subtree unmounts mid-drag with no onDragCancel; on
+  // remount the zone follows dnd-kit's reset `active`, not stale mirrored state.
+  it("does not resurrect the zone after the drag subtree remounts without a cancel", () => {
+    const view = (workspaces: Workspace[]) => (
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList sessions={[]} onSelect={() => {}} workspaces={workspaces} />
+        </ThemeProvider>
+      </TestRouter>
+    );
+    const { rerender } = render(view(makeWorkspaces()));
+    start(A_FOLDER, { type: "workspace-folder", wsId: "A" });
+    expect(zone()).not.toBeNull();
+    // Last workspace (and no pins) gone → empty state, DndContext unmounted.
+    rerender(view([]));
+    expect(screen.getByText("No active sessions")).toBeTruthy();
+    rerender(view(makeWorkspaces()));
+    expect(zone()).toBeNull();
   });
 });

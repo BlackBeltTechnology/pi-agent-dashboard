@@ -90,6 +90,7 @@ import { captureSpawnTokenAtActivation } from "./spawn-token.js";
 import { registerSessionInfoChanged, registerProjectTrust, registerSessionStart, registerTurnEnd, registerSessionShutdown } from "./bridge-handlers/lifecycle.js";
 import { registerEnrichedForwarders, registerPassThroughForwarders } from "./bridge-handlers/forwarders.js";
 import { handleInboundMessage } from "./bridge-handlers/dispatch.js";
+import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 
 /**
  * Formats the state behind a watchdog force-close for `server.log`.
@@ -1680,6 +1681,7 @@ function initBridge(pi: ExtensionAPI) {
                 cwd: process.cwd(),
                 source: "tui",
                 pid: process.pid,
+                pidNamespace: processPidNamespace(),
                 provisional: true,
                 ...(targetManager?.certValidation ? { certValidation: "enforced" as const } : {}),
               });

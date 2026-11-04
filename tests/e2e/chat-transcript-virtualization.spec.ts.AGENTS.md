@@ -3,3 +3,5 @@
 Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. 6 tests via `[[faux:long-transcript]]` (~120 heterogeneous turns): 50px scroll-lock during streaming, scroll-to-bottom button appear/hide/resume, multi-batch `event_replay` lands at bottom, off-screen `scrollToTurn` via `turn-bar`, streaming tail (`.chat-stream-live`) stays mounted while scrolled up, mounted `[data-index]` rows bounded (<60). Reads scroll metrics off `chatScrollContainer` testid; windowing proof = `[data-index]` count. See change: virtualize-chat-transcript-tanstack.
 
 Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 gate for virtualize-chat-transcript-tanstack (Phase 2 Step B).
+
+See change: fix-chat-transcript-layout — `collapsed burst estimate (#1083)` block: 3.1 measures the collapsed burst virtual row (desktop 16 px, mobile 44 px) vs `COLLAPSED_BURST_ESTIMATE` (± 8 px desktop); #F6 expand→collapse returns row + spacer total size within 1 px (scenario `burst-heterogeneous`).

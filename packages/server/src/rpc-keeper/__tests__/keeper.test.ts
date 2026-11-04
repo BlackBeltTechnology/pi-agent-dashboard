@@ -13,10 +13,11 @@
  * Tasks covered: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildSpawnEnv } from "../../spawn-process/process-manager.js";
 import { piPidPathFor as piPidPathForKM } from "../keeper-manager.js";
 
 const KEEPER_PATH = path.resolve(__dirname, "..", "keeper.cjs");
@@ -99,6 +100,8 @@ interface SpawnKeeperOptsExt extends SpawnKeeperOpts {
    * See change: fix-rpc-keeper-pi-resolution.
    */
   extraEnv?: NodeJS.ProcessEnv;
+  /** Working directory of the keeper process (default: inherited). See change: fix-spawned-session-pwd. */
+  cwd?: string;
   /**
    * If true, do NOT prepend the per-test PATH shim that turns `pi` into
    * `mock-pi-shim.sh`. Used to verify the keeper can spawn pi solely via
@@ -140,6 +143,7 @@ async function spawnKeeper(opts: SpawnKeeperOptsExt = {}): Promise<SpawnedKeeper
 
   const child = spawn(process.execPath, [KEEPER_PATH, sessionId], {
     env,
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -348,6 +352,35 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
     expect(klog).toContain(`spawning pi ${process.execPath} ${mockPiAbs}`);
 
     await killAndAwait(k);
+  }, 10_000);
+
+  // test-plan #E14 — the real process chain: buildSpawnEnv → keeper → pi.
+  // See change: fix-spawned-session-pwd.
+  it("fix-spawned-session-pwd: pi launched by the keeper sees PWD = canonical spawn cwd", async () => {
+    const T = mkdtempSync(path.join("/tmp", "kpwd-"));
+    try {
+      const built = buildSpawnEnv({ ...process.env, PWD: "/elsewhere" }, { cwd: T });
+      const dumpPath = path.join(T, "env-dump.json");
+      const mockPiAbs = path.join(SHIM_DIR, "mock-pi.cjs");
+      const k = track(
+        await spawnKeeper({
+          cwd: T,
+          extraEnv: {
+            PWD: built.PWD,
+            MOCK_PI_ENV_OUT: dumpPath,
+            PI_KEEPER_PI_CMD: JSON.stringify([process.execPath, mockPiAbs]),
+          },
+        }),
+      );
+      await readyKeeper(k);
+      await waitFor(() => existsSync(dumpPath));
+      const dump = JSON.parse(readFileSync(dumpPath, "utf8")) as { PWD: string; cwd: string };
+      expect(dump.PWD).toBe(realpathSync(T));
+      expect(dump.PWD).toBe(dump.cwd);
+      await killAndAwait(k);
+    } finally {
+      rmSync(T, { recursive: true, force: true });
+    }
   }, 10_000);
 
   it("fix-rpc-keeper-pi-resolution: malformed PI_KEEPER_PI_CMD falls back to bare pi (PATH shim)", async () => {

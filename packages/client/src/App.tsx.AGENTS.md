@@ -88,3 +88,5 @@ Session route resolution: raw `routeSessionId` → `useSessionRouteResolution` �
 
 Subscribes `onDeviceBearerNotice` → one keyed `warning` toast (`device-bearer-not-persisted`) when a rotated device bearer cannot be written to `localStorage`. See change: harden-auth-credentials.
 Read-only archived view: `viewedSession` (lib/session/archived-read-only-session) feeds the header row and the editor-pane `cwd` (`paneSession`); `archivedView` (= `?archived=1`) unwires rename/tags/seek/resume and trims mobile actions to refresh. Summary not yet fetched → header placeholder `archived-header-placeholder` ("Loading archived session…"); fetch failed (`archivedSummaryFailed`) → "Archived session unavailable"; provider gets `cwdUnavailable`. See change: fix-archived-session-view-header-and-stale-artifact-tab.
+
+See change: fix-chat-transcript-layout (D5) — `composer-stack-anchor` = content-height canvas chip slot (`shrink-0 mx-5`, no `aria-hidden`; 0 px while no chip), still gated `!frozen && !readOnly`, directly above `ComposerDockHost`; `CanvasDriver` portals the chip tray into it. `columnEl` (= its `parentElement`) unchanged.

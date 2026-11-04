@@ -69,6 +69,25 @@ describe("ship-it CodeQL wiring (#E30)", () => {
     expect(s).toContain("operator-authz");
   });
 
+  // #E17: the preset is a template asking for the bounding gate, never the
+  // canned universal-guard sentence. See change: fix-codeql-baseline-coverage.
+  it("the operator-authz preset is a gate template (#E17)", () => {
+    const s = flat(section("4.4b"));
+    expect(s).toContain("gate: <symbol>");
+    expect(s).toContain("operator-authz");
+    expect(s).not.toContain("can already spawn shell-capable");
+  });
+
+  // #E18: the canned sentence is gone from every file of the skill.
+  it("no file under .pi/skills/ship-it carries the canned sentence (#E18)", () => {
+    const dir = path.join(repoRoot, ".pi", "skills", "ship-it");
+    const files = fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((d) => d.isFile());
+    const hits = files
+      .map((d) => path.join(d.parentPath, d.name))
+      .filter((p) => fs.readFileSync(p, "utf-8").includes("can already spawn shell-capable"));
+    expect(hits).toEqual([]);
+  });
+
   it("only edits the baseline through --prune and --accept", () => {
     expect(flat(section("4.4b"))).toMatch(/only through `--prune` and `--accept`/);
   });

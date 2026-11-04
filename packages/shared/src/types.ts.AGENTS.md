@@ -9,3 +9,5 @@ Core dashboard shared type surface. Exports `DashboardSession`, `DashboardEvent`
 `OpenSpecChange.dependencies?: ChangeDependencies` (`hasFile`, `blockedBy: DependencyEdge[]`, `blocks`, `related`, `overlaps`, `wave: number|null`, `issues: DependencyIssue[]`); `DependencyEdge {change, source declared|inferred-text|inferred-capability, reason?, state open|satisfied}`; `DependencyIssueCode`; `OpenSpecWorkflowSchemaStatus.undeclaredChanges?` (server fills it once the worker-safe status module lands). See change: add-openspec-change-dependencies.
 
 `FlowInfo` removed (flows plugin owns `FlowCatalogEntry`). See change: flows-dock-chip-and-panel-actions.
+
+`PidNamespace` interface `{platform, kind:"host"|"wsl", distro?, nsId?, hostId?}`; `DashboardSession.pidNamespace?: PidNamespace | null` — server-only (null = malformed report), never on the wire. See change: scope-pids-to-namespace.

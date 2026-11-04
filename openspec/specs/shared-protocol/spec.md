@@ -748,3 +748,44 @@ The `ServerToBrowserMessage` union SHALL include `folder_refused` with fields `p
 #### Scenario: Folder refusal message type-checks
 - **WHEN** client code handles `{ type: "folder_refused", path: "/", reason: "outside_allowed_roots" }`
 - **THEN** it SHALL compile without `as any` casts
+
+### Requirement: Session registration reports the pi process's pid namespace
+
+`session_register` SHALL carry an optional `pidNamespace` built by one shared builder at every register site. It holds:
+- `platform`;
+- `kind`, `"wsl"` with `distro` when `WSL_DISTRO_NAME` is set, else `"host"`;
+- `nsId`, the Linux `/proc/self/ns/pid` link;
+- `hostId`, the Linux `boot_id`, else the hostname.
+
+Unreadable fields SHALL be omitted. The server SHALL store it atomically with `pid`, including on the provisional path. A register without `pid` SHALL clear both.
+
+#### Scenario: Bridge inside WSL reports its distribution and namespace
+- **WHEN** the bridge runs with `WSL_DISTRO_NAME=Ubuntu-24.04` and registers with `pid: 1083`
+- **THEN** `pidNamespace` SHALL carry `platform: "linux"`, `kind: "wsl"`, `distro: "Ubuntu-24.04"`, `nsId` and `hostId`
+
+#### Scenario: A provisional register keeps its namespace
+- **WHEN** a session registers provisionally and is later committed
+- **THEN** the stored namespace SHALL be the one the provisional register carried
+
+#### Scenario: Reattach registers carry the field
+- **WHEN** the bridge sends a reattach `session_register` with a `pid`
+- **THEN** it SHALL include the same `pidNamespace` as the first register
+
+#### Scenario: Legacy bridge omits the field
+- **WHEN** a `session_register` without `pidNamespace` is received
+- **THEN** the server SHALL record the namespace as unreported
+
+#### Scenario: The namespace is never persisted apart from the pid
+- **WHEN** the server persists a session (`.meta.json`, archive rows)
+- **THEN** it SHALL NOT persist `pidNamespace`, because it persists no `pid` either
+- **AND** a session restored after a server restart SHALL carry neither, so no stale namespace can outlive the pid it described
+- **AND** a reattaching bridge SHALL supply both again with its `session_register`
+
+#### Scenario: The namespace is not sent to browsers or peers
+- **WHEN** the server serializes a session for a browser (session list, session update, REST) or for a paired peer
+- **THEN** the payload SHALL NOT contain `pidNamespace`
+
+#### Scenario: A malformed namespace is an unusable report
+- **WHEN** a `session_register` carries a `pidNamespace` with a wrong field type, `kind: "wsl"` without `distro`, a non-object value, a `distro` over 64 characters, or a `hostId` or `nsId` over 128 characters
+- **THEN** the register SHALL still succeed
+- **AND** the session's pid target SHALL resolve to `unknown`, neither `host` nor `foreign`

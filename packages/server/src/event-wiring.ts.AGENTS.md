@@ -10,3 +10,5 @@ Replay mode (change fix-large-session-resume-replay): `isReplayedForward(id,msg)
 Register push sends `buildPreferencesUpdate` snapshot; the `session_register` initial-prompt arm also sends it immediately before `send_prompt` (same socket → bridge applies compat before the first run). Pinned by #E10. See change: retire-anthropic-messages-bridge.
 
 `flows_list` handler + sibling `request_flows_refresh` fan-out removed; legacy message ignored. See change: flows-dock-chip-and-panel-actions.
+
+Registry link via `linkRegisterToSpawn` with register's pid target; `buildPidIndex(..., getServerPidContext())`. See change: scope-pids-to-namespace.

@@ -18,3 +18,5 @@ See change: fix-replay-fabricates-orphan-end-for-live-calls — exports `isLive(
 Declares `certValidation: "enforced"` on `session_register` when the TLS checks applied. See change: prove-vault-bridge-tls.
 
 No `flows_list` send; `getFlowsList` param dropped from `sendStateSync` / `handleSessionChange` (flow list plugin-owned). See change: flows-dock-chip-and-panel-actions.
+
+Every `session_register` carries `pidNamespace: processPidNamespace()`. See change: scope-pids-to-namespace.

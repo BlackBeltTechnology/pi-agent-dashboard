@@ -342,7 +342,8 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         // but log it rather than swallow silently.
         if (abortGoalSupervision) {
           await abortGoalSupervision(cwd!, id, { status: "cleared", reason: "deleted" }).catch((err) =>
-            console.warn(`[goal-routes] abort before delete failed for ${id}:`, err),
+            // Constant format string: `id` is a path param (js/tainted-format-string).
+            console.warn("[goal-routes] abort before delete failed for %s:", id, err),
           );
         }
         const formerSessionIds = await store.delete(cwd!, id);

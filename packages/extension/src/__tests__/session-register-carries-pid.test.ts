@@ -89,6 +89,34 @@ describe("session_register carries the session's pid (#452)", () => {
    * Only the FIRST register carries it (the token is single-use and scrubbed),
    * so this asserts at least one send per file rather than all of them.
    */
+  /**
+   * E58/E59: every register — first, reattach, switch and the provisional move
+   * register in bridge.ts — names WHICH pid namespace `pid` lives in, through
+   * the one memoised builder, so a reattach carries the identical value.
+   * See change: scope-pids-to-namespace.
+   */
+  it.each([...FILES, "bridge.ts"])("%s: every session_register carries pidNamespace from the shared builder", (file) => {
+    const found = registerLiterals(readFileSync(join(SRC, file), "utf8"));
+    expect(found.length).toBeGreaterThan(0);
+    for (const literal of found) {
+      expect(literal, `a session_register in ${file} omits pidNamespace`).toMatch(
+        /\bpidNamespace:\s*processPidNamespace\(\)/,
+      );
+    }
+  });
+
+  it("E58: the four bridge register sites are all covered", () => {
+    const n = [...FILES, "bridge.ts"].flatMap((f) => registerLiterals(readFileSync(join(SRC, f), "utf8"))).length;
+    expect(n).toBeGreaterThanOrEqual(4);
+  });
+
+  it("E59: processPidNamespace is built once — a reattach carries the identical value", async () => {
+    const { processPidNamespace } = await import("@blackbelt-technology/pi-dashboard-shared/pid-namespace.js");
+    const first = processPidNamespace();
+    expect(processPidNamespace()).toBe(first);
+    expect(JSON.parse(JSON.stringify(processPidNamespace()))).toEqual(JSON.parse(JSON.stringify(first)));
+  });
+
   it.each(FILES)("%s: at least one session_register echoes the spawn token", (file) => {
     const found = registerLiterals(readFileSync(join(SRC, file), "utf8"));
     expect(
