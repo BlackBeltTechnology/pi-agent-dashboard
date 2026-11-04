@@ -22,7 +22,9 @@ Write-Host "=== Test: pid target on Windows (WSL pids never taskkilled) ==="
 
 $children = @()
 function Start-StandIn {
-  $p = Start-Process -FilePath "node" -ArgumentList @("-e", "setTimeout(()=>{}, 600000)") -PassThru -WindowStyle Hidden
+  # No spaces in the script: Start-Process joins -ArgumentList unquoted, so a
+  # space would split it and node would exit on a syntax error.
+  $p = Start-Process -FilePath "node" -ArgumentList @("-e", "setInterval(()=>{},60000)") -PassThru -WindowStyle Hidden
   $script:children += $p
   return $p
 }
