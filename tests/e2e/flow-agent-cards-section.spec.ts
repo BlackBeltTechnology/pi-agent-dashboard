@@ -64,10 +64,13 @@ test.describe("flow Agent cards section (L3)", () => {
     const wide = await toggle.boundingBox();
     expect(wide?.height ?? 0).toBeGreaterThanOrEqual(32);
     await page.setViewportSize({ width: 375, height: 800 });
-    // Below md the panel may collapse to the mobile bar: expand it if so.
+    // Below md the slot renders the mobile collapsed bar first; tap it to expand.
     const bar = page.getByText("tap to expand");
-    if (await bar.isVisible().catch(() => false)) await bar.click();
-    const narrow = await agentCardsToggle(page.getByTestId("flow-dashboard")).boundingBox();
+    await expect(bar).toBeVisible({ timeout: 15_000 });
+    await bar.click();
+    const narrowToggle = agentCardsToggle(page.getByTestId("flow-dashboard"));
+    await expect(narrowToggle).toBeVisible({ timeout: 15_000 });
+    const narrow = await narrowToggle.boundingBox();
     expect(narrow?.height ?? 0).toBeGreaterThanOrEqual(44);
   });
 });

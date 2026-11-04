@@ -1,12 +1,15 @@
 import { expect, test } from "./fixtures.js";
 import { chipRun, expandSummary, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { restartDashboard } from "./helpers/windowed-session.js";
 
 /**
  * A disabled flows plugin hides persisted runs: with the plugin off, a reload
  * renders no flow panel, FLOWS subcard, summary or agent detail, and the
  * persisted `flow-event` entries never fall back to generic custom cards
- * (declared types of a disabled plugin form the hide-only set, G5).
+ * (declared types of a disabled plugin form the hide-only set, G5). A plugin
+ * toggle answers `restartRequired`, so the server is restarted after each flip
+ * (`/api/restart` keeps config and the session JSONL).
  * See change: update-flows-plugin (D3; test-plan F6; exemplar
  * subagents-plugin-toggle-render.spec.ts).
  */
@@ -15,7 +18,7 @@ test.describe("flows plugin disabled hides persisted runs (L3)", () => {
     page.request.post("/api/plugins/flows/toggle", { data: { enabled } });
 
   test("F6: plugin off → reload → no flow UI and no custom card for the flow entries", async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(420_000);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     try {
@@ -31,6 +34,7 @@ test.describe("flows plugin disabled hides persisted runs (L3)", () => {
       await expandSummary(page);
 
       expect((await toggle(page, false)).ok()).toBeTruthy();
+      await restartDashboard();
       await page.reload();
       await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
       await page.locator(`[data-testid="session-card-desktop"][data-session-id="${sid}"]`).click();
@@ -44,6 +48,7 @@ test.describe("flows plugin disabled hides persisted runs (L3)", () => {
       expect(errors).toEqual([]);
     } finally {
       await toggle(page, true).catch(() => undefined);
+      await restartDashboard().catch(() => undefined);
     }
   });
 });
