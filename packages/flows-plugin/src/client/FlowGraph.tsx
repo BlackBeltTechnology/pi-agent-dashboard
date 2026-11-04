@@ -189,8 +189,6 @@ const STATUS_COLORS: Record<string, { border: string; fill: string; text: string
   error:    { border: "#ef4444", fill: "#2a0a0a", text: "#ef4444" },
   blocked:  { border: "#f97316", fill: "#2a1a00", text: "#f97316" },
 };
-// Skipped = the pending style; the word "skipped" carries the meaning.
-STATUS_COLORS.skipped = STATUS_COLORS.pending;
 
 function getEdgeColor(sourceStatus: string, targetStatus: string): { stroke: string; animated: boolean; dashed: boolean } {
   if (sourceStatus === "complete" && targetStatus === "running") {
@@ -653,6 +651,7 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
 
           {/* Nodes */}
           {layout.nodes.map((node) => {
+            // Skipped = the pending style; the word "skipped" carries the meaning.
             const style = STATUS_COLORS[node.status] || STATUS_COLORS.pending;
             const isRunning = node.status === "running";
             // Per-kind visual: mdi icon + accent matching the cards (code=cyan,
