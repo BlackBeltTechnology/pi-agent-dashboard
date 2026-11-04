@@ -17,13 +17,6 @@
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
       "file": ".github/workflows/_electron-build.yml",
-      "lineHash": "43c2693b54d4115:1",
-      "count": 1,
-      "reason": "github-dismissed (#237, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
-    },
-    {
-      "ruleId": "actions/cache-poisoning/poisonable-step",
-      "file": ".github/workflows/_electron-build.yml",
       "lineHash": "4cf599e05dc89b22:1",
       "count": 1,
       "reason": "github-dismissed (#229, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
@@ -62,6 +55,13 @@
       "lineHash": "83bf59a0f706d5a9:1",
       "count": 1,
       "reason": "github-dismissed (#437, won't fix): Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4 (harden-ci-cache-poisoning); pinned by workflow-token-cache-contract.test.ts."
+    },
+    {
+      "ruleId": "actions/cache-poisoning/poisonable-step",
+      "file": ".github/workflows/_electron-build.yml",
+      "lineHash": "987353e31257f59:1",
+      "count": 1,
+      "reason": "accepted-risk: relocated pre-existing finding (verdaccio@6.11.1 pin at the nightly Install Verdaccio step; replaces dismissed #237). Release caller passes use_dependency_cache: false (default false); cached callers (ci-electron, nightly) produce dev/nightly artifacts attached to no release. design.md D4; pinned by workflow-token-cache-contract.test.ts."
     },
     {
       "ruleId": "actions/cache-poisoning/poisonable-step",
