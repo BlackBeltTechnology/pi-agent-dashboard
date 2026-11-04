@@ -1,31 +1,29 @@
 /**
- * Message builders + startup assertion for unsupported Node versions.
+ * Message builder + startup assertion for unsupported Node versions.
  *
- * The two predicates (`isAffectedNode`, `isOutOfEnginesRange`) now live in
+ * The predicate `isOutOfEnginesRange` lives in
  * `@blackbelt-technology/pi-dashboard-shared/node-version.js` — the single
- * source of truth shared with the Electron doctor. They are re-exported here
- * so this module's public API and the `server-startup-node-version-guard`
- * spec wording ("node-guard.ts SHALL expose …") stay intact.
+ * source of truth shared with the Electron doctor. It is re-exported here so
+ * this module's public API and the `server-startup-node-version-guard` spec
+ * wording ("node-guard.ts SHALL expose …") stay intact.
  *
- * Rationale for a preflight refuse-to-start (instead of a preload workaround):
- * see openspec/changes/adapt-windows-integration-pr9/proposal.md and
- * BRANCH-COMPARISON.md §10 on origin/windows-integration.
+ * The separate nodejs/node#58515 startup check (`isAffectedNode` +
+ * `buildNodeUpgradeMessage`) was removed in change `raise-node-floor-to-26`:
+ * the affected ranges (22.0–22.18, 24.1–24.2) lie entirely below the Node 26
+ * floor, so the engines-range check subsumes it.
  *
- * See change: unify-node-version-gate.
+ * See change: unify-node-version-gate, raise-node-floor-to-26 (design D9).
  * See change: unify-pi-runtime-identity (task 6.3 — managed hint is emitted
  * only when a managed Node runtime actually exists under `<managedDir>/node/`).
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { getManagedDir } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
-import {
-  isAffectedNode,
-  isOutOfEnginesRange,
-} from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
+import { isOutOfEnginesRange } from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
 import { isJitiLoader, isTsxLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
 import { legacyTsLoaderEnvWarning } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 
-export { isAffectedNode, isOutOfEnginesRange };
+export { isOutOfEnginesRange };
 
 export interface EnginesRangeMessageOpts {
   /** Managed install dir to probe; default `getManagedDir()`. */
@@ -34,11 +32,19 @@ export interface EnginesRangeMessageOpts {
   managedNodeExists?: boolean;
 }
 
-/** True when a managed Node runtime is installed under `<managedDir>/node/`. */
-function managedNodeInstalled(opts: EnginesRangeMessageOpts): boolean {
+/**
+ * True when a managed Node runtime is installed under `<managedDir>/node/`
+ * AND its `.version` marker names a Node inside the engines range. Reads the
+ * marker only — never spawns Node. Missing / unreadable / below-floor marker
+ * → false (the hint would be dead advice). See change: raise-node-floor-to-26.
+ */
+function managedNodeQualifies(opts: EnginesRangeMessageOpts): boolean {
   if (opts.managedNodeExists !== undefined) return opts.managedNodeExists;
   try {
-    return existsSync(path.join(opts.managedDir ?? getManagedDir(), "node"));
+    const nodeDir = path.join(opts.managedDir ?? getManagedDir(), "node");
+    if (!existsSync(nodeDir)) return false;
+    const version = readFileSync(path.join(nodeDir, ".version"), "utf8").trim();
+    return /^v?\d+\.\d+\.\d+/.test(version) && !isOutOfEnginesRange(version);
   } catch {
     return false;
   }
@@ -52,50 +58,31 @@ export function buildEnginesRangeMessage(
     ``,
     `❌  pi-dashboard cannot start on Node ${version}.`,
     ``,
-    `    Required: >=22.19.0 <27 (see package.json#engines.node).`,
+    `    Required: >=26.0.0 <27 (see package.json#engines.node).`,
     ``,
-    `    Below the floor: npm refuses with EBADENGINE and pi 0.75+ assumes`,
-    `    22.19 APIs. At/above the cap (Node 27+): untested; raise the cap when ready.`,
+    `    Below the floor: the dashboard server supports Node 26 only (npm refuses`,
+    `    with EBADENGINE). At/above the cap (Node 27+): untested; raise the cap when ready.`,
+    `    No Node 26 at hand? The desktop app bundles its own Node.`,
     ``,
     `    Fix:`,
-    `      nvm:    nvm install 24 && nvm use 24`,
+    `      nvm:    nvm install 26 && nvm use 26`,
   ];
-  // Managed hint only when the managed runtime actually exists — without
-  // one the prepend is dead advice. Existence probe only; never a write.
-  if (managedNodeInstalled(opts)) {
+  // Managed hint only when the managed runtime exists AND qualifies — a
+  // missing or below-floor runtime makes the prepend dead advice.
+  if (managedNodeQualifies(opts)) {
     lines.push(`      bundled: PATH="$HOME/.pi-dashboard/node/bin:$PATH" pi-dashboard start`);
   }
-  lines.push(`      brew:   brew install node@24`, ``, );
+  lines.push(`      brew:   brew install node`, ``);
   return lines.join("\n");
-}
-
-export function buildNodeUpgradeMessage(version: string): string {
-  return [
-    ``,
-    `❌  pi-dashboard cannot start on Node ${version}.`,
-    ``,
-    `    This Node version has a bug that crashes Fastify at startup:`,
-    `    https://github.com/nodejs/node/issues/58515`,
-    ``,
-    `    Fix: upgrade Node to >=22.19.0 (LTS) or >=24.3.0.`,
-    `    Install:`,
-    `      nvm:   nvm install 22 && nvm use 22`,
-    `      brew:  brew upgrade node`,
-    `      Win:   https://nodejs.org/  ->  current 22.x LTS installer`,
-    ``,
-  ].join("\n");
 }
 
 /**
  * Call at the top of every server entry point (cmdStart, runForeground).
- * Writes the upgrade message to stderr and exits with code 1 when the
- * running Node is in the affected range.
+ * Writes the engines-range message to stderr and exits with code 1 when the
+ * running Node is outside the engines range. This is the only startup
+ * Node-version check.
  */
 export function assertNodeVersionSupported(): void {
-  if (isAffectedNode(process.version)) {
-    console.error(buildNodeUpgradeMessage(process.version));
-    process.exit(1);
-  }
   if (isOutOfEnginesRange(process.version)) {
     console.error(buildEnginesRangeMessage(process.version));
     process.exit(1);

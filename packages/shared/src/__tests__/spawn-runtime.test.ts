@@ -25,6 +25,8 @@ import {
   readPiEnginesFloor,
   readRuntimeOverride,
   readToolOverrideNode,
+  resolveServerRuntime,
+  type ResolveServerRuntimeOpts,
   resolveSpawnRuntime,
   type VersionProbeResult,
   validateResolvedRuntime,
@@ -875,5 +877,166 @@ describe("readRuntimeOverride / readToolOverrideNode", () => {
       JSON.stringify({ version: 1, overrides: { node: { path: "/volta/bin/node" }, npm: { path: "/x" } } }),
     );
     expect(readToolOverrideNode(store)).toBe("/volta/bin/node");
+  });
+});
+
+// ── raise-node-floor-to-26: pi-session ladder keeps the pi floor (#E5) ──────
+
+describe("pi-session ladder ignores the dashboard server floor (test-plan #E5)", () => {
+  it("selects a v24.15.0 user Node when pi's engines.node is unreadable", () => {
+    const piEntry = piCopy(path.join(tmp, "nm"), "@earendil-works/pi-coding-agent", "garbage");
+    const userNode = touch(path.join(tmp, "bin", "node"));
+    const rt = resolveSpawnRuntime(
+      makeOpts({ probe: { [userNode]: { version: "v24.15.0" } }, pathNode: userNode, piEntry }),
+    );
+    expect(rt.piFloorSource).toBe("fallback");
+    expect(rt.piFloor).toBe("22.19.0");
+    expect(rt.rung).toBe("user");
+    expect(rt.nodeBinary).toBe(userNode);
+    expect(rt.version).toBe("v24.15.0");
+  });
+});
+
+// ── raise-node-floor-to-26: server-mode resolution (#E6–#E11) ───────────────
+
+function serverOpts(spec: {
+  versions?: Record<string, string | null>;
+  pathNode?: string | null;
+  override?: string | null;
+  home?: string;
+  own?: { binary: string; version: string } | null;
+  probeLog?: string[];
+}): ResolveServerRuntimeOpts {
+  const versions = spec.versions ?? {};
+  return {
+    overrideBinary: spec.override ?? null,
+    homedir: spec.home ?? path.join(tmp, "empty-home"),
+    managedDir: path.join(tmp, "managed"),
+    platform: "darwin",
+    env: { PATH: "/usr/bin" } as NodeJS.ProcessEnv,
+    pathWhich: (name) => (name === "node" ? (spec.pathNode ?? null) : null),
+    versionProbe: async (binary) => {
+      spec.probeLog?.push(binary);
+      return versions[binary] ?? null;
+    },
+    exists: (p) => p in versions || p === spec.own?.binary,
+    ownRuntime: spec.own === undefined ? { binary: "/pi/node", version: "v24.15.0" } : spec.own,
+  };
+}
+
+function vmHome(): { home: string; nvmNode: string; voltaNode: string } {
+  const home = path.join(tmp, "vm-home");
+  mkdirSync(path.join(home, ".nvm", "alias"), { recursive: true });
+  writeFileSync(path.join(home, ".nvm", "alias", "default"), "24.15.0");
+  const nvmNode = touch(path.join(home, ".nvm", "versions", "node", "v24.15.0", "bin", "node"));
+  const voltaNode = touch(path.join(home, ".volta", "bin", "node"));
+  return { home, nvmNode, voltaNode };
+}
+
+describe("resolveServerRuntime (test-plan #E6–#E11)", () => {
+  it("#E6: pi on Node 24 with Node 26 on PATH selects the PATH Node", async () => {
+    const r = await resolveServerRuntime(
+      serverOpts({ pathNode: "/usr/local/bin/node", versions: { "/usr/local/bin/node": "v26.1.0" } }),
+    );
+    expect(r.resolved).toBe(true);
+    if (!r.resolved) return;
+    expect(r.nodeBinary).toBe("/usr/local/bin/node");
+    expect(r.version).toBe("v26.1.0");
+    expect(r.step).toBe("path");
+    expect(r.range).toBe(">=26.0.0 <27");
+  });
+
+  it("#E7: a below-floor nvm default does not hide a Node 26 volta shim", async () => {
+    const { home, nvmNode, voltaNode } = vmHome();
+    const r = await resolveServerRuntime(
+      serverOpts({ home, versions: { [nvmNode]: "v24.15.0", [voltaNode]: "v26.0.0" } }),
+    );
+    expect(r.resolved).toBe(true);
+    if (!r.resolved) return;
+    expect(r.step).toBe("version-manager");
+    expect(r.manager).toBe("volta");
+    expect(r.nodeBinary).toBe(voltaNode);
+    const nvm = r.trail.find((t) => t.manager === "nvm");
+    expect(nvm?.outcome).toBe("skipped");
+    expect(nvm?.reason).toMatch(/outside server engines range/);
+    expect(nvm?.version).toBe("v24.15.0");
+  });
+
+  it("#E8: the starter's own runtime is selected only when it qualifies", async () => {
+    const ok = await resolveServerRuntime(serverOpts({ own: { binary: "/pi/node", version: "v26.2.0" } }));
+    expect(ok.resolved && ok.step).toBe("own-runtime");
+    expect(ok.resolved && ok.nodeBinary).toBe("/pi/node");
+
+    const no = await resolveServerRuntime(serverOpts({ own: { binary: "/pi/node", version: "v24.18.1" } }));
+    expect(no.resolved).toBe(false);
+    const own = no.trail.find((t) => t.step === "own-runtime");
+    expect(own?.outcome).toBe("skipped");
+    expect(own?.version).toBe("v24.18.1");
+  });
+
+  it("#E9: no qualifying Node → unresolved listing every candidate with version + reason", async () => {
+    const r = await resolveServerRuntime(
+      serverOpts({
+        pathNode: "/usr/local/bin/node",
+        versions: { "/usr/local/bin/node": "v24.15.0" },
+        own: { binary: "/pi/node", version: "v22.19.0" },
+      }),
+    );
+    expect(r.resolved).toBe(false);
+    expect(r.trail.map((t) => t.step)).toEqual(["override", "path", "version-manager", "managed", "own-runtime"]);
+    const path_ = r.trail.find((t) => t.step === "path");
+    expect(path_).toMatchObject({ version: "v24.15.0", outcome: "skipped" });
+    expect(path_?.reason).toContain(">=26.0.0 <27");
+    expect(r.trail.find((t) => t.step === "own-runtime")).toMatchObject({ version: "v22.19.0", outcome: "skipped" });
+    for (const t of r.trail) expect(t.outcome === "not-found" || !!t.reason).toBe(true);
+  });
+
+  it("#E10: an unparseable --version output is skipped and resolution continues", async () => {
+    const r = await resolveServerRuntime(
+      serverOpts({
+        pathNode: "/usr/local/bin/node",
+        versions: { "/usr/local/bin/node": "node-nightly-xyz" },
+        own: { binary: "/pi/node", version: "v26.0.0" },
+      }),
+    );
+    const p = r.trail.find((t) => t.step === "path");
+    expect(p?.outcome).toBe("skipped");
+    expect(p?.reason).toMatch(/unparseable/);
+    expect(r.resolved && r.step).toBe("own-runtime");
+  });
+
+  // No-shell half of #E11 (default probe, real child_process spies):
+  // spawn-runtime-server-noshell.test.ts.
+  it("#E11: ≤ one probe per distinct candidate path, none for the own runtime", async () => {
+    const { home, nvmNode, voltaNode } = vmHome();
+    const managed = path.join(tmp, "managed", "node", "bin", "node");
+    const override = "/opt/override/node";
+    const probeLog: string[] = [];
+    const versions = {
+      [override]: "v25.0.0",
+      "/usr/local/bin/node": "v24.15.0",
+      [nvmNode]: "v24.15.0",
+      [voltaNode]: "v22.19.0",
+      [managed]: "v24.0.0",
+    };
+    const opts = serverOpts({ home, override, pathNode: "/usr/local/bin/node", versions, probeLog });
+    const r = await resolveServerRuntime(opts);
+    expect(r.resolved).toBe(false);
+    expect(new Set(probeLog).size).toBe(probeLog.length);
+    expect(probeLog.length).toBeLessThanOrEqual(5);
+    expect(probeLog).not.toContain("/pi/node");
+  });
+
+  it("#E11: the same path from two sources is probed once", async () => {
+    const probeLog: string[] = [];
+    await resolveServerRuntime(
+      serverOpts({
+        override: "/usr/local/bin/node",
+        pathNode: "/usr/local/bin/node",
+        versions: { "/usr/local/bin/node": "v24.15.0" },
+        probeLog,
+      }),
+    );
+    expect(probeLog).toEqual(["/usr/local/bin/node"]);
   });
 });

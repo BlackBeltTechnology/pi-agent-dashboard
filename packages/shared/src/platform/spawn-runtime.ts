@@ -24,7 +24,7 @@
  *      `process.execPath` everywhere else. Total by construction.
  *
  * The gate: satisfies the spawned pi copy's `engines.node` floor (read from
- * the resolved pi entry, falling back to the canonical `MIN_SUPPORTED_NODE`)
+ * the resolved pi entry, falling back to the canonical `MIN_PI_SPAWN_NODE`)
  * AND is not in the nodejs/node#58515 affected range. The `<27` cap is the
  * SERVER's tested range, not a spawn constraint — a cap-excess candidate is
  * ACCEPTED and flagged so Doctor can note it informationally.
@@ -49,12 +49,14 @@ import { getManagedDir } from "../managed-paths.js";
 import {
   isAffectedNode,
   isAtOrAboveEnginesCap,
-  MIN_SUPPORTED_NODE,
+  isUsableNodeVersion,
+  MIN_PI_SPAWN_NODE,
   meetsFloor,
+  SERVER_ENGINES_RANGE,
 } from "../node-version.js";
 import { isPiCodingAgentName } from "../pi-installs/candidates.js";
 import { whichSync, whichViaLoginShell } from "./binary-lookup.js";
-import { spawnSync } from "./exec.js";
+import { execFileAsync, spawnSync } from "./exec.js";
 
 // ── Classification (design D4 — vendored from manage-node-runtime-updates) ──
 
@@ -135,7 +137,7 @@ export interface VersionGateResult {
  * The step-2 spawn gate: passes the pi floor AND not in the nodejs/node#58515
  * affected range. Cap excess is accepted (with `capExceeded`) — see the module
  * doc comment. Zero version literals here: the floor comes from the caller
- * (the spawned pi copy's engines, or `MIN_SUPPORTED_NODE`), the affected
+ * (the spawned pi copy's engines, or `MIN_PI_SPAWN_NODE`), the affected
  * range and the cap from `node-version.ts`.
  */
 export function evaluateVersionGate(version: string, floor: string): VersionGateResult {
@@ -163,7 +165,7 @@ export interface PiEnginesFloor {
  * Extract the floor term from an `engines.node` range. Supports the shapes
  * that occur in practice: `>=X.Y.Z` (optionally with a `<cap` term), `^X`,
  * `~X.Y`. Anything else (OR ranges, `*`, garbage, empty) is unreadable →
- * null → the caller falls back to `MIN_SUPPORTED_NODE`. Strictness is the
+ * null → the caller falls back to `MIN_PI_SPAWN_NODE`. Strictness is the
  * point: a mis-parsed floor silently changes which Nodes the ladder accepts.
  */
 export function parseEnginesFloor(range: string): string | null {
@@ -189,13 +191,13 @@ export function parseEnginesFloor(range: string): string | null {
  * Read pi's declared Node floor from the pi copy that will actually be
  * spawned: walk UP from the resolved pi entry to the nearest `package.json`
  * whose `name` is a pi-coding-agent package, parse `engines.node`, and fall
- * back to the canonical `MIN_SUPPORTED_NODE` on anything unreadable. The
+ * back to the canonical `MIN_PI_SPAWN_NODE` on anything unreadable. The
  * walk only ever climbs the GIVEN entry's ancestor chain — a global pi
  * elsewhere on the machine is never consulted (which copy spawns is the tool
  * registry's orthogonal axis).
  */
 export function readPiEnginesFloor(piEntry?: string | null): PiEnginesFloor {
-  const fallback: PiEnginesFloor = { floor: MIN_SUPPORTED_NODE, source: "fallback" };
+  const fallback: PiEnginesFloor = { floor: MIN_PI_SPAWN_NODE, source: "fallback" };
   if (!piEntry) return fallback;
 
   const start = realpathOrNull(piEntry);
@@ -740,6 +742,190 @@ export function resolveSpawnRuntime(opts: ResolveSpawnRuntimeOpts = {}): Resolve
   throw new Error(
     "resolveSpawnRuntime: ladder is total — execPath rung failed unexpectedly",
   );
+}
+
+// ── Server-spawn runtime resolution (change raise-node-floor-to-26, D4/D5) ──
+
+/** Which candidate source a server-mode resolution step came from. */
+export type ServerRuntimeStep = "override" | "path" | "version-manager" | "managed" | "own-runtime";
+
+export interface ServerRuntimeCandidate {
+  step: ServerRuntimeStep;
+  /** Version-manager name (`nvm`, `volta`, …) for `step === "version-manager"`. */
+  manager?: string;
+  /** Candidate binary path; absent when the source had no hit. */
+  candidate?: string;
+  /** Version reported by the candidate (raw `--version` output when unparseable). */
+  version?: string;
+  outcome: "selected" | "skipped" | "not-found";
+  reason?: string;
+}
+
+export type ServerRuntimeResolution =
+  | {
+      resolved: true;
+      nodeBinary: string;
+      version: string;
+      step: ServerRuntimeStep;
+      manager?: string;
+      /** The required range the gate enforced (`>=26.0.0 <27`). */
+      range: string;
+      trail: ServerRuntimeCandidate[];
+    }
+  | { resolved: false; range: string; trail: ServerRuntimeCandidate[] };
+
+export interface ResolveServerRuntimeOpts {
+  /** Step 1: `runtime.override` (default: read from `~/.pi/dashboard/config.json`). */
+  overrideBinary?: string | null;
+  configPath?: string;
+  /**
+   * Step 5: the starter's own runtime — pi's `process.execPath` +
+   * `process.version` for the bridge, Electron's executable + its embedded
+   * `process.versions.node` for the Electron app. Its version is read from
+   * the running process and NEVER probed. Default: this process.
+   */
+  ownRuntime?: { binary: string; version: string } | null;
+  managedDir?: string;
+  homedir?: string;
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  pathWhich?: (name: string, env?: NodeJS.ProcessEnv) => string | null;
+  /** Raw `node --version` output for a binary, or null on failure/timeout. */
+  versionProbe?: (binary: string) => Promise<string | null>;
+  exists?: (p: string) => boolean;
+}
+
+/**
+ * Default server-mode probe: `<binary> --version` with a fixed argv and NO
+ * shell (execFile). `ELECTRON_RUN_AS_NODE=1` keeps an Electron binary from
+ * opening a GUI. Raw trimmed stdout, or null on non-zero exit / timeout.
+ */
+export async function defaultServerVersionProbe(binary: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(binary, ["--version"], {
+      timeout: PROBE_TIMEOUT_MS,
+      windowsHide: true,
+      env: { ...(process.env ?? {}), ELECTRON_RUN_AS_NODE: "1" },
+    });
+    return String(stdout).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every existing version-manager default, in probe order (nvm, volta, asdf, mise, fnm). */
+function vmDefaultNodes(home: string, exists: (p: string) => boolean): VmDefaultHit[] {
+  const hits: VmDefaultHit[] = [];
+  const nvm = nvmDefaultNode(home);
+  if (nvm && exists(nvm.binary)) hits.push(nvm);
+  for (const probe of VM_SHIM_PROBES) {
+    const binary = path.join(home, ...probe.rel);
+    if (exists(binary)) hits.push({ binary, manager: probe.manager });
+  }
+  return hits;
+}
+
+/**
+ * Resolve the Node binary that will run the dashboard SERVER for a starter
+ * that cannot rely on a known-good runtime (bridge auto-start, Electron with
+ * no bundled Node). Same probes as the pi-session ladder, gated on the server
+ * engines range (`isUsableNodeVersion`) instead of pi's floor. Order:
+ * override → first `node` on PATH → every version-manager default →
+ * managed → the starter's own runtime (version from the running process).
+ *
+ * NOT total: when nothing qualifies it returns `{ resolved: false }` with
+ * every candidate and its skip reason. NEVER invokes a shell (no login-shell
+ * rung) and probes each distinct candidate path at most once.
+ */
+export async function resolveServerRuntime(
+  opts: ResolveServerRuntimeOpts = {},
+): Promise<ServerRuntimeResolution> {
+  const platform = opts.platform ?? process.platform;
+  const homedir = opts.homedir ?? os.homedir();
+  const managedDir = opts.managedDir ?? getManagedDir();
+  const exists = opts.exists ?? existsSync;
+  const pathWhich = opts.pathWhich ?? ((name: string) => whichSync(name));
+  const probe = opts.versionProbe ?? defaultServerVersionProbe;
+  const own =
+    opts.ownRuntime === undefined ? { binary: process.execPath, version: process.version } : opts.ownRuntime;
+  const range = SERVER_ENGINES_RANGE;
+
+  const trail: ServerRuntimeCandidate[] = [];
+  const probed = new Map<string, Promise<string | null>>();
+
+  const gate = (version: string): string | null => {
+    if (!/^v?\d+\.\d+\.\d+(?:[-+]\S*)?$/.test(version)) return `unparseable version output "${version}"`;
+    return isUsableNodeVersion(version) ? null : `outside server engines range ${range} (found ${version})`;
+  };
+
+  type Cand = { step: ServerRuntimeStep; manager?: string; binary: string | null; ownVersion?: string };
+  const attempt = async (c: Cand): Promise<ServerRuntimeResolution | null> => {
+    const base = { step: c.step, ...(c.manager ? { manager: c.manager } : {}) };
+    if (!c.binary) {
+      trail.push({ ...base, outcome: "not-found" });
+      return null;
+    }
+    if (!exists(c.binary)) {
+      trail.push({ ...base, candidate: c.binary, outcome: "not-found", reason: "binary does not exist" });
+      return null;
+    }
+    let version: string | null;
+    if (c.ownVersion !== undefined) {
+      version = c.ownVersion;
+    } else {
+      let pending = probed.get(c.binary);
+      if (!pending) {
+        pending = probe(c.binary);
+        probed.set(c.binary, pending);
+      }
+      version = await pending;
+    }
+    if (!version) {
+      trail.push({ ...base, candidate: c.binary, outcome: "skipped", reason: "version probe failed or timed out" });
+      return null;
+    }
+    const reason = gate(version);
+    if (reason) {
+      trail.push({ ...base, candidate: c.binary, version, outcome: "skipped", reason });
+      return null;
+    }
+    trail.push({ ...base, candidate: c.binary, version, outcome: "selected" });
+    return { resolved: true, nodeBinary: c.binary, version, ...base, range, trail };
+  };
+
+  const overrideBinary =
+    opts.overrideBinary !== undefined ? opts.overrideBinary : readRuntimeOverride(opts.configPath);
+  const candidates: Array<() => Cand[]> = [
+    () => [{ step: "override", binary: overrideBinary ?? null }],
+    () => [{ step: "path", binary: pathWhich("node", opts.env) }],
+    () => {
+      const hits = vmDefaultNodes(homedir, exists);
+      return hits.length
+        ? hits.map((h) => ({ step: "version-manager" as const, manager: h.manager, binary: h.binary }))
+        : [{ step: "version-manager" as const, binary: null }];
+    },
+    () => [{ step: "managed", binary: managedNodePath(managedDir, platform) }],
+    () => [{ step: "own-runtime", binary: own?.binary ?? null, ownVersion: own?.version }],
+  ];
+  for (const source of candidates) {
+    for (const c of source()) {
+      const hit = await attempt(c);
+      if (hit) return hit;
+    }
+  }
+  return { resolved: false, range, trail };
+}
+
+/** One-line human summary of a server-mode resolution trail (logs / notices). */
+export function describeServerRuntimeTrail(trail: readonly ServerRuntimeCandidate[]): string {
+  return trail
+    .map((t) => {
+      const name = t.manager ? `${t.step}:${t.manager}` : t.step;
+      const where = t.candidate ? ` ${t.candidate}` : "";
+      const ver = t.version ? ` (${t.version})` : "";
+      return `${name}${where}${ver} ${t.outcome}${t.reason ? `: ${t.reason}` : ""}`;
+    })
+    .join("; ");
 }
 
 // ── Pi entry derivation (design D2 — the gate reads THE spawned pi copy) ────

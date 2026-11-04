@@ -24,7 +24,7 @@ fi
 cd "$PROJECT_DIR"
 docker build -f - -t pi-dashboard-server-test "$ELECTRON_DIR" <<'DOCKERFILE'
 # Must match BUNDLED_NODE_MAJOR in scripts/_node-version.sh.
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 
 # Simulate Electron's resource layout
 RUN mkdir -p /app/resources

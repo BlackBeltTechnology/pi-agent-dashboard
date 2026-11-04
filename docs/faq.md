@@ -79,7 +79,7 @@ Cross-refs:
 Three install paths. Pick one.
 
 - **A — Electron desktop app**: pre-built installer from GitHub Releases. No prerequisites. Standalone mode bundles Node.js, auto-installs pi + dashboard + openspec into `~/.pi-dashboard/`.
-- **B — pi package**: `pi install npm:@blackbelt-technology/pi-agent-dashboard`. Bridge auto-starts server on first `pi` launch. Requires Node.js ≥ 22.19.0, pi, C++ build tools.
+- **B — pi package**: `pi install npm:@blackbelt-technology/pi-agent-dashboard`. Bridge auto-starts server on first `pi` launch. Requires Node.js ≥ 26.0.0 <27, pi, C++ build tools.
 - **C — From source**: `git clone` + `npm install` + `pi install /path/to/pi-agent-dashboard`. Contributors.
 
 Cross-refs:
@@ -97,7 +97,7 @@ Command: `pi install npm:@blackbelt-technology/pi-agent-dashboard`.
 - Run `pi` afterward. Bridge auto-starts dashboard server on first launch.
 - First-launch banner: `🌐 Dashboard started at http://localhost:8000`.
 - Open `http://localhost:8000`. Active sessions appear automatically.
-- Prerequisites apply (Node.js ≥ 22.19.0, pi, C++ build tools for `node-pty`).
+- Prerequisites apply (Node.js ≥ 26.0.0 <27, pi, C++ build tools for `node-pty`).
 
 Cross-refs:
 - README.md:54
@@ -117,7 +117,7 @@ pi-dashboard start
 - No first-run install delay. pi/openspec/tsx ship as regular deps of `@blackbelt-technology/pi-dashboard-server`; npm pulls them in at install time.
 - `cli.ts` logs `[bootstrap] ready (pi resolved via <source>)` on successful resolve.
 - Resolution failure throws hard with `corrupted node_modules` hint. Reinstall to recover.
-- Requires Node.js ≥ 22.19.0. `npm` on PATH.
+- Requires Node.js ≥ 26.0.0 <27. `npm` on PATH.
 
 Cross-refs:
 - docs/service-bootstrap.md — "Standalone npm install"
@@ -209,7 +209,7 @@ Required for paths B + C only. Path A (Electron) bundles everything.
 | Requirement | Why |
 |---|---|
 | **pi** (`@earendil-works/pi-coding-agent`) | Agent monitored by dashboard |
-| **Node.js ≥ 22.19.0** | Server runtime. 22.0.0–22.18.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 |
+| **Node.js ≥ 26.0.0 <27** | Server runtime. pi itself may still run on 22.19+ / 24; the desktop app bundles Node 26 |
 | **C++ build tools** | `node-pty` native addon for terminal. Xcode CLI (macOS) / `build-essential` (Linux) |
 
 Optional:
@@ -525,12 +525,39 @@ PowerShell:
 Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
 ```
 
-Node < 22.19 unsupported by the server — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node with neither `module.registerHooks` nor `module.register` fails at boot (`native-ts-register.mjs` throws, naming the Node version). Node without `module.stripTypeScriptTypes` uses tier 2 or tier 3 (bundled `amaro` on 23.0–23.1).
+Node outside `>=26.0.0 <27` unsupported by the server — server enforces `SERVER_ENGINES_RANGE` (`engines` `>=26.0.0 <27`, `MIN_SERVER_NODE` `26.0.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node with neither `module.registerHooks` nor `module.register` fails at boot (`native-ts-register.mjs` throws, naming the Node version). Node without `module.stripTypeScriptTypes` uses tier 2 or tier 3 (bundled `amaro` on 23.0–23.1).
 
 Cross-refs:
 - packages/shared/src/platform/ts-loader-select.mjs
 - packages/shared/src/platform/native-ts-register.mjs
 - docs/architecture.md
+
+## Pi session shows "Dashboard server not started: it needs Node >=26.0.0 <27" — what now?
+
+Cause: bridge auto-start found no Node satisfying `SERVER_ENGINES_RANGE` (`>=26.0.0 <27`). Pi itself may run on older Node (22.19+); the server does not. Resolver: `resolveServerRuntime()` (`packages/shared/src/platform/spawn-runtime.ts`).
+
+Fix: install Node 26 and make it visible to the resolver:
+
+- first `node` on PATH,
+- or version-manager default: nvm `alias/default`, volta, asdf, mise, fnm,
+- or install the desktop app (bundles Node 26).
+
+nvm without `alias/default` is not found — the resolver never runs a shell. Fix: `nvm alias default 26`.
+
+Log lines in `~/.pi/dashboard/server.log`:
+
+```
+[auto-start] refused: no Node satisfying >=26.0.0 <27 ...; candidates: ...
+[auto-start] server runtime: <path> <version> via <step>
+```
+
+`refused` = no usable Node. `server runtime:` = resolved binary and rung. Then restart pi or run `pi-dashboard start`.
+
+## Electron dev launch fails with "No Node satisfying >=26.0.0 <27 is available to run the dashboard server" — what now?
+
+Cause: no bundled or system Node 26 for the Electron dev / localLink launch. Embedded Electron Node (24.22.0 on Electron 44) is out of range and never used.
+
+Fix: install Node 26 on PATH or as version-manager default, then relaunch Electron. Packaged builds ship bundled Node 26 and do not hit this.
 
 ## Electron shows "Server managed externally" in the tray — what does that mean?
 
@@ -1376,7 +1403,7 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Or add path directly to `~/
 
 Prerequisites:
 - pi (`npm i -g @earendil-works/pi-coding-agent`)
-- Node.js ≥ 22.19.0 (22.0–22.18 / 24.1–24.2 hit nodejs/node#58515 Fastify crash)
+- Node.js ≥ 26.0.0 <27 (`nvm install 26 && nvm use 26`, `brew install node`, or Node 26 on PATH / version manager)
 - C++ build tools for `node-pty` (Xcode CLI Tools / `build-essential`)
 
 Dev commands:
@@ -1421,7 +1448,7 @@ Outputs in `packages/electron/out/make/`:
 - Linux: `.deb` + `.AppImage`
 - Windows: `.zip` (NSIS `Setup.exe` CI-only)
 
-Prerequisite: Node.js 22.12+. Forge handles platform tools.
+Prerequisite: Node.js 26 on PATH (or version manager default). Forge handles platform tools.
 
 Cross-refs:
 - README.md:586
@@ -1440,7 +1467,7 @@ Commands:
 
 `--mac-both` requires Rosetta 2 (`softwareupdate --install-rosetta --agree-to-license`) for node-pty x64 prebuilt unpacking. Script wipes per-arch caches via `resources/.last-arch` sentinel between runs. Intel macs cannot cross-build arm64 (Rosetta one-way).
 
-Docker image: Node 22 Debian. Windows cross-build emits `.zip` only. Portable `.exe` dropped. NSIS `Setup.exe` CI-only (`windows-latest` via `electron-builder --win nsis`); needs Windows host.
+Docker image: Node 26 Debian. Windows cross-build emits `.zip` only. Portable `.exe` dropped. NSIS `Setup.exe` CI-only (`windows-latest` via `electron-builder --win nsis`); needs Windows host.
 
 Outputs: `packages/electron/out/make/`.
 
@@ -1539,13 +1566,13 @@ Cross-refs:
 ## Why didn't my PR run the install smoke matrix?
 
 Change `gate-publish-on-smoke-and-tests` removed `standalone-install-smoke-{linux,windows}` from `push` / `pull_request`.
-PR runs only `ci` job: lint + test + build, Node 22, ~3 min.
+PR runs only `ci` job: lint + test + build, Node 26, ~3 min.
 
 Smoke matrix lives in reusable `.github/workflows/_smoke.yml`.
-7 legs: Linux × 6 (Node 22/24/25 × bookworm-slim/alpine) + Windows × 1 (Node 22).
+4 legs, all engine-strict: Linux × 3 (`node:26-bookworm-slim`, `node:26-alpine`, `node:26.0.0-bookworm-slim` floor leg) + Windows × 1 (Node 26).
 Two consumers:
 
-1. **`ci-smoke.yml`** — `workflow_dispatch` only. Dispatch against any branch when change touches installer surface (lockfile, `scripts/bundle-*.mjs`, native deps, `preload-fastify.cjs`).
+1. **`ci-smoke.yml`** — `workflow_dispatch` only. Dispatch against any branch when change touches installer surface (lockfile, `scripts/bundle-*.mjs`, native deps).
 2. **`publish.yml` release gate** — fans out `ci-checks` + `smoke` in parallel after `resolve`, before `tag-and-push`. Gate failure on `workflow_dispatch` aborts cleanly: no commit, no tag, no npm artifact.
 
 Operators dispatch `ci-smoke.yml` against `develop` before cutting tag.
@@ -1971,7 +1998,7 @@ Only for Path 2 (tarball / npm). Path 1 (Electron Setup.exe) bundles everything.
 
 | Requirement | Why | Command |
 |---|---|---|
-| **Node.js ≥ 22.19.0** | Server runtime; 22.0.0–22.18.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 | Install [MSI](https://nodejs.org/dist/v22.19.0/node-v22.19.0-x64.msi) or use [fnm](https://github.com/Schniz/fnm) |
+| **Node.js ≥ 26.0.0 <27** | Server runtime | Install Node 26 from [nodejs.org](https://nodejs.org/) or use [fnm](https://github.com/Schniz/fnm) |
 | **Git for Windows** | Version control | [git-scm.com](https://git-scm.com/download/win); select "Use Git from Windows Command Prompt" |
 | **Long paths enabled** | Node's node_modules nesting exceeds Windows default 260-char limit | `reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f` then `git config --global core.longpaths true`; reboot |
 | **Windows Build Tools** (optional) | Only if native modules fail to compile (node-pty) | `npm install --global windows-build-tools` or install Visual Studio Build Tools with "Desktop development with C++" workload |
@@ -2189,7 +2216,7 @@ Cross-refs:
 
 Advanced path for developers validating pre-release builds or headless server-only installs without Electron.
 
-Prerequisites: Node.js ≥ 22.19.0, Git for Windows, long paths enabled, Windows Build Tools (optional).
+Prerequisites: Node.js ≥ 26.0.0 <27, Git for Windows, long paths enabled, Windows Build Tools (optional).
 
 Steps:
 

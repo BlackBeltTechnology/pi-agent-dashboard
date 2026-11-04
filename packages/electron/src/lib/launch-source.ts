@@ -39,9 +39,13 @@ import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform
 import type { RuntimeGateResult } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
 import type { EffectiveSource } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import {
+  describeServerRuntimeTrail,
+  resolveServerRuntime,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { getBundledNodeDir, getResourcesPath } from "./bundled-node.js";
-import { pickNodeForServer } from "./pick-node.js";
+import { hasBundledNode, pickNodeForServer } from "./pick-node.js";
 import { extensionPathFor } from "./runtime-overlay.js";
 
 export type { LaunchSource, SourceKind };
@@ -499,11 +503,40 @@ export async function spawnFromSource(
   // execpath-fallback with ELECTRON_RUN_AS_NODE=1. See change:
   // fix-electron-launch-source-bundled-node-dir.
   const bundledNodeDir = getBundledNodeDir();
+  // No bundled Node (dev / localLink / overlay): resolve a system Node that
+  // satisfies the server engines range. Async, no shell; skipped entirely on
+  // packaged launches. Electron's own executable is gated by pick-node from
+  // its embedded Node version. See change: raise-node-floor-to-26 (D4, D7).
+  let systemNode: { nodeBin: string; version: string } | null = null;
+  if (!hasBundledNode(bundledNodeDir, process.platform)) {
+    const resolved = await resolveServerRuntime({ ownRuntime: null });
+    if (resolved.resolved) {
+      systemNode = { nodeBin: resolved.nodeBinary, version: resolved.version };
+      logLaunchSource(
+        "warn",
+        `[pick-node] Bundled Node not found — using system Node ${resolved.nodeBinary} ` +
+          `${resolved.version} (${resolved.step})`,
+      );
+    } else {
+      logLaunchSource(
+        "warn",
+        `[pick-node] Bundled Node not found and no system Node satisfies ${resolved.range}: ` +
+          describeServerRuntimeTrail(resolved.trail),
+      );
+    }
+  }
   const pick = pickNodeForServer({
     bundledNodeDir,
     processExecPath: process.execPath,
     platform: process.platform,
+    embeddedNodeVersion: process.versions.node,
+    systemNode,
   });
+  if (pick.kind === "unavailable") {
+    // Never call launchDashboardServer without a qualifying runtime; the
+    // caller (requestServerLaunch) surfaces this as `{ kind: "failed" }`.
+    throw new Error(pick.reason);
+  }
 
   const baseEnv = new ToolResolver({ processExecPath: pick.nodeBin }).buildSpawnEnv(process.env);
   const env: Record<string, string> = {};
@@ -534,8 +567,8 @@ export async function spawnFromSource(
     env["ELECTRON_RUN_AS_NODE"] = "1";
     logLaunchSource(
       "warn",
-      "[pick-node] Bundled Node not found — falling back to process.execPath with " +
-      "ELECTRON_RUN_AS_NODE=1. Installation may be corrupted. " +
+      "[pick-node] Bundled Node not found and no qualifying system Node — falling back to " +
+      "process.execPath with ELECTRON_RUN_AS_NODE=1 (embedded Node qualifies). " +
       `execPath=${pick.nodeBin}`,
     );
   }

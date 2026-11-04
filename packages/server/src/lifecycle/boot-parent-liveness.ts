@@ -23,8 +23,8 @@
  * to the original (now-dead) parent forever.
  *
  * Supported-Node floor: koffi 3.x targets N-API 8 (Node >= 16). The bundled
- * server runtime (Node 24, see repo `.nvmrc`) and the package `engines` floor
- * (>= 22.19.0) are both comfortably within koffi's supported N-API range, so
+ * server runtime (Node 26, `BUNDLED_NODE_VERSION`) and the package `engines`
+ * floor (>= 26.0.0) are both comfortably within koffi's supported N-API range, so
  * no Node/koffi pin mismatch. See change: electron-attach-ownership-fixes
  * (task 1b.3).
  *

@@ -174,7 +174,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 26
           # '' disables setup-node restore AND save (main.ts: `cache && ...`).
           cache: ${{ inputs.use_dependency_cache && 'pnpm' || '' }}
 
@@ -281,7 +281,7 @@ jobs:
         run: |
           cd packages/electron
           # Single source of truth (scripts/_node-version.sh). A hardcoded
-          # v22.18.0 is rejected by node-guard (nodejs#58515 Fastify crash).
+          # version drifts; node-guard refuses anything outside >=26.0.0 <27.
           source scripts/_node-version.sh
           bash scripts/download-node.sh "$BUNDLED_NODE_VERSION" ${{ matrix.platform }} ${{ matrix.node-arch }}
 
@@ -289,8 +289,8 @@ jobs:
         if: matrix.platform == 'win32'
         shell: pwsh
         run: |
-          # Single source of truth (scripts/_node-version.sh). v22.18.0 is
-          # rejected by node-guard (nodejs#58515 Fastify crash).
+          # Single source of truth (scripts/_node-version.sh); node-guard
+          # refuses anything outside >=26.0.0 <27.
           $version = (Select-String -Path packages/electron/scripts/_node-version.sh -Pattern 'BUNDLED_NODE_VERSION="([^"]+)"').Matches[0].Groups[1].Value
           $arch = "${{ matrix.node-arch }}"
           $url = "https://nodejs.org/dist/$version/node-$version-win-$arch.zip"
@@ -476,8 +476,8 @@ jobs:
         run: |
           # node-pty has no win32-arm64 prebuilds, so bundle x64 Node.js + native modules
           # Windows ARM64 runs x64 binaries via emulation (WoW64)
-          # Single source of truth (scripts/_node-version.sh); v22.18.0 is
-          # rejected by node-guard (nodejs#58515 Fastify crash).
+          # Single source of truth (scripts/_node-version.sh); node-guard
+          # refuses anything outside >=26.0.0 <27.
           $version = (Select-String -Path packages/electron/scripts/_node-version.sh -Pattern 'BUNDLED_NODE_VERSION="([^"]+)"').Matches[0].Groups[1].Value
           $outDir = "packages/electron/resources/node"
           Remove-Item -Recurse -Force $outDir
@@ -701,6 +701,16 @@ jobs:
               ./app.AppImage --appimage-extract >/dev/null
               BIN=squashfs-root/pi-dashboard
               test -x "$BIN"
+              # Bundled Node must satisfy the server engines range (>=26.0.0 <27);
+              # the boot proof below then shows the server serving on it.
+              # See change: raise-node-floor-to-26 (test-plan #E22).
+              NODE_BIN=$(find squashfs-root/resources -path '*/node/bin/node' -type f | head -1)
+              if [ -z "$NODE_BIN" ]; then echo "::error::bundled Node not found under resources/"; exit 1; fi
+              NV=$("$NODE_BIN" --version)
+              case "$NV" in
+                v26.*) echo "bundled Node $NV within >=26.0.0 <27" ;;
+                *) echo "::error::bundled Node $NV outside >=26.0.0 <27"; exit 1 ;;
+              esac
               # The decisive assertion: the 22.04 dynamic loader must resolve
               # every symbol the binary requires. A raised upstream glibc floor
               # shows up here as "version `GLIBC_2.3x` not found".

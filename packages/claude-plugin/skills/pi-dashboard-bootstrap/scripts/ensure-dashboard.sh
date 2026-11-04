@@ -20,11 +20,9 @@
 
 # --- Node range the server accepts (pinned to package.json engines.node and the shared
 # --- isUsableNodeVersion gate by scripts/__tests__/claude-plugin-ensure-dashboard.test.mjs).
-NODE_MIN_MAJOR=22
-NODE_MIN_MINOR=19
+NODE_MIN_MAJOR=26
+NODE_MIN_MINOR=0
 NODE_CAP_MAJOR=27
-NODE_AFFECTED_24_FROM=1
-NODE_AFFECTED_24_TO=2
 
 PKG="@blackbelt-technology/pi-agent-dashboard@latest"
 APP_BUNDLE_ID="com.blackbelt-technology.pi-dashboard"
@@ -447,18 +445,17 @@ node_usable() { # <vX.Y.Z>
   [ "$maj" -ge "$NODE_CAP_MAJOR" ] && return 1
   [ "$maj" -lt "$NODE_MIN_MAJOR" ] && return 1
   if [ "$maj" -eq "$NODE_MIN_MAJOR" ] && [ "$min" -lt "$NODE_MIN_MINOR" ]; then return 1; fi
-  if [ "$maj" -eq 24 ] && [ "$min" -ge "$NODE_AFFECTED_24_FROM" ] && [ "$min" -le "$NODE_AFFECTED_24_TO" ]; then return 1; fi
   return 0
 }
 
 do_install() {
   NPM=$(find_tool npm)
-  [ -n "$NPM" ] || die failed 1 "npm was not found, so nothing was downloaded. Install Node.js >= 22.19 (https://nodejs.org) and run this again."
+  [ -n "$NPM" ] || die failed 1 "npm was not found, so nothing was downloaded. Install Node.js 26 (https://nodejs.org) and run this again."
   NODE=$(find_tool node)
-  [ -n "$NODE" ] || die failed 1 "node was not found, so nothing was downloaded. Install Node.js >= 22.19 (https://nodejs.org) and run this again."
+  [ -n "$NODE" ] || die failed 1 "node was not found, so nothing was downloaded. Install Node.js 26 (https://nodejs.org) and run this again."
   nv=$("$NODE" --version 2>/dev/null)
   if ! node_usable "$nv"; then
-    die failed 1 "Node ${nv:-unknown} is not usable by pi-dashboard. Need Node >=22.19.0 <27, excluding v24.1 and v24.2. Nothing was downloaded."
+    die failed 1 "Node ${nv:-unknown} is not usable by pi-dashboard. Need Node >=26.0.0 <27. Nothing was downloaded."
   fi
 
   log "Installing $PKG globally (about 1 GB, about a minute)..."

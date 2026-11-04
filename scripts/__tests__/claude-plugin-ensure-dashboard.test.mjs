@@ -347,13 +347,13 @@ describe("consented install", () => {
     expect(ctx.calls("global-cli")).toEqual([]);
   });
 
+  // test-plan #E19 (raise-node-floor-to-26): only Node 26 installs.
   const NODE_TABLE = [
     ["v20.11.0", false],
-    ["v22.18.0", false],
-    ["v22.19.0", true],
-    ["v24.0.0", true],
-    ["v24.2.0", false],
-    ["v24.3.0", true],
+    ["v22.19.0", false],
+    ["v24.15.0", false],
+    ["v25.9.0", false],
+    ["v26.0.0", true],
     ["v26.9.0", true],
     ["v27.0.0", false],
   ];

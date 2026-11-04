@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, zrok.
+# Stage `base`  — Debian Bookworm + Node 26 LTS, system tools, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 
 # ============================ base stage ===================================
-FROM node:24-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
 ARG ZROK_VERSION=2.0.4
@@ -105,7 +105,7 @@ RUN set -eux; \
 # ============================ app stage ====================================
 FROM base AS app
 
-# 1.4 Non-root user (UID 1000). node:22 image already ships a `node` user at
+# 1.4 Non-root user (UID 1000). node:26 image already ships a `node` user at
 # UID 1000; create a dedicated `pi` user instead for clarity.
 RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cut -d: -f1)"; fi \
  && useradd --create-home --uid 1000 --shell /bin/bash pi
