@@ -11,7 +11,7 @@ export type Status = "open" | "accepted" | "rejected";
 /** One decision per mock page. `by` = who decided (user on the site, agent via `mock-decide`). */
 export interface Decision { status: Exclude<Status, "open">; by: "user" | "agent"; note?: string; at: string }
 
-export interface Frame {
+interface FrameBase {
   /** Key word first: "Sessions page - desktop". */
   title: string;
   /** Pane width in px (default 640). Ignored when phone. */
@@ -22,13 +22,15 @@ export interface Frame {
   why?: string;
   /** Today's UI with today's props. Omit for a part that does not exist yet ("New"). */
   current?: ReactNode;
-  /** Required unless `steps` is given. */
-  proposed?: ReactNode;
-  /** States of one flow, drawn instead of clicked: side by side by default. Ring numbers stay unique across steps. */
-  steps?: Step[];
   /** Animate `steps` in one pane (reduced motion: side by side). */
   play?: boolean;
 }
+/** A frame shows `proposed` (with optional `current`) or a `steps` flow; it must have one of them. */
+export type Frame = FrameBase & (
+  | { proposed: ReactNode; steps?: Step[] }
+  /** States of one flow, drawn instead of clicked: side by side by default. Ring numbers stay unique across steps. */
+  | { proposed?: ReactNode; steps: Step[] }
+);
 
 /** One state of a flow. Wrap the element whose click leads to the next step in `Tap`. */
 export interface Step { label: string; proposed: ReactNode }

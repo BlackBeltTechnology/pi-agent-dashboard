@@ -67,7 +67,7 @@ file that holds it.
 ## Writing a mock
 
 ```tsx
-import { Fix, Issue, type Mock } from "mock-site/kit";
+import { Fix, Issue, Tap, type Mock } from "mock-site/kit";
 import { SessionCard } from "@app/components/SessionCard";
 
 const mock: Mock = {
@@ -109,8 +109,9 @@ export default mock;
       { label: "re-linked",   proposed: <Row relinked /> },
   ] }
   ```
-- Start from the example: copy
-  `packages/mockup-loop/examples/2026-11-03-session-pills/mock.tsx` to
+- `phone: true` with `steps`: each step renders in its own 375px iframe.
+- Start from the example (in the dashboard repo only, not in the npm package):
+  copy `packages/mockup-loop/examples/2026-11-03-session-pills/mock.tsx` to
   `mockups/<yyyy-mm-dd-slug>/mock.tsx`. `examples/` is not a mock root, so the
   example is never listed by default; a site with no mocks shows "No mocks yet".
 

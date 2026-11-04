@@ -322,7 +322,7 @@ test("steps plus panes: reported, steps shown (U6)", async ({ page }) => {
 
 test("overview cards link to their frame (U7)", async ({ page }) => {
   await page.goto(url(PILLS_MOCK)); await ready(page);
-  const cards = page.locator(".mk-ov-card");
+  const cards = page.locator("section.mk-change", { has: page.locator(`h1 a.mk-ref`, { hasText: `#${PILLS_MOCK}` }) }).locator(".mk-ov-card");
   await expect(cards).toHaveCount(3);
   await cards.nth(1).click();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe(`#${PILLS_MOCK}/2`);
@@ -372,4 +372,13 @@ test("no mocks shows the empty state (U11)", async ({ page }) => {
   await page.waitForTimeout(1500);
   await page.goto(url());
   await expect(page.locator(".mk-item", { hasText: "E2E fixture" })).toHaveCount(1, { timeout: 15_000 });
+});
+
+test("a phone steps frame renders each step in a 375px iframe (U12)", async ({ page }) => {
+  await page.goto(url(FIXTURE_MOCK)); await ready(page);
+  const frames = page.locator(`[id="r-${FIXTURE_MOCK}/5"] iframe.mk-phone`);
+  await expect(frames).toHaveCount(2);
+  await expect(frames.first()).toHaveAttribute("src", `?pane=${encodeURIComponent(`${FIXTURE_MOCK}/5/proposed/step-1`)}`);
+  const f = (await frames.first().elementHandle())!.contentFrame();
+  await expect.poll(async () => (await f)!.locator("text=phone one").count()).toBe(1);
 });

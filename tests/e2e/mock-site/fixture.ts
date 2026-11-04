@@ -95,6 +95,11 @@ const mock: Mock = {
       current: <Box t="ignored" />,
       steps: [{ label: "only", proposed: <Box t="step wins" /> }],
     },
+    {
+      title: "Phone steps",
+      phone: true,
+      steps: [{ label: "one", proposed: <Box t="phone one" /> }, { label: "two", proposed: <Box t="phone two" /> }],
+    },
   ],
 };
 export default mock;

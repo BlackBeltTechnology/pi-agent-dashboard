@@ -2,7 +2,7 @@
 // Sidebar (search + categories, newest first) | frames: Current | Proposed side by side.
 // Accept / Reject per MOCK PAGE -> POST /__mock/decide -> <mockDir>/decision.json (git-visible).
 // Only open mocks are listed unless "Show accepted / rejected". See change: add-live-component-mock-site.
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { tipsOf, type Frame, type Mock, type Status, type Decision, RefBase, RefLink, refId, InPlayer, MAX_WHY } from "./kit.tsx";
 import { MOCK_CONFIG } from "virtual:mock-site/config";
 import { MOCKS as LOADED, ERRORS } from "virtual:mock-site/mocks";
@@ -25,9 +25,9 @@ function Strip({ f, base, n }: { f: Frame; base: string; n: number }): ReactElem
       {f.steps!.map((s, k) => (
         <div key={k} className="mk-step-wrap">
           {k > 0 ? <span className="mk-arrow" aria-hidden>→</span> : null}
-          <div className="mk-step" id={refId(`${base}/step-${k + 1}`)} style={{ width: f.width ?? 300 }}>
+          <div className="mk-step" id={refId(`${base}/step-${k + 1}`)} style={{ width: f.phone ? 375 : f.width ?? 300 }}>
             <RefLink to={`${base}/step-${k + 1}`} className="mk-step-l"><b>{n}{letter(k)}</b> {s.label}</RefLink>
-            <div className="mk-canvas">{s.proposed}</div>
+            {f.phone ? <PhonePane spec={`${base}/step-${k + 1}`} /> : <div className="mk-canvas">{s.proposed}</div>}
           </div>
         </div>
       ))}
@@ -36,8 +36,9 @@ function Strip({ f, base, n }: { f: Frame; base: string; n: number }): ReactElem
 }
 
 /** Steps animated in one pane: 2.5 s per step, Pause/Play, one dot per step. */
-function Player({ f, n }: { f: Frame; n: number }): ReactElement {
+function Player({ f, n, base }: { f: Frame; n: number; base: string }): ReactElement {
   const steps = f.steps!;
+  const phone = !!f.phone;
   const [k, setK] = useState(0);
   const [playing, setPlaying] = useState(true);
   useEffect(() => {
@@ -46,10 +47,10 @@ function Player({ f, n }: { f: Frame; n: number }): ReactElement {
     return () => clearInterval(t);
   }, [playing, steps.length]);
   return (
-    <div className="mk-player" style={{ width: f.width ?? 320 }}>
+    <div className="mk-player" style={{ width: phone ? 375 : f.width ?? 320 }}>
       <div className="mk-canvas mk-stage">
         <InPlayer.Provider value={true}>
-          {steps.map((s, i) => <div key={i} className={`mk-scene${i === k ? " on" : ""}`} aria-hidden={i !== k}>{s.proposed}</div>)}
+          {steps.map((s, i) => <div key={i} className={`mk-scene${i === k ? " on" : ""}`} aria-hidden={i !== k} inert={i !== k}>{phone ? <PhonePane spec={`${base}/step-${i + 1}`} /> : s.proposed}</div>)}
         </InPlayer.Provider>
       </div>
       <div className="mk-dots">
@@ -99,7 +100,7 @@ function StepsPane({ f, n, base, reducedMotion }: { f: Frame; n: number; base: s
       <div className="mk-pane mk-pane-steps" id={refId(side)}>
         <RefLink to={side} className="mk-lab mk-ok">{f.steps!.length} steps</RefLink>
         <RefBase.Provider value={side}>
-          {f.play && !reducedMotion ? <Player f={f} n={n} /> : <Strip f={f} base={side} n={n} />}
+          {f.play && !reducedMotion ? <Player f={f} n={n} base={side} /> : <Strip f={f} base={side} n={n} />}
         </RefBase.Provider>
       </div>
     </div>
@@ -149,10 +150,17 @@ function applyTheme(t: string) {
 }
 const storedTheme = () => { const t = localStorage.getItem("mk-theme"); return THEMES.some((x) => x.id === t) ? t! : THEMES[0].id; };
 
-/** `?pane=<id>/<frame>/<side>` renders one pane only — the phone iframe. */
+/** Content of `<side>` or `<side>/step-<k>` of a frame (undefined = no such pane). */
+function paneNode(f: Frame | undefined, side: string | undefined, step: string | undefined): ReactNode {
+  if (!f) return undefined;
+  if (step === undefined) return side === "current" ? f.current : side === "proposed" ? f.proposed : undefined;
+  if (side !== "proposed" || !/^step-[1-9]\d*$/.test(step)) return undefined;
+  return f.steps?.[Number(step.slice(5)) - 1]?.proposed;
+}
+/** `?pane=<id>/<frame>/<side>[/step-<k>]` renders one pane only — the phone iframe. */
 const PANE = new URLSearchParams(location.search).get("pane");
 function PaneOnly({ spec }: { spec: string }): ReactElement {
-  const [id, n, side] = spec.split("/");
+  const [id, n, side, step] = spec.split("/");
   const idx = /^[1-9]\d*$/.test(n ?? "") ? Number(n) - 1 : -1;
   const f = ALL.find((m) => m.id === id)?.frames[idx];
   useEffect(() => {
@@ -172,8 +180,9 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
     addEventListener("message", onMsg);
     return () => { removeEventListener("storage", apply); dark.removeEventListener("change", apply); removeEventListener("message", onMsg); ro.disconnect(); };
   }, [spec]);
-  if (!f || (side !== "current" && side !== "proposed")) return <div className="mk-error">No such pane: {spec}</div>;
-  return <RefBase.Provider value={spec}><div className="mk-canvas">{side === "current" ? f.current : f.proposed}</div></RefBase.Provider>;
+  const node = paneNode(f, side, step);
+  if (node === undefined) return <div className="mk-error">No such pane: {spec}</div>;
+  return <RefBase.Provider value={spec}><div className="mk-canvas">{node}</div></RefBase.Provider>;
 }
 function PhonePane({ spec }: { spec: string }): ReactElement {
   // Start at the last height seen this session (else 240) with a loading line: no blank flash, no jump.
@@ -333,7 +342,7 @@ function Shell(): ReactElement {
                 {decOf(m)?.note ? <p className="mk-note">{decOf(m)!.note}</p> : null}
               </div>
             </header>
-            {!q.trim() && m.frames.length > 1 ? <Overview m={m} /> : null}
+            {!q.trim() ? <Overview m={m} /> : null}
             {frames.map(({ f, i }) => <FrameView key={i} m={m} f={f} i={i} reducedMotion={reducedMotion} />)}
           </section>
         ))}
