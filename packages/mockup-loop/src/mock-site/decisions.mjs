@@ -19,7 +19,9 @@ export function readDecisionFile(file) {
   if (!fs.existsSync(file)) return {};
   try {
     const d = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (!d || typeof d !== "object" || Array.isArray(d) || (d.status !== "accepted" && d.status !== "rejected")) {
+    const bad = !d || typeof d !== "object" || Array.isArray(d) || (d.status !== "accepted" && d.status !== "rejected")
+      || (d.by !== "user" && d.by !== "agent") || (d.note !== undefined && typeof d.note !== "string") || typeof d.at !== "string";
+    if (bad) {
       return { warning: `invalid decision (treated as open): ${file}` };
     }
     return { decision: d };

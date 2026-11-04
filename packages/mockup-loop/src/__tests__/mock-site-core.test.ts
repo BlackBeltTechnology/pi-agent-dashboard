@@ -85,10 +85,10 @@ describe("decisions (E14, E15, X4)", () => {
     expect(fs.readdirSync(m.dir).filter((f) => f.includes(".tmp-"))).toEqual([]);
   });
   it("treats malformed files as open with a warning", () => {
-    for (const [i, body] of ["{", '{"status":"maybe"}', "[]", "<<<<<<< HEAD"].entries()) mk(`mockups/2026-11-0${i + 1}-m/decision.json`, body), mk(`mockups/2026-11-0${i + 1}-m/mock.tsx`);
+    for (const [i, body] of ["{", '{"status":"maybe"}', "[]", "<<<<<<< HEAD", '{"status":"accepted","by":"hacker","at":"x"}', '{"status":"accepted","by":"user","note":42,"at":"x"}'].entries()) mk(`mockups/2026-11-0${i + 1}-m/decision.json`, body), mk(`mockups/2026-11-0${i + 1}-m/mock.tsx`);
     const { decisions, warnings } = readDecisions(discoverMocks(root).mocks);
     expect(Object.keys(decisions)).toEqual([]);
-    expect(warnings).toHaveLength(4);
+    expect(warnings).toHaveLength(6);
     expect(warnings[0]).toContain("decision.json");
   });
   it("refuses to write through a symlink", () => {

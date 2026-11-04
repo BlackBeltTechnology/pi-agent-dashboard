@@ -147,6 +147,7 @@ export function mockSite(options) {
           if (size > BODY_MAX) over = true;
           else chunks.push(c);
         });
+        req.on("error", () => { if (!res.headersSent) send(res, 400, { error: "request aborted" }); });
         req.on("end", () => {
           if (over) return send(res, 413, { error: `body over ${BODY_MAX} bytes` });
           let body;
