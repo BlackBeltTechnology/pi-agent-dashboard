@@ -145,7 +145,7 @@ Before your first change, read [CONTRIBUTING.md](CONTRIBUTING.md) — features a
 ```bash
 git clone https://github.com/BlackBeltTechnology/pi-agent-dashboard.git
 cd pi-agent-dashboard
-corepack enable                            # activates the pinned pnpm (packageManager field)
+npm install -g corepack && corepack enable  # Node 25+ no longer bundles corepack; activates the pinned pnpm (packageManager field)
 pnpm install
 pnpm run build                             # one-time client build
 pi install /path/to/pi-agent-dashboard     # global
@@ -810,7 +810,7 @@ Agent metrics are collected every 15s via heartbeats and include `eventLoopMaxMs
 ### Commands
 
 ```bash
-corepack enable       # once: activate the pinned pnpm (packageManager field)
+npm install -g corepack && corepack enable   # once (Node 25+ ships no corepack): activate the pinned pnpm (packageManager field)
 pnpm install          # Install dependencies
 pnpm test             # Run all tests (vitest)
 pnpm run test:watch   # Watch mode

@@ -141,7 +141,10 @@ RUN npm install -g \
 # Enable corepack so `pnpm` resolves to the version pinned by the root
 # package.json `packageManager` field (pnpm@11.15.1). The global `npm install
 # -g` tool installs above stay npm (Column C-style user installs).
-RUN corepack enable
+# Node 25+ no longer bundles corepack, so install a pinned copy first.
+# See change: raise-node-floor-to-26.
+ARG COREPACK_VERSION=0.36.0
+RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack enable
 
 WORKDIR /app
 

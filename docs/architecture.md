@@ -7731,6 +7731,10 @@ See change: require-git-on-boot.
 
 Package manager: **pnpm**, pinned to `pnpm@11.15.1` via root `package.json` `packageManager` field + `corepack enable`.
 
+- Node 25+ ships no `corepack`. Node 26 = required runtime/dev Node.
+- Docker: `ARG COREPACK_VERSION=0.36.0`; `npm install -g "corepack@${COREPACK_VERSION}"` then `corepack enable`.
+- Dev setup: `npm install -g corepack && corepack enable`.
+
 Scope: pnpm drives ALL dev, CI, Docker, and build work. `npm` survives ONLY in locations listed below.
 
 Lockfile: Single committed lockfile = `pnpm-lock.yaml`. Old `package-lock.json` removed.

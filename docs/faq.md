@@ -3706,6 +3706,18 @@ Cross-refs:
 - `.pi/settings.json`
 - `packages/electron/scripts/download-node.sh`
 
+## Why does the Docker build fail with `corepack: not found` (exit 127) on Node 26?
+
+Node 25+ ships no `corepack`. `node:26-bookworm-slim` base has no `corepack` binary; bare `corepack enable` exits 127.
+
+Fix: install pinned corepack first, then enable. `docker/Dockerfile`: `ARG COREPACK_VERSION=0.36.0` → `RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack enable`.
+
+Dev host: `npm install -g corepack && corepack enable`.
+
+Cross-refs:
+- `docker/Dockerfile`
+- `.pi/settings.json`
+
 ## Why does `openspec change new` fail with "unknown command"?
 
 Command order wrong. CLI v1.3.1 takes `openspec new change <name>`, not `openspec change new`.
@@ -3744,6 +3756,15 @@ Fix: stage + commit atomically in ONE Bash call: `git reset && git add <files> &
 
 Cross-refs:
 - ~/.pi/agent/projects-memory/pi-agent-dashboard/MEMORY.md
+
+## Why do localStorage spies see no writes / Storage tests fail on Node 26 when running vitest directly?
+
+Node 25+ enables built-in Web Storage. Global `localStorage` resolves to Node's, not jsdom's; `Storage.prototype` spies miss writes.
+
+Fix: `NODE_OPTIONS="--no-experimental-webstorage --localstorage-file=…"` on every vitest invocation. Prefer `npm test` or `pnpm run test:parallel` (root `package.json` scripts set it).
+
+Cross-refs:
+- `package.json` (`test:parallel`, `test:real-process`, `test:coverage`, `test:watch`, `test:ci-scenarios`)
 
 ## Why does `npx vitest run` abort with "[test-isolation] process.env.HOME equals the real user home"?
 
