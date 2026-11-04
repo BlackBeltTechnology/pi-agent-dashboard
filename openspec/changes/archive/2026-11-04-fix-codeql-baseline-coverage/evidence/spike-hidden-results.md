@@ -33,3 +33,7 @@ Not recovered: the 2 `js/missing-rate-limiting` (blackhole, roles). The spike pa
 - The original "29 results" (archive `2026-10-17-harden-codeql-ratchet-followups` `evidence/local-vs-ci.md`: path-injection 23, rate-limiting 5, format-string 1) is stale. The reachable hidden set at HEAD is 20 production results (rate-limiting 2). Barrier models and admission changes since then closed the rest.
 - The hidden results sit in PRODUCTION plugin server files, not in `__tests__`. The ignore removes only the test-side `Fastify()` → registrar call path that made those handlers recognisable as HTTP sources (production loads plugins dynamically; `FastifyInstance` is a type-only import).
 - Caveat: the scratch clone symlinked `node_modules` (not ignored by `node_modules/`). The extractor resolves `import Fastify from "fastify"` by name, and CI runs build-mode none with no install, so the implementation re-proves the anchor with no `node_modules` present.
+
+## Implementation run — 2026-11-03 (anchor landed, task 3.14/3.15/3.17)
+
+Worktree with NO `node_modules` (equivalent to CI build-mode none), real `node scripts/codeql-local.mjs`: 17 NEW = the 18 spike results minus the goal-plugin `routes.ts:345` format string (fixed by this change). Team-plugin `js/path-injection` recovered (go). Blackhole deps iterated once to the real shape (`{ logger: console, env: process.env }`): the 2 `js/missing-rate-limiting` results (blackhole `index.ts`, roles `roles-routes.ts`) still not recovered → known gap, no further iteration.
