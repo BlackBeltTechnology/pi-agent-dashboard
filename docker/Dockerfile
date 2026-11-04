@@ -131,7 +131,7 @@ ARG PI_FLOWS_VERSION=0.8.1
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
 # the collapse scenarios (P2/F4) have no workload and pass vacuously.
 # See change: collapse-superseded-tool-execution-updates.
-ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.5.0
+ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.6.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
       "@blackbelt-technology/pi-dashboard-subagents@${PI_DASHBOARD_SUBAGENTS_VERSION}" \

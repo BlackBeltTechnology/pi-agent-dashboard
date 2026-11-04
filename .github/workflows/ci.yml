@@ -136,6 +136,16 @@ jobs:
       # Trusted Types policy. See change: harden-client-sinks (D4).
       - name: Client sink guard
         run: node scripts/check-client-sinks.mjs
+      # Completeness gate for the removed subagent fan-out admission gate: none
+      # of its symbols may come back. `decideAdmission` is not listed: cwd-guard
+      # owns an unrelated function of that name. The one allowlisted file is the
+      # leftover-key config test. See change: subagent-queue-visibility (D6, #E21).
+      - name: Removed subagent-admission symbols stay removed
+        run: |
+          if git grep -nE "maxConcurrentSubagents|MAX_CONCURRENT_SUBAGENTS|FanoutAdmissionGate|fanoutAdmission|resolveAdmissionConfig|subagentCap|subagent-fanout-admission|subagent-saturation|subagentSaturation|SaturationSampler" -- packages docs tests qa scripts docker ':!packages/shared/src/__tests__/config-removed-admission-key.test.ts'; then
+            echo "::error::removed subagent-admission symbols found (see change subagent-queue-visibility)"
+            exit 1
+          fi
       # Portability gate on committed `.pi/settings.json`. `pi install <path>`
       # and `pi config` both WRITE the resolved absolute path, so the
       # machine-specific form is the tooling's default output, not a typo. The

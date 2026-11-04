@@ -1,5 +1,5 @@
 import { type ClaimEntry, CurrentPluginLayer, forToolName, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
+import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiClockOutline, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline, mdiStopCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
@@ -51,6 +51,89 @@ function claimResultPending(claim: ClaimEntry | null, toolName: string, toolDeta
       err,
     );
     return false;
+  }
+}
+
+/** Row-status override a claim's `rowStatus` may return. */
+type ToolRowStatus = NonNullable<ReturnType<NonNullable<ClaimEntry["rowStatus"]>>>;
+
+/** One warning per plugin+hook, so a throwing claim fn cannot flood the console on every render. */
+const warnedClaimHooks = new Set<string>();
+function warnClaimOnce(claim: ClaimEntry, hook: string, toolName: string, err: unknown): void {
+  const key = `${claim.pluginId}:${hook}`;
+  if (warnedClaimHooks.has(key)) return;
+  warnedClaimHooks.add(key);
+  console.warn(`[tool-renderer] ${hook} threw for plugin "${claim.pluginId}" toolName "${toolName}"; ignoring`, err);
+}
+
+/** Test seam: forget which claim hooks already warned. */
+export function __resetClaimWarningsForTests(): void {
+  warnedClaimHooks.clear();
+}
+
+/**
+ * Evaluate a `tool-renderer` claim's optional `rowStatus` and keep only an
+ * override the row's own status allows: `queued` on a running row, `stopped`
+ * on a complete row. Error / elided rows are never overridden. Throws →
+ * undefined + one warning. See change: subagent-queue-visibility (design D2).
+ */
+function claimRowStatus(
+  claim: ClaimEntry | null,
+  toolName: string,
+  status: Props["status"],
+  toolDetails: Record<string, unknown> | undefined,
+  session: unknown,
+): ToolRowStatus | undefined {
+  if (!claim?.rowStatus) return undefined;
+  let rs: ToolRowStatus | undefined;
+  try {
+    rs = claim.rowStatus(toolDetails, session);
+  } catch (err) {
+    warnClaimOnce(claim, "rowStatus", toolName, err);
+    return undefined;
+  }
+  if (rs?.state === "queued" && status === "running") return rs;
+  if (rs?.state === "stopped" && status === "complete") return rs;
+  return undefined;
+}
+
+/**
+ * Put a claim's per-row `stop` in front of the existing stop path (own abort or
+ * enclosing burst controller). `true` consumes the click; `false` / a throw
+ * fall through to the existing path. See change: subagent-queue-visibility (D2).
+ */
+function withClaimStop(
+  base: StopController | null,
+  claim: ClaimEntry | null,
+  toolName: string,
+  input: { sessionId: string | undefined; toolCallId: string; toolDetails: Record<string, unknown> | undefined },
+): StopController | null {
+  const claimStop = claim?.stop;
+  if (!base || !claim || !claimStop) return base;
+  return {
+    ...base,
+    stop: () => {
+      if (base.state === "idle") {
+        try {
+          if (claimStop(input) === true) return;
+        } catch (err) {
+          warnClaimOnce(claim, "stop", toolName, err);
+        }
+      }
+      base.stop();
+    },
+  };
+}
+
+/** Claim-supplied accessible label for the row stop. Throws/absent → undefined. */
+function claimStopLabel(claim: ClaimEntry | null, toolName: string, toolDetails: Record<string, unknown> | undefined): string | undefined {
+  if (!claim?.stopLabel) return undefined;
+  try {
+    const label = claim.stopLabel(toolDetails);
+    return typeof label === "string" && label ? label : undefined;
+  } catch (err) {
+    warnClaimOnce(claim, "stopLabel", toolName, err);
+    return undefined;
   }
 }
 
@@ -158,7 +241,9 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const [expanded, setExpanded] = useState(hasImages || expandsWhileRunning || (isAskUser && !isFailedAskUser) || toolName === "canvas");
   // Hook always called (rules of hooks); inactive when a burst controller is supplied.
   const ownStop = useToolStopState({ active: status === "running" && !stopController, onAbort, onForceKill });
-  const stop = stopController ?? ownStop;
+  const stop = withClaimStop(stopController ?? ownStop, pluginClaim, toolName, { sessionId: context.sessionId, toolCallId, toolDetails });
+  const stopLabel = claimStopLabel(pluginClaim, toolName, toolDetails);
+  const rowStatus = claimRowStatus(pluginClaim, toolName, status, toolDetails, context.session);
   const Renderer = getToolRenderer(toolName);
 
   // Show-full-output affordance: when the rendered result carries the
@@ -201,7 +286,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   }, [hasImages]);
 
   return (
-    <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3${entering ? ` ${CHAT_ENTER_CLASS}` : ""}`}>
+    <div data-testid="tool-call-step" data-tool-name={toolName} className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3${entering ? ` ${CHAT_ENTER_CLASS}` : ""}`}>
       <div className="flex items-center">
       <button
         type="button"
@@ -210,8 +295,10 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
         className={`flex-1 min-w-0 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
       >
         {!hideStatusIcon && (
-          <span className={`inline-flex ${
-            status === "error"
+          <span data-testid={rowStatus ? `tool-row-status-${rowStatus.state}` : undefined} className={`inline-flex ${
+            rowStatus
+              ? "text-[var(--text-muted)]"
+              : status === "error"
               ? "text-[var(--severity-error-fg)]"
               : status === "elided"
                 ? "text-[var(--text-muted)]"
@@ -222,9 +309,11 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                     : "text-yellow-400"
           }`}>
             {(() => {
-              const icon = isAskUser && status !== "error" && status !== "running" && status !== "elided"
-                ? <Icon path={mdiHelpCircleOutline} size={0.55} />
-                : statusIcons[status];
+              const icon = rowStatus
+                ? <Icon path={rowStatus.state === "queued" ? mdiClockOutline : mdiStopCircleOutline} size={0.55} />
+                : isAskUser && status !== "error" && status !== "running" && status !== "elided"
+                  ? <Icon path={mdiHelpCircleOutline} size={0.55} />
+                  : statusIcons[status];
               // Completion cue: a freshly mounted, keyed wrapper so @starting-style
               // plays on the running→done/error flip only. No height transition.
               return completionCue
@@ -234,7 +323,12 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           </span>
         )}
         <span className="truncate">{getSummary(toolName, args)}</span>
-        <ElapsedBadge startedAt={startedAt} duration={duration} />
+        {rowStatus?.state === "queued" ? null : <ElapsedBadge startedAt={startedAt} duration={duration} />}
+        {rowStatus?.label && (
+          <span data-testid="tool-row-status-label" className="ml-1 shrink-0 text-[10px] text-[var(--text-muted)]">
+            {rowStatus.label}
+          </span>
+        )}
         {isSuperseded && (
           <span
             data-testid="tool-superseded-badge"
@@ -275,7 +369,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
         </span>
       </button>
-      {status === "running" && <ToolStopControl controller={stop} testIdPrefix="tool" />}
+      {status === "running" && <ToolStopControl controller={stop} testIdPrefix="tool" idleLabel={stopLabel} />}
       </div>
       {((nested && nested.length > 0) || nestedComplete === false) && (
         <NestedToolCallList rootId={toolCallId} nested={nested ?? []} complete={nestedComplete} sessionId={context.sessionId} />

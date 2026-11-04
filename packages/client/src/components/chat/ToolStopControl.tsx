@@ -137,15 +137,18 @@ export function ToolStopControl({
   controller,
   testIdPrefix = "tool",
   labeled = false,
+  idleLabel,
 }: {
   controller: StopController | null;
   testIdPrefix?: string;
   labeled?: boolean;
+  /** Overrides the idle-state accessible label (claim `stopLabel`). See change: subagent-queue-visibility. */
+  idleLabel?: string;
 }) {
   const isMobile = useMobile();
   if (!controller) return null;
   const spec = SPECS[controller.state];
-  const aria = spec.aria();
+  const aria = controller.state === "idle" && idleLabel ? idleLabel : spec.aria();
   const showLabel = labeled && !isMobile;
   const onClick =
     controller.state === "idle" ? controller.stop : controller.state === "aborting" ? controller.forceKill : undefined;

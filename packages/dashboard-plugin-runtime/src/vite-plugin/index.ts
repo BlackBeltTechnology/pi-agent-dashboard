@@ -509,7 +509,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     const namedRefs = [
       ...new Set(
         entry.manifest.claims
-          .flatMap(c => [c.module ? undefined : c.component, c.predicate, c.shouldRender, c.resultPending, c.labelComponent])
+          .flatMap(c => [c.module ? undefined : c.component, c.predicate, c.shouldRender, c.resultPending, c.rowStatus, c.stop, c.stopLabel, c.labelComponent])
           .filter((c): c is string => Boolean(c)),
       ),
     ];
@@ -539,7 +539,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // Only validate when we successfully read exports; an unreadable file
       // surfaces through other build errors and we don't want to compound them.
       for (const claim of entry.manifest.claims) {
-        for (const refKind of ["component", "predicate", "shouldRender", "resultPending", "labelComponent"] as const) {
+        for (const refKind of ["component", "predicate", "shouldRender", "resultPending", "rowStatus", "stop", "stopLabel", "labelComponent"] as const) {
           const ref = claim[refKind];
           if (!ref) continue;
           if (refKind === "component" && claim.module) continue; // validated against the module
@@ -598,6 +598,11 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // tool-renderer row behaviour fields (design D5 item 7).
       const expandWhileRunningStr = claim.expandWhileRunning ? ", expandWhileRunning: true" : "";
       const resultPendingRef = claim.resultPending ? `, resultPending: ${claim.resultPending}` : "";
+      // Row status / per-row stop seams. See change: subagent-queue-visibility (D2).
+      const rowStopRefs =
+        (claim.rowStatus ? `, rowStatus: ${claim.rowStatus}` : "") +
+        (claim.stop ? `, stop: ${claim.stop}` : "") +
+        (claim.stopLabel ? `, stopLabel: ${claim.stopLabel}` : "");
       const tabStr = claim.tab ? `, tab: ${JSON.stringify(claim.tab)}` : "";
       const toolNameStr = claim.toolName ? `, toolName: ${JSON.stringify(claim.toolName)}` : "";
       // Keyed `customType` for custom-entry-renderer claims. Required for the
@@ -646,7 +651,7 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // Generic config escape hatch (rare — prefer first-class fields).
       const configStr = claim.config ? `, config: ${JSON.stringify(claim.config)}` : "";
       lines.push(
-        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${fileHandlerStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${expandWhileRunningStr}${componentRef}${predicateRef}${shouldRenderRef}${resultPendingRef}${labelRef} },`,
+        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${customTypeStr}${pathPrefixStr}${fileHandlerStr}${resourceTypeStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${expandWhileRunningStr}${componentRef}${predicateRef}${shouldRenderRef}${resultPendingRef}${rowStopRefs}${labelRef} },`,
       );
     }
     lines.push("    ],");

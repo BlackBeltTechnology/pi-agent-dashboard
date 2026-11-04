@@ -89,11 +89,9 @@ Files in this directory. One row per source file.
 | `session-move.ts` | `createMoveCoordinator()` + `MOVE_TIMEOUT` — two-connection move handover; forwards path-gate frames via `onServerMessage`. → see `session-move.ts.AGENTS.md` |
 | `spawn-token.ts` | Spawn token captured + scrubbed from env at bridge ACTIVATION, kept process-global until first register. `captureSpawnTokenAtActivation()` (idempotent; non-empty only), `consumeSpawnToken()` (once), `__resetSpawnToken`. Nested pi never inherits it. See change: mirror-dashboard-trust-to-pi. |
 | `stream-forward-buffer.ts` | Bounded retention for `latest`/`stream` plugin channels. `StreamForwardBuffer`: one buffer keyed by (pluginId, key value) preserving cross-channel order; 2000 msgs / 2MiB per key; 64-key shared budget, drop-oldest counted; `keyCount` getter. See change: add-plugin-bridge-contributions. |
-| `subagent-fanout-admission.ts` | Pure `decideAdmission` (in-flight count + resolved config + saturated → `admit` / `refuse{cause,reason}`) +… → see `subagent-fanout-admission.ts.AGENTS.md` |
 | `subagent-forward-sites.ts` | The two subagent forward paths that call `sendEventForward` directly, extracted so strip PLACEMENT is… → see `subagent-forward-sites.ts.AGENTS.md` |
 | `subagent-frame-buffer.ts` | Pure class `SubagentFrameBuffer` + `SUBAGENT_CHANNELS` set. Makes running-subagent timeline reconcilable. → see `subagent-frame-buffer.ts.AGENTS.md` |
 | `subagent-frame-strip.ts` | Drops `details.entries` from `queued`/`running` subagent frames on the forward path. → see `subagent-frame-strip.ts.AGENTS.md` |
-| `subagent-saturation.ts` | Private pressure sampler for fan-out admission: own `monitorEventLoopDelay` histogram over a fixed 5 s window… → see `subagent-saturation.ts.AGENTS.md` |
 | `subagent-tick-throttle.ts` | Bridge-side rate limiter for subagent `Agent` tool `tool_execution_update` ticks (WIRE cost; the parent… → see `subagent-tick-throttle.ts.AGENTS.md` |
 | `retry-tracker.ts` | Pure helper class `RetryTracker` synthesizes `auto_retry_start` / `auto_retry_end` by OBSERVING pi's own… → see `retry-tracker.ts.AGENTS.md` |
 | `role-manager.ts` | Manages session model roles. Registers six `roles:*` handlers… → see `role-manager.ts.AGENTS.md` Sole WRITER… → see `role-manager.ts.AGENTS.md` |

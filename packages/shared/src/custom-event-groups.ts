@@ -60,6 +60,8 @@ export const SHIPPED_CUSTOM_EVENT_GROUPS: readonly CustomEventGroup[] = [
   { id: "goals", label: "Goals", pattern: "^pi-goal-hermes:", default: true },
   // Forensic records (subagent fan-out admission refusals). Hidden by default:
   // the refused tool call already shows its reason. See change: render-unclaimed-custom-entries.
+  // No longer written (the admission gate was removed, change: subagent-queue-visibility);
+  // kept so OLD transcripts still carrying these entries stay hidden by default.
   { id: "diagnostics", label: "Diagnostics", pattern: "^subagent-admission-refused$", default: false },
 ];
 

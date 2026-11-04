@@ -32,7 +32,6 @@ import {
   HEAP_WARN_ABOVE_MB,
   MIN_HEAP_MB,
   serverHeapStoreCoupling,
-  subagentHeapBudget,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 // Type-only import — erased at bundle time, so the rule above holds.
 import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
@@ -99,7 +98,6 @@ import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
-import { TrustedTypesSection } from "./TrustedTypesSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
 import { DefaultGroupingField } from "./DefaultGroupingField.js";
@@ -121,6 +119,7 @@ import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { TrustedTypesSection } from "./TrustedTypesSection.js";
 
 // The field family lives in the runtime so plugin settings share one contract.
 // Re-exported so existing `./SettingsPanel.js` imports keep working.
@@ -262,14 +261,6 @@ interface Config {
   sessionHeap?: { maxOldSpaceMb?: number; initialOldSpaceMb?: number; maxSemiSpaceMb?: number };
   /** V8 heap sizing for the dashboard SERVER. Cold-start only. */
   serverHeap?: { maxOldSpaceMb?: number };
-  /**
-   * Subagent fan-out bound. Surfaced on Sessions beside the heap ceiling
-   * because `Agent` children run in-process and share the session's heap, so
-   * this is a memory-safety knob, not just a concurrency one.
-   * See change: bound-subagent-fanout-under-host-pressure,
-   *             bound-session-heap-and-gc-telemetry (task 10.8).
-   */
-  maxConcurrentSubagents?: number;
   trustedNetworks?: string[];
   /**
    * How a network match is treated (`pair` | `legacy`). An unrecognised stored
@@ -359,7 +350,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   // TOP-LEVEL keys, because page attribution resolves per top-level key: one
   // shared `heapLimits` block would strand the session fields on the Server
   // page. See change: bound-session-heap-and-gc-telemetry (D7).
-  serverHeap: "server", sessionHeap: "sessions", maxConcurrentSubagents: "sessions",
+  serverHeap: "server", sessionHeap: "sessions",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   folderListMode: "sessions", folderAttentionPeek: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
@@ -511,9 +502,6 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
       }
     }
     if (Object.keys(changed).length > 0) partial.memoryLimits = changed;
-  }
-  if ((config.maxConcurrentSubagents ?? 2) !== (original.maxConcurrentSubagents ?? 2)) {
-    partial.maxConcurrentSubagents = config.maxConcurrentSubagents ?? 2;
   }
   // Heap blocks: FIELD-level for the same reason as `memoryLimits` above — the
   // server deep-merges them, so writing only what changed leaves an untouched
@@ -677,10 +665,6 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
   // See change: bound-session-heap-and-gc-telemetry (CodeRabbit review).
   const [sessionHeapInvalid, setSessionHeapInvalid] = useState(false);
   const [serverHeapInvalid, setServerHeapInvalid] = useState(false);
-  // `maxConcurrentSubagents` must be a NON-NEGATIVE integer: a negative value
-  // is written verbatim and `resolveMaxConcurrentSubagents` then reads it as
-  // malformed and fails OPEN (uncapped) — the opposite of what was typed.
-  const [subagentCapInvalid, setSubagentCapInvalid] = useState(false);
   // archive-sessions-lazy-load field validation: days ≥ 0 (0 disables),
   // sweep interval ≥ 1 min. Invalid → field error + Save disabled.
   const [archiveDaysInvalid, setArchiveDaysInvalid] = useState(false);
@@ -693,8 +677,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
     archiveDaysInvalid ||
     archiveSweepInvalid ||
     sessionHeapInvalid ||
-    serverHeapInvalid ||
-    subagentCapInvalid;
+    serverHeapInvalid;
   const [message, setMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
   // Security ▸ open-enrolment posture, server-derived (live auth state). Fetched on mount and after
   // a successful save; a refused fetch (caller below `operate`) or a failure keeps the prior
@@ -2377,71 +2360,6 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                       c.sessionHeap = { ...(c.sessionHeap ?? {}), maxOldSpaceMb: v };
                     })}
                   />
-                  {/* `maxConcurrentSubagents` is a MEMORY-SAFETY knob once a
-                      ceiling is enforced: Agent children run in-process and
-                      share the parent's single heap, so there is no per-child
-                      budget to set — only this count. Surfaced here, beside the
-                      ceiling, because the coupling is invisible anywhere else. */}
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm text-[var(--text-secondary)]" htmlFor="max-concurrent-subagents">
-                        {t("settings.maxConcurrentSubagents", undefined, "Max concurrent subagents")}
-                      </label>
-                      <input
-                        id="max-concurrent-subagents"
-                        data-testid="max-concurrent-subagents"
-                        type="number"
-                        className={`w-24 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-right ${
-                          subagentCapInvalid
-                            ? "border-red-500 text-red-400"
-                            : "border-[var(--border-secondary)] text-[var(--text-primary)]"
-                        }`}
-                        value={config.maxConcurrentSubagents ?? 2}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          const v = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
-                          const invalid = !Number.isFinite(v);
-                          setSubagentCapInvalid(invalid);
-                          if (!invalid) update((c) => { c.maxConcurrentSubagents = v; });
-                        }}
-                      />
-                    </div>
-                    {subagentCapInvalid && (
-                      <p data-testid="max-concurrent-subagents-error" className="mt-1 text-xs text-red-400">
-                        {t("settings.subagentCap.invalid", undefined, "Must be a non-negative whole number. 0 disables subagents.")}
-                      </p>
-                    )}
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {t(
-                        "settings.hint.maxConcurrentSubagents",
-                        undefined,
-                        "How many Agent children may run at once. They run INSIDE the session process and share its heap, so this spends the ceiling above.",
-                      )}
-                    </p>
-                  </div>
-                  {(() => {
-                    // One formula, shared with the server and the tests, so the
-                    // figure the operator reads cannot drift from the asserted
-                    // one. Non-blocking: both values stay valid and saveable —
-                    // this is a risk to disclose, not an error.
-                    const budget = subagentHeapBudget(
-                      config.sessionHeap?.maxOldSpaceMb ?? DEFAULT_SESSION_HEAP.maxOldSpaceMb,
-                      config.maxConcurrentSubagents ?? 2,
-                    );
-                    if (!budget.warn) return null;
-                    return (
-                      <p
-                        data-testid="session-heap-subagent-warning"
-                        className="mt-1 text-xs text-amber-400"
-                      >
-                        {t(
-                          "settings.heap.subagentCoupling",
-                          { mb: String(budget.perChildMb) },
-                          `At this pairing each concurrent subagent is left about ${budget.perChildMb} MB. Subagents share the session's heap; consider a higher ceiling or fewer concurrent children.`,
-                        )}
-                      </p>
-                    );
-                  })()}
                 </Section>
                 <Section title={t("settings.worktrees", undefined, "Worktrees")}>
                   <ToggleField
@@ -2939,7 +2857,7 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
 
       {/* Save Bar — present only while dirty (dirty-gated friction) or a
           numeric field is invalid (so the disabled Save explains why). */}
-      {(isDirty || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid || subagentCapInvalid) && (
+      {(isDirty || editorLimitInvalid || spawnTimeoutInvalid || archiveDaysInvalid || archiveSweepInvalid || sessionHeapInvalid || serverHeapInvalid) && (
         <div
           data-testid="settings-save-bar"
           className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)]"

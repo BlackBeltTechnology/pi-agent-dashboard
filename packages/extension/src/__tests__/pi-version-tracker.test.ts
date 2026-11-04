@@ -403,11 +403,10 @@ describe("pi 0.84.x audit records", () => {
       expect(src, file).not.toMatch(/block:\s*true/);
     }
 
-    const admission = fs.readFileSync(
-      path.join(__dirname, "../subagent-fanout-admission.ts"),
-      "utf-8",
-    );
-    expect(admission).toMatch(/block:\s*true/);
-    expect(admission).not.toMatch(/terminate:\s*true/);
+    // The blocking result lives in a dedicated guard module, never `terminate`.
+    // (Was the removed fan-out admission gate. See change: subagent-queue-visibility.)
+    const guard = fs.readFileSync(path.join(__dirname, "../credential-guard.ts"), "utf-8");
+    expect(guard).toMatch(/block:\s*true/);
+    expect(guard).not.toMatch(/terminate:\s*true/);
   });
 });

@@ -44,7 +44,24 @@ export interface SubagentState {
   agentSessionId?: string;
   type: string;
   description: string;
-  status: "created" | "running" | "completed" | "failed";
+  /**
+   * `stopped` = ended by a per-subagent stop (`subagents:completed` with
+   * `details.status: "stopped"`, producer ≥ 0.6.0). Terminal wherever
+   * `completed` / `failed` is. See change: subagent-queue-visibility (D4).
+   */
+  status: "created" | "running" | "completed" | "failed" | "stopped";
+  /** Phase the stop landed in; set only when `status === "stopped"`. */
+  stopReason?: "queued" | "running";
+  /** 1-based FIFO place while waiting for a spawn slot (producer ≥ 0.6.0). */
+  queuePosition?: number;
+  /** Spawn slots in use at the queued snapshot (producer ≥ 0.6.0). */
+  activeSlots?: number;
+  /** Effective producer `maxConcurrent` (`0` = unlimited) at the queued snapshot. */
+  maxConcurrent?: number;
+  /** Epoch ms the spawn slot was granted (producer ≥ 0.6.0). */
+  slotGrantedAt?: number;
+  /** Producer honours `subagents:stop { agentId }` (producer ≥ 0.6.0). */
+  stoppable?: boolean;
   /**
    * Client-only (never sent by the producer): the heal marker that produced the
    * CURRENT terminal `status` (e.g. `"session_ended"`); absent for a real
@@ -93,6 +110,11 @@ export interface SubagentState {
    * header. See change: add-subagent-inspector §15.
    */
   agentMdPath?: string;
+}
+
+/** True for a status no later frame may reopen. See change: subagent-queue-visibility (D4). */
+export function isTerminalSubagentStatus(status: SubagentState["status"] | undefined): boolean {
+  return status === "completed" || status === "failed" || status === "stopped";
 }
 
 /** Max chars of a subagent live tail kept in client state. */
@@ -157,6 +179,14 @@ export function readSubagentDetails(
   // Absent with an older producer (< 0.2.3) → single-key, as today.
   // See change: resolve-subagent-inspector-by-session-id (D1/D2).
   if (typeof details.agentSessionId === "string") out.agentSessionId = details.agentSessionId;
+  // Queue / stop fields (producer ≥ 0.6.0). See change: subagent-queue-visibility (D1, D4).
+  const nonNegInt = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+  if (nonNegInt(details.queuePosition)) out.queuePosition = details.queuePosition;
+  if (nonNegInt(details.activeSlots)) out.activeSlots = details.activeSlots;
+  if (nonNegInt(details.maxConcurrent)) out.maxConcurrent = details.maxConcurrent;
+  if (typeof details.slotGrantedAt === "number" && Number.isFinite(details.slotGrantedAt)) out.slotGrantedAt = details.slotGrantedAt;
+  if (typeof details.stoppable === "boolean") out.stoppable = details.stoppable;
+  if (details.stopReason === "queued" || details.stopReason === "running") out.stopReason = details.stopReason;
   return out;
 }
 
@@ -181,7 +211,7 @@ export function applyLiveBlockPiece(
   prev: SubagentState | undefined,
   piece: { blockId: number; kind: "thinking" | "text"; offset: number; text: string },
 ): SubagentLiveBlock | undefined {
-  if (prev?.status === "completed" || prev?.status === "failed") return undefined;
+  if (isTerminalSubagentStatus(prev?.status)) return undefined;
   if (prev?.closedBlockMax !== undefined && piece.blockId <= prev.closedBlockMax) return undefined;
   let lb = prev?.liveBlock;
   if (lb && piece.blockId < lb.blockId) return undefined;

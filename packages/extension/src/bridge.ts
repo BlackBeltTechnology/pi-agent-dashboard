@@ -5,34 +5,35 @@
  * forwards all pi events, and relays commands back.
  */
 
-import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
-import { appendIdentityLog } from "./bridge-identity-log.js";
-import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { shouldActivateBridge } from "./bridge-activation.js";
+import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
+import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AbortLatch } from "./abort-latch.js";
 import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
+import { shouldActivateBridge } from "./bridge-activation.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractLatestTurnWindow, } from "./bridge-context.js";
+import { handleInboundMessage } from "./bridge-handlers/dispatch.js";
+import { registerEnrichedForwarders, registerPassThroughForwarders } from "./bridge-handlers/forwarders.js";
+import { type BridgeState, createInstance } from "./bridge-handlers/instance.js";
+import { registerProjectTrust, registerSessionInfoChanged, registerSessionShutdown, registerSessionStart, registerTurnEnd } from "./bridge-handlers/lifecycle.js";
+import { appendIdentityLog } from "./bridge-identity-log.js";
+import { createPollingHolder, drainDisposables, ensureDisposable, teardownPreviousIncarnation } from "./bridge-polling.js";
 import {
   createCommandHandler,
   tryExecSlashTemplate,
   validateImages,
 } from "./command-handler.js";
-import { createInboundLimits } from "./inbound-limits.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
-import {
-  createTerminalReload,
-  isBridgeReentry,
-  RELOAD_COMMAND_NAME,
-} from "./terminal-reload.js";
+import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { runDevBuild } from "./dev-build.js";
@@ -40,6 +41,7 @@ import { EmptyActionableGuard, } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
 import { mapEventToProtocol, } from "./event-forwarder.js";
+import { bridgeExtensionIdentity } from "./extension-identity.js";
 import {
   FLOW_EVENT_MAP,
   registerEventBusForwarding,
@@ -47,50 +49,46 @@ import {
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
 import { drainOneFollowup } from "./followup-drain.js";
-import { createPollingHolder, drainDisposables, ensureDisposable, teardownPreviousIncarnation } from "./bridge-polling.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
-import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
-import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { createInboundLimits } from "./inbound-limits.js";
 import { localCredentialPlan, proofFailureLogCause } from "./local-token-header.js";
-import { isPinnedEndpoint } from "./pinned-endpoint.js";
-import { loadServerPins, serverPinsPath } from "./server-pin-store.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { createMcpDashboardRegistrar, type McpRegistrationApi, } from "./mcp-token-delivery.js";
-import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
-import { createCredentialGuard, createCredentialGuardToolCallHandler } from "./credential-guard.js";
 import { createPathGate } from "./path-gate/index.js";
 import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
+import { isPinnedEndpoint } from "./pinned-endpoint.js";
+import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
+import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
+import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
 import { getOwnPgid, } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { createRemoteUpgradePreparer } from "./remote-upgrade-preparer.js";
 import { installPiAiDelayFn, RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, resolveNamingModel } from "./role-manager.js";
+import { loadServerPins, serverPinsPath } from "./server-pin-store.js";
 import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels, isLive } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
-import { UsageDrain, drainUsageAndSend, makeCacheWarmingDecisionHandler, } from "./usage-drain.js";
+import { captureSpawnTokenAtActivation } from "./spawn-token.js";
 import { flushBufferedSubagentFrames, } from "./subagent-forward-sites.js";
-import { PluginForwardRegistry } from "./plugin-event-forward-registry.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
-import { FanoutAdmissionGate, resolveAdmissionConfig } from "./subagent-fanout-admission.js";
-import { SaturationSampler } from "./subagent-saturation.js";
 import { SubagentTickThrottle } from "./subagent-tick-throttle.js";
+import {
+  createTerminalReload,
+  isBridgeReentry,
+  RELOAD_COMMAND_NAME,
+} from "./terminal-reload.js";
 import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { refreshUiModules, type UiModulesBridgeCtx } from "./ui-modules.js";
-import { createInstance, type BridgeState } from "./bridge-handlers/instance.js";
+import { drainUsageAndSend, makeCacheWarmingDecisionHandler, UsageDrain, } from "./usage-drain.js";
 import { createVaultDelivery } from "./vault-delivery.js";
 import { createVaultForwardFilter } from "./vault-forwarder.js";
 import { createVaultRedaction } from "./vault-redaction.js";
-import { captureSpawnTokenAtActivation } from "./spawn-token.js";
-import { registerSessionInfoChanged, registerProjectTrust, registerSessionStart, registerTurnEnd, registerSessionShutdown } from "./bridge-handlers/lifecycle.js";
-import { registerEnrichedForwarders, registerPassThroughForwarders } from "./bridge-handlers/forwarders.js";
-import { handleInboundMessage } from "./bridge-handlers/dispatch.js";
-import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 
 /**
  * Formats the state behind a watchdog force-close for `server.log`.
@@ -1913,40 +1911,10 @@ function initBridge(pi: ExtensionAPI) {
   // Pass-through events: forward with no enrichment
   registerPassThroughForwarders(inst);
 
-  // ── Subagent fan-out admission ────────────────────────────────────────────
-  // Bounds concurrently in-flight `Agent` children so a wide fan-out on a loaded
-  // host cannot stall the parent's event loop until the process is reaped.
-  //
-  // Registered AFTER the pass-through loop above ON PURPOSE: `runner.emitToolCall`
-  // returns on the FIRST handler that answers a blocking result, so a gate
-  // registered earlier would starve the bridge's own `tool_call` forwarder — the
-  // dashboard would miss the refused call's `tool_call` while still seeing its
-  // `tool_execution_end`, and live UI and transcript would disagree. See D8.
-  //
-  // The result carries `block` + `reason` and NEVER `terminate`: a refusal is
-  // "not now" (re-issue after running children finish), not a task failure. The
-  // `block` decision itself lives in `subagent-fanout-admission.ts`. See change:
-  // bound-subagent-fanout-under-host-pressure (D2/D4/D5/D6/D7/D8).
-  const admissionSampler = new SaturationSampler();
-  const fanoutAdmission = new FanoutAdmissionGate({
-    resolveConfig: () => resolveAdmissionConfig(config),
-    saturation: admissionSampler,
-    // Refusals are ALSO written durably: the failure this mitigates ends with the
-    // process gone, so counters carried only by the live frame vanish in exactly
-    // the case that matters. Admissions write nothing (hot path, no FS I/O).
-    recordRefusal: (record) => {
-      try {
-        pi.appendEntry("subagent-admission-refused", record);
-      } catch (err) {
-        console.error("[dashboard] subagent-admission-refused entry failed:", err);
-      }
-    },
-  });
-  inst.fanoutAdmission = fanoutAdmission;
-  pi.on("tool_call", safe((event: any) => {
-    if (!isActive()) return;
-    return fanoutAdmission.onToolCall(event);
-  }));
+  // No dashboard-side subagent admission: the subagents producer's `maxConcurrent`
+  // semaphore is the ONE concurrency limit and queues the excess instead of
+  // refusing it. See change: subagent-queue-visibility (D6).
+
   // Agent credential guard — always on, no setting. Registered BEFORE the path gate so a
   // blocked call never shows a gate prompt and a grant / YOLO / gate-off cannot override it.
   // Deliberately NOT wrapped in the fail-open `safe()`: the guard maps an internal error to a
@@ -1957,9 +1925,8 @@ function initBridge(pi: ExtensionAPI) {
     isActive,
   );
   pi.on("tool_call", credentialGuardHandler as any);
-  // Agent path gate — registered AFTER the fan-out admission handler (and after the
-  // bridge's own forwarder) and deliberately NOT wrapped in the fail-open `safe()`:
-  // its own try/catch maps any internal error to a block. Stale bridge instances
+  // Agent path gate — registered AFTER the bridge's own forwarder and deliberately
+  // NOT wrapped in the fail-open `safe()`: its own try/catch maps any internal error to a block. Stale bridge instances
   // (after reload) pass through. See change: ask-agent-file-access-in-chat (D1).
   pi.on("tool_call", ((event: any, ctx: any) => {
     if (!isActive()) return undefined;
@@ -1969,15 +1936,6 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     pathGate.onBeforeAgentStart(event);
   }));
-  // Release permits on `tool_execution_end` — the ONE signal pi emits on the
-  // normal, blocked AND aborted paths. NEVER `tool_result`: an aborted call
-  // skips the path that produces it, so a permit released there would leak on
-  // every Esc and eventually refuse all subagent work for the session. See D2.
-  pi.on("tool_execution_end", safe((event: any) => {
-    if (!isActive()) return;
-    fanoutAdmission.onExecutionEnd(event);
-  }));
-
   // Generic custom entries/messages (pi.appendEntry / pi.sendMessage) are NOT
   // subscribed here: pi does NOT dispatch `entry_appended` to extensions, and
   // the idle-path sendMessage emits message_start/end to internal listeners
@@ -2151,10 +2109,6 @@ function initBridge(pi: ExtensionAPI) {
     if (inst.heartbeatTimer) { clearInterval(inst.heartbeatTimer); inst.heartbeatTimer = null; }
     if (inst.gitPollTimer) { clearInterval(inst.gitPollTimer); inst.gitPollTimer = null; }
     drainDisposables(s);
-    // Disable the admission sampler's private event-loop histogram. A bridge
-    // re-init (/reload, session replacement) constructs a fresh sampler; without
-    // this the superseded 20 ms-resolution monitor runs until process exit.
-    admissionSampler.dispose();
 
     // Dev build & restart: rebuild client and stop server before reload
     if (config.devBuildOnReload) {

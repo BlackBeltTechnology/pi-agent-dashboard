@@ -127,6 +127,7 @@ Notes:
 | Core HTTP routes | 364 (199 high-danger) | [http-route-inventory](security/http-route-inventory.md); [http-gates-and-routes § G](security/http-gates-and-routes.md) |
 | `ROUTE_TIERS` entries | 447 (`packages/shared/src/route-tiers.ts:546-548`: unlisted `/api` route → `operate`) | [http-gates-and-routes](security/http-gates-and-routes.md) |
 | Plugin-owned HTTP routes | 130 `ROUTE_TIERS` entries with no core registration; not enumerated | [http-gates-and-routes § H](security/http-gates-and-routes.md) |
+| Subagent stop `POST /api/plugins/subagents/stop` | operate authority (`hasOperateAuthority`, else 403); body `{sessionId, agentId}` ids 1–128 chars; behind `networkGuard`; emits fixed `subagents:stop` | `packages/subagents-plugin/src/server/index.ts` |
 | WS / socket endpoints | 14 rows (4 core scopes, gateway UDS/TCP/fallback, ACP in-process, plugin scopes, Electron shim, rpc-keeper, `/mcp`) | [websocket-and-bridge § Inventory](security/websocket-and-bridge.md) |
 | Dashboard MCP tools exposed to agents | 160 manifest rows; tier from `ROUTE_TIERS` unless row declares one; session callers hard-wired `control` (`packages/mcp-server-plugin/src/server/tokens.ts:46,123`) | [tool-call-guards § MCP tiers](security/tool-call-guards.md) |
 | Browser → server message types | 17 side-effecting types, tier per `ws-message-tiers.ts` | [websocket-and-bridge § Inbound](security/websocket-and-bridge.md) |
@@ -182,7 +183,7 @@ No OS sandbox. `bash` runs as operator OS user. Every guard = pi `tool_call`/`to
 | Untrusted-content guard | `tool_result`, `message_end`, `tool_call` | taint sources → sensitive tools (`bash`, `*_send`, …) | confirm while tainted | OFF unless package installed; then `strip` | closed | `packages/untrusted-content-guard/src/guard.ts:110-231`; `settings.ts:30-36` |
 | Chat-gateway L3 guard | `tool_call` (gateway-spawned) | all by name | allow / approve / deny | OFF unless `toolPolicy` + `guardExtension` | closed (deny-all) | `packages/chat-gateway/src/guard/index.ts:49,55-110,125-143` |
 | Team guard | `tool_call`, `before_agent_start`, `input` | preset allowlist; path check on file tools | hard block | ON for team sessions | closed | `packages/team-plugin/src/extension/guard.ts:13-17,68,113-138` |
-| Subagent fan-out admission | `tool_call` | `Agent` | block over in-flight cap | ON | OPEN (`safe()` swallows throws) | `packages/extension/src/subagent-fanout-admission.ts:171-213`; `bridge.ts:958-971` |
+| ~~Subagent fan-out admission~~ | removed (change: subagent-queue-visibility); queue limit = producer `maxConcurrent` | `Agent` | queue (not refuse) | — | — | — |
 | Pi trust mirror | `project_trust` | project `.pi/` loading | yes / undecided | on | `undecided` | `packages/extension/src/project-trust.ts:125-186` |
 | Vault redaction | `tool_result`, `message_end`, `user_bash`, outbound filter | all results + forwarded events | exact-value `[REDACTED:<NAME>]` | ON when vault delivered | closed (output withheld) | `packages/extension/src/vault-redaction.ts:1-21,122`; `vault-masker.ts:1-19` |
 | Gmail write confirm + tier + lease | tool `execute` | `gmail_send`, `_reply`, `_draft`, `_modify`, `_trash`, filters | `ctx.ui.confirm` + tier | tier `readonly` | closed | `packages/gmail-plugin/src/bridge/tools.ts:160-175`; `server/lease.ts:147-148` |

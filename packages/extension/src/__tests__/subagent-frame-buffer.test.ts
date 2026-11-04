@@ -175,6 +175,19 @@ describe("D3 — resync resolves by either id (agentId or derived agentSessionId
     expect(buf.stats.resyncNoop).toBe(2);
   });
 
+  // subagent-queue-visibility #X6: a STOPPED run rides `subagents:completed`
+  // (details.status "stopped") and is terminal like a completed one.
+  it("stopped run (subagents:completed, status stopped) resolves to nothing by either id", () => {
+    const buf = new SubagentFrameBuffer();
+    buf.markForwarded("subagents:started", frameWithSession("A", "S", [1]));
+    const stopped = frameWithSession("A", "S", [1]);
+    (stopped.details as Record<string, unknown>).status = "stopped";
+    (stopped.details as Record<string, unknown>).stopReason = "running";
+    buf.markForwarded("subagents:completed", stopped);
+    expect(buf.resync("A")).toBeUndefined();
+    expect(buf.resync("S")).toBeUndefined();
+  });
+
   // X1 (bridge/frame-buffer half of graceful degrade): frames never carry
   // agentSessionId → no session-id resolution, no throw, agentId path intact.
   it("graceful degrade: frames without agentSessionId → resync(sessionId) no-ops, no throw", () => {
