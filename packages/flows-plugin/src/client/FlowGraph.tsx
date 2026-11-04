@@ -69,7 +69,7 @@ export interface FlowGraphStep {
  *  Implicit-segment + branch edges are derived later by `deriveFlowEdges` in
  *  computeLayout; here we only carry `blockedBy` + `branches`. */
 /** Status word for a step: skipped / fan-out count / chosen decision routes. */
-export function graphStatusWord(flowState: FlowState, stepId: string, status: FlowGraphStep["status"]): string | undefined {
+function graphStatusWord(flowState: FlowState, stepId: string, status: FlowGraphStep["status"]): string | undefined {
   if (status === "skipped") return "skipped";
   const items = flowState.groups?.[stepId]?.filter(Boolean);
   const card = flowState.agents.get(stepId);

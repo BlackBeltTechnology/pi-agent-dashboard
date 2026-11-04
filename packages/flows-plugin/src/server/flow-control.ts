@@ -26,14 +26,14 @@ export const FLOW_CONTROL_ACTIONS = [
   "flow.delete",
   "flow.set-edit-mode",
 ] as const;
-export type FlowControlAction = (typeof FLOW_CONTROL_ACTIONS)[number];
+type FlowControlAction = (typeof FLOW_CONTROL_ACTIONS)[number];
 
-export function isFlowControlAction(a: unknown): a is FlowControlAction {
+function isFlowControlAction(a: unknown): a is FlowControlAction {
   return typeof a === "string" && (FLOW_CONTROL_ACTIONS as readonly string[]).includes(a);
 }
 
 /** Same code the core ACP guard answers (`acp-guard.ts`). */
-export const UNSUPPORTED_FOR_ACP = "unsupported_for_acp";
+const UNSUPPORTED_FOR_ACP = "unsupported_for_acp";
 
 const MAX_FLOW_NAME = 200;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
@@ -43,7 +43,7 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
  * A valid flow id: a non-empty trimmed string (≤ 200 chars) with no `/`, `\`,
  * `..` or control character. `research` and `batch:apply` are valid (G1).
  */
-export function isValidFlowName(v: unknown): v is string {
+function isValidFlowName(v: unknown): v is string {
   if (typeof v !== "string") return false;
   const s = v.trim();
   if (s === "" || s !== v || s.length > MAX_FLOW_NAME) return false;

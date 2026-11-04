@@ -54,11 +54,6 @@ export const FLOW_RUN_DECLARATION: EventForwardDeclaration = {
   replayEntryTypes: [...FLOW_REPLAY_ENTRY_TYPES],
 };
 
-/** Forwarded event type for a pi-flows channel (`undefined` when not declared). */
-export function flowEventType(channel: string): string | undefined {
-  return FLOW_RUN_CHANNELS[channel]?.as;
-}
-
 /** pi-flows events after which its registered commands may have changed. */
 const COMMANDS_TRIGGERS = ["flow:rediscover", "flow:complete"] as const;
 

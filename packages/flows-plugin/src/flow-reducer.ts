@@ -22,7 +22,7 @@ import type {
 // ── Fan-out items ──────────────────────────────────────────────────
 
 /** Fan-out item key: `<stepId>[<i>]`. */
-export function itemKey(stepId: string, index: number): string {
+function itemKey(stepId: string, index: number): string {
   return `${stepId}[${index}]`;
 }
 
