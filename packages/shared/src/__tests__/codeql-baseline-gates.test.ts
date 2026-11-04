@@ -126,20 +126,22 @@ const v = (file: string, reason: string, root = repoRoot) => validateOperatorAut
 const padTo = (body: string, n: number) => body + "x".repeat(n - body.length);
 
 describe("operator-authz reasons cite their bounding gate — real baseline", () => {
-  it("#E1 operator-authz keys equal the dismissal table's operator-authz rows, all valid", () => {
+  it("#E1 every operator-authz entry is valid; the synced table still agrees with the baseline", () => {
     const table = JSON.parse(fs.readFileSync(evidencePath("dismissal-comments.json"), "utf8")) as Record<
       string,
       { entryKey: string; reasonText: string }
     >;
-    const expected = new Set(
-      Object.values(table)
-        .filter((r) => r.reasonText.startsWith("operator-authz:"))
-        .map((r) => r.entryKey),
-    );
     const actual = baseline.entries.filter((e) => reasonBody(e.reason).startsWith("operator-authz:"));
-    expect(new Set(actual.map(entryKey))).toEqual(expected);
     const errs = actual.flatMap((e) => validateOperatorAuthzReason(entryKey(e), e.reason, repoRoot));
     expect(errs).toEqual([]);
+    // Rows of the synced table (historical, #1062) that are still in the baseline
+    // carry exactly the published text. Later --accept / --prune never need a table edit.
+    const byKey = new Map(baseline.entries.map((e) => [entryKey(e), reasonBody(e.reason)]));
+    const drift = Object.entries(table)
+      .filter(([, r]) => byKey.has(r.entryKey) && byKey.get(r.entryKey) !== r.reasonText)
+      .map(([n, r]) => `#${n} ${r.entryKey}`);
+    expect(drift).toEqual([]);
+    expect(Object.values(table).filter((r) => byKey.has(r.entryKey)).length).toBeGreaterThan(0);
   });
 
   it("#E3 no reason of any class carries the canned sentence", () => {

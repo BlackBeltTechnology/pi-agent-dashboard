@@ -335,6 +335,14 @@ describe("sync-dismissal-comments.mjs (#X10, #X11)", () => {
     expect(bad.calls).toEqual([]);
   });
 
+  it("--only without a list is refused before any gh call", () => {
+    for (const args of [["--only"], ["--only", ""], ["--only", "abc"]]) {
+      const s = syncRun({ table: { 1: row() }, alerts: { 1: dismissed(1) }, args }).go();
+      expect(s.status, JSON.stringify(args)).not.toBe(0);
+      expect(s.calls).toEqual([]);
+    }
+  });
+
   it("--dry-run reads but never patches", () => {
     const s = syncRun({ table: { 1: row() }, alerts: { 1: dismissed(1) }, args: ["--dry-run"] }).go();
     expect(s.status, s.stderr).toBe(0);

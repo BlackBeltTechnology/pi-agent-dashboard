@@ -21,7 +21,8 @@
  *    the two PATCHes), any other open alert still aborts the pre-flight;
  *  - the first failed PATCH stops the run non-zero.
  *
- * Usage: node sync-dismissal-comments.mjs [--dry-run] [--only 57,58] [--table f] [--log f] [--repo o/r]
+ * Usage: node sync-dismissal-comments.mjs [--dry-run] [--only 57,58] [--table f] [--log f]
+ * The repository is fixed: the table's alert numbers belong to it alone.
  * Test seam: PI_SYNC_GH_BIN (default `gh`).
  *
  * See change: fix-codeql-baseline-coverage.
@@ -43,8 +44,9 @@ const opt = (name, dflt) => {
 const dryRun = args.includes("--dry-run");
 const tablePath = opt("--table", join(here, "dismissal-comments.json"));
 const logPath = opt("--log", join(here, "comment-sync.log.jsonl"));
-const repo = opt("--repo", "BlackBeltTechnology/pi-agent-dashboard");
-const only = opt("--only", null)?.split(",").map((s) => s.trim());
+const repo = "BlackBeltTechnology/pi-agent-dashboard";
+const onlyRaw = args.includes("--only") ? (opt("--only", "") ?? "") : null;
+const only = onlyRaw === null ? null : onlyRaw.split(",").map((s) => s.trim()).filter(Boolean);
 const gh = process.env.PI_SYNC_GH_BIN || "gh";
 
 const fail = (msg) => {
@@ -52,6 +54,8 @@ const fail = (msg) => {
   process.exit(1);
 };
 
+// `--only` with no list must never widen to "every alert".
+if (only !== null && (only.length === 0 || only.some((n) => !/^\d+$/.test(n)))) fail("--only needs a comma-separated list of alert numbers");
 const table = JSON.parse(readFileSync(tablePath, "utf8"));
 const alerts = Object.keys(table).filter((n) => !only || only.includes(n));
 if (only) for (const n of only) if (!table[n]) fail(`alert #${n} is not in the table`);
