@@ -4,7 +4,8 @@
  *
  * The producer extension (`pi-dashboard-subagents`) owns this file. The
  * dashboard plugin server mirrors `inheritContext` through it so producer
- * behavior obeys the dashboard's toggle. Unexposed keys
+ * behavior obeys the dashboard's toggle (and `maxConcurrent`, see change:
+ * subagent-queue-visibility). Unexposed keys
  * (`exposeInheritanceInTool`, `inheritance.*`, plus any user-added
  * `additionalProperties`) are preserved verbatim across reads/writes.
  *
@@ -17,6 +18,8 @@ import path from "node:path";
 /** Shape mirrored from pi-dashboard-subagents/extensions/settings.ts. */
 export interface ProducerSettings {
 	inheritContext?: boolean;
+	/** Spawn concurrency limit (`0` = unlimited); producer 0.6.0 clamps it to 0–64. */
+	maxConcurrent?: unknown;
 	exposeInheritanceInTool?: boolean;
 	inheritance?: {
 		recentTurns?: number;
@@ -79,16 +82,34 @@ export function writeProducerFile(
 	}
 }
 
+/** Producer 0.6.0's `maxConcurrent` ceiling and default. */
+const MAX_CONCURRENT_MAX = 64;
+const MAX_CONCURRENT_DEFAULT = 4;
+
 /**
- * Merge a plugin-config patch (currently `{ inheritContext? }`) into existing
- * producer settings, preserving unexposed keys verbatim. Used by the plugin
- * server's onResponse hook.
+ * The limit the producer actually runs for a raw file value, mirroring
+ * producer 0.6.0's `coerceMaxConcurrent`: a finite number is floored and
+ * capped at 64, a negative one runs as the default 4; absent / non-numeric →
+ * `undefined` (left to the producer). See change: subagent-queue-visibility (D5).
+ */
+export function clampMaxConcurrent(v: unknown): number | undefined {
+	if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+	if (v < 0) return MAX_CONCURRENT_DEFAULT;
+	return Math.min(MAX_CONCURRENT_MAX, Math.floor(v));
+}
+
+/**
+ * Merge a plugin-config patch (`{ inheritContext?, maxConcurrent? }`) into
+ * existing producer settings, preserving unexposed keys verbatim. Only keys
+ * present (non-undefined) in the patch change. Used by the plugin server's
+ * onResponse hook.
  */
 export function mergeIntoProducerSettings(
 	existing: ProducerSettings,
-	patch: { inheritContext?: boolean },
+	patch: { inheritContext?: boolean; maxConcurrent?: number },
 ): ProducerSettings {
 	const out: ProducerSettings = { ...existing };
 	if (patch.inheritContext !== undefined) out.inheritContext = patch.inheritContext;
+	if (patch.maxConcurrent !== undefined) out.maxConcurrent = patch.maxConcurrent;
 	return out;
 }

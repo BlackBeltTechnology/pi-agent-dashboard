@@ -33,6 +33,7 @@ export function AgentCardShell({ name, status, headerRight, stats, onClick, sele
         ${selected ? "border-blue-500/60 bg-[var(--bg-surface)]" : "border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--bg-secondary),var(--bg-tertiary))]"}
         ${status === "running" ? "border-yellow-500/30" : ""}
         ${status === "error" ? "border-red-500/30" : ""}
+        ${status === "queued" ? "border-dashed !border-[var(--severity-neutral-border)]" : ""}
       `}
     >
       {/* Header: icon + name + optional right content */}

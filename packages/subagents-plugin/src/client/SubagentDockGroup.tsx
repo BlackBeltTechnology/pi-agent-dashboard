@@ -31,6 +31,16 @@ import type { SubagentState } from "./types.js";
 
 type DockGroupProps = SlotProps<"composer-dock-process-group">;
 
+/**
+ * A subagent waiting for a spawn slot. The session map stores no `queued`
+ * status (the tool's own details carry it), so waiting is read from the queue
+ * fields: a 1-based position and no slot grant yet.
+ */
+function queuePositionOf(sub: SubagentState): number | undefined {
+  const pos = sub.queuePosition;
+  return typeof pos === "number" && Number.isSafeInteger(pos) && pos > 0 && sub.slotGrantedAt === undefined ? pos : undefined;
+}
+
 /** Running or waiting subagents, one per `id` (the map can dual-index a state). */
 function activeSubagents(map: ReadonlyMap<string, SubagentState>): SubagentState[] {
   const seen = new Set<string>();
@@ -70,13 +80,16 @@ export function SubagentDockGroup({ session, mode, reportSummary }: DockGroupPro
     <>
       {active.map((sub) => {
         const name = sub.displayName ?? sub.type;
-        const pending = sub.status === "created";
+        const queuePos = queuePositionOf(sub);
+        const pending = sub.status === "created" || queuePos !== undefined;
         const steps = countSteps(sub.entries);
         const stepsLabel =
           steps === 1
             ? t("dockStepOne", { count: steps }, "{count} step")
             : t("dockSteps", { count: steps }, "{count} steps");
-        const meta = pending
+        const meta = queuePos !== undefined
+          ? t("agentQueuePos", { pos: queuePos }, "#{pos} in queue")
+          : pending
           ? t("dockPending", undefined, "pending")
           : steps > 0
             ? `${sub.type} · ${stepsLabel}`
@@ -89,7 +102,7 @@ export function SubagentDockGroup({ session, mode, reportSummary }: DockGroupPro
             title={name}
             detail={sub.description}
             meta={meta}
-            startedAt={pending ? undefined : sub.startedAt}
+            startedAt={pending ? undefined : (sub.slotGrantedAt ?? sub.startedAt)}
             actions={
               <Link
                 href={`/session/${encodeURIComponent(session.id)}/subagent/${encodeURIComponent(sub.id)}`}

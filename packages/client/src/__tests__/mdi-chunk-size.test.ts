@@ -99,7 +99,14 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // (lazy-plugin-claims policy): the chip, the shared flow-actions hook, the catalog hook + timings and the pill
 // copy. 612,367 B on CI, 15 B over the old cap; 599 KiB (613,376 B) leaves ~1 KB for CI's compressor variance.
 // Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 599 * 1024;
+// subagent-queue-visibility (2026-11-05): 599 -> 602 KiB. Unavoidably eager: the `Agent` tool-renderer claim's
+// `rowStatus` / `stop` / `stopLabel` fns (+ the shared per-subagent stop store) live in the subagents plugin's EAGER
+// entry because the shell's ToolCallStep calls them synchronously on every Agent row; the queued/stopped row glyphs
+// (`mdiClockOutline`, `mdiStopCircleOutline`) in ToolCallStep / agent-card-utils / MinimalChatView; and the plugin's
+// zh-CN + hu catalog rows for the queued / stopped / stop / "Max parallel subagents" copy (+~1.5 KB gz).
+// 614,850 B locally, 1,474 B over the old cap; 601 KiB would leave ~570 B, so 602 KiB (616,448 B, ~1.6 KB
+// headroom for CI's compressor variance). Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 602 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");

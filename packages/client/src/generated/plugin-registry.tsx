@@ -10,7 +10,7 @@ import { FolderKbSection, catalog as kb_catalog } from "@blackbelt-technology/pi
 import { FolderMcpSection } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SkillAtlasSection, FolderAtlasMenu, ProjectAtlasClaim, GlobalAtlasClaim, SkillAtlasSettings, catalog as skill_atlas_catalog } from "@blackbelt-technology/pi-dashboard-skill-atlas-plugin";
-import { isAgentResultNotReceived, catalog as subagents_catalog, sessionEventReducer as subagents_sessionEventReducer, toolRowFinalizers as subagents_toolRowFinalizers } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
+import { isAgentResultNotReceived, agentRowStatus, agentStop, agentStopLabel, catalog as subagents_catalog, sessionEventReducer as subagents_sessionEventReducer, toolRowFinalizers as subagents_toolRowFinalizers } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technology/pi-dashboard-team-plugin";
 import { MemorySubcard, shouldRenderMemorySubcard, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
@@ -590,7 +590,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "module": "./src/client/AgentToolRenderer.tsx",
                 "toolName": "Agent",
                 "expandWhileRunning": true,
-                "resultPending": "isAgentResultNotReceived"
+                "resultPending": "isAgentResultNotReceived",
+                "rowStatus": "agentRowStatus",
+                "stop": "agentStop",
+                "stopLabel": "agentStopLabel"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -605,13 +608,16 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         },
         "eventTypes": [
             "subagent_*"
+        ],
+        "emits": [
+            "subagents:stop"
         ]
     },
     claims: [
       { pluginId: "subagents", priority: 100, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentsSettings"), "SubagentsSettings") },
       { pluginId: "subagents", priority: 100, slot: "composer-dock-process-group", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentDockGroup"), "SubagentDockGroup") },
       { pluginId: "subagents", priority: 100, slot: "shell-overlay-route", path: "/session/:sessionId/subagent/:agentId", sessionParam: "sessionId", depth: 2, parentPath: "/session/:sessionId", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentPopoutClaim"), "SubagentPopoutClaim") },
-      { pluginId: "subagents", priority: 100, slot: "tool-renderer", toolName: "Agent", expandWhileRunning: true, Component: lazyClaim(() => import("../../../subagents-plugin/src/client/AgentToolRenderer"), "AgentToolRenderer"), resultPending: isAgentResultNotReceived },
+      { pluginId: "subagents", priority: 100, slot: "tool-renderer", toolName: "Agent", expandWhileRunning: true, Component: lazyClaim(() => import("../../../subagents-plugin/src/client/AgentToolRenderer"), "AgentToolRenderer"), resultPending: isAgentResultNotReceived, rowStatus: agentRowStatus, stop: agentStop, stopLabel: agentStopLabel },
     ],
     sessionEventReducer: subagents_sessionEventReducer,
     toolRowFinalizers: subagents_toolRowFinalizers,

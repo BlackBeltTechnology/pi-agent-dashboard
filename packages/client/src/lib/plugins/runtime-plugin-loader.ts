@@ -35,6 +35,9 @@ interface ListingClaim {
   predicate?: string;
   shouldRender?: string;
   resultPending?: string;
+  rowStatus?: string;
+  stop?: string;
+  stopLabel?: string;
   labelComponent?: string;
   [field: string]: unknown;
 }
@@ -192,6 +195,9 @@ function claimFunctions(id: string, claim: ListingClaim, mod: Record<string, unk
   if (claim.predicate) out.predicate = namedFunction(mod, claim.predicate, "predicate", id);
   if (claim.shouldRender) out.shouldRender = namedFunction(mod, claim.shouldRender, "shouldRender", id);
   if (claim.resultPending) out.resultPending = namedFunction(mod, claim.resultPending, "resultPending", id);
+  if (claim.rowStatus) out.rowStatus = namedFunction(mod, claim.rowStatus, "rowStatus", id);
+  if (claim.stop) out.stop = namedFunction(mod, claim.stop, "stop", id);
+  if (claim.stopLabel) out.stopLabel = namedFunction(mod, claim.stopLabel, "stopLabel", id);
   if (claim.labelComponent) {
     out.labelComponentName = claim.labelComponent;
     out.LabelComponent = namedFunction(mod, claim.labelComponent, "labelComponent", id);

@@ -241,6 +241,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
   // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
   // and the plugin additionally requires `identity.hasOperateAuthority`.
+  // subagent-queue-visibility: heap ceiling read for the "Max parallel subagents" warning.
+  { method: "GET", path: "/api/plugins/subagents/limits", tier: "observe" },
   { method: "GET", path: "/api/plugins/obs-studio/instances", tier: "observe" },
   { method: "GET", path: "/api/plugins/obs-studio/:service/status", tier: "observe" },
   { method: "GET", path: "/api/plugins/obs-studio/:service/screenshot", tier: "operate" },
@@ -439,6 +441,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/plugins/automation/stop", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/update", tier: "control" },
   { method: "POST", path: "/api/plugins/gmail/accounts", tier: "operate" },
+  // subagent-queue-visibility (D3): per-subagent stop; the handler also requires operate authority.
+  { method: "POST", path: "/api/plugins/subagents/stop", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/record", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/scene", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/virtualcam", tier: "operate" },

@@ -45,6 +45,9 @@
     ],
     "i18nCatalog": "catalog",
     "priority": 100,
+    "emits": [
+      "subagents:stop"
+    ],
     "targetPackage": "@blackbelt-technology/pi-dashboard-subagents",
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
@@ -76,7 +79,10 @@
         "component": "AgentToolRenderer",
         "module": "./src/client/AgentToolRenderer.tsx",
         "expandWhileRunning": true,
-        "resultPending": "isAgentResultNotReceived"
+        "resultPending": "isAgentResultNotReceived",
+        "rowStatus": "agentRowStatus",
+        "stop": "agentStop",
+        "stopLabel": "agentStopLabel"
       }
     ],
     "requires": {

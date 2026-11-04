@@ -924,11 +924,6 @@ export function registerSessionStart(inst: BridgeInstance): void {
           pluginForwardRetained: inst.pluginForwardRegistry.stats.buffer.retained,
           pluginForwardDropped:
             inst.pluginForwardRegistry.stats.buffer.dropped + inst.pluginForwardRegistry.stats.buffer.keyRejected,
-          // Subagent fan-out admission counters ride the same transport, so a
-          // narrowed fan-out is observable instead of looking like a model that
-          // chose not to parallelize. See change:
-          // bound-subagent-fanout-under-host-pressure (D7).
-          ...inst.fanoutAdmission.counters,
           // Agent path gate counters (in-root decisions are counted, not logged).
           pathGateInRoot: inst.pathGate.counters.inRoot,
           pathGateAsked: inst.pathGate.counters.asked,

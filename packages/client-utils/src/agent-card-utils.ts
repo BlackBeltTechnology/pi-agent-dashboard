@@ -3,7 +3,7 @@
  * Used by FlowAgentCard (flows) and AgentToolRenderer (subagents).
  */
 
-import { mdiAlertCircle, mdiCheckCircle, mdiCircleOutline, mdiCloseCircle, mdiLoading, mdiMinusCircleOutline, mdiPause, mdiStop } from "@mdi/js";
+import { mdiAlertCircle, mdiCheckCircle, mdiCircleOutline, mdiClockOutline, mdiCloseCircle, mdiLoading, mdiMinusCircleOutline, mdiPause, mdiStop } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode } from "react";
 
@@ -19,7 +19,7 @@ export function formatDuration(ms: number): string {
   return sec < 60 ? `${sec.toFixed(1)}s` : `${Math.floor(sec / 60)}m ${Math.floor(sec % 60)}s`;
 }
 
-export type AgentCardStatus = "pending" | "running" | "complete" | "error" | "blocked" | "stopped" | "background" | "elided";
+export type AgentCardStatus = "pending" | "queued" | "running" | "complete" | "error" | "blocked" | "stopped" | "background" | "elided";
 
 export interface StatusIconDef {
   icon: ReactNode;
@@ -29,6 +29,11 @@ export interface StatusIconDef {
 /** Status icon definitions for agent cards */
 export const statusIconDefs: Record<string, StatusIconDef> = {
   pending: { icon: React.createElement(Icon, { path: mdiCircleOutline, size: 0.55 }), color: "text-[var(--text-tertiary)]" },
+  /**
+   * Waiting for a concurrency slot: static clock, neutral token, never the
+   * running spinner. See change: subagent-queue-visibility (D7).
+   */
+  queued: { icon: React.createElement(Icon, { path: mdiClockOutline, size: 0.55 }), color: "text-[var(--severity-neutral-fg)]" },
   running: { icon: React.createElement(Icon, { path: mdiLoading, size: 0.55, className: "animate-spin" }), color: "text-yellow-400" },
   complete: { icon: React.createElement(Icon, { path: mdiCheckCircle, size: 0.55 }), color: "text-green-400" },
   error: { icon: React.createElement(Icon, { path: mdiCloseCircle, size: 0.55 }), color: "text-red-400" },

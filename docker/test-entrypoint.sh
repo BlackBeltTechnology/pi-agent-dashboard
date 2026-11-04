@@ -425,6 +425,12 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
       };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
     ' "${PI_DIR}/dashboard/config.json" "${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com}" "${PI_E2E_OAUTH_NO_BYPASS:-}"
+    # Mark the one-shot secret rotation done: ~/.pi is tmpfs, so every boot is a
+    # "first" boot and `rotateSecretsOnce` would replace the KNOWN secret above,
+    # making every OperatorSession cookie (tests/e2e/helpers/trust-access.ts) a
+    # 401. Epoch value = REQUIRED_ROTATION_EPOCH (packages/server/src/auth/secret-rotation.ts).
+    mkdir -p "${PI_DIR}/dashboard/local"
+    printf '1\n' > "${PI_DIR}/dashboard/local/rotation-epoch"
     echo "[test-entrypoint] PI_E2E_OAUTH: seeded github provider + bypassUrls:$([ "${PI_E2E_OAUTH_NO_BYPASS:-}" = "1" ] && echo "[]" || echo "[/]") + redirectBaseUrl=${PI_E2E_OAUTH_BASE:-https://pi-e2e-a.example.com} → config.json"
   fi
 

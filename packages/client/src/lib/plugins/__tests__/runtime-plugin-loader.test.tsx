@@ -195,6 +195,24 @@ describe("registration parity (#E86)", () => {
     expect(container.querySelectorAll("[data-testid=badge]")).toHaveLength(0);
   });
 
+  // See change: subagent-queue-visibility (design D2).
+  it("resolves a tool-renderer claim's rowStatus / stop / stopLabel from the entry module", async () => {
+    const Card = () => null;
+    const rowStatus = () => ({ state: "queued" as const });
+    const stop = () => true;
+    const stopLabel = () => "Stop subagent";
+    const ext = listingEntry({
+      id: "sub-rt",
+      claims: [{ slot: "tool-renderer", toolName: "Agent", component: "Card", rowStatus: "rowStatus", stop: "stop", stopLabel: "stopLabel" }],
+    });
+    const { d } = deps({ listing: [ext], modules: { [ext.entry]: { Card, rowStatus, stop, stopLabel } } });
+    await loadRuntimePlugins(d);
+    const claim = registry.getClaims("tool-renderer")[0];
+    expect(claim.rowStatus).toBe(rowStatus);
+    expect(claim.stop).toBe(stop);
+    expect(claim.stopLabel).toBe(stopLabel);
+  });
+
   it("a missing predicate export skips the whole plugin, leaving nothing half-registered", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const ext = listingEntry({ id: "broken", claims: [{ slot: "session-card-badge", component: "Badge", shouldRender: "gone" }] });

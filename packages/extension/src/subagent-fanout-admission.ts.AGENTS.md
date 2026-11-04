@@ -1,3 +1,0 @@
-# subagent-fanout-admission.ts — index
-
-Pure `decideAdmission` (in-flight count + resolved config + saturated → `admit` / `refuse{cause,reason}`) + `resolveAdmissionConfig` (malformed → fail-open) + stateful `FanoutAdmissionGate`. Permits keyed to admitted `toolCallId`s and released on `tool_execution_end` — NEVER `tool_result` (an aborted call skips it). Counters `fanoutAdmitted`/`fanoutRefused`/`fanoutSaturationRefused`. Synchronous, reject-only, fail-open, never sets `terminate`. Wired in `bridge.ts` AFTER the pass-through forwarder (first-`block` wins). See change: bound-subagent-fanout-under-host-pressure. → see `subagent-fanout-admission.ts.AGENTS.md`
