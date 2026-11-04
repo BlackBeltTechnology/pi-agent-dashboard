@@ -9,7 +9,8 @@
  *
  * See change: redesign-directory-home-split (design D5).
  */
-import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+import { readRoleConfigFromDisk } from "@blackbelt-technology/pi-dashboard-shared/role-config-disk.js";
+import { type RoleConfig, resolveModelRef, THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 
 export interface SpawnChoice {
   model?: string;
@@ -96,4 +97,115 @@ export function choiceToSpawnOptions(choice: SpawnChoice): { model?: string; thi
     ...(choice.model ? { model: choice.model } : {}),
     ...(choice.thinking ? { thinking: choice.thinking } : {}),
   };
+}
+
+export interface SpawnChoiceInput {
+  model?: unknown;
+  thinkingLevel?: unknown;
+  /** ACP agent id. With an agent no pi model/thinking applies. */
+  agent?: unknown;
+}
+
+export interface ResolveSpawnChoiceContext {
+  /** Settings `defaultModel`, paired with a thinking-only choice. */
+  defaultModel?: string;
+  /** Role config reader; called ONLY for `@role` refs. Defaults to `~/.pi/agent/providers.json`. */
+  readRoles?: () => Pick<RoleConfig, "roles">;
+}
+
+export interface ResolvedSpawnChoice {
+  choice: SpawnChoice;
+  /** Human-readable reasons a requested model/role/thinking choice was dropped. */
+  warnings: string[];
+}
+
+/** Empty string counts as absent (the composer / CLI may send `""`). */
+function present(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== "";
+}
+
+/**
+ * The single spawn-time choice resolver shared by every spawn road (browser WS,
+ * REST, plugin hook, bridge `spawn_new_session`).
+ *
+ * - Literal refs keep `validateSpawnChoice` semantics (explicit `thinkingLevel`
+ *   disables `:<level>` suffix splitting).
+ * - `@role[:level]` resolves ONCE against the roles file; the concrete
+ *   `provider/id` is validated with no level, and the thinking level follows
+ *   explicit field > ref suffix > role-assigned level.
+ * - A thinking-only choice pairs with `ctx.defaultModel`.
+ * - `agent` with a model/thinking choice → empty choice + warning (an ACP agent
+ *   takes no pi argv). `agent` alone → no warning.
+ *
+ * Never throws; every drop is reported in `warnings` (and `console.warn`).
+ * See change: add-spawn-model-choice (design D1).
+ */
+export function resolveSpawnChoice(input: SpawnChoiceInput, ctx: ResolveSpawnChoiceContext = {}): ResolvedSpawnChoice {
+  const warnings: string[] = [];
+  const hasModel = present(input.model);
+  const hasLevel = present(input.thinkingLevel);
+  if (present(input.agent)) {
+    if (hasModel || hasLevel) {
+      const w = "model choice ignored for ACP agent";
+      console.warn(`[dashboard] ${w}`);
+      warnings.push(w);
+    }
+    return { choice: {}, warnings };
+  }
+  if (!hasModel && !hasLevel) return { choice: {}, warnings };
+
+  let choice: SpawnChoice;
+  if (hasModel && typeof input.model === "string" && input.model.trim().startsWith("@")) {
+    choice = resolveRoleChoice(input.model, hasLevel ? input.thinkingLevel : undefined, ctx, warnings);
+  } else {
+    choice = validateSpawnChoice({
+      ...(hasModel ? { model: input.model } : {}),
+      ...(hasLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+    });
+    if (hasModel && !choice.model) warnings.push("invalid model choice ignored");
+    if (hasLevel && !isThinkingLevel(input.thinkingLevel)) warnings.push("invalid thinkingLevel ignored");
+  }
+
+  if (choice.thinking && !choice.model && ctx.defaultModel) {
+    const fallback = validateSpawnChoice({ model: ctx.defaultModel, thinkingLevel: choice.thinking });
+    if (fallback.model) choice.model = fallback.model;
+  }
+  return { choice, warnings };
+}
+
+function resolveRoleChoice(
+  ref: string,
+  levelField: unknown,
+  ctx: ResolveSpawnChoiceContext,
+  warnings: string[],
+): SpawnChoice {
+  const out: SpawnChoice = {};
+  let roles: Pick<RoleConfig, "roles">;
+  try {
+    roles = (ctx.readRoles ?? readRoleConfigFromDisk)();
+  } catch {
+    roles = { roles: {} };
+  }
+  const resolved = resolveModelRef(ref, roles);
+  if (resolved.unresolved || !resolved.model) {
+    const w = resolved.unresolved ?? `role ref '${ref}' did not resolve`;
+    console.warn(`[dashboard] ignoring model choice: ${w}`);
+    warnings.push(w);
+  } else {
+    // No level and no thinkingLevel → never re-fed as `provider/id:level`.
+    const v = validateSpawnChoice({ model: resolved.model, thinkingLevel: undefined });
+    if (v.model && v.model === resolved.model) out.model = v.model;
+    else warnings.push(`role '${resolved.role}' is assigned an invalid model`);
+  }
+  if (levelField !== undefined) {
+    if (isThinkingLevel(levelField)) out.thinking = levelField;
+    else {
+      console.warn(`[dashboard] ignoring invalid thinkingLevel (${typeof levelField})`);
+      warnings.push("invalid thinkingLevel ignored");
+      if (out.model && isThinkingLevel(resolved.level)) out.thinking = resolved.level;
+    }
+  } else if (out.model && isThinkingLevel(resolved.level)) {
+    out.thinking = resolved.level;
+  }
+  return out;
 }

@@ -33,6 +33,7 @@ import type { ToolInvocation } from "./dispatch.js";
 import { GENERATED_TOOLS } from "./generated/tools.js";
 import { logMigration, migrateProvisionedEntry } from "./legacy-entry-migration.js";
 import { type ListSessionsArgs, listSessions, validateListSessionsArgs } from "./list-sessions.js";
+import { runSpawnSessionTool } from "./spawn-session-tool.js";
 import { filterToolsByRoute } from "./route-skew.js";
 import { mountMcpRoutes } from "./routes.js";
 import { SubscriptionRegistry } from "./streaming.js";
@@ -103,7 +104,8 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     send_prompt: async ({ args }) => ({
       delivered: ctx.sendToSession(args.sessionId as string, args.text as string),
     }),
-    spawn_session: async ({ args }) => ctx.spawnSession({ cwd: args.cwd as string }),
+    // Full input incl. model / @role / thinkingLevel; see change: add-spawn-model-choice.
+    spawn_session: async ({ args }) => runSpawnSessionTool(ctx.spawnSession, args as Record<string, unknown>),
     abort: async ({ args }) => {
       const aborted = await ctx.abortSession(args.sessionId as string);
       // X4: abortSession returns false for a disconnected bridge. Reporting it

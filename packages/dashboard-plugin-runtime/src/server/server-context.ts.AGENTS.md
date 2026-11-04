@@ -6,3 +6,5 @@
 See issue #972 — `sanitizeConfigValue` drops empty-string elements from `extensionConfig` `string[]` values (spec: non-empty element rule); scalar `""` still kept.
 
 Optional `readFileGuarded?(absPath): Promise<string|null>` (`ReadFileGuardedFn`): host guarded UTF-8 read, `null` = refused by state/credential guard; absent on older host → plugin route must fail closed, never plain `fs`. Not trust-gated. See change: close-security-map-high-findings (D1).
+
+See change: add-spawn-model-choice. `PluginSpawnOptions.thinkingLevel?` (canonical level → `thinking`); `model` may be `@role` (host resolves once); `PluginSpawnResult.warning?` on a dropped choice.

@@ -6,3 +6,5 @@ Fullscreen `+Worktree` dialog. Lists existing worktrees (one-click `Spawn →`) 
 See change: align-ui-with-theme-tokens. Headings 12 px semibold `--text-secondary` (no uppercase-muted); source toggle `aria-pressed` + `--tint-blue-*` when pressed, 44/32 px; labels 12 px `--text-primary`; collision/orphan blocks `--severity-warning-*`; every submit error `--severity-error-fg` (per-code palette `errorClass` removed); Create = `--accent-solid` + white, disabled `--bg-tertiary`/`--text-secondary`; Cancel secondary; `focus-ring` on every button. Collision button copy "New session in that worktree →".
 
 See change: align-ui-with-theme-tokens. Tint/target recipe via `tint-action-*` / `tap-target` utilities (index chunk cap).
+
+See change: add-spawn-model-choice. `SpawnChoiceChip` (`worktree-dialog-model-choice`) beside the agent select, edits the PARENT folder memory; `buildOpts` adds `model`/`thinkingLevel` (chip pick ?? `getEffectiveSpawnChoice(cwd)`) for pi only. Prop `modelChoice?: "show"|"hidden"` (default show); hidden → no chip, no model. Chip disabled under ACP agent.

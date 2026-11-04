@@ -24,7 +24,7 @@ Conventions: JSON responses; mutations need `Content-Type: application/json`. Lo
 - `POST /api/session/:id/shutdown` `{}` (kills pi process, not server). 200 / 404.
 - `POST /api/session/:id/rename` `{name}`. 200 / 400 / 404.
 - `POST /api/session/:id/hide` and `/unhide` `{}`. 200 / 404.
-- `POST /api/session/spawn` `{cwd}`. 200 `{data:{message}}` / 400 / 500.
+- `POST /api/session/spawn` `{cwd, agent?, model?, thinkingLevel?, initialPrompt?, attachProposal?}`. `model` = `provider/id[:level]` or `@role[:level]` (role resolved once at spawn). 200 `{data:{message}}` / 400 (invalid model, unknown role, bad level, agent+model|thinkingLevel — before any side effect) / 500.
 - `POST /api/session/:id/resume` `{mode: "continue"|"fork"}`. 200 / 400 / 404 / 409 (active or resuming) / 500.
 - `POST /api/session/:id/flow-control` `{action: "abort"|"toggle_autonomous"}`. 200 / 400 / 404.
 

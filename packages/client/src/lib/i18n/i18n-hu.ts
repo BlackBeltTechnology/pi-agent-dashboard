@@ -3,7 +3,6 @@
 // grouped by structured key for human review.
 export const huCatalog: Record<string, string> = {
   "acp.agent": "Ügynök",
-  "acp.chooseAgent": "Ügynök választása az új munkamenethez",
   "acp.metaPi": "Alapértelmezett · folyamatok, alügynökök, bővítmények",
   "acp.metaAcp": "ACP-ügynök",
   "acp.driverChip": "ACP · {agent}",
@@ -307,6 +306,10 @@ export const huCatalog: Record<string, string> = {
   "status.working": "Dolgozik",
   "tags.addTag": "Címke hozzáadása",
   "tags.addTagPlaceholder": "Címke hozzáadása…",
+  "spawnChoice.default": "alapértelmezett",
+  "spawnChoice.defaultModel": "alapértelmezett modell",
+  "spawnChoice.newSessionMenu": "Új munkamenet beállításai",
+  "spawnChoice.piDefault": "pi alapértelmezés",
   "tags.addTagShort": "+ címke",
   "tags.createTag": "+ „{name}” létrehozása",
   "tags.removeFromAllSessions": "Címke eltávolítása az összes munkamenetből",
