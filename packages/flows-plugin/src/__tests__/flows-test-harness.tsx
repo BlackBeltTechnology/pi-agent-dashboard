@@ -95,7 +95,7 @@ export const fetchMock = vi.fn(async (_url?: string) => {
   return new Response(JSON.stringify({ enabled: s }), { status: 200 });
 });
 
-/** `plugin_action` / `flow_management` / `send_prompt` messages a send mock saw. */
+/** `plugin_action` / `send_prompt` messages a send mock saw. */
 export const sentOf = (send: ReturnType<typeof vi.fn>, pred: (m: Record<string, unknown>) => boolean) =>
   send.mock.calls.map(([m]) => m as Record<string, unknown>).filter(pred);
 export const catalogAsks = (send: ReturnType<typeof vi.fn>) => sentOf(send, (m) => m.action === "flow.request-catalog");

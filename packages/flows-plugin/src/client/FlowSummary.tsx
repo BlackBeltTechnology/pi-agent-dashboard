@@ -344,7 +344,7 @@ export function FlowSummaryClaim({ session }: { session: DashboardSession }) {
       session={session}
       sessionId={session.id}
       onDismiss={() =>
-        send({ type: "flow_control", sessionId: session.id, action: "dismiss_summary" })
+        send({ type: "plugin_action", pluginId: "flows", sessionId: session.id, action: "flow.dismiss-summary" })
       }
       onSendPrompt={(text) =>
         send({ type: "send_prompt", sessionId: session.id, text })

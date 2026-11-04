@@ -102,7 +102,7 @@ export function useFlowActions(
 
   const flows = catalog.flows;
   const dispatchRun = (flowName: string, task?: string) =>
-    dispatch({ type: "flow_management", sessionId, action: "run", flowName, task: task || undefined });
+    dispatch({ type: "plugin_action", pluginId: "flows", sessionId, action: "flow.run", payload: { flowName, ...(task ? { task } : {}) } });
 
   const openPicker = (p: "run" | "open") => {
     catalog.refresh({ rediscover: true });
@@ -143,7 +143,8 @@ export function useFlowActions(
       editModeError,
       clearEditModeError: clearError,
       dispatchRun,
-      dispatchDelete: (flowName) => dispatch({ type: "flow_management", sessionId, action: "delete", flowName }),
+      dispatchDelete: (flowName) =>
+        dispatch({ type: "plugin_action", pluginId: "flows", sessionId, action: "flow.delete", payload: { flowName } }),
       dispatchAuthor: (flowName, instruction) => {
         const intent = instruction.trim();
         // New flow: instruction describes what to build. Edit: flow name is

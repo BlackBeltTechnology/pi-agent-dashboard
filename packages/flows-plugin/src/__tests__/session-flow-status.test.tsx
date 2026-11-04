@@ -37,13 +37,14 @@ describe("SessionFlowActionsClaim (status only)", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("renders the badge and no action buttons while a flow runs; Abort sends flow_control", () => {
+  it("renders the badge and no action buttons while a flow runs; Abort sends the flow.abort plugin_action (E40)", () => {
     const send = vi.fn();
     publishSessionEvents("status-run", [started]);
     const { container } = renderClaim("status-run", send);
     expect(container.textContent).toContain("A");
     expect(screen.queryByRole("button", { name: /Run Flow|Open flow|New \/ Edit|Delete/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /abort/i }));
-    expect(send).toHaveBeenCalledWith({ type: "flow_control", sessionId: "status-run", action: "abort" });
+    expect(send).toHaveBeenCalledWith({ type: "plugin_action", pluginId: "flows", sessionId: "status-run", action: "flow.abort" });
+    expect(send.mock.calls.some(([m]) => (m as { type: string }).type === "flow_control")).toBe(false);
   });
 });

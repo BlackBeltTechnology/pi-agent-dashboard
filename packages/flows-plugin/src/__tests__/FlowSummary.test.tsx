@@ -460,6 +460,7 @@ describe("FlowSummary header actions (E23)", () => {
       ),
     );
     fireEvent.click(q("flow-header-run-again") as HTMLButtonElement);
-    expect(send).toHaveBeenCalledWith({ type: "flow_management", sessionId: sid, action: "run", flowName: "demo-flow", task: undefined });
+    expect(send).toHaveBeenCalledWith({ type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.run", payload: { flowName: "demo-flow" } });
+    expect(send.mock.calls.some(([m]) => ["flow_control", "flow_management"].includes((m as { type: string }).type))).toBe(false);
   });
 });

@@ -327,6 +327,7 @@ export function FlowDashboard({
         {/* Controls */}
         <button
           onClick={(e) => { e.stopPropagation(); onToggleAutonomous(); }}
+          aria-pressed={flowState.autonomousMode}
           className={`text-[10px] px-1.5 py-0.5 rounded border ${
             flowState.autonomousMode
               ? "border-green-500/40 text-green-400 bg-green-500/10"
@@ -803,7 +804,10 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
     });
   }
 
-  const flowControl = (action: string) => send({ type: "flow_control", sessionId, action });
+  // Flow commands go to the flows plugin server as plugin_action, which relays
+  // fixed pi events. See change: update-flows-plugin (D2).
+  const flowControl = (action: "flow.abort" | "flow.toggle-autonomous" | "flow.dismiss-summary") =>
+    send({ type: "plugin_action", pluginId: "flows", sessionId, action });
   const detach = () => {
     if (attachment) clearAttachment(sessionId, attachment.id);
   };
@@ -845,9 +849,9 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
               }
             : undefined
         }
-        onAbort={() => flowControl("abort")}
-        onToggleAutonomous={() => flowControl("toggle_autonomous")}
-        onDismiss={() => flowControl("dismiss_summary")}
+        onAbort={() => flowControl("flow.abort")}
+        onToggleAutonomous={() => flowControl("flow.toggle-autonomous")}
+        onDismiss={() => flowControl("flow.dismiss-summary")}
         onSendPrompt={(text: string, images?: ImageContent[]) =>
           send({ type: "send_prompt", sessionId, text, images })
         }
@@ -862,7 +866,13 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
             // Own the promise: a failed send yields no rejection event, so
             // re-enable Run here. See change: attach-flow-before-run (D7).
             void Promise.resolve(
-              send({ type: "flow_management", sessionId, action: "run", flowName: shown.flowName, task: task || undefined }),
+              send({
+                type: "plugin_action",
+                pluginId: "flows",
+                sessionId,
+                action: "flow.run",
+                payload: { flowName: shown.flowName, ...(task ? { task } : {}) },
+              }),
             ).catch((err: unknown) => {
               console.error("[flows-plugin] plugin send failed:", err);
               run.sendFailed(submission);
