@@ -14,6 +14,9 @@
  *   - `isAgentResultNotReceived`: the `Agent` tool-renderer claim's
  *     `resultPending` predicate (the `AgentToolRenderer` itself is a lazy claim
  *     `module`, not exported here).
+ *   - `agentRowStatus` / `agentStop` / `agentStopLabel`: the claim's `rowStatus`,
+ *     `stop` and `stopLabel` (queued/stopped row + per-subagent stop).
+ *     See change: subagent-queue-visibility.
  *
  * See change: decouple-plugins-from-core (Phase 3).
  */
@@ -21,6 +24,7 @@
 
 export { catalog } from "../i18n.js";
 export { isAgentResultNotReceived } from "./resultPending.js";
+export { agentRowStatus, agentStop, agentStopLabel } from "./subagentStop.js";
 export type { SubagentDetailMode, SubagentDetailViewProps } from "./SubagentDetailView.js";
 export { SubagentDetailView } from "./SubagentDetailView.js";
 export type { SubagentPopoutClaimProps } from "./SubagentPopoutClaim.js";

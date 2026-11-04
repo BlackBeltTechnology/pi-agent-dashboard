@@ -50,4 +50,17 @@ describe("tool-renderer claim fields", () => {
     expect((err as Error).message).toContain("settings-section");
     expect((err as Error).message).toContain(field);
   });
+
+  // See change: subagent-queue-visibility (design D2).
+  it("carries rowStatus / stop / stopLabel onto the normalized claim", () => {
+    const claim = validateManifest(manifest({ rowStatus: "rs", stop: "st", stopLabel: "sl" })).claims[0];
+    expect(claim).toMatchObject({ rowStatus: "rs", stop: "st", stopLabel: "sl" });
+  });
+
+  it.each(["rowStatus", "stop", "stopLabel"])("rejects a non-string %s and %s off tool-renderer", (field) => {
+    expect(() => validateManifest(manifest({ [field]: 7 }))).toThrow(ManifestValidationError);
+    expect(() =>
+      validateManifest({ id: "x", displayName: "X", priority: 100, claims: [{ slot: "settings-section", component: "S", [field]: "fn" }] }),
+    ).toThrow(/tool-renderer claims only/);
+  });
 });

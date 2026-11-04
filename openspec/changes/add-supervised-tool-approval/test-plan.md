@@ -198,7 +198,9 @@ assertion (E1). No open gaps.
 | E41, X4 | `packages/extension/src/__tests__/no-tui-multiselect-arm-regression.test.ts` |
 | E44 | `packages/extension/src/path-gate/__tests__/handler.test.ts` |
 | E45 | `packages/client/src/components/__tests__/SettingsPanel.test.tsx` |
-| P1, P2, X10, X11 | `packages/extension/src/__tests__/subagent-fanout-admission.test.ts` |
+| P1, P2 | `packages/extension/src/__tests__/supervised-gate-cost.test.ts` |
+| X11 | `packages/extension/src/__tests__/supervised-subagent-visibility.test.ts` |
+| X10 | obsolete: fan-out admission gate removed by subagent-queue-visibility |
 | X9 | `packages/chat-gateway/src/guard/__tests__/guard.test.ts` + `packages/extension/src/path-gate/__tests__/handler.test.ts` |
 | X26 | `packages/server/src/__tests__/config-api.test.ts` |
 | X27, X28 | `packages/server/src/identity/__tests__/ws-message-scope.test.ts`; `packages/server/src/__tests__/browser-gateway-owner-gate.test.ts` |

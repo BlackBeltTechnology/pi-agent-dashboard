@@ -17,7 +17,8 @@ export type MinimalChatMode = "inline" | "popout" | "row";
  * status enum into this union; the view never sees producer-specific tokens.
  *
  * Mapping tables (see design §Decision 2):
- *  - SubagentState: created → pending, running → running, completed → complete, failed → error
+ *  - SubagentState: created → pending, running → running, completed → complete, failed → error,
+ *    stopped → stopped (neutral, final; see change: subagent-queue-visibility)
  *  - FlowAgentState: identity (already uses these tokens)
  */
 export type MinimalChatStatus =
@@ -25,7 +26,8 @@ export type MinimalChatStatus =
   | "running"
   | "complete"
   | "error"
-  | "blocked";
+  | "blocked"
+  | "stopped";
 
 /**
  * One timeline entry. The discriminated union is the structural intersection

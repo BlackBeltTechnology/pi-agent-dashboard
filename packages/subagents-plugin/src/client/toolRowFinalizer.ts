@@ -28,6 +28,7 @@
  */
 import type { ToolRowFinalizer, ToolRowFinalizerOpts } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
+  isTerminalSubagentStatus,
   readSubagentDetails,
   type SubagentState,
   setSubagentState,
@@ -62,8 +63,11 @@ export interface AgentFinalizerState extends SubagentSessionSlice {
 type Data = Record<string, unknown>;
 type Opts = ToolRowFinalizerOpts<AgentFinalizerState> | undefined;
 
-const isTerminal = (sub: SubagentState | undefined): sub is SubagentState =>
-  sub?.status === "completed" || sub?.status === "failed";
+/** `stopped` is terminal wherever `completed|failed` is. See change: subagent-queue-visibility (D4). */
+const isTerminal = (sub: SubagentState | undefined): sub is SubagentState => isTerminalSubagentStatus(sub?.status);
+
+/** A producer stop rides `subagents:completed` / a non-error end with `details.status: "stopped"`. */
+const isStoppedDetails = (details: Data | undefined): boolean => details?.status === "stopped";
 
 const stringOf = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
@@ -101,19 +105,43 @@ function finalizeRowFromSubagent(
 ): AgentFinalizerState | undefined {
   if (!opts?.reduce) return undefined;
   const failedSub = sub.status === "failed";
+  const stoppedSub = sub.status === "stopped";
   const result = failedSub ? sub.error || SUBAGENT_FAILED_NO_ERROR : sub.result || SUBAGENT_DONE_NO_RESULT;
+  // A stopped subagent finalizes NON-error, carrying `status` + `stopReason`, so a row
+  // healed before the real end renders stopped, not a success check (D4).
   const details: Record<string, unknown> = {
     agentId: sub.id,
-    status: failedSub ? "error" : "completed",
+    status: failedSub ? "error" : stoppedSub ? "stopped" : "completed",
+    ...(stoppedSub && sub.stopReason ? { stopReason: sub.stopReason } : {}),
     ...(failedSub ? { error: result } : {}),
     ...(sub.durationMs !== undefined ? { durationMs: sub.durationMs } : {}),
     ...(sub.toolUses !== undefined ? { toolUses: sub.toolUses } : {}),
   };
-  return opts.reduce(state, {
+  const next = opts.reduce(state, {
     eventType: "tool_execution_end",
     timestamp,
     data: { toolCallId, toolName: "Agent", result, isError: failedSub, healedBy, details },
   });
+  return stoppedSub ? restampStopped(next, toolCallId, sub.stopReason) : next;
+}
+
+/**
+ * The shell's end arm forces a healed non-error end to `status: "completed"`; a
+ * stopped subagent's row must read `stopped` (design D4). Patch only that row.
+ */
+function restampStopped(
+  state: AgentFinalizerState,
+  toolCallId: string,
+  stopReason: SubagentState["stopReason"],
+): AgentFinalizerState {
+  const idx = state.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+  if (idx === -1) return state;
+  const messages = [...state.messages];
+  messages[idx] = {
+    ...messages[idx],
+    toolDetails: { ...(messages[idx].toolDetails ?? {}), status: "stopped", ...(stopReason ? { stopReason } : {}) },
+  };
+  return { ...state, messages };
 }
 
 /** `subagent_completed|failed`: write the terminal state, then stop the subagent's Agent row. */
@@ -129,7 +157,7 @@ function onSubagentTerminal(state: AgentFinalizerState, event: SessionEventLike,
   const subagents = new Map(state.subagents);
   setSubagentState(subagents, {
     ...(existing ?? { id, type: (data.type as string) ?? "unknown", description: (data.description as string) ?? "" }),
-    status: event.eventType === "subagent_completed" ? "completed" : "failed",
+    status: event.eventType === "subagent_failed" ? "failed" : isStoppedDetails(details) ? "stopped" : "completed",
     // Heal provenance (D5): set by a synthesized terminal, cleared by a real one.
     healedBy,
     result: data.result as string | undefined,
@@ -333,7 +361,7 @@ function endPatch(data: Data, endDetails: Data | undefined): Partial<SubagentSta
   const tokensUsage = endDetails?.tokensUsage as SubagentState["tokens"] | undefined;
   const toolUses = typeof endDetails?.toolUses === "number" ? endDetails.toolUses : undefined;
   return {
-    status: isError ? "failed" : "completed",
+    status: isError ? "failed" : isStoppedDetails(endDetails) ? "stopped" : "completed",
     ...(resultStr && !isError ? { result: resultStr } : {}),
     ...(isError ? { error: resultStr ?? stringOf(endDetails?.error) } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),

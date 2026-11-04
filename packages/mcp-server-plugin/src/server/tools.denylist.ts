@@ -76,6 +76,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
   { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
+  // See change: subagent-queue-visibility.
+  { pattern: "/api/plugins/subagents/", reason: "per-subagent stop + heap-ceiling read behind the dashboard card / settings field; UI-only" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
   // add-service-registry-core: service mutations start processes and write
   // secrets; core keeps the whole surface out of MCP (skills use the CLI).

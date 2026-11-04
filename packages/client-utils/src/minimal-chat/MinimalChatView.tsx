@@ -29,6 +29,7 @@ import {
   mdiCloseCircle,
   mdiHeadLightbulb,
   mdiPencil,
+  mdiStopCircleOutline,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -62,6 +63,9 @@ export function statusVisualsFor(status: MinimalChatStatus): {
       return { iconPath: mdiAlertCircle, colorClass: "text-orange-400" };
     case "pending":
       return { iconPath: mdiCircleOutline, colorClass: "text-[var(--text-tertiary)]" };
+    case "stopped":
+      // Neutral and final: never the success check, never error red.
+      return { iconPath: mdiStopCircleOutline, colorClass: "text-[var(--severity-neutral-fg)]" };
     default: {
       // Exhaustive check — TS will error if a new MinimalChatStatus branch
       // is missed. The runtime fallback is the same as "pending".

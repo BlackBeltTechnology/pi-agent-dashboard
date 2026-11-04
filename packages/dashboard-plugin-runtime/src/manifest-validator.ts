@@ -500,6 +500,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     "predicate",
     "shouldRender",
     "resultPending",
+    "rowStatus",
+    "stop",
+    "stopLabel",
   ] as const) {
     if (c[field] !== undefined && typeof c[field] !== "string") {
       throw new ManifestValidationError(
@@ -515,7 +518,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     throw new ManifestValidationError(pluginId, `claims[${index}].expandWhileRunning must be a boolean if provided`);
   }
   if (slotId !== "tool-renderer") {
-    for (const field of ["expandWhileRunning", "resultPending"] as const) {
+    for (const field of ["expandWhileRunning", "resultPending", "rowStatus", "stop", "stopLabel"] as const) {
       if (c[field] !== undefined) {
         throw new ManifestValidationError(
           pluginId,
@@ -584,6 +587,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
     ...(c.expandWhileRunning === true ? { expandWhileRunning: true } : {}),
     ...(typeof c.resultPending === "string" ? { resultPending: c.resultPending } : {}),
+    ...(typeof c.rowStatus === "string" ? { rowStatus: c.rowStatus } : {}),
+    ...(typeof c.stop === "string" ? { stop: c.stop } : {}),
+    ...(typeof c.stopLabel === "string" ? { stopLabel: c.stopLabel } : {}),
     ...(c.config && typeof c.config === "object" && !Array.isArray(c.config)
       ? { config: c.config as Record<string, unknown> }
       : {}),

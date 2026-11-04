@@ -2100,32 +2100,25 @@ Symptom: session dies immediately after issuing wide `Agent` fan-out. Last trans
 
 Contributing cause: parallel subagent initialization blocks Node event loop on loaded host (contributing cause, not confirmed root cause; loaded-host and large-context factors untested). 13/14 census crash sessions died at fan-out start (correlation observed, causality not proven).
 
-Mitigation (change: `bound-subagent-fanout-under-host-pressure`): bridge admission gate bounds concurrent in-flight subagents per session (partial mitigation, not definitive fix).
-
-Mechanism:
-- Gate intercepts `tool_call` before execution starts.
-- Bound tracks in-flight concurrency, not batch width. Counter increments on admission, decrements on `tool_execution_end`.
-- Normal default cap: `DEFAULT_MAX_CONCURRENT_SUBAGENTS = 2`.
-- Host saturation (high event loop delay, process CPU, machine load) drops cap to 1 so session still makes progress.
-- Refused calls return terminal errored tool result with reason directing re-issue after running children finish. Card stops spinning immediately.
-- Refusals append durable `subagent-admission-refused` session entry so evidence survives process death.
+Mitigation (change: `subagent-queue-visibility`): one concurrency limit now lives in the subagents producer. Excess `Agent` calls queue instead of piling up. Partial mitigation, not definitive fix.
 
 Configuration:
-- `maxConcurrentSubagents` in `~/.pi/dashboard/config.json`.
-- Default: `2`.
-- `0`: disables admission gate (rollback).
-- Absent: resolves to default (2).
-- Malformed: fails open (uncapped).
+- Settings → Plugins → Subagents → "Max parallel subagents" (`/settings/plugins/subagents`).
+- Mirrored to `~/.pi/agent/extensions/pi-dashboard-subagents/config.json`.
+- Default: `4`. Range `0`–`64`. `0`: unlimited.
+- Applies live (~1 s), including queued subagents.
+- Heap warning shows on that field when `maxOldSpaceMb / (n+1) < 100` MB.
+- Constrained host: lower the limit by hand (no automatic narrowing).
+- Legacy admission key in `config.json` is ignored.
+- Stop one stuck subagent: `POST /api/plugins/subagents/stop` (operate authority).
 
 Scope caveat:
 - Subagents skip bridge initialization via re-entry guard.
-- Admission gate protects top-level session only.
-- Grandchildren and `flow_agents` bypass gate.
+- Grandchildren and `flow_agents` bypass the top-level session limit.
 
 Cross-refs:
 - docs/architecture.md
-- packages/extension/src/subagent-fanout-admission.ts
-- packages/extension/src/subagent-saturation.ts
+- packages/subagents-plugin/src/server/index.ts
 - packages/shared/src/config.ts
 - openspec/changes/archive/2026-09-16-bound-subagent-fanout-under-host-pressure/
 
@@ -4636,7 +4629,7 @@ Follow-up change names. None exist yet. Create via `openspec change new <name>`.
 | Cluster | Members | Owner change |
 |---|---|---|
 | openspec-init affordances | `openspec-init-affordances-folder`, `openspec-init-affordances-session-card`, `openspec-board-drop`, `openspec-board-worktree-availability` | `fix-e2e-openspec-init-affordances` |
-| subagent | `subagent-tick-throttle`, `subagent-pull-measurements`, `subagent-thin-tick-liveness`, `subagent-pull-under-load`, `subagent-inspector`, `subagent-fanout-admission`, `subagent-detail-dialog`, `subagent-fanout-measurement` | `fix-e2e-subagent-cluster` (related #679) |
+| subagent | `subagent-tick-throttle`, `subagent-pull-measurements`, `subagent-thin-tick-liveness`, `subagent-pull-under-load`, `subagent-inspector`, `subagent-detail-dialog` | `fix-e2e-subagent-cluster` (related #679) |
 | chat scroll / virtualization | `selection-anchor`, `chat-transcript-virtualization`, `scroll-to-top`, `replay-in-flight-pill` | `fix-e2e-chat-geometry` |
 | queue / image / prompt lifecycle | `followup-image-queue`, `optimistic-prompt`, `pending-prompt-recovery`, `package-queue-visible` | `fix-e2e-prompt-queue` |
 | restart / boot / session lifecycle | `ended-session-endedat`, `status-reconcile`, `durable-session-diff`, `faux-ask`, `keeper-restart-survival`, `tmux-session-shutdown`, `spawn-correlation-recovery` | `fix-e2e-restart-cluster` (CANDIDATE: shares #832 root cause, restart axis) |

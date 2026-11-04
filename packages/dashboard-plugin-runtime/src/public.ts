@@ -103,6 +103,10 @@ export {
   getSessionData,
 } from "./session-data-store.js";
 export type {
+  ToolRowStatus,
+  ToolRowStopInput,
+} from "./slot-registry.js";
+export type {
   SessionEventReducerSlice,
   ToolRowFinalizer,
   ToolRowFinalizerOpts,
