@@ -7,3 +7,5 @@ Exports `decideClaim(ClaimInput) → accept | probe | refuse | displace` (accept
 Constants: `CONTENTION_PROBE_WINDOW` 5s, `CONTENTION_RECORD_TTL` 60s, `CONTENTION_RATE_LIMIT` 5s. `WS_OPEN` inlined so the module stays free of the `ws` import.
 
 See change: fix-duplicate-bridge-registration.
+
+`ClaimInput.pidTargets`: same-pid fast-accept only when incumbent and newcomer both `host`, or both `unknown` on win32 (S3). See change: scope-pids-to-namespace.
