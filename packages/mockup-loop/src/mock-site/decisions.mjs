@@ -20,7 +20,8 @@ export function readDecisionFile(file) {
   try {
     const d = JSON.parse(fs.readFileSync(file, "utf8"));
     const bad = !d || typeof d !== "object" || Array.isArray(d) || (d.status !== "accepted" && d.status !== "rejected")
-      || (d.by !== "user" && d.by !== "agent") || (d.note !== undefined && typeof d.note !== "string") || typeof d.at !== "string";
+      || (d.by !== "user" && d.by !== "agent") || (d.note !== undefined && typeof d.note !== "string")
+      || typeof d.at !== "string" || Number.isNaN(Date.parse(d.at));
     if (bad) {
       return { warning: `invalid decision (treated as open): ${file}` };
     }

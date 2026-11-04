@@ -89,9 +89,10 @@ doubt-review, so reviewers and `scenario-design` see the mockup at its final pat
    matches, you do not judge similarity. Unchosen rows count as declined.
    **Live-component mocks** (entry dir with `mock.tsx`) follow their
    `decision.json`: run `node packages/mockup-loop/src/mock-site/cli.mjs adoptable`
-   and offer its `options` in order with their labels — accepted first
-   `(accepted)`, open / malformed `(open)` — and never offer its `skipped`
-   (rejected) entries; report them as skipped. With only rejected live mocks
+   and offer its `options` in order with their labels (entry, intent, status) —
+   accepted first `(accepted)`, open / malformed `(open)` — and never offer its
+   `skipped` (rejected) entries; report them, and every `warnings` line
+   (malformed decision files). With only rejected live mocks
    pending, ask nothing and move nothing.
 4. Adopt each chosen entry with the mechanics of the `explore-mockup-adoption`
    requirement (canonical, same as `rules.proposal`): File cell must resolve to

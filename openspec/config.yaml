@@ -41,9 +41,10 @@ rules:
       judge similarity yourself. Live-component mocks (an entry dir holding
       mock.tsx) are filtered by their decision.json - run
       `node packages/mockup-loop/src/mock-site/cli.mjs adoptable` and use its
-      JSON: offer `options` in that order with their labels (accepted first as
-      `(accepted)`, open or malformed as `(open)`), never offer `skipped`
-      (rejected) entries, and report them as skipped. Move a live mock dir with
+      JSON: offer `options` in that order with their labels (entry, intent and
+      status; accepted first as `(accepted)`, open or malformed as `(open)`),
+      never offer `skipped` (rejected) entries, and report the `skipped`
+      entries and every `warnings` line (malformed decision files). Move a live mock dir with
       `node packages/mockup-loop/src/mock-site/cli.mjs move mockups/<entry>
       <changeDir>` (tracked and untracked files as one unit; non-zero exit if
       the source dir is left behind). For each chosen entry, in order: mkdir -p

@@ -175,7 +175,7 @@ describe("mock-decide CLI (E16, E17)", () => {
     fs.writeFileSync(path.join(root, "mockups/AGENTS.md"), "| File | Purpose |\n|---|---|\n| `2026-11-06-m/` | x. Pending change: y |\n");
     const a = cli(["adoptable"]);
     expect(a.status).toBe(0);
-    expect(JSON.parse(a.stdout).options[0].label).toBe("2026-11-06-m/ (open)");
+    expect(JSON.parse(a.stdout).options[0].label).toBe("2026-11-06-m/ — y (open)");
     const m = cli(["move", "2026-11-06-m", path.join(root, "openspec/changes/n")]);
     expect(m.status).toBe(0);
     expect(fs.existsSync(path.join(root, "openspec/changes/n/mockups/2026-11-06-m/mock.tsx"))).toBe(true);

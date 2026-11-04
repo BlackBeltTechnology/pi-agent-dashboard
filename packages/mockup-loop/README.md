@@ -61,8 +61,10 @@ export default mock;
 
 Setup (`mockups/mock-site.config.ts`, `mock-site.app.tsx`, `mock-site.css`) and
 the full authoring rules: [`references/live-mock-site.md`](references/live-mock-site.md).
-Needs `vite`, `@vitejs/plugin-react`, `react`, `react-dom` in the project
-(optional peers).
+Install it in the project too (`npm i -D @blackbelt-technology/frontend-mockup-loop`)
+so the project's Vite config can import the plugin; `pi install` only gives pi
+the tools. Needs `vite`, `@vitejs/plugin-react`, `react`, `react-dom` in the
+project (optional peers).
 
 ## Selectable design systems
 

@@ -8,6 +8,13 @@ See change: add-live-component-mock-site.
 
 ## Project setup (once per project)
 
+Install the package **in the project** (Vite loads the plugin from the
+project's `node_modules`; `pi install` alone only gives pi the tools):
+
+```bash
+npm i -D @blackbelt-technology/frontend-mockup-loop
+```
+
 ```
 mockups/
   mock-site.config.ts   Vite config: your plugins (React, Tailwind) + mockSite({...})

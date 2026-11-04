@@ -9,4 +9,4 @@ Files in this directory. One row per file.
 | `main.tsx` | Browser entry served by the plugin's HTML middleware: awaits project `setup()` from `virtual:mock-site/app`, renders `<Providers><Site/></Providers>`. See change: add-live-component-mock-site. |
 | `site.css` | Plain-CSS chrome (no Tailwind), `mk-` prefix, colours only via `--mk-*` tokens. `html body` specificity (bar = page colour), bar z-index 2147483000, `.mk-canvas` `contain: layout paint; isolation: isolate`, phone iframe content-box 375px + zero pane padding + inset badge. See change: add-live-component-mock-site. |
 | `tsconfig.json` | Browser-side type-check (`tsc -p site`): bundler resolution, react-jsx, allowJs for `../src/mock-site/refs.mjs`. See change: add-live-component-mock-site. |
-| `virtual.d.ts` | Ambient types for `virtual:mock-site/config|mocks|app`, `*.css`, `import.meta.hot`. See change: add-live-component-mock-site. |
+| `virtual.d.ts` | Ambient types for `virtual:mock-site/config`, `/mocks`, `/app`, `*.css`, `import.meta.hot`. See change: add-live-component-mock-site. |

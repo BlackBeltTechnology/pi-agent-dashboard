@@ -78,7 +78,9 @@ export function mockSite(options) {
           ...(options.port ? { port: options.port, strictPort: true } : {}),
           fs: {
             allow: [siteDir, projectRoot, ...(options.appRoot ? [path.resolve(options.appRoot)] : [])],
-            ...(lan ? { deny: [".env", ".env.*", "*.{crt,pem,key}", "**/.git/**", "**/.pi/**", "**/*secret*", "**/.npmrc"] } : {}),
+            // LAN mode REPLACES Vite's deny list, so restate its defaults (and newer
+            // Vite ones) before adding ours.
+            ...(lan ? { deny: [".env", ".env.*", "*.{crt,pem,key,p12,pfx}", "**/.git/**", "**/.yarnrc.yml", "**/.npmrc", "**/.pi/**", "**/*secret*"] } : {}),
           },
         },
       };

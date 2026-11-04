@@ -77,7 +77,8 @@ TSX
 (cd "$APP" && npx --no-install mock-decide list) | grep -q "2026-11-03-hello" || fail "mock-decide list did not find the mock"
 
 # 4. Serve exactly like serve_mock_site does (host Vite + project config, strict port).
-(cd "$APP" && node node_modules/vite/bin/vite.js --config mockups/mock-site.config.ts --port "$PORT" --strictPort > "$SCRATCH/vite.log" 2>&1) &
+# exec: the subshell PID becomes the node PID, so cleanup's kill reaches Vite.
+(cd "$APP" && exec node node_modules/vite/bin/vite.js --config mockups/mock-site.config.ts --port "$PORT" --strictPort > "$SCRATCH/vite.log" 2>&1) &
 PID=$!
 ok=""
 for _ in $(seq 1 120); do

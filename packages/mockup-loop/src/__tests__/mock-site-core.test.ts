@@ -85,10 +85,10 @@ describe("decisions (E14, E15, X4)", () => {
     expect(fs.readdirSync(m.dir).filter((f) => f.includes(".tmp-"))).toEqual([]);
   });
   it("treats malformed files as open with a warning", () => {
-    for (const [i, body] of ["{", '{"status":"maybe"}', "[]", "<<<<<<< HEAD", '{"status":"accepted","by":"hacker","at":"x"}', '{"status":"accepted","by":"user","note":42,"at":"x"}'].entries()) mk(`mockups/2026-11-0${i + 1}-m/decision.json`, body), mk(`mockups/2026-11-0${i + 1}-m/mock.tsx`);
+    for (const [i, body] of ["{", '{"status":"maybe"}', "[]", "<<<<<<< HEAD", '{"status":"accepted","by":"hacker","at":"2026-11-01T00:00:00Z"}', '{"status":"accepted","by":"user","note":42,"at":"2026-11-01T00:00:00Z"}', '{"status":"accepted","by":"user","at":"x"}'].entries()) mk(`mockups/2026-11-0${i + 1}-m/decision.json`, body), mk(`mockups/2026-11-0${i + 1}-m/mock.tsx`);
     const { decisions, warnings } = readDecisions(discoverMocks(root).mocks);
     expect(Object.keys(decisions)).toEqual([]);
-    expect(warnings).toHaveLength(6);
+    expect(warnings).toHaveLength(7);
     expect(warnings[0]).toContain("decision.json");
   });
   it("refuses to write through a symlink", () => {
@@ -129,7 +129,7 @@ describe("adoption helpers (E21, E22)", () => {
     mk("mockups/x.html", "<p>");
     mk("mockups/AGENTS.md", ["| File | Purpose |", "|---|---|", row("x.html"), row("2026-11-02-open/"), row("2026-11-03-rej/"), row("2026-11-04-bad/"), row("2026-11-01-acc/"), "| `y.html` | owned. See change: z. Pending change: q |"].join("\n"));
     const r = listAdoptable(root);
-    expect(r.options.map((o) => o.label)).toEqual(["2026-11-01-acc/ (accepted)", "x.html", "2026-11-02-open/ (open)", "2026-11-04-bad/ (open)"]);
+    expect(r.options.map((o: { label: string }) => o.label)).toEqual(["2026-11-01-acc/ — thing (accepted)", "x.html — thing", "2026-11-02-open/ — thing (open)", "2026-11-04-bad/ — thing (open)"]);
     expect(r.skipped).toEqual([{ entry: "2026-11-03-rej/", reason: "rejected" }]);
     expect(r.warnings.join("\n")).toContain("2026-11-04-bad");
   });
@@ -159,6 +159,7 @@ describe("adoption helpers (E21, E22)", () => {
     const changeDir = path.join(root, "openspec/changes/n");
     expect(moveMockDir(path.join(root, "mockups/2026-11-03-a"), changeDir).ok).toBe(true);
     expect(fs.existsSync(path.join(root, "mockups/2026-11-03-a"))).toBe(false);
+    expect(git("status", "--porcelain")).toMatch(/^A\s+openspec\/changes\/n\/mockups\/2026-11-03-a\/mock\.tsx$/m);
     const r = moveMockDir(path.join(root, "mockups/2026-11-03-b"), changeDir);
     expect(r.ok).toBe(false);
     expect(fs.existsSync(path.join(root, "mockups/2026-11-03-b/mock.tsx"))).toBe(true);

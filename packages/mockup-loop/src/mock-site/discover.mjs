@@ -57,7 +57,7 @@ export function discoverMocks(projectRoot) {
   return { mocks, errors };
 }
 
-const MARKER_RE = /Pending change: [^|]+\|\s*$/;
+const MARKER_RE = /Pending change: ([^|]+?)\s*\|\s*$/;
 
 /**
  * Adoption offer for `rules.proposal` / plan-proposal Step 1b: marked rows of
@@ -75,21 +75,23 @@ export function listAdoptable(projectRoot) {
   const warnings = [];
   const text = fs.existsSync(agents) ? fs.readFileSync(agents, "utf8") : "";
   for (const line of text.split("\n")) {
-    if (!line.startsWith("|") || !MARKER_RE.test(line) || line.includes("See change:")) continue;
+    const marker = MARKER_RE.exec(line);
+    if (!line.startsWith("|") || !marker || line.includes("See change:")) continue;
     const m = /^\|\s*`([^`]+)`/.exec(line);
     if (!m) continue;
     const entry = m[1];
+    const intent = marker[1].trim();
     const abs = path.join(projectRoot, "mockups", entry.replace(/\/$/, ""));
     if (!fs.existsSync(abs) || path.dirname(abs) !== path.join(projectRoot, "mockups")) {
       skipped.push({ entry, reason: "missing or not directly under mockups/" });
       continue;
     }
-    if (!fs.existsSync(path.join(abs, "mock.tsx"))) { rest.push({ entry, label: entry }); continue; }
+    if (!fs.existsSync(path.join(abs, "mock.tsx"))) { rest.push({ entry, label: `${entry} — ${intent}` }); continue; }
     const d = readDecisionFile(path.join(abs, "decision.json"));
     if (d.warning) warnings.push(d.warning);
     const status = d.decision?.status ?? "open";
     if (status === "rejected") skipped.push({ entry, reason: "rejected" });
-    else (status === "accepted" ? accepted : rest).push({ entry, label: `${entry} (${status})`, status });
+    else (status === "accepted" ? accepted : rest).push({ entry, label: `${entry} — ${intent} (${status})`, status });
   }
   return { options: [...accepted, ...rest], skipped, warnings };
 }
@@ -126,6 +128,8 @@ export function moveMockDir(src, changeDir) {
   } catch (e) {
     return { ok: false, dest, error: String(e) };
   }
-  if (repo) git(changeDir, ["add", "-A", "--", src, dest]);
+  // Stage each side on its own: a pathspec that matches nothing (an untracked,
+  // now-vanished source) makes `git add` fail and stage nothing at all.
+  if (repo) { git(changeDir, ["add", "-A", "--", dest]); git(changeDir, ["add", "-A", "--", src]); }
   return fs.existsSync(src) ? { ok: false, dest, error: `source still exists: ${src}` } : { ok: true, dest };
 }
