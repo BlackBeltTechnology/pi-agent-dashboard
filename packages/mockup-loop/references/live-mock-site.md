@@ -120,6 +120,8 @@ discussing a mock: "reject `#2026-11-03-x/1/proposed/2`: label too long".
 ## Serving
 
 `serve_mock_site{}` → `http://localhost:5299` (never the dashboard port).
+LAN mode relies on Vite's `server.fs.deny`; the package's optional `vite` peer
+range (`>=5.4.19 <6 || >=6.3.4`) excludes the versions with known deny bypasses.
 `serve_mock_site{lan:true}` adds a LAN URL for phones: LAN clients can view but
 not decide, and project sources are readable on the LAN while it runs.
 `serve_mock_site{stop:true, port}` stops it.
