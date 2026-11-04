@@ -50,6 +50,11 @@ export function isValidFlowName(v: unknown): v is string {
   return !s.includes("/") && !s.includes("\\") && !s.includes("..") && !CONTROL_CHARS.test(s);
 }
 
+/** pi-side notice after a delete (pi TUI text, not dashboard UI). */
+function deletedNotice(flowName: string): string {
+  return ["Flow", JSON.stringify(flowName), "deleted."].join(" ");
+}
+
 export type FlowControlResult =
   | { ok: true }
   | { ok: false; status: 400 | 404 | 409; code: string; error: string };
@@ -126,7 +131,9 @@ export function runFlowControl(
       const flowName = payload.flowName;
       if (!isValidFlowName(flowName)) return reject(deps, 400, "invalid_flow_name", "invalid flowName", sessionId, action);
       emit("flow:delete-request", { flowName });
-      emit("flow:notify", { message: `Flow "${flowName}" deleted.`, level: "info" });
+      // pi-flows TUI notice text (sent into pi, not rendered by the dashboard);
+      // the same text the retired core handler sent.
+      emit("flow:notify", { message: deletedNotice(flowName), level: "info" });
       return { ok: true };
     }
     case "flow.run": {

@@ -188,9 +188,9 @@ const STATUS_COLORS: Record<string, { border: string; fill: string; text: string
   complete: { border: "#22c55e", fill: "#0a2a10", text: "#22c55e" },
   error:    { border: "#ef4444", fill: "#2a0a0a", text: "#ef4444" },
   blocked:  { border: "#f97316", fill: "#2a1a00", text: "#f97316" },
-  // Skipped = the pending style; the word "skipped" carries the meaning.
-  skipped:  { border: "#555",    fill: "#2a2a2a", text: "#888"    },
 };
+// Skipped = the pending style; the word "skipped" carries the meaning.
+STATUS_COLORS.skipped = STATUS_COLORS.pending;
 
 function getEdgeColor(sourceStatus: string, targetStatus: string): { stroke: string; animated: boolean; dashed: boolean } {
   if (sourceStatus === "complete" && targetStatus === "running") {

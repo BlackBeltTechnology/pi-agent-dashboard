@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { isValidHostApiRange, PLUGIN_HOST_API_VERSION, satisfiesHostApi, satisfiesHostApiRange } from "../host-api.js";
 
 describe("PLUGIN_HOST_API_VERSION", () => {
-  it("is the current 1.3.0 contract", () => {
-    expect(PLUGIN_HOST_API_VERSION).toBe("1.3.0");
+  // 1.4.0: manifest field `replayEntryTypes` (see change: update-flows-plugin).
+  it("is the current 1.4.0 contract", () => {
+    expect(PLUGIN_HOST_API_VERSION).toBe("1.4.0");
   });
 });
 
@@ -54,7 +55,8 @@ describe("isValidHostApiRange", () => {
 describe("satisfiesHostApi", () => {
   it("is bound to PLUGIN_HOST_API_VERSION", () => {
     expect(satisfiesHostApi("^1.0.0")).toBe(true);
-    expect(satisfiesHostApi("^1.4.0")).toBe(false);
+    expect(satisfiesHostApi("^1.4.0")).toBe(true);
+    expect(satisfiesHostApi("^1.5.0")).toBe(false);
     expect(satisfiesHostApi("^2.0.0")).toBe(false);
   });
 });
