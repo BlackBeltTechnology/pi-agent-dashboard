@@ -92,6 +92,40 @@ export function crutchProblems(envText) {
   return [];
 }
 
+/**
+ * Shell snippet run INSIDE the container (cwd `/app`, the image WORKDIR):
+ * prints the image Node version, then spawns a real PTY through `node-pty`
+ * and prints `PTY_OK` when the shell's output came back.
+ * See change: raise-node-floor-to-26 (test-plan #E23).
+ */
+export const RUNTIME_PROBE =
+  'cd /app && node --version && node -e \'const p=require("node-pty");const t=p.spawn("/bin/sh",["-c","echo pty-ok"],{});let o="";t.onData(d=>o+=d);t.onExit(()=>{console.log(o.includes("pty-ok")?"PTY_OK":"PTY_FAIL");process.exit(0)})\'';
+
+/**
+ * Problems in the container runtime probe output: the image must run Node 26
+ * (the server engines range `>=26.0.0 <27`) and `node-pty` must spawn a PTY.
+ */
+export function runtimeProblems(output) {
+  const problems = [];
+  const version = (output.match(/^v\d+\.\d+\.\d+\S*$/m) ?? [])[0];
+  if (!version || !/^v26\./.test(version)) {
+    problems.push(`image Node ${version ?? "unknown"} is outside >=26.0.0 <27`);
+  }
+  if (!/^PTY_OK$/m.test(output)) problems.push("node-pty did not echo shell I/O through a PTY");
+  return problems;
+}
+
+/** Run `RUNTIME_PROBE` in the running container; non-zero exit output is still data. */
+export function readContainerRuntime(project, root, exec = execFileSync) {
+  const compose = ["compose", "-p", project, "-f", "docker/compose.yml", "-f", "docker/compose.test.yml", "exec", "-T", "pi-dashboard", "sh", "-c", RUNTIME_PROBE];
+  try {
+    return exec("docker", compose, { cwd: root, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch (err) {
+    if (err.stdout) return err.stdout;
+    throw err;
+  }
+}
+
 /** Read `env` out of the running container, one KEY=VALUE per line. */
 export function readContainerEnv(project, root, exec = execFileSync) {
   return exec("docker", ["compose", "-p", project, "-f", "docker/compose.yml", "-f", "docker/compose.test.yml", "exec", "-T", "pi-dashboard", "env"], {
@@ -170,13 +204,14 @@ export async function verifyDockerPluginLoad({ root = REPO_ROOT, exec = execFile
 
     const problems = [
       ...crutchProblems(readContainerEnv(project, root, exec)),
+      ...runtimeProblems(readContainerRuntime(project, root, exec)),
       ...pluginLoadProblems(await waitForPluginVerdict(() => readContainerServerLog(project, root, exec))),
     ];
     if (problems.length > 0) {
       for (const p of problems) console.error(`✗ ${p}`);
       return { ok: false, problems, project, dashboardPort };
     }
-    log('✓ docker image: \'Loaded plugin "browser"\', zero \'Failed to load plugin\', no JITI_* crutch');
+    log('✓ docker image: Node 26 + node-pty PTY, \'Loaded plugin "browser"\', zero \'Failed to load plugin\', no JITI_* crutch');
     return { ok: true, problems: [], project, dashboardPort };
   } finally {
     log("tearing the harness down");

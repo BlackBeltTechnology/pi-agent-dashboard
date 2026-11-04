@@ -14,5 +14,5 @@
 #   test-server-launch.sh      (heredoc Dockerfile)
 #   test-electron-install.sh   (heredoc Dockerfile)
 
-export BUNDLED_NODE_VERSION="v24.22.0"
-export BUNDLED_NODE_MAJOR="24"
+export BUNDLED_NODE_VERSION="v26.13.0"
+export BUNDLED_NODE_MAJOR="26"

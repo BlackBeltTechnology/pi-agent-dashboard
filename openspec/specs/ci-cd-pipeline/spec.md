@@ -7,7 +7,7 @@ GitHub Actions CI/CD: lint+test+build on push/PR, version-tag publish (npm + Ele
 ## Requirements
 
 ### Requirement: CI workflow on push and PR
-The project SHALL have a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `develop` and on every pull request targeting `develop`, on Node.js 22. It SHALL install with pnpm from the frozen lockfile.
+The project SHALL have a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `develop` and on every pull request targeting `develop`, on Node.js 26 (the only supported Node line). It SHALL install with pnpm from the frozen lockfile.
 
 It SHALL run these jobs in parallel:
 - a job named `ci` holding every repository guard, `pnpm run lint`, the E2E typecheck, Biome, `pnpm run build`, and both publish-import checks;
@@ -126,13 +126,6 @@ The reusable `_electron-build.yml` workflow SHALL NOT contain any publishing or 
 - **WHEN** the repo-lint test scans `_electron-build.yml`
 - **THEN** the test SHALL fail if any of the forbidden actions appears
 
-### Requirement: Node.js version
-Both CI and publish workflows SHALL use Node.js 22 as the runtime version.
-
-#### Scenario: Node 22 used in CI
-- **WHEN** the CI workflow runs
-- **THEN** it SHALL set up Node.js 22 using `actions/setup-node`
-
 ### Requirement: npm provenance
 The publish workflow SHALL use the `--provenance` flag when publishing to npm to provide supply chain transparency.
 
@@ -246,7 +239,7 @@ The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL
 - **AND** `scripts/sync-versions.js` SHALL print a console hint pointing the maintainer at the right command
 
 ### Requirement: Reusable standalone-install-smoke workflow
-The project SHALL provide a reusable workflow `.github/workflows/_smoke.yml` with `on: workflow_call` that encapsulates the full standalone-install-smoke matrix (Linux × 6: Node 22/24/25 × bookworm-slim/alpine, plus Windows × 1: Node 22). The workflow SHALL accept input `ref` (string, required) — the git ref to check out before packing tarballs and running the install smoke. The workflow SHALL be the sole definition of the smoke matrix in the repo; both `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) SHALL consume it via `uses:` rather than inlining the matrix.
+The project SHALL provide a reusable workflow `.github/workflows/_smoke.yml` with `on: workflow_call` that encapsulates the full standalone-install-smoke matrix (Linux × 2: Node 26 × bookworm-slim/alpine, plus Windows × 1: Node 26). It SHALL NOT carry legs for Node lines outside the server engines range, because the server refuses to start on them. The workflow SHALL accept input `ref` (string, required) — the git ref to check out before packing tarballs and running the install smoke. The workflow SHALL be the sole definition of the smoke matrix in the repo; both `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) SHALL consume it via `uses:` rather than inlining the matrix.
 
 The reusable workflow SHALL NOT contain any publishing or release-creating actions (`npm publish`, `softprops/action-gh-release`, `actions/create-release`, or tag-pushing `git push`).
 
@@ -263,6 +256,11 @@ The reusable workflow SHALL NOT contain any publishing or release-creating actio
 #### Scenario: Reusable workflow is publication-free
 - **WHEN** the repo-lint test scans `_smoke.yml`
 - **THEN** the test SHALL fail if any of `npm publish`, `softprops/action-gh-release`, `actions/create-release`, or `git push <tag>` appears
+
+#### Scenario: Smoke matrix covers only the supported Node line
+- **WHEN** `_smoke.yml` is parsed
+- **THEN** every `standalone-install-smoke-*` leg SHALL use Node 26
+- **AND** no leg SHALL boot the server on Node 22, 23, 24 or 25
 
 ### Requirement: On-demand smoke workflow via workflow_dispatch
 The project SHALL provide a workflow `.github/workflows/ci-smoke.yml` with `on: workflow_dispatch` (no inputs required) that consumes `_smoke.yml` via `uses:` with `ref: ${{ github.ref }}`. Operators SHALL be able to trigger it from the GitHub Actions UI against any branch, enabling per-branch smoke validation without polluting PR feedback. The workflow SHALL declare `concurrency: { group: ci-smoke-${{ github.ref }}, cancel-in-progress: true }` so re-dispatching on the same branch cancels the prior run.
@@ -283,10 +281,10 @@ The project SHALL provide a workflow `.github/workflows/ci-smoke.yml` with `on: 
 
 ### Requirement: Release-gate runs lint+test+build and smoke before publish
 The `publish.yml` workflow SHALL define a `release-gate` aggregate composed of two parallel jobs:
-1. `ci-checks`: runs `pnpm install --frozen-lockfile && pnpm run lint && pnpm test && pnpm run build` on `ubuntu-latest` with Node.js 22. This is the full unit suite; unlike `ci.yml`, it applies no affected-test selection.
+1. `ci-checks`: runs `pnpm install --frozen-lockfile && pnpm run lint && pnpm test && pnpm run build` on `ubuntu-latest` with Node.js 26. This is the full unit suite; unlike `ci.yml`, it applies no affected-test selection.
 2. `smoke`: invokes `_smoke.yml` via `uses: ./.github/workflows/_smoke.yml` with `ref: ${{ needs.resolve.outputs.ref }}`.
 
-Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after version resolution. The `publish` job SHALL declare `needs: [resolve, ci-checks, smoke, tag-and-push]`. The `tag-and-push` `needs:` entry SHALL be tolerated when skipped (tag-push entry), via GitHub Actions' default behaviour of treating skipped predecessors as success.
+Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after version resolution. The `publish` job SHALL declare `needs: [resolve, ci-checks, smoke, tag-and-push]`. The `tag-and-push` `needs:` entry SHALL be tolerated when skipped (tag-push entry) through an explicit `if:` on the `publish` job that accepts a `skipped` `tag-and-push` result while still requiring the gate jobs to succeed (a skipped `needs:` blocks a dependent job that has no explicit `if:`).
 
 #### Scenario: Release-gate fans out in parallel
 - **WHEN** the publish workflow runs (either trigger)
@@ -295,7 +293,7 @@ Both jobs SHALL declare `needs: [resolve]` so they fan out in parallel after ver
 
 #### Scenario: ci-checks mirrors PR CI
 - **WHEN** the `ci-checks` job runs as part of `release-gate`
-- **THEN** it SHALL execute `pnpm install --frozen-lockfile`, `pnpm run lint`, `pnpm test`, `pnpm run build` in that order on Node.js 22 / `ubuntu-latest`
+- **THEN** it SHALL execute `pnpm install --frozen-lockfile`, `pnpm run lint`, `pnpm test`, `pnpm run build` in that order on Node.js 26 / `ubuntu-latest`
 - **AND** `pnpm test` SHALL run the full suite with no affected-test selection
 
 #### Scenario: smoke calls reusable workflow with resolved ref
@@ -698,3 +696,18 @@ A repo-lint test SHALL assert that both jobs exist, carry the shard matrix's gat
 #### Scenario: Removing a variant leg fails lint
 - **WHEN** the `e2e-team` or `e2e-identity-matrix` job is deleted from the workflow
 - **THEN** the repo-lint test SHALL fail naming the missing job id
+
+### Requirement: CI and publish workflows run on the supported Node line
+Every GitHub Actions workflow that installs, builds, tests or publishes the dashboard SHALL set up
+Node.js 26 with `actions/setup-node`, including the publish legs pinned to the Electron bundled
+Node major (which moves to 26 with `BUNDLED_NODE_VERSION`). Marketing-site workflows
+(`deploy-site.yml`, `sync-release-version.yml`) never install or start the dashboard and are out of
+scope.
+
+#### Scenario: Node 26 used in CI
+- **WHEN** the CI workflow runs
+- **THEN** it SHALL set up Node.js 26 using `actions/setup-node`
+
+#### Scenario: No workflow sets up a refused Node line
+- **WHEN** the repo-lint scans `.github/workflows/*.yml` other than `deploy-site.yml` and `sync-release-version.yml` for `node-version:` values
+- **THEN** every value SHALL be `26` (or a `26.x` version)

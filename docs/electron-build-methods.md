@@ -7,7 +7,7 @@ Three ways to build the Electron app. Each suits a different scenario.
 | | **Local native** | **Docker (cross-compile)** | **CI (`publish.yml`)** |
 |---|---|---|---|
 | **Trigger** | `npm run electron:build` | `npm run electron:build -- --windows/--linux` | Git tag push (`v*`) |
-| **Runs on** | Your machine | Docker container (Node 22 Debian) on your machine | GitHub-hosted native runners per platform |
+| **Runs on** | Your machine | Docker container (Node 26 Debian) on your machine | GitHub-hosted native runners per platform |
 | **macOS DMG** | ✅ native | ❌ | ✅ `macos-14` (arm64) + `macos-15-intel` (x64) |
 | **Linux .deb/.AppImage** | ✅ if on Linux | ✅ via Docker | ✅ `ubuntu-latest` (x64) + `ubuntu-24.04-arm` (arm64) |
 | **Windows NSIS `Setup.exe`** | ❌ | ❌ | ✅ `windows-latest` (`electron-builder --win nsis`) |
@@ -48,7 +48,7 @@ npm run electron:build -- --linux --windows  # both
 npm run electron:build -- --all            # native + Linux + Windows
 ```
 
-Docker image: Node 22 Debian (`packages/electron/scripts/Dockerfile.build`).
+Docker image: Node 26 Debian (`packages/electron/scripts/Dockerfile.build`).
 Entrypoint: `docker-make.sh` — runs `electron-forge package`, then `zip`. ZIP only.
 
 **Limitations:**
@@ -122,6 +122,6 @@ bash packages/electron/scripts/build-windows-zip.sh
 
 - `packages/electron/scripts/build-installer.sh` — main build script (orchestrates native + Docker)
 - `packages/electron/scripts/docker-make.sh` — Docker entrypoint (package + zip)
-- `packages/electron/scripts/Dockerfile.build` — Node 22 Debian build image
+- `packages/electron/scripts/Dockerfile.build` — Node 26 Debian build image
 - `packages/electron/scripts/bundle-recommended-extensions.sh` — extension bundler (CI only)
 - `.github/workflows/publish.yml` — CI release workflow

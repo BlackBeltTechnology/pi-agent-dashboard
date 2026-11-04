@@ -90,8 +90,8 @@ describe("spawn-correlation performance", () => {
   });
 
   // P3 — 5 000 spawns at the maximum timeout, none registering: the map returns
-  // to zero on its own TTLs, with a bounded RSS delta.
-  it("returns the correlation map to zero after the derived TTL, without accumulating", () => {
+  // to zero on its own TTLs, with a bounded retained-memory delta.
+  it("returns the correlation map to zero after the derived TTL, without accumulating", async () => {
     vi.useFakeTimers();
     try {
       const ttl = deriveSpawnCorrelationTtlMs(120_000);
@@ -111,10 +111,26 @@ describe("spawn-correlation performance", () => {
       // shows up as the SECOND identical cycle pushing RSS up again — measuring
       // the first cycle alone would just measure one-time growth, since RSS
       // never returns to the process's starting point.
+      // Retained memory (heap + off-heap) after a forced GC, not RSS: RSS also
+      // counts V8 heap reservation and allocator caching, which grow
+      // differently per Node line and under shard load (Node 26 CI: +39 MB RSS
+      // while nothing was retained). See change: raise-node-floor-to-26.
+      const retained = async (): Promise<number> => {
+        try {
+          const v8 = await import("node:v8");
+          const vm = await import("node:vm");
+          v8.setFlagsFromString("--expose_gc");
+          vm.runInNewContext("gc()");
+        } catch {
+          /* no gc available — measure as-is */
+        }
+        const m = process.memoryUsage();
+        return m.heapUsed + m.external + m.arrayBuffers;
+      };
       cycle();
-      const baseline = process.memoryUsage().rss;
+      const baseline = await retained();
       cycle();
-      expect(process.memoryUsage().rss - baseline).toBeLessThan(10 * 1024 * 1024);
+      expect((await retained()) - baseline).toBeLessThan(10 * 1024 * 1024);
     } finally {
       vi.useRealTimers();
     }

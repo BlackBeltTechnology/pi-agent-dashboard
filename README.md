@@ -117,13 +117,13 @@ Windows has a few extra one-time setup steps. Run the following in an **Administ
 # 1. Enable long paths (required — npm node_modules nesting exceeds 260 chars)
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
 
-# 2. Install Node.js LTS 22 via winget (ships >= 22.19 so no node-guard refusal)
+# 2. Install Node.js LTS (26) via winget — the server requires Node >=26.0.0 <27
 winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
 
 # 3. CLOSE this PowerShell, open a NEW one as Administrator (PATH refresh)
 
 # 4. Verify
-node --version    # expect v22.19+ (any 22.x >= 22.19, NOT v22.0–v22.18)
+node --version    # expect v26.x
 npm --version     # expect 10.x
 
 # 5. Install
@@ -145,7 +145,7 @@ Before your first change, read [CONTRIBUTING.md](CONTRIBUTING.md) — features a
 ```bash
 git clone https://github.com/BlackBeltTechnology/pi-agent-dashboard.git
 cd pi-agent-dashboard
-corepack enable                            # activates the pinned pnpm (packageManager field)
+npm install -g corepack && corepack enable  # Node 25+ no longer bundles corepack; activates the pinned pnpm (packageManager field)
 pnpm install
 pnpm run build                             # one-time client build
 pi install /path/to/pi-agent-dashboard     # global
@@ -254,7 +254,7 @@ This keeps plugin-provided dynamic content, package names, model names, and comm
 | Requirement | Why | Install |
 |-------------|-----|---------|
 | **[pi](https://github.com/badlogic/pi-mono)** | The AI coding agent the dashboard monitors | `npm i -g @mariozechner/pi-coding-agent` |
-| **Node.js ≥ 22.19.0** | Server runtime. Node 22.0.0–22.18.x and 24.1.0–24.2.x refused (affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515), crashes Fastify at startup). Cap < 27 for tested range. | [nodejs.org](https://nodejs.org/) |
+| **Node.js 26** (`>=26.0.0 <27`) | Server runtime. The server refuses Node 22, 24, 25 and 27+. pi itself may still run on Node 22.19+/24: when a pi session auto-starts the dashboard, the bridge looks for a Node 26 (`PATH`, nvm/volta/asdf/mise/fnm default) and shows a one-time warning if it finds none. No Node 26? Use the desktop app (path A), which bundles its own. | `nvm install 26` or [nodejs.org](https://nodejs.org/) |
 | **C++ build tools** | Required by `node-pty` native addon for the integrated terminal | Xcode CLI Tools (macOS) / `build-essential` (Linux) |
 
 Optional:
@@ -687,7 +687,8 @@ The log is append-mode with timestamped headers per start attempt, so previous c
 
 - **`ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows** — fully fixed in 0.4.0+. The 0.2.10 release wrapped the `--import` loader position as a `file://` URL, but the entry-script position stayed a raw Windows path — which crashed Node on non-`C:` drives (`A:\`, `B:\`, …) because the drive-letter heuristic has gaps there. 0.4.0 routes all four server-spawn call sites through a single `spawnNodeScript` / `toFileUrl` helper that wraps both positions unconditionally, and a repo-level lint test prevents regression. Upgrade the package.
 - **`Cannot find pi's TypeScript loader`** — pi is not installed globally. Run `npm install -g @mariozechner/pi-coding-agent`.
-- **Fastify crash at startup** — you're on Node 22.0.0–22.18.x or 24.1.0–24.2.x which are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515). Upgrade to 22.19+ or 24.3+.
+- **`pi-dashboard cannot start on Node vXX` / `Required: >=26.0.0 <27`** — the server needs Node 26. Run `nvm install 26 && nvm use 26` (or install Node 26 from nodejs.org) and reinstall the package.
+- **"Dashboard server not started: it needs Node >=26.0.0 <27" in a pi session** — pi runs on an older Node and the bridge found no Node 26 to start the server with. Install Node 26 (an nvm `alias/default`, volta, asdf, mise or fnm default is found without a shell) or start the desktop app; the session connects once a dashboard answers. Every skipped candidate is listed in `~/.pi/dashboard/server.log`.
 
 ### Port already in use
 
@@ -809,7 +810,7 @@ Agent metrics are collected every 15s via heartbeats and include `eventLoopMaxMs
 ### Commands
 
 ```bash
-corepack enable       # once: activate the pinned pnpm (packageManager field)
+npm install -g corepack && corepack enable   # once (Node 25+ ships no corepack): activate the pinned pnpm (packageManager field)
 pnpm install          # Install dependencies
 pnpm test             # Run all tests (vitest)
 pnpm run test:watch   # Watch mode
@@ -888,7 +889,7 @@ packages/
 
 ## Building the Electron app
 
-> **Prerequisites:** Node.js 22.12+; platform-specific tools handled by Electron Forge automatically.
+> **Prerequisites:** Node.js 26 on `PATH` (or as a version-manager default) — unpackaged/dev launches have no bundled Node and run the server on it; platform-specific tools handled by Electron Forge automatically.
 
 ### Native build (current platform)
 
@@ -936,7 +937,7 @@ pnpm run electron:build -- --mac-both
 
 Requires Rosetta 2 (`softwareupdate --install-rosetta --agree-to-license`) so node-pty's x64 prebuilt binary can be unpacked during the cross-arch run. The script wipes per-arch caches between the two builds (`resources/.last-arch` sentinel) so back-to-back runs don't accidentally ship arm64 binaries inside an x64 DMG. Intel macs cannot cross-build arm64 locally (Rosetta is one-way) — use CI for arm64 validation.
 
-Docker builds use a Node 22 Debian container for Windows cross-compilation. Output goes to `packages/electron/out/make/`.
+Docker builds use a Node 26 Debian container for Windows cross-compilation. Output goes to `packages/electron/out/make/`.
 
 ### Electron dev mode
 

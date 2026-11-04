@@ -15,6 +15,24 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/server-launcher.js", async (o
   launchDashboardServer,
 }));
 
+// Server-mode resolution (change raise-node-floor-to-26): runs only when the
+// bundled Node is missing — the case in this test env. Default: a qualifying
+// system Node; individual tests override.
+const { resolveServerRuntime } = vi.hoisted(() => ({
+  resolveServerRuntime: vi.fn(async () => ({
+    resolved: true,
+    nodeBinary: "/usr/local/bin/node26",
+    version: "v26.1.0",
+    step: "path",
+    range: ">=26.0.0 <27",
+    trail: [],
+  })),
+}));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js", async (orig) => ({
+  ...(await orig<typeof import("@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js")>()),
+  resolveServerRuntime,
+}));
+
 vi.mock("../pick-node.js", async (orig) => {
   const actual = await orig<typeof import("../pick-node.js")>();
   return { ...actual, pickNodeForServer: vi.fn(actual.pickNodeForServer) };
@@ -134,6 +152,43 @@ describe("spawnFromSource always carries the native TS loader (E21)", () => {
       expect(argv[0]).toBe(launchNodeBin);
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+/**
+ * #E21 (change raise-node-floor-to-26): bundled Node missing, no qualifying
+ * system Node, embedded Node below the floor → no launch call, and the error
+ * (surfaced by requestServerLaunch as `{ kind: "failed", reason }`) names the
+ * required range.
+ */
+describe("spawnFromSource with no qualifying runtime (#E21)", () => {
+  const source = { kind: "bundled" as const, cliPath: "/r/server/src/cli.ts", cwd: "/r/server" };
+
+  it("system Node from server-mode resolution is used as nodeBin, without ELECTRON_RUN_AS_NODE", async () => {
+    launchDashboardServer.mockClear();
+    await spawnFromSource(source, { port: 8000, piPort: 9999 }, { logFile: "/tmp/e21b-server.log" });
+    const arg = (launchDashboardServer.mock.calls.at(-1) as unknown[])[0] as Record<string, unknown> & { env: Record<string, string> };
+    expect(arg.nodeBin).toBe("/usr/local/bin/node26");
+    expect(arg.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    expect(resolveServerRuntime).toHaveBeenCalledWith({ ownRuntime: null });
+  });
+
+  it("unavailable pick → launchDashboardServer is not called; the error names >=26.0.0 <27", async () => {
+    launchDashboardServer.mockClear();
+    resolveServerRuntime.mockResolvedValueOnce({ resolved: false, range: ">=26.0.0 <27", trail: [] } as never);
+    vi.mocked(pickNodeForServer).mockReturnValueOnce({
+      kind: "unavailable",
+      reason: "No Node satisfying >=26.0.0 <27 is available (embedded v24.22.0)",
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        spawnFromSource(source, { port: 8000, piPort: 9999 }, { logFile: "/tmp/e21c-server.log" }),
+      ).rejects.toThrow(/>=26\.0\.0 <27/);
+      expect(launchDashboardServer).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
     }
   });
 });

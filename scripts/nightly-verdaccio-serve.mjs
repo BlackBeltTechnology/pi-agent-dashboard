@@ -9,7 +9,8 @@
  * later bundle step on Linux/macOS/Windows without any shell-specific
  * backgrounding (`&` / `Start-Process`). No `shell: bash` — Windows-safe.
  *
- * Verdaccio must be installed first (`npm install -g verdaccio`).
+ * Verdaccio must be installed first (`npm install -g verdaccio@6.11.1` — Verdaccio 7
+ * rejects the fixed fake publish token with E401).
  * Reads the config from `.github/verdaccio/config.yml`; listens on
  * `$REGISTRY` (default http://localhost:4873).
  *

@@ -1,7 +1,7 @@
 # Bundled Node major version. Override via
 #   docker build --build-arg NODE_BUILD_IMAGE=node:<major>-bookworm-slim ...
 # Default tracks BUNDLED_NODE_MAJOR in scripts/_node-version.sh.
-ARG NODE_BUILD_IMAGE=node:24-bookworm-slim
+ARG NODE_BUILD_IMAGE=node:26-bookworm-slim
 FROM ${NODE_BUILD_IMAGE}
 
 # Install build tools for native modules + Linux packaging

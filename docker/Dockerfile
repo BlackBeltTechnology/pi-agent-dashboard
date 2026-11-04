@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, zrok.
+# Stage `base`  — Debian Bookworm + Node 26 LTS, system tools, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 
 # ============================ base stage ===================================
-FROM node:24-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
 ARG ZROK_VERSION=2.0.4
@@ -105,7 +105,7 @@ RUN set -eux; \
 # ============================ app stage ====================================
 FROM base AS app
 
-# 1.4 Non-root user (UID 1000). node:22 image already ships a `node` user at
+# 1.4 Non-root user (UID 1000). node:26 image already ships a `node` user at
 # UID 1000; create a dedicated `pi` user instead for clarity.
 RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cut -d: -f1)"; fi \
  && useradd --create-home --uid 1000 --shell /bin/bash pi
@@ -143,7 +143,10 @@ RUN npm install -g \
 # Enable corepack so `pnpm` resolves to the version pinned by the root
 # package.json `packageManager` field (pnpm@11.15.1). The global `npm install
 # -g` tool installs above stay npm (Column C-style user installs).
-RUN corepack enable
+# Node 25+ no longer bundles corepack, so install a pinned copy first.
+# See change: raise-node-floor-to-26.
+ARG COREPACK_VERSION=0.36.0
+RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack enable
 
 WORKDIR /app
 

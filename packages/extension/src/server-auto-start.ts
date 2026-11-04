@@ -5,6 +5,11 @@
 
 import { spawnReadinessBudgetMs } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import {
+  describeServerRuntimeTrail,
+  resolveServerRuntime,
+  type ServerRuntimeResolution,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import type { DashboardCheckOpts } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { appendAutoStartLog, shouldRefuseWorktreeAutoStart } from "./autostart-guard.js";
 import {
@@ -46,7 +51,15 @@ export interface AutoStartDeps {
   // its home-lock rendezvous hits `E_INSTANCE_UNRESPONSIVE` (logged, no lock or
   // pid damage) and it then exits on EADDRINUSE. See change:
   // harden-dashboard-start-detection (design Risks).
-  launchServer: (config: any) => Promise<{ success: boolean; message: string; childPid?: number; logOwned?: boolean }>;
+  /**
+   * `launch.nodeBin` is the server Node chosen by server-spawn runtime
+   * resolution (pi's own Node may be below the server floor).
+   * See change: raise-node-floor-to-26.
+   */
+  launchServer: (
+    config: any,
+    launch?: { nodeBin?: string },
+  ) => Promise<{ success: boolean; message: string; childPid?: number; logOwned?: boolean }>;
   notify: (message: string, level: "info" | "warning") => void;
   /**
    * Optional callback fired immediately BEFORE `launchServer(config)` is
@@ -114,7 +127,24 @@ export interface AutoStartDeps {
    * yield to real timers; shorten it with this interval instead.
    */
   lossPollIntervalMs?: number;
+  /**
+   * Server-spawn runtime resolution (default `resolveServerRuntime`). Runs only
+   * on the launch path, inside the single-flight lock. See change:
+   * raise-node-floor-to-26 (design D4–D6).
+   */
+  resolveServerNode?: () => Promise<ServerRuntimeResolution>;
+  /** pi's own Node version, named in the refusal notice. Default `process.version`. */
+  piNodeVersion?: string;
+  /**
+   * Per-session notice state: the no-qualifying-Node warning is shown at most
+   * once per pi session. Production omits it (module-level state = the
+   * session); tests pass a fresh object.
+   */
+  noticeState?: { nodeRefusalShown?: boolean };
 }
+
+/** Session-wide (module-level) notice state used when `deps.noticeState` is omitted. */
+const sessionNoticeState: { nodeRefusalShown?: boolean } = {};
 
 export interface AutoStartResult {
   /** The server to connect to (if found or launched) */
@@ -403,10 +433,46 @@ async function spawnAndAttach(
   lockCtx: { lockDir?: string; locked: boolean },
   probeOpts: { timeoutMs: number; retries: number; retryDelayMs: number; _sleep?: (ms: number) => Promise<void> },
 ): Promise<AutoStartResult> {
+  // Resolve a Node satisfying the SERVER engines range (pi's own Node may be
+  // below it). Inside the single-flight lock, so concurrent sessions resolve
+  // once. See change: raise-node-floor-to-26 (design D4–D6).
+  const log = deps.log ?? appendAutoStartLog;
+  const runtime = await (deps.resolveServerNode ?? (() => resolveServerRuntime()))();
+  if (!runtime.resolved) {
+    // A dashboard may have come up while we resolved (another starter,
+    // the desktop app): attach to it and stay quiet.
+    const late = await deps.isDashboardRunning(config.port);
+    if (late.running) {
+      return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
+    }
+    log(
+      `refused: no Node satisfying ${runtime.range} for the dashboard server — no launch ` +
+        `(port ${config.port} gateway ${config.piPort}); candidates: ${describeServerRuntimeTrail(runtime.trail)}`,
+    );
+    const state = deps.noticeState ?? sessionNoticeState;
+    if (!state.nodeRefusalShown) {
+      state.nodeRefusalShown = true;
+      try {
+        deps.notify(
+          `Dashboard server not started: it needs Node ${runtime.range}, but pi runs on ` +
+            `${deps.piNodeVersion ?? process.version} and no Node 26 was found. Install Node 26 ` +
+            `(e.g. \`nvm install 26\`) or use the pi-dashboard desktop app. ` +
+            `Details: ${getDashboardServerLogPath()}`,
+          "warning",
+        );
+      } catch { /* headless session with no UI */ }
+    }
+    return {};
+  }
+  log(
+    `server runtime: ${runtime.nodeBinary} ${runtime.version} via ` +
+      `${runtime.manager ? `${runtime.step}:${runtime.manager}` : runtime.step} (port ${config.port})`,
+  );
+
   deps.onLaunchStart?.();
   let result: Awaited<ReturnType<AutoStartDeps["launchServer"]>>;
   try {
-    result = await deps.launchServer(config);
+    result = await deps.launchServer(config, { nodeBin: runtime.nodeBinary });
   } catch (err) {
     // Production `launchServer` resolves rather than rejects, but the
     // never-a-start-without-an-end invariant (F1/F2) must hold locally and

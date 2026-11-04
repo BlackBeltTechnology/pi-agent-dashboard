@@ -139,7 +139,7 @@ export interface StrategyDeps {
  * synchronous `import.meta.resolve` **does** accept a parent specifier
  * (Node 20.6+), so declining to pass `from` is a deliberate choice and
  * not an API limit; and there is no `>=22.12` engines floor (the repo
- * root declares `>=22.19.0 <27`; `packages/shared` and
+ * root declares `>=26.0.0 <27`; `packages/shared` and
  * `packages/extension` declare none).
  *
  * See change: fix-node-resolution-under-electron (follow-up: live

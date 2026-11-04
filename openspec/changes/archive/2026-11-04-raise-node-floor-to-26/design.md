@@ -140,8 +140,28 @@ flowchart TD
   packaged app; the Electron build rebuilds them against the bundled Node — verified by a task.
 - Marketing-site workflows keep their own Node pin (they never run the dashboard).
 
+- Running the unit suite on Node 26 surfaced two test-environment differences (no production
+  impact): Node 25+ enables built-in Web Storage, so with `--localstorage-file` the global
+  `localStorage` is Node's, not jsdom's — the root `test:*` scripts now pass
+  `--no-experimental-webstorage`; and Node 26 rejects an IP-literal TLS `servername` (Node <= 24
+  silently sent no SNI) — the TLS test helper now omits it. Production `tls.connect` already
+  omits SNI for IP hosts (`packages/extension/src/local-token-header.ts`).
+
 ## Migration / Rollback
 
 No persisted data changes. Rollback = revert the release commit, which restores `engines.node`,
 the guard, the bundled Node, Docker base and CI. The floor split and resolver mode are
 behaviour-neutral on their own.
+
+## Measurements (test-plan #P1)
+
+Worst-case server-mode resolution: 5 failing candidates (override v24.15.0, `PATH` v22.19.0, nvm
+default v22.22.0, volta v20.19.6, managed v18.20.5), own runtime not probed, 20 runs, Node 26.13.0.
+
+| Platform | min | median | p95 | max |
+|---|---|---|---|---|
+| macOS (Apple Silicon, real nvm Node binaries) | 59 ms | 72 ms | 95 ms | 210 ms |
+| Linux (`node:26-bookworm-slim` in Docker; candidates are shims that boot Node 26 and print the old version) | 72 ms | 80 ms | 97 ms | 139 ms |
+
+Cost is one `--version` probe per candidate, sequential; it runs only on the auto-start launch
+path inside the single-flight lock (or an Electron launch with no bundled Node).

@@ -118,10 +118,12 @@ Server CLI + bridge read `~/.pi/dashboard/config.json` via `src/shared/config.ts
 - Graceful Restart — `POST /api/restart` + `pi-dashboard restart`. Flush state, restart, verify health.
 - Cross-Platform Server Launch — `node --import <loader> <cli.ts>` from 4 call sites. `file://` URL wrapping.
   - stdout + stderr capture parity — both call sites capture both streams into log.
-  - CJS preload for Fastify (nodejs/node#58515) — inject `--require preload-fastify.cjs` before `--import <native-loader>`.
+  - No CJS preload (removed; `preload-fastify.cjs` gone). #58515 versions sit below the 26 floor.
   - Node-version preflight — `packages/shared/src/node-version.ts`. Single source of truth.
-    - Floor 22.19 (`MIN_SUPPORTED_NODE`). Affected: 22.0–22.18 + 24.1–24.2 (nodejs/node#58515). Cap <27.
-    - Startup guard `auth/node-guard.ts::assertNodeVersionSupported` refuses, exits(1).
+    - `MIN_SERVER_NODE` 26.0.0; `MIN_PI_SPAWN_NODE` 22.19.0; `SERVER_ENGINES_RANGE` `>=26.0.0 <27`. Cap <27.
+    - #58515 (22.0–22.18, 24.1–24.2) only in pi-session spawn ladder gate (`isAffectedNode`).
+    - Startup guard `auth/node-guard.ts::assertNodeVersionSupported` checks range only; refuses, exits(1).
+  - Server Node resolution — `platform/spawn-runtime.ts::resolveServerRuntime` (override → PATH node → version-manager defaults → managed → own runtime). Gate = server range; unresolved → `{resolved:false, trail}`.
   - Spawn runtime resolution — `platform/spawn-runtime.ts::resolveSpawnRuntime`.
     - 4-rung ladder: override → tool-overrides node → user Node → managed → bundled/execPath.
     - Publishes `runtime.resolved` to `~/.pi/dashboard/config.json` (diagnostic-only). Electron child identity via `PI_DASHBOARD_ELECTRON` + `PI_DASHBOARD_RESOURCES_PATH` env (stamped by launcher, stripped from grandchildren).
