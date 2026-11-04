@@ -9,7 +9,7 @@ import { cappedDelay } from "../retry-tracker.js";
  */
 describe("cappedDelay parity with pi-ai retryDelayMs (test-plan #E6)", () => {
   it("matches across the (base, cap, attempt) grid", async () => {
-    const mod = (await import("@earendil-works/pi-ai")) as {
+    const mod = (await import("@earendil-works/pi-ai")) as unknown as {
       retryDelayMs: (p: { baseDelayMs: number; maxAgentDelayMs?: number }, attempt: number) => number;
     };
     expect(typeof mod.retryDelayMs).toBe("function");
