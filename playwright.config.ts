@@ -42,7 +42,9 @@ export default defineConfig({
   // dependent). Local entry points: `npm run test:e2e:team` and
   // `npm run build && npm run test:e2e:identity-matrix`.
   // See change: add-missing-ci-legs (#861, design D2).
-  testIgnore: ["**/helpers/__tests__/**", "tests/e2e/team/**", "tests/e2e/identity-matrix/**"],
+  // tests/e2e/mock-site/** is owned by playwright.mock-site.config.ts (self-started
+  // mock site, no harness). See change: add-live-component-mock-site.
+  testIgnore: ["**/helpers/__tests__/**", "tests/e2e/team/**", "tests/e2e/identity-matrix/**", "tests/e2e/mock-site/**"],
   // Container boot is slow; first run may build the image. Keep generous.
   timeout: 60_000,
   // NO `globalTimeout`. A committed wall-clock budget cannot cover 168 specs and

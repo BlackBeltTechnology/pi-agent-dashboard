@@ -33,7 +33,36 @@ This registers:
   | `init_ui_contract` | Scaffold a token-referencing `ui-contract.md` consistency control plane. With `system`, write that preset's DTCG token contract. |
   | `list_design_systems` | Enumerate the selectable design-system presets. |
   | `validate_mockup` | Run the layered validation pipeline for a system (L1+L2 gates, L3+L4 advisory); returns `{ gates, advisory, pass }`. |
+  | `serve_mock_site` | Start the project's **live-component mock site** with the project's own Vite (port 5299, localhost only unless `lan`). |
 - **Command** `/mockup-loop` — print the loop and point at the skill.
+- **Bin** `mock-decide` — the agent's accept / reject for live mocks.
+
+## Live-component mock site
+
+For React projects, mocks render the app's **real components** instead of
+hand-built HTML. One directory per mock page, `mockups/<yyyy-mm-dd-slug>/mock.tsx`:
+
+```tsx
+import { Fix, Issue, type Mock } from "mock-site/kit";
+const mock: Mock = { title: "Settings - save bar", category: "Settings", frames: [
+  { title: "Settings - desktop",
+    current: <Issue n={1} tip="Save hidden below the fold"><Settings {...today} /></Issue>,
+    proposed: <Fix n={1} tip="Sticky save bar"><Settings {...next} /></Fix> },
+] };
+export default mock;
+```
+
+- Current | Proposed (or New) panes; `phone: true` renders a real 375px iframe.
+- Numbered rings (`Issue` red, `Fix` green) circle the elements that change.
+- **Accept page / Reject page** per mock, stored in `mockups/<id>/decision.json`
+  (in git). The agent decides with `mock-decide accept|reject <ref> "why"`.
+- Every page, frame, side and ring has a link: `#<id>/<frame>/<side>/<ring>`.
+- Themes come from the project config (first = default; `system` follows the OS).
+
+Setup (`mockups/mock-site.config.ts`, `mock-site.app.tsx`, `mock-site.css`) and
+the full authoring rules: [`references/live-mock-site.md`](references/live-mock-site.md).
+Needs `vite`, `@vitejs/plugin-react`, `react`, `react-dom` in the project
+(optional peers).
 
 ## Selectable design systems
 

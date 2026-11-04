@@ -38,7 +38,15 @@ rules:
       ask_user is unavailable (subagent or headless run), move nothing and list
       the pending rows in your final report. Otherwise ask ONE ask_user
       multiselect offering every remaining row (label: entry + intent); do not
-      judge similarity yourself. For each chosen entry, in order: mkdir -p
+      judge similarity yourself. Live-component mocks (an entry dir holding
+      mock.tsx) are filtered by their decision.json - run
+      `node packages/mockup-loop/src/mock-site/cli.mjs adoptable` and use its
+      JSON: offer `options` in that order with their labels (accepted first as
+      `(accepted)`, open or malformed as `(open)`), never offer `skipped`
+      (rejected) entries, and report them as skipped. Move a live mock dir with
+      `node packages/mockup-loop/src/mock-site/cli.mjs move mockups/<entry>
+      <changeDir>` (tracked and untracked files as one unit; non-zero exit if
+      the source dir is left behind). For each chosen entry, in order: mkdir -p
       <changeDir>/mockups; if <changeDir>/mockups/<entry> already exists, refuse
       (never move into it) and report; else move it with git mv when tracked, mv
       when untracked (move, never copy). Only after a successful move: recompute

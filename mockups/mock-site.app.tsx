@@ -1,10 +1,11 @@
-// PROJECT ADAPTER (pi-agent-dashboard) — the only app-specific runtime file.
-// setup(): load the app's real CSS. Providers: wrap panes in whatever context the app needs.
+// PROJECT ADAPTER (pi-agent-dashboard) — the only app-specific runtime file of the mock site.
+// setup(): load the app's real CSS + bridge the generic --mk-* chrome tokens onto the app's tokens.
+// Providers: wrap panes in whatever context the app needs (mocks stay prop-driven).
+// See change: add-live-component-mock-site (design D2).
 import type { ReactNode } from "react";
 
 export async function setup(): Promise<void> {
-  await import("@app/index.css");
-  // Bridge the generic --mk-* chrome tokens onto the app's own tokens.
+  await import("./mock-site.css");
   const s = document.createElement("style");
   s.textContent = `:root{--mk-page:var(--bg-secondary);--mk-panel:var(--bg-primary);--mk-fg:var(--text-primary);
     --mk-muted:var(--text-secondary);--mk-faint:var(--text-tertiary);--mk-line:var(--border-primary);--mk-line-2:var(--border-secondary);
@@ -14,5 +15,5 @@ export async function setup(): Promise<void> {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
-  return <>{children}</>; // prop-only components need no store for this demo
+  return <>{children}</>;
 }

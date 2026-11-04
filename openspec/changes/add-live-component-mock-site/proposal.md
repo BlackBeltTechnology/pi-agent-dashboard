@@ -59,7 +59,7 @@ dashboard as first adopter.
   themes System/Dark/Light, title), `mockups/mock-site.app.tsx` (real
   `packages/client/src/index.css` + `--mk-*` → dashboard token bridge), and the
   first example mock `mockups/2026-11-03-session-pills/` (from the prototype).
-- Mockup: mockups/prototype (in this change) — explore prototype, reference only.
+- Mockup: mockups/prototype (in this change) — explore prototype, reference only; removed once the shipped files landed (task 6.2). Example mock now at `mockups/2026-11-03-session-pills/`.
 - **Adoption gate**: plan-proposal Step 1b / `rules.proposal` adoption reads
   each live mock's `decision.json`: accepted → offered first, labelled
   `(accepted)`; open → offered, labelled `(open)`; rejected → never offered.

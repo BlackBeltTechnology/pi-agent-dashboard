@@ -87,11 +87,19 @@ doubt-review, so reviewers and `scenario-design` see the mockup at its final pat
 2. None left → ask nothing, change nothing, go to Step 2.
 3. Otherwise ONE `ask_user` multiselect offering every remaining row; the user
    matches, you do not judge similarity. Unchosen rows count as declined.
+   **Live-component mocks** (entry dir with `mock.tsx`) follow their
+   `decision.json`: run `node packages/mockup-loop/src/mock-site/cli.mjs adoptable`
+   and offer its `options` in order with their labels — accepted first
+   `(accepted)`, open / malformed `(open)` — and never offer its `skipped`
+   (rejected) entries; report them as skipped. With only rejected live mocks
+   pending, ask nothing and move nothing.
 4. Adopt each chosen entry with the mechanics of the `explore-mockup-adoption`
    requirement (canonical, same as `rules.proposal`): File cell must resolve to
    an entry directly under `mockups/` (else skip + report); `mkdir -p
    <changeDir>/mockups`; refuse if `<changeDir>/mockups/<entry>` already exists;
-   `git mv` (tracked) / `mv` (untracked), never copy; only after a successful
+   `git mv` (tracked) / `mv` (untracked), never copy — a live mock dir moves
+   as ONE unit via `node packages/mockup-loop/src/mock-site/cli.mjs move mockups/<entry> <changeDir>`,
+   untracked `decision.json` included, and a source dir left behind is a failed move; only after a successful
    move — recompute outward relative links, remove the row, add
    `Mockup: mockups/<entry> (in this change)` under What Changes in
    `proposal.md`. A failed move keeps its row.

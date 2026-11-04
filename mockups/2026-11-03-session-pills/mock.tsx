@@ -1,3 +1,5 @@
+// Example live-component mock (first dashboard mock). Real client components, rings on the divs that change.
+// See change: add-live-component-mock-site.
 // A mock = ONE PAGE (or flow). Frames are the full page at different widths / states.
 // Accept / Reject applies to the whole page. Rings circle the divs that changed.
 import type { ReactNode } from "react";
@@ -6,7 +8,7 @@ import { Icon } from "@mdi/react";
 import { GitDirtyPill } from "@app/components/worktree/GitDirtyPill.tsx";
 import { CwdGonePill } from "@app/components/folder/CwdGonePill.tsx";
 import { InlineMessage } from "@app/components/primitives/InlineMessage.tsx";
-import { Fix, Issue, type Mock } from "../site/kit.tsx";
+import { Fix, Issue, type Mock } from "mock-site/kit";
 
 const dirty = { dirtyCount: 7, staged: 2, unstaged: 3, untracked: 2, ahead: 3, behind: 1 } as never;
 const smallDirty = { dirtyCount: 2, staged: 0, unstaged: 2, untracked: 0, ahead: 0, behind: 0 } as never;
@@ -101,10 +103,9 @@ const Page = ({ variant }: { variant: "current" | "proposed" }): ReactNode => (
 const PhonePage = ({ variant }: { variant: "current" | "proposed" }): ReactNode => <Sidebar variant={variant} phone />;
 
 const mock: Mock = {
-  id: "2026-11-03-session-pills",
   title: "Sessions page - missing folder",
   category: "Sessions",
-  change: "demo-mock-site",
+  change: "add-live-component-mock-site",
   frames: [
     { title: "Sessions page - desktop", width: 1040, current: <Page variant="current" />, proposed: <Page variant="proposed" /> },
     { title: "Sessions page - phone", phone: true, current: <PhonePage variant="current" />, proposed: <PhonePage variant="proposed" /> },
