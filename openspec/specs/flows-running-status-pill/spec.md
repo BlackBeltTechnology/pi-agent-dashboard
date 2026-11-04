@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change fix-flows-plugin-polish. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Running-flow status pill lives in the FLOWS subcard
 
 The FLOWS subcard SHALL render a status pill above the action button row whenever a session has an active flow (`flowState !== null` per the flows-plugin's session-state context). The pill SHALL include:
@@ -13,8 +15,8 @@ The FLOWS subcard SHALL render a status pill above the action button row wheneve
 - The flow name (`flowState.flowName`).
 - Agent counts (done / total) when status is `"running"`.
 - An "Abort" button when status is `"running"`. Click sends
-  `{ type: "flow_control", sessionId, action: "abort" }` via
-  `usePluginSend`.
+  `{ type: "plugin_action", pluginId: "flows", action: "flow.abort", sessionId }`
+  via `usePluginSend`. The pill SHALL NOT send a `flow_control` message.
 
 #### Scenario: Pill renders when flow is running
 
@@ -29,8 +31,8 @@ The FLOWS subcard SHALL render a status pill above the action button row wheneve
 - **GIVEN** the pill is rendering for a flow whose `status = "running"`
 - **WHEN** the user clicks the "Abort" button
 - **THEN** the plugin SHALL dispatch
-  `{ type: "flow_control", sessionId, action: "abort" }` via
-  `usePluginSend`
+  `{ type: "plugin_action", pluginId: "flows", action: "flow.abort", sessionId }`
+  via `usePluginSend`
 
 #### Scenario: Pill omits Abort when flow is not running
 
@@ -68,4 +70,3 @@ available as a component, but it is consumed only by
   badge for this session
 - **AND** the FLOWS subcard SHALL render the status pill (per the
   Requirement above)
-

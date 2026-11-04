@@ -4,7 +4,7 @@
 
 Flow rendering for the pi-dashboard, packaged as a dedicated workspace plugin (`packages/flows-plugin/`). Owns the `FlowState` lifecycle on the client — the reducer arms for every `flow_*` event — and claims dashboard plugin slots that mount its UI (`FlowDashboard`, `FlowActivityBadge`, `FlowSummary`, `FlowAgentDetail`).
 
-`SessionState.flowState` remains a typed field on the central `SessionState` (declared in `packages/shared/src/types.ts`) so both the plugin and the core client can reference it without an import cycle. The core `event-reducer.ts` continues to dispatch `flow_*` events, but the per-event reducer logic and the rendered UI are owned by this capability.
+The flow types (`FlowState`, `FlowAgentState`, `FlowAgentStatus`, `FlowAgentCardConfig`, `NodeKind`) are owned by this plugin and live in `packages/flows-plugin`, not in `packages/shared`. `SessionState` SHALL NOT carry a flow field; the plugin keeps its per-session flow slice through its registered session-event reducer on the client and its server state store. See change: update-flows-plugin.
 
 The motivating design lives in `openspec/changes/extract-flows-as-plugin/design.md`.
 
@@ -20,19 +20,13 @@ The dashboard SHALL ship flow rendering as a dedicated workspace package at `pac
 - **AND** the manifest SHALL claim at minimum: `session-card-flows` (flow status), `session-card-action-bar` (the flowless authoring entry point, rendered in the session actions menu), `composer-context-group` (the FLOWS dock chip), `content-header-sticky`, `content-view` (route `flow-agent-detail/:agentId`), `content-view` (route `architect-detail`)
 - **AND** the manifest SHALL NOT claim `session-card-badge` (see `flows-running-status-pill`)
 
-### Requirement: Flow state tracked in SessionState
-The `SessionState` SHALL include a `flowState` field of type `FlowState | null`. `FlowState` SHALL contain: `flowName`, `task`, `status` (running/success/error/aborted), `autonomousMode`, `agents` (ordered map of agent name → `FlowAgentState`), and `flowResult` (set on completion). The type definition SHALL live in `packages/shared/src/types.ts` so both the plugin and the core client can reference it without an import cycle.
-
-#### Scenario: Initial state has no flow
-- **WHEN** `createInitialState()` is called in the core reducer
-- **THEN** `flowState` SHALL be `null`
-
 ### Requirement: flow_started event handling owned by flows-plugin
-The `flows-plugin` package SHALL export a reducer function that handles `flow_started` by creating a new `FlowState` with the flow name, task, status `"running"`, and pre-populated agent entries (from the `steps` array) in pending status with their `blockedBy` dependencies. `event-reducer.ts` SHALL invoke this reducer when a `flow_started` event arrives.
+The `flows-plugin` package SHALL export a reducer function that handles `flow_started` by creating a new `FlowState` with the flow name, task, status `"running"`, and pre-populated agent entries (from the `steps` array) in pending status with their `blockedBy` dependencies. The flows plugin's registered session-event reducer SHALL apply it to the plugin-owned per-session flow slice when a `flow_started` event arrives. The core event reducer SHALL NOT invoke it, and core `SessionState` SHALL NOT hold the result.
 
 #### Scenario: Flow started creates flow state
 - **WHEN** a `flow_started` event with `{ flowName: "research", task: "Find bugs", steps: [{id: "r", agent: "researcher", blockedBy: []}, {id: "d", agent: "developer", blockedBy: ["r"]}] }` is processed
-- **THEN** `flowState` SHALL be set with `flowName: "research"`, two agents in pending status, and `developer` SHALL have `blockedBy: ["r"]`
+- **THEN** the plugin flow slice for that session SHALL be set with `flowName: "research"`, two agents in pending status, and `developer` SHALL have `blockedBy: ["r"]`
+- **AND** core `SessionState` SHALL carry no flow field
 
 ### Requirement: flow_agent_started event handling owned by flows-plugin
 The plugin's reducer SHALL update the agent's status to `"running"` and store the config metadata (label, model, card role) when `flow_agent_started` is processed.
@@ -70,21 +64,21 @@ The plugin's reducer SHALL update the target agent's `loopIteration` and `loopMa
 - **THEN** the `developer` agent SHALL have `loopIteration: 2` and `loopMax: 3`
 
 ### Requirement: flow_complete event handling owned by flows-plugin
-The plugin's reducer SHALL update `flowState.status` to the result status and store the `FlowResult` data for the summary view when `flow_complete` is processed. A `flow_complete` whose status is `"rejected"` (a start the flow engine refused, emitted without any `flow_started`) SHALL NOT alter the current `flowState`: its status, agents, and result SHALL stay unchanged, and a running flow SHALL remain running.
+The plugin's reducer SHALL update the status of the plugin-owned flow slice to the result status and store the `FlowResult` data for the summary view when `flow_complete` is processed. A `flow_complete` whose status is `"rejected"` (a start the flow engine refused, emitted without any `flow_started`) SHALL NOT alter the current flow slice: its status, agents, and result SHALL stay unchanged, and a running flow SHALL remain running.
 
 #### Scenario: Flow completes
 - **WHEN** a `flow_complete` event with `{ status: "success", flowName: "research", results: {...} }` is processed
-- **THEN** `flowState.status` SHALL be `"success"` and `flowState.flowResult` SHALL contain the results
+- **THEN** the plugin flow slice status SHALL be `"success"` and its `flowResult` SHALL contain the results
 
 #### Scenario: Rejected start leaves a running flow running
 - **GIVEN** flow `research` is running
 - **WHEN** a `flow_complete` event with `{ status: "rejected", flowName: "research", reason: "A flow is already running" }` is processed
-- **THEN** `flowState.status` SHALL still be `"running"` and no agent card status SHALL change
+- **THEN** the plugin flow slice status SHALL still be `"running"` and no agent card status SHALL change
 
 #### Scenario: Rejected start with no current flow
-- **GIVEN** no flow state exists for the session
+- **GIVEN** no flow slice exists for the session
 - **WHEN** a `flow_complete` event with `{ status: "rejected" }` is processed
-- **THEN** no flow state SHALL be created
+- **THEN** no flow slice SHALL be created
 
 ### Requirement: flow_agent_error event handling owned by flows-plugin
 The plugin's reducer SHALL handle `flow_agent_error` by appending an `{ kind: "error", text }` entry to the targeted agent's `detailHistory` array, locating the agent by `agentName`/`stepId`. The `error` variant of `FlowDetailEntry` already exists; this requirement adds its producer case. The reducer SHALL NOT change the agent's status (status is owned by `flow_agent_complete`). Events with empty `text` SHALL be ignored.
@@ -102,12 +96,17 @@ The plugin's reducer SHALL handle `flow_agent_error` by appending an `{ kind: "e
 - **THEN** the reducer SHALL rebuild the same `{ kind: "error", text }` timeline entry as the live path produced
 
 ### Requirement: Plugin disable does not crash the dashboard
-If the dashboard is configured with the `flows-plugin` disabled (`plugins.flows.enabled = false`) or if the plugin fails to load, `flow_*` events arriving from pi-flows SHALL be processed harmlessly: either the reducer code is still resident (compile-time imported) and updates `flowState`, or the events are no-ops. In neither case SHALL the dashboard throw, and in neither case SHALL any flow UI render.
+If the dashboard is configured with the `flows-plugin` disabled (`plugins.flows.enabled = false`) or if the plugin fails to load, its bridge entry SHALL be deregistered, so no `flow:*` channel is declared and no `flow_*` event SHALL be forwarded from the session. The dashboard SHALL NOT throw, no flow UI SHALL render, and persisted `flow-event` entries SHALL stay hidden on replay (no `flow_*` event, no generic custom card).
 
 #### Scenario: Plugin disabled, no UI rendered
-- **WHEN** `plugins.flows.enabled = false` and a `flow_started` event arrives
+- **WHEN** `plugins.flows.enabled = false` and pi-flows emits `flow:flow-started`
 - **THEN** the dashboard SHALL not throw
+- **AND** no `flow_started` event SHALL be forwarded
 - **AND** no `FlowDashboard`, `FlowActivityBadge`, `FlowSummary`, or `FlowAgentDetail` SHALL render in the DOM
+
+#### Scenario: Plugin disabled, persisted runs hidden
+- **WHEN** `plugins.flows.enabled = false` and a session with persisted `flow-event` entries is replayed
+- **THEN** no `flow_*` event SHALL be emitted and no custom card SHALL render for those entries
 
 ### Requirement: Flows registers automation actions
 
@@ -186,4 +185,219 @@ The action-bar claim and the dock chip SHALL NOT send any edit-mode message when
 
 #### Scenario: Edit-mode reconcile runs without opening the menu
 - **WHEN** flows becomes available for a session and the menu has never been opened
-- **THEN** no `flow_management` `set-edit-mode` message SHALL be sent for that session (the reconcile is removed; this scenario name is kept for delta continuity)
+- **THEN** no `flow.set-edit-mode` `plugin_action` SHALL be sent for that session (the reconcile is removed; this scenario name is kept for delta continuity)
+
+### Requirement: Flow types are owned by the flows plugin
+`FlowState`, `FlowAgentState`, `FlowAgentStatus`, `FlowAgentCardConfig` and `NodeKind` SHALL be defined in the flows plugin, not in `packages/shared`. `SessionState` SHALL NOT carry a flow field; the plugin SHALL keep its per-session flow slice through its registered session-event reducer on the client and its server state store.
+
+#### Scenario: Shared types carry no flow type
+- **WHEN** `packages/shared/src/types.ts` is inspected
+- **THEN** it SHALL NOT export `FlowState`, `FlowAgentState`, `FlowAgentCardConfig` or `NodeKind`
+
+#### Scenario: Plugin slice holds the flow state
+- **WHEN** a `flow_started` event is reduced for a session
+- **THEN** the flow state SHALL be readable from the flows plugin slice for that session
+- **AND** `SessionState` SHALL have no flow field
+
+### Requirement: Fan-out items render as a group with one card per item
+The reducer SHALL key a lifecycle event that carries `itemIndex` as `<stepId>[<i>]` under a group for `stepId`; the pre-listed step card SHALL become the group parent. A later item start SHALL NOT count as a rerun of the step.
+
+#### Scenario: Three items produce three item cards
+- **WHEN** `flow_agent_started` arrives for `stepId: "review"` with `itemIndex` 0, 1 and 2
+- **THEN** the group `review` SHALL hold item cards `review[0]`, `review[1]`, `review[2]`
+- **AND** no item SHALL be marked as a rerun
+
+### Requirement: Item-indexed events target the item card
+Every flow event carrying `itemIndex` (`flow_agent_started`, `flow_agent_complete`, `flow_agent_error`, `flow_tool_call`, `flow_tool_result`, `flow_assistant_text`, `flow_thinking_text`) SHALL target the item card `<stepId>[<i>]`. The same event without `itemIndex` SHALL target the step card, which is the group parent for a fan-out step. A `flow_agent_error` with `itemIndex` SHALL append to that item's `detailHistory` and SHALL NOT change the item's status.
+
+#### Scenario: Tool call and text land on the item card
+- **GIVEN** group `review` with item cards `review[0]` and `review[1]`
+- **WHEN** `flow_tool_call`, `flow_assistant_text` and `flow_thinking_text` arrive for `stepId: "review"` with `itemIndex: 1`
+- **THEN** they SHALL be recorded on `review[1]` only
+- **AND** neither `review[0]` nor the group parent SHALL change
+
+#### Scenario: Tool result and completion land on the item card
+- **WHEN** `flow_tool_result` then `flow_agent_complete` arrive for `stepId: "review"` with `itemIndex: 0`
+- **THEN** both SHALL update `review[0]` only
+
+#### Scenario: Event without itemIndex targets the step
+- **WHEN** `flow_assistant_text` arrives for `stepId: "review"` without `itemIndex`
+- **THEN** it SHALL be recorded on the `review` step card (the group parent)
+
+#### Scenario: Item error appends to detailHistory without status change
+- **GIVEN** item card `review[2]` is `running`
+- **WHEN** `flow_agent_error` arrives for `stepId: "review"` with `itemIndex: 2`
+- **THEN** the error SHALL be appended to the `detailHistory` of `review[2]`
+- **AND** `review[2]` SHALL still be `running`
+
+### Requirement: Fan-out group parent status and rollup
+A fan-out group parent status SHALL follow this precedence, first match wins: any item `running` or started but still `pending` gives `running`; else any item `error` gives `error`, with outcome `hard` if any item failed hard, else `soft`; else any item `blocked` gives `blocked`; else all items `skipped`, or zero items, gives `skipped`; else `complete`. The parent SHALL expose an ok / failed rollup count.
+
+#### Scenario: Failed item is not hidden by a later success
+- **GIVEN** group `review` with items 0 and 1
+- **WHEN** item 0 completes with a soft failure and item 1 then completes successfully
+- **THEN** the parent status SHALL be `error` with outcome `soft` and its rollup SHALL read 1 ok, 1 failed
+
+#### Scenario: Running item keeps the parent running
+- **WHEN** one item of a group is `running` and another has failed
+- **THEN** the parent status SHALL be `running`
+
+#### Scenario: Mixed hard and soft failures yield a hard error
+- **GIVEN** group `review` with items 0 and 1, none running
+- **WHEN** item 0 fails soft and item 1 fails hard
+- **THEN** the parent status SHALL be `error` with outcome `hard`
+
+#### Scenario: Blocked item without errors blocks the parent
+- **WHEN** no item of a group is running or failed and one item is `blocked`
+- **THEN** the parent status SHALL be `blocked`
+
+#### Scenario: Zero items yields skipped
+- **WHEN** a fan-out step finishes with zero items
+- **THEN** the parent status SHALL be `skipped` and its rollup SHALL read 0 ok, 0 failed
+
+#### Scenario: All items complete yields complete
+- **WHEN** every item of a group completed successfully
+- **THEN** the parent status SHALL be `complete`
+
+### Requirement: flow_decision event handling owned by flows-plugin
+The reducer SHALL handle `flow_decision` by storing `{ labels, routes, routeError }` on the decision step card. Without a `routeError` it SHALL mark every branch target of that decision that was not chosen `skipped`; on loop re-entry it SHALL overwrite stale results as `skipped` only for targets in that decision's own group. With a `routeError` it SHALL mark nothing `skipped`, and the decision card SHALL show the error.
+
+#### Scenario: Chosen routes stored and unchosen targets skipped
+- **GIVEN** decision step `triage` with branch targets `fix` and `doc`
+- **WHEN** `flow_decision` arrives for `triage` with `routes` naming only `fix`
+- **THEN** the `triage` card SHALL store the labels and routes
+- **AND** the `doc` card SHALL be `skipped`
+
+#### Scenario: Loop re-entry overwrites stale results
+- **GIVEN** `doc` completed in an earlier loop iteration
+- **WHEN** a new `flow_decision` for `triage` does not choose `doc`
+- **THEN** the `doc` card SHALL read `skipped`
+
+#### Scenario: Loop re-entry leaves other groups alone
+- **GIVEN** decision `triage` has targets `fix` and `doc`, and step `report` (not a target of `triage`) completed earlier
+- **WHEN** a new `flow_decision` for `triage` chooses `fix`
+- **THEN** `report` SHALL keep its `complete` status
+
+#### Scenario: Route error stored
+- **WHEN** `flow_decision` carries a `routeError`
+- **THEN** the decision card SHALL store and expose that `routeError`
+
+#### Scenario: Route error marks nothing skipped
+- **GIVEN** decision step `triage` with branch targets `fix` and `doc`, both `pending`
+- **WHEN** `flow_decision` arrives for `triage` with a `routeError` and no routes
+- **THEN** neither `fix` nor `doc` SHALL be `skipped`
+- **AND** the `triage` card SHALL show the error text
+
+### Requirement: Skipped status is never downgraded by flow_complete
+`FlowAgentStatus` SHALL include `skipped`. On a non-success `flow_complete`, the reducer SHALL NOT change a `skipped` card's status.
+
+#### Scenario: Skipped step survives a failed flow
+- **GIVEN** step `doc` is `skipped`
+- **WHEN** `flow_complete` arrives with `status: "error"`
+- **THEN** `doc` SHALL still read `skipped`
+
+### Requirement: Graph labels skipped, fan-out and decision nodes
+The flow graph SHALL render a skipped node in the pending style plus the word `skipped` (colour SHALL NOT be the sole channel), SHALL add an `xN (k failed)` count to a fan-out node, and SHALL show the chosen routes on a decision node.
+
+#### Scenario: Fan-out node shows item count
+- **WHEN** group `review` has 3 items and 1 failed
+- **THEN** the `review` graph node SHALL show `x3 (1 failed)`
+
+#### Scenario: Skipped node labelled in words
+- **WHEN** step `doc` is `skipped`
+- **THEN** its graph node SHALL show the text `skipped`
+
+#### Scenario: Decision node shows chosen routes
+- **WHEN** `triage` chose route `fix`
+- **THEN** the `triage` graph node SHALL show `fix` as its chosen route
+
+### Requirement: Static YAML preview keeps object-form branches
+The static flow YAML parser SHALL accept object-form branch targets (`{ to, means }`, `{ to, for_each }`) in addition to string targets, and SHALL produce an edge to each `to` target.
+
+#### Scenario: Object-form branch kept
+- **WHEN** a flow YAML declares a branch `{ to: "fix", means: "bug found" }`
+- **THEN** the static preview graph SHALL include an edge to `fix`
+
+### Requirement: Flow commands travel as plugin_action
+The flows plugin server SHALL handle `plugin_action { pluginId: "flows", action }` for exactly six actions: `flow.abort`, `flow.toggle-autonomous`, `flow.dismiss-summary`, `flow.run`, `flow.delete` and `flow.set-edit-mode`, relaying fixed event names into the target session through `ctx.emitEventToSession`. An unknown action SHALL be logged and dropped. An invalid payload SHALL emit nothing. A session whose driver is `acp` SHALL be refused with `UNSUPPORTED_FOR_ACP` before any relay.
+
+#### Scenario: Abort emits both abort events
+- **WHEN** the server receives `flow.abort` for a session
+- **THEN** it SHALL emit `flow:abort` and `flow:architect-abort` into that session
+
+#### Scenario: Toggle autonomous
+- **WHEN** the server receives `flow.toggle-autonomous`
+- **THEN** it SHALL emit `flow:toggle-autonomous`
+
+#### Scenario: Dismiss summary
+- **WHEN** the server receives `flow.dismiss-summary`
+- **THEN** it SHALL emit `flow:summary-dismissed`
+
+#### Scenario: Delete emits request and notify
+- **WHEN** the server receives `flow.delete` with a valid `flowName`
+- **THEN** it SHALL emit `flow:delete-request` and `flow:notify`
+
+#### Scenario: Run keeps its existing relay
+- **WHEN** the server receives `flow.run` with a valid `flowName` and `task`
+- **THEN** it SHALL emit `flow:run { flowName, task }`
+
+#### Scenario: Set edit-mode accepts a boolean only
+- **WHEN** the server receives `flow.set-edit-mode` with `enabled: true` while the project's edit mode is off
+- **THEN** it SHALL emit `flow:set-edit-mode { enabled: true }`; a request equal to the current mode SHALL emit nothing
+
+#### Scenario: Non-boolean edit-mode ignored
+- **WHEN** the server receives `flow.set-edit-mode` whose `enabled` is not a boolean
+- **THEN** it SHALL emit nothing
+
+#### Scenario: Invalid flowName rejected
+- **WHEN** `flow.delete` or `flow.run` carries a `flowName` that is not a valid flow id
+- **THEN** the server SHALL emit nothing and SHALL report the action as rejected
+
+#### Scenario: Unknown action logged and dropped
+- **WHEN** the server receives `plugin_action { pluginId: "flows", action: "flow.rename" }`
+- **THEN** it SHALL log the unknown action
+- **AND** it SHALL emit nothing into the session
+
+#### Scenario: ACP session refused before relay
+- **GIVEN** a session whose driver is `acp`
+- **WHEN** the server receives `flow.abort` for that session
+- **THEN** it SHALL answer `UNSUPPORTED_FOR_ACP`
+- **AND** it SHALL emit no event into that session
+
+### Requirement: Flows manifest emits lists every relayed event
+The flows plugin manifest `emits` list SHALL name every event the plugin server relays through `ctx.emitEventToSession`: `flow:run`, `flow:set-edit-mode`, `flow:abort`, `flow:architect-abort`, `flow:toggle-autonomous`, `flow:summary-dismissed`, `flow:delete-request` and `flow:notify`, so the loader's emits gate allows each relay.
+
+#### Scenario: Every relayed event is declared
+- **WHEN** the flows plugin manifest is loaded
+- **THEN** its `emits` list SHALL contain `flow:run`, `flow:set-edit-mode`, `flow:abort`, `flow:architect-abort`, `flow:toggle-autonomous`, `flow:summary-dismissed`, `flow:delete-request` and `flow:notify`
+
+#### Scenario: Abort relay is not blocked by the emits gate
+- **WHEN** the server handles `flow.abort` for a pi session
+- **THEN** both `flow:abort` and `flow:architect-abort` SHALL reach the session
+
+### Requirement: Flow control plugin route
+The flows plugin SHALL expose `POST /api/plugins/flows/control` with body `{ sessionId, action, flowName?, task?, enabled? }`, accepting the same six actions as the `plugin_action` path with the same validation and relays. The route SHALL require operate authority and the network guard. For a session whose driver is `acp` it SHALL answer `UNSUPPORTED_FOR_ACP` before any relay.
+
+#### Scenario: Abort over REST
+- **WHEN** an operator posts `{ sessionId, action: "flow.abort" }` to `/api/plugins/flows/control`
+- **THEN** the plugin SHALL emit `flow:abort` and `flow:architect-abort` into that session and respond with success
+
+#### Scenario: Run over REST
+- **WHEN** an operator posts `{ sessionId, action: "flow.run", flowName: "research", task: "Find bugs" }`
+- **THEN** the plugin SHALL emit `flow:run { flowName: "research", task: "Find bugs" }` into that session
+
+#### Scenario: Edit mode over REST
+- **WHEN** an operator posts `{ sessionId, action: "flow.set-edit-mode", enabled: false }` while the project's edit mode is on
+- **THEN** the plugin SHALL emit `flow:set-edit-mode { enabled: false }` into that session
+
+#### Scenario: Unknown action refused over REST
+- **WHEN** an operator posts `{ sessionId, action: "flow.rename" }`
+- **THEN** the route SHALL refuse the request and emit nothing
+
+#### Scenario: Missing operate authority refused
+- **WHEN** a caller without operate authority posts to the route
+- **THEN** the route SHALL refuse the request and emit nothing
+
+#### Scenario: ACP session unsupported
+- **WHEN** the target `sessionId` is a session whose driver is `acp`
+- **THEN** the route SHALL answer `UNSUPPORTED_FOR_ACP` and emit nothing

@@ -47,4 +47,5 @@ Rationale: dashboard interaction is button-first; slash commands duplicate funct
 #### Scenario: Dashboard abort flows through button
 
 - **WHEN** a flow is running in the dashboard and the user wants to abort
-- **THEN** the user SHALL click the Abort button rendered by `FlowDashboard`, which dispatches `flow_control { action: "abort" }` over the existing WebSocket
+- **THEN** the user SHALL click the Abort button rendered by `FlowDashboard`, which dispatches `plugin_action { pluginId: "flows", action: "flow.abort" }` over the existing WebSocket to the flows plugin server
+- **AND** no `flow_control` message SHALL be sent

@@ -7,12 +7,13 @@ TBD - created by archiving change fix-flow-ui-graph-zoom-summary. Update Purpose
 
 ### Requirement: Flow panel starts collapsed and keeps the user choice per session
 
-The collapse/expand state of the flow socket SHALL persist per session across remounts and page reloads, so a user who collapses a session's flow panel does not have to collapse it again every time that session re-renders. Two collapse states are persisted, each keyed by session id:
+The collapse/expand state of the flow socket SHALL persist per session across remounts and page reloads, so a user who collapses a session's flow panel does not have to collapse it again every time that session re-renders. Three collapse states are persisted, each keyed by session id:
 
-- the **whole-panel collapse** of the completed-flow `FlowSummary` (its `panelCollapsed`), and
-- the **live `FlowDashboard` collapse** (its `collapsed`).
+- the **whole-panel collapse** of the completed-flow `FlowSummary` (its `panelCollapsed`),
+- the **live `FlowDashboard` collapse** (its `collapsed`), and
+- the **Agent cards section** open state inside the expanded `FlowDashboard` (collapse kind `cards`).
 
-State SHALL be stored on the frontend in `localStorage`, under keys namespaced by both purpose and session id (e.g. `dashboard:flow-summary-collapsed:<sessionId>` and `dashboard:flow-dashboard-collapsed:<sessionId>`). Reads and writes SHALL be wrapped so a `localStorage` failure (quota, disabled storage, private mode) degrades to in-memory state without throwing. A session with no stored state SHALL default to **collapsed**: the flow panel SHALL never expand on its own when a flow starts, progresses, completes or fails. It SHALL expand only when the user expands it, or when the user chooses Open flow… (an explicit request to see that flow). The user's choice SHALL persist per session as before. Persistence SHALL be scoped per session id: collapsing one session's panel SHALL NOT change another session's persisted state. The Summaries-list subsection toggle and the agent-row expansion remain ephemeral (not persisted) in this change.
+State SHALL be stored on the frontend in `localStorage`, under keys namespaced by both purpose and session id (e.g. `dashboard:flow-summary-collapsed:<sessionId>` and `dashboard:flow-dashboard-collapsed:<sessionId>`). Reads and writes SHALL be wrapped so a `localStorage` failure (quota, disabled storage, private mode) degrades to in-memory state without throwing. A session with no stored state SHALL default to **collapsed** for the panel and for the Agent cards section: the flow panel SHALL never expand on its own when a flow starts, progresses, completes or fails. It SHALL expand only when the user expands it, or when the user chooses Open flow… (an explicit request to see that flow). The Agent cards section SHALL open only when the user opens it or clicks a graph node. The user's choice SHALL persist per session as before. Persistence SHALL be scoped per session id: collapsing one session's panel SHALL NOT change another session's persisted state. The Summaries-list subsection toggle and the agent-row expansion remain ephemeral (not persisted) in this change.
 
 #### Scenario: Collapse is remembered on remount
 - **WHEN** the user collapses a session's flow panel and that component later remounts (navigation, reload, re-render)
@@ -56,3 +57,13 @@ State SHALL be stored on the frontend in `localStorage`, under keys namespaced b
 - **GIVEN** the user collapsed a session's flow panel
 - **WHEN** the user selects that session again (sidebar click, route change)
 - **THEN** the panel SHALL stay collapsed
+
+#### Scenario: Agent cards section defaults to collapsed
+- **WHEN** the user expands a session's flow panel and no `cards` state is stored
+- **THEN** the Agent cards section SHALL render collapsed
+
+#### Scenario: Agent cards section state persists per session
+- **GIVEN** the user opened the Agent cards section for session A
+- **WHEN** session A's `FlowDashboard` remounts
+- **THEN** the section SHALL render open for session A
+- **AND** session B's `cards` state SHALL be unchanged
