@@ -46,7 +46,16 @@
     "emits": [
       "flow:run",
       "flow:set-edit-mode",
+      "flow:abort",
+      "flow:architect-abort",
+      "flow:toggle-autonomous",
+      "flow:summary-dismissed",
+      "flow:delete-request",
+      "flow:notify",
       "dashboard-flows:report-files"
+    ],
+    "replayEntryTypes": [
+      "flow-event"
     ],
     "i18nCatalog": "catalog",
     "priority": 100,

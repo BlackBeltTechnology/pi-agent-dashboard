@@ -104,6 +104,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { recognizeTrustedTypesMode } from "@blackbelt-technology/pi-dashboard-shared/trusted-types-mode.js";
 import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
+import { getPluginEntryStats } from "../plugin-entry-stats.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**
@@ -1489,6 +1490,10 @@ export function registerSystemRoutes(
         },
         { declared: 0, rejected: 0, conflicts: 0, retained: 0, dropped: 0 },
       ),
+      // Plugin entry replay + rejected plugin actions: declared replay entry
+      // types (gauge), replayed plugin entries and rejected plugin_action /
+      // plugin-route commands (cumulative). See change: update-flows-plugin (task 1.7).
+      pluginEntries: getPluginEntryStats(),
       // Poll-cost counters (SUM across live sessions, not max).
       // See change: optimize-polling-hot-paths.
       pollCost: activeSessions.reduce(

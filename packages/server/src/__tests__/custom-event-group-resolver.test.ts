@@ -92,11 +92,27 @@ describe("resolver (task 3.1, 3.2, 3.3)", () => {
     expect(stub.match).toHaveBeenCalledTimes(2);
   });
 
-  it("flow-event is excluded entirely — no group, no matcher call", async () => {
+  it("a plugin-declared entry type is excluded entirely — no group, no matcher call", async () => {
     const stub = stubMatcher(() => true);
-    const resolver = new CustomEventGroupResolver([group("memory", "^om\\.")], stub as unknown as CustomEventGroupMatcher);
+    const resolver = new CustomEventGroupResolver([group("memory", "^om\\.")], stub as unknown as CustomEventGroupMatcher, {
+      isPluginEntryType: (t) => t === "flow-event",
+    });
     await expect(resolver.resolve("flow-event")).resolves.toBeUndefined();
     expect(stub.match).not.toHaveBeenCalled();
+  });
+
+  it("declared types are never grouped; shipped groups and other still apply (E17)", async () => {
+    const declared = new Set(["flow-event", "my-ext:run"]);
+    const stub = stubMatcher((pattern, customType) => new RegExp(pattern).test(customType));
+    const resolver = new CustomEventGroupResolver(
+      [group("flows", "^pi-flows-help$"), group(RESERVED_OTHER_GROUP_ID, ".*")],
+      stub as unknown as CustomEventGroupMatcher,
+      { isPluginEntryType: (t) => declared.has(t) },
+    );
+    await expect(resolver.resolve("flow-event")).resolves.toBeUndefined();
+    await expect(resolver.resolve("my-ext:run")).resolves.toBeUndefined();
+    await expect(resolver.resolve("pi-flows-help")).resolves.toBe("flows");
+    await expect(resolver.resolve("zzz:unknown")).resolves.toBe(RESERVED_OTHER_GROUP_ID);
   });
 
   it("quarantines the offending group on matcher failure and resumes at the next group", async () => {

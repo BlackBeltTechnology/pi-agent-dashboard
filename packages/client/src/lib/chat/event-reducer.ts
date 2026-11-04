@@ -23,6 +23,7 @@ import {
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ownerOfEventType } from "../plugins/event-type-owners.js";
+import { isPluginEntryType } from "../plugins/plugin-entry-types.js";
 import {
   applyNestedEnd,
   applyNestedStart,
@@ -2275,11 +2276,11 @@ export function reduceEvent(
         // false` exclusion (D5): pi normalizes content but NOT display, so
         // an untyped extension omitting the flag yields undefined — which
         // RENDERS (absent flag = meant to be seen; a truthiness check would
-        // silently drop it). `display: false` is LLM-context-only. flow-event
-        // is refused for parity with the custom_entry arm (E8; label-
-        // spoofing guard).
+        // silently drop it). `display: false` is LLM-context-only. A
+        // plugin-declared entry type is refused for parity with the
+        // custom_entry arm (E8; label-spoofing guard).
         if (msg.display === false) break;
-        if (msg.customType === "flow-event") break;
+        if (typeof msg.customType === "string" && isPluginEntryType(msg.customType)) break;
         next.messages = [
           ...next.messages,
           {
@@ -2477,12 +2478,13 @@ export function reduceEvent(
       // render-inline-reasoning-and-custom-entries. Same row shape as the
       // message_end role=custom arm, so rendering is single-sourced (D1).
       // Defense-in-depth (E8): the bridge AND state-replay already exclude
-      // `flow-event` (pi-flows owns its card); the reducer refuses it too, so
-      // a future forward path cannot double-render flow runs.
+      // plugin-declared entry types (the owning plugin renders its card); the
+      // reducer refuses them too, so a future forward path cannot double-render.
+      // See change: update-flows-plugin (D3).
       const customType = typeof data.customType === "string" && data.customType !== ""
         ? data.customType
         : "custom";
-      if (customType === "flow-event") break;
+      if (isPluginEntryType(customType)) break;
       const entryId = typeof data.entryId === "string" ? data.entryId : undefined;
       const groupId = typeof data.groupId === "string" && data.groupId !== "" ? data.groupId : undefined;
       next.messages = [

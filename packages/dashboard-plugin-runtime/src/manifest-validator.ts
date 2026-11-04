@@ -9,6 +9,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { isValidHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
+import { normalizeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
   FILE_HANDLER_EXT_RE,
@@ -819,6 +820,9 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   }
 
   const emits = m.emits !== undefined ? validateEmits(m.emits, pluginId) : undefined;
+  // Lenient: a malformed value contributes nothing, never a load failure (G6).
+  // See change: update-flows-plugin (D3).
+  const replayEntryTypes = normalizeReplayEntryTypes(m.replayEntryTypes);
 
   // hostApi: `^MAJOR.MINOR[.PATCH]` or exact. See change: decouple-plugins-from-core (D7).
   if (m.hostApi !== undefined && !isValidHostApiRange(m.hostApi)) {
@@ -849,6 +853,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(projectTypes ? { projectTypes } : {}),
     ...(eventTypes ? { eventTypes } : {}),
     ...(emits ? { emits } : {}),
+    ...(replayEntryTypes.length > 0 ? { replayEntryTypes } : {}),
     ...(typeof m.hostApi === "string" ? { hostApi: m.hostApi } : {}),
   };
 }

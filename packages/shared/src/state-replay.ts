@@ -38,21 +38,37 @@ import { drainableEntryUsage, usageToTotals, type EntryUsage } from "./usage-tot
  *   `session_ended` end). Earlier-message orphans are dead and still close.
  *   Default off — cold replays (disk, archive, retained) are unchanged.
  *   See change: fix-replay-fabricates-orphan-end-for-live-calls (D1, D2).
+ * @param opts.replayEntryTypes Plugin-declared custom-entry types (enabled
+ *   plugins' manifest `replayEntryTypes`) replayed as their recorded
+ *   `{ seq, eventType, data }` protocol events, seq-sorted.
+ * @param opts.hiddenEntryTypes Further declared types (disabled plugins) kept
+ *   out of the generic custom paths but NOT replayed. Core names no plugin
+ *   entry type. See change: update-flows-plugin (D3, G5).
+ * @param opts.stats Optional out-param: `pluginEntriesReplayed` += emitted
+ *   declared-entry events (health counter).
  */
 export function replayEntriesAsEvents(
   sessionId: string,
   entries: any[],
   knownContextWindow?: number,
-  opts?: { liveTailOpen?: boolean },
+  opts?: {
+    liveTailOpen?: boolean;
+    replayEntryTypes?: Iterable<string>;
+    hiddenEntryTypes?: Iterable<string>;
+    stats?: { pluginEntriesReplayed: number };
+  },
 ): EventForwardMessage[] {
   const messages: EventForwardMessage[] = [];
   const openToolCalls = new Set<string>(); // track tool calls without results
   // toolCall ids of the most recent assistant message (the live tail).
   let lastAssistantToolCallIds = new Set<string>();
-  // Persisted flow-run events (change: replay-persisted-flow-runs). Collected
-  // during the loop, then emitted sorted by seq so the client's idempotent
-  // reduceFlowEvent rebuilds the flow card identically to the live path.
-  const flowEventRecords: Array<{ seq: number; eventType: string; data: unknown; ts: number }> = [];
+  // Plugin-declared entry records (e.g. the flows plugin's persisted runs).
+  // Collected during the loop, then emitted sorted by seq so a plugin's
+  // idempotent reducer rebuilds identically to the live path.
+  // See change: replay-persisted-flow-runs; update-flows-plugin (D3).
+  const replayTypes = new Set<string>(opts?.replayEntryTypes ?? []);
+  const hiddenTypes = new Set<string>([...replayTypes, ...(opts?.hiddenEntryTypes ?? [])]);
+  const pluginEntryRecords: Array<{ seq: number; eventType: string; data: unknown; ts: number }> = [];
 
   let currentModel = "";
 
@@ -64,15 +80,14 @@ export function replayEntriesAsEvents(
       currentModel = entry.modelId ?? "";
     }
 
-    // Persisted flow-run event: { seq, eventType, data, flowRunId }. eventType
-    // is already the dashboard protocol name — re-forward verbatim, no re-map.
-    // Duck-typed: no import from pi-flows. Malformed records skipped.
-    // Checked BEFORE the generic custom-entry arm below — the generic fallback
-    // must never claim flow-event (design D3).
-    if (entry.type === "custom" && entry.customType === "flow-event") {
+    // Declared plugin entry: { seq, eventType, data, ...extra }. eventType is
+    // already the dashboard protocol name — re-forward verbatim, no re-map;
+    // extra fields (e.g. a run id) are ignored. Malformed records skipped.
+    // The generic custom-entry arms below never claim a hidden type.
+    if (entry.type === "custom" && replayTypes.has(entry.customType)) {
       const rec = entry.data as { seq?: unknown; eventType?: unknown; data?: unknown } | undefined;
       if (rec && typeof rec.eventType === "string") {
-        flowEventRecords.push({
+        pluginEntryRecords.push({
           seq: typeof rec.seq === "number" ? rec.seq : 0,
           eventType: rec.eventType,
           data: rec.data,
@@ -87,12 +102,12 @@ export function replayEntriesAsEvents(
     // arm builds the identical row. EXACT `display === false` exclusion (D5):
     // pi normalizes content but NOT display, so an untyped extension omitting
     // the flag yields undefined — which RENDERS (absent flag = meant to be
-    // seen). Skipping on falsy would silently hide those. flow-event is
-    // excluded for parity with the entry arm (label-spoofing guard).
+    // seen). Skipping on falsy would silently hide those. Plugin-declared
+    // types are excluded for parity with the entry arm (label-spoofing guard).
     if (
       entry.type === "custom_message" &&
       entry.display !== false &&
-      entry.customType !== "flow-event"
+      !hiddenTypes.has(entry.customType)
     ) {
       messages.push(makeEvent(sessionId, "message_end", ts, {
         message: {
@@ -108,8 +123,8 @@ export function replayEntriesAsEvents(
 
     // Generic custom ENTRY (pi.appendEntry) — same change. Synthesizes the
     // `custom_entry` protocol event the bridge forwards live, so replay and
-    // live reduce into the same row shape. flow-event already took its
-    // seq-sorted path above and never reaches this arm.
+    // live reduce into the same row shape. Plugin-declared types take their
+    // seq-sorted path above (or stay hidden) and never reach this arm.
 
     if (entry.type === "message" && entry.message) {
       const msg = entry.message;
@@ -248,7 +263,7 @@ export function replayEntriesAsEvents(
       }));
     }
 
-    if (entry.type === "custom" && entry.customType !== "flow-event") {
+    if (entry.type === "custom" && !hiddenTypes.has(entry.customType)) {
       messages.push(makeEvent(sessionId, "custom_entry", ts, {
         customType: entry.customType,
         data: entry.data,
@@ -294,14 +309,15 @@ export function replayEntriesAsEvents(
     }));
   }
 
-  // Emit persisted flow-run events sorted by seq (defensive: file order already
-  // matches seq, but parallel agents emit concurrently). Appended after message
-  // replay — flow and message reducers are independent, so relative order does
-  // not matter; only seq order WITHIN flow events does.
-  flowEventRecords.sort((a, b) => a.seq - b.seq);
-  for (const rec of flowEventRecords) {
+  // Emit declared plugin records sorted by seq (defensive: file order already
+  // matches seq, but parallel producers emit concurrently). Appended after
+  // message replay — plugin and message reducers are independent, so relative
+  // order does not matter; only seq order WITHIN plugin records does.
+  pluginEntryRecords.sort((a, b) => a.seq - b.seq);
+  for (const rec of pluginEntryRecords) {
     messages.push(makeEvent(sessionId, rec.eventType, rec.ts, (rec.data ?? {}) as Record<string, unknown>));
   }
+  if (opts?.stats) opts.stats.pluginEntriesReplayed += pluginEntryRecords.length;
 
   return messages;
 }

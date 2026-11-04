@@ -393,6 +393,14 @@ export interface PluginManifest {
    */
   emits?: string[];
   /**
+   * Persisted `type: "custom"` entry types this plugin owns (e.g. flows:
+   * `["flow-event"]`). An enabled plugin's types replay as their recorded
+   * `{ seq, eventType, data }` protocol events; every declared type is kept out
+   * of the generic custom-entry rendering. Malformed values contribute nothing.
+   * See change: update-flows-plugin (D3).
+   */
+  replayEntryTypes?: string[];
+  /**
    * Host API range this plugin was built against: `^MAJOR.MINOR[.PATCH]` or an
    * exact `MAJOR.MINOR.PATCH`. Evaluated at discovery against
    * `PLUGIN_HOST_API_VERSION`; one range covers the server and client halves.
