@@ -89,7 +89,7 @@ test.describe("spawn model choice (L3)", () => {
     expect(await newSessionModel(before, FIXTURE_GIT)).toBe("faux/faux-1");
   });
 
-  test("F4: folder New Session menu pick is used by the main button; chevron is keyboard-reachable", async ({ page }) => {
+  test("F4: folder New Session menu pick (role + thinking) is used by the main button; chevron is keyboard-reachable", async ({ page }) => {
     test.setTimeout(180_000);
     const frames = recordSpawnFrames(page);
     await gotoDashboard(page);
@@ -100,10 +100,14 @@ test.describe("spawn model choice (L3)", () => {
     const menu = page.getByTestId("folder-spawn-session-btn-menu");
     await expect(menu).toBeVisible();
     const chip = menu.getByTestId("folder-spawn-session-btn-model-choice");
+    // The harness catalogue does not list the faux model, so pick it through the
+    // Role tab (`@fast` → faux/faux-1), then a thinking level.
     await chip.getByTestId("model-selector-button").click();
-    const row = page.locator('[data-testid="model-row"]', { hasText: "faux-1" }).first();
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.click();
+    await page.getByTestId("model-tab-role").click();
+    await page.locator('[data-testid="role-row"][data-role="fast"]').click();
+    await chip.getByTestId("model-selector-button").click();
+    await page.locator('[data-testid="model-level-group"] [data-level="low"]').click();
+    await expect(chip.getByTestId("model-trigger-role-ref")).toContainText("@fast");
     // Picking never spawns.
     expect(frames).toHaveLength(0);
     await page.keyboard.press("Escape");
@@ -112,7 +116,8 @@ test.describe("spawn model choice (L3)", () => {
 
     const before = await sessionIds();
     await body.getByTestId("folder-spawn-session-btn").click();
-    await expect.poll(() => frames.find((f) => f.cwd === FIXTURE_GIT)?.model, { timeout: 15_000 }).toBe("faux/faux-1");
+    await expect.poll(() => frames.find((f) => f.cwd === FIXTURE_GIT)?.model, { timeout: 15_000 }).toBe("@fast");
+    expect(frames.find((f) => f.cwd === FIXTURE_GIT)?.thinkingLevel).toBe("low");
     expect(await newSessionModel(before, FIXTURE_GIT)).toBe("faux/faux-1");
   });
 });
