@@ -46,16 +46,18 @@ function send(res, code, body) {
 /**
  * LAN mode exposes the project over the network and relies on `server.fs.deny`.
  * False for Vite releases with a known deny bypass: GHSA-8jhw-289h-jh2g (<5.2.6),
- * the 5.x/6.x deny fixes before 5.4.19 / 6.3.4, and GHSA-8g5g-mxqh-grgj (6.4.4).
+ * GHSA-93m4-6634-74q7 (<5.4.21, 6.0–6.4.0, 7.0.0–7.0.7, 7.1.0–7.1.10) and
+ * GHSA-8g5g-mxqh-grgj (6.4.4).
  * Mirrors the package's optional `vite` peer range.
  * @param {string} version
  */
 export function isLanSafeVite(version) {
   const [maj, min, pat] = version.split(/[.-]/).map(Number);
   const n = maj * 1e6 + min * 1e3 + pat;
-  if (maj === 5) return n >= 5_004_019;
-  if (maj === 6) return n >= 6_003_004 && n !== 6_004_004;
-  return maj > 6;
+  if (maj === 5) return n >= 5_004_021;
+  if (maj === 6) return n >= 6_004_001 && n !== 6_004_004;
+  if (maj === 7) return min === 0 ? n >= 7_000_008 : min === 1 ? n >= 7_001_011 : true;
+  return maj > 7;
 }
 
 export function mockSite(options) {
@@ -77,7 +79,7 @@ export function mockSite(options) {
     async config() {
       if (lan) {
         const { version } = await import("vite");
-        if (!isLanSafeVite(version)) throw new Error(`mock-site: LAN mode refused on vite ${version} (known server.fs.deny bypass); upgrade vite (>=5.4.19 <6, >=6.3.4 except 6.4.4, or >=7)`);
+        if (!isLanSafeVite(version)) throw new Error(`mock-site: LAN mode refused on vite ${version} (known server.fs.deny bypass); upgrade vite (>=5.4.21 <6, >=6.4.1 except 6.4.4, >=7.0.8, >=7.1.11)`);
       }
       const { mocks } = current();
       return {

@@ -165,8 +165,8 @@ describe("LAN mode (E11)", () => {
   }, 15_000);
 
   it("refuses LAN mode on Vite versions with known fs.deny bypasses", () => {
-    for (const v of ["5.0.12", "5.2.5", "5.4.18", "6.3.3", "6.4.4"]) expect(isLanSafeVite(v), v).toBe(false);
-    for (const v of ["5.4.19", "6.3.4", "6.4.3", "6.4.5", "7.3.7"]) expect(isLanSafeVite(v), v).toBe(true);
+    for (const v of ["5.0.12", "5.2.5", "5.4.20", "6.3.4", "6.4.0", "6.4.4", "7.0.7", "7.1.10"]) expect(isLanSafeVite(v), v).toBe(false);
+    for (const v of ["5.4.21", "6.4.1", "6.4.3", "6.4.5", "7.0.8", "7.1.11", "7.3.7", "8.0.0"]) expect(isLanSafeVite(v), v).toBe(true);
   });
 });
 
