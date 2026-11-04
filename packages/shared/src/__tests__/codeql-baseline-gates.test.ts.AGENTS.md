@@ -1,0 +1,3 @@
+# __tests__/codeql-baseline-gates.test.ts — index
+
+Contract on `codeql-baseline.json`: local `validateOperatorAuthzReason(key, reason, root)` — `operator-authz: gate: <symbol> <path>:<line>` (path exists, symbol present, 1≤line≤N) or `control-tier:` only for `git-operations.ts`/`process-manager.ts`/`spawn-preflight.ts`; body ≤236 after `github-dismissed (…): `; canned universal-guard sentence banned; keeper-manager/path-containment never operator-authz; `automation-writer.ts` = `accepted-risk:` citing #1104. Real-set check reads change `evidence/dismissal-comments.json` (archive-aware) (#E1–#E16, #E32). See change: fix-codeql-baseline-coverage.

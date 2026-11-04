@@ -73,6 +73,7 @@ import {
 import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
 import { applyHeapArgsToPiArgv, recordHeapArgvFallback } from "./heap-args.js";
 import { applySpawnEnvContributors, type ContributorMechanism } from "./spawn-env-contributors.js";
+import { normalizeCwdKey } from "./spawn-register-watchdog.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -298,6 +299,16 @@ export function buildSpawnEnv(
   opts?: {
     spawnToken?: string;
     /**
+     * The spawn cwd. When given (non-empty), `PWD` is set to its canonical
+     * physical path (`normalizeCwdKey(path.resolve(cwd))`: realpath, else the
+     * absolute lexical form), replacing the server's own stale `PWD` so
+     * PWD-reading tools (context-mode) resolve the session's project, not the
+     * dashboard's launch dir (#1079). Host-owned: contributors cannot touch
+     * it. Absent / empty ⇒ env byte-identical. See change:
+     * fix-spawned-session-pwd (D1, D4).
+     */
+    cwd?: string;
+    /**
      * The node-wrapped `argv[0]` this env will spawn (e.g. `piCmd[0]`).
      * When it is the Electron GUI binary (`execpath-fallback` topology),
      * re-add `ELECTRON_RUN_AS_NODE=1` that `resolver.buildSpawnEnv` strips.
@@ -431,6 +442,10 @@ export function buildSpawnEnv(
     // See change: spawn-correlation-token.
     env.PI_DASHBOARD_SPAWN_TOKEN = opts.spawnToken;
   }
+  // The child's `PWD` names ITS cwd, not the server's. Host shaping, before
+  // the contributors (PWD is on their deny list). See change:
+  // fix-spawned-session-pwd (D1, D4).
+  if (opts?.cwd) env.PWD = normalizeCwdKey(path.resolve(opts.cwd));
   if (opts?.mechanism) {
     const applied = applySpawnEnvContributors(env, opts.mechanism);
     if (opts.contributedOut) Object.assign(opts.contributedOut, applied);
@@ -924,6 +939,7 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   const contributed: Record<string, string> = {};
   const env = buildSpawnEnv(process.env, {
     spawnToken: options?.spawnToken,
+    cwd,
     argv0: piCmd[0],
     spawnRuntime: rt,
     mechanism: "tmux",
@@ -954,6 +970,7 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     const contributed: Record<string, string> = {};
     const env = buildSpawnEnv(process.env, {
       spawnToken: options?.spawnToken,
+      cwd,
       spawnRuntime: spawnRuntimeForSession(),
       mechanism: "wsl-tmux",
       contributedOut: contributed,
@@ -985,6 +1002,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
   const args = buildWtArgs({ cwd, title: path.basename(cwd) || "pi", piArgv });
   const wtEnv = buildSpawnEnv(process.env, {
     spawnToken: options?.spawnToken,
+    cwd,
     argv0: piCmd[0],
     spawnRuntime: rt,
     mechanism: "wt",
@@ -1045,6 +1063,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
   // the keeper's base env, so the forwarded pi child inherits the flag too.
   const env = buildSpawnEnv(process.env, {
     spawnToken: options?.spawnToken,
+    cwd,
     argv0: piCmd[0],
     extensionConfig: options?.extensionConfig,
     spawnRuntime: rt,
@@ -1069,7 +1088,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
  */
 function spawnChildCmdViaKeeper(cwd: string, childCmd: string[], spawnToken?: string): Promise<SpawnResult> {
   const [argv0, ...rest] = childCmd as [string, ...string[]];
-  const env = buildSpawnEnv(process.env, { spawnToken, argv0, mechanism: "headless" });
+  const env = buildSpawnEnv(process.env, { spawnToken, cwd, argv0, mechanism: "headless" });
   return spawnHeadlessViaKeeper(cwd, env, rest, [argv0]);
 }
 

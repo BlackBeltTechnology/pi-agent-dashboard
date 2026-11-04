@@ -1484,6 +1484,41 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     el.scrollTop = el.scrollHeight;
     pinnedSnapshotRef.current = { top: el.scrollTop, height: el.scrollHeight };
   };
+  const pinBottomRef = useRef(pinBottom);
+  pinBottomRef.current = pinBottom;
+
+  // Re-pin when the SCROLLER itself resizes (e.g. the canvas chip slot above the
+  // composer appears and the transcript gives up its height). The virtualizer
+  // `onChange` re-pins only on a `scrollHeight` change; a viewport shrink leaves
+  // scrollTop/scrollHeight untouched, so the newest row would end up hidden.
+  // Follow mode only, same guards as the measure pin (+ no descent in flight); a
+  // scrolled-up reader is never moved. Keyed on `sessionId`: the scroller sits
+  // under `<FilePreviewProvider key={sessionId}>`, so a session switch remounts
+  // it and the observer must follow the new node. See change:
+  // fix-chat-transcript-layout (D6).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs read at callback time; sessionId re-attaches to the remounted scroller
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let lastClientHeight = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight === lastClientHeight) return;
+      lastClientHeight = el.clientHeight;
+      if (
+        stickToBottomRef.current &&
+        !descendingRef.current &&
+        !isSelectingRef.current &&
+        !copySpanRef.current &&
+        !spliceSuppressRef.current
+      ) {
+        // "measure": re-targets an in-flight follow glide instead of cancelling it.
+        pinBottomRef.current("measure", { guardsPass: true });
+        lastScrollHeightRef.current = el.scrollHeight;
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sessionId]);
 
   const virtualizer = useVirtualizer({
     count: displayRows.length,

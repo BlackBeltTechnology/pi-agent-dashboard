@@ -9,6 +9,7 @@
  *
  * See change: fix-duplicate-bridge-registration (D1, D2, D4, D6).
  */
+import type { PidTarget } from "../session/pid-target.js";
 
 /** Bounded window the gateway waits for an incumbent's pong. */
 export const CONTENTION_PROBE_WINDOW = 5_000;
@@ -72,6 +73,23 @@ export interface ClaimInput {
    * provisional must claim nothing in EVERY case, not just the remembered ones.
    */
   provisional?: boolean;
+  /**
+   * The resolved pid targets of the incumbent's recorded pid and the
+   * newcomer's reported pid. When supplied, the same-pid fast-accept applies
+   * only when both are `host`, or both `unknown` on a Windows server (S3): a
+   * pid number from another namespace is not the same process. Omitted ⇒ the
+   * pid rule is applied as before (callers that test other rules).
+   * See change: scope-pids-to-namespace.
+   */
+  pidTargets?: { incumbent: PidTarget | undefined; newcomer: PidTarget | undefined; serverPlatform: string };
+}
+
+/** Same-pid is the same process only within one local namespace (S3). */
+function samePidNamespace(t: NonNullable<ClaimInput["pidTargets"]>): boolean {
+  const a = t.incumbent?.kind;
+  const b = t.newcomer?.kind;
+  if (a === "host" && b === "host") return true;
+  return a === "unknown" && b === "unknown" && t.serverPlatform === "win32";
 }
 
 /**
@@ -95,7 +113,12 @@ export function decideClaim(input: ClaimInput): ClaimDecision {
 
   // Same-process reconnect: the same pi whose previous close frame was lost.
   // Self-reported, so used ONLY to avoid a permanent refusal, never to grant one.
-  if (newcomerPid !== undefined && incumbentPid !== undefined && newcomerPid === incumbentPid) {
+  if (
+    newcomerPid !== undefined &&
+    incumbentPid !== undefined &&
+    newcomerPid === incumbentPid &&
+    (input.pidTargets === undefined || samePidNamespace(input.pidTargets))
+  ) {
     return { outcome: "accept", reason: "same-pid" };
   }
 

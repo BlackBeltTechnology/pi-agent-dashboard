@@ -1,6 +1,6 @@
 import { mdiDotsHorizontal } from "@mdi/js";
-import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { connectBus, expect, type Locator, type Page, test } from "./fixtures.js";
+import { gotoDashboard, pinDirectory, setSearch } from "./helpers/index.js";
 
 /**
  * Browser E2E — dragging folders into, out of, and between workspaces.
@@ -11,8 +11,10 @@ import { gotoDashboard, pinDirectory } from "./helpers/index.js";
  * unit-tested in `packages/client/src/lib/__tests__/sidebar-dnd.test.ts` and
  * `SessionList.folder-membership-drag.test.tsx`).
  *
- * Covers test-plan #F11, #F12, #F13, #F16, #F18, #F20, #X6.
- * See change: drag-folders-across-workspaces.
+ * Covers test-plan #F11, #F12, #F13, #F16, #F18, #F20, #X6
+ * (drag-folders-across-workspaces) and #F4, #F5, #F1-Escape
+ * (fix-sidebar-folder-visibility: the eject zone alongside pinned folders).
+ * See changes: drag-folders-across-workspaces, fix-sidebar-folder-visibility.
  */
 
 // Baked fixture dirs materialized by docker/test-entrypoint.sh.
@@ -125,7 +127,12 @@ async function beginDragOnto(
 async function expandAllWorkspaces(page: Page): Promise<void> {
   for (const id of (await workspaceIds(page)).values()) {
     const toggle = page.getByTestId(`workspace-toggle-${id}`);
-    if ((await toggle.getAttribute("aria-label")) === "Expand workspace") await toggle.click();
+    if ((await toggle.getAttribute("aria-label")) === "Expand workspace") {
+      await toggle.click();
+      // Collapse is server-owned: wait for the echo, or a caller's visibility
+      // check races the expand and mis-reads a workspace folder as absent.
+      await expect(toggle).toHaveAttribute("aria-label", "Collapse workspace", { timeout: 10_000 });
+    }
   }
 }
 
@@ -388,6 +395,147 @@ test.describe("folder membership drag", () => {
       .toBe(true);
     expect(await foldersOf(second, idB)).not.toContain(moved);
     await second.close();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fix-sidebar-folder-visibility — the eject zone renders for EVERY
+// workspace-folder drag, also while pinned folders are visible (or hidden by a
+// filter). A pinned group stays an equivalent eject target.
+// Covers test-plan #F4, #F5 and the Escape leg of #F1.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Extra pinned dir (no sessions): renders as a pinned group, keeps the tier non-empty. */
+const EXTRA_PIN = "/fixtures/e2e-eject-pinned";
+
+async function pinOverBus(path: string): Promise<void> {
+  const client = await connectBus();
+  try {
+    const ack = client.waitFor((m) => m.type === "pinned_dirs_updated", {
+      timeout: 20_000,
+      label: `pin(${path})`,
+    });
+    client.send({ type: "pin_directory", path });
+    await ack;
+  } finally {
+    client.close();
+  }
+}
+
+async function unpinOverBus(path: string): Promise<void> {
+  const client = await connectBus();
+  try {
+    client.send({ type: "unpin_directory", path });
+    // Best-effort: a no-op unpin emits no broadcast to await.
+    await new Promise((r) => setTimeout(r, 500));
+  } finally {
+    client.close();
+  }
+}
+
+/** Count the `move_folder_to_workspace` frames the page SENDS. Install before navigation. */
+function collectMoveFrames(page: Page): { count: () => number } {
+  let sent = 0;
+  page.on("websocket", (ws) => {
+    ws.on("framesent", (f) => {
+      const text = typeof f.payload === "string" ? f.payload : f.payload.toString();
+      if (text.includes('"move_folder_to_workspace"')) sent++;
+    });
+  });
+  return { count: () => sent };
+}
+
+test.describe("eject zone alongside pinned folders", () => {
+  test.afterEach(async () => {
+    await unpinOverBus(EXTRA_PIN).catch(() => {});
+  });
+
+  // #F4 — zone appears with real height and no shift above it; dropping on the
+  // zone or on a pinned group both eject, with one message each.
+  test("F4: the zone renders with a pinned tier present; zone and pinned group both eject", async ({ page }) => {
+    const moves = collectMoveFrames(page);
+    const { idA, idB } = await setupWorkspaces(page);
+    await pinOverBus(EXTRA_PIN);
+    const pinnedRow = page.getByTestId(`folder-home-row-${EXTRA_PIN}`);
+    await expect(pinnedRow).toBeVisible({ timeout: 15_000 });
+
+    const zone = page.getByTestId("pinned-tier-drop-zone");
+    await expect(zone).toHaveCount(0);
+    const aboveBefore = (await page.getByTestId(`workspace-header-${idA}`).boundingBox())!.y;
+
+    // (a) zone appears; rows above it do not move.
+    let moveOnto = await beginDragOnto(page, F_A, page.getByTestId(`workspace-header-${idB}`));
+    await expect(zone).toBeVisible({ timeout: 10_000 });
+    expect((await zone.boundingBox())!.height).toBeGreaterThanOrEqual(64);
+    expect((await page.getByTestId(`workspace-header-${idA}`).boundingBox())!.y).toBe(aboveBefore);
+
+    // (b) drop on the zone → F_A ejected (pinned), zone gone.
+    await moveOnto(zone);
+    await expect(zone).toHaveAttribute("data-over", "true", { timeout: 10_000 });
+    const before = moves.count();
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await foldersOf(page, idA)).includes(F_A), { timeout: 15_000 })
+      .toBe(false);
+    await expect(page.getByTestId(`folder-home-row-${F_A}`)).toBeVisible();
+    await expect(zone).toHaveCount(0);
+    expect(moves.count() - before).toBe(1);
+
+    // (c) drop a workspace folder on the pinned group below the zone → same outcome.
+    await setCollapsed(page, idB, false);
+    moveOnto = await beginDragOnto(page, F_X, page.getByTestId(`workspace-header-${idA}`));
+    await expect(zone).toBeVisible({ timeout: 10_000 });
+    await moveOnto(folderRow(page, EXTRA_PIN));
+    const before2 = moves.count();
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await foldersOf(page, idB)).includes(F_X), { timeout: 15_000 })
+      .toBe(false);
+    await expect(page.getByTestId(`folder-home-row-${F_X}`)).toBeVisible();
+    await expect(zone).toHaveCount(0);
+    expect(moves.count() - before2).toBe(1);
+  });
+
+  // #F1 (Escape leg) — the real DndContext cancels on Escape; the zone goes
+  // and no message is sent.
+  test("F1: Escape cancels a workspace-folder drag and removes the zone", async ({ page }) => {
+    const moves = collectMoveFrames(page);
+    const { idB } = await setupWorkspaces(page);
+    await pinOverBus(EXTRA_PIN);
+    await expect(page.getByTestId(`folder-home-row-${EXTRA_PIN}`)).toBeVisible({ timeout: 15_000 });
+
+    const zone = page.getByTestId("pinned-tier-drop-zone");
+    const before = moves.count();
+    await beginDragOnto(page, F_A, page.getByTestId(`workspace-header-${idB}`));
+    await expect(zone).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(zone).toHaveCount(0, { timeout: 10_000 });
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+    expect(moves.count()).toBe(before);
+  });
+
+  // #F5 — a Folders filter hides every pinned group; the zone is still there.
+  test("F5: the zone renders while a filter hides every pinned folder, and ejects", async ({ page }) => {
+    const { idA, idB } = await setupWorkspaces(page);
+    await pinOverBus(EXTRA_PIN);
+    await expect(page.getByTestId(`folder-home-row-${EXTRA_PIN}`)).toBeVisible({ timeout: 15_000 });
+
+    // Workspace rows ignore the Folders query; pinned groups follow it.
+    await setSearch(page, "folders", "zzz-no-such-folder");
+    await expect(page.getByTestId(`folder-home-row-${EXTRA_PIN}`)).toHaveCount(0);
+    await expect(page.getByTestId(`workspace-header-${idB}`)).toBeVisible();
+
+    const zone = page.getByTestId("pinned-tier-drop-zone");
+    const moveOnto = await beginDragOnto(page, F_A, page.getByTestId(`workspace-header-${idB}`));
+    await expect(zone).toBeVisible({ timeout: 10_000 });
+    await moveOnto(zone);
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await foldersOf(page, idA)).includes(F_A), { timeout: 15_000 })
+      .toBe(false);
+    await setSearch(page, "folders", "");
+    await expect(page.getByTestId(`folder-home-row-${F_A}`)).toBeVisible({ timeout: 15_000 });
   });
 });
 

@@ -38,7 +38,7 @@ The `spawnPiSession` function SHALL inject the minted `spawnToken` into the spaw
 
 #### Scenario: Existing env vars preserved
 - **WHEN** the dashboard server has its own environment containing `PI_DASHBOARD_URL`, `PATH`, etc.
-- **THEN** the spawned process SHALL receive those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`
+- **THEN** the spawned process SHALL receive those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`, except `PWD`, which names the spawn cwd (headless-spawn capability)
 
 #### Scenario: Token is not echoed to argv
 - **WHEN** the server inspects the spawned process command line
@@ -97,7 +97,7 @@ Every register path (state sync and the `session_start` register alike) SHALL ob
 
 ### Requirement: Three-tier link in `headlessPidRegistry`
 
-`headlessPidRegistry` SHALL link a registering session to its spawn entry through three tiers in priority order: (1) token match, (2) pid match, (3) cwd-FIFO fallback. Tiers 2 and 3 exist so a session that registered without a token can still be linked to its spawn entry for identity-independent bookkeeping.
+`headlessPidRegistry` SHALL link a registering session to its spawn entry through three tiers in priority order: (1) token match, (2) pid match, (3) cwd-FIFO fallback. Tiers 2 and 3 exist so a session that registered without a token can still be linked to its spawn entry for identity-independent bookkeeping. Tiers 2 and 3 SHALL be skipped for a register whose pid target is not local (`force-kill-handler` *A recorded pid is used only in its resolved pid target*). For an `unknown` target, tier 2 SHALL match only an entry with the register's `cwd`.
 
 Plugin-ownership resolution (`pluginRef`) SHALL use tier 1 (token) only; tiers 2 and 3 SHALL NOT assign a `pluginRef`. Automation stamp delivery SHALL ride the tier-1 token seam rather than a cwd-FIFO stamp registry, closing the tier-3 same-cwd race for automation ownership.
 
@@ -108,7 +108,7 @@ Plugin-ownership resolution (`pluginRef`) SHALL use tier 1 (token) only; tiers 2
 
 #### Scenario: Pid match used when token is absent
 
-- **WHEN** a registering session presents no token but a pid that matches an unlinked entry
+- **WHEN** a registering session with a `host` pid target presents no token but a pid that matches an unlinked entry
 - **THEN** that entry SHALL be linked by pid
 
 #### Scenario: Cwd-FIFO fallback used when token and pid both absent
@@ -126,13 +126,17 @@ Plugin-ownership resolution (`pluginRef`) SHALL use tier 1 (token) only; tiers 2
 #### Scenario: Stale token degrades to lower tier
 
 - **WHEN** a registering session presents a spawn token that matches no live entry
-- **THEN** linking SHALL fall through to the pid tier, then the cwd-FIFO tier
+- **THEN** linking SHALL fall through to the pid tier, then the cwd-FIFO tier (for a non-local pid target, tiers 2 and 3 SHALL be skipped)
 - **AND** no `pluginRef` ownership SHALL be assigned by the lower tiers
 
 #### Scenario: Already-linked entry is skipped at every tier
 
 - **WHEN** an entry already has a linked sessionId
 - **THEN** it SHALL NOT be re-linked by any of the token, pid, or cwd tiers
+
+#### Scenario: A non-local pid is never linked by pid or cwd
+- **WHEN** a register whose pid target is WSL or `foreign` carries no matching token
+- **THEN** it SHALL NOT be linked by pid or by cwd order
 
 ### Requirement: Client mints `requestId` on every browser-initiated spawn or resume
 The client SHALL generate a UUIDv4 `requestId` (`crypto.randomUUID()` when available, otherwise an RFC 4122 version-4 UUID built from `crypto.getRandomValues`, so a non-secure browser context such as a plain-http LAN origin still mints one) whenever it dispatches a `spawn_session` or `resume_session` message. The `requestId` SHALL be sent as part of the message and tracked in a client-side `pendingSpawns: Map<requestId, { cwd, startedAt, attachProposal? }>` map (replacing today's `spawningCwds: Set<cwd>`).

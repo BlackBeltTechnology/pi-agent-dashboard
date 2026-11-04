@@ -1949,6 +1949,7 @@ export const huCatalog: Record<string, string> = {
   "settings.defaultGrouping": "Alapértelmezett csoportosítás",
   "settings.defaultGroupingHint": "Minden olyan mappára érvényes, amelynek nincs saját csoportosítása. Egy mappát a mappa menüjéből módosíthatsz.",
   "sessionList.noActiveSessions": "Nincs aktív munkamenet",
+  "sessionList.noMatchingFolders": "Nincs egyező mappa",
   "sessionList.noSessionsMatch": "Nincs a keresésnek megfelelő munkamenet",
   "sessionList.phaseReadOnly": "Fázis (csak olvasható)",
   "sessionList.pinDirectory": "Könyvtár rögzítése",

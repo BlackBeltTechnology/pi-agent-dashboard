@@ -8,7 +8,7 @@ import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-
 import { cardSectionFolderKey, isPluginSectionVisible, resolveCardSectionVisible, resolveFolderListMode } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useDndContext, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -1383,7 +1383,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
    * is visible only when at least one session passes ALL of them (ended
    * included). See change: add-session-tags.
    */
-  function folderMatchesFilters(group: DirectoryGroup): boolean {
+  const folderMatchesFilters = useCallback((group: DirectoryGroup): boolean => {
     const wf = workspaceFilter.trim().toLowerCase();
     const sf = sessionSearch.trim().toLowerCase();
     const folderHit = wf.length === 0 || group.cwd.toLowerCase().includes(wf);
@@ -1393,7 +1393,39 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     let pool = sf.length > 0 ? filterByQuery(group.sessions, sf) : group.sessions;
     if (anyTagFilterActive) pool = pool.filter(passesTagAxes);
     return pool.length > 0;
-  }
+  }, [workspaceFilter, sessionSearch, anyTagFilterActive, passesTagAxes]);
+
+  // Unpinned, non-workspace folders shown in the sidebar. Ended-only folders
+  // stay hidden by default, archived or not: a non-zero `endedTotals` entry
+  // (stub group) never reveals one on its own. Kept: an alive session
+  // (`g.sessions` is post-`filterSessions`, so a hidden one does not count),
+  // the selected session while no filter or Session search (archive search
+  // included) is active, the Folders/tag filters, and archive-search matches.
+  // Also feeds the empty-state gate. See change: fix-sidebar-folder-visibility.
+  const visibleUnpinned = useMemo(
+    () =>
+      visibleTopUnpinned.filter((g) => {
+        // Tag/phase active: folder visible iff ≥1 session passes ALL active
+        // narrowing axes (path + search + tag/phase), ENDED included — so an
+        // ended-only tag match still reveals the folder, and zero-match
+        // folders are hidden (no empty shell). See change: add-session-tags.
+        if (anyTagFilterActive) return folderMatchesFilters(g);
+        if (workspaceFilter.length > 0) {
+          // An archive match keeps a path-matching folder reachable even when
+          // no resident session matches the Session query.
+          const hasArchiveMatch = (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0;
+          return folderMatchesFilters(g) || (hasArchiveMatch && g.cwd.toLowerCase().includes(workspaceFilter.trim().toLowerCase()));
+        }
+        return (
+          g.sessions.some((s) => s.status !== "ended") ||
+          (sessionSearch.length === 0 && g.sessions.some((s) => s.id === selectedId)) ||
+          // Archive-search matches keep an otherwise-ended folder
+          // visible so their `Archive matches` section is reachable.
+          (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0
+        );
+      }),
+    [visibleTopUnpinned, anyTagFilterActive, workspaceFilter, sessionSearch, selectedId, archivedMatchesByGroup, folderMatchesFilters],
+  );
 
   /**
    * Force-expand folders when a filter is active so users can immediately
@@ -2004,6 +2036,33 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     const endedTotal = endedTotalsMap?.get(group.cwd) ?? 0;
     const heldEnded = heldEndedByCwd.get(group.cwd) ?? 0;
     const isStub = !folderHasSessions && endedTotal > 0;
+    // Include-archive search matches, shared by the full body and a stub body
+    // (an archive match can reveal a stub). See change: fix-sidebar-folder-visibility.
+    const renderArchiveMatches = () => {
+      const matches = archivedMatchesByGroup?.get(group.cwd);
+      if (!matches || matches.length === 0) return null;
+      return (
+        <div className="mt-1 flex flex-col gap-1" data-testid={`archive-matches-${group.cwd}`}>
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] px-2 py-0.5 select-none">
+            {t("sessionList.archiveMatches", { count: matches.length }, `Archive matches (${matches.length})`)}
+          </div>
+          {matches.map((item) => (
+            <ArchivedSessionRow
+              key={`am-${item.id}`}
+              item={item}
+              onRestore={(id) => {
+                handleUnarchive(id);
+                if (archiveSearchKey) retryArchived(archiveSearchKey);
+              }}
+              onDeleted={() => {
+                if (archiveSearchKey) retryArchived(archiveSearchKey);
+              }}
+              onOpen={openArchivedSession}
+            />
+          ))}
+        </div>
+      );
+    };
     // session-list-group-by: effective mode, header chip, and the lanes this
     // folder renders (null ⇒ plain list, identical DOM to `none`).
     const groupMode = groupByMode(group.cwd);
@@ -2425,6 +2484,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               onToggle={toggleEndedExpanded}
               onRequestPage={requestEndedPage}
             />
+            {renderArchiveMatches()}
           </div>
         )}
         {!isCollapsed && !isStub && (
@@ -2727,31 +2787,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               archived rows grouped by each item's server-resolved groupPath,
               rendered beneath the folder's resident matches. The tag/phase /
               activeOnly axes never apply to archived rows. */}
-          {(() => {
-            const matches = archivedMatchesByGroup?.get(group.cwd);
-            if (!matches || matches.length === 0) return null;
-            return (
-              <div className="mt-1 flex flex-col gap-1" data-testid={`archive-matches-${group.cwd}`}>
-                <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] px-2 py-0.5 select-none">
-                  {t("sessionList.archiveMatches", { count: matches.length }, `Archive matches (${matches.length})`)}
-                </div>
-                {matches.map((item) => (
-                  <ArchivedSessionRow
-                    key={`am-${item.id}`}
-                    item={item}
-                    onRestore={(id) => {
-                      handleUnarchive(id);
-                      if (archiveSearchKey) retryArchived(archiveSearchKey);
-                    }}
-                    onDeleted={() => {
-                      if (archiveSearchKey) retryArchived(archiveSearchKey);
-                    }}
-                    onOpen={openArchivedSession}
-                  />
-                ))}
-              </div>
-            );
-          })()}
+          {renderArchiveMatches()}
           {/* Per-folder `Archive (N)` fold (archive-sessions-lazy-load): below
               the ended fold, collapsed by default, dashed separator,
               left-aligned (drawer read). First expand lazily fetches page 1
@@ -3136,8 +3172,23 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         <WidgetBarProbe key={x.id} sessionId={x.id} onResult={onWidgetBarResult} />
       ))}
       <div aria-live="polite" className="sr-only" data-testid="lane-live-region">{laneAnnouncement}</div>
-      {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 && !stubGroupCwds ? (
-        <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
+      {visibleUnpinned.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
+        // Keep the dashboard add actions reachable when every folder is
+        // hidden, and name a filter-emptied list as such rather than as
+        // "No active sessions". See change: fix-sidebar-folder-visibility.
+        <div className="flex flex-col gap-2 p-2 pr-4">
+          {onOpenPinDialog && (
+            <DashboardSpawnButtons
+              onAddFolder={() => onOpenPinDialog?.()}
+              onNewWorkspace={onCreateWorkspace ? () => setNewWsOpen({ pendingFolder: null }) : undefined}
+            />
+          )}
+          <div className="p-2 text-sm text-[var(--text-tertiary)]">
+            {workspaceFilter.length > 0 || sessionSearch.length > 0 || anyTagFilterActive
+              ? t("sessionList.noMatchingFolders", undefined, "No matching folders")
+              : t("sessionList.noActiveSessions", undefined, "No active sessions")}
+          </div>
+        </div>
       ) : (
         // `measuring.droppable.strategy = Always`: spring-load mounts folder
         // droppables MID-DRAG, and the default `Optimized` strategy does not
@@ -3231,37 +3282,17 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               ))}
             </SortableContext>
           )}
-          {/* Eject affordance for the EMPTY pinned tier — mounted OUTSIDE the
-              gate above, which renders nothing exactly when it is needed.
-              Sole eject target in this case, so it never coexists with the
-              pinned groups. See design D4. */}
-          {visibleTopPinned.length === 0 && activeDragType === "workspace-folder" && (
-            <li><PinnedTierDropZone /></li>
-          )}
+          {/* Eject affordance for every workspace-folder drag, whether or not
+              pinned groups are visible (dropping on a pinned group ejects
+              too — same outcome, so the targets never conflict). Gate reads
+              dnd-kit's own `active`, not the mirrored `activeDragType`.
+              See change: fix-sidebar-folder-visibility (D2, D4). */}
+          <WorkspaceFolderEjectZone />
           {/* Gap between pinned and unpinned is handled by flex gap */}
-          {/* Unpinned directory groups: rendered when the user is
-              actively filtering folders, OR when the folder contains
-              at least one alive session (active / idle / streaming).
-              Folders with only ended sessions stay hidden by default to
-              keep the sidebar focused on workspaces the user is
-              currently working in.
-              See change: pin-and-search-sessions. */}
-          {visibleTopUnpinned
-            .filter((g) => {
-              // Tag/phase active: folder visible iff ≥1 session passes ALL active
-              // narrowing axes (path + search + tag/phase), ENDED included — so an
-              // ended-only tag match still reveals the folder, and zero-match
-              // folders are hidden (no empty shell). See change: add-session-tags.
-              if (anyTagFilterActive) return folderMatchesFilters(g);
-              return workspaceFilter.length > 0
-                ? folderMatchesFilters(g)
-                : g.sessions.some((s) => s.status !== "ended") ||
-                  (endedTotalsMap?.get(g.cwd) ?? 0) > 0 ||
-                  // Archive-search matches keep an otherwise-ended folder
-                  // visible so their `Archive matches` section is reachable.
-                  (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0;
-            })
-            .map((group) => renderGroupWithWorkspaceMenu(group, false))}
+          {/* Unpinned directory groups: see `visibleUnpinned` for the
+              visibility rule. See changes: pin-and-search-sessions,
+              fix-sidebar-folder-visibility. */}
+          {visibleUnpinned.map((group) => renderGroupWithWorkspaceMenu(group, false))}
         </ul>
         </DndContext>
       )}
@@ -3480,6 +3511,19 @@ function EndedExpanderRow({
       )}
     </div>
   );
+}
+
+/**
+ * Eject drop zone, mounted inside `<DndContext>` and the sidebar `<ul>`. Renders
+ * its own `<li>` only while a `workspace-folder` drag is active, so an idle
+ * sidebar gains no node or flex gap. Reads dnd-kit's `active` (reset when the
+ * provider remounts) rather than mirrored drag state.
+ * See change: fix-sidebar-folder-visibility (D2, D4).
+ */
+function WorkspaceFolderEjectZone() {
+  const { active } = useDndContext();
+  if (active?.data.current?.type !== "workspace-folder") return null;
+  return <li><PinnedTierDropZone /></li>;
 }
 
 function FolderDragGutter({

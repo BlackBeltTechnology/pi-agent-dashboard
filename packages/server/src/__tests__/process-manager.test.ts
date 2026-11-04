@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +17,10 @@ import {
   spawnTmux,
   spawnWslTmux,
 } from "../spawn-process/process-manager.js";
+import {
+  _resetSpawnEnvContributorsForTests,
+  registerSpawnEnvContributor,
+} from "../spawn-process/spawn-env-contributors.js";
 
 // Mock the exec module but keep the REAL buildSafeArgv (its win32/cmd branch
 // logic is what the WSL argv-shape assertion depends on) and the real
@@ -741,5 +748,46 @@ describe("spawn env: the server-proof marker (E19)", () => {
     const env = buildSpawnEnv({ PATH: "/usr/bin" }, { mechanism: "headless" });
     expect(env.PI_DASHBOARD_URL).toBe(`ws://localhost:${PORT}`);
     expect(env[MARKER]).toBeUndefined();
+  });
+});
+
+// test-plan #E11 — PWD is host-owned: a contributed PWD never becomes a tmux
+// `-e PWD=` entry, while a valid sibling contribution still does.
+// See change: fix-spawned-session-pwd.
+describe("tmux argv carries no contributed PWD (E11)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetSpawnEnvContributorsForTests();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    setResolver({
+      resolvePi: () => ["/usr/bin/node", "/opt/pi/dist/cli.js"],
+      resolveNode: () => "/usr/bin/node",
+      which: () => null,
+      buildSpawnEnv: (env: NodeJS.ProcessEnv) => env,
+    } as unknown as ToolResolver);
+  });
+  afterEach(() => {
+    _resetSpawnEnvContributorsForTests();
+    resetResolver();
+    vi.restoreAllMocks();
+  });
+
+  it("emits -e CTX_X=1 and no PWD= argv element", () => {
+    registerSpawnEnvContributor("p", () => ({ PWD: "/elsewhere", CTX_X: "1" }));
+    const T = fs.mkdtempSync(path.join(os.tmpdir(), "pm-tmux-pwd-"));
+    // No inherited PWD: the only way a contribution could otherwise be applied.
+    const savedPwd = process.env.PWD;
+    delete process.env.PWD;
+    try {
+      expect(spawnTmux(T).success).toBe(true);
+      const [, args] = mockExecFileSync.mock.calls[0];
+      const i = args!.indexOf("CTX_X=1");
+      expect(i).toBeGreaterThan(0);
+      expect(args![i - 1]).toBe("-e");
+      expect(args!.some((a) => a.startsWith("PWD="))).toBe(false);
+    } finally {
+      if (savedPwd !== undefined) process.env.PWD = savedPwd;
+      fs.rmSync(T, { recursive: true, force: true });
+    }
   });
 });

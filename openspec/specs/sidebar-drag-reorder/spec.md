@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change workspace-directory-drag-reorder. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Drag-to-reorder workspaces
 Users SHALL be able to reorder workspace containers in the sidebar by dragging a workspace by its header drag handle. On drop, the client SHALL send `{ type: "reorder_workspaces", ids }` with the full new ordering and rely on the server's `workspaces_updated` broadcast to reflect the change.
 
@@ -126,7 +128,23 @@ unpinned directory rows are out of scope.
 #### Scenario: Eject affordance exists when the pinned tier is empty
 - **WHEN** a workspace folder is dragged while no pinned directories are visible
 - **THEN** a dedicated pinned-tier drop area SHALL render with a visible drop indicator and a minimum height of 64px, so it is a real cursor target rather than a hairline
-- **AND** it SHALL NOT render while pinned directories are present, so there is only ever one eject target under the cursor
+
+#### Scenario: Eject zone renders alongside pinned directories
+- **GIVEN** at least one pinned directory is visible
+- **WHEN** a workspace folder is dragged
+- **THEN** the dedicated pinned-tier drop area SHALL render
+- **AND** dropping the folder on it SHALL send `move_folder_to_workspace` with `toWorkspaceId: null`
+- **AND** dropping the folder on a pinned directory SHALL still send the same message
+
+#### Scenario: Eject zone renders when a filter hides every pinned directory
+- **GIVEN** pinned directories exist but a sidebar filter hides all of them
+- **WHEN** a workspace folder is dragged
+- **THEN** the dedicated pinned-tier drop area SHALL render
+
+#### Scenario: Eject zone is absent for other drags and after the drag ends
+- **WHEN** a session, a workspace, or a pinned directory is dragged
+- **THEN** the dedicated pinned-tier drop area SHALL NOT render
+- **AND** after a workspace-folder drag is dropped, cancelled or aborted with Escape, the area SHALL no longer render
 
 #### Scenario: Ejecting runs the same directory discovery as pinning
 - **WHEN** a folder is ejected to the pinned tier
@@ -220,4 +238,3 @@ below the chevron SHALL remain a drag-activation surface for the same folder.
 
 - **WHEN** a user drags the gutter column below the chevron
 - **THEN** the folder reorder drag SHALL begin as before
-

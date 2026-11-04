@@ -4,6 +4,8 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/codeql-anchor-contract.test.ts` | Static contract on the CodeQL analysis anchor (#E19–#E25). → see `__tests__/codeql-anchor-contract.test.ts.AGENTS.md` |
+| `__tests__/codeql-baseline-gates.test.ts` | `operator-authz` reasons cite their bounding gate (#E1–#E16, #E32). → see `__tests__/codeql-baseline-gates.test.ts.AGENTS.md` |
 | `__tests__/codeql-workflow-contract.test.ts` | Static contract for `.github/workflows/codeql.yml` (#E1): matrix `actions`/`javascript-typescript`/`python`,… → see `__tests__/codeql-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
@@ -113,6 +115,7 @@ Files in this directory. One row per source file.
 | `pi-trust-mirror-types.ts` | Browser-safe types: `MirrorSourceKind`, `MirrorIgnoreReason`, `MirrorWithheldReason`, `MIRROR_REASON_LABELS`,… → see `pi-trust-mirror-types.ts.AGENTS.md` |
 | `pi-trust-mirror.ts` | Dashboard-trust → pi mirror shared core. `piTrustKey(path,{home})` = pi's trust-store key (realpath∘resolve,… → see `pi-trust-mirror.ts.AGENTS.md` |
 | `pi-trust-resource-digest.ts` | Remote folder proof, Node-only. `trustResourceManifest(cwd,{home,signal})` async walk of pi's trust-requiring… → see `pi-trust-resource-digest.ts.AGENTS.md` |
+| `pid-namespace.ts` | `buildPidNamespace(opts)`: single builder of pi process's pid-namespace report `{platform, kind:"host" \| "wsl", distro?, nsId?, hostId?}`. WSL from `WSL_DISTRO_NAME`. Linux `nsId` = `/proc/self/ns/pid` link, `hostId` = `/proc/sys/kernel/random/boot_id` (no hostname fallback). Non-Linux `hostId` = `os.hostname()`. Unreadable fields omitted; never throws; injectable `PidNamespaceOpts`. `processPidNamespace()` memoised per process. `buildServerPidContext()` → `ServerPidContext {platform, hostId?, nsId?}`. Node-only (fs/os): never import from client. See change: scope-pids-to-namespace. |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
 | `plugin-route-cwd.ts` | `admitRouteCwdParam(raw, {required, knownCwds, admitOptions})`: plugin-route cwd boundary — shape (non-string… → see `plugin-route-cwd.ts.AGENTS.md` |
 | `project-name.ts` | Portable project-name rules + `isPortableProjectName` guard. → see `project-name.ts.AGENTS.md` |

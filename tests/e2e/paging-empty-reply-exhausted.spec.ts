@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { connectBus, expect, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { gotoDashboard, setSearch } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
@@ -204,6 +204,10 @@ test.describe("ended paging never dead-ends on the same offset (F8)", () => {
     // socket CREATION only.
     const pageRequests = collectPageRequests(page, STUB_DIR_CWD);
     await gotoDashboard(page);
+    // An unpinned stub is hidden by default; the Folders filter reveals it and
+    // keeps it revealed across the pin/unpin staging below.
+    // See change: fix-sidebar-folder-visibility.
+    await setSearch(page, "folders", "stub-dir");
 
     const toggle = page.getByTestId(`folder-ended-toggle-${STUB_DIR_CWD}`);
     await expect(toggle).toBeVisible({ timeout: 30_000 });

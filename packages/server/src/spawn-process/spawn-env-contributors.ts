@@ -32,7 +32,8 @@ interface Entry {
 }
 
 const NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
-const DENY_EXACT = new Set(["PATH", "HOME", "USERPROFILE", "SHELL", "CONTEXT_MODE_EMBEDDED_PLUGIN_TOOLS"]);
+// `PWD` is host-set from the spawn cwd (see change: fix-spawned-session-pwd, D1b).
+const DENY_EXACT = new Set(["PATH", "HOME", "USERPROFILE", "SHELL", "PWD", "CONTEXT_MODE_EMBEDDED_PLUGIN_TOOLS"]);
 const DENY_PREFIXES = ["NODE_", "LD_", "DYLD_", "PI_DASHBOARD_", "ELECTRON_", "CONTEXT_MODE_BRIDGE_"];
 
 const contributors = new Set<Entry>();

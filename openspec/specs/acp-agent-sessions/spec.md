@@ -47,7 +47,7 @@ ACP handling SHALL be implemented once, in an adapter core that exchanges only b
 - **THEN** registration, contention, heartbeat and disconnect handling SHALL behave exactly as before
 
 ### Requirement: ACP spawn routing
-A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a configured `agent` id SHALL start the in-process host when the agent is not durable. For a durable agent it SHALL spawn a headless keeper session (regardless of the configured spawn strategy) whose child is the acp-bridge adapter (`[<node binary>, <server>/bin/acp-bridge.mjs, "--agent", <id>]`), without resolving pi, without pi argv shaping, and using an ACP preflight (cwd valid, node and agent command resolvable) instead of the pi/tmux preflight. It SHALL reuse the existing spawn token, headless PID registry, register watchdog and spawn-error surfacing. Spawn requests without `agent` SHALL behave exactly as before.
+A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a configured `agent` id SHALL start the in-process host when the agent is not durable. For a durable agent it SHALL spawn a headless keeper session (regardless of the configured spawn strategy) whose child is the acp-bridge adapter (`[<node binary>, <server>/bin/acp-bridge.mjs, "--agent", <id>]`), without resolving pi, without pi argv shaping, and using an ACP preflight (cwd valid, node and agent command resolvable) instead of the pi/tmux preflight. It SHALL reuse the existing spawn token, headless PID registry, register watchdog and spawn-error surfacing. Spawn requests without `agent` SHALL behave exactly as before, apart from the cwd-derived `PWD` the headless-spawn capability sets in every spawn env.
 
 #### Scenario: Non-durable agent starts in-process
 - **WHEN** the user spawns agent `qmt` configured without `durable`
@@ -61,7 +61,7 @@ A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a c
 
 #### Scenario: Spawn without agent unchanged
 - **WHEN** a spawn request has no `agent`
-- **THEN** the spawned process, arguments, environment and preflight SHALL be identical to the pre-change behaviour
+- **THEN** the spawned process, arguments, environment and preflight SHALL be identical to the pre-change behaviour, apart from the cwd-derived `PWD` (headless-spawn capability)
 
 ### Requirement: Adapter launches the agent safely
 The adapter SHALL read the agent definition from the dashboard config by id and launch `command` with `args` (default `[]`) as an argv array, never through a shell, in the session cwd; on Windows a `.cmd` or `.bat` command SHALL be rejected with a clear error. The child environment SHALL contain only allowlisted variables from the adapter environment (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`, `TZ`, `SystemRoot`, `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `ComSpec`, `PATHEXT`) plus the agent's configured `env`; no `PI_*`, `ELECTRON_*` or `NODE_OPTIONS` variable SHALL be present even if configured.

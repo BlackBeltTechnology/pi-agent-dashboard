@@ -23,6 +23,8 @@
  */
 import type { EmbedLifecycleConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { resolvePidTarget, type ServerPidContext } from "../session/pid-target.js";
+import { getServerPidContext } from "../session/server-pid-context.js";
 import type { TerminateResult } from "../spawn-process/session-terminator.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import {
@@ -68,6 +70,9 @@ export interface ReaperDeps {
   giveUp?: ReclaimGiveUpTracker;
   /** Injectable clock. */
   now?: () => number;
+  /** The server's pid namespace (test seam). See change: scope-pids-to-namespace. */
+  pidContext?: ServerPidContext;
+  resolvePidTarget?: typeof resolvePidTarget;
   /**
    * Closer of the plugin that declared a session's close policy (undefined ⇒
    * none registered ⇒ close). See change: add-session-close-plugin-hook.
@@ -151,10 +156,15 @@ export function createIdleReaper(deps: ReaperDeps): IdleReaper {
   let timer: ReturnType<typeof setInterval> | undefined;
 
   async function assembleSignals(s: DashboardSession): Promise<LifecycleSignals> {
+    // Probe only a `host`-target pid: another namespace's pid number names an
+    // unrelated local process (or none). Non-host ⇒ the probe is unavailable,
+    // which reads as "not idle" below. See change: scope-pids-to-namespace (D3).
+    const ctx = deps.pidContext ?? getServerPidContext();
+    const isHost =
+      typeof s.pid === "number" &&
+      (deps.resolvePidTarget ? deps.resolvePidTarget(s, ctx) : resolvePidTarget(s, ctx)).kind === "host";
     const probeSnap =
-      typeof s.pid === "number"
-        ? await deps.probe(s.pid)
-        : { ok: false, childCount: 0, cpuPercent: 0 };
+      isHost && typeof s.pid === "number" ? await deps.probe(s.pid) : { ok: false, childCount: 0, cpuPercent: 0 };
     const q = deps.queueCounts(s.id);
     return {
       lifecyclePolicy: s.lifecyclePolicy,

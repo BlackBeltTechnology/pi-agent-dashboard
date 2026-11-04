@@ -124,7 +124,9 @@ describe("CanvasDriver — target withheld by the mobile gate opens once the vie
 });
 
 // ---------------------------------------------------------------------------
-// Floating chip tray (change: fix-canvas-chip-tray-overlay, test-plan #E3-#E6)
+// Chip tray: in-column slot above the composer dock, fixed overlay fallback.
+// Test-plan #E12-#E18, #X1, #F18. See change: fix-chat-transcript-layout (D5);
+// was fix-canvas-chip-tray-overlay (#E3/#E5 kept for the fallback).
 // ---------------------------------------------------------------------------
 
 const chipState: CanvasState = {
@@ -133,36 +135,20 @@ const chipState: CanvasState = {
 };
 
 function renderTray(state: CanvasState, anchor?: HTMLElement | null) {
-  return render(
+  const ui = (a: HTMLElement | null | undefined) => (
     <SplitWorkspaceProvider sessionId="sTray" cwd="/proj" orientation="h">
-      <CanvasDriver state={state} anchor={anchor} />
-    </SplitWorkspaceProvider>,
+      <Probe />
+      <CanvasDriver state={state} anchor={a} />
+    </SplitWorkspaceProvider>
   );
+  const r = render(ui(anchor));
+  return { ...r, rerenderAnchor: (a: HTMLElement | null | undefined) => r.rerender(ui(a)) };
 }
 
-describe("CanvasDriver — floating chip tray", () => {
-  const origRO = globalThis.ResizeObserver;
-  let roCallbacks: Array<() => void>;
-  let roObserve: ReturnType<typeof vi.fn>;
-  let roDisconnect: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    roCallbacks = [];
-    roObserve = vi.fn();
-    roDisconnect = vi.fn();
-    class FakeRO {
-      constructor(cb: () => void) {
-        roCallbacks.push(cb);
-      }
-      observe = roObserve;
-      unobserve = vi.fn();
-      disconnect = roDisconnect;
-    }
-    globalThis.ResizeObserver = FakeRO as unknown as typeof ResizeObserver;
-  });
+describe("CanvasDriver — chip tray slot", () => {
   const anchorHosts: HTMLElement[] = [];
   afterEach(() => {
-    globalThis.ResizeObserver = origRO;
+    vi.restoreAllMocks();
     // Only remove what this suite created — RTL cleanup owns the portal node.
     for (const h of anchorHosts.splice(0)) h.remove();
   });
@@ -170,56 +156,38 @@ describe("CanvasDriver — floating chip tray", () => {
   function makeAnchor() {
     const parent = document.createElement("div");
     const anchor = document.createElement("div");
-    const sibling = document.createElement("div");
-    parent.append(anchor, sibling);
+    anchor.setAttribute("data-testid", "composer-stack-anchor");
+    parent.append(anchor, document.createElement("div"));
     document.body.append(parent);
     anchorHosts.push(parent);
     return anchor;
   }
 
-  it("#E3: no anchor → portaled to body, safe-area fallback bottom, visible", () => {
+  it("#E12: anchor set (split closed/split) → tray in the slot, in flow, with a bottom gap", () => {
+    const anchor = makeAnchor();
+    renderTray(chipState, anchor);
+    const tray = screen.getByTestId("canvas-chip-tray");
+    expect(anchor.contains(tray)).toBe(true);
+    expect(tray.parentElement).not.toBe(document.body);
+    expect(tray.className).not.toContain("fixed");
+    expect(tray.style.bottom).toBe("");
+    expect(tray.style.right).toBe("");
+    expect(tray.className.split(/\s+/)).toContain("pb-3");
+    expect(api?.split.mode).toBe("closed");
+    act(() => api?.setMode("split"));
+    expect(anchor.contains(screen.getByTestId("canvas-chip-tray"))).toBe(true);
+  });
+
+  it("#E13/#E3: no anchor → portaled to body, fixed, safe-area fallback bottom, visible", () => {
     renderTray(chipState);
     const tray = screen.getByTestId("canvas-chip-tray");
     expect(tray.parentElement).toBe(document.body);
+    expect(tray.className).toContain("fixed");
     expect(tray.style.bottom).toBe("calc(1rem + env(safe-area-inset-bottom))");
     expect(tray.style.visibility).not.toBe("hidden");
   });
 
-  it("#E4: anchor set but unmeasured → hidden, then visible with numeric bottom", () => {
-    const anchor = makeAnchor();
-    renderTray(chipState, anchor);
-    const tray = screen.getByTestId("canvas-chip-tray");
-    expect(tray.style.visibility).toBe("hidden");
-
-    act(() => {
-      for (const cb of roCallbacks) cb();
-    });
-    expect(tray.style.visibility).not.toBe("hidden");
-    expect(tray.style.bottom).toMatch(/^-?\d+(\.\d+)?px$/);
-  });
-
-  it("B1: the anchor's parent (the chat pane) is observed, so a pane resize re-measures", () => {
-    const anchor = makeAnchor();
-    const parent = anchor.parentElement as HTMLElement;
-    renderTray(chipState, anchor);
-    const observed = roObserve.mock.calls.map((c) => c[0]);
-    // Rows after the sentinel AND the pane itself: the pane can move the stack's
-    // top edge without any stack row resizing.
-    expect(observed).toContain(anchor);
-    expect(observed).toContain(anchor.nextElementSibling);
-    expect(observed).toContain(parent);
-  });
-
-  it("B1 (r2): rows BEFORE the sentinel are observed too, so an in-place resize re-measures", () => {
-    const anchor = makeAnchor();
-    const parent = anchor.parentElement as HTMLElement;
-    const before = document.createElement("div");
-    parent.insertBefore(before, anchor);
-    renderTray(chipState, anchor);
-    expect(roObserve.mock.calls.map((c) => c[0])).toContain(before);
-  });
-
-  it("#E5: tray ignores pointer input, chips take it", () => {
+  it("#E5: fallback tray ignores pointer input, chips take it", () => {
     tier = "mobile";
     renderTray({ ...chipState, target: { kind: "file", cwd: "/proj", path: "a.md" }, version: 1 });
     expect(screen.getByTestId("canvas-chip-tray").className).toContain("pointer-events-none");
@@ -227,25 +195,117 @@ describe("CanvasDriver — floating chip tray", () => {
     expect(screen.getByTestId("canvas-server-chip").className).toContain("pointer-events-auto");
   });
 
-  it("#E6: jsdom without visualViewport — mount/unmount cleans every listener/observer", () => {
-    expect(window.visualViewport ?? undefined).toBeUndefined();
+  it("#E14: full-editor mode hides the chat pane → fallback overlay; split → back in the slot", () => {
+    const anchor = makeAnchor();
+    renderTray(chipState, anchor);
+    act(() => api?.setMode("full"));
+    let tray = screen.getByTestId("canvas-chip-tray");
+    expect(anchor.contains(tray)).toBe(false);
+    expect(tray.parentElement).toBe(document.body);
+    expect(tray.className).toContain("fixed");
+    act(() => api?.setMode("split"));
+    tray = screen.getByTestId("canvas-chip-tray");
+    expect(anchor.contains(tray)).toBe(true);
+    act(() => api?.setMode("closed"));
+    expect(anchor.contains(screen.getByTestId("canvas-chip-tray"))).toBe(true);
+  });
+
+  it("#E15: chips in the slot stay in the accessibility tree", () => {
+    const anchor = makeAnchor();
+    renderTray(chipState, anchor);
+    const chip = screen.getByRole("button", { name: /Dev server/ });
+    expect(anchor.contains(chip)).toBe(true);
+    expect(anchor.closest("[aria-hidden]")).toBe(null);
+  });
+
+  it("#E17: the slot path creates no ResizeObserver / MutationObserver / viewport listener", () => {
+    const ro = vi.fn();
+    const mo = vi.fn();
+    const origRO = globalThis.ResizeObserver;
+    const origMO = globalThis.MutationObserver;
+    globalThis.ResizeObserver = class {
+      constructor() {
+        ro();
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    globalThis.MutationObserver = class {
+      constructor() {
+        mo();
+      }
+      observe() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    } as unknown as typeof MutationObserver;
     const added: string[] = [];
-    const removed: string[] = [];
-    const add = vi.spyOn(window, "addEventListener").mockImplementation((t: string) => {
+    vi.spyOn(window, "addEventListener").mockImplementation((t: string) => {
       added.push(t);
     });
-    const rem = vi.spyOn(window, "removeEventListener").mockImplementation((t: string) => {
-      removed.push(t);
-    });
-    const anchor = makeAnchor();
-    const { unmount } = renderTray(chipState, anchor);
-    expect(() => unmount()).not.toThrow();
-    const ours = added.filter((t) => t === "resize");
-    expect(ours.length).toBeGreaterThan(0);
-    for (const t of ours) expect(removed).toContain(t);
-    expect(removed.filter((t) => t === "resize")).toHaveLength(ours.length);
-    expect(roDisconnect).toHaveBeenCalled();
-    add.mockRestore();
-    rem.mockRestore();
+    try {
+      const anchor = makeAnchor();
+      const { unmount } = renderTray(chipState, anchor);
+      unmount();
+      expect(ro).not.toHaveBeenCalled();
+      expect(mo).not.toHaveBeenCalled();
+      expect(added).not.toContain("resize");
+    } finally {
+      globalThis.ResizeObserver = origRO;
+      globalThis.MutationObserver = origMO;
+    }
   });
+
+  /**
+   * @structural-pin E18: the App's live-composer guard (`!frozen && !readOnly`) around the chip slot cannot be rendered in isolation (App needs the full server/session harness); the guard is pinned on the source text.
+   */
+  it("#E18: a frozen / read-only composer column never renders the slot (App guard)", async () => {
+    // The App renders the slot ONLY for a live composer, so a frozen underlay or a
+    // read-only session leaves `anchor` null → fallback overlay (covered by #E13).
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.resolve(__dirname, "../../App.tsx"), "utf8");
+    const slot = src.indexOf('data-testid="composer-stack-anchor"');
+    expect(slot).toBeGreaterThan(0);
+    const guard = src.lastIndexOf("{!frozen && !readOnly && (", slot);
+    expect(guard).toBeGreaterThan(0);
+    expect(slot - guard).toBeLessThan(200);
+    renderTray(chipState, null);
+    expect(screen.getByTestId("canvas-chip-tray").parentElement).toBe(document.body);
+  });
+
+  it("#X1: the anchor going away while a chip is live moves the tray to the fallback", () => {
+    const anchor = makeAnchor();
+    const { rerenderAnchor } = renderTray(chipState, anchor);
+    expect(anchor.contains(screen.getByTestId("canvas-chip-tray"))).toBe(true);
+    rerenderAnchor(null); // must not throw
+    const tray = screen.getByTestId("canvas-chip-tray");
+    expect(tray.parentElement).toBe(document.body);
+    expect(screen.getAllByTestId("canvas-server-chip")).toHaveLength(1);
+  });
+
+  it("#F18: the fallback tray sits on the overlay layer, below toasts/dialogs", () => {
+    renderTray(chipState);
+    const tray = screen.getByTestId("canvas-chip-tray");
+    expect(tray.className).toContain("z-overlay");
+    expect(tray.className).not.toMatch(/z-(toast|modal|dialog|popover)/);
+    expect(tray.className).toContain("pointer-events-none");
+  });
+});
+
+describe("CanvasServerChip — long path truncates (#E16)", () => {
+  for (const p of ["", `/${"x".repeat(120)}`]) {
+    it(`address span truncates (path length ${p.length})`, () => {
+      renderTray({ ...EMPTY_CANVAS_STATE, chip: { kind: "server", port: 4321, title: "Dev", path: p } as CanvasState["chip"] });
+      const chip = screen.getByTestId("canvas-server-chip");
+      const spans = chip.querySelectorAll(":scope > span");
+      const address = spans[spans.length - 1] as HTMLElement;
+      expect(address.className).toContain("min-w-0");
+      expect(address.className).toContain("truncate");
+      expect(address.className).not.toContain("shrink-0");
+      expect((spans[0] as HTMLElement).className).toContain("truncate");
+    });
+  }
 });

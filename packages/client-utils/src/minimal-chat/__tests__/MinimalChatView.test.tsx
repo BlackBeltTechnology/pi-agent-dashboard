@@ -96,14 +96,27 @@ describe("MinimalChatView", () => {
         <MinimalChatView title="a" status="running" entries={[]} mode="inline" />,
       );
       const root = container.firstElementChild as HTMLElement;
-      // Inline mode now uses a STABLE `h-[60vh]` (not `max-h-[60vh]`) so the
-      // container doesn't bounce as content streams in. The body's
-      // `flex-1 min-h-0 overflow-y-auto` provides the scroll surface.
-      // See change: fix-flows-plugin-polish (stable inline height).
-      expect(root.className).toContain("h-[60vh]");
-      expect(root.className).not.toContain("max-h-[60vh]");
+      // Inline mode sizes to its content, capped at `max-h-[60vh]` (no fixed
+      // height → no blank area under short content). The body's
+      // `flex-1 min-h-0 overflow-y-auto` scrolls at the cap.
+      // Test-plan #E9. See change: fix-chat-transcript-layout (D3).
+      expect(root.className).toContain("max-h-[60vh]");
+      expect(root.className.split(/\s+/)).not.toContain("h-[60vh]");
+      expect(root.className.split(/\s+/).some((c) => /^h-/.test(c))).toBe(false);
     }
     cleanup();
+    for (const props of [
+      { entries: [{ kind: "text" as const, text: "short" }] },
+      { entries: [], liveEntry: { kind: "text" as const, text: "streaming…" } },
+    ]) {
+      const { container } = renderView(
+        <MinimalChatView title="a" status="running" mode="inline" {...props} />,
+      );
+      const classes = (container.firstElementChild as HTMLElement).className.split(/\s+/);
+      expect(classes).toContain("max-h-[60vh]");
+      expect(classes.some((c) => /^h-/.test(c))).toBe(false);
+      cleanup();
+    }
     {
       const { container } = renderView(
         <MinimalChatView title="a" status="running" entries={[{ kind: "text", text: "body" }]} mode="row" activity="reading" />,

@@ -149,8 +149,9 @@ export const CHAT_PANE_ROW_TABLE: Record<string, ChatPaneRowSpec> = {
     rowClass: "fixed",
     bound: "content",
   },
-  // Zero-height sentinel anchoring the floating canvas chip tray; adds no height.
-  // See change: fix-canvas-chip-tray-overlay.
+  // Content-height canvas chip slot above the composer dock (0 px while no chip);
+  // CanvasDriver portals the chip tray into it. See change: fix-chat-transcript-layout
+  // (was fix-canvas-chip-tray-overlay: zero-height sentinel).
   "composer-stack-anchor": {
     rowClass: "fixed",
     bound: "content",

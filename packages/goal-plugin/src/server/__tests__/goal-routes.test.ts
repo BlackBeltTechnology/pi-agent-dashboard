@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { format } from "node:util";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decorateGoalsWithSpend } from "../decorate-goals-spend.js";
@@ -60,7 +61,7 @@ describe("goal REST routes", () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });
 
-  async function setup(spawnGoalSession?: any, sessionManager?: any) {
+  async function setup(spawnGoalSession?: any, sessionManager?: any, extra: Record<string, unknown> = {}) {
     fastify = Fastify();
     registerGoalRoutes(fastify, {
       sessionManager: sessionManager ?? makeSessionManager(cwd),
@@ -70,6 +71,7 @@ describe("goal REST routes", () => {
       applyGoalIdToSession: (sessionId, goalId) => applied.push({ sessionId, goalId }),
       primeGoalSession: (sessionId, goal) => primed.push({ sessionId, objective: goal.objective }),
       ...(spawnGoalSession ? { spawnGoalSession } : {}),
+      ...extra,
     });
     await fastify.ready();
   }
@@ -208,6 +210,65 @@ describe("goal REST routes", () => {
     expect(res.statusCode).toBe(200);
     expect(await store.list(cwd)).toEqual([]);
     expect(applied).toContainEqual({ sessionId: "s1", goalId: null });
+  });
+
+  // #E27–#E29: a path-param id never becomes the console format string (CodeQL
+  // js/tainted-format-string). See change: fix-codeql-baseline-coverage.
+  describe("DELETE abort-failure warning", () => {
+    const rejectingAbort = async () => {
+      throw new Error("boom");
+    };
+    let warnings: unknown[][];
+    let origWarn: typeof console.warn;
+    beforeEach(() => {
+      warnings = [];
+      origWarn = console.warn;
+      console.warn = (...args: unknown[]) => void warnings.push(args);
+    });
+    afterEach(() => {
+      console.warn = origWarn;
+    });
+
+    it("#E27 %s in the id does not consume the error argument", async () => {
+      // Ids are server-minted; stub delete so the hostile id reaches the success path.
+      const deleted: string[] = [];
+      const stubStore = { ...store, delete: async (_c: string, id: string) => (deleted.push(id), []) };
+      await setup(undefined, undefined, { abortGoalSupervision: rejectingAbort, store: stubStore });
+      const res = await fastify.inject({ method: "DELETE", url: `/api/folders/goals/abc%25s%25d?${q()}` });
+      expect(deleted).toEqual(["abc%s%d"]);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.payload)).toEqual({ success: true });
+      expect(warnings).toHaveLength(1);
+      const [fmt, ...args] = warnings[0]!;
+      expect(typeof fmt).toBe("string");
+      expect(fmt as string).toContain("%s");
+      expect(fmt as string).not.toContain("abc");
+      expect(args[0]).toBe("abc%s%d");
+      expect(args[1]).toBeInstanceOf(Error);
+      const out = format(...(warnings[0] as [string, ...unknown[]]));
+      expect(out).toContain("abc%s%d");
+      expect(out).toContain("boom");
+    });
+
+    it("#E28 a normal id is logged with the error text", async () => {
+      await setup(undefined, undefined, { abortGoalSupervision: rejectingAbort });
+      const g = await store.create(cwd, { objective: "x" });
+      const res = await fastify.inject({ method: "DELETE", url: `/api/folders/goals/${g.id}?${q()}` });
+      expect(res.statusCode).toBe(200);
+      expect(await store.list(cwd)).toEqual([]);
+      expect(warnings).toHaveLength(1);
+      const out = format(...(warnings[0] as [string, ...unknown[]]));
+      expect(out).toContain(g.id);
+      expect(out).toContain("boom");
+    });
+
+    it("#E29 no abort hook → no warning, delete succeeds", async () => {
+      await setup();
+      const g = await store.create(cwd, { objective: "x" });
+      const res = await fastify.inject({ method: "DELETE", url: `/api/folders/goals/${g.id}?${q()}` });
+      expect(res.statusCode).toBe(200);
+      expect(warnings).toEqual([]);
+    });
   });
 
   it("POST sessions → links existing session + stamps goalId", async () => {

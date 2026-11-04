@@ -1,10 +1,12 @@
 import { expect, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { gotoDashboard, setSearch } from "./helpers/index.js";
 
 /**
  * Browser E2E — STUB GROUP EXPANDER & ENDED SESSION PAGING.
  *
- * Covers task 8.4 (Test F3) of change `fix-connect-snapshot-frame-loss`.
+ * Covers task 8.4 (Test F3) of change `fix-connect-snapshot-frame-loss`, and
+ * test-plan #F6 of change `fix-sidebar-folder-visibility`: the seeded stub dir
+ * is UNPINNED, so it is hidden by default until a Folders filter reveals it.
  *
  * - F3: Harness seeded with one dir whose only session ended before the
  *   window (PI_E2E_SEED fixture with > 120 ended sessions elsewhere).
@@ -24,7 +26,15 @@ test.describe("stub group expander & paging (F3)", () => {
     // 1. Arrange: Go to dashboard. Stub dir is seeded outside the window.
     await gotoDashboard(page);
 
+    // #F6: an unpinned stub group is hidden by default (endedTotals alone
+    // never reveals it)…
     const header = page.getByTestId(`folder-home-row-${STUB_DIR_CWD}`);
+    await expect(page.getByTestId("header-app-bar")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`folder-ended-toggle-${STUB_DIR_CWD}`)).toHaveCount(0);
+    await expect(header).toHaveCount(0);
+
+    // …until a Folders filter reveals it.
+    await setSearch(page, "folders", "stub-dir");
     await expect(header).toBeVisible({ timeout: 30_000 });
 
     // The stub group header renders with an ended expander

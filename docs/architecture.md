@@ -597,10 +597,14 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 
 **1. Retry ownership & settings.**
 
-- Pi `RetrySettings` = `{ enabled, maxRetries, baseDelayMs, provider: {timeoutMs, maxRetries, maxRetryDelayMs} }`.
-- Session-layer delay = `baseDelayMs * 2^(attempt-1)`. Uncapped. No ceiling.
+- Pi `RetrySettings` = `{ enabled, maxRetries, baseDelayMs, maxAgentDelayMs, provider: {timeoutMs, maxRetries, maxRetryDelayMs} }`.
+- Session-layer delay = pi-ai `retryDelayMs`: `min(baseDelayMs * 2^max(0,attempt-1), maxAgentDelayMs ?? 60000)`.
+- Unsafe product saturates to `MAX_SAFE_INTEGER`. Capped.
+- Present since pi-ai 1.3.0 (extension peer floor). Call site: pi `AgentSession._prepareRetry`.
+- Hidden cap made raised `baseDelayMs` look ignored past the cap. Old dashboard countdown used uncapped copy → showed e.g. 1382 s while pi slept 60 s. Fixed by change fix-retry-delay-cap.
 - `retry.maxDelayMs` REMOVED from session layer. pi migrates to `retry.provider.maxRetryDelayMs` (different layer, different semantics).
-- Overshoot consequence: next attempt lands ~2x elapsed. Scale-invariant. Tuning `baseDelayMs` shifts which attempt lands where, never the ratio.
+- Overshoot consequence: next attempt lands ~2x elapsed. Holds only below the cap. Once `base*2^(n-1) > maxAgentDelayMs` every wait = cap (constant).
+- Scale-invariant below cap. Tuning `baseDelayMs` shifts which attempt lands where, never the ratio.
 - Dashboard runs NO retry loop. Raising `retry.maxRetries` is the whole "retry forever" mechanism.
 - `resume mode:"continue"` cannot re-drive live turn (refused `resume.already_active`). For ended session resolves to `pi --session <file>` which reopens IDLE + drives no turn. No re-drive mechanism exists — none needed, since pi never settles turn while budget remains.
 
@@ -611,18 +615,25 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - New rules: error `message_end` records pending error text → emits nothing. Error `agent_end` = attempt over + another coming → emits `auto_retry_start` + `auto_retry_waiting` (carries `attempt`, `delayMs`, `nextAttemptAt`), does NOT clear chain. `agent_settled` = SOLE terminal → emits `auto_retry_end`, clears chain.
 - Waiting signal suppressed once `attempt >= maxAttempts`.
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
-- `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
+- `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000 / cap 60000).
+- `pi-retry-settings.ts` reads `retry.maxAgentDelayMs` (any finite number; project overrides global).
+- `delayMs` from pi-ai `retryDelayMs` installed via `installPiAiDelayFn(tracker)` (fire-and-forget dynamic import, rejection swallowed); else local mirror `cappedDelay`.
+- Guard in `delayFor`: base `<=0` or attempt `<1` → 0.
+- fn throw / non-number / non-finite → `cappedDelay`.
+- Final negative or non-finite → 0 (elapsed-only).
+- Parity test `packages/extension/src/__tests__/retry-delay-parity.test.ts` asserts mirror == pi-ai across grid.
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
 - Native `agent_settled` guaranteed at the 1.3.0 lockstep floor (`piCompatibility.minimum == recommended == 1.3.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 - Bridge follow-up drain (`bridgeFollowUp`) triggers on `agent_settled`, not `agent_end`. Forwarder schedules `drainFollowupQueue()` via `setTimeout(0)`; pi clears run-active before `agent_settled`, so `isIdle()` is true. No retry loop: a false `isIdle()` returns, the next `agent_settled` drains. Gate sequence: `packages/extension/src/followup-drain.ts`. See change: update-pi-core-1-3-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
-- Reads/writes all SIX native fields: `retry.{enabled,maxRetries,baseDelayMs}` + `retry.provider.{timeoutMs,maxRetries,maxRetryDelayMs}` in GLOBAL `~/.pi/agent/settings.json`. Blank `provider.timeoutMs` OMITTED on write (never `0`/`null`).
+- Reads/writes all SEVEN native fields: `retry.{enabled,maxRetries,baseDelayMs,maxAgentDelayMs}` (`maxAgentDelayMs` default 60000) + `retry.provider.{timeoutMs,maxRetries,maxRetryDelayMs}` in GLOBAL `~/.pi/agent/settings.json`. Blank `provider.timeoutMs` OMITTED on write (never `0`/`null`).
 - Write is MERGE-PRESERVING: every other key survives, including `retry.provider.*`.
 - Project `<cwd>/.pi/settings.json` NEVER written.
 - Distinct from `config-api.ts`, which writes dashboard's own `~/.pi/dashboard/config.json`.
-- Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer. Invalid → nothing written.
+- Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer; `maxAgentDelayMs` non-negative integer (0 = no wait, legal). Invalid → nothing written.
+- Preview `computeSchedule(maxRetries, base, cap)` in `packages/client/src/components/settings/RetrySettingsSection.tsx` uses capped curve. O(1) past cap (closed-form remainder). `retry-cap-notice` names first capped attempt.
 - No UI cap on `maxRetries`; long tail WARNED, never capped.
 - REST: `GET/PUT /api/pi-retry` (`packages/server/src/routes/pi-retry-routes.ts`), auth-gated by same network guard as `/api/config`.
 - pi reads settings only at session construction. Write alone inert for running sessions.
@@ -630,7 +641,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - Target set = `reloadTargetSessionIds` = `piGateway.getConnectedSessionIds()` ∪ `headlessPidRegistry.listSessions()`.
 - Connected-only set missed headless sessions with dead bridge WS. See change: fix-out-of-band-reload.
 - Failed write reloads nothing.
-- **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 3 fields (`enabled`, `maxRetries`, `baseDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
+- **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 4 fields (`enabled`, `maxRetries`, `baseDelayMs`, `maxAgentDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
 - Enclosing section titled "Retry".
 - NO private Save button. Registers with panel unified-Save draft registry via `useSettingsDraftSource({id:"pi-retry", page:"sessions", isDirty, commit, reset})`. See change: unify-settings-save-contract.
 - Consequences: one Save commits every dirty store. Sessions nav shows per-page dirty dot. Leave guard offers Save / Discard / Cancel.
@@ -1159,7 +1170,7 @@ First-party slots (React, possibly also descriptor):
 ```mermaid
 flowchart TB
   CV["ChatView (shrinkable)"] --> SB["SessionBanner (fixed)"]
-  SB --> AN["composer-stack-anchor (fixed, 0 px)"]
+  SB --> AN["composer-stack-anchor (fixed, content-height chip slot)"]
   AN --> DK
   subgraph DK["composer-dock (shrinkable)"]
     direction TB
@@ -1168,6 +1179,8 @@ flowchart TB
   end
   DK --> CI["CommandInput card: textarea + one toolbar row"]
 ```
+
+- `composer-stack-anchor` = canvas chip slot (`shrink-0 mx-5`, 0 px while no chip). `CanvasDriver` portals chip tray into it while live composer + chat pane visible. No live composer or `full` editor mode → fixed bottom-right overlay fallback. See change: fix-chat-transcript-layout.
 
 - Sibling of `CommandInput`, never inside it. Mounted by `ComposerDockHost.tsx` (hook boundary for `App.tsx`; also `DirectoryHomeView.tsx`). Visual join CSS only: `mx-5` inset (8px inside card edges, drawer look), `-mb-6 pb-6` tucks bottom edge 12px under card; `composer-root` drops its full-width `border-t` while dock visible (index.css sibling rule). team-app `ChatPane` embeds `CommandInput` bare: no dock.
 - Nothing renders for `readOnly` (archived) views or when no lane and no YOLO footer.

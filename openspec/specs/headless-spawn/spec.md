@@ -64,21 +64,21 @@ The cleanup SHALL run on dashboard server startup BEFORE any new keepers are spa
 - **AND** the session SHALL not be registered as RPC-dispatch-ready
 
 ### Requirement: Process group kill for headless agents
-When terminating a headless agent (via `killBySessionId`, `killAll`, or orphan cleanup), the server SHALL escalate from SIGTERM to SIGKILL if the pi process does not exit within a 2-second grace window. On Unix the escalation SHALL target the entire process group via `process.kill(-pid, "SIGKILL")`; on Windows it SHALL use `taskkill /F /T /PID <pid>` (force, tree). The escalation SHALL be implemented by delegating to the shared platform helper `killProcess(pid, { timeoutMs: 2000 })` in `packages/shared/src/platform/process.ts` — `killBySessionId` SHALL NOT issue raw `SIGTERM`-only kills against pi.
+When terminating a headless agent (via `killBySessionId`, `killAll`, or orphan cleanup), the server SHALL escalate from SIGTERM to SIGKILL if the pi process does not exit within a 2-second grace window. On Unix `killProcess` SHALL target the process group (`-pid`) whenever the killed pid leads its own group and that group is not the caller's own (otherwise, or when the caller's own group cannot be determined, it SHALL signal the pid alone — see `command-executor`); on Windows it SHALL use `taskkill /F /T /PID <pid>` (force, tree). A keeper-mediated pi is spawned by the keeper without `detached`, so it shares the KEEPER's process group (keeper + pi + pi's descendants) and is not a group leader itself. The escalation SHALL be implemented by delegating to the shared platform helper `killProcess(pid, { timeoutMs: 2000 })` in `packages/shared/src/platform/process.ts` — `killBySessionId` SHALL NOT issue raw `SIGTERM`-only kills against pi.
 
-For keeper-mediated entries (those with `keeperPid !== undefined`), `killBySessionId` SHALL kill the pi process first using `killProcess(piPid, { timeoutMs: 2000 })`. After scheduling the pi kill, `killBySessionId` SHALL schedule a fire-and-forget `setTimeout` 200 ms later that sends `SIGTERM` to the keeper PID; the keeper's own SIGTERM handler is reliable and does not require SIGKILL escalation at the registry layer. The function SHALL be `async` and return `Promise<boolean>`; all call sites (`handleShutdown`, `handleForceKill`, `handleKillProcess`) SHALL `await` it.
+For keeper-mediated entries (those with `keeperPid !== undefined`), `killBySessionId` SHALL kill the pi process first using `killProcess(piPid, { timeoutMs: 2000 })`. After the pi kill, `killBySessionId` SHALL schedule a fire-and-forget `setTimeout` 200 ms later that calls `killProcessGroup(keeperPid, { timeoutMs: 2000 })`, terminating the keeper's whole process group. This SHALL be gated on the group still existing, NOT on keeper liveness: the keeper auto-exits with pi, but pi's orphaned descendants (a long `bash` tool call, an MCP server that ignores stdin EOF) remain in the keeper's group. `killProcessGroup` SHALL be a no-op when the group is already gone. The function SHALL be `async` and return `Promise<boolean>`; all call sites (`handleShutdown`, `handleForceKill`, `handleKillProcess`) SHALL `await` it.
 
 For non-keeper entries (legacy path; kept for orphan cleanup of pre-`enable-rpc-keeper-by-default` sessions still on disk), `killBySessionId` SHALL also use `killProcess(pid, { timeoutMs: 2000 })` so the SIGTERM→SIGKILL ladder is uniform across both branches.
 
 #### Scenario: Kill headless agent by session ID (Unix, cooperative pi)
 - **WHEN** the server sends a shutdown command for a headless session on macOS or Linux AND the pi process exits within 2 seconds of receiving SIGTERM
-- **THEN** the server SHALL call `killProcess(piPid, { timeoutMs: 2000 })` which sends `process.kill(-pid, "SIGTERM")` and resolves on pi-exit observed before the timeout
+- **THEN** the server SHALL call `killProcess(piPid, { timeoutMs: 2000 })`, which sends `SIGTERM` and resolves on pi-exit observed before the timeout
 - **AND** no SIGKILL SHALL be sent
 
 #### Scenario: Kill headless agent by session ID (Unix, hung pi)
 - **WHEN** the server sends a shutdown command for a headless session on macOS or Linux AND the pi process does NOT exit within 2 seconds of SIGTERM
-- **THEN** `killProcess` SHALL escalate to `process.kill(-pid, "SIGKILL")` on the pi process group
-- **AND** the keeper-fallback SIGTERM 200 ms timer SHALL still fire as today, sending SIGTERM to the keeper PID
+- **THEN** `killProcess` SHALL escalate to `SIGKILL`
+- **AND** the 200 ms keeper-group timer SHALL still fire, calling `killProcessGroup(keeperPid, { timeoutMs: 2000 })`
 
 #### Scenario: Kill headless agent by session ID (Windows, hung pi)
 - **WHEN** the server sends a shutdown command for a headless session on Windows AND the pi process does NOT exit within 2 seconds of the initial kill attempt
@@ -93,6 +93,11 @@ For non-keeper entries (legacy path; kept for orphan cleanup of pre-`enable-rpc-
 - **WHEN** `await headlessPidRegistry.killBySessionId(sessionId)` is called from a session-action handler
 - **THEN** the returned promise SHALL resolve only after `killProcess`'s grace window has either observed pi exit or sent SIGKILL
 - **AND** the resolved value SHALL be `true` when at least one kill (SIGTERM or SIGKILL) reached a previously-alive process and `false` when no entry existed for `sessionId`
+
+#### Scenario: Orphaned pi children are reaped after the keeper exits
+- **WHEN** a keeper-mediated headless session is killed, pi exits, and the keeper auto-exits before the 200 ms timer fires, while a child of pi that ignores `SIGTERM` is still alive in the keeper's process group
+- **THEN** the timer SHALL still call `killProcessGroup(keeperPid, { timeoutMs: 2000 })`
+- **AND** that child SHALL be terminated (`SIGTERM`, then `SIGKILL` after 2 seconds)
 
 ### Requirement: Headless PID persistence to disk
 The server SHALL persist headless process entries to `~/.pi/dashboard/headless-pids.json` using atomic writes. The file SHALL contain an array of entries with fields `pid` (number), `cwd` (string), and `spawnedAt` (ISO timestamp). Entries SHALL be written on register and removed on process exit or kill.
@@ -142,7 +147,7 @@ The `spawnHeadlessDetached` function (Windows headless path) SHALL retain the pe
 ### Requirement: `PI_DASHBOARD_SPAWN_TOKEN` env-var injected on every spawn
 For every invocation of `spawnPiSession()` — regardless of strategy (`tmux`, `wt`, `wsl-tmux`, `headless`) and regardless of platform — the server SHALL inject `PI_DASHBOARD_SPAWN_TOKEN` (a freshly-minted UUIDv4) into the spawned process's environment via `buildSpawnEnv`. The injection SHALL be the only mechanism by which the spawn token reaches the spawned pi process; the token SHALL NOT be passed via argv, the session JSONL file, or any other channel.
 
-The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToken: string` argument and SHALL set `result.PI_DASHBOARD_SPAWN_TOKEN = spawnToken` when provided. The existing `prependManagedNodeToPath` and other env-shaping behaviors SHALL be preserved unchanged, with one exception: a heap-sizing flag the dashboard stamped into its own environment SHALL be removed from the child environment, per the heap-limits capability. A heap flag the operator pinned themselves SHALL be preserved. The pre-existing env-shaping exclusions stand unchanged — the parent-identity markers `PI_DASHBOARD_ELECTRON` and `PI_DASHBOARD_RESOURCES_PATH` are still removed so a stale identity cannot leak to a grandchild, and `ELECTRON_RUN_AS_NODE` is still shaped by argv. Additionally, the context-mode bridge-internal variables `CONTEXT_MODE_BRIDGE_DEPTH` and `CONTEXT_MODE_BRIDGE_IDLE_MS` SHALL be removed from the child environment of every strategy (for tmux-hosted strategies, also from the pane process, whose environment otherwise comes from the long-lived tmux server), so a server started from inside a context-mode sandbox does not disable context-mode's tools in the sessions it spawns. Names that a context-mode settings bridge recorded as plugin-projected SHALL also be removed, so that the current settings file, not a stale ancestor value, decides them. The dashboard-stamped heap flag, the context-mode bridge-internal variables, and recorded plugin-projected names are the only sanctioned NEW subtractions. Beyond those, no inherited variable SHALL be dropped. Variables contributed by trusted plugins (plugin-spawn-env-contributor capability) are additions. They never replace a variable inherited from the dashboard server's environment, although for tmux-hosted strategies they may override a value present only in the tmux server's global environment.
+The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToken: string` argument and SHALL set `result.PI_DASHBOARD_SPAWN_TOKEN = spawnToken` when provided. The existing `prependManagedNodeToPath` and other env-shaping behaviors SHALL be preserved unchanged, with one exception: a heap-sizing flag the dashboard stamped into its own environment SHALL be removed from the child environment, per the heap-limits capability. A heap flag the operator pinned themselves SHALL be preserved. The pre-existing env-shaping exclusions stand unchanged — the parent-identity markers `PI_DASHBOARD_ELECTRON` and `PI_DASHBOARD_RESOURCES_PATH` are still removed so a stale identity cannot leak to a grandchild, and `ELECTRON_RUN_AS_NODE` is still shaped by argv. Additionally, the context-mode bridge-internal variables `CONTEXT_MODE_BRIDGE_DEPTH` and `CONTEXT_MODE_BRIDGE_IDLE_MS` SHALL be removed from the child environment of every strategy (for tmux-hosted strategies, also from the pane process, whose environment otherwise comes from the long-lived tmux server), so a server started from inside a context-mode sandbox does not disable context-mode's tools in the sessions it spawns. Names that a context-mode settings bridge recorded as plugin-projected SHALL also be removed, so that the current settings file, not a stale ancestor value, decides them. The dashboard-stamped heap flag, the context-mode bridge-internal variables, and recorded plugin-projected names are the only sanctioned NEW subtractions. The one sanctioned REWRITE is `PWD`: the env built for every strategy SHALL set it, as part of the host's own shaping, to the canonical physical path of the spawn cwd (the realpath when resolvable, else the absolute lexical form). `PWD` is a host-owned name (plugin-spawn-env-contributor capability): no contributor or supersede marker can add, remove or replace it (see the scenarios below). Beyond those, no inherited variable SHALL be dropped. Variables contributed by trusted plugins (plugin-spawn-env-contributor capability) are additions. They never replace a variable inherited from the dashboard server's environment, although for tmux-hosted strategies they may override a value present only in the tmux server's global environment.
 
 #### Scenario: Headless spawn injects token
 - **WHEN** `spawnPiSession(cwd, { strategy: "headless", spawnToken: "tok_h" })` is called on Linux or macOS
@@ -164,12 +169,12 @@ The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToke
 
 #### Scenario: Existing env vars preserved
 - **WHEN** the dashboard server's environment contains `PATH`, `HOME`, `PI_DASHBOARD_URL`, etc.
-- **THEN** the spawned process SHALL receive all of those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`
+- **THEN** the spawned process SHALL receive all of those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`, except `PWD`, which names the spawn cwd
 
 #### Scenario: Dashboard-stamped heap flag is withheld
 - **WHEN** the dashboard server's environment carries the heap flag it stamped for itself
 - **THEN** the spawned process's environment SHALL NOT carry that flag
-- **AND** every other inherited variable SHALL still be passed through unchanged, apart from the pre-existing parent-identity exclusions and the other sanctioned subtractions of this requirement (context-mode bridge-internal variables, recorded plugin-projected names)
+- **AND** every other inherited variable SHALL still be passed through unchanged, apart from the pre-existing parent-identity exclusions and the other sanctioned subtractions of this requirement (context-mode bridge-internal variables, recorded plugin-projected names) and the sanctioned `PWD` rewrite
 
 #### Scenario: Token not echoed to argv
 - **WHEN** the server inspects the spawned process command-line via `ps` or equivalent
@@ -191,6 +196,36 @@ The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToke
 #### Scenario: Unrelated context-mode variables survive
 - **WHEN** the server process environment contains `CONTEXT_MODE_TZ=UTC`
 - **THEN** the spawned pi process environment SHALL still contain `CONTEXT_MODE_TZ=UTC`
+
+#### Scenario: Spawned pi PWD names the spawn cwd
+- **WHEN** the server environment has `PWD=/launch/dir` and `spawnPiSession("/work/project", { strategy: "headless" })` is called for an existing directory `/work/project`
+- **THEN** the pi process environment SHALL have `PWD=/work/project`, and a keeper respawn of pi SHALL keep that value
+
+#### Scenario: PWD set for every strategy
+- **WHEN** a session is spawned with strategy `tmux`, `wt`, `wsl-tmux`, or `headless` (including an ACP `childCmd` keeper spawn)
+- **THEN** the env the dashboard hands to that spawn mechanism SHALL carry `PWD` equal to the canonical path of that spawn's cwd
+
+#### Scenario: A plugin cannot remove or replace PWD
+- **WHEN** a trusted spawn-env contributor contributes `PWD` or lists `PWD` among the names it supersedes
+- **THEN** the env built for the spawn SHALL still carry `PWD` equal to the canonical path of the spawn cwd
+- **AND** for `tmux` / `wsl-tmux` the tmux argv SHALL carry no `-e PWD=` entry
+
+#### Scenario: Relative spawn cwd yields an absolute PWD
+- **WHEN** `buildSpawnEnv` is given a relative `cwd`
+- **THEN** the returned `PWD` SHALL be absolute: that cwd resolved against the server's working directory, then canonicalised
+
+#### Scenario: Aliased spawn cwd yields the canonical PWD
+- **WHEN** the spawn cwd is a symlink to, or an alias spelling of, an existing directory
+- **THEN** `PWD` SHALL equal the directory's canonical physical path, the same string the spawned pi reports as its working directory
+- **AND** when the path cannot be canonicalised (it does not exist), `PWD` SHALL be the absolute lexical form and the spawn SHALL NOT fail because of it
+
+#### Scenario: Empty spawn cwd leaves PWD untouched
+- **WHEN** `buildSpawnEnv` is given `cwd: ""`
+- **THEN** it SHALL be treated as no cwd: the returned env is identical to the call without `cwd`, and `PWD` is not re-stamped with the server's working directory
+
+#### Scenario: Other inherited variables unaffected by PWD rewrite
+- **WHEN** a spawn rewrites `PWD`
+- **THEN** every other inherited variable SHALL be passed through exactly as before, and `PI_PROJECT_DIR`, `PI_WORKSPACE_DIR` and `CONTEXT_MODE_PROJECT_DIR` SHALL NOT be set by the host
 
 ### Requirement: Headless spawn sets session name at creation via --name
 

@@ -4,6 +4,7 @@
 
 import type http from "node:http";
 import type { IncomingMessage } from "node:http";
+import type { KillFn } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
@@ -13,8 +14,11 @@ import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
 import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
 import { normalizeUsageSeed, type SessionManager } from "../session/memory-session-manager.js";
+import { isNonLocalTarget, type PidTarget, resolvePidTarget, type ServerPidContext, sanitizePidNamespace } from "../session/pid-target.js";
+import { getServerPidContext } from "../session/server-pid-context.js";
 import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import type { BridgeChannel } from "./bridge-channel.js";
 import {
   CONTENTION_PROBE_WINDOW,
   type ContentionTracker,
@@ -26,7 +30,6 @@ import {
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
-import type { BridgeChannel } from "./bridge-channel.js";
 import { decideBridgeUpgrade, isLoopbackAddress } from "./bridge-upgrade-auth.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import { createProvisionalRegistry } from "./provisional-registration.js";
@@ -81,6 +84,10 @@ export interface PiGatewayOptions {
    * committing a move (D11/D14, task 9.7).
    */
   instanceId?: string;
+  /** The server's pid namespace (test seam; default computed once). See change: scope-pids-to-namespace. */
+  pidContext?: ServerPidContext;
+  /** Test seam: the liveness probe's `kill` used by carrier-loss classification. */
+  carrierLossKill?: KillFn;
   /**
    * Fires on a host-pressure TRANSITION for a session (`null` = recovered).
    * The gateway owns the last-frame fact; the dashboard server turns the
@@ -246,6 +253,16 @@ export function createPiGateway(
   const pingMs = options?.pingInterval ?? WS_PING_INTERVAL;
   const probeWindow = options?.contentionProbeWindow ?? CONTENTION_PROBE_WINDOW;
   const contention = createContentionTracker();
+  const pidCtx = (): ServerPidContext => options?.pidContext ?? getServerPidContext();
+  /**
+   * Why a carrier was lost: the pid is probed only when its resolved target is
+   * `host` — a pid in another namespace is `unknown` without a probe.
+   * See change: scope-pids-to-namespace (D3).
+   */
+  const carrierLossReason = (s: DashboardSession | undefined) =>
+    classifyCarrierLoss(s ?? {}, s?.pid !== undefined ? resolvePidTarget(s, pidCtx()) : undefined, {
+      kill: options?.carrierLossKill,
+    });
   let wss: WebSocketServer | null = null;
   /**
    * Upgrade requests that arrived over the unix socket. Identity has to
@@ -364,7 +381,7 @@ export function createPiGateway(
               // See change: fix-ended-session-missing-endedat.
               sessionManager.unregister(sessionId, {
                 witnessed: false,
-                closedReason: classifyCarrierLoss(session),
+                closedReason: carrierLossReason(session),
               });
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
@@ -397,7 +414,7 @@ export function createPiGateway(
               // Detection, not observation — see above.
               sessionManager.unregister(sessionId, {
                 witnessed: false,
-                closedReason: classifyCarrierLoss(session ?? {}),
+                closedReason: carrierLossReason(session),
               });
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
@@ -414,7 +431,7 @@ export function createPiGateway(
         // See change: fix-ended-session-missing-endedat.
         sessionManager.unregister(sessionId, {
           witnessed: false,
-          closedReason: classifyCarrierLoss(session ?? {}),
+          closedReason: carrierLossReason(session),
         });
         connections.delete(sessionId);
         heartbeatTimers.delete(sessionId);
@@ -473,7 +490,7 @@ export function createPiGateway(
                 // See change: fix-ended-session-missing-endedat.
                 sessionManager.unregister(sid, {
                   witnessed: false,
-                  closedReason: classifyCarrierLoss(sessionManager.get(sid) ?? {}),
+                  closedReason: carrierLossReason(sessionManager.get(sid)),
                 });
                 connections.delete(sid);
                 const timer = heartbeatTimers.get(sid);
@@ -632,7 +649,7 @@ export function createPiGateway(
          * Resolve whether `ws` may claim the routing entry for `sessionId`.
          * Returns false when the socket was refused (caller must return).
          */
-        async function claim(sessionId: string, newcomerPid?: number): Promise<boolean> {
+        async function claim(sessionId: string, newcomerPid?: number, newcomerTarget?: PidTarget): Promise<boolean> {
           let attempt = 0;
           while (attempt < MAX_CLAIM_ATTEMPTS) {
           const incumbent = connections.get(sessionId);
@@ -643,6 +660,12 @@ export function createPiGateway(
             incumbentSource: incumbent ? session?.source : undefined,
             incumbentPid: session?.pid,
             newcomerPid,
+            // S3: same-pid fast-accept only within one local namespace.
+            pidTargets: {
+              incumbent: session?.pid !== undefined ? resolvePidTarget(session, pidCtx()) : undefined,
+              newcomer: newcomerTarget,
+              serverPlatform: pidCtx().platform,
+            },
           });
 
           if (decision.outcome === "accept") {
@@ -818,6 +841,7 @@ export function createPiGateway(
                     sessionDir: verdict.register.sessionDir,
                     firstMessage: verdict.register.firstMessage,
                     pid: verdict.register.pid,
+                    pidNamespace: verdict.register.pidNamespace,
                   });
                 }
                 resetHeartbeat(movedId);
@@ -927,6 +951,8 @@ export function createPiGateway(
                 sessionDir: msg.sessionDir,
                 firstMessage: msg.firstMessage,
                 pid: msg.pid,
+                // Sanitised now: an oversized report is never held. See change: scope-pids-to-namespace.
+                pidNamespace: sanitizePidNamespace(msg.pidNamespace),
               },
             });
             provisionalSessionId = msg.sessionId;
@@ -942,7 +968,17 @@ export function createPiGateway(
             return;
           }
 
-          const ok = await claim(msg.sessionId, msg.pid);
+          // The register's pid target, resolved once before every pid-keyed
+          // decision (contention, watchdog). No own-entry evidence at register
+          // time: never circular. See change: scope-pids-to-namespace.
+          const registerTarget =
+            msg.pid !== undefined
+              ? resolvePidTarget(
+                  { pid: msg.pid, cwd: msg.cwd, originDeviceId, pidNamespace: sanitizePidNamespace(msg.pidNamespace) },
+                  pidCtx(),
+                )
+              : undefined;
+          const ok = await claim(msg.sessionId, msg.pid, registerTarget);
           if (!ok) return;
 
           try {
@@ -957,7 +993,12 @@ export function createPiGateway(
             // See change: fix-spawn-correlation-ttl-coupling (D4).
             const watchdog = getSpawnRegisterWatchdog();
             let cleared = msg.spawnToken ? watchdog.clearByToken(msg.spawnToken) : false;
-            if (!cleared && msg.pid !== undefined) cleared = watchdog.clearByPid(msg.pid);
+            // The pid tier is skipped for a non-local register: another
+            // namespace's pid number must not disarm a local spawn (S11 keeps
+            // the cwd tier). See change: scope-pids-to-namespace.
+            if (!cleared && msg.pid !== undefined && !(registerTarget && isNonLocalTarget(registerTarget))) {
+              cleared = watchdog.clearByPid(msg.pid);
+            }
             if (!cleared) watchdog.clearByCwd(msg.cwd);
 
             // If session ID changed (e.g., after /reload), clean up the old placeholder
@@ -989,6 +1030,7 @@ export function createPiGateway(
                 sessionDir: msg.sessionDir,
                 firstMessage: msg.firstMessage,
                 pid: msg.pid,
+                pidNamespace: msg.pidNamespace,
                 // Forward registerReason so server.ts onChange can apply
                 // the configured reattach placement policy.
                 // See change: reattach-move-to-front.

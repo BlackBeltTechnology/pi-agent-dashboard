@@ -19,3 +19,5 @@ See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dash
 `onRemoved?(sessionId)` hook fires after `remove()` (archive evict). See change: distinguish-tool-result-pending-vs-gone.
 
 - `register()` stamps server-only in-memory `pidRecordedAt = Date.now()` whenever `params.pid` is set (cleared when a re-register carries no pid); never persisted, no protocol change. The shared terminator's identity guard compares `processStartedAt(pid)` to it. See change: fix-session-reclaim-tmux.
+
+`register()` stores sanitised `pidNamespace` atomically with `pid` as NON-ENUMERABLE property: no JSON egress carries it, `update()` keeps it. Register without pid clears it. Never persisted (pid is not persisted either). See change: scope-pids-to-namespace.

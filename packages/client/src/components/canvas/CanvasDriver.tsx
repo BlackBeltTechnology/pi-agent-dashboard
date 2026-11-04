@@ -16,9 +16,15 @@
  *
  * Server chip (Section 7) renders independently of the file target and taps
  * through the LiveServerViewer loopback-probe path.
+ *
+ * Chip tray placement: portaled into the App's content-height slot above the
+ * composer dock (in flow, inside the chat column) while a live composer exists
+ * and the chat pane is visible; otherwise a fixed bottom-right overlay. No
+ * observers, no viewport maths. See change: fix-chat-transcript-layout (D5).
  */
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useCanvasTier } from "../../hooks/useCanvasTier.js";
 import { setActiveCanvasPort } from "../../lib/canvas/active-canvas-target.js";
 import { type CanvasState, gateAllowsAutoOpen } from "../../lib/canvas/canvas-gate.js";
@@ -31,97 +37,21 @@ interface Props {
   /** The selected session's canvas state (empty when none). */
   state: CanvasState;
   /**
-   * Zero-height sentinel at the top of the live composer stack (App-owned).
-   * The tray floats just above its top edge. Absent / `null` → rest at the
-   * viewport's bottom-right inset (safe-area aware).
+   * Content-height chip slot directly above the live composer dock (App-owned,
+   * `composer-stack-anchor`). The tray renders INTO it, in flow. Absent / `null`
+   * (no live composer) → fixed overlay at the viewport's bottom-right inset
+   * (safe-area aware). See change: fix-chat-transcript-layout (D5).
    */
   anchor?: HTMLElement | null;
 }
 
-/** Gap between the tray's bottom edge and the composer stack's top edge. */
-const TRAY_GAP_PX = 8;
-
-/** Resting position when there is no live composer anchor. */
+/** Resting position when there is no live composer slot. */
 const FALLBACK_BOTTOM = "calc(1rem + env(safe-area-inset-bottom))";
-
-/**
- * Distance (px) from the viewport bottom to just above `anchor`'s top edge,
- * or `null` while there is no anchor / it has not been measured yet.
- *
- * The sentinel is 0×0, so it never resizes when the composer stack grows — the
- * stack's growth only MOVES it. We therefore observe the sentinel (so the first
- * measure always fires), its parent pane (a pane resize moves the stack with no
- * row resizing) and every row in that pane — those after it (strip, StatusBar,
- * QueuePanel, composer root, …) and those before it (a banner or header slot
- * resizing in place) — and re-collect that set via a `childList`
- * MutationObserver when a row mounts/unmounts.
- */
-function useAnchorBottom(anchor: HTMLElement | null | undefined): number | null {
-  const [bottom, setBottom] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!anchor) {
-      setBottom(null);
-      return;
-    }
-    const measure = () => {
-      if (!anchor.isConnected) {
-        setBottom(null);
-        return;
-      }
-      const vv = window.visualViewport;
-      const viewportBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-      setBottom(Math.max(0, viewportBottom - anchor.getBoundingClientRect().top + TRAY_GAP_PX));
-    };
-
-    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
-    const observeRows = () => {
-      if (!ro) return;
-      ro.disconnect();
-      ro.observe(anchor);
-      // The pane itself and EVERY row in it: a pane resize, or a row above the
-      // sentinel resizing in place, can move the stack's top edge while no row
-      // after the sentinel changes size.
-      const pane = anchor.parentElement;
-      if (pane) {
-        ro.observe(pane);
-        for (const row of Array.from(pane.children)) ro.observe(row);
-      }
-    };
-    observeRows();
-
-    const parent = anchor.parentElement;
-    const mo =
-      parent && typeof MutationObserver !== "undefined"
-        ? new MutationObserver(() => {
-            observeRows();
-            measure();
-          })
-        : null;
-    mo?.observe(parent as Element, { childList: true });
-
-    window.addEventListener("resize", measure);
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", measure);
-    // Without ResizeObserver there is no initial callback — measure once now.
-    if (!ro) measure();
-
-    return () => {
-      ro?.disconnect();
-      mo?.disconnect();
-      window.removeEventListener("resize", measure);
-      vv?.removeEventListener("resize", measure);
-    };
-  }, [anchor]);
-
-  return anchor ? bottom : null;
-}
 
 export function CanvasDriver({ state, anchor }: Props) {
   const tier = useCanvasTier();
-  const anchorBottom = useAnchorBottom(anchor);
   const { open: openTarget } = useOpenCanvasTarget();
-  const { sessionId } = useSplitWorkspace();
+  const { sessionId, split } = useSplitWorkspace();
   // Publish the declared server's port so the live-server picker lists it first.
   const chipPort = state.chip?.port ?? null;
   useEffect(() => {
@@ -166,40 +96,48 @@ export function CanvasDriver({ state, anchor }: Props) {
 
   if (!state.chip && !showMobileChip) return null;
 
-  // Anchored but not yet measured → hidden, so the tray never flashes at the
-  // fallback position over the composer.
-  const unmeasured = anchor != null && anchorBottom == null;
+  const chips = (
+    <>
+      {showMobileChip && state.target != null && (
+        <button
+          type="button"
+          data-testid="canvas-file-chip"
+          onClick={() => state.target && openTarget(state.target, { opener: "operator", background: false })}
+          className="pointer-events-auto flex min-h-[44px] min-w-0 max-w-full items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+        >
+          <span className="min-w-0 truncate font-medium">
+            {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}
+          </span>
+          {state.target.kind === "file" && (
+            <span className="min-w-0 truncate font-mono text-[var(--text-tertiary)]">{state.target.path}</span>
+          )}
+        </button>
+      )}
+      {state.chip && <CanvasServerChip chip={state.chip} />}
+    </>
+  );
+
+  // Live composer slot, unless the chat pane is hidden (`full` editor mode keeps
+  // it mounted but `display:none`, so a chip there would be unreachable). In
+  // flow: the transcript gives up the chip's height, nothing is covered. The
+  // bottom gap clears the dock's Hide handle (`-translate-y-1/2`, 12/22 px).
+  if (anchor != null && split.mode !== "full") {
+    return createPortal(
+      <div data-testid="canvas-chip-tray" className="flex flex-col items-end gap-2 pb-3 max-md:pb-6">
+        {chips}
+      </div>,
+      anchor,
+    );
+  }
 
   return (
     <LayerPortal>
       <div
         data-testid="canvas-chip-tray"
         className="pointer-events-none fixed z-overlay flex flex-col items-end gap-2"
-        style={{
-          right: "1rem",
-          maxWidth: "calc(100vw - 2rem)",
-          bottom: anchorBottom != null ? `${anchorBottom}px` : FALLBACK_BOTTOM,
-          visibility: unmeasured ? "hidden" : undefined,
-        }}
+        style={{ right: "1rem", maxWidth: "calc(100vw - 2rem)", bottom: FALLBACK_BOTTOM }}
       >
-        {showMobileChip && state.target != null && (
-          <button
-            type="button"
-            data-testid="canvas-file-chip"
-            onClick={() => state.target && openTarget(state.target, { opener: "operator", background: false })}
-            className="pointer-events-auto flex min-h-[44px] min-w-0 max-w-full items-center gap-2 rounded-full border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-          >
-            <span className="min-w-0 truncate font-medium">
-              {state.title ?? i18nT("canvas.openCanvas", undefined, "Open canvas")}
-            </span>
-            {state.target.kind === "file" && (
-              <span className="min-w-0 truncate font-mono text-[var(--text-tertiary)]">
-                {state.target.path}
-              </span>
-            )}
-          </button>
-        )}
-        {state.chip && <CanvasServerChip chip={state.chip} />}
+        {chips}
       </div>
     </LayerPortal>
   );

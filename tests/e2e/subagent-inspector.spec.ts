@@ -154,3 +154,96 @@ test.describe("subagents inspector (L3)", () => {
 // The L3 version was structurally unconstructible: the faux subagent dies in
 // ~400 ms (Bug 2, measurement.md) before an inspector-open can trigger a resync,
 // and the synthetic Agent-tick producer emits no subagents:* frames.
+
+// ─────────────────────────────────────────────────────────────────────────
+// Inline inspector sizes to its content, capped at 60vh (#1083).
+// `MinimalChatView` inline root: `max-h-[60vh]`, not a fixed `h-[60vh]`, so a
+// short timeline leaves no blank box and the body scrolls at the cap. Test-plan #F4 (oracle: box tracks content —
+// owner decision 2026-11-03, see design D3), #F5.
+// See change: fix-chat-transcript-layout (design D3, tasks 2.3, 2.4).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Expand the first subagent card's inline inspector and return its root. */
+async function openInlineInspector(page: import("@playwright/test").Page) {
+  const toggle = page.getByTitle("Expand to inspect tool calls & messages").first();
+  await expect(toggle).toBeVisible({ timeout: 60_000 });
+  await toggle.click();
+  const root = page.locator('[data-testid="minimal-chat-view"][data-mode="inline"]').first();
+  await expect(root).toBeVisible({ timeout: 15_000 });
+  return root;
+}
+
+async function inspectorGeometry(root: import("@playwright/test").Locator) {
+  return root.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const body = el.lastElementChild as HTMLElement;
+    const last = body.lastElementChild as HTMLElement | null;
+    return {
+      height: r.height,
+      gapBelowLast: last ? r.bottom - last.getBoundingClientRect().bottom : Number.NaN,
+      scrollable: body.scrollHeight > body.clientHeight,
+      vh: window.innerHeight,
+      contentHeight: [...body.children].reduce((h, c) => h + (c as HTMLElement).getBoundingClientRect().height, 0),
+    };
+  });
+}
+
+test.describe("subagent inline inspector sizes to content (#1083)", () => {
+  test("#F4 the streaming box tracks its content: no blank area, capped at 60vh, shrinks only with content", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-reasoning]] go");
+    const root = await openInlineInspector(page);
+
+    const samples: Awaited<ReturnType<typeof inspectorGeometry>>[] = [];
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      samples.push(await inspectorGeometry(root));
+      if ((await page.getByText(/reasoning subagent complete/i).count()) > 0) break;
+      await page.waitForTimeout(250);
+    }
+    expect(samples.length).toBeGreaterThanOrEqual(3);
+    // Owner decision 2026-11-03 (design D3 note): the box TRACKS its content. A
+    // shrink is allowed only when the content itself shrank (the live thinking
+    // tail is committed as a collapsed entry, or briefly unmounts between steps).
+    for (let i = 1; i < samples.length; i++) {
+      const [a, b] = [samples[i - 1], samples[i]];
+      if (b.height < a.height - 0.5) {
+        expect(b.contentHeight, `sample ${i}: box shrank but content did not`).toBeLessThan(a.contentHeight - 0.5);
+      }
+    }
+    for (const s of samples) {
+      expect(s.height).toBeLessThanOrEqual(0.6 * s.vh + 1);
+      // Body `py-2` (8 px) is the only space under the last entry while uncapped.
+      if (!s.scrollable) expect(s.gapBelowLast).toBeLessThanOrEqual(8.5);
+    }
+  });
+
+  test("#F5 content taller than 60vh caps the root and scrolls the body", async ({ page }) => {
+    // Shortest non-mobile viewport (the mobile tier starts below 600 px high and
+    // remounts the transcript), so the cap is 360 px.
+    await page.setViewportSize({ width: 1280, height: 600 });
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-reasoning]] go");
+    await expect(page.getByText(/reasoning subagent complete/i).first()).toBeVisible({ timeout: 90_000 });
+    // The settled burst collapses; open it, the subagent row, then its inspector.
+    await page.getByTestId("tool-burst-header").first().click();
+    await page
+      .getByTestId("tool-burst-body")
+      .getByRole("button", { name: /faux reasoning subagent/i })
+      .first()
+      .click();
+    const root = await openInlineInspector(page);
+    // Open every entry (reasoning blocks, tool rows) so the timeline exceeds the cap.
+    const toggles = root.locator("button");
+    const n = await toggles.count();
+    for (let i = n - 1; i >= 0; i--) await toggles.nth(i).click();
+    await expect.poll(async () => (await inspectorGeometry(root)).scrollable, { timeout: 15_000 }).toBe(true);
+    const g = await inspectorGeometry(root);
+    expect(Math.abs(g.height - 0.6 * g.vh)).toBeLessThanOrEqual(1);
+  });
+});
