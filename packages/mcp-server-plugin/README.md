@@ -40,7 +40,6 @@ caller's tier. Do not edit the table by hand.
 | `rename_session` | control | POST /api/session/:id/rename |
 | `set_model` | control | POST /api/session/:id/model |
 | `set_thinking_level` | control | POST /api/session/:id/thinking-level |
-| `flow_control` | control | POST /api/session/:id/flow-control |
 | `attach_proposal` | control | POST /api/session/:id/attach-proposal |
 | `detach_proposal` | control | POST /api/session/:id/detach-proposal |
 | `list_archived_sessions` | observe | GET /api/sessions/archived |
@@ -85,6 +84,7 @@ caller's tier. Do not edit the table by hand.
 | `list_automation` | observe | GET /api/plugins/automation/list |
 | `run_automation` | control | POST /api/plugins/automation/run |
 | `stop_automation` | control | POST /api/plugins/automation/stop |
+| `flows_control` | operate | POST /api/plugins/flows/control |
 | `list_models` | observe | GET /api/models |
 | `list_providers` | observe | GET /api/providers |
 | `set_providers` | operate | PUT /api/providers |
