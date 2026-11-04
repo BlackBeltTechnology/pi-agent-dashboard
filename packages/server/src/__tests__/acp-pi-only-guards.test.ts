@@ -7,8 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 import { type AcpGuardContext, guardAcpBrowserMessage, UNSUPPORTED_FOR_ACP } from "../browser-handlers/acp-guard.js";
 
 const OPS: Array<Record<string, unknown>> = [
-  { type: "flow_control", action: "abort" },
-  { type: "flow_management", action: "x" },
   { type: "architect_prompt_response", answer: "x" },
   { type: "retry_session" },
   { type: "stop_after_turn" },
@@ -63,7 +61,7 @@ describe("guardAcpBrowserMessage", () => {
 
   it("unknown sessions and session-less frames are not refused", () => {
     const { ctx } = ctxFor("acp");
-    expect(guardAcpBrowserMessage({ type: "flow_control", sessionId: "ghost", action: "abort" } as never, ctx)).toBe(false);
-    expect(guardAcpBrowserMessage({ type: "flow_control" } as never, ctx)).toBe(false);
+    expect(guardAcpBrowserMessage({ type: "role_set", sessionId: "ghost", role: "r" } as never, ctx)).toBe(false);
+    expect(guardAcpBrowserMessage({ type: "role_set" } as never, ctx)).toBe(false);
   });
 });

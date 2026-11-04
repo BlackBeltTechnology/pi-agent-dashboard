@@ -171,7 +171,7 @@ import { hasPromptChannel, issuePromptChannel, releasePromptChannel } from "../a
 import { guardAcpBrowserMessage } from "../browser-handlers/acp-guard.js";
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleResetFolderCardSections, handleSetCardSectionVisibility, handleSetDefaultGroupBy, handleSetFocusMode, handleSetFocusProfile, handleSetFolderCollapsed, handleSetFolderExpanded, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
+import { acpGuardCtx, handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
 import { clearGapState, handleHistoryBackfill, handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
@@ -2225,9 +2225,6 @@ export function createBrowserGateway(
           case "force_kill":
             await handleForceKill(msg, ctx);
             break;
-          case "flow_control":
-            handleFlowControl(msg, ctx);
-            break;
           case "kill_process":
             handleKillProcess(msg, ctx);
             break;
@@ -2423,18 +2420,6 @@ export function createBrowserGateway(
             break;
           }
 
-          case "flow_management": {
-            ctx.piGateway.sendToSession(msg.sessionId, {
-              type: "flow_management",
-              sessionId: msg.sessionId,
-              action: msg.action,
-              flowName: msg.flowName,
-              task: msg.task,
-              description: msg.description,
-              enabled: msg.enabled,
-            });
-            break;
-          }
           case "architect_prompt_response": {
             // Legacy: now handled by prompt_response via PromptBus.
             // Keep case to avoid "unhandled message" warnings from old clients.

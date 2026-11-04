@@ -1391,12 +1391,6 @@ export interface StopAfterTurnExtensionMessage {
   sessionId: string;
 }
 
-export interface FlowControlExtensionMessage {
-  type: "flow_control";
-  sessionId: string;
-  action: "abort" | "toggle_autonomous" | "dismiss_summary";
-}
-
 // LoadSessionEventsMessage removed — server loads directly via DirectoryService
 
 export interface HeartbeatAckMessage {
@@ -1450,17 +1444,6 @@ export interface McpTokenMintedExtensionMessage {
    * See change: migrate-mcp-to-pi-builtin (D1).
    */
   url?: string;
-}
-
-export interface FlowManagementExtensionMessage {
-  type: "flow_management";
-  sessionId: string;
-  action: "run" | "new" | "edit" | "delete" | "set-edit-mode";
-  flowName?: string;
-  task?: string;
-  description?: string;
-  /** For action "set-edit-mode": toggles pi-flows `flows.editFlow`. */
-  enabled?: boolean;
 }
 
 export interface ArchitectPromptResponseExtensionMessage {
@@ -1734,7 +1717,6 @@ export type ServerToExtensionMessage =
   | ShutdownExtensionMessage
   | StopAfterTurnExtensionMessage
   | GitInfoRefreshExtensionMessage
-  | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
   | PathGrantResultMessage
@@ -1744,7 +1726,6 @@ export type ServerToExtensionMessage =
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage
   | PluginReplyMessage
-  | FlowManagementExtensionMessage
   | ArchitectPromptResponseExtensionMessage
   | PromptResponseServerMessage
   | RoleSetExtensionMessage

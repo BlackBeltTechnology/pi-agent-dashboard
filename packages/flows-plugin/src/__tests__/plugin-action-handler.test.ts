@@ -10,7 +10,7 @@ import { registerPlugin } from "../server/index.js";
 type Handler = (msg: unknown) => void;
 
 async function setup() {
-  const emitEventToSession = vi.fn(() => true);
+  const emitEventToSession = vi.fn((_sid: string, _event: string, _data: Record<string, unknown>) => true);
   const sendToSession = vi.fn(() => true);
   let handler: Handler | undefined;
   const ctx = {
@@ -107,7 +107,7 @@ async function controlSetup(opts: { delivered?: boolean } = {}) {
     p1: { id: "p1", cwd },
     a1: { id: "a1", cwd, driver: "acp" },
   };
-  const emitEventToSession = vi.fn(() => opts.delivered ?? true);
+  const emitEventToSession = vi.fn((_sid: string, _event: string, _data: Record<string, unknown>) => opts.delivered ?? true);
   const recordRejectedAction = vi.fn();
   let handler: Handler | undefined;
   const f = {

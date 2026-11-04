@@ -47,7 +47,7 @@ async function mk() {
     off: { id: "off", cwd: cwdOff },
     a1: { id: "a1", cwd: cwdOn, driver: "acp" },
   };
-  const emitEventToSession = vi.fn(() => true);
+  const emitEventToSession = vi.fn((_sid: string, _event: string, _data: Record<string, unknown>) => true);
   const recordRejectedAction = vi.fn();
   const app = Fastify();
   app.decorateRequest("isAuthenticated", false);

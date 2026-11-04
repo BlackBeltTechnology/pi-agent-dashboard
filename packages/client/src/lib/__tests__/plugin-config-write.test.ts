@@ -37,7 +37,7 @@ describe("dispatchPluginMessage (send interception)", () => {
 
     // Awaited, not discarded: a rejection here is the failure this test exists
     // to catch. See change: cleanup-client-plugin-promises (design D8).
-    await dispatchPluginMessage({ type: "flow_control", sessionId: "s1", action: "abort" }, wsSend);
+    await dispatchPluginMessage({ type: "plugin_action", pluginId: "flows", sessionId: "s1", action: "flow.abort" }, wsSend);
 
     expect(wsSend).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();

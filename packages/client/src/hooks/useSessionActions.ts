@@ -200,17 +200,6 @@ export function useSessionActions(deps: SessionActionDeps) {
     }
   }, [selectedId, send, setSessionStates, setSessions]);
 
-  const handleFlowAction = useCallback((sessionId: string, action: string, opts?: { flowName?: string; task?: string; description?: string }) => {
-    send({
-      type: "flow_management",
-      sessionId,
-      action,
-      flowName: opts?.flowName,
-      task: opts?.task,
-      description: opts?.description,
-    });
-  }, [send]);
-
   const handleSend = useCallback((text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => {
     if (selectedId) {
       // An ended session with no saved transcript can NEVER be resumed OR
@@ -588,7 +577,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   }, [selectedId, send]);
 
   return {
-    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
+    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     markPromptUndelivered,

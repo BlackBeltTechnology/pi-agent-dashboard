@@ -101,7 +101,6 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "list_sessions":
     case "stop_after_turn":
     case "git_info_refresh":
-    case "flow_control":
     case "heartbeat_ack":
     case "path_grant_result":
     case "path_yolo_result":
@@ -109,7 +108,6 @@ export function handleServerMessage(m: ServerToExtensionMessage, ctx: ServerRequ
     case "credentials_updated":
     case "mcp_token_minted":
     case "plugin_reply":
-    case "flow_management":
     case "architect_prompt_response":
     case "role_set":
     case "role_preset_load":

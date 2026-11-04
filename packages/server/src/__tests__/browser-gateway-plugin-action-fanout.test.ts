@@ -112,3 +112,27 @@ describe("plugin_action pluginId fan-out", () => {
     expect(warned).toBe(true);
   });
 });
+
+/**
+ * X3: an un-reloaded tab still sends the retired `flow_control` frame. It is no
+ * longer routed: no pi relay, no plugin handler, socket stays open.
+ * See change: update-flows-plugin (D2).
+ */
+describe("retired flow_control frame (X3)", () => {
+  it("is inert: no sendToSession, no plugin handler, no close, no throw", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const pi = makeStubPiGateway();
+    const gateway = createBrowserGateway(createMemorySessionManager(), createMemoryEventStore(() => false), pi);
+    const flowsHandler = vi.fn();
+    gateway.registerPluginActionHandler("flows", flowsHandler);
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    await expect(deliver(ws, { type: "flow_control", sessionId: "s1", action: "abort" })).resolves.toBeUndefined();
+    await deliver(ws, { type: "flow_management", sessionId: "s1", action: "run", flowName: "f" });
+    expect(pi.sendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "flow_control" }));
+    expect(pi.sendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "flow_management" }));
+    expect(flowsHandler).not.toHaveBeenCalled();
+    expect(ws.close).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+});

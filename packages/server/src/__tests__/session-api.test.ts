@@ -306,18 +306,14 @@ describe("Session Control REST API", () => {
     expect(res.status).toBe(200);
   });
 
-  // ── flow-control ────────────────────────────────────────────────
+  // ── flow-control (removed) ──────────────────────────────────────
+  // Replaced by the flows plugin route POST /api/plugins/flows/control.
+  // See change: update-flows-plugin (D2, task 3.3).
 
-  it("POST /api/session/:id/flow-control — 400 for invalid action", async () => {
-    const res = await postJson("/api/session/any/flow-control", { action: "invalid" });
-    expect(res.status).toBe(400);
-  });
-
-  it("POST /api/session/:id/flow-control — success", async () => {
+  it("POST /api/session/:id/flow-control is no longer registered (404)", async () => {
     registerSession("flow-ctrl");
     const res = await postJson("/api/session/flow-ctrl/flow-control", { action: "abort" });
-    expect(res.status).toBe(200);
-    expect((await res.json()).success).toBe(true);
+    expect(res.status).toBe(404);
   });
 
   // ── model ───────────────────────────────────────────────────────
