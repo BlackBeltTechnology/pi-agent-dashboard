@@ -97,7 +97,7 @@ function Shell(): ReactElement {
   const [showClosed, setShowClosed] = useState(false);
 
   useEffect(() => {
-    const load = () => fetch("/__mock/decisions").then((r) => r.json()).then(setState).catch(() => {});
+    const load = () => { void fetch("/__mock/decisions").then((r) => r.json()).then(setState).catch(() => {}); };
     load(); import.meta.hot?.on("mock:decisions", load);
   }, []);
   useEffect(() => { const on = () => setHash(location.hash.slice(1)); addEventListener("hashchange", on); return () => removeEventListener("hashchange", on); }, []);

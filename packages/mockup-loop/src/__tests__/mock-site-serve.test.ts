@@ -1,6 +1,8 @@
 /**
  * L1 — serve_mock_site tool: real Vite child against a fixture project.
  * See change: add-live-component-mock-site (test-plan E18, E19, X1, X2, X3, X8, P2).
+ *
+ * @structural-pin no-vite-import: X8 scans mock-site-serve.ts + plugin.mjs for a static `vite` import; absence of text is the contract (a pi session without Vite must still load the extension)
  */
 import { afterEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
