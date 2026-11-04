@@ -80,7 +80,9 @@ export function mockSite(options) {
             allow: [siteDir, projectRoot, ...(options.appRoot ? [path.resolve(options.appRoot)] : [])],
             // LAN mode REPLACES Vite's deny list, so restate its defaults (and newer
             // Vite ones) before adding ours.
-            ...(lan ? { deny: [".env", ".env.*", "*.{crt,pem,key,p12,pfx}", "**/.git/**", "**/.yarnrc.yml", "**/.npmrc", "**/.pi/**", "**/*secret*"] } : {}),
+            ...(lan ? { deny: [".env", ".env.*", "*.{crt,pem,key,p12,pfx}", "**/.git/**", "**/.yarnrc.yml", "**/.npmrc", "**/.pi/**",
+              // secret FILES only — a name glob like *secret* would also block app modules (SecretsPanel.tsx)
+              "**/.secrets", "**/.secrets/**", "**/*.secret", "**/secrets.{json,yaml,yml,env,txt}"] } : {}),
           },
         },
       };
