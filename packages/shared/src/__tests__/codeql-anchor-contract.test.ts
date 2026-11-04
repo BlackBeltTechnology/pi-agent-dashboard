@@ -105,6 +105,19 @@ function topLevelErrors(withoutImports: string): string[] {
   return errs;
 }
 
+// Minimal `paths-ignore` glob matcher (double-star, double-star-slash, single star).
+// Double-star forms become placeholder tokens BEFORE single `*` is expanded.
+function globMatches(glob: string, rel: string): boolean {
+  const src = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\//g, "\u0000")
+    .replace(/\*\*/g, "\u0001")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\u0000/g, "(?:.*/)?")
+    .replace(/\u0001/g, ".*");
+  return new RegExp(`^${src}$`).test(rel);
+}
+
 const imp = (name: string, mod: string) => `import { ${name} } from "../../${mod}";`;
 const allImports = Object.entries(ALLOWLIST).map(([n, m]) => imp(n, m));
 const body = (calls: string[]) =>
@@ -174,16 +187,11 @@ describe("codeql anchor contract", () => {
     for (const g of ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.test.mjs", "**/*.spec.ts"]) {
       expect(ignore, g).toContain(g);
     }
-    for (const g of ignore) {
-      const re = new RegExp(
-        `^${g
-          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-          .replace(/\*\*\//g, "(?:.*/)?")
-          .replace(/\*\*/g, ".*")
-          .replace(/\*/g, "[^/]*")}$`,
-      );
-      expect(re.test(ANCHOR_REL), `${g} must not ignore the anchor`).toBe(false);
-    }
+    for (const g of ignore) expect(globMatches(g, ANCHOR_REL), `${g} must not ignore the anchor`).toBe(false);
+    // The matcher itself recognises a glob that WOULD ignore the anchor.
+    expect(globMatches("scripts/**", ANCHOR_REL)).toBe(true);
+    expect(globMatches("**/codeql-anchor/**", ANCHOR_REL)).toBe(true);
+    expect(globMatches("**/__tests__/**", ANCHOR_REL)).toBe(false);
   });
 
   it("#E25 the anchor is not in the published package files", () => {

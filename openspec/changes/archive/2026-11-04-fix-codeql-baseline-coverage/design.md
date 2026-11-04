@@ -40,7 +40,7 @@ Reason text: `operator-authz: gate: <symbol> <repo-path>:<line>; <one-line basis
 Three classes, decided from `evidence/gate-table.md` (verified at HEAD):
 - Gate form (observe-tier routes, and control-tier routes with a real per-sink gate): `gate: <symbol> <path>:<line>`.
 - `control-tier: <basis>` form, only for the three control-only files where no per-sink gate exists (`git-operations.ts`, `process-manager.ts`, `spawn-preflight.ts`; `git worktree` `path` is the caller-chosen worktree target by design, spawn probes a directory the caller may already shell into). The contract test holds that file allowlist, so an observe-tier file cannot use this form.
-- Not `operator-authz` at all: `keeper-manager.ts:400` (#244, not request-reachable: the sidecar name is a server-minted id) and `path-containment.ts:67` (#100, the containment primitive itself) become `false-positive:` with the one-line basis. GitHub `dismissed_reason` is unchanged (#244 stays `won't fix`).
+- Not `operator-authz` at all: `keeper-manager.ts:400` (#244: request-reachable only for a registered session, `sessionManager.get` `session-action-handler.ts:552`; otherwise server-minted or `readdirSync` names; the read parses only a PID. Corrected after doubt review, `evidence/comment-sync.md`) and `path-containment.ts:67` (#100, the containment primitive itself) become `false-positive:` with the one-line basis. GitHub `dismissed_reason` is unchanged (#244 stays `won't fix`).
 
 The contract test reads only the baseline file: it cannot know a route's tier, so tier correctness is reviewed from the gate table and enforced indirectly by the file allowlist plus the ban on the canned sentence. `observe`-tier entries therefore cannot silently keep the old text.
 
