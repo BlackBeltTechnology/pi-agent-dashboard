@@ -365,53 +365,6 @@ This requirement applies only to probe argv, not to runtime launch paths. The pr
 - **THEN** the entry SHALL be passed as a positional argv (e.g. `node --import <loader> /path/to/cli.ts`), not via `-e`
 - **AND** this requirement SHALL NOT apply (the URL-vs-path distinction does not arise for positional argv)
 
-### Requirement: System Node detection matches the server accept-set
-
-`detectSystemNode()` SHALL report a Node binary as found/usable if and only if its `--version` passes the shared `isUsableNodeVersion(version)` gate — i.e. the version is within `package.json#engines.node` (`>=22.19.0 <27`) AND not in the nodejs/node#58515 Fastify-affected range (v22.0–v22.18, v24.1–v24.2). The same gate SHALL apply to both the PATH/registry-based detection and the on-disk scan fallback (`scanForUsableNodeOnDisk`). The doctor SHALL NOT report a system Node as usable that the dashboard server would refuse to start on.
-
-The on-disk scan SHALL remain Unix-only; on `win32` it SHALL NOT execute.
-
-#### Scenario: Node 22.18 reported not usable
-
-- **WHEN** the resolved system Node reports `v22.18.0` AND no other usable Node is found on disk
-- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
-
-#### Scenario: Node 22.19 reported usable
-
-- **WHEN** the resolved system Node reports `v22.19.0`
-- **THEN** `detectSystemNode()` SHALL return `{ found: true, path: <node path> }`
-
-#### Scenario: Node 24 LTS reported usable
-
-- **WHEN** the resolved system Node reports `v24.3.0` through any later `v24.x.x`
-- **THEN** `detectSystemNode()` SHALL return `{ found: true, path: <node path> }`
-
-#### Scenario: Node 24.1 / 24.2 reported not usable
-
-- **WHEN** the resolved system Node reports `v24.1.0` or `v24.2.0` AND no other usable Node is found on disk
-- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
-
-#### Scenario: Node 25 reported usable
-
-- **WHEN** the resolved system Node reports any `v25.x.x`
-- **THEN** `detectSystemNode()` SHALL return `{ found: true, path: <node path> }`
-
-#### Scenario: Node 27 reported not usable
-
-- **WHEN** the resolved system Node reports `v27.0.0` or newer AND no other usable Node is found on disk
-- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
-
-#### Scenario: Node 21 reported not usable
-
-- **WHEN** the resolved system Node reports any `v21.x.x` AND no other usable Node is found on disk
-- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
-
-#### Scenario: On-disk scan applies the same gate
-
-- **WHEN** PATH-based detection yields nothing AND `~/.nvm/versions/node/` contains both `v22.18.0` and `v24.15.0`
-- **THEN** the scan SHALL skip the affected/below-floor `v22.18.0`
-- **AND** SHALL return the `v24.15.0` path
-
 ### Requirement: Doctor reports attached-server version skew
 
 The Doctor diagnostic SHALL include a check named "Attached server version" in the `setup` section that compares the running shell's application version against `/api/health.version` and emits a `warning` when they differ. The suggestion text SHALL be selected from `health.launchSource` to give the user a launch-source-appropriate fix path.
@@ -597,3 +550,40 @@ literally when the Markdown is rendered.
 #### Scenario: Lone carriage return in a message
 - **WHEN** a check's message is `line1`, a carriage return with no following newline, and `line2`
 - **THEN** the message cell SHALL be emitted as `line1 line2` and the table SHALL parse into the same number of rows as there are checks
+
+### Requirement: System Node detection matches the Node 26 server accept-set
+
+`detectSystemNode()` SHALL report a Node binary as found/usable if and only if its `--version` passes the shared `isUsableNodeVersion(version)` gate — i.e. the version is within `package.json#engines.node` (`>=26.0.0 <27`). The same gate SHALL apply to both the PATH/registry-based detection and the on-disk scan fallback (`scanForUsableNodeOnDisk`). The doctor SHALL NOT report a system Node as usable that the dashboard server would refuse to start on.
+
+The on-disk scan SHALL remain Unix-only; on `win32` it SHALL NOT execute.
+
+#### Scenario: Node 26 reported usable
+
+- **WHEN** the resolved system Node reports `v26.0.0` or any later `v26.x.x`
+- **THEN** `detectSystemNode()` SHALL return `{ found: true, path: <node path> }`
+
+#### Scenario: Node 24 LTS reported not usable
+
+- **WHEN** the resolved system Node reports any `v24.x.x` AND no other usable Node is found on disk
+- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
+
+#### Scenario: Node 25 reported not usable
+
+- **WHEN** the resolved system Node reports any `v25.x.x` AND no other usable Node is found on disk
+- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
+
+#### Scenario: Node 22 reported not usable
+
+- **WHEN** the resolved system Node reports any `v22.x.x` AND no other usable Node is found on disk
+- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
+
+#### Scenario: Node 27 reported not usable
+
+- **WHEN** the resolved system Node reports `v27.0.0` or newer AND no other usable Node is found on disk
+- **THEN** `detectSystemNode()` SHALL return `{ found: false }`
+
+#### Scenario: On-disk scan applies the same gate
+
+- **WHEN** PATH-based detection yields nothing AND `~/.nvm/versions/node/` contains both `v24.15.0` and `v26.0.0`
+- **THEN** the scan SHALL skip the below-floor `v24.15.0`
+- **AND** SHALL return the `v26.0.0` path

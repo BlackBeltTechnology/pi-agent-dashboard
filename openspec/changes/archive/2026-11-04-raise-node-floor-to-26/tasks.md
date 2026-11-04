@@ -70,7 +70,7 @@
 
 ## 5. Docs and release
 
-- [ ] 5.1 At archive: update the `server-startup-node-version-guard` main-spec Purpose (drop the dual-predicate wording)
+- [x] 5.1 At archive: update the `server-startup-node-version-guard` main-spec Purpose (drop the dual-predicate wording)
 - [x] 5.2 Via DocScribe: remove stale `preload-fastify.cjs` mentions in `docs/architecture.md`, `docs/architecture.agent.md`, `docs/faq.md`, `.github/workflows/AGENTS.md` (and the comment in `packages/server/src/rpc-keeper/keeper.cjs`); README / `docs/faq.md` Node 26 requirement, auto-start notice, desktop-app alternative, Electron dev prerequisite
 - [x] 5.3 CHANGELOG `## [Unreleased]`: **BREAKING** — Node ≥26 required for npm installs; major version bump
 - [x] 5.4 Update `AGENTS.md` rows for touched files
