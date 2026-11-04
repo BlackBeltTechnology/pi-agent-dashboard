@@ -577,7 +577,7 @@ Scope note: spawn sites that pass `pi` as a shell token (`spawnTmux`, `spawnWslT
 #### Scenario: Healthy install adds no Electron flag via the spawn path
 
 - **WHEN** a real `node` (bundled, managed, or on PATH) resolves and the node-wrap yields `[<real node>, cli.js]`
-- **THEN** the spawn path SHALL NOT add `ELECTRON_RUN_AS_NODE`, and the non-Electron spawn env SHALL be byte-identical to current behavior
+- **THEN** the spawn path SHALL NOT add `ELECTRON_RUN_AS_NODE`, and the non-Electron spawn env SHALL be byte-identical to current behavior apart from the `PWD` rewrite that the headless-spawn capability adds to `process-manager.buildSpawnEnv` pi-session spawns
 
 ### Requirement: Node-script executor argv assembly is fully injectable under test
 

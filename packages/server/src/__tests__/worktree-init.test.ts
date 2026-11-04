@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateGate,
   hookDefHash,
@@ -282,6 +282,70 @@ describe("hook child env drops the dashboard's own heap flag", () => {
     await evaluateGate(tmp, scriptHook, { spawnFn });
     expect(process.env.NODE_OPTIONS).toBe(`--foo ${STAMP}`);
     expect(process.env[MARKER]).toBe(STAMP);
+  });
+});
+
+// ── child env: PWD names the checkout (agent flavor only) ─────────────────
+// test-plan #E15–E17. See change: fix-spawned-session-pwd.
+
+describe("hook child env PWD", () => {
+  const STAMP = "--max-old-space-size=1536";
+  const MARKER = "PI_DASHBOARD_HEAP_FLAG";
+  beforeEach(() => {
+    vi.stubEnv("PWD", "/launch/dir");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function capture() {
+    const envs: NodeJS.ProcessEnv[] = [];
+    const spawnFn = (_c: string, _a: readonly string[], o: any) => {
+      envs.push(o.env);
+      return fakeChild(0);
+    };
+    return { envs, spawnFn };
+  }
+  const agentHook: WorktreeInitHook = { gate: "g", run: { type: "agent", prompt: "go" } };
+  const scriptHook: WorktreeInitHook = { gate: "false", run: { type: "script", command: ":" } };
+  const agentOpts = (spawnFn: ReturnType<typeof capture>["spawnFn"]) => ({
+    spawnFn,
+    resolvePiBin: () => "/fake/pi",
+    evaluateGateFn: async () => ({ needsInit: false }),
+  });
+
+  it("E15: agent pi gets PWD = canonical checkout; heap strip still applies; rest unchanged", async () => {
+    vi.stubEnv("NODE_OPTIONS", STAMP);
+    vi.stubEnv(MARKER, STAMP);
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, agentHook, () => {}, agentOpts(spawnFn));
+    expect(envs).toHaveLength(1);
+    const env = envs[0]!;
+    expect(env.PWD).toBe(fs.realpathSync(tmp));
+    expect("NODE_OPTIONS" in env).toBe(false);
+    expect(env[MARKER]).toBeUndefined();
+    const { PWD: _p, ...rest } = env;
+    const { PWD: _q, NODE_OPTIONS: _n, [MARKER]: _m, ...expected } = process.env;
+    expect(rest).toEqual(expected);
+  });
+
+  it.each([
+    ["with PWD", { PWD: "/x", A: "1" }],
+    ["without PWD", { A: "1" }],
+  ])("E16 (guard): explicit opts.env %s is passed unchanged", async (_l, explicit: NodeJS.ProcessEnv) => {
+    const { envs, spawnFn } = capture();
+    await runInitHook(tmp, agentHook, () => {}, { ...agentOpts(spawnFn), env: explicit });
+    expect(envs[0]).toBe(explicit);
+    if ("PWD" in explicit) expect(envs[0]!.PWD).toBe("/x");
+    else expect("PWD" in envs[0]!).toBe(false);
+  });
+
+  it("E17 (guard): gate and script hook envs keep the inherited PWD", async () => {
+    const { envs, spawnFn } = capture();
+    await evaluateGate(tmp, scriptHook, { spawnFn });
+    await runInitHook(tmp, scriptHook, () => {}, { spawnFn });
+    expect(envs.length).toBeGreaterThanOrEqual(2);
+    for (const env of envs) expect(env.PWD).toBe("/launch/dir");
   });
 });
 
