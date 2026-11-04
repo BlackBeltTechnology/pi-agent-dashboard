@@ -30,6 +30,8 @@ export default defineConfig({
       // Mirrors packages/client/vite.config.ts resolve.alias (app-kit/react before app-kit).
       aliases: {
         "@app": pkg("client/src"),
+        // Plugin sources for plugin-surface mocks (package `exports` block deep imports).
+        "@flows": pkg("flows-plugin/src"),
         "@blackbelt-technology/pi-dashboard-shared": pkg("shared/src"),
         "@blackbelt-technology/pi-dashboard-client-utils": pkg("client-utils/src"),
         "@blackbelt-technology/pi-dashboard-app-kit/react": pkg("app-kit/src/react/index.ts"),
