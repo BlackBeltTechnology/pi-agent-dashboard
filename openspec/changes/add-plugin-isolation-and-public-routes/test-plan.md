@@ -46,7 +46,7 @@ Levels: L1 = vitest unit (`packages/*/src/**/__tests__/*.test.ts`); L2 = qa VM s
 | E28 | bridge control-channel-only › no operator file access | EP | L1 | automated | fake `HOME` with `~/.pi/agent/{models,providers,settings}.json`, `~/.pi/dashboard/{config.json,local/token,pinned-servers.json,access-grants.json}`; `fs` spied | isolated bridge load, register, one turn | no open/read/write/stat of any path under fake `~/.pi` |
 | E29 | bridge control-channel-only › `/` input not expanded | EP | L1 | automated | isolated session cwd holds `.pi/prompts/review.md`; user input `/review` | command handling | text passed to pi is `/review` verbatim |
 | E30 | bridge control-channel-only › no vault delivery | EP | L1 | automated | vault grant for cwd, hub reachable | isolated bridge connect + session_start | no vault request sent; no env var applied |
-| E31 | agent-session-context-injection › non-isolated unchanged | EP | L1 | automated | non-isolated bridge, systemPrompt with cwd anchor | turn | fragment injected exactly as existing injector test expects |
+| E31 | agent-session-context-injection › non-isolated unchanged | EP | L1 | automated | non-isolated bridge, structured `systemPromptOptions` | turn | `sections.dashboard_session` set exactly as existing injector test expects, no `systemPrompt` returned |
 | E32 | pi-gateway-auth › credential bound to spawn | decision-table | L1 | automated | credentials A, B live; connection admitted with A | registration carrying spawn token of A / of B | A → accepted; B → refused |
 | E33 | pi-gateway-auth › spawn proof not consulted off gateway | EP | L1 | automated | proof valid only under live spawn credential | presented on REST route, browser WS upgrade, pairing guard | each treats proof as absent (no credentialed admission) |
 | E34 | pi-gateway-auth › counter-proof keyed by verifying class | EP | L1 | automated | gateway admits on spawn proof; separately on local-token proof | upgrade response | counter-proof verifies under spawn credential (resp. local token) and not under the other |
@@ -81,6 +81,11 @@ Levels: L1 = vitest unit (`packages/*/src/**/__tests__/*.test.ts`); L2 = qa VM s
 | E63 | plugin-spawn-scope › plugin data dir | EP | L1 | automated | first activation of plugin `web-chat` with fake HOME | context creation | `ctx.dataDir === <home>/.pi/dashboard/plugins/web-chat`, dir exists, mode 0700; agentDir under it passes operator-tree validation |
 | E64 | plugin-spawn-scope › isolated plugin-message lane | state-transition | L1 | automated | isolated bridge with a plugin extension emitting `dashboard:plugin-message` | emit + server reply via `sendExtensionMessage` | server handler receives request; extension receives reply |
 | E65 | host-access-policy › registration outcome observable | decision-table | L1 | automated | plugin named vs not named in `identity.trustedPolicyPlugin`; second registration by the named plugin | `ctx.registerHostAccessPolicy(fn)` | named first call returns unregister fn; not-named throws `policy_not_trusted`; second call throws `policy_duplicate`; no policy registered on throws |
+| E66 | headless-spawn › isolated spawn carries cwd-derived PWD | EP | L1 | automated | server env `PWD=/launch/dir`; spawn cwd an existing tmp dir | `buildSpawnEnv` isolated with that `cwd` | child `PWD` = realpath of spawn cwd; never `/launch/dir` |
+| E67 | bearer-device-auth › public namespace still records plaintext exposure | EP | L1 | automated | enabled plugin public route; valid `pi_tls_` bearer on plaintext listener | request | device marked exposed + audit line; request neither authenticated nor refused by bearer |
+| E68 | bearer-device-auth › public-namespace exposure check (channel × bearer) | decision-table | L1 | automated | enabled plugin public route; bearer ∈ {valid `pi_tls_` on native TLS listener, unknown bearer on plaintext, revoked bearer on plaintext} | request | TLS → device NOT marked exposed; unknown → nothing recorded; revoked → no 401 from the bearer branch; none authenticated by the bearer |
+| E69 | plugin-spawn-scope › empty vs whitespace `initialPrompt` with `agentDir` | BVA | L1 | automated | valid agentDir + `initialPrompt:""`; valid agentDir + `initialPrompt:" "` | plugin `spawnSession` | `""` → spawn proceeds (`success:true`, `isolated:true`); `" "` → refused `agent_dir_unsupported_combo`, nothing spawned |
+| E70 | trusted-networks › trusted-network IP in pair mode vs public namespace | decision-table | L1 | automated | `trustedNetworks:["192.168.16.0/24"]`, trust mode `pair`, no credential, request from `192.168.16.20` | `GET /api/sessions` vs `POST /api/plugins/web-chat/public/messages` (enabled) | `/api/sessions` denied by guard (no pass condition); public route passes via the in-namespace public exception; in `legacy` mode `/api/sessions` passes |
 
 ### Performance
 
@@ -111,9 +116,10 @@ None — no rendered UI in this change.
 ## Coverage summary
 
 - Requirements covered: 31/31 (isolation 17 as above + plugin-public-routes ADDED ×7, cross-site-request-gate ×1, server-cors ×3, bearer-device-auth ×2 incl. bearer branch, trusted-networks ×1, auth-bypass-url-list ×1 — some rows cover several)
-- Scenarios by class: edge 65 · perf 1 · frontend 0 · error 9
-- Scenarios by level: L1 69 · L2 6 · L3 0
-- Scenarios by disposition: automated 75 · manual-only 0
+- Rebase onto archived `fix-spawned-session-pwd` + later archives (2026-11-04): E66–E70 cover the re-applied isolation/public-namespace text in headless-spawn (PWD), bearer-device-auth (exposure check), plugin-spawn-scope (`initialPrompt` boundary), trusted-networks (legacy-only pass condition)
+- Scenarios by class: edge 70 · perf 1 · frontend 0 · error 9
+- Scenarios by level: L1 74 · L2 6 · L3 0
+- Scenarios by disposition: automated 80 · manual-only 0
 
 ## New infra needed
 
