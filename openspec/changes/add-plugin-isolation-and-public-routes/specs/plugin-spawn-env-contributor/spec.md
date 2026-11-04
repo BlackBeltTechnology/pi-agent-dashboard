@@ -14,7 +14,7 @@ For tmux-hosted mechanisms, a value present only in the tmux server's global env
 The host SHALL reject these names:
 - names not matching `^[A-Z_][A-Z0-9_]*$`
 - values containing NUL
-- `PATH`, `HOME`, `USERPROFILE`, `SHELL`, `PWD`
+- `PATH`, `HOME`, `USERPROFILE`, `SHELL`
 - any name starting with `NODE_`, `LD_`, `DYLD_`, `PI_DASHBOARD_`, `ELECTRON_`, or `CONTEXT_MODE_BRIDGE_`
 - `CONTEXT_MODE_EMBEDDED_PLUGIN_TOOLS`
 
@@ -25,11 +25,6 @@ The host SHALL reject these names:
 #### Scenario: Tmux pane receives contribution
 - **WHEN** a trusted contributor returns `{ "CTX_FETCH_STRICT": "1" }` and a session is spawned into an existing tmux server
 - **THEN** the pi process in the new pane has `CTX_FETCH_STRICT=1`
-
-#### Scenario: PWD is host-owned and cannot be contributed or superseded
-- **WHEN** a trusted contributor returns `{ "PWD": "/elsewhere" }`, or declares a supersede marker whose declared names include `PWD`
-- **THEN** the contributed value SHALL be rejected with exactly one warning naming `PWD` and the supersede marker SHALL NOT remove `PWD`
-- **AND** the spawned environment SHALL carry the host-set `PWD` (headless-spawn capability), with no `-e PWD=` entry in a tmux argv
 
 #### Scenario: Isolated plugin spawn receives no contribution
 - **WHEN** a trusted contributor returns `{ "CTX_FETCH_STRICT": "1" }` and a plugin spawns with a valid `scope.agentDir`

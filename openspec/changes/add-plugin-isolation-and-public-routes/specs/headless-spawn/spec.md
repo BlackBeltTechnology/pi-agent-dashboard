@@ -3,7 +3,7 @@
 ### Requirement: `PI_DASHBOARD_SPAWN_TOKEN` env-var injected on every spawn
 For every invocation of `spawnPiSession()` — regardless of strategy (`tmux`, `wt`, `wsl-tmux`, `headless`) and regardless of platform — the server SHALL inject `PI_DASHBOARD_SPAWN_TOKEN` (a freshly-minted UUIDv4) into the spawned process's environment via `buildSpawnEnv`. The injection SHALL be the only mechanism by which the spawn token reaches the spawned pi process; the token SHALL NOT be passed via argv, the session JSONL file, or any other channel.
 
-The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToken: string` argument and SHALL set `result.PI_DASHBOARD_SPAWN_TOKEN = spawnToken` when provided. The existing `prependManagedNodeToPath` and other env-shaping behaviors SHALL be preserved unchanged, with one exception: a heap-sizing flag the dashboard stamped into its own environment SHALL be removed from the child environment, per the heap-limits capability. A heap flag the operator pinned themselves SHALL be preserved. The pre-existing env-shaping exclusions stand unchanged — the parent-identity markers `PI_DASHBOARD_ELECTRON` and `PI_DASHBOARD_RESOURCES_PATH` are still removed so a stale identity cannot leak to a grandchild, and `ELECTRON_RUN_AS_NODE` is still shaped by argv. Additionally, the context-mode bridge-internal variables `CONTEXT_MODE_BRIDGE_DEPTH` and `CONTEXT_MODE_BRIDGE_IDLE_MS` SHALL be removed from the child environment of every strategy (for tmux-hosted strategies, also from the pane process, whose environment otherwise comes from the long-lived tmux server), so a server started from inside a context-mode sandbox does not disable context-mode's tools in the sessions it spawns. Names that a context-mode settings bridge recorded as plugin-projected SHALL also be removed, so that the current settings file, not a stale ancestor value, decides them. The dashboard-stamped heap flag, the context-mode bridge-internal variables, and recorded plugin-projected names are the only sanctioned NEW subtractions. The one sanctioned REWRITE is `PWD`: the env built for every strategy SHALL set it, as part of the host's own shaping, to the canonical physical path of the spawn cwd (the realpath when resolvable, else the absolute lexical form). `PWD` is a host-owned name (plugin-spawn-env-contributor capability): no contributor or supersede marker can add, remove or replace it (see the scenarios below). Beyond those, no inherited variable SHALL be dropped, except for an isolated plugin spawn (valid `scope.agentDir`, see `plugin-spawn-scope`), whose child environment SHALL be reduced to that capability's allowlist before the remaining shaping runs; an isolated spawn still receives `PI_DASHBOARD_SPAWN_TOKEN` and the cwd-derived `PWD`, because both are host shaping applied after the allowlist reduction, not inherited variables. Variables contributed by trusted plugins (plugin-spawn-env-contributor capability) are additions. They never replace a variable inherited from the dashboard server's environment, although for tmux-hosted strategies they may override a value present only in the tmux server's global environment.
+The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToken: string` argument and SHALL set `result.PI_DASHBOARD_SPAWN_TOKEN = spawnToken` when provided. The existing `prependManagedNodeToPath` and other env-shaping behaviors SHALL be preserved unchanged, with one exception: a heap-sizing flag the dashboard stamped into its own environment SHALL be removed from the child environment, per the heap-limits capability. A heap flag the operator pinned themselves SHALL be preserved. The pre-existing env-shaping exclusions stand unchanged — the parent-identity markers `PI_DASHBOARD_ELECTRON` and `PI_DASHBOARD_RESOURCES_PATH` are still removed so a stale identity cannot leak to a grandchild, and `ELECTRON_RUN_AS_NODE` is still shaped by argv. Additionally, the context-mode bridge-internal variables `CONTEXT_MODE_BRIDGE_DEPTH` and `CONTEXT_MODE_BRIDGE_IDLE_MS` SHALL be removed from the child environment of every strategy (for tmux-hosted strategies, also from the pane process, whose environment otherwise comes from the long-lived tmux server), so a server started from inside a context-mode sandbox does not disable context-mode's tools in the sessions it spawns. Names that a context-mode settings bridge recorded as plugin-projected SHALL also be removed, so that the current settings file, not a stale ancestor value, decides them. The dashboard-stamped heap flag, the context-mode bridge-internal variables, and recorded plugin-projected names are the only sanctioned NEW subtractions. Beyond those, no inherited variable SHALL be dropped, except for an isolated plugin spawn (valid `scope.agentDir`, see `plugin-spawn-scope`), whose child environment SHALL be reduced to that capability's allowlist before the remaining shaping runs; an isolated spawn still receives `PI_DASHBOARD_SPAWN_TOKEN`. Variables contributed by trusted plugins (plugin-spawn-env-contributor capability) are additions. They never replace a variable inherited from the dashboard server's environment, although for tmux-hosted strategies they may override a value present only in the tmux server's global environment.
 
 #### Scenario: Headless spawn injects token
 - **WHEN** `spawnPiSession(cwd, { strategy: "headless", spawnToken: "tok_h" })` is called on Linux or macOS
@@ -25,12 +25,12 @@ The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToke
 
 #### Scenario: Existing env vars preserved
 - **WHEN** the dashboard server's environment contains `PATH`, `HOME`, `PI_DASHBOARD_URL`, etc.
-- **THEN** the spawned process SHALL receive all of those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`, except `PWD`, which names the spawn cwd
+- **THEN** the spawned process SHALL receive all of those vars unchanged in addition to `PI_DASHBOARD_SPAWN_TOKEN`
 
 #### Scenario: Dashboard-stamped heap flag is withheld
 - **WHEN** the dashboard server's environment carries the heap flag it stamped for itself
 - **THEN** the spawned process's environment SHALL NOT carry that flag
-- **AND** every other inherited variable SHALL still be passed through unchanged, apart from the pre-existing parent-identity exclusions and the other sanctioned subtractions of this requirement (context-mode bridge-internal variables, recorded plugin-projected names) and the sanctioned `PWD` rewrite
+- **AND** every other inherited variable SHALL still be passed through unchanged, apart from the pre-existing parent-identity exclusions and the other sanctioned subtractions of this requirement (context-mode bridge-internal variables, recorded plugin-projected names)
 
 #### Scenario: Token not echoed to argv
 - **WHEN** the server inspects the spawned process command-line via `ps` or equivalent
@@ -53,41 +53,6 @@ The `buildSpawnEnv(baseEnv, opts?)` function SHALL accept an optional `spawnToke
 - **WHEN** the server process environment contains `CONTEXT_MODE_TZ=UTC`
 - **THEN** the spawned pi process environment SHALL still contain `CONTEXT_MODE_TZ=UTC`
 
-#### Scenario: Spawned pi PWD names the spawn cwd
-- **WHEN** the server environment has `PWD=/launch/dir` and `spawnPiSession("/work/project", { strategy: "headless" })` is called for an existing directory `/work/project`
-- **THEN** the pi process environment SHALL have `PWD=/work/project`, and a keeper respawn of pi SHALL keep that value
-
-#### Scenario: PWD set for every strategy
-- **WHEN** a session is spawned with strategy `tmux`, `wt`, `wsl-tmux`, or `headless` (including an ACP `childCmd` keeper spawn)
-- **THEN** the env the dashboard hands to that spawn mechanism SHALL carry `PWD` equal to the canonical path of that spawn's cwd
-
-#### Scenario: A plugin cannot remove or replace PWD
-- **WHEN** a trusted spawn-env contributor contributes `PWD` or lists `PWD` among the names it supersedes
-- **THEN** the env built for the spawn SHALL still carry `PWD` equal to the canonical path of the spawn cwd
-- **AND** for `tmux` / `wsl-tmux` the tmux argv SHALL carry no `-e PWD=` entry
-
-#### Scenario: Relative spawn cwd yields an absolute PWD
-- **WHEN** `buildSpawnEnv` is given a relative `cwd`
-- **THEN** the returned `PWD` SHALL be absolute: that cwd resolved against the server's working directory, then canonicalised
-
-#### Scenario: Aliased spawn cwd yields the canonical PWD
-- **WHEN** the spawn cwd is a symlink to, or an alias spelling of, an existing directory
-- **THEN** `PWD` SHALL equal the directory's canonical physical path, the same string the spawned pi reports as its working directory
-- **AND** when the path cannot be canonicalised (it does not exist), `PWD` SHALL be the absolute lexical form and the spawn SHALL NOT fail because of it
-
-#### Scenario: Empty spawn cwd leaves PWD untouched
-- **WHEN** `buildSpawnEnv` is given `cwd: ""`
-- **THEN** it SHALL be treated as no cwd: the returned env is identical to the call without `cwd`, and `PWD` is not re-stamped with the server's working directory
-
-#### Scenario: Other inherited variables unaffected by PWD rewrite
-- **WHEN** a spawn rewrites `PWD`
-- **THEN** every other inherited variable SHALL be passed through exactly as before, and `PI_PROJECT_DIR`, `PI_WORKSPACE_DIR` and `CONTEXT_MODE_PROJECT_DIR` SHALL NOT be set by the host
-
 #### Scenario: Isolated plugin spawn drops non-allowlisted inherited variables but keeps the spawn token
 - **WHEN** the server env contains `ANTHROPIC_API_KEY` and a plugin performs an isolated spawn with spawn token `tok_i`
 - **THEN** the child env SHALL contain `PI_DASHBOARD_SPAWN_TOKEN=tok_i` and SHALL NOT contain `ANTHROPIC_API_KEY`
-
-#### Scenario: Isolated plugin spawn carries the cwd-derived PWD
-- **WHEN** the server env has `PWD=/launch/dir` and a plugin performs an isolated spawn into an existing directory `/work/project`
-- **THEN** the child env SHALL have `PWD=/work/project` (canonical path of the spawn cwd), whether or not `PWD` is on the isolation allowlist
-- **AND** the stale server `PWD=/launch/dir` SHALL NOT reach the child
