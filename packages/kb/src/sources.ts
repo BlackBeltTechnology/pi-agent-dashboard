@@ -12,10 +12,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { type ArchiveKind, extractArchiveSafely } from "./archive-guard.js";
-import type { SourceConfig } from "./config.js";
+import { DEFAULTS, type SourceConfig } from "./config.js";
 import { assertPublicHost, guardedFetch, type LookupAll } from "./net-guard.js";
 import { isTrusted, recordTrust } from "./trust.js";
 
@@ -50,6 +50,9 @@ export interface ResolveCtx {
   cacheDir: string; // absolute, for remote clones/fetches
   refresh?: boolean; // --refresh: re-pull refreshable remote sources
   promptTrust?: (s: SourceConfig) => Promise<boolean>;
+  /** Indexable extensions for the https plain-file content check (default:
+   *  `DEFAULTS.extensions`). Matched case-insensitively. */
+  extensions?: string[];
   /** Test seams only (change: harden-untrusted-content-ingestion). Never set in production. */
   testHooks?: {
     /** Replaces `guardedFetch` for the https resolver. */
@@ -70,11 +73,21 @@ export interface SourceResolver {
   resolve(spec: SourceConfig, ctx: ResolveCtx): Promise<ResolvedSource>;
 }
 
-/** Classify a ref string (mirrors parseSourceKind). */
+/** A GitHub REPOSITORY ref: `[https://]github.com/<o>/<r>` with an optional
+ *  `.git`, `@<ref>`, or `/tree/<ref>[/…]` suffix. Any other github.com path
+ *  (blob/raw/archive/issues/pull/wiki/…) is not a repo. Groups: owner, repo,
+ *  `.git`, `@ref`, tree ref. See change: fix-kb-get-roots-and-guard (D7). */
+const GITHUB_REPO = /^(?:https:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(\.git)?(?:@([^/@:\s]+)|\/tree\/([^/\s]+)(?:\/.*)?)?\/?$/;
+const GITHUB_ANY = /^(?:https?:\/\/)?(?:www\.)?github\.com\//;
+
+/** Classify a ref string (mirrors parseSourceKind). GitHub repo refs and
+ *  `ssh://` URLs clone (`git`); direct file / archive / other GitHub URLs stay
+ *  `https` and are content-checked there. */
 export function classifyRef(ref: string): KbSourceKind {
   if (ref.startsWith("npm:")) return "npm";
-  if (ref.startsWith("git:") || ref.startsWith("git@")) return "git";
-  if (/^(https?|ssh):\/\//.test(ref)) return "https";
+  if (ref.startsWith("git:") || ref.startsWith("git@") || ref.startsWith("ssh://")) return "git";
+  if (GITHUB_REPO.test(ref)) return "git";
+  if (GITHUB_ANY.test(ref) || /^https?:\/\//.test(ref)) return "https";
   return "filesystem";
 }
 
@@ -162,12 +175,18 @@ export const npmResolver: SourceResolver = {
 function gitUrlOf(spec: SourceConfig): string {
   const ref = spec.ref.startsWith("git:") ? spec.ref.slice(4) : spec.ref;
   if (ref.startsWith("git@")) return ref;
+  // GitHub repo: clone the bare repo URL (revision suffixes are not part of it;
+  // an existing `.git` spelling is kept so cached clones' origins still match).
+  const gh = GITHUB_REPO.exec(ref);
+  if (gh) return `https://github.com/${gh[1]}/${gh[2]}${gh[3] ?? ""}`;
   if (/^github\.com\//.test(ref)) return `https://${ref}`;
   if (!/^[a-z]+:\/\//.test(ref)) return `https://${ref}`;
   return ref;
 }
 function gitRefOf(spec: SourceConfig): string | undefined {
   if (spec.pin) return spec.pin;
+  const gh = GITHUB_REPO.exec(spec.ref.startsWith("git:") ? spec.ref.slice(4) : spec.ref);
+  if (gh) return gh[4] ?? gh[5];
   const ref = spec.ref;
   if (!ref.startsWith("git@")) {
     const lastAt = ref.lastIndexOf("@");
@@ -294,6 +313,36 @@ function plainFileName(pathname: string): string {
   return name === "" || name === "." || name === ".." ? "index.md" : name;
 }
 
+/** Body sniffs as an HTML document (after BOM / whitespace / HTML comments). */
+function looksLikeHtml(body: Buffer): boolean {
+  let head = body.subarray(0, 4096).toString("utf8").replace(/^\uFEFF/, "");
+  for (;;) {
+    head = head.trimStart();
+    if (!head.startsWith("<!--")) break;
+    const end = head.indexOf("-->");
+    if (end < 0) return false;
+    head = head.slice(end + 3);
+  }
+  return /^<(!doctype\s+html|html[\s>])/i.test(head);
+}
+
+/** Reject a plain https fetch that would index nothing (HTML page or no
+ *  indexable extension). Throws BEFORE the cache swap, so `dest` and its fetch
+ *  marker survive. See change: fix-kb-get-roots-and-guard (D8). */
+function assertIndexableBody(ref: string, url: URL, name: string, body: Buffer, extensions: string[]): void {
+  const ext = extname(name).toLowerCase();
+  const indexable = extensions.some((e) => e.toLowerCase() === ext);
+  const html = looksLikeHtml(body);
+  if (indexable && !html) return;
+  const gh = /^(?:www\.)?github\.com$/i.test(url.hostname) ? /^\/([^/]+)\/([^/]+)\/blob\/(.+)$/.exec(url.pathname) : null;
+  const hint = gh
+    ? ` — use the raw file URL https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3]}`
+    : html
+      ? ' — it is an HTML page; for a repository use kind: "git"'
+      : ` — the saved file ${JSON.stringify(name)} has no indexable extension (${extensions.join(", ")}); for a repository use kind: "git"`;
+  throw new Error(`https source ${ref} yields nothing indexable${hint}`);
+}
+
 /**
  * Lock-free, single-winner cache swap (review: concurrent refreshes).
  *
@@ -395,7 +444,9 @@ export const httpsResolver: SourceResolver = {
           writeFileSync(archive, body);
           await extractArchiveSafely(kind, archive, out, hooks.archiveLimits);
         } else {
-          writeFileSync(join(out, plainFileName(url.pathname)), body);
+          const name = plainFileName(url.pathname);
+          assertIndexableBody(spec.ref, url, name, body, ctx.extensions ?? DEFAULTS.extensions);
+          writeFileSync(join(out, name), body);
         }
         writeFileSync(join(out, ".fetched"), String(Date.now()));
         swapInto(dest, out, hooks.rename ?? renameSync);

@@ -18,6 +18,33 @@ kb dox lint
 Pair it with `@blackbelt-technology/pi-dashboard-kb-extension` to expose `kb_search`,
 `kb_get` and `kb_neighbors` as pi tools.
 
+## Sources
+
+`.pi/dashboard/knowledge_base.json` lists `sources[]`. The kind comes from an
+explicit `kind` or is inferred from `ref`:
+
+```json
+{ "sources": [
+  { "ref": "docs" },
+  { "ref": "https://github.com/owner/repo" },
+  { "ref": "https://github.com/owner/repo/tree/dev", "subdir": "docs" },
+  { "ref": "ssh://git@github.com/owner/private" },
+  { "ref": "https://raw.githubusercontent.com/owner/repo/main/README.md" }
+] }
+```
+
+A GitHub repository URL (optionally `.git`, `@<ref>` or `/tree/<ref>`) and an
+`ssh://` URL are cloned as `git` sources. Raw file and archive URLs are fetched
+as `https`; an https fetch that yields an HTML page or a file without an
+indexable extension fails with a hint instead of indexing nothing. Remote
+sources are indexed by `kb index` (they prompt for trust once); the live
+extension auto-reindexes filesystem sources only.
+
+`kb get <path>` / `kb_get` look in every indexed source. A path indexed in more
+than one source returns a candidate list (`<source-id>:<path>`) instead of a
+body; pass a candidate back, or qualify the path by its source directory.
+`--section` / `section` accepts a full heading path or a unique last heading.
+
 ## Evaluate retrieval (kb eval)
 
 ```bash
