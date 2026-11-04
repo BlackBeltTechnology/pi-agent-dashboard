@@ -33,3 +33,5 @@ New setter `setLookupOnlyIds`: `sessions_page_result` removes the ids it deliver
 - `history_backfill_result` splice passes `new Set(msg.openToolCallIds ?? [])` to `finalizeBackfillSegment`; each kept-running reported-open row missing from `current.toolCalls` gets `seedRunningToolCall(..., current.assistantInferenceSeq, <segment start ts>)` — the ONE exception to the touch-only-`messages[]` (D10) rule; `maxSeqMapRef`/publish/persister still untouched. See change: fix-backfill-elides-live-tools (D2).
 
 `flows_list` case removed (flow list plugin-owned). See change: flows-dock-chip-and-panel-actions.
+
+See change: add-spawn-model-choice. `spawn_result` success + `choiceWarning` → `showToast(choiceWarning, "warning")`; never marks the spawn failed.

@@ -10,7 +10,7 @@
  *
  * Invoke (Node everywhere via npx tsx):
  *   npx tsx ./scripts/dashboard-bus.ts sessions [--all] [--json]
- *   npx tsx ./scripts/dashboard-bus.ts spawn <cwd> [--prompt <text>] [--attach <change>]
+ *   npx tsx ./scripts/dashboard-bus.ts spawn <cwd> [--prompt <text>] [--attach <change>] [--model <ref|@role>] [--thinking <level>]
  *   npx tsx ./scripts/dashboard-bus.ts prompt <id-prefix> <text...>
  *   npx tsx ./scripts/dashboard-bus.ts until <id-prefix> <status> [--timeout <ms>]
  *   npx tsx ./scripts/dashboard-bus.ts abort <id-prefix>
@@ -31,6 +31,7 @@
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { dialHost, proofHeaders } from "./local-proof.ts";
+import { runSpawnCommand } from "./spawn-command.ts";
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -93,12 +94,7 @@ async function main(): Promise<void> {
       }
       case "spawn": {
         const cwd = pos[0] ?? die("spawn needs <cwd>");
-        const id = await client.spawn({
-          cwd,
-          initialPrompt: flag(rest, "prompt"),
-          attachProposal: flag(rest, "attach"),
-        });
-        console.log(`spawned ${id}`);
+        await runSpawnCommand(client, cwd, rest);
         break;
       }
       case "prompt": {

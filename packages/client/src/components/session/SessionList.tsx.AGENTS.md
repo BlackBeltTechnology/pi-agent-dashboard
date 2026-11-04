@@ -60,3 +60,5 @@ Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do
 - `folderMatchesFilters` now `useCallback` (memo dep).
 - `WorkspaceFolderEjectZone` (module-local): reads `useDndContext().active`; renders `<li><PinnedTierDropZone/></li>` for every `workspace-folder` drag. Replaces `visibleTopPinned.length === 0 && activeDragType` gate. `activeDragType` kept for `useFlipOnLaneChange` only.
 - Tests: `__tests__/SessionList.folder-visibility.test.tsx`, eject block in `SessionList.folder-membership-drag.test.tsx` (thin `DndContext` mock tracks `active`).
+
+See change: add-spawn-model-choice. Folder spawn forwards `AgentSpawnPicker` choice into opts. Initialize (menu item + both banners) → `initializeSpawnOpts(cwd, PROJECT_INIT_PROMPT)` (pi + effective choice). Card sibling → `siblingSpawnOpts(s)` (ACP agent, or pi model/thinking).

@@ -367,11 +367,13 @@ describe("plugin spawnSession host hook (relocate-goal-product-to-plugin)", () =
     expect(registry.size(cwd)).toBe(8);
   });
 
-  it("X1: failed spawn removes the ref and consumes the queued prompt", async () => {
+  // A failed spawn withdraws ITS OWN prompt (newest match), never another
+  // spawn's FIFO head. See change: add-spawn-model-choice (D3).
+  it("X1: failed spawn removes the ref and withdraws the queued prompt", async () => {
     h.spawnPiSessionMock.mockResolvedValue({ success: false, message: "spawn failed" });
     const registry = h.pluginRefRegistry.current!;
     const prompts = h.initialPromptRegistry.current!;
-    const consumeSpy = vi.spyOn(prompts, "consume");
+    const withdrawSpy = vi.spyOn(prompts, "withdraw");
     const result = await pluginCtx(TRUSTED_ID).spawnSession({
       cwd,
       spawnToken: "tok-A",
@@ -379,19 +381,19 @@ describe("plugin spawnSession host hook (relocate-goal-product-to-plugin)", () =
     });
     expect(result.success).toBe(false);
     expect(registry.has("tok-A")).toBe(false);
-    expect(consumeSpy).toHaveBeenCalledWith(cwd);
+    expect(withdrawSpy).toHaveBeenCalledWith(cwd, "/goal reprime");
     expect(prompts.size(cwd)).toBe(0);
   });
 
-  it("X2: a throwing spawn removes the ref, consumes the prompt, resolves { success:false }", async () => {
+  it("X2: a throwing spawn removes the ref, withdraws the prompt, resolves { success:false }", async () => {
     h.spawnPiSessionMock.mockRejectedValue(new Error("boom"));
     const registry = h.pluginRefRegistry.current!;
     const prompts = h.initialPromptRegistry.current!;
-    const consumeSpy = vi.spyOn(prompts, "consume");
+    const withdrawSpy = vi.spyOn(prompts, "withdraw");
     const result = await pluginCtx(TRUSTED_ID).spawnSession({ cwd, initialPrompt: "/goal reprime" });
     expect(result.success).toBe(false);
     expect(result.message).toBe("boom");
-    expect(consumeSpy).toHaveBeenCalledWith(cwd);
+    expect(withdrawSpy).toHaveBeenCalledWith(cwd, "/goal reprime");
     expect(prompts.size(cwd)).toBe(0);
     // No fresh token was filed (the minted one was rolled back).
     expect(registry.size()).toBe(0);
@@ -403,9 +405,11 @@ describe("plugin-spawn-scope hook ordering (X5)", () => {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
     const source = fs.readFileSync(path.resolve(__dirname, "..", "server.ts"), "utf8");
-    const mapIdx = source.indexOf("pluginSpawnToSessionOptions(opts)");
+    // The total mapper is wrapped by `mapPluginSpawnOptions` (calls
+    // `pluginSpawnToSessionOptions`) since add-spawn-model-choice.
+    const mapIdx = source.indexOf("mapPluginSpawnOptions(opts");
     const fileIdx = source.indexOf("pendingPluginRefRegistry.file(\n                  spawnToken");
-    expect(mapIdx, "pluginSpawnToSessionOptions(opts) call must be present").toBeGreaterThan(-1);
+    expect(mapIdx, "mapPluginSpawnOptions(opts) call must be present").toBeGreaterThan(-1);
     expect(fileIdx, "pendingPluginRefRegistry.file(spawnToken, ...) must be present").toBeGreaterThan(-1);
     expect(
       mapIdx,

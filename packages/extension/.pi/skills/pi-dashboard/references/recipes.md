@@ -22,8 +22,15 @@ import { connect } from "@blackbelt-technology/pi-dashboard-bus-client";
 
 const bus = await connect();
 try {
-  // Spawn a session (reply is exact-correlated to this spawn).
-  const { sessionId } = await bus.spawn({ cwd: "/path/to/project" });
+  // Spawn a session (reply is exact-correlated to this spawn). `spawn()`
+  // resolves with the session id string. `model` may be `@role`; a dropped
+  // model choice is reported via `onWarning`, the spawn still runs.
+  const sessionId = await bus.spawn({
+    cwd: "/path/to/project",
+    model: "@planning",
+    thinkingLevel: "high",
+    onWarning: (w) => console.warn(`warning: ${w}`),
+  });
 
   // Drive it: prompt → wait until idle → read result.
   await bus.prompt(sessionId, "Run the test suite and fix any failures");

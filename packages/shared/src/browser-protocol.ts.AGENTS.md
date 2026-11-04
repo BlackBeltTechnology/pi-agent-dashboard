@@ -55,3 +55,5 @@ Server→browser `ArchiveSessionErrorMessage` (`archive_session_error {sessionId
 Server→browser: `TerminalErrorMessage` (`terminal_error {code: cwd_not_admitted|cwd_admission_unavailable|session_not_found, cwd, inline, message}`) — cwd/session refusal for `create_terminal`/`open_inline_terminal`, requesting socket only, no PTY spawned. See change: harden-git-terminal-plugin-boundaries.
 
 `HistoryBackfillResultMessage.openToolCallIds?: string[]` — served top-level starts still open at serve time (no stored end / non-synthetic `agent_start` / `agent_end` / assistant `message_start` after start). Optional, additive; absent = none; absent on refusals + `movedTo` sessions. See change: fix-backfill-elides-live-tools (D1).
+
+See change: add-spawn-model-choice. `SpawnResultBrowserMessage.choiceWarning?` — set on success when a model / role / thinking choice was dropped.
