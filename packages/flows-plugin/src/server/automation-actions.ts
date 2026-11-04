@@ -121,8 +121,9 @@ export function flowsActionContributions(flowsForCwd: FlowsForCwd): ActionContri
       // not a slash-command prompt. A flows.run run produces NO agent turn in
       // the host session (pi-flows consumes flow:run headlessly), so it emits
       // no `agent_end`. Declare `completion` so the automation engine finalizes
-      // it on the forwarded `flow_complete` event instead (the extension's
-      // FLOW_EVENT_MAP forwards pi-flows' `flow:complete` → `flow_complete`).
+      // it on the forwarded `flow_complete` event instead (the
+      // flows plugin bridge declares pi-flows' `flow:complete` → `flow_complete`,
+      // stream keyed `flowName`; see bridge/flow-event-forward.ts).
       // All flows knowledge — the event name and the FlowResult shape — stays
       // here; the automation plugin stays generic.
       //

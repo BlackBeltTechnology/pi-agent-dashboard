@@ -284,6 +284,19 @@ function withToolResult(history: FlowDetailEntry[], data: Record<string, unknown
   return out;
 }
 
+/** Per-step events ignored once the run is terminal. */
+const FROZEN_AFTER_TERMINAL: ReadonlySet<string> = new Set([
+  "flow_agent_started",
+  "flow_agent_complete",
+  "flow_agent_error",
+  "flow_tool_call",
+  "flow_tool_result",
+  "flow_assistant_text",
+  "flow_thinking_text",
+  "flow_loop_iteration",
+  "flow_decision",
+]);
+
 /**
  * Returns true if the event type is a flow event handled by this reducer.
  */
@@ -301,6 +314,14 @@ export function reduceFlowEvent(
   event: DashboardEvent,
 ): FlowState | null {
   const data = event.data;
+
+  // A finished run is frozen: late per-step events (a straggling agent
+  // complete, tool, text, decision) never change the summary's cards. A new
+  // run starts with `flow_started`. See change: update-flows-plugin
+  // (flow-summary-view "cards SHALL NOT update afterward").
+  if (flowState && flowState.status !== "running" && FROZEN_AFTER_TERMINAL.has(event.eventType)) {
+    return flowState;
+  }
 
   switch (event.eventType) {
     case "flow_started": {
