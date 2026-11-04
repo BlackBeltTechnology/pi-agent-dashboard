@@ -4,8 +4,8 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
-| `__tests__/codeql-anchor-contract.test.ts` | Static contract on `scripts/codeql-anchor/plugin-routes.mjs` source (never imported): local `checkAnchor` — import set == 5-registrar allowlist, each module exports its registrar, no `listen(`, no top-level code outside an exported fn; `paths-ignore` keeps test globs, never ignores the anchor; anchor absent from root `package.json` `files` (#E19–#E25). See change: fix-codeql-baseline-coverage. |
-| `__tests__/codeql-baseline-gates.test.ts` | Contract on `codeql-baseline.json`: local `validateOperatorAuthzReason(key, reason, root)` — `operator-authz: gate: <symbol> <path>:<line>` (path exists, symbol present, 1≤line≤N) or `control-tier:` only for `git-operations.ts`/`process-manager.ts`/`spawn-preflight.ts`; body ≤236 after `github-dismissed (…): `; canned universal-guard sentence banned; keeper-manager/path-containment never operator-authz; `automation-writer.ts` = `accepted-risk:` citing #1104. Real-set check reads change `evidence/dismissal-comments.json` (archive-aware) (#E1–#E16, #E32). See change: fix-codeql-baseline-coverage. |
+| `__tests__/codeql-anchor-contract.test.ts` | Static contract on the CodeQL analysis anchor (#E19–#E25). → see `__tests__/codeql-anchor-contract.test.ts.AGENTS.md` |
+| `__tests__/codeql-baseline-gates.test.ts` | `operator-authz` reasons cite their bounding gate (#E1–#E16, #E32). → see `__tests__/codeql-baseline-gates.test.ts.AGENTS.md` |
 | `__tests__/codeql-workflow-contract.test.ts` | Static contract for `.github/workflows/codeql.yml` (#E1): matrix `actions`/`javascript-typescript`/`python`,… → see `__tests__/codeql-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/config-pairing.test.ts` | #E1: `pairing.acceptLanRequests` loader — default false, non-boolean → false. See change: add-lan-knock-pairing. |
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
