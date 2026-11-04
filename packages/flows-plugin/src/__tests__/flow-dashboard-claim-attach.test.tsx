@@ -158,6 +158,9 @@ function renderClaim(sid: string, opts: { requests?: readonly InteractiveUiReque
   if (!opts.collapsed) {
     localStorage.setItem(flowCollapseKey("dashboard", sid), "false");
     localStorage.setItem(flowCollapseKey("summary", sid), "false");
+    // The live cards sit in the Agent cards section (collapsed by default).
+    // See change: update-flows-plugin (D7, G15).
+    localStorage.setItem(flowCollapseKey("cards", sid), "false");
   }
   const requests = opts.requests;
   const session = { id: sid } as DashboardSession;

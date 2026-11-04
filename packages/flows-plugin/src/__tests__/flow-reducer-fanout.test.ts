@@ -117,7 +117,7 @@ describe("group parent status precedence (E21)", () => {
     ["zero items", [], "skipped", undefined, { ok: 0, failed: 0 }],
     ["complete + complete", [item("complete"), item("complete")], "complete", undefined, { ok: 2, failed: 0 }],
   ] as const)("%s", (_n, items, status, outcome, rollup) => {
-    const d = deriveGroupParent(items as FlowAgentState[]);
+    const d = deriveGroupParent(items as unknown as FlowAgentState[]);
     expect(d.status).toBe(status);
     if (outcome) expect(d.outcome).toBe(outcome);
     if (rollup) expect(d.rollup).toEqual(rollup);

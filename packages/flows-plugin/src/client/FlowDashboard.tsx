@@ -12,20 +12,21 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FlowState } from "../types.js";
 import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiLoading, mdiPlay, mdiRobotOutline, mdiStop } from "@mdi/js";
+import { SettingsStatusPill } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Icon } from "@mdi/react";
-import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 import { FlowHeaderActions } from "./FlowHeaderActions.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { FlowQuestionCard } from "./FlowQuestionCard.js";
 import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
+import { FlowStepCards, stepStateCounts } from "./FlowStepCards.js";
 import { FlowSummary } from "./FlowSummary.js";
 import { type FlowsSessionState, useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import { type FlowTab, FlowTabBar } from "./FlowTabBar.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
 import { clearAttachment, resolveBaseline, useFlowAttachment } from "./flow-attach-store.js";
-import { FLOW_CARD_GRID_CLASS, FLOW_CARD_GRID_CONTAINER_CLASS } from "./flow-card-grid.js";
 import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
 import { fetchFlowFile, type FlowNodeFiles, useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
 import { buildIdleFlowState, type FlowAttachment, type FlowSlot, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
@@ -152,6 +153,11 @@ export function FlowDashboard({
   // Persisted per session so a collapsed dashboard stays collapsed across
   // remounts. See change: fix-flow-ui-graph-zoom-summary.
   const [collapsed, toggleCollapsed] = useFlowCollapsePersisted(sessionId, "dashboard");
+  // Agent cards section: collapsed by default, persisted per session. The
+  // graph is the primary view; a node click opens the section.
+  // See change: update-flows-plugin (D7).
+  const [cardsCollapsed, toggleCardsCollapsed] = useFlowCollapsePersisted(sessionId, "cards");
+  const cardsRegionId = `flow-agent-cards-${useId().replace(/:/g, "")}`;
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [activeTabId, setActiveTabId] = useState<string>(flowState.flowName);
   const [followMode, setFollowMode] = useState(true);
@@ -191,6 +197,17 @@ export function FlowDashboard({
   const handleSelectStep = useCallback((stepId: string) => {
     setSelectedStepId((prev) => (prev === stepId ? null : stepId));
   }, []);
+  // Graph node click: toggle the selection AND open the Agent cards section
+  // (a second click clears the selection; the section stays open).
+  const cardsCollapsedRef = useRef(cardsCollapsed);
+  cardsCollapsedRef.current = cardsCollapsed;
+  const handleSelectNode = useCallback(
+    (stepId: string) => {
+      setSelectedStepId((prev) => (prev === stepId ? null : stepId));
+      if (cardsCollapsedRef.current) toggleCardsCollapsed();
+    },
+    [toggleCardsCollapsed],
+  );
   useSelectionReset(displayState, selectedStepId, setSelectedStepId);
   // Entering idle (new attach / re-attach) starts fresh; leaving idle for live
   // keeps everything (same instance). See change: attach-flow-before-run (D2).
@@ -211,17 +228,25 @@ export function FlowDashboard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedStepId]);
-  // Scroll the matching node + card into view on selection (counterpart sync).
+  // Scroll the matching node + card (or fan-out group) into view on selection
+  // (counterpart sync). Runs again once the Agent cards section opens. No
+  // smooth scroll under reduced motion.
   useEffect(() => {
     if (!selectedStepId || !rootRef.current) return;
     const esc = selectedStepId.replace(/["\\]/g, "\\$&");
+    const reduced =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const behavior: ScrollBehavior = reduced ? "auto" : "smooth";
     for (const attr of ["data-node", "data-step"]) {
       rootRef.current
         .querySelector(`[${attr}="${esc}"]`)
-        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior });
     }
-  }, [selectedStepId]);
-  const doneCount = allAgents.filter(a => a.status === "complete" || a.status === "error" || a.status === "blocked").length;
+  }, [selectedStepId, cardsCollapsed]);
+  const doneCount = allAgents.filter(a => a.status === "complete" || a.status === "error" || a.status === "blocked" || a.status === "skipped").length;
+  const counts = stepStateCounts(agents);
   const totalCount = allAgents.length;
   const isRunning = !idle && flowState.status === "running";
   const isComplete = !idle && !isRunning;
@@ -361,7 +386,7 @@ export function FlowDashboard({
             steps={flowStateToGraphSteps(displayState)}
             fit
             selectedStepId={selectedStepId}
-            onSelectStep={handleSelectStep}
+            onSelectStep={handleSelectNode}
             onExpand={Dialog ? () => setGraphOpen(true) : undefined}
           />
           {displayState.flowSource && (
@@ -393,20 +418,40 @@ export function FlowDashboard({
             </Dialog>
           )}
 
-          {/* Agent card grid — detailed per-agent info. Geometry comes from the
-              shared helper; the wrapper is the query container (design D1/D5). */}
-          <div className={`${FLOW_CARD_GRID_CONTAINER_CLASS} mt-2`}>
-            <div className={FLOW_CARD_GRID_CLASS}>
-              {agents.map(agent => (
-                <FlowAgentCard
-                  key={agent.stepId || agent.agentName}
-                  agent={agent}
+          {/* Agent cards — every step card in a disclosure, collapsed by default
+              (graph-first panel). The header summarises the step count and
+              states so nothing hides silently. Geometry of the grid inside is
+              unchanged (shared helper). See change: update-flows-plugin (D7). */}
+          <div className="mt-2 rounded-lg border border-[var(--border-secondary)]" data-testid="flow-agent-cards-section">
+            <button
+              type="button"
+              data-testid="flow-agent-cards-toggle"
+              aria-expanded={!cardsCollapsed}
+              aria-controls={cardsRegionId}
+              onClick={toggleCardsCollapsed}
+              className="focus-ring w-full flex flex-wrap items-center gap-x-2 gap-y-1 min-h-[44px] sm:min-h-[32px] rounded-lg px-2 text-[12px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            >
+              <Icon path={cardsCollapsed ? mdiChevronRight : mdiChevronDown} size={0.6} className="text-[var(--text-secondary)]" />
+              <span>{t("agentCards", undefined, "Agent cards")}</span>
+              <span className="text-[var(--text-secondary)]" data-testid="flow-agent-cards-count">{counts.steps}</span>
+              <span className="flex flex-wrap items-center gap-1 font-normal">
+                {counts.done > 0 && <SettingsStatusPill tone="success">{t("cardsDone", { n: counts.done }, `${counts.done} done`)}</SettingsStatusPill>}
+                {counts.running > 0 && <SettingsStatusPill tone="info">{t("cardsRunning", { n: counts.running }, `${counts.running} running`)}</SettingsStatusPill>}
+                {counts.failed > 0 && <SettingsStatusPill tone="error">{t("cardsFailed", { n: counts.failed }, `${counts.failed} failed`)}</SettingsStatusPill>}
+                {counts.skipped > 0 && <SettingsStatusPill tone="neutral">{t("cardsSkipped", { n: counts.skipped }, `${counts.skipped} skipped`)}</SettingsStatusPill>}
+              </span>
+            </button>
+            <div id={cardsRegionId} hidden={cardsCollapsed} className="p-2 pt-0">
+              {!cardsCollapsed && (
+                <FlowStepCards
+                  state={displayState}
+                  agents={agents}
                   session={session}
                   sessionId={sessionId}
-                  selected={selectedStepId === (agent.stepId || agent.agentName)}
+                  selectedStepId={selectedStepId}
                   onSelect={handleSelectStep}
                 />
-              ))}
+              )}
             </div>
           </div>
         </div>
