@@ -106,7 +106,15 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // zh-CN + hu catalog rows for the queued / stopped / stop / "Max parallel subagents" copy (+~1.5 KB gz).
 // 614,850 B locally, 1,474 B over the old cap; 601 KiB would leave ~570 B, so 602 KiB (616,448 B, ~1.6 KB
 // headroom for CI's compressor variance). Smallest step with headroom; not a general raise.
-const INDEX_GZ_CAP_BYTES = 602 * 1024;
+// update-flows-plugin (2026-11-05): 602 -> 604 KiB. Size win first: the new group / decision / skipped cards
+// (FlowStepCards) and the Agent cards section live in the lazy FlowDashboard claim module; the flow graph stays
+// off the landing graph (asserted below). What stays is the flows plugin's session-event reducer, which every
+// session reduces through and so cannot be lazy: pi-flows 0.10 fan-out items + group-parent precedence,
+// flow_decision routes / skipped targets and the frozen-terminal guard, plus the generic plugin entry-type
+// reducer input (+~1.5 KB gz). Merged with subagent-queue-visibility: 617,321 B in this test's own gzip, 873 B
+// over the old cap; 603 KiB would leave ~150 B, so 604 KiB (618,496 B, ~1.2 KB headroom for CI's compressor
+// variance). Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 604 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
