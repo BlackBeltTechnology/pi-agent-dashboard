@@ -7,7 +7,8 @@
  * field. The Settings defaults are mirrored into a tiny module store by App
  * (`setSpawnDefaults`) so quick-spawn paths need no prop drilling.
  *
- * See change: add-spawn-model-choice (design D6).
+ * Writes live in `spawn-choice-write.ts` (only the lazy chip writes), keeping
+ * this eager module minimal. See change: add-spawn-model-choice (design D6).
  */
 export interface SpawnChoice {
   model?: string;
@@ -20,7 +21,7 @@ export const spawnChoiceKey = (cwd: string): string => `${KEY_PREFIX}${cwd}`;
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
 
-function normalize(raw: unknown): SpawnChoice {
+export function normalizeSpawnChoice(raw: unknown): SpawnChoice {
   const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const model = str(obj.model);
   const thinkingLevel = str(obj.thinkingLevel);
@@ -31,27 +32,10 @@ function normalize(raw: unknown): SpawnChoice {
 export function getRememberedSpawnChoice(cwd: string): SpawnChoice {
   try {
     const raw = window.localStorage.getItem(spawnChoiceKey(cwd));
-    return raw ? normalize(JSON.parse(raw)) : {};
+    return raw ? normalizeSpawnChoice(JSON.parse(raw)) : {};
   } catch {
     return {};
   }
-}
-
-/** Replace the remembered choice for `cwd`; an empty choice clears the key. */
-export function setRememberedSpawnChoice(cwd: string, choice: SpawnChoice): void {
-  const next = normalize(choice);
-  try {
-    if (next.model || next.thinkingLevel) window.localStorage.setItem(spawnChoiceKey(cwd), JSON.stringify(next));
-    else window.localStorage.removeItem(spawnChoiceKey(cwd));
-  } catch {
-    /* storage unavailable: the choice just won't persist */
-  }
-}
-
-/** Clear one field (the chip's `default` entry). */
-export function clearRememberedSpawnField(cwd: string, field: keyof SpawnChoice): void {
-  const { [field]: _dropped, ...rest } = getRememberedSpawnChoice(cwd);
-  setRememberedSpawnChoice(cwd, rest);
 }
 
 // ── Settings defaults mirror ──────────────────────────────────────────────

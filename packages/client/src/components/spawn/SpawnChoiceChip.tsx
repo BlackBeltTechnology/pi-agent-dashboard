@@ -15,9 +15,9 @@ import {
   getRememberedSpawnChoice,
   getSpawnDefaults,
   type SpawnChoice,
-  setRememberedSpawnChoice,
   subscribeSpawnDefaults,
 } from "../../lib/spawn/spawn-choice-memory.js";
+import { setRememberedSpawnChoice } from "../../lib/spawn/spawn-choice-write.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 
 /** Dashed `default` entry (clears a remembered field), per the adopted mockup. */

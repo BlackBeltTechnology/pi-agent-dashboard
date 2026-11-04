@@ -71,11 +71,6 @@ function menuKeyAction(key: string, focused: number, count: number): MenuKeyActi
 
 type MenuItem = { kind: "agent"; id: string | undefined; name: string; meta: string } | { kind: "choice" };
 
-/** Mousedown inside the chip's portaled model panel must not close the menu. */
-function inModelPanel(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest('[data-testid="model-dropdown"]') !== null;
-}
-
 export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, className, title }: Props) {
   const agents = useAcpAgents();
   const [current, setCurrent] = useState<string | undefined>(() => getRememberedAgent(cwd, agents));
@@ -118,20 +113,12 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
     if (!open) return;
     focusItem(agentItems.length > 0 ? checkedIndex : 0);
     const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node) && !inModelPanel(e.target)) setOpen(false);
-    };
-    // Escape while focus drifted outside the menu (e.g. to <body> after the chip's
-    // popover closed) still closes it; the menu and the model panel handle their
-    // own Escape first (default-prevented / propagation stopped).
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) close(true);
+      // Mousedown inside the chip's portaled model panel must not close the menu.
+      const t = e.target as Element;
+      if (!rootRef.current?.contains(t) && !t.closest?.('[data-testid="model-dropdown"]')) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("mousedown", onDown);
     // biome-ignore lint/correctness/useExhaustiveDependencies: focus once per open / checked change
   }, [open, checkedIndex]);
 
@@ -193,11 +180,7 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={
-          agents.length > 0
-            ? i18nT("acp.chooseAgent", undefined, "Choose agent for new session")
-            : i18nT("spawnChoice.chooseModel", undefined, "Choose model for new session")
-        }
+        aria-label={i18nT("spawnChoice.newSessionMenu", undefined, "New session options")}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         onKeyDown={(e) => {
           // APG menu button: ArrowDown/Up open the menu (Enter/Space click natively).
@@ -244,15 +227,12 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
                 ref={(el) => { itemRefs.current[i] = el; }}
                 role="menuitem"
                 tabIndex={-1}
-                aria-label={i18nT("spawnChoice.modelThinking", undefined, "Model · thinking")}
                 data-item="choice"
                 onClick={(e) => e.stopPropagation()}
                 className={`flex flex-col gap-1 rounded-lg px-2 py-1.5 ${agentItems.length > 0 ? "mt-1 border-t border-[var(--border-secondary)] pt-2" : ""}`}
               >
-                <span className="text-[11px] text-[var(--text-secondary)]">
-                  {i18nT("spawnChoice.modelThinking", undefined, "Model · thinking")}
-                </span>
-                <Suspense fallback={<span className="text-xs text-[var(--text-secondary)]">…</span>}>
+                {/* Named by the chip trigger ("Model …, thinking …"). */}
+                <Suspense fallback={null}>
                   <SpawnChoiceChip cwd={cwd} disabled={current !== undefined} testId={`${testId}-model-choice`} />
                 </Suspense>
               </li>

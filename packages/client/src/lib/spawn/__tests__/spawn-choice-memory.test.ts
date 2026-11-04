@@ -4,13 +4,8 @@
  * Exemplar: hooks/__tests__/useSessionActions.spawn-choice.test.tsx (localStorage stubbing).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  clearRememberedSpawnField,
-  getEffectiveSpawnChoice,
-  getRememberedSpawnChoice,
-  setRememberedSpawnChoice,
-  setSpawnDefaults,
-} from "../spawn-choice-memory.js";
+import { getEffectiveSpawnChoice, getRememberedSpawnChoice, setSpawnDefaults } from "../spawn-choice-memory.js";
+import { clearRememberedSpawnField, setRememberedSpawnChoice } from "../spawn-choice-write.js";
 
 function stubStorage(impl: Partial<Storage>): void {
   vi.stubGlobal("localStorage", impl);

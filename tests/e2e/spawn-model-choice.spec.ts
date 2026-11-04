@@ -110,9 +110,11 @@ test.describe("spawn model choice (L3)", () => {
     await expect(chip.getByTestId("model-trigger-role-ref")).toContainText("@fast");
     // Picking never spawns.
     expect(frames).toHaveLength(0);
+    // The popover hands focus back to the chip trigger; Escape there closes the menu.
+    await expect(chip.getByTestId("model-selector-button")).toBeFocused();
     await page.keyboard.press("Escape");
-    if (await menu.isVisible()) await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
+    await expect(chevron).toBeFocused();
 
     const before = await sessionIds();
     await body.getByTestId("folder-spawn-session-btn").click();
