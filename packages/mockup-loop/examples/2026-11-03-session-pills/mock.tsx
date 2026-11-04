@@ -5,13 +5,14 @@
 // See changes: add-live-component-mock-site, fix-mock-site-ux.
 // A mock = ONE PAGE (or flow). Frames are the full page at different widths / states.
 // Accept / Reject applies to the whole page. Rings circle the divs that changed.
-import type { ReactNode } from "react";
-import { mdiCheckCircleOutline, mdiFolderRemoveOutline, mdiMagnify, mdiPlus } from "@mdi/js";
-import { Icon } from "@mdi/react";
-import { GitDirtyPill } from "@app/components/worktree/GitDirtyPill.tsx";
+
 import { CwdGonePill } from "@app/components/folder/CwdGonePill.tsx";
 import { InlineMessage } from "@app/components/primitives/InlineMessage.tsx";
-import { Fix, Issue, Tap, type Mock } from "mock-site/kit";
+import { GitDirtyPill } from "@app/components/worktree/GitDirtyPill.tsx";
+import { mdiCheckCircleOutline, mdiFolderRemoveOutline, mdiMagnify, mdiPlus } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { Fix, Issue, type Mock, Tap } from "mock-site/kit";
+import type { ReactNode } from "react";
 
 const dirty = { dirtyCount: 7, staged: 2, unstaged: 3, untracked: 2, ahead: 3, behind: 1 } as never;
 const smallDirty = { dirtyCount: 2, staged: 0, unstaged: 2, untracked: 0, ahead: 0, behind: 0 } as never;
