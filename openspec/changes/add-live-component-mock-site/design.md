@@ -53,7 +53,7 @@
 
 ### D1 — Package placement
 Generic code lives in `packages/mockup-loop/`:
-- `site/` (browser, shipped as source): `index.html`, `main.tsx`, `Site.tsx`,
+- `site/` (browser, shipped as source; no `index.html`, see below): `main.tsx`, `Site.tsx`,
   `kit.tsx`, `site.css`.
 - `src/mock-site/` (node), **plain ESM JavaScript** (`.mjs`, `// @ts-check` +
   JSDoc types): `plugin.mjs` (`mockSite(options)` Vite plugin), `discover.mjs`,

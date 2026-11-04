@@ -96,10 +96,8 @@ function Shell(): ReactElement {
   const [state, setState] = useState<DecisionsReply>({ decisions: {}, canDecide: false, warnings: [], errors: [] });
   const [showClosed, setShowClosed] = useState(false);
 
-  useEffect(() => {
-    const load = () => { void fetch("/__mock/decisions").then((r) => r.json()).then(setState).catch(() => {}); };
-    load(); import.meta.hot?.on("mock:decisions", load);
-  }, []);
+  const load = () => { void fetch("/__mock/decisions").then((r) => r.json()).then(setState).catch(() => {}); };
+  useEffect(() => { load(); import.meta.hot?.on("mock:decisions", load); }, []);
   useEffect(() => { const on = () => setHash(location.hash.slice(1)); addEventListener("hashchange", on); return () => removeEventListener("hashchange", on); }, []);
   useEffect(() => {
     applyTheme(theme); localStorage.setItem("mk-theme", theme);
@@ -116,7 +114,9 @@ function Shell(): ReactElement {
       if (status === "open") delete decisions[id]; else decisions[id] = { status, by: "user", at: new Date().toISOString() };
       return { ...s, decisions };
     });
-    await fetch("/__mock/decide", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, status }) });
+    // Optimistic; a refused write (403/400/…) or network error reconciles from the files.
+    const res = await fetch("/__mock/decide", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, status }) }).catch(() => null);
+    if (!res?.ok) load();
   };
   const decOf = (m: M): Decision | undefined => state.decisions[m.id];
   const statusOf = (m: M): Status => decOf(m)?.status ?? "open";
