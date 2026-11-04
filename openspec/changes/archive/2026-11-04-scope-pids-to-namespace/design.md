@@ -172,8 +172,13 @@ Q8 is recorded in D4. The rest refine D1–D5:
   processes the server itself spawned). `__tests__` directories are excluded. The call
   must be real code: a match in a comment or string literal does not count.
 - **S5** `pidNamespace` is persisted with `pid` wherever `DashboardSession.pid`
-  is persisted. A restored session therefore resolves by its recorded report,
-  not as legacy, in the window before its bridge re-registers.
+  is persisted. Implementation found `pid` is persisted NOWHERE (`sessionToMeta`
+  / `.meta.json` carry no pid; every restored session comes back `ended` with no
+  pid), so S5 is vacuous: the namespace is not persisted either. Decided at
+  ship-it (user, option A): no new persisted state — newly persisting the pid
+  would revive a recycled-pid risk across restarts. A reattaching bridge sends
+  both again. `pidNamespace` is a non-enumerable property of the in-memory
+  session, so no JSON egress (meta, browser, peer) can carry it (also S6).
 - **S6** `pidNamespace` is server-internal. It is stripped from every browser
   payload (`session_list`, `session_updated`, REST) and every paired-peer
   payload, because `boot_id` is a host identifier the UI does not need.

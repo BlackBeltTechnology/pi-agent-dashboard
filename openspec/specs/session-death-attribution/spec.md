@@ -100,10 +100,12 @@ recycle pids. The classification SHALL therefore admit an `unknown` outcome when
 no pid is recorded, and its documentation SHALL state the pid-recycling caveat
 rather than presenting the probe as authoritative.
 
-A pid recorded by a REMOTE-origin session belongs to another host's PID
-namespace, where a local probe is meaningless. Remote origin SHALL yield
-`unknown` without probing, rather than a false `process_gone` about a process
-this host cannot see.
+A pid whose resolved target is not `host` belongs to another PID namespace, or
+to one this host cannot verify, where a local probe is meaningless. That covers
+remote origin, WSL, a container, and `unknown` (`force-kill-handler` *A recorded
+pid is used only in its resolved pid target*). Such a pid SHALL yield `unknown`
+without probing, rather than a false `process_gone` about a process this host
+cannot see.
 
 #### Scenario: No recorded pid yields unknown
 
@@ -124,3 +126,8 @@ this host cannot see.
 - **GIVEN** any outcome of the pid probe
 - **WHEN** the reason is presented in the UI or persisted
 - **THEN** it SHALL NOT assert SIGKILL, OOM, or any specific termination cause
+
+#### Scenario: A WSL pid on a Windows server is never probed locally
+- **GIVEN** a session ending whose pid target is WSL on a Windows server
+- **WHEN** the server classifies the death
+- **THEN** the reason SHALL be `unknown` and no Windows process probe SHALL run

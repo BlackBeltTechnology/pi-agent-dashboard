@@ -24,7 +24,9 @@ const src = readFileSync(path.resolve(__dirname, "..", "event-wiring.ts"), "utf8
 describe("ref-resolution ordering on session_register (X3)", () => {
   it("resolution + owner-notify precede the moved pending-prompt dispatch", () => {
     // The three landmarks, in the session_register handler.
-    const linkByTokenIdx = src.indexOf("headlessPidRegistry.linkByToken(msg.spawnToken");
+    // The token → pid → cwd link (tier 1 = `linkByToken`) runs through
+    // `linkRegisterToSpawn` since scope-pids-to-namespace.
+    const linkByTokenIdx = src.indexOf("linkRegisterToSpawn(\n        browserGateway.headlessPidRegistry,\n        { sessionId, spawnToken: msg.spawnToken");
     const ownerNotifyIdx = src.indexOf("dispatchPluginSessionResolved?.(ownerId, sessionId, ref)");
     const promptIdx = src.indexOf("pendingInitialPromptRegistry.consume(msg.cwd)");
 

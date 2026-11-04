@@ -8,4 +8,6 @@ Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExt
 
 `FlowsListMessage` + `RequestFlowsRefreshMessage` removed; `BrowserFlowsListMessage` removed from `browser-protocol.ts`. See change: flows-dock-chip-and-panel-actions.
 
+`SessionRegisterMessage.pidNamespace?: PidNamespace` — pi process's pid-namespace report; server sanitises before use. See change: scope-pids-to-namespace.
+
 See change: add-spawn-model-choice. `SpawnNewSessionMessage` gains `model?` / `thinkingLevel?` (bridge inheritance).

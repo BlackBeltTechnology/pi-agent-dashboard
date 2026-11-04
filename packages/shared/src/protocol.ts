@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PidNamespace, PiSessionInfo, ProviderInfo, RoleInfo, SessionDriver, SessionSource, TurnUsage } from "./types.js";
 import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
@@ -183,6 +183,12 @@ export interface SessionRegisterMessage {
   liveTailOpen?: boolean;
   /** OS process ID of the pi agent — used for force-kill escalation */
   pid?: number;
+  /**
+   * Which pid namespace `pid` belongs to (built by `buildPidNamespace()`).
+   * Absent from a legacy bridge. The server resolves the pid's target from it
+   * before any probe or signal. See change: scope-pids-to-namespace.
+   */
+  pidNamespace?: PidNamespace;
   /**
    * Server-minted spawn correlation token. Bridge populates this from
    * `process.env.PI_DASHBOARD_SPAWN_TOKEN` IFF this is the first register

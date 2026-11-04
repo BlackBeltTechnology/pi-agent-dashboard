@@ -3,7 +3,9 @@
 ## Purpose
 
 Per-spawn watchdog timer that tracks every spawned pi session until either (a) the bridge sends `session_register`, or (b) a configurable timeout elapses. On timeout it emits `spawn_register_timeout` to the originating browser; if a late `session_register` arrives within a 60 s recovery window, it emits `spawn_register_recovered`. Indexed by both pid and cwd because the spawner pid (e.g. `sh` wrapper) often differs from the pid the bridge later reports.
+
 ## Requirements
+
 ### Requirement: Watchdog tracks spawned sessions until session_register or timeout
 The module `packages/server/src/spawn-register-watchdog.ts` SHALL export a class `SpawnRegisterWatchdog` with `arm({ pid?, cwd, mechanism, logPath?, ws })`, `clearByPid(pid)`, `clearByCwd(cwd)`, and a constructor accepting `timeoutMs` (default `30000`, sourced from `config.spawnRegisterTimeoutMs`, clamped to `[5000, 120000]`).
 
@@ -92,7 +94,7 @@ Recovery is reachable only when the fire-time reclaim did not terminate the spaw
 - **THEN** the recovery message SHALL be skipped silently and the `recentlyFired` entry deleted
 
 ### Requirement: Pi gateway clears watchdog on session_register
-The pi-gateway `session_register` handler SHALL clear the watchdog for the registering spawn, trying the strongest identity first: `spawnToken`, then `pid`, then `cwd`.
+The pi-gateway `session_register` handler SHALL clear the watchdog for the registering spawn, trying the strongest identity first: `spawnToken`, then `pid`, then `cwd`. The `pid` tier SHALL be skipped for a register whose pid target is not local (`force-kill-handler` *A recorded pid is used only in its resolved pid target*).
 
 A clear that has already matched on a stronger tier SHALL NOT go on to cancel an entry belonging to a **different** spawn on a weaker tier. Specifically, an unconditional `clearByCwd` after a successful token clear SHALL NOT cancel a concurrent same-cwd spawn's still-armed watchdog — doing so silently disarms that spawn, suppressing both its timeout diagnostic and its reclaim.
 
@@ -111,6 +113,14 @@ Clearing an unknown key SHALL remain a no-op.
 #### Scenario: Clear on unknown key is a no-op
 - **WHEN** a register arrives whose token, pid and cwd match no armed entry
 - **THEN** the handler SHALL return without throwing and without cancelling any entry
+
+#### Scenario: A foreign pid does not disarm a local spawn
+- **WHEN** a register whose pid target is WSL or `foreign` carries a pid equal to a pending local spawn's pid
+- **THEN** that spawn's watchdog SHALL remain armed
+
+#### Scenario: A non-local register still clears by cwd
+- **WHEN** a register whose pid target is WSL, with no token, carries the `cwd` of a pending spawn's armed watchdog
+- **THEN** the cwd tier SHALL cancel that watchdog
 
 ### Requirement: Handler arms watchdog for every successful spawn
 `handleSpawnSession` SHALL call `watchdog.arm` exactly once after a successful spawn, passing the pid it actually has — for headless spawns that is the keeper pid returned by `spawnPiSession`. The arm SHALL NOT be required to supply pi's pid, which does not exist when the spawn call returns, and SHALL NOT block or poll waiting for it.
@@ -251,4 +261,3 @@ tmux spawns.
 #### Scenario: Concurrent same-cwd timeouts stay distinguishable
 - **WHEN** two spawns in the same `cwd` both time out and only one later recovers
 - **THEN** the recovery SHALL be recorded against exactly one entry, selected by token
-

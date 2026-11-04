@@ -10,6 +10,7 @@
  */
 import type { ProcessKind } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { resolvePidTarget, type ServerPidContext } from "../session/pid-target.js";
 
 /** A scanned process entry as received from the bridge. */
 export interface RawProcessEntry {
@@ -37,14 +38,18 @@ export type PidIndex = Map<number, PidIndexEntry>;
 
 /**
  * Build a `pid → session` index from connected sessions only. A session
- * contributes iff it is not ended and carries a numeric `pid`. Restricting
- * to live sessions avoids pid-reuse mislinks against dead sessions.
+ * contributes iff it is not ended, carries a numeric `pid`, AND that pid's
+ * target is `host`. Restricting to live sessions avoids pid-reuse mislinks
+ * against dead sessions; restricting to `host` avoids cross-namespace mislinks
+ * (a remote / WSL / container pid number naming a local process).
+ * See change: scope-pids-to-namespace (D3).
  */
-export function buildPidIndex(sessions: readonly DashboardSession[]): PidIndex {
+export function buildPidIndex(sessions: readonly DashboardSession[], ctx: ServerPidContext): PidIndex {
   const index: PidIndex = new Map();
   for (const s of sessions) {
     if (s.status === "ended") continue;
     if (typeof s.pid !== "number") continue;
+    if (resolvePidTarget(s, ctx).kind !== "host") continue;
     index.set(s.pid, { sessionId: s.id, name: s.name, model: s.model });
   }
   return index;

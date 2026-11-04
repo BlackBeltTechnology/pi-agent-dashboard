@@ -11,4 +11,6 @@ Register push sends `buildPreferencesUpdate` snapshot; the `session_register` in
 
 `flows_list` handler + sibling `request_flows_refresh` fan-out removed; legacy message ignored. See change: flows-dock-chip-and-panel-actions.
 
+Registry link via `linkRegisterToSpawn` with register's pid target; `buildPidIndex(..., getServerPidContext())`. See change: scope-pids-to-namespace.
+
 See change: add-spawn-model-choice. `spawn_new_session` runs `model`/`thinkingLevel` through `resolveSpawnChoice` → `choiceToSpawnOptions`; drop is log-only.

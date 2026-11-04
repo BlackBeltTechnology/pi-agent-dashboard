@@ -10,6 +10,7 @@ identity-scoped cleanup and teardown that keep a displaced socket from
 corrupting a live session's state.
 
 ## Requirements
+
 ### Requirement: One live bridge connection per session id
 The pi-gateway SHALL hold at most one live WebSocket connection per `sessionId`
 in its routing table. The rule SHALL be enforced at the point a socket claims a
@@ -97,7 +98,11 @@ message, except as allowed by the same-process reconnect rule below.
 When the registering socket reports the same pid the gateway has recorded for the
 incumbent, it is the same pi process reconnecting after a lost or in-flight close
 frame. The gateway SHALL replace the routing entry rather than refuse. The
-reported pid SHALL be used only to avoid a refusal, never to justify one.
+reported pid SHALL be used only to avoid a refusal, never to justify one. The
+same-pid rule SHALL apply only when the registering session's pid target is
+`host`, or `unknown` on a Windows server (`force-kill-handler` *A recorded pid is
+used only in its resolved pid target*). Otherwise the register SHALL be decided as
+a contention.
 
 #### Scenario: Same pid replaces rather than is refused
 - **WHEN** socket B registers for session `S` held by socket A
@@ -116,6 +121,17 @@ reported pid SHALL be used only to avoid a refusal, never to justify one.
 - **AND** a socket sends `session_register` for `S`
 - **THEN** the register SHALL be accepted and SHALL become the routing entry
 - **AND** it SHALL NOT be refused on contention grounds
+
+#### Scenario: A non-local same pid is not a same-process reconnect
+- **WHEN** socket B registers for session `S` held by socket A with the same pid number
+- **AND** B's pid target is not local
+- **THEN** the register SHALL be decided as a contention, not as a same-process replace
+
+#### Scenario: An incumbent in another namespace is not the same process
+- **WHEN** socket B registers for session `S` with the same pid number as the incumbent's recorded pid
+- **AND** B's pid target is `host` but the incumbent's recorded pid target is not `host`
+- **THEN** the register SHALL be decided as a contention
+- **AND** the same-pid replace SHALL apply only when both targets are `host`, or both are `unknown` on a Windows server
 
 ### Requirement: A refused register has no side effects
 A register that loses a contention SHALL NOT mutate any state belonging to the
@@ -254,4 +270,3 @@ process tables.
 - **WHEN** a session with a recorded contention disconnects cleanly or ends
 - **THEN** its id SHALL no longer be listed as contended
 - **AND** the cumulative count SHALL be unchanged
-
