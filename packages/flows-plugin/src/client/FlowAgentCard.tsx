@@ -125,7 +125,7 @@ export function FlowAgentCard({
   const recentTools = agent.recentTools.slice(-2).reverse();
 
   return (
-    <div data-step={stepId} className="h-full [&>*]:h-full">
+    <div data-step={stepId} data-selected={selected ? "true" : undefined} className="h-full [&>*]:h-full">
     <AgentCardShell
       name={displayName}
       status={agent.status}

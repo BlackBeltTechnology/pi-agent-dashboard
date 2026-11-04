@@ -80,8 +80,14 @@ export interface IdleGrid {
   sid: string;
 }
 
-/** Attach the e2e grid fixture to a fresh session and open the idle panel. */
-export async function openIdleGrid(page: Page): Promise<IdleGrid> {
+/**
+ * Attach the e2e grid fixture to a fresh session and open the idle panel.
+ * `openCards` (default true) also opens the Agent cards section, where the
+ * cards live since the graph-first panel (G15); pass false to observe the
+ * default collapsed section. See change: update-flows-plugin (D7).
+ */
+export async function openIdleGrid(page: Page, opts: { openCards?: boolean } = {}): Promise<IdleGrid> {
+  const openCards = opts.openCards ?? true;
   const card = await spawnFreshGitSession(page);
   await card.click();
   const sid = (await card.getAttribute("data-session-id")) ?? "";
@@ -105,11 +111,13 @@ export async function openIdleGrid(page: Page): Promise<IdleGrid> {
   // The store reads localStorage on mount, so write then reload (same page: no
   // cross-tab `storage` event fires).
   await page.evaluate(
-    ([k, v, ck]) => {
+    ([k, v, ck, cardsKey, cardsCollapsed]) => {
       localStorage.setItem(k, v);
       // Panels start collapsed; the grid is measured expanded. See change:
       // flows-dock-chip-and-panel-actions.
       localStorage.setItem(ck, "false");
+      // Agent cards section (default collapsed). See change: update-flows-plugin.
+      localStorage.setItem(cardsKey, cardsCollapsed);
     },
     [
       `dashboard:flow-attached:${sid}`,
@@ -120,6 +128,8 @@ export async function openIdleGrid(page: Page): Promise<IdleGrid> {
         baselineStartedAt: 0,
       }),
       `dashboard:flow-dashboard-collapsed:${sid}`,
+      `dashboard:flow-cards-collapsed:${sid}`,
+      openCards ? "false" : "true",
     ],
   );
   await page.reload();
@@ -131,6 +141,8 @@ export async function openIdleGrid(page: Page): Promise<IdleGrid> {
 
 /** The grid's cards. */
 export const gridCards = (panel: Locator) => panel.locator("[data-step]");
+/** The Agent cards disclosure button. See change: update-flows-plugin (D7). */
+export const agentCardsToggle = (panel: Locator) => panel.getByTestId("flow-agent-cards-toggle");
 /** The inner grid element (parent of the cards). */
 export const gridOf = (panel: Locator) => gridCards(panel).first().locator("xpath=..");
 /** The `@container` wrapper (parent of the grid) — its width is the PANE width. */
