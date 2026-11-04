@@ -11,6 +11,9 @@
  *                          desktop widths via Playwright (dynamic, optional)
  *                          and return them plus a scoring rubric for the
  *                          agent's vision pass.
+ *   - `serve_mock_site`  — start the project's live-component mock site
+ *                          (real app components, rings, page accept/reject)
+ *                          on an isolated port via the host's Vite.
  *   - `init_ui_contract` — scaffold a token-referencing ui-contract.md
  *                          control plane (the cross-screen consistency
  *                          source of truth) if one is absent.
@@ -32,6 +35,7 @@ import * as os from "node:os";
 import { listPresets, resolvePreset } from "./presets/registry.js";
 import { loadContract, refreshContract } from "./presets/contract.js";
 import { loadRubric, validateMockup } from "./presets/validators.js";
+import { children as mockSiteChildren, DEFAULT_MOCK_SITE_PORT, startMockSite, stopAllMockSites, stopMockSite } from "./mock-site-serve.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Module state — running mockup servers, keyed by bound port.
@@ -250,6 +254,36 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       } catch (err) {
         return { content: [{ type: "text", text: `serve_mockup failed: ${String(err)}` }], details: {} };
       }
+    },
+  });
+
+  // ── serve_mock_site ──────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "serve_mock_site",
+    label: "Serve Mock Site",
+    description:
+      "Start the project's live-component mock site (mockups/<id>/mock.tsx rendered with the app's real components, numbered rings, page-level Accept/Reject) using the project's own Vite and mockups/mock-site.config.ts. Localhost-only unless lan:true (LAN = view-only). Never port 8000. Pass stop:true with a port to stop it. The agent decides with the mock-decide CLI.",
+    parameters: Type.Object({
+      dir: Type.Optional(Type.String({ description: "Project root (default: cwd)." })),
+      port: Type.Optional(Type.Number({ description: `Port (default ${DEFAULT_MOCK_SITE_PORT}).` })),
+      lan: Type.Optional(Type.Boolean({ description: "Also listen on the LAN for phone review (view-only)." })),
+      stop: Type.Optional(Type.Boolean({ description: "Stop the mock site on `port`." })),
+    }),
+    async execute(_id: string, params: { dir?: string; port?: number; lan?: boolean; stop?: boolean }): ToolReturn {
+      if (params.stop) {
+        const port = params.port ?? DEFAULT_MOCK_SITE_PORT;
+        const ok = await stopMockSite(port);
+        return { content: [{ type: "text", text: ok ? `Stopped mock site on port ${port}.` : `No mock site on port ${port}.` }], details: { port, stopped: ok } };
+      }
+      const r = await startMockSite(params);
+      if (!r.ok) return { content: [{ type: "text", text: `serve_mock_site failed: ${r.error}` }], details: { error: r.error } };
+      const lines = [`Mock site for ${r.root}`, `  local: ${r.local}`];
+      if (params.lan) {
+        lines.push(`  LAN:   ${r.lan ?? "(no LAN IPv4 detected)"}`);
+        lines.push("LAN clients are view-only (Accept/Reject only from this machine). Project sources are readable on the LAN while it runs.");
+      }
+      lines.push("", `For canvas(), use the local URL. Decide as the agent: mock-decide accept|reject <ref> [note]. Stop: serve_mock_site{stop:true,port:${r.port}}.`);
+      return { content: [{ type: "text", text: lines.join("\n") }], details: { port: r.port, local: r.local, lan: r.lan, root: r.root } };
     },
   });
 
@@ -514,5 +548,8 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       await new Promise<void>((r) => s.close(() => r()));
       servers.delete(port);
     }
+    await stopAllMockSites();
   });
+  // Never orphan a Vite child holding the port when pi exits without a shutdown event.
+  process.once("exit", () => { for (const c of mockSiteChildren.values()) c.kill("SIGKILL"); });
 }
