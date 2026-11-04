@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LookupAll } from "../net-guard.js";
-import { cacheKey, gitResolver } from "../sources.js";
+import { cacheKey, classifyRef, gitResolver, resolveAll } from "../sources.js";
 import { recordTrust } from "../trust.js";
 
 /** Fake `git`: records argv; fakes version / remote get-url / rev-parse / clone. */
@@ -173,7 +173,8 @@ describe("git resolver guard (D3)", () => {
     it("E48 matching origin: fetch/pull carry --no-recurse-submodules + -c flags before the subcommand", async () => {
       const refPinned = "git:https://github.com/o/r@v1";
       seedClone(refPinned);
-      const p = fakeGit({ origin: "https://github.com/o/r@v1" });
+      // the `@v1` suffix is the revision, not part of the clone URL (fix-kb-get-roots-and-guard D7)
+      const p = fakeGit({ origin: "https://github.com/o/r" });
       await run(refPinned, { git: p.git, lookup: pub("140.82.112.3") }, { refresh: true });
       const fetch = network(p.calls)[0];
       expect(fetch.indexOf("-c")).toBeLessThan(fetch.indexOf("fetch"));
@@ -204,6 +205,66 @@ describe("git resolver guard (D3)", () => {
     expect(network(a.calls)[0].join(" ")).not.toContain("curloptResolve");
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  // --- fix-kb-get-roots-and-guard: GitHub / ssh classification (test-plan E16–E21) ---
+
+  it("E16 GitHub repo refs and ssh URLs classify as git", () => {
+    for (const ref of ["https://github.com/o/r", "https://github.com/o/r.git", "https://github.com/o/r@v1", "https://github.com/o/r/tree/main", "github.com/o/r", "ssh://git@github.com/o/r"]) {
+      expect(classifyRef(ref), ref).toBe("git");
+    }
+  });
+
+  it("E17 GitHub file and archive URLs stay https", () => {
+    for (const ref of ["https://raw.githubusercontent.com/o/r/main/README.md", "https://github.com/o/r/blob/main/docs/a.md", "https://github.com/o/r/archive/refs/heads/main.zip"]) {
+      expect(classifyRef(ref), ref).toBe("https");
+    }
+  });
+
+  it("E18 non-repository GitHub paths are not cloned", () => {
+    for (const ref of ["https://github.com/o/r/issues", "https://github.com/o/r/pull/1", "https://github.com/o/r/wiki", "https://github.com/o/r/actions", "https://github.com/o/r/settings", "https://github.com/o/r/releases"]) {
+      expect(classifyRef(ref), ref).toBe("https");
+    }
+  });
+
+  it("E19 an explicit kind wins over a git-looking ref", async () => {
+    const spec = { kind: "https" as const, ref: "https://github.com/o/r" };
+    recordTrust(spec);
+    const { git, calls } = fakeGit();
+    const fetch = vi.fn(async () => Buffer.from("<!doctype html><html></html>"));
+    await expect(resolveAll([spec], { cwd: cacheDir, cacheDir, testHooks: { fetch, git } })).rejects.toThrow(/kind: "git"/);
+    expect(fetch).toHaveBeenCalledTimes(1); // the https resolver ran
+    expect(calls).toHaveLength(0); // git never invoked
+  });
+
+  it("E20 a /tree/<ref> URL clones the bare repo and checks out the revision; pin overrides", async () => {
+    const a = fakeGit();
+    await run("https://github.com/o/r/tree/dev", { git: a.git, lookup: pub("140.82.112.3") });
+    const clone = network(a.calls)[0];
+    expect(clone[clone.length - 2]).toBe("https://github.com/o/r");
+    expect(clone[clone.indexOf("--branch") + 1]).toBe("dev");
+    const b = fakeGit();
+    await run("https://github.com/o/r2/tree/dev", { git: b.git, lookup: pub("140.82.112.3") }, { pin: "main" });
+    const clone2 = network(b.calls)[0];
+    expect(clone2[clone2.length - 2]).toBe("https://github.com/o/r2");
+    expect(clone2[clone2.indexOf("--branch") + 1]).toBe("main");
+    const c = fakeGit();
+    await run("https://github.com/o/r3@v1", { git: c.git, lookup: pub("140.82.112.3") });
+    const clone3 = network(c.calls)[0];
+    expect(clone3[clone3.length - 2]).toBe("https://github.com/o/r3");
+    expect(clone3[clone3.indexOf("--branch") + 1]).toBe("v1");
+  });
+
+  it("E21 an ssh:// URL clones over ssh under the same hardening", async () => {
+    expect(classifyRef("ssh://git@github.com/o/r")).toBe("git");
+    const { git, calls } = fakeGit();
+    await run("ssh://git@github.com/o/r", { git, lookup: pub("140.82.112.3") });
+    const clone = network(calls)[0];
+    expect(clone[clone.length - 2]).toBe("ssh://git@github.com/o/r");
+    expect(clone.join(" ")).toContain("-c protocol.allow=never");
+    expect(clone.join(" ")).not.toContain("curloptResolve"); // ssh is checked, not pinned
+    const bad = fakeGit();
+    await expect(run("ssh://git@internal/o/r", { git: bad.git, lookup: pub("10.0.0.1") })).rejects.toThrow(/non-public/);
   });
 });
 

@@ -8,17 +8,33 @@ Resolve each configured knowledge-base source spec into a local directory the in
 
 ### Requirement: Source-kind classification and resolution
 
-The resolver SHALL determine each source's kind from an explicit `kind` field or, when absent, by classifying its `ref`, and SHALL resolve the source to an absolute local directory (optionally narrowed by a `subdir`).
+The resolver SHALL determine each source's kind from an explicit `kind` field or, when absent, by classifying its `ref`, and SHALL resolve the source to an absolute local directory (optionally narrowed by a `subdir`). Classification SHALL route a GitHub repository reference to `git` and a direct file or archive URL to `https`.
 
 #### Scenario: Explicit kind honored
 
 - **WHEN** a source spec sets `kind` to `filesystem`, `npm`, `git`, or `https`
-- **THEN** the matching resolver is used
+- **THEN** the matching resolver is used, even when the `ref` would classify differently
 
 #### Scenario: Kind inferred from ref prefix
 
-- **WHEN** a source has no explicit `kind`
-- **THEN** a `ref` starting with `npm:` classifies as `npm`, `git:` or `git@` as `git`, an `https://`/`http://`/`ssh://` URL as `https`, and anything else as `filesystem`
+- **WHEN** a source has no explicit `kind` and its ref is not a GitHub repository reference
+- **THEN** a `ref` starting with `npm:` classifies as `npm`, `git:` or `git@` as `git`, an `ssh://` URL as `git`, an `https://`/`http://` URL as `https`, and anything else as `filesystem`
+
+#### Scenario: GitHub repository URL classifies as git
+
+- **WHEN** a source has no explicit `kind` and its ref is `https://github.com/<owner>/<repo>`, `https://github.com/<owner>/<repo>.git`, `https://github.com/<owner>/<repo>@<ref>`, `https://github.com/<owner>/<repo>/tree/<ref>`, or `github.com/<owner>/<repo>`
+- **THEN** it classifies as `git` and resolves by cloning `https://github.com/<owner>/<repo>`
+
+#### Scenario: GitHub file and archive URLs stay https
+
+- **WHEN** a source has no explicit `kind` and its ref is a `raw.githubusercontent.com` URL, a `github.com/<owner>/<repo>/blob/...` URL, or a `github.com/<owner>/<repo>/archive/...` archive URL
+- **THEN** a raw or archive URL classifies as `https` and is fetched as a file or archive
+- **AND** a `/blob/` URL SHALL fail resolution with an error naming the equivalent raw URL, because its body is an HTML page
+
+#### Scenario: Non-repository GitHub paths are not cloned
+
+- **WHEN** a source has no explicit `kind` and its ref is a `github.com/<owner>/<repo>` URL whose path continues with a non-repository segment (`/issues`, `/pull`, `/wiki`, `/actions`, `/settings`, `/releases`)
+- **THEN** it SHALL NOT classify as `git`; it classifies as `https` and is rejected by the indexable-content check rather than cloned from an unclonable URL
 
 #### Scenario: Subdir narrows the indexed directory
 
@@ -74,8 +90,19 @@ The git resolver SHALL clone the repository into a cache directory, check out th
 
 #### Scenario: Revision pinning
 
-- **WHEN** the source specifies a `pin`, or the `ref` carries a trailing branch/tag suffix
-- **THEN** that revision is used as the checkout target
+- **WHEN** the source specifies a `pin`, or the `ref` carries a trailing branch/tag suffix (`@<ref>` or a GitHub `/tree/<ref>` segment)
+- **THEN** that revision is used as the checkout target, with an explicit `pin` taking precedence
+
+#### Scenario: GitHub tree URL selects the revision only
+
+- **WHEN** the ref is `https://github.com/<owner>/<repo>/tree/<ref>`
+- **THEN** the segment after `tree/` is the checkout revision and the clone URL is `https://github.com/<owner>/<repo>`
+- **AND** a path deeper than `/tree/<ref>` SHALL require an explicit `subdir`, and a revision whose name contains `/` SHALL be supplied via `pin`
+
+#### Scenario: ssh URL clones over ssh
+
+- **WHEN** the ref is `ssh://git@<host>/<owner>/<repo>`
+- **THEN** the resolver clones that URL over ssh under the same host and argv hardening as `git@host:path` refs
 
 #### Scenario: Refresh of an existing clone
 
@@ -94,7 +121,7 @@ The git resolver SHALL clone the repository into a cache directory, check out th
 
 ### Requirement: https source resolution and archive extraction
 
-The https resolver SHALL fetch a remote `https:` URL into a cache directory through the SSRF-guarded fetch (see `untrusted-content-ingestion`), extracting recognized archives traversal-safely and writing plain files directly, and SHALL record a fetch marker for staleness tracking. A non-`https:` URL (including `http://` and `ssh://` refs classified as `https`), a non-2xx response, or a guard refusal SHALL fail resolution without writing a fetch marker and SHALL leave any previously cached content in place.
+The https resolver SHALL fetch a remote `https:` URL into a cache directory through the SSRF-guarded fetch (see `untrusted-content-ingestion`), extracting recognized archives traversal-safely and writing plain files directly, and SHALL record a fetch marker for staleness tracking. A non-`https:` URL (including an `http://` ref, or an `ssh://` ref given an explicit `kind: "https"`), a non-2xx response, or a guard refusal SHALL fail resolution without writing a fetch marker and SHALL leave any previously cached content in place.
 
 #### Scenario: Archive fetched and extracted
 
@@ -103,12 +130,12 @@ The https resolver SHALL fetch a remote `https:` URL into a cache directory thro
 
 #### Scenario: Plain file fetched
 
-- **WHEN** the URL is not an archive
+- **WHEN** the URL is not an archive and the body passes the indexable-content check
 - **THEN** its body is fetched and written into the cache under the basename of the URL path (or `index.md` when that basename is empty, `.`, or `..`)
 
 #### Scenario: Non-https ref refused
 
-- **WHEN** a source classified as `https` has an `http://` or `ssh://` ref
+- **WHEN** a source resolved as `https` has an `http://` ref, or an `ssh://` ref with explicit `kind: "https"`
 - **THEN** resolution fails with an https-only error and nothing is fetched
 
 #### Scenario: Non-2xx response refused
@@ -191,3 +218,22 @@ Recording trust SHALL write the trust store atomically: a temporary file in the 
 
 - **WHEN** the trust store directory is not writable
 - **THEN** the call returns false, logs the failure, and the previous store contents are unchanged
+
+### Requirement: An https plain fetch that yields nothing indexable fails resolution
+When an `https` source URL is not a recognized archive, the resolver SHALL fail resolution if the fetched body is an HTML document, or if the saved file name lacks a configured indexable extension. The error SHALL name the URL and suggest `kind: "git"` for a repository page or a raw file URL for a single document. The resolver SHALL NOT write a fetch marker and SHALL leave previously cached content in place.
+
+#### Scenario: Repository page fetched as https
+- **WHEN** a source with explicit `kind: "https"` and ref `https://github.com/o/r` returns an HTML page
+- **THEN** resolution SHALL fail with an error suggesting `kind: "git"`, and no file named `r` SHALL be cached
+
+#### Scenario: Extensionless plain file
+- **WHEN** a non-archive https URL returns a non-HTML body and its path basename has no indexable extension
+- **THEN** resolution SHALL fail with an error naming the URL
+
+#### Scenario: Markdown file fetched normally
+- **WHEN** a non-archive https URL ends in `.md` and returns markdown text
+- **THEN** the file SHALL be cached and indexed as before
+
+#### Scenario: Previous cache survives a refused fetch
+- **WHEN** a refresh of a previously cached https source is refused by this rule
+- **THEN** the earlier cached content and its fetch marker SHALL remain unchanged

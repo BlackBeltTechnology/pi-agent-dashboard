@@ -24,6 +24,9 @@ import type { GuardMode } from "@blackbelt-technology/pi-dashboard-kb";
 const SEARCH_TOOLS = new Set(["grep", "glob", "rg", "find", "ls", "ag", "ack"]);
 /** Bash binaries that lead a counting segment (D8). */
 const SEARCH_BINARIES = new Set(["grep", "egrep", "fgrep", "rg", "ripgrep", "ag", "ack", "ack-grep", "find", "fd", "fdfind", "ls"]);
+/** File-read binaries: a segment leading with one counts only when it names a
+ *  kb-indexed file (`GuardInput.isIndexedPath`). See change: fix-kb-get-roots-and-guard (D5). */
+const READ_BINARIES = new Set(["cat", "head", "tail", "sed", "less", "more", "bat"]);
 /** Knowledge access — the ONLY reset (D7). */
 const KB_TOOLS = new Set(["kb_search", "kb_neighbors", "kb_get"]);
 
@@ -37,6 +40,9 @@ export interface GuardInput {
   command?: string;
   query?: string;
   path?: string;
+  /** Injected by the extension per call (cwd-aware). Absent → file reads never
+   *  count; a throw degrades to not counting. The guard never queries a store. */
+  isIndexedPath?: (arg: string) => boolean;
 }
 
 /** Split a bash command into segments on `|`, `||`, `&&`, `;`, and newline (D8). */
@@ -49,6 +55,33 @@ export function bashSegments(command: string): string[] {
 
 function firstToken(segment: string): string {
   return segment.split(/\s+/)[0] ?? "";
+}
+
+const unquote = (t: string): string => t.replace(/^(['"])(.*)\1$/, "$2");
+
+/** A read-binary segment that names an indexed file (D5). `sed -i` is a write;
+ *  `sed`'s script (first non-flag token when no -e/-f) is skipped. A predicate
+ *  throw counts as "not indexed". */
+function isIndexedRead(segment: string, isIndexedPath: ((arg: string) => boolean) | undefined): boolean {
+  if (!isIndexedPath) return false;
+  const [bin, ...rest] = segment.split(/\s+/);
+  if (!READ_BINARIES.has(bin ?? "")) return false;
+  let args = rest;
+  if (bin === "sed") {
+    if (rest.some((a) => a === "-i" || a.startsWith("-i") || a === "--in-place" || a.startsWith("--in-place="))) return false;
+    if (!rest.some((a) => a === "-e" || a === "-f" || a.startsWith("--expression") || a.startsWith("--file"))) {
+      const script = rest.findIndex((a) => !a.startsWith("-"));
+      args = rest.filter((_, i) => i !== script);
+    }
+  }
+  return args.some((a) => {
+    if (!a || a.startsWith("-")) return false;
+    try {
+      return isIndexedPath(unquote(a));
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Resolve the effective guard mode. Precedence: the env override wins ONLY
@@ -101,14 +134,15 @@ export function createGuard(opts: { mode?: GuardMode } = {}): KbGuard {
   };
 
   const isSearchAction = (toolName: string, input?: GuardInput): boolean => {
-    if (toolName === "bash") return bashSegments(input?.command ?? "").some((seg) => SEARCH_BINARIES.has(firstToken(seg)));
+    if (toolName === "bash")
+      return bashSegments(input?.command ?? "").some((seg) => SEARCH_BINARIES.has(firstToken(seg)) || isIndexedRead(seg, input?.isIndexedPath));
     return SEARCH_TOOLS.has(toolName);
   };
 
   const warnText = () =>
     `[kb] ${CHAIN_THRESHOLD} consecutive searches without consulting the knowledge base. Run kb_search for what you are looking for before the next source search — the kb indexes docs this repo's markdown answers directly.`;
   const escalateText = () =>
-    `[kb] Repeated source searching, still no kb consult. Stop and run kb_search (or kb agents <path> / kb get) now — if the kb has no answer, carry on; the guard only asks that you check.`;
+    `[kb] Repeated source searching, still no kb consult. Your next call should be kb_search (or kb_get <path> for a file you are about to read).`;
 
   /** The ladder, reached only when the chain crosses the threshold. */
   const ladder = (): GuardVerdict => {

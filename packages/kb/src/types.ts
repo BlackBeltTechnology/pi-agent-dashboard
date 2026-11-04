@@ -224,6 +224,10 @@ export interface KbStore {
   neighbors(node: string, depth: number, rel?: GraphEdge["rel"]): GraphNode[];
   backlinks(node: string): GraphNode[];
   getChunk(root: string, path: string, headingPath?: string): Chunk | null;
+  /** Distinct chunk roots (source ids), remote roots included. */
+  listRoots?(): string[];
+  /** Exact heading path, else unique-last-heading candidates (see SqliteFtsStore). */
+  getChunkBySection?(root: string, path: string, section: string): Chunk[];
   getChunkById(root: string, chunkId: string): Chunk | null;
 
   // stats

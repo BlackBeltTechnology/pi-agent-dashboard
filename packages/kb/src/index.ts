@@ -16,6 +16,8 @@ export { createGitScope, GitScope } from "./git-scope/index.js";
 export { beginForcedSource, runningEngine, sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
 export type { AtomicIndexSource, InstallDeps, InstallResult, RunIndexAtomicOpts } from "./index-run.js";
 export { BUILDING_LINE, installIndex, isFirstIndexLive, makeHeartbeat, runIndexAtomic, sweepOrphanTemps } from "./index-run.js";
+export type { FetchResult, FetchRoot, FetchStore, RenderedFetch } from "./fetch-resolve.js";
+export { buildFetchRoots, renderFetch, resolveFetch } from "./fetch-resolve.js";
 export type { IndexOptions, IndexSource, IndexStats } from "./indexer.js";
 export { headingNodeName, indexSource } from "./indexer.js";
 export type { InitOptions, InitResult } from "./init.js";

@@ -67,6 +67,14 @@ describe("discoverMocks (E3, E4)", () => {
   });
 });
 
+describe("example mock outside the mock roots (fix-mock-site-ux U1)", () => {
+  it("the repo's mock site never lists the package example", () => {
+    const repo = path.resolve(__dirname, "../../../..");
+    expect(fs.existsSync(path.join(repo, "packages/mockup-loop/examples/2026-11-03-session-pills/mock.tsx"))).toBe(true);
+    expect(discoverMocks(repo).mocks.map((m) => m.id)).not.toContain("2026-11-03-session-pills");
+  });
+});
+
 describe("decisions (E14, E15, X4)", () => {
   it("writes the decision shape, deletes on open, leaves no temp file", () => {
     mk("mockups/2026-11-03-a/mock.tsx");

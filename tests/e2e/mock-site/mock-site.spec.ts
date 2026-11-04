@@ -1,7 +1,7 @@
 /**
  * L3 — live-component mock site, rendered (self-started site, no docker harness).
  * Config: playwright.mock-site.config.ts. See change: add-live-component-mock-site
- * (test-plan E20, P1, F1-F16, X5-X7).
+ * (test-plan E20, P1, F1-F16, X5-X7) and fix-mock-site-ux (test-plan U2-U11).
  */
 import { expect, test, type Page } from "@playwright/test";
 import { spawnSync } from "node:child_process";
@@ -272,4 +272,113 @@ test("malformed decision file: listed as open with a warning (X7)", async ({ pag
   await page.goto(url(FIXTURE_MOCK)); await ready(page);
   await expect(page.locator(".mk-item", { hasText: "E2E fixture" })).toHaveCount(1);
   await expect(page.locator(".mk-problems")).toContainText(path.join(FIXTURE_MOCK, "decision.json"));
+});
+
+// ---- fix-mock-site-ux (test-plan U2-U11) ----
+
+test("steps render side by side with step refs (U2)", async ({ page }) => {
+  await page.goto(url(PILLS_MOCK)); await ready(page);
+  const steps = page.locator(`[id="r-${PILLS_MOCK}/3"] .mk-step`);
+  await expect(steps).toHaveCount(3);
+  await expect(steps.locator(".mk-step-l b")).toHaveText(["3a", "3b", "3c"]);
+  for (const k of [1, 2, 3]) await expect(page.locator(`[id="r-${PILLS_MOCK}/3/proposed/step-${k}"]`)).toHaveCount(1);
+});
+
+test("deep link to a step scrolls + highlights it (U3)", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(url(`${PILLS_MOCK}/3/proposed/step-2`));
+  const step = page.locator(`[id="r-${PILLS_MOCK}/3/proposed/step-2"]`);
+  await expect(step).toHaveClass(/mk-hit/);
+  await expect(step).toBeInViewport();
+});
+
+test("animated steps advance and stop on Pause (U4)", async ({ page }) => {
+  await page.goto(url(FIXTURE_MOCK)); await ready(page);
+  const player = page.locator(`[id="r-${FIXTURE_MOCK}/3"] .mk-player`);
+  await expect(player.locator(".mk-scene.on")).toHaveCount(1);
+  await expect(player.locator(".mk-scene.on")).toHaveText("scene one");
+  await expect(player.locator(".mk-scene.on")).toHaveText("scene two", { timeout: 4000 });
+  await player.getByRole("button", { name: "Pause" }).click();
+  await page.waitForTimeout(3000);
+  await expect(player.locator(".mk-scene.on")).toHaveText("scene two");
+});
+
+test("reduced motion renders animated steps side by side (U5)", async ({ browser }) => {
+  const ctx = await browser.newContext({ reducedMotion: "reduce" });
+  const page = await ctx.newPage();
+  await page.goto(url(FIXTURE_MOCK)); await ready(page);
+  const frame = page.locator(`[id="r-${FIXTURE_MOCK}/3"]`);
+  await expect(frame.locator(".mk-player")).toHaveCount(0);
+  await expect(frame.locator(".mk-step")).toHaveCount(2);
+  await ctx.close();
+});
+
+test("steps plus panes: reported, steps shown (U6)", async ({ page }) => {
+  await page.goto(url(FIXTURE_MOCK)); await ready(page);
+  await expect(page.locator(".mk-problems")).toContainText(`${FIXTURE_MOCK} frame 4`);
+  await expect(page.locator(`[id="r-${FIXTURE_MOCK}/4"]`)).toContainText("step wins");
+  await expect(page.locator(`[id="r-${FIXTURE_MOCK}/4"]`)).not.toContainText("ignored");
+});
+
+test("overview cards link to their frame (U7)", async ({ page }) => {
+  await page.goto(url(PILLS_MOCK)); await ready(page);
+  const cards = page.locator("section.mk-change", { has: page.locator(`h1 a.mk-ref`, { hasText: `#${PILLS_MOCK}` }) }).locator(".mk-ov-card");
+  await expect(cards).toHaveCount(3);
+  await cards.nth(1).click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe(`#${PILLS_MOCK}/2`);
+});
+
+test("frame reason renders; long reason is linted (U8)", async ({ page }) => {
+  await page.goto(url(PILLS_MOCK)); await ready(page);
+  await expect(page.locator(`[id="r-${PILLS_MOCK}/1"] .mk-why`)).toContainText("Missing folder wins");
+  await page.goto(url(FIXTURE_MOCK)); await ready(page);
+  await expect(page.locator(`[id="r-${FIXTURE_MOCK}/1"] .mk-why .mk-long`)).toHaveText("WHY > 120");
+});
+
+test("phone badge does not cover the ringed content (U9)", async ({ page }) => {
+  await page.goto(url(PILLS_MOCK)); await ready(page);
+  const f = (await (await page.locator(`[id="r-${PILLS_MOCK}/2/current"] iframe`).elementHandle())!.contentFrame())!;
+  await expect.poll(() => f.locator(".mk-ring-n").count()).toBeGreaterThan(0);
+  const overlap = await f.evaluate(() => {
+    const ring = document.querySelector(".mk-ring")!, b = ring.querySelector(".mk-ring-n")!;
+    const r = ring.getBoundingClientRect(), n = b.getBoundingClientRect();
+    return !(n.bottom <= r.top || n.top >= r.bottom || n.right <= r.left || n.left >= r.right);
+  });
+  expect(overlap).toBe(false);
+});
+
+test("a ring keeps its items on one row (U10)", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(url(PILLS_MOCK)); await ready(page);
+  const mids = await page.locator(`[id="r-${PILLS_MOCK}/1/current/1"]`).evaluate((r) =>
+    [...r.children].filter((c) => !c.classList.contains("mk-ring-n") && !c.classList.contains("mk-long")).map((c) => { const b = c.getBoundingClientRect(); return b.top + b.height / 2; }));
+  expect(mids.length).toBeGreaterThanOrEqual(2);
+  expect(Math.max(...mids) - Math.min(...mids)).toBeLessThanOrEqual(1);
+});
+
+test("no mocks shows the empty state (U11)", async ({ page }) => {
+  const mockups = path.join(M().root, "mockups");
+  const aside = path.join(M().root, "aside");
+  fs.mkdirSync(aside, { recursive: true });
+  for (const id of [PILLS_MOCK, FIXTURE_MOCK]) fs.renameSync(path.join(mockups, id), path.join(aside, id));
+  try {
+    await page.waitForTimeout(1500);
+    await page.goto(url());
+    await expect(page.locator(".mk-none")).toContainText("No mocks yet", { timeout: 15_000 });
+    await expect(page.locator(".mk-none")).toContainText("mockups/<yyyy-mm-dd-slug>/mock.tsx");
+  } finally {
+    for (const id of [PILLS_MOCK, FIXTURE_MOCK]) fs.renameSync(path.join(aside, id), path.join(mockups, id));
+  }
+  await page.waitForTimeout(1500);
+  await page.goto(url());
+  await expect(page.locator(".mk-item", { hasText: "E2E fixture" })).toHaveCount(1, { timeout: 15_000 });
+});
+
+test("a phone steps frame renders each step in a 375px iframe (U12)", async ({ page }) => {
+  await page.goto(url(FIXTURE_MOCK)); await ready(page);
+  const frames = page.locator(`[id="r-${FIXTURE_MOCK}/5"] iframe.mk-phone`);
+  await expect(frames).toHaveCount(2);
+  await expect(frames.first()).toHaveAttribute("src", `?pane=${encodeURIComponent(`${FIXTURE_MOCK}/5/proposed/step-1`)}`);
+  const f = (await frames.first().elementHandle())!.contentFrame();
+  await expect.poll(async () => (await f)!.locator("text=phone one").count()).toBe(1);
 });
