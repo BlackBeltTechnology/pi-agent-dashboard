@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type ViteDevServer } from "vite";
-import { mockSite } from "../mock-site/plugin.mjs";
+import { isLanSafeVite, mockSite } from "../mock-site/plugin.mjs";
 import { makeFixture } from "./mock-site-fixture";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -143,6 +143,31 @@ describe("LAN mode (E11)", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   }, 15_000);
+
+  it("LAN mode denies secret files, including query-parameter variants", async () => {
+    const root = makeFixture();
+    fs.writeFileSync(path.join(root, ".env"), "TOKEN=x");
+    fs.mkdirSync(path.join(root, ".secrets"));
+    fs.writeFileSync(path.join(root, ".secrets/k.json"), "{}");
+    fs.writeFileSync(path.join(root, "client-secrets.json"), "{}");
+    const { server, port } = await start(root, true);
+    try {
+      for (const f of [".env", ".secrets/k.json", "client-secrets.json"])
+        for (const q of ["", "?raw", "?import&raw", "?url", "?raw??"]) {
+          const r = await req(port, "GET", `/@fs${root}/${f}${q}`);
+          expect(r.status, `${f}${q}`).not.toBe(200);
+          expect(r.body).not.toContain("TOKEN=x");
+        }
+    } finally {
+      await stop(server);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("refuses LAN mode on Vite versions with known fs.deny bypasses", () => {
+    for (const v of ["5.0.12", "5.2.5", "5.4.18", "6.3.3", "6.4.4"]) expect(isLanSafeVite(v), v).toBe(false);
+    for (const v of ["5.4.19", "6.3.4", "6.4.3", "6.4.5", "7.3.7"]) expect(isLanSafeVite(v), v).toBe(true);
+  });
 });
 
 describe("mock-decide CLI (E16, E17)", () => {

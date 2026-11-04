@@ -15,5 +15,7 @@ export interface MockSiteOptions {
   /** Bind 0.0.0.0 (LAN clients view only). Default from MOCK_SITE_LAN=1. */
   lan?: boolean;
 }
+/** False for Vite versions with a known `server.fs.deny` bypass (LAN mode refuses them). */
+export declare function isLanSafeVite(version: string): boolean;
 /** Vite plugin (typed loosely so the package needs no `vite` dependency). */
 export declare function mockSite(options: MockSiteOptions): { name: string; [hook: string]: unknown };

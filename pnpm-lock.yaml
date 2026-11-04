@@ -1341,7 +1341,7 @@ importers:
         specifier: '>=18.0.0'
         version: 19.2.8(react@19.2.8)
       vite:
-        specifier: '>=5.4.19 <6.0.0 || >=6.3.4'
+        specifier: '>=5.4.19 <6.0.0 || >=6.3.4 <6.4.4 || >=6.4.5'
         version: 6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0)
     devDependencies:
       '@earendil-works/pi-coding-agent':
