@@ -68,7 +68,7 @@ import { getOwnPgid, } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { createRemoteUpgradePreparer } from "./remote-upgrade-preparer.js";
-import { RetryTracker } from "./retry-tracker.js";
+import { installPiAiDelayFn, RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, resolveNamingModel } from "./role-manager.js";
 import { replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, filterByEnabledModels, isLive } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
@@ -378,6 +378,9 @@ function initBridge(pi: ExtensionAPI) {
   // are sourced READ-ONLY from pi's retry settings for the display countdown;
   // the bridge never writes them. See change: retry-forever-with-stop-control.
   const retryTracker = new RetryTracker(readPiRetrySettings({ cwd: activationCwd }));
+  // Prefer pi-ai's own capped `retryDelayMs` for the countdown; the local mirror
+  // covers the async gap and a missing peer. See change: fix-retry-delay-cap.
+  installPiAiDelayFn(retryTracker);
   inst.retryTracker = retryTracker;
   // Empty-actionable-turn guard: when a terminal turn is a clean-but-empty
   // `stop` (thinking-only, no text, no tool call), continue-or-surface instead

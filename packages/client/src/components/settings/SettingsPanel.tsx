@@ -2501,8 +2501,8 @@ export function SettingsPanel({ availableModels, onMessage, ws, onBack, selected
                     />
                   )}
                 </Section>
-                {/* "Retry", not "Provider Retry": three of the six fields
-                    (`enabled`, `maxRetries`, `baseDelayMs`) are turn-level, not
+                {/* "Retry", not "Provider Retry": four of the seven fields
+                    (`enabled`, `maxRetries`, `baseDelayMs`, `maxAgentDelayMs`) are turn-level, not
                     provider-scoped. The provider trio keeps its own subhead.
                     Filed under Sessions, not Providers: the observable effect is
                     on a session (waiting / attempt n / countdown / Stop), and the

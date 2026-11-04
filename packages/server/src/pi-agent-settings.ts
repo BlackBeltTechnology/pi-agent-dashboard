@@ -65,6 +65,7 @@ export const PI_RETRY_DEFAULTS: PiRetryPolicy = {
   enabled: true,
   maxRetries: 3,
   baseDelayMs: 2000,
+  maxAgentDelayMs: 60000,
   provider: {
     // timeoutMs intentionally absent → pi uses the SDK default.
     maxRetries: 0,
@@ -443,6 +444,7 @@ export function readPiRetryPolicy(deps: FsDeps = {}): PiRetryPolicy {
     enabled: typeof retry.enabled === "boolean" ? retry.enabled : PI_RETRY_DEFAULTS.enabled,
     maxRetries: num(retry.maxRetries, PI_RETRY_DEFAULTS.maxRetries),
     baseDelayMs: num(retry.baseDelayMs, PI_RETRY_DEFAULTS.baseDelayMs),
+    maxAgentDelayMs: num(retry.maxAgentDelayMs, PI_RETRY_DEFAULTS.maxAgentDelayMs),
     provider: {
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       maxRetries: num(provider.maxRetries, PI_RETRY_DEFAULTS.provider.maxRetries),
@@ -469,6 +471,8 @@ export function validatePiRetryPolicy(input: unknown): ValidationError[] {
   if (typeof p.baseDelayMs !== "number" || !Number.isInteger(p.baseDelayMs) || p.baseDelayMs < 1) {
     errors.push({ field: "baseDelayMs", message: "baseDelayMs must be a positive integer (ms)" });
   }
+  // pi caps every agent-level wait at this. See change: fix-retry-delay-cap.
+  requireNonNegativeInt(p.maxAgentDelayMs, "maxAgentDelayMs", errors);
 
   // The provider sub-block is required as an object; its timeoutMs is optional.
   if (!p.provider || typeof p.provider !== "object" || Array.isArray(p.provider)) {
@@ -511,7 +515,7 @@ export async function writePiRetryPolicy(input: unknown, deps: FsDeps = {}): Pro
 
   const r = await withPiSettingsLock<null, ParseFail>((state) => {
     if (state.parseError) return { fail: { error: "parse", parseError: state.parseError } };
-    // Preserve unknown keys at BOTH levels; overlay only the six known fields.
+    // Preserve unknown keys at BOTH levels; overlay only the seven known fields.
     const existingRetry = asObject(state.settings.retry);
     const existingProvider = asObject(existingRetry.provider);
     const nextProvider: Record<string, unknown> = {
@@ -532,6 +536,7 @@ export async function writePiRetryPolicy(input: unknown, deps: FsDeps = {}): Pro
         enabled: policy.enabled,
         maxRetries: policy.maxRetries,
         baseDelayMs: policy.baseDelayMs,
+        maxAgentDelayMs: policy.maxAgentDelayMs,
         provider: nextProvider,
       },
     };

@@ -115,8 +115,13 @@ export interface PiRetryPolicy {
   enabled: boolean;
   /** Max agent-level retry attempts. No clamp -- pi accepts any non-negative int. */
   maxRetries: number;
-  /** Base backoff (ms); pi's delay is `baseDelayMs * 2^(attempt-1)`, uncapped. */
+  /** Base backoff (ms); pi's delay is `min(baseDelayMs * 2^(attempt-1), maxAgentDelayMs)`. */
   baseDelayMs: number;
+  /**
+   * Cap on every agent-level wait (ms). pi default 60000; non-negative int.
+   * See change: fix-retry-delay-cap.
+   */
+  maxAgentDelayMs: number;
   /** Provider/SDK-level controls. A wait taken here emits NO event (invisible). */
   provider: PiRetryProviderPolicy;
 }
