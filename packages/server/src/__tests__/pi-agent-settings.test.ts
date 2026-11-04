@@ -47,6 +47,7 @@ describe("pi-agent-settings", () => {
     enabled: true,
     maxRetries: 24,
     baseDelayMs: 2000,
+    maxAgentDelayMs: 60000,
     provider: { maxRetries: 0, maxRetryDelayMs: 60000 },
   };
 
@@ -60,14 +61,15 @@ describe("pi-agent-settings", () => {
       expect(readPiRetryPolicy(deps)).toEqual(PI_RETRY_DEFAULTS);
     });
 
-    it("reads all six fields", () => {
+    it("reads all seven fields", () => {
       seed({
-        retry: { enabled: false, maxRetries: 24, baseDelayMs: 5000, provider: { timeoutMs: 3600000, maxRetries: 5, maxRetryDelayMs: 0 } },
+        retry: { enabled: false, maxRetries: 24, baseDelayMs: 5000, maxAgentDelayMs: 9000, provider: { timeoutMs: 3600000, maxRetries: 5, maxRetryDelayMs: 0 } },
       });
       expect(readPiRetryPolicy(deps)).toEqual({
         enabled: false,
         maxRetries: 24,
         baseDelayMs: 5000,
+        maxAgentDelayMs: 9000,
         provider: { timeoutMs: 3600000, maxRetries: 5, maxRetryDelayMs: 0 },
       });
     });
@@ -75,6 +77,13 @@ describe("pi-agent-settings", () => {
     it("falls back to defaults when the settings path is unreadable (not a file)", () => {
       mkdirSync(file); // settings.json is a directory → EISDIR on read
       expect(readPiRetryPolicy(deps)).toEqual(PI_RETRY_DEFAULTS);
+    });
+
+    // See change: fix-retry-delay-cap — pi caps agent-level waits at this.
+    it("defaults maxAgentDelayMs to 60000 when absent (test-plan #E11)", () => {
+      seed({ retry: { maxRetries: 5 } });
+      expect(readPiRetryPolicy(deps).maxAgentDelayMs).toBe(60000);
+      expect(PI_RETRY_DEFAULTS.maxAgentDelayMs).toBe(60000);
     });
 
     it("omits provider.timeoutMs when absent (SDK default)", () => {
@@ -106,15 +115,16 @@ describe("pi-agent-settings", () => {
       expect(json().retry.provider.futureProviderKnob).toBe(42);
     });
 
-    it("writes all six fields", async () => {
+    it("writes all seven fields", async () => {
       await writePiRetryPolicy(
-        { enabled: false, maxRetries: 10, baseDelayMs: 4000, provider: { timeoutMs: 1000, maxRetries: 3, maxRetryDelayMs: 0 } },
+        { enabled: false, maxRetries: 10, baseDelayMs: 4000, maxAgentDelayMs: 7000, provider: { timeoutMs: 1000, maxRetries: 3, maxRetryDelayMs: 0 } },
         deps,
       );
       expect(json().retry).toMatchObject({
         enabled: false,
         maxRetries: 10,
         baseDelayMs: 4000,
+        maxAgentDelayMs: 7000,
         provider: { timeoutMs: 1000, maxRetries: 3, maxRetryDelayMs: 0 },
       });
     });
@@ -126,7 +136,7 @@ describe("pi-agent-settings", () => {
     });
 
     it("round-trips through read", async () => {
-      const p = { enabled: false, maxRetries: 12, baseDelayMs: 5000, provider: { maxRetries: 1, maxRetryDelayMs: 0 } };
+      const p = { enabled: false, maxRetries: 12, baseDelayMs: 5000, maxAgentDelayMs: 0, provider: { maxRetries: 1, maxRetryDelayMs: 0 } };
       await writePiRetryPolicy(p, deps);
       expect(readPiRetryPolicy(deps)).toEqual(p);
     });
@@ -148,6 +158,10 @@ describe("pi-agent-settings", () => {
   });
 
   describe("retry validation", () => {
+    it("accepts a zero delay cap (legal pi value: no wait)", () => {
+      expect(validatePiRetryPolicy({ ...valid, maxAgentDelayMs: 0 })).toEqual([]);
+    });
+
     it("accepts large attempt counts (no clamp)", () => {
       expect(validatePiRetryPolicy({ ...valid, maxRetries: 100 })).toEqual([]);
     });
@@ -156,6 +170,10 @@ describe("pi-agent-settings", () => {
       [{ ...valid, maxRetries: -1 }, "maxRetries"],
       [{ ...valid, maxRetries: 1.5 }, "maxRetries"],
       [{ ...valid, baseDelayMs: 0 }, "baseDelayMs"],
+      [{ ...valid, maxAgentDelayMs: -1 }, "maxAgentDelayMs"],
+      [{ ...valid, maxAgentDelayMs: 1.5 }, "maxAgentDelayMs"],
+      [{ ...valid, maxAgentDelayMs: "x" }, "maxAgentDelayMs"],
+      [{ ...valid, maxAgentDelayMs: undefined }, "maxAgentDelayMs"],
       [{ ...valid, enabled: "yes" }, "enabled"],
       [{ ...valid, provider: { maxRetries: -1, maxRetryDelayMs: 0 } }, "provider.maxRetries"],
       [{ ...valid, provider: { maxRetries: 0, maxRetryDelayMs: -5 } }, "provider.maxRetryDelayMs"],

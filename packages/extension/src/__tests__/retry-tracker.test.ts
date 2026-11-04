@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { RetryTracker } from "../retry-tracker.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { RetryTracker, installPiAiDelayFn } from "../retry-tracker.js";
 
 /**
  * Observe-based RetryTracker (corrected model — change:
@@ -120,15 +120,24 @@ describe("RetryTracker (observe-based, agent_end/agent_settled model)", () => {
     expect(ev.data.nextAttemptAt).toBeUndefined();
   });
 
-  it("degrades an overflowing exponential delay to unknown instead of Infinity", () => {
-    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: Number.MAX_VALUE });
-    t.observeMessageEnd("s1", { ...errAssistant });
-    t.observeAgentEnd("s1", errAgentEnd);
-    t.observeAgentStart("s1");
-    t.observeMessageEnd("s1", { ...errAssistant });
-    const ev = t.observeAgentEnd("s1", errAgentEnd)!;
-    expect(ev.data.delayMs).toBe(0);
-    expect(ev.data.nextAttemptAt).toBeUndefined();
+  it("saturates an overflowing exponential delay to pi's cap instead of Infinity", () => {
+    // pi-ai `retryDelayMs` saturates an unsafe product to MAX_SAFE_INTEGER and
+    // then caps it at maxAgentDelayMs (default 60000) — pi really sleeps 60 s,
+    // so the countdown shows exactly that. See change: fix-retry-delay-cap.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    try {
+      const t = new RetryTracker({ maxRetries: 3, baseDelayMs: Number.MAX_VALUE });
+      t.observeMessageEnd("s1", { ...errAssistant });
+      t.observeAgentEnd("s1", errAgentEnd);
+      t.observeAgentStart("s1");
+      t.observeMessageEnd("s1", { ...errAssistant });
+      const ev = t.observeAgentEnd("s1", errAgentEnd)!;
+      expect(ev.data.delayMs).toBe(60000);
+      expect(ev.data.nextAttemptAt).toBe(1_700_000_000_000 + 60000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("closes with auto_retry_end{success:false,finalError} on a terminal error settle", () => {
@@ -492,5 +501,140 @@ describe("RetryTracker — terminal convergence", () => {
     t.noteExplicitRun("s1");
     t.observeMessageEnd("s1", { ...errAssistant });
     expect(t.isRetrying("s1")).toBe(true);
+  });
+});
+
+/**
+ * Capped delay — pi-ai `retryDelayMs` caps every agent-level wait at
+ * `retry.maxAgentDelayMs` (default 60000). The emitted countdown must never
+ * outrun pi's real sleep. See change: fix-retry-delay-cap.
+ */
+describe("RetryTracker — delay is capped at maxAgentDelayMs (fix-retry-delay-cap)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Drive `n` failed attempts; return the waiting event of the n-th. */
+  function waitingAt(t: RetryTracker, n: number) {
+    let ev = null as ReturnType<RetryTracker["observeAgentEnd"]>;
+    for (let i = 0; i < n; i++) {
+      if (i > 0) t.observeAgentStart("s1");
+      t.observeMessageEnd("s1", { ...errAssistant });
+      ev = t.observeAgentEnd("s1", errAgentEnd);
+    }
+    return ev;
+  }
+
+  it("caps attempt 10 at the 60000 default (test-plan #E1)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const t = new RetryTracker({ maxRetries: 11, baseDelayMs: 2700 });
+    const ev = waitingAt(t, 10);
+    expect(ev!.eventType).toBe("auto_retry_waiting");
+    expect(ev!.data.attempt).toBe(10);
+    expect(ev!.data.delayMs).toBe(60000);
+    expect(ev!.data.nextAttemptAt).toBe(1_700_000_000_000 + 60000);
+  });
+
+  it("honors a configured cap below, at and above the curve (test-plan #E2)", () => {
+    const t = new RetryTracker({ maxRetries: 5, baseDelayMs: 2000, maxAgentDelayMs: 5000 });
+    const delays: unknown[] = [];
+    for (let i = 0; i < 4; i++) {
+      if (i > 0) t.observeAgentStart("s1");
+      t.observeMessageEnd("s1", { ...errAssistant });
+      delays.push(t.observeAgentEnd("s1", errAgentEnd)!.data.delayMs);
+    }
+    expect(delays).toEqual([2000, 4000, 5000, 5000]);
+  });
+
+  it("degrades a negative cap to elapsed-only (test-plan #E3)", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: -1 });
+    const ev = waitingAt(t, 1);
+    expect(ev!.data.delayMs).toBe(0);
+    expect(ev!.data.nextAttemptAt).toBe(undefined);
+  });
+
+  it("never consults the delay fn when the base is unknown (test-plan #E4)", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 0 });
+    const fn = vi.fn(() => 999);
+    t.setDelayFn(fn);
+    const ev = waitingAt(t, 1);
+    expect(ev!.data.delayMs).toBe(0);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("a zero cap yields an elapsed-only wait (test-plan #E5)", () => {
+    const t = new RetryTracker({ maxRetries: 5, baseDelayMs: 2000, maxAgentDelayMs: 0 });
+    const ev = waitingAt(t, 3);
+    expect(ev!.data.delayMs).toBe(0);
+    expect(ev!.data.nextAttemptAt).toBe(undefined);
+  });
+
+  it("uses an installed delay fn with pi's policy shape", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 9000 });
+    const fn = vi.fn(() => 1234);
+    t.setDelayFn(fn);
+    expect(waitingAt(t, 1)!.data.delayMs).toBe(1234);
+    expect(fn).toHaveBeenCalledWith({ baseDelayMs: 2000, maxAgentDelayMs: 9000 }, 1);
+  });
+
+  it("falls back to the local formula when the delay fn throws (test-plan #X1)", () => {
+    const t = new RetryTracker({ maxRetries: 5, baseDelayMs: 2000, maxAgentDelayMs: 60000 });
+    t.setDelayFn(() => {
+      throw new Error("boom");
+    });
+    // A throw escaping observeAgentEnd fails this test outright.
+    const ev = waitingAt(t, 3);
+    expect(ev!.data.delayMs).toBe(8000);
+  });
+
+  it("guards bad delay fn results (test-plan #X2)", () => {
+    const run = (value: unknown) => {
+      const t = new RetryTracker({ maxRetries: 5, baseDelayMs: 2000, maxAgentDelayMs: 60000 });
+      t.setDelayFn(() => value as number);
+      return waitingAt(t, 2)!.data.delayMs;
+    };
+    expect(run(Number.NaN)).toBe(4000);
+    expect(run("5")).toBe(4000);
+    expect(run(-5)).toBe(0);
+  });
+});
+
+describe("installPiAiDelayFn — optional pi-ai peer (fix-retry-delay-cap)", () => {
+  it("swallows a rejected import and keeps the local fallback (test-plan #X3)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+      installPiAiDelayFn(t, () => Promise.reject(new Error("no pi-ai")));
+      await new Promise((r) => setTimeout(r, 10));
+      t.observeMessageEnd("s1", { ...errAssistant });
+      expect(t.observeAgentEnd("s1", errAgentEnd)!.data.delayMs).toBe(2000);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("installs pi-ai's retryDelayMs once the import resolves (test-plan #X4)", async () => {
+    const spy = vi.fn(() => 2000);
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    installPiAiDelayFn(t, () => new Promise((r) => setTimeout(() => r({ retryDelayMs: spy }), 0)));
+    await new Promise((r) => setTimeout(r, 10));
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    expect(spy).toHaveBeenCalledWith({ baseDelayMs: 2000, maxAgentDelayMs: 60000 }, 1);
+  });
+
+  it("ignores a module without a retryDelayMs function", async () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000, maxAgentDelayMs: 3000 });
+    installPiAiDelayFn(t, () => Promise.resolve({}));
+    await new Promise((r) => setTimeout(r, 10));
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentStart("s1");
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+    expect(t.observeAgentEnd("s1", errAgentEnd)!.data.delayMs).toBe(3000);
   });
 });

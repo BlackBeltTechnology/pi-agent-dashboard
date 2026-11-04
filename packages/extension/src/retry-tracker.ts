@@ -40,9 +40,13 @@
  *      per-session tracking.
  *
  * `maxAttempts` / `delayMs` are sourced read-only from pi's retry settings
- * (defaults 3 / 2000). `baseDelayMs === 0` (unreadable settings) yields
- * `delayMs: 0`, which the surface renders elapsed-only. The `-1` sentinels are
- * REMOVED. The tracker never writes pi's settings.
+ * (defaults 3 / 2000 / cap 60000). `delayMs` is pi's own capped curve,
+ * `min(baseDelayMs · 2^(attempt-1), maxAgentDelayMs)` — computed by pi-ai's
+ * `retryDelayMs` once `installPiAiDelayFn` resolves it, else by the local
+ * `cappedDelay` mirror. `baseDelayMs <= 0` (unreadable settings), a negative or
+ * non-finite result yield `delayMs: 0`, which the surface renders elapsed-only.
+ * The `-1` sentinels are REMOVED. The tracker never writes pi's settings.
+ * See change: fix-retry-delay-cap.
  */
 
 export interface SyntheticRetryEvent {
@@ -69,9 +73,41 @@ export interface RetrySettings {
   maxRetries: number;
   /** pi's `retry.baseDelayMs`; default 2000. 0 = unknown → elapsed-only. */
   baseDelayMs: number;
+  /** pi's `retry.maxAgentDelayMs`; default 60000. Caps every agent-level wait. */
+  maxAgentDelayMs: number;
 }
 
-const DEFAULT_SETTINGS: RetrySettings = { enabled: true, maxRetries: 3, baseDelayMs: 2000 };
+const DEFAULT_SETTINGS: RetrySettings = {
+  enabled: true,
+  maxRetries: 3,
+  baseDelayMs: 2000,
+  maxAgentDelayMs: 60000,
+};
+
+/** The policy slice pi-ai's `retryDelayMs` reads. */
+export interface RetryDelayPolicy {
+  baseDelayMs: number;
+  maxAgentDelayMs?: number;
+}
+
+/** Signature of pi-ai's `retryDelayMs`. */
+export type RetryDelayFn = (policy: RetryDelayPolicy, attempt: number) => number;
+
+/** pi-ai's `DEFAULT_MAX_AGENT_RETRY_DELAY_MS`. */
+const DEFAULT_MAX_AGENT_DELAY_MS = 60_000;
+
+/**
+ * Line-for-line mirror of pi-ai `retryDelayMs`
+ * (`@earendil-works/pi-ai/dist/utils/retry.js`): exponent clamped at 0, unsafe
+ * products saturate to `MAX_SAFE_INTEGER`, result capped at `maxAgentDelayMs`.
+ * Fallback only — `installPiAiDelayFn` prefers pi's own function. Parity is
+ * enforced by `retry-delay-parity.test.ts`.
+ */
+export function cappedDelay(policy: RetryDelayPolicy, attempt: number): number {
+  const delay = policy.baseDelayMs * 2 ** Math.max(0, attempt - 1);
+  const safeDelay = Number.isSafeInteger(delay) ? delay : Number.MAX_SAFE_INTEGER;
+  return Math.min(safeDelay, policy.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_DELAY_MS);
+}
 
 /** Per-session retry-chain state. */
 interface Chain {
@@ -94,6 +130,8 @@ export class RetryTracker {
    * deliberate new user run releases the session. */
   private cancelled = new Set<string>();
   private readonly settings: RetrySettings;
+  /** pi-ai's `retryDelayMs` once resolved; `undefined` → local `cappedDelay`. */
+  private delayFn: RetryDelayFn | undefined;
 
   constructor(settings?: Partial<RetrySettings>) {
     this.settings = {
@@ -102,14 +140,39 @@ export class RetryTracker {
         typeof settings?.maxRetries === "number" ? settings.maxRetries : DEFAULT_SETTINGS.maxRetries,
       baseDelayMs:
         typeof settings?.baseDelayMs === "number" ? settings.baseDelayMs : DEFAULT_SETTINGS.baseDelayMs,
+      maxAgentDelayMs:
+        typeof settings?.maxAgentDelayMs === "number"
+          ? settings.maxAgentDelayMs
+          : DEFAULT_SETTINGS.maxAgentDelayMs,
     };
   }
 
-  /** `delayMs = baseDelayMs · 2^(attempt-1)`; 0 when the base is unknown. */
+  /** Install pi-ai's `retryDelayMs` (raw — `delayFor` guards every call). */
+  setDelayFn(fn: RetryDelayFn): void {
+    this.delayFn = fn;
+  }
+
+  /**
+   * pi's capped delay for `attempt`, guarded (design D1):
+   * 1. unknown base (`<= 0`) or `attempt < 1` → 0 (elapsed-only), fn not consulted;
+   * 2. pi-ai fn, falling back to `cappedDelay` on a throw or a non-finite/non-number;
+   * 3. a non-finite or negative result → 0.
+   */
   private delayFor(attempt: number): number {
     if (this.settings.baseDelayMs <= 0 || attempt < 1) return 0;
-    const delayMs = this.settings.baseDelayMs * 2 ** (attempt - 1);
-    return Number.isFinite(delayMs) ? delayMs : 0;
+    const policy: RetryDelayPolicy = {
+      baseDelayMs: this.settings.baseDelayMs,
+      maxAgentDelayMs: this.settings.maxAgentDelayMs,
+    };
+    let delayMs: unknown;
+    try {
+      delayMs = this.delayFn ? this.delayFn(policy, attempt) : cappedDelay(policy, attempt);
+    } catch {
+      delayMs = cappedDelay(policy, attempt);
+    }
+    if (typeof delayMs !== "number" || !Number.isFinite(delayMs)) delayMs = cappedDelay(policy, attempt);
+    const n = delayMs as number;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
   }
 
   /**
@@ -317,4 +380,24 @@ export class RetryTracker {
   isRetrying(sessionId: string): boolean {
     return this.chains.has(sessionId);
   }
+}
+
+/**
+ * Resolve pi-ai's `retryDelayMs` (an optional peer) and install it on the
+ * tracker. Fire-and-forget: a missing module, a rejected import or a module
+ * without the export keeps the local `cappedDelay` fallback, and the rejection
+ * is always swallowed so it never surfaces as an unhandled rejection.
+ * See change: fix-retry-delay-cap (design D1).
+ */
+export function installPiAiDelayFn(
+  tracker: RetryTracker,
+  importer: () => Promise<unknown> = () => import("@earendil-works/pi-ai"),
+): void {
+  importer().then(
+    (mod) => {
+      const fn = (mod as { retryDelayMs?: unknown } | null | undefined)?.retryDelayMs;
+      if (typeof fn === "function") tracker.setDelayFn(fn as RetryDelayFn);
+    },
+    () => {},
+  );
 }

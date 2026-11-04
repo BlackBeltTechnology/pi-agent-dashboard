@@ -208,3 +208,68 @@ describe("guard: cancelled/stale kb calls still reset the chain (F19, change: bo
   });
 });
 
+
+// --- fix-kb-get-roots-and-guard: markdown-read detection + escalation text ---
+// Folds test-plan G1–G3, G7, X5. G4/G5/G6 are the segment-parsing + chain tests
+// above (E16–E19), G8–G11 the ladder × mode + mode-reachability tests (E20/E22/E23).
+describe("guard: reading an indexed file counts (G1–G3, X5, change: fix-kb-get-roots-and-guard)", () => {
+  const indexed = new Set(["AGENTS.md", "docs/guide.md"]);
+  const isIndexedPath = (a: string) => indexed.has(a);
+  const counts = (cmd: string, pred: ((a: string) => boolean) | undefined = isIndexedPath) => {
+    const g = createGuard();
+    g.note("bash", { command: cmd, isIndexedPath: pred });
+    return g.state().chain === 1;
+  };
+
+  it("G1 cat / head / sed -n on an indexed markdown file each count", () => {
+    expect(counts("cat AGENTS.md")).toBe(true);
+    expect(counts("head -50 AGENTS.md")).toBe(true);
+    expect(counts("sed -n 1,40p docs/guide.md")).toBe(true);
+    expect(counts("tail 'AGENTS.md'")).toBe(true);
+    expect(counts("npm run x; less docs/guide.md")).toBe(true);
+    const g = createGuard();
+    for (const c of ["cat AGENTS.md", "head -50 AGENTS.md", "sed -n 1,40p docs/guide.md"]) g.note("bash", { command: c, isIndexedPath });
+    expect(g.state()).toMatchObject({ chain: 3, firings: 1 }); // the chain fires on reads alone
+  });
+
+  it("G2 reading an unindexed file does not count", () => {
+    expect(counts("cat src/index.ts")).toBe(false);
+    expect(counts("sed -n 1,40p CHANGELOG.md")).toBe(false);
+    expect(counts("sed AGENTS.md CHANGELOG.md")).toBe(false); // the first non-flag sed token is its script
+  });
+
+  it("G3 sed -i is an in-place write and never counts", () => {
+    expect(counts("sed -i s/a/b/ AGENTS.md")).toBe(false);
+    expect(counts("sed -i.bak -e s/a/b/ AGENTS.md")).toBe(false);
+    expect(counts("sed -e s/a/b/ AGENTS.md")).toBe(true); // -e: every non-flag token is a file
+  });
+
+  it("without a predicate, read binaries never count (pre-change behavior)", () => {
+    const g = createGuard();
+    g.note("bash", { command: "cat AGENTS.md" });
+    expect(g.state().chain).toBe(0);
+  });
+
+  it("X5 a throwing predicate degrades to not counting; the call proceeds", () => {
+    const boom = () => {
+      throw new Error("store gone");
+    };
+    const g = createGuard();
+    expect(() => g.note("bash", { command: "cat AGENTS.md", isIndexedPath: boom })).not.toThrow();
+    expect(g.state().chain).toBe(0);
+    expect(guardNoteSafe(g, "bash", { command: "cat AGENTS.md", isIndexedPath: boom })).toBeNull();
+    expect(g.note("bash", { command: "rg x | cat AGENTS.md", isIndexedPath: boom })).toBeNull();
+    expect(g.state().chain).toBe(1); // the search segment still counts
+  });
+});
+
+describe("guard: escalation text (G7, change: fix-kb-get-roots-and-guard)", () => {
+  it("G7 names kb_search / kb_get as the next call and offers no carry-on exit", () => {
+    const g = createGuard({ mode: "warn" });
+    const [, escalation] = search(g, 6);
+    expect(typeof escalation).toBe("string");
+    expect(escalation).toMatch(/next call should be kb_search/);
+    expect(escalation).toMatch(/kb_get/);
+    expect(escalation).not.toMatch(/carry on|continue search|keep search/i);
+  });
+});

@@ -1546,6 +1546,9 @@ export function useMessageHandler(
             next.delete(msg.cwd);
             return next;
           });
+          // A dropped model / role / thinking choice: the spawn still ran, so a
+          // non-blocking warning only. See change: add-spawn-model-choice (D2).
+          if (msg.choiceWarning) showToast?.(msg.choiceWarning, "warning");
         }
         break;
 

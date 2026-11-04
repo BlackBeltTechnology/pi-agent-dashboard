@@ -37,13 +37,16 @@ const picker = (cwd: string, onSpawn = vi.fn()) =>
   );
 
 describe("no agents configured (E45, E57)", () => {
-  it("renders today's plain button: no chevron, no menu, no agent label; spawns with no agent", () => {
+  // The chevron is always present now (model · thinking menu); still no agent
+  // label and, with nothing remembered, today's no-argument call.
+  // See change: add-spawn-model-choice (D7).
+  it("renders main button + chevron, no menu until opened, no agent label; spawns with no agent", () => {
     _setAcpAgentsForTests([]);
     const onSpawn = vi.fn();
     const { container } = picker("/a", onSpawn);
-    expect(screen.queryByTestId("spawn-chevron")).toBeNull();
+    expect(screen.getByTestId("spawn-chevron").getAttribute("aria-haspopup")).toBe("menu");
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.querySelectorAll("button")).toHaveLength(2);
     fireEvent.click(screen.getByTestId("spawn"));
     expect(onSpawn).toHaveBeenCalledWith(); // no argument at all: today's call, byte-identical
   });
@@ -98,6 +101,9 @@ describe("agents configured", () => {
     fireEvent.keyDown(menu, { key: "ArrowDown" });
     expect(document.activeElement).toBe(items[1]);
     fireEvent.keyDown(menu, { key: "End" });
+    // The last menu item is now the model · thinking chip (add-spawn-model-choice).
+    expect(screen.getByRole("menuitem").contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
     expect(document.activeElement).toBe(items[2]);
     fireEvent.keyDown(menu, { key: "Enter" });
     expect(screen.queryByRole("menu")).toBeNull();

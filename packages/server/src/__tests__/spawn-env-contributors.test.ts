@@ -2,6 +2,9 @@
  * Spawn-env contributor host hook + context-mode bridge-internal scrub.
  * Folds test-plan E10–E16, E13, X6 of add-context-mode-settings-plugin.
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpawnEnv, buildTmuxCommand } from "../spawn-process/process-manager.js";
 import {
@@ -158,6 +161,43 @@ describe("contributors", () => {
     expect(env.KEEP).toBe("1");
     expect(env.A).toBeUndefined();
     expect(console.warn).toHaveBeenCalledTimes(3);
+  });
+
+  // See change: fix-spawned-session-pwd (test-plan E8–E10): PWD is host-owned.
+  it("E8: a contributed PWD is rejected with a warning; the host-set PWD wins", () => {
+    const T = fs.mkdtempSync(path.join(os.tmpdir(), "sec-pwd-"));
+    try {
+      registerSpawnEnvContributor("p", () => ({ PWD: "/elsewhere", CTX_X: "1" }));
+      const env = buildSpawnEnv({ PWD: "/launch/dir" }, { cwd: T, mechanism: "headless" });
+      expect(env.PWD).toBe(fs.realpathSync(T));
+      expect(env.CTX_X).toBe("1");
+      const warned = vi.mocked(console.warn).mock.calls.filter((c) => /rejected env name "PWD"/.test(String(c[0])));
+      expect(warned).toHaveLength(1);
+    } finally {
+      fs.rmSync(T, { recursive: true, force: true });
+    }
+  });
+
+  it("E9: a contributed PWD never reaches contributedOut (tmux -e path)", () => {
+    const T = fs.mkdtempSync(path.join(os.tmpdir(), "sec-pwd-"));
+    try {
+      registerSpawnEnvContributor("p", () => ({ PWD: "/elsewhere", CTX_X: "1" }));
+      const contributedOut: Record<string, string> = {};
+      const env = buildSpawnEnv({}, { cwd: T, mechanism: "tmux", contributedOut });
+      expect(env.PWD).toBe(fs.realpathSync(T));
+      expect(contributedOut.CTX_X).toBe("1");
+      expect("PWD" in contributedOut).toBe(false);
+    } finally {
+      fs.rmSync(T, { recursive: true, force: true });
+    }
+  });
+
+  it("E10: a supersede marker listing PWD does not delete it", () => {
+    registerSpawnEnvContributor("p", () => ({}), { supersede: { marker: "MARK", names: ["PWD", "CTX_Y"] } });
+    const env = buildSpawnEnv({ PWD: "/launch/dir", MARK: "PWD,CTX_Y", CTX_Y: "old" }, { mechanism: "headless" });
+    expect(env.CTX_Y).toBeUndefined();
+    expect(env.MARK).toBeUndefined();
+    expect(env.PWD).toBe("/launch/dir");
   });
 
   it("unregister removes the contributor", () => {

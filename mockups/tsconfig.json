@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "allowJs": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": ["node"],
+    "paths": {
+      "@app/*": ["../packages/client/src/*"],
+      "mock-site/kit": ["../packages/mockup-loop/site/kit.tsx"],
+      "@blackbelt-technology/pi-dashboard-shared": ["../packages/shared/src"],
+      "@blackbelt-technology/pi-dashboard-client-utils": ["../packages/client-utils/src"]
+    }
+  },
+  "include": ["mock-site.config.ts", "mock-site.app.tsx", "*/mock.tsx", "../packages/mockup-loop/examples/*/mock.tsx", "../openspec/changes/*/mockups/*/mock.tsx", "../packages/mockup-loop/site/virtual.d.ts"]
+}

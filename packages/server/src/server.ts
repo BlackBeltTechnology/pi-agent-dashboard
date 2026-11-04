@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -387,6 +387,7 @@ import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
 import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
 import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
+import { mapPluginSpawnOptions } from "./spawn-process/plugin-spawn-choice.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
@@ -2716,6 +2717,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPrincipalOwnerRegistry,
     pendingResumeIntents,
     pendingAttachRegistry,
+    pendingInitialPromptRegistry,
     pendingPromptAcks,
     sessionArchive,
     pendingArchiveIntents,
@@ -4257,7 +4259,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // options rejected, unknown agent rejected). See change: add-acp-session-driver (D14).
                 const acpRejection = validatePluginAcpSpawn(opts);
                 if (acpRejection) return { success: false, message: acpRejection };
-                const sessionOptions = pluginSpawnToSessionOptions(opts);
+                // Literal model passes through; `@role` resolves once; a dropped
+                // choice is reported in `warning`. See change: add-spawn-model-choice.
+                const { options: sessionOptions, warning: choiceWarning } = mapPluginSpawnOptions(opts, {
+                  defaultModel: loadConfig().defaultModel || undefined,
+                });
                 // Honour a caller-supplied spawn token VERBATIM (trusted-only
                 // — this code only runs past the trusted gate). A token
                 // already pending for ANY owner is rejected via the
@@ -4332,16 +4338,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   // is consumed with it.
                   if (!result.success) {
                     pendingPluginRefRegistry.remove(spawnToken);
-                    if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
+                    if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
                   }
                   return {
                     success: result.success,
                     message: result.message,
                     ...(result.spawnToken ? { spawnToken: result.spawnToken } : { spawnToken }),
+                    ...(result.success && choiceWarning ? { warning: choiceWarning } : {}),
                   };
                 } catch (err) {
                   pendingPluginRefRegistry.remove(spawnToken);
-                  if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
+                  if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
               },

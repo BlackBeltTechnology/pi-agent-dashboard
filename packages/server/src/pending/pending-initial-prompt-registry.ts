@@ -31,6 +31,8 @@ export interface PendingInitialPromptRegistry {
   enqueue(cwd: string, prompt: string): boolean;
   consume(cwd: string): string | null;
   size(cwd: string): number;
+  /** Remove the NEWEST entry equal to `value` for `cwd`; true when one was removed. Used by a failed spawn to drop only its own intent. See change: add-spawn-model-choice. */
+  withdraw(cwd: string, value: string): boolean;
 }
 
 export interface PendingInitialPromptRegistryOptions {
@@ -88,6 +90,19 @@ export function createPendingInitialPromptRegistry(
       const head = queue.shift()!;
       if (queue.length === 0) store.delete(key);
       return head.prompt;
+    },
+
+    withdraw(cwd: string, value: string): boolean {
+      const key = normalize(cwd);
+      const queue = pruneStale(key);
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i]!.prompt === value) {
+          queue.splice(i, 1);
+          if (queue.length === 0) store.delete(key);
+          return true;
+        }
+      }
+      return false;
     },
 
     size(cwd: string): number {

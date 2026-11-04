@@ -115,8 +115,13 @@ export interface PiRetryPolicy {
   enabled: boolean;
   /** Max agent-level retry attempts. No clamp -- pi accepts any non-negative int. */
   maxRetries: number;
-  /** Base backoff (ms); pi's delay is `baseDelayMs * 2^(attempt-1)`, uncapped. */
+  /** Base backoff (ms); pi's delay is `min(baseDelayMs * 2^(attempt-1), maxAgentDelayMs)`. */
   baseDelayMs: number;
+  /**
+   * Cap on every agent-level wait (ms). pi default 60000; non-negative int.
+   * See change: fix-retry-delay-cap.
+   */
+  maxAgentDelayMs: number;
   /** Provider/SDK-level controls. A wait taken here emits NO event (invisible). */
   provider: PiRetryProviderPolicy;
 }
@@ -246,7 +251,19 @@ export interface SpawnSessionRequest {
   cwd: string;
   /** Configured ACP agent id; absent → pi. See change: add-acp-session-driver. */
   agent?: string;
+  /** `provider/id`, `provider/id:<level>`, `@role` or `@role:<level>`; `@role` resolves once at spawn time. pi only. See change: add-spawn-model-choice. */
+  model?: string;
+  /** Canonical thinking level (`off`…`xhigh`). For `@role` refs it beats the ref suffix and the role level. pi only. */
+  thinkingLevel?: string;
+  /** First prompt dispatched once the spawned session registers. */
+  initialPrompt?: string;
 }
+
+/** REST body: `SpawnSessionRequest` plus the REST-only attach intent (the plugin-hook road has no attach registry). See change: add-spawn-model-choice (D3). */
+export type RestSpawnSessionRequest = SpawnSessionRequest & {
+  /** OpenSpec change name attached to the session once it registers. */
+  attachProposal?: string;
+};
 
 export type SpawnSessionResponse = ApiResponse<{ message: string }>;
 

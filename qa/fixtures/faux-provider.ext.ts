@@ -192,5 +192,13 @@ export default function fauxProviderExtension(pi: ExtensionAPI): void {
     const step = scenario.script[stepIndex] ?? scenario.script[scenario.script.length - 1];
     return typeof step === "function" ? step(context, options, state, model) : step;
   };
-  registration.setResponses([router as never]);
+  // Seed several copies: `stream()` shifts the queue synchronously but the
+  // router re-appends itself only in a later microtask, so concurrent calls
+  // (parallel subagents) would drain a single-entry queue and fail with "No
+  // more faux responses queued". Each call still re-appends one, so the depth
+  // stays constant. See change: subagent-queue-visibility (test-plan #F8).
+  registration.setResponses(Array.from({ length: ROUTER_DEPTH }, () => router as never));
 }
+
+/** Router copies kept queued — the most concurrent faux calls a run can make. */
+const ROUTER_DEPTH = 16;

@@ -1,7 +1,7 @@
 /**
  * Retry settings section — edits pi's OWN native retry policy via
- * GET/PUT /api/pi-retry. Covers all six fields:
- * `retry.{enabled,maxRetries,baseDelayMs}` and
+ * GET/PUT /api/pi-retry. Covers all seven fields:
+ * `retry.{enabled,maxRetries,baseDelayMs,maxAgentDelayMs}` and
  * `retry.provider.{timeoutMs,maxRetries,maxRetryDelayMs}`.
  *
  * GLOBAL editor only. pi has no persisted per-session retry policy
@@ -53,17 +53,52 @@ function human(ms: number): string {
   return `${(s / 86400).toFixed(1)} days`;
 }
 
-/** pi's schedule: delay_n = baseDelayMs · 2^(n-1); total across all attempts. */
-function computeSchedule(maxRetries: number, baseDelayMs: number): { seq: string[]; totalMs: number } {
+/** pi's uncapped curve `baseDelayMs · 2^max(0, n-1)`, saturating like pi-ai. */
+function uncappedDelay(baseDelayMs: number, attempt: number): number {
+  const d = baseDelayMs * 2 ** Math.max(0, attempt - 1);
+  return Number.isSafeInteger(d) ? d : Number.MAX_SAFE_INTEGER;
+}
+
+export interface RetrySchedule {
+  /** Leading delays (humanized), plus a `… → last` tail step when truncated. */
+  seq: string[];
+  /** Total wait across all attempts (ms). */
+  totalMs: number;
+  /** First attempt whose uncapped delay exceeds the cap; null when none is clamped. */
+  capFromAttempt: number | null;
+}
+
+/**
+ * pi's capped schedule: delay_n = min(baseDelayMs · 2^(n-1), maxAgentDelayMs),
+ * a mirror of pi-ai `retryDelayMs` (`@earendil-works/pi-ai/dist/utils/retry.js`).
+ * Iteration stops once the delay stops changing (the cap, or saturation); the
+ * remaining attempts are summed in closed form, so a huge legal `maxRetries`
+ * never makes the preview O(n). See change: fix-retry-delay-cap.
+ */
+export function computeSchedule(maxRetries: number, baseDelayMs: number, maxAgentDelayMs: number): RetrySchedule {
   const seq: string[] = [];
   let totalMs = 0;
+  let capFromAttempt: number | null = null;
+  let last = 0;
   for (let i = 1; i <= maxRetries; i++) {
-    const d = baseDelayMs * 2 ** (i - 1);
+    const raw = uncappedDelay(baseDelayMs, i);
+    const d = Math.min(raw, maxAgentDelayMs);
+    if (capFromAttempt === null && raw > maxAgentDelayMs) capFromAttempt = i;
+    if (i > 1 && d === last) {
+      // Constant from here on: attempts i..maxRetries all wait `d`.
+      const remaining = maxRetries - i + 1;
+      totalMs += remaining * d;
+      while (seq.length < Math.min(PREVIEW_STEPS, maxRetries)) seq.push(human(d));
+      break;
+    }
     totalMs += d;
+    last = d;
     if (seq.length < PREVIEW_STEPS) seq.push(human(d));
   }
-  if (maxRetries > PREVIEW_STEPS) seq.push(`… → ${human(baseDelayMs * 2 ** (maxRetries - 1))}`);
-  return { seq, totalMs };
+  if (maxRetries > PREVIEW_STEPS) {
+    seq.push(`… → ${human(Math.min(uncappedDelay(baseDelayMs, maxRetries), maxAgentDelayMs))}`);
+  }
+  return { seq, totalMs, capFromAttempt };
 }
 
 /** Non-negative integer from a form string; NaN when blank/invalid. */
@@ -75,6 +110,7 @@ interface FormState {
   enabled: boolean;
   maxRetries: string;
   baseDelayMs: string;
+  maxAgentDelayMs: string;
   provTimeoutMs: string; // blank = omitted (SDK default)
   provMaxRetries: string;
   provMaxRetryDelayMs: string;
@@ -91,6 +127,10 @@ function validate(f: FormState): string | null {
   }
   if (!Number.isInteger(bd) || bd < 1) {
     return i18nT("retry.errBaseDelay", undefined, "Base delay must be a positive integer (ms).");
+  }
+  const cap = intOf(f.maxAgentDelayMs);
+  if (!Number.isInteger(cap) || cap < 0) {
+    return i18nT("retry.errMaxAgentDelay", undefined, "Max delay must be a non-negative integer (ms).");
   }
   if (f.provTimeoutMs.trim() !== "") {
     const pt = intOf(f.provTimeoutMs);
@@ -116,6 +156,7 @@ function toPolicy(f: FormState): PiRetryPolicy {
     enabled: f.enabled,
     maxRetries: Number(f.maxRetries),
     baseDelayMs: Number(f.baseDelayMs),
+    maxAgentDelayMs: Number(f.maxAgentDelayMs),
     provider: {
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       maxRetries: Number(f.provMaxRetries),
@@ -151,9 +192,10 @@ function NumField({
 }
 
 /** The schedule preview + long-tail warning. */
-function SchedulePreview({ maxRetries, schedule }: { maxRetries: number; schedule: { seq: string[]; totalMs: number } | null }) {
+function SchedulePreview({ maxRetries, maxAgentDelayMs, schedule }: { maxRetries: number; maxAgentDelayMs: number; schedule: RetrySchedule | null }) {
   if (!schedule) return null;
   const longTail = maxRetries > LONG_TAIL_ATTEMPTS;
+  const capFrom = schedule.capFromAttempt;
   return (
     <>
       <div data-testid="retry-schedule-preview" className="rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-3 py-2 text-xs text-[var(--text-tertiary)]">
@@ -167,6 +209,15 @@ function SchedulePreview({ maxRetries, schedule }: { maxRetries: number; schedul
           <div className="mt-1 font-mono text-[10.5px] text-[var(--text-muted)]">{schedule.seq.join(" → ")}</div>
         )}
       </div>
+      {capFrom !== null && (
+        <div data-testid="retry-cap-notice" className="flex items-start gap-2 rounded border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] px-3 py-2 text-xs text-[var(--severity-info-fg)]">
+          <Icon path={mdiInformationOutline} size={0.6} className="mt-0.5 shrink-0" />
+          <span>
+            {i18nT("retry.capNotice", { n: capFrom, cap: human(maxAgentDelayMs) },
+              `From attempt ${capFrom} on, each wait is capped at ${human(maxAgentDelayMs)} (max delay). Raising the base delay does not lengthen capped waits.`)}
+          </span>
+        </div>
+      )}
       {longTail && (
         <div data-testid="retry-longtail-warning" className="flex items-start gap-2 rounded border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-3 py-2 text-xs text-[var(--severity-warning-fg)]">
           <Icon path={mdiAlert} size={0.6} className="mt-0.5 shrink-0" />
@@ -185,6 +236,7 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
     enabled: PI_RETRY_DEFAULTS.enabled,
     maxRetries: String(PI_RETRY_DEFAULTS.maxRetries),
     baseDelayMs: String(PI_RETRY_DEFAULTS.baseDelayMs),
+    maxAgentDelayMs: String(PI_RETRY_DEFAULTS.maxAgentDelayMs),
     provTimeoutMs: "",
     provMaxRetries: String(PI_RETRY_DEFAULTS.provider.maxRetries),
     provMaxRetryDelayMs: String(PI_RETRY_DEFAULTS.provider.maxRetryDelayMs),
@@ -207,6 +259,7 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
           enabled: p.enabled,
           maxRetries: String(p.maxRetries),
           baseDelayMs: String(p.baseDelayMs),
+          maxAgentDelayMs: String(p.maxAgentDelayMs ?? PI_RETRY_DEFAULTS.maxAgentDelayMs),
           provTimeoutMs: p.provider.timeoutMs === undefined ? "" : String(p.provider.timeoutMs),
           provMaxRetries: String(p.provider.maxRetries),
           provMaxRetryDelayMs: String(p.provider.maxRetryDelayMs),
@@ -222,7 +275,8 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
   const validationError = validate(form);
   const mr = intOf(form.maxRetries);
   const bd = intOf(form.baseDelayMs);
-  const schedule = validationError ? null : computeSchedule(mr, bd);
+  const cap = intOf(form.maxAgentDelayMs);
+  const schedule = validationError ? null : computeSchedule(mr, bd, cap);
 
   // Dirty vs the loaded policy — string compare so an invalid in-progress edit
   // still counts as dirty (toPolicy would yield NaN and hide it).
@@ -304,7 +358,7 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
           />
           <NumField
             label={i18nT("retry.baseDelay", undefined, "Base delay (ms)")}
-            hint={i18nT("retry.baseDelayHint", undefined, "doubles each attempt, uncapped")}
+            hint={i18nT("retry.baseDelayHint", undefined, "doubles each attempt, up to the max delay")}
             testId="retry-basedelay-input"
             value={form.baseDelayMs}
             onChange={(v) => patch({ baseDelayMs: v })}
@@ -313,7 +367,18 @@ export function RetrySettingsSection({ load = getPiRetryPolicy, save = putPiRetr
             step={100}
           />
 
-          <SchedulePreview maxRetries={mr} schedule={schedule} />
+          <NumField
+            label={i18nT("retry.maxAgentDelay", undefined, "Max delay (ms)")}
+            hint={i18nT("retry.maxAgentDelayHint", undefined, "pi default: 60000 · caps every wait")}
+            testId="retry-maxdelay-input"
+            value={form.maxAgentDelayMs}
+            onChange={(v) => patch({ maxAgentDelayMs: v })}
+            disabled={!form.enabled}
+            min={0}
+            step={1000}
+          />
+
+          <SchedulePreview maxRetries={mr} maxAgentDelayMs={cap} schedule={schedule} />
 
           {/* ── retry.provider.* ─────────────────────────────────────────── */}
           <div data-testid="retry-provider-group" className="mt-1 space-y-2 border-t border-[var(--border-primary)] pt-3">

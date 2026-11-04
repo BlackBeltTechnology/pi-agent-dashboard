@@ -47,7 +47,7 @@ ACP handling SHALL be implemented once, in an adapter core that exchanges only b
 - **THEN** registration, contention, heartbeat and disconnect handling SHALL behave exactly as before
 
 ### Requirement: ACP spawn routing
-A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a configured `agent` id SHALL start the in-process host when the agent is not durable. For a durable agent it SHALL spawn a headless keeper session (regardless of the configured spawn strategy) whose child is the acp-bridge adapter (`[<node binary>, <server>/bin/acp-bridge.mjs, "--agent", <id>]`), without resolving pi, without pi argv shaping, and using an ACP preflight (cwd valid, node and agent command resolvable) instead of the pi/tmux preflight. It SHALL reuse the existing spawn token, headless PID registry, register watchdog and spawn-error surfacing. Spawn requests without `agent` SHALL behave exactly as before.
+A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a configured `agent` id SHALL start the in-process host when the agent is not durable. For a durable agent it SHALL spawn a headless keeper session (regardless of the configured spawn strategy) whose child is the acp-bridge adapter (`[<node binary>, <server>/bin/acp-bridge.mjs, "--agent", <id>]`), without resolving pi, without pi argv shaping, and using an ACP preflight (cwd valid, node and agent command resolvable) instead of the pi/tmux preflight. It SHALL reuse the existing spawn token, headless PID registry, register watchdog and spawn-error surfacing. Spawn requests without `agent` SHALL behave exactly as before, apart from the cwd-derived `PWD` the headless-spawn capability sets in every spawn env.
 
 #### Scenario: Non-durable agent starts in-process
 - **WHEN** the user spawns agent `qmt` configured without `durable`
@@ -61,7 +61,7 @@ A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a c
 
 #### Scenario: Spawn without agent unchanged
 - **WHEN** a spawn request has no `agent`
-- **THEN** the spawned process, arguments, environment and preflight SHALL be identical to the pre-change behaviour
+- **THEN** the spawned process, arguments, environment and preflight SHALL be identical to the pre-change behaviour, apart from the cwd-derived `PWD` (headless-spawn capability)
 
 ### Requirement: Adapter launches the agent safely
 The adapter SHALL read the agent definition from the dashboard config by id and launch `command` with `args` (default `[]`) as an argv array, never through a shell, in the session cwd; on Windows a `.cmd` or `.bat` command SHALL be rejected with a clear error. The child environment SHALL contain only allowlisted variables from the adapter environment (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`, `TZ`, `SystemRoot`, `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, `ComSpec`, `PATHEXT`) plus the agent's configured `env`; no `PI_*`, `ELECTRON_*` or `NODE_OPTIONS` variable SHALL be present even if configured.
@@ -253,7 +253,7 @@ The plugin spawn hook SHALL accept an optional `agent` id and start a configured
 - **THEN** the agent SHALL receive `session/prompt` with text `/review`
 
 ### Requirement: Agent picker at spawn entry points
-When at least one ACP agent is configured, the folder spawn button, directory home prompt, OpenSpec board spawn, worktree spawn dialog, landing page quick spawn and automation editor SHALL offer an agent choice (`pi` plus configured agents by name) and spawn with the chosen agent. The last choice SHALL be remembered per folder and preselected; a remembered agent that is no longer configured SHALL fall back to pi. Spawning a sibling from a session card or the keyboard shortcut SHALL reuse the source session's agent. "Initialize project" SHALL always spawn pi. With no agents configured, every spawn control SHALL render exactly as before.
+When at least one ACP agent is configured, the folder spawn button, directory home prompt, OpenSpec board spawn, worktree spawn dialog, landing page quick spawn and automation editor SHALL offer an agent choice (`pi` plus configured agents by name) and spawn with the chosen agent. The last choice SHALL be remembered per folder and preselected; a remembered agent that is no longer configured SHALL fall back to pi. Spawning a sibling from a session card or the keyboard shortcut SHALL reuse the source session's agent and, for a pi source, its `model` and `thinkingLevel`. "Initialize project" SHALL always spawn pi, with the folder's remembered model choice. With no agents configured, no spawn control SHALL show an agent choice. The folder spawn button's menu SHALL still offer the spawn model · thinking choice, which is remembered per folder and used by quick spawns in that folder (folder button, OpenSpec board spawn, Initialize project). Each field falls back on its own to the Settings default. A `default` entry in the chip clears that field from the folder memory. When the effective agent is an ACP agent, quick spawns SHALL send no model or thinking level.
 
 #### Scenario: Picker remembers per folder
 - **WHEN** the user spawns agent `qmt` from folder `/a` and later opens the spawn control of `/a` and of `/b`
@@ -271,9 +271,34 @@ When at least one ACP agent is configured, the folder spawn button, directory ho
 - **WHEN** the user spawns a sibling of an ACP session of agent `qmt`
 - **THEN** the new session SHALL be spawned with agent `qmt` without showing a picker
 
+#### Scenario: Sibling inherits model and thinking level
+- **GIVEN** a pi session running `anthropic/claude-opus-5-5` at thinking `high`
+- **WHEN** the user spawns a sibling from its card or with the keyboard shortcut
+- **THEN** `spawn_session` SHALL carry `model: "anthropic/claude-opus-5-5"` and `thinkingLevel: "high"` without showing a picker
+
 #### Scenario: No agents configured
 - **WHEN** `acpAgents` is empty
-- **THEN** no spawn control SHALL show an agent menu
+- **THEN** no spawn control SHALL show an agent choice
+- **AND** the folder spawn button's menu SHALL offer only the model · thinking choice
+
+#### Scenario: Folder spawn uses the remembered model choice
+- **GIVEN** the user picked `@fast` in the folder spawn button's menu of `/a`
+- **WHEN** the user clicks the folder's New Session button, or spawns from the OpenSpec board of `/a`
+- **THEN** `spawn_session` SHALL carry `model: "@fast"`
+
+#### Scenario: Initialize project uses the remembered model
+- **GIVEN** folder `/a` remembers `@fast` and ACP agent `qmt`
+- **WHEN** the user clicks Initialize project for `/a`
+- **THEN** pi (not `qmt`) SHALL be spawned and `spawn_session` SHALL carry `model: "@fast"`
+
+#### Scenario: Remembered ACP agent wins over the remembered model
+- **GIVEN** folder `/a` remembers agent `qmt` and model `@fast`
+- **WHEN** the user spawns from the folder's New Session button or the OpenSpec board of `/a`
+- **THEN** `spawn_session` SHALL carry `agent: "qmt"` and no `model` or `thinkingLevel`
+
+#### Scenario: Choosing a model does not spawn
+- **WHEN** the user picks a model in the folder spawn button's menu
+- **THEN** no session SHALL be spawned until the main button is activated
 
 ### Requirement: Goals stay pi-only
 Spawning a session under a goal and supervisor respawns SHALL always spawn pi, regardless of the folder's remembered agent, and SHALL NOT offer an agent choice. Linking a session whose `driver` is `acp` to a goal SHALL be rejected with `unsupported_for_acp` before any goal link, session stamp or goal kickoff occurs. The goal "link existing" list SHALL omit ACP sessions and SHALL state how many were omitted and why.

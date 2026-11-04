@@ -1,8 +1,10 @@
 /**
- * SubagentsSettings — single-toggle settings panel for the subagents plugin.
+ * SubagentsSettings — settings panel for the subagents plugin.
  *
- * Claims slot `settings-section` (tab: "general"). Surfaces ONE producer
- * setting: `inheritContext`. The other producer settings
+ * Claims slot `settings-section` (tab: "general"). Surfaces TWO producer
+ * settings on ONE draft: `inheritContext` and `maxConcurrent` ("Max parallel
+ * subagents", 0–64, 0 = unlimited, default 4, with the heap-limits per-child
+ * warning). See change: subagent-queue-visibility (D5). The other producer settings
  * (`exposeInheritanceInTool`, `inheritance.*`) remain editable only via
  * the producer's `~/.pi/agent/extensions/pi-dashboard-subagents/config.json`
  * file for power users.
@@ -17,12 +19,14 @@
  */
 
 import {
+	NumberField,
 	SettingsNotice,
 	ToggleField,
 	usePluginConfig,
 	useSettingsDraftSource,
 	useT,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { subagentHeapBudget } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -37,6 +41,39 @@ const ROLE_MARK = "\u0001";
 
 interface SubagentsPluginConfig {
 	inheritContext?: boolean;
+	maxConcurrent?: number;
+}
+
+/** Producer 0.6.0 default and range for `maxConcurrent`. */
+const DEFAULT_MAX_CONCURRENT = 4;
+const MAX_CONCURRENT_LIMIT = 64;
+
+/** Integer 0–64 (0 = unlimited). */
+export function isValidMaxConcurrent(v: number): boolean {
+	return Number.isInteger(v) && v >= 0 && v <= MAX_CONCURRENT_LIMIT;
+}
+
+interface Draft {
+	inheritContext: boolean;
+	maxConcurrent: number;
+}
+
+/** Session heap ceiling (MB) for the per-child warning; `null` until known / unset. */
+function useHeapCeilingMb(): number | null {
+	const [mb, setMb] = useState<number | null>(null);
+	useEffect(() => {
+		let live = true;
+		fetch("/api/plugins/subagents/limits", { credentials: "include" })
+			.then((r) => (r.ok ? r.json() : null))
+			.then((body: { heapCeilingMb?: unknown } | null) => {
+				if (live && typeof body?.heapCeilingMb === "number") setMb(body.heapCeilingMb);
+			})
+			.catch(() => {});
+		return () => {
+			live = false;
+		};
+	}, []);
+	return mb;
 }
 
 export function SubagentsSettings() {
@@ -47,13 +84,20 @@ export function SubagentsSettings() {
 	/** Raw failure text (HTTP status + body) — only ever copied via "Copy details", never rendered. */
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const config = usePluginConfig<SubagentsPluginConfig>();
-	const baseline = config.inheritContext ?? true;
-	const [draft, setDraft] = useState(baseline);
-	const isDirty = draft !== baseline;
+	const baseInherit = config.inheritContext ?? true;
+	const baseMax = typeof config.maxConcurrent === "number" ? config.maxConcurrent : DEFAULT_MAX_CONCURRENT;
+	const [draft, setDraft] = useState<Draft>({ inheritContext: baseInherit, maxConcurrent: baseMax });
+	// Per-field baseline, OR'd dirty: either edit marks the page unsaved.
+	const isDirty = draft.inheritContext !== baseInherit || draft.maxConcurrent !== baseMax;
+	const maxValid = isValidMaxConcurrent(draft.maxConcurrent);
 	const dirtyRef = useRef(isDirty); dirtyRef.current = isDirty;
+	const baseMaxRef = useRef(baseMax); baseMaxRef.current = baseMax;
 	const draftRef = useRef(draft); draftRef.current = draft;
 	// Adopt a new baseline (e.g. config broadcast) only while clean.
-	useEffect(() => { if (!dirtyRef.current) setDraft(baseline); }, [baseline]);
+	useEffect(() => {
+		if (!dirtyRef.current) setDraft({ inheritContext: baseInherit, maxConcurrent: baseMax });
+	}, [baseInherit, baseMax]);
+	const heapCeilingMb = useHeapCeilingMb();
 
 	const commit = useCallback(async () => {
 		// The host Save bar shows the thrown message, so it must be a human sentence;
@@ -64,12 +108,23 @@ export function SubagentsSettings() {
 				t("saveError", undefined, "Could not save the subagent settings. Check that the dashboard is running, then save again."),
 			);
 		};
+		const current = draftRef.current;
+		// No validate hook on the host draft API: an invalid limit fails THIS section's
+		// commit (inline error stays), other dirty sections still commit.
+		if (!isValidMaxConcurrent(current.maxConcurrent)) {
+			throw new Error(t("maxConcurrentInvalid", undefined, "Enter a whole number from 0 to 64."));
+		}
 		let res: Response;
 		try {
 			res = await fetch("/api/config/plugins/subagents", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ inheritContext: draftRef.current }),
+				// `maxConcurrent` only when edited: an unrelated save must never pin the shown
+				// default over a hand-set producer value (design D5).
+				body: JSON.stringify({
+					inheritContext: current.inheritContext,
+					...(current.maxConcurrent !== baseMaxRef.current ? { maxConcurrent: current.maxConcurrent } : {}),
+				}),
 				credentials: "include",
 			});
 		} catch (e) {
@@ -83,8 +138,8 @@ export function SubagentsSettings() {
 	}, [t]);
 	const reset = useCallback(() => {
 		setSaveError(null);
-		setDraft(baseline);
-	}, [baseline]);
+		setDraft({ inheritContext: baseInherit, maxConcurrent: baseMax });
+	}, [baseInherit, baseMax]);
 	useSettingsDraftSource({ id: "plugin:subagents", isDirty, commit, reset });
 
 	const [roleBefore, roleMiddle = "", roleAfter = ""] = t(
@@ -141,13 +196,51 @@ export function SubagentsSettings() {
 					undefined,
 					"On: each subagent gets a compressed copy of the parent's recent turns. Off: each starts with an empty conversation.",
 				)}
-				value={draft}
+				value={draft.inheritContext}
 				onChange={(v) => {
 					setSaveError(null);
-					setDraft(v);
+					setDraft((d) => ({ ...d, inheritContext: v }));
 				}}
 				testIds={{ control: "subagents-inherit-context" }}
 			/>
+
+			<NumberField
+				label={t("maxConcurrentLabel", undefined, "Max parallel subagents")}
+				hint={t(
+					"maxConcurrentHint",
+					undefined,
+					"How many subagents run at once; the rest wait in a queue. 0 = unlimited. Applies immediately, including to waiting subagents.",
+				)}
+				value={draft.maxConcurrent}
+				decimal
+				allowEmpty
+				step={1}
+				error={maxValid ? undefined : t("maxConcurrentInvalid", undefined, "Enter a whole number from 0 to 64.")}
+				onChange={(v) => {
+					setSaveError(null);
+					setDraft((d) => ({ ...d, maxConcurrent: v }));
+				}}
+				testIds={{ control: "subagents-max-concurrent", error: "subagents-max-concurrent-error" }}
+			/>
+			{maxValid && heapCeilingMb !== null && subagentHeapBudget(heapCeilingMb, draft.maxConcurrent).warn && (
+				<SettingsNotice tone="warning" testId="subagents-max-concurrent-heap-warning">
+					{draft.maxConcurrent === 0
+						? t(
+								"maxConcurrentHeapWarningUnlimited",
+								{ ceiling: heapCeilingMb },
+								"With a {ceiling} MB session heap ceiling, unlimited parallel subagents can exhaust memory. Set a limit.",
+							)
+						: t(
+								"maxConcurrentHeapWarning",
+								{
+									ceiling: heapCeilingMb,
+									count: draft.maxConcurrent,
+									perChild: subagentHeapBudget(heapCeilingMb, draft.maxConcurrent).perChildMb,
+								},
+								"With a {ceiling} MB session heap ceiling, {count} parallel subagents leave each about {perChild} MB. Lower the limit or raise the session heap ceiling.",
+							)}
+				</SettingsNotice>
+			)}
 		</div>
 	);
 }

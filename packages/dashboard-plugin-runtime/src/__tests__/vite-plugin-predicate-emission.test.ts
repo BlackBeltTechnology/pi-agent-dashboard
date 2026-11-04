@@ -241,6 +241,9 @@ describe("viteDashboardPluginsPlugin reducer exports + tool-renderer claim field
     export const sessionEventReducer = { eventTypes: ["sub_*"], reduce: (s) => s };
     export const toolRowFinalizers = [{ toolName: "Agent" }];
     export function isPending() { return true; }
+    export function rowStat() { return undefined; }
+    export function stopIt() { return false; }
+    export function stopLbl() { return "Stop"; }
     export function AgentCard() { return null; }
   `;
 
@@ -282,6 +285,32 @@ describe("viteDashboardPluginsPlugin reducer exports + tool-renderer claim field
     const out = await invokePlugin();
     expect(out).toMatch(/import \{[^}]*\bisPending\b[^}]*\} from/);
     expect(out).toMatch(/toolName: "Agent", expandWhileRunning: true, Component: AgentCard, resultPending: isPending/);
+  });
+
+  // See change: subagent-queue-visibility (design D2).
+  it("emits rowStatus / stop / stopLabel as named imports on the claim literal", async () => {
+    writePluginWithSource(
+      "sub-plugin",
+      {
+        id: "sub",
+        displayName: "Sub",
+        priority: 100,
+        claims: [{ slot: "tool-renderer", toolName: "Agent", component: "AgentCard", rowStatus: "rowStat", stop: "stopIt", stopLabel: "stopLbl" }],
+      },
+      pluginSource,
+    );
+    const out = await invokePlugin();
+    expect(out).toMatch(/import \{[^}]*\browStat\b[^}]*\bstopIt\b[^}]*\bstopLbl\b[^}]*\} from/);
+    expect(out).toMatch(/Component: AgentCard, rowStatus: rowStat, stop: stopIt, stopLabel: stopLbl/);
+  });
+
+  it("fails the build when stop names an export the entry lacks", async () => {
+    writePluginWithSource(
+      "sub-plugin",
+      { id: "sub", displayName: "Sub", priority: 100, claims: [{ slot: "tool-renderer", toolName: "Agent", component: "AgentCard", stop: "nope" }] },
+      pluginSource,
+    );
+    await expect(invokePlugin()).rejects.toThrow(/stop "nope"/);
   });
 
   it("fails the build when resultPending names an export the entry lacks", async () => {

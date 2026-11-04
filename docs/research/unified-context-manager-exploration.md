@@ -333,7 +333,8 @@ flowchart LR
   V --> F[staged files]
 ```
 
-- Executor (user choice): parallel subagents for ALL LLM stages; bounded by EXISTING `maxConcurrentSubagents` (`packages/shared/src/config.ts`, default 2, `0` = disabled, malformed = uncapped fail-open) + admission gate `packages/extension/src/subagent-fanout-admission.ts` (+ optional `subagentSaturation` `eventLoopDelayMs` / `cpuPercent` / `loadAvg1m`) + heap coupling `packages/shared/src/heap-limits.ts` (`perChildMb = maxOldSpaceMb/(cap+1)`). No new setting. Batch windows per subagent (e.g. ~20) — cap 2 makes batching matter.
+- Note (subagent-queue-visibility): admission gate below is REMOVED. Limit now producer `maxConcurrent` ("Max parallel subagents", default 4); excess queues.
+- Executor (user choice): parallel subagents for ALL LLM stages; bounded by producer `maxConcurrent` (UI "Max parallel subagents", default 4, queues excess; was admission gate, removed) + heap coupling `packages/shared/src/heap-limits.ts` (`perChildMb = maxOldSpaceMb/(cap+1)`). No new setting. Batch windows per subagent (e.g. ~20) — cap 2 makes batching matter.
 - Review gate (user choice): auto-accept above confidence threshold, review rest.
 - Save accepted/rejected triage decisions as labelled dataset (user: yes) → future System-1 fine-tuning.
 - Volume est. (this repo): ~1.2k windows × 4–8k tok ≈ 5–10M input tok; `--n 2` gate cuts ~10×. $ not priced.

@@ -143,14 +143,20 @@ implementation phase itself.
 When drafting via `openspec-new-change`/`-ff`/`-continue`, `plan-proposal` SHALL
 state "plan-proposal is driving this change" in its request. After planning
 artifacts exist and before `doubt-driven-review`, it SHALL offer every
-`Pending change` row in `mockups/AGENTS.md` not already declined in the session via
-one `ask_user` multiselect and adopt each chosen entry using the mechanics defined
-by the `explore-mockup-adoption` adoption requirement. The step SHALL be
-idempotent: with no offerable rows it asks nothing and changes nothing.
+offerable `Pending change` row in `mockups/AGENTS.md` not already declined in the
+session via one `ask_user` multiselect, where offerability, order, and labels of
+live-component mocks follow the `explore-mockup-adoption` decision filter, and
+adopt each chosen entry using the mechanics defined by that adoption requirement.
+The step SHALL be idempotent: with no offerable rows it asks nothing and changes
+nothing.
 
 #### Scenario: Pending mockup adopted
 - **WHEN** `plan-proposal` runs and a `Pending change` row exists that the user selects
 - **THEN** the entry is moved into the change and referenced from `proposal.md` before doubt-review runs
+
+#### Scenario: Only rejected live mocks pending
+- **WHEN** every marked row is a live mock whose `decision.json` is `rejected`
+- **THEN** the step asks nothing, moves nothing, and reports the rejected mocks as skipped
 
 #### Scenario: Already adopted
 - **WHEN** the mockup was adopted earlier (e.g. by the `config.yaml` proposal rule) so no marked row remains

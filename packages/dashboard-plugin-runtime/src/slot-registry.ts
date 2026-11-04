@@ -121,9 +121,36 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
    * Method-shorthand for the same bivariance reason as `predicate`.
    */
   resultPending?(toolDetails: Record<string, unknown> | undefined, session: unknown): boolean;
+  /**
+   * `tool-renderer` claims: sync row-status override resolved from the
+   * manifest's `rowStatus` export. `queued` applies only to a running row,
+   * `stopped` only to a non-error terminal row. See change:
+   * subagent-queue-visibility (design D2).
+   */
+  rowStatus?(toolDetails: Record<string, unknown> | undefined, session: unknown): ToolRowStatus | undefined;
+  /**
+   * `tool-renderer` claims: per-row stop, consulted before the row's own abort
+   * and before an enclosing burst stop controller. `true` consumes the click.
+   */
+  stop?(input: ToolRowStopInput): boolean;
+  /** `tool-renderer` claims: accessible label for the row's stop control. */
+  stopLabel?(toolDetails: Record<string, unknown> | undefined): string | undefined;
   /** The resolved React component (set at registration time). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component?: React.ComponentType<any>;
+}
+
+/** Row-status override a `tool-renderer` claim may return. See change: subagent-queue-visibility. */
+export interface ToolRowStatus {
+  state: "queued" | "stopped";
+  label?: string;
+}
+
+/** Input handed to a `tool-renderer` claim's `stop`. See change: subagent-queue-visibility. */
+export interface ToolRowStopInput {
+  sessionId: string | undefined;
+  toolCallId: string | undefined;
+  toolDetails: Record<string, unknown> | undefined;
 }
 
 /** Manifest summary of one registered plugin (see `SlotRegistry.registerPlugin`). */

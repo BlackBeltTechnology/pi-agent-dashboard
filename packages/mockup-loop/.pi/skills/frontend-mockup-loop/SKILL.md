@@ -134,11 +134,22 @@ references a design token — never a raw hex or px literal.** If a surface need
 a token that doesn't exist, add it to the theme layer first, then cite it in
 the contract. This file is what stops screens from drifting apart.
 
-### 3. MOCKUP — diverge in HTML, serve it live
-Build standalone HTML/Tailwind mockups grounded in steps 1–2. Serve them with
-`serve_mockup` and hand back the clickable **local + LAN URL** (the LAN URL
-opens on a phone) — **not a screenshot** — so the human reacts to a real page.
-Render dark AND light.
+### 3. MOCKUP — real components first, serve it live
+**Default for a React project whose components + CSS Vite can process: the
+live-component mock site** — one page per `mockups/<yyyy-mm-dd-slug>/mock.tsx`
+rendering the app's REAL components in Current | Proposed frames, numbered rings
+(`Issue` red / `Fix` green) around the divs that change, page-level
+Accept/Reject, and a `#ref` link for every page/frame/side/ring. Serve it with
+`serve_mock_site{}`; record the agent's verdict with
+`mock-decide accept|reject <ref> "why"`. Full guide:
+`references/live-mock-site.md`.
+
+**Otherwise** (no React/Vite app, pure geometry repros, brand-new surfaces with no
+components yet) build standalone HTML/Tailwind mockups and serve them with
+`serve_mockup`.
+
+Either way hand back the clickable **local URL** (LAN URL for a phone) — **not a
+screenshot** — so the human reacts to a real page. Render dark AND light.
 
 ### 4. TEST — run the expert-UX evaluation protocol
 Run `score_mockup` to capture full-page screenshots at mobile/tablet/desktop
@@ -175,6 +186,12 @@ the change's notes.
 
 - `serve_mockup{dir, port?, stop?}` — Node static server on 0.0.0.0; returns
   local + LAN URLs. Zero external deps.
+- `serve_mock_site{dir?, port?, lan?, stop?}` — start the project's
+  live-component mock site with the project's own Vite and
+  `mockups/mock-site.config.ts` (default port 5299, never the dashboard's;
+  localhost-only unless `lan`, and LAN clients are view-only). CLI
+  `mock-decide list|accept|reject|reopen|adoptable` writes the same
+  `decision.json` as the site's buttons, with `by: "agent"`.
 - `score_mockup{url, widths?, outDir?, system?}` — Playwright breakpoint screenshots +
   scoring rubric. Chromium is declared in this package's `pi.tools` (optional
   `pw-browser` probe); absent → install guidance via the registry's Install
@@ -189,6 +206,13 @@ the change's notes.
   returns `{ gates, advisory, pass }`. Pass `dir` so L1/L2 can scan the source.
 
 ## Pitfalls
+
+- Live mock site: decisions are per PAGE (never per frame); an agent reject needs
+  a reason. A ring adds one wrapper element — use `block` for grid/flex children,
+  and know that `>` / `first:` / `space-x-*` selectors can shift. App overlays
+  portaled to `document.body` escape pane containment: render dialogs inline. A
+  rejected mock is revised and reopened, or deleted together with its
+  `mockups/AGENTS.md` row.
 
 - Do NOT verify against a live/production server — isolate the env so mockup
   edits actually load.

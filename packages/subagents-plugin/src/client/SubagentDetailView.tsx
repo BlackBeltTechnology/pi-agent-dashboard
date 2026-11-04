@@ -18,12 +18,13 @@
  * see change: add-subagent-inspector (tier structure).
  */
 
-import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useT, useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   type MinimalChatEntry,
   type MinimalChatStatus,
   MinimalChatView,
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import { isTerminalSubagentStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
 import { type MutableRefObject, useRef } from "react";
@@ -61,6 +62,8 @@ function mapSubagentStatus(status: SubagentState["status"]): MinimalChatStatus {
       return "complete";
     case "failed":
       return "error";
+    case "stopped":
+      return "stopped";
     default: {
       const _exhaustive: never = status;
       void _exhaustive;
@@ -139,6 +142,9 @@ export function SubagentDetailView({
 }: SubagentDetailViewProps) {
   const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
+  // OrNull: only the stopped note reads it; a host without the primitive falls back to seconds.
+  const formatDuration =
+    useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.formatDuration) ?? ((ms: number) => `${(ms / 1000).toFixed(1)}s`);
   const heldTail = useRef<HeldTail | undefined>(undefined);
   const sub = session.subagents.get(agentId);
   if (!sub) {
@@ -152,7 +158,7 @@ export function SubagentDetailView({
   const status = mapSubagentStatus(sub.status);
   const title = sub.displayName || sub.type;
   const hasEntries = Array.isArray(sub.entries) && sub.entries.length > 0;
-  const isComplete = sub.status === "completed" || sub.status === "failed";
+  const isComplete = isTerminalSubagentStatus(sub.status);
 
   // Row mode passthrough — MinimalChatView handles it.
   if (mode === "row") {
@@ -223,6 +229,22 @@ export function SubagentDetailView({
     // Tier 4
     entries = [];
     emptyMessage = t("noDetailYet", undefined, "No detail available yet.");
+  }
+
+  // Stopped: neutral, final note above whatever body the tiers chose.
+  // See change: subagent-queue-visibility (D4).
+  if (sub.status === "stopped") {
+    const note = (
+      <div data-testid="subagent-stopped-note" className="text-[11px] text-[var(--text-tertiary)]">
+        {sub.stopReason === "queued"
+          ? t("agentStoppedQueued", undefined, "removed from queue · never started")
+          : sub.stopReason === "running"
+            ? t("agentStoppedRunning", { ran: sub.durationMs ? formatDuration(sub.durationMs) : "—" }, "stopped by you · ran {ran}")
+            : t("agentStopped", undefined, "Stopped")}
+      </div>
+    );
+    footer = footer ? <div className="space-y-2">{note}{footer}</div> : note;
+    if (!hasEntries) emptyMessage = "";
   }
 
   return (

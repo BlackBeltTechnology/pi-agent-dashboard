@@ -47,9 +47,10 @@ Constraints:
   transcript JSONL.
 - pi 1.2: `before_agent_start` also fires for `sendMessage(..., {triggerTurn})`
   runs; `event.messageType` is `"user" | "custom"`.
-- Subagent fan-out is already bounded by `maxConcurrentSubagents` (default 2),
-  the admission gate in `packages/extension/src/subagent-fanout-admission.ts`,
-  and the heap coupling in `packages/shared/src/heap-limits.ts`.
+- Subagent fan-out is already bounded by the subagents producer `maxConcurrent`
+  (default 4; excess calls queue — the dashboard admission gate was removed by
+  subagent-queue-visibility), and the heap coupling in
+  `packages/shared/src/heap-limits.ts`.
 
 ## Goals / Non-Goals
 
@@ -441,7 +442,7 @@ surface we would have to harden ourselves.
   run only on windows that pass its threshold. `same_as` runs only on accepted
   cards. Steps routed to the same backend are batched into one call per
   window, so latency scales with the number of distinct backends, not steps.
-- **Card writing:** parallel subagents admitted by `maxConcurrentSubagents`,
+- **Card writing:** parallel subagents bounded by the producer `maxConcurrent`,
   each handling a batch of about 20 windows. Card writing and verify each have
   their own model setting, separate from triage.
   - Default card writer: the cheap triage model. In the card-writing spike (20

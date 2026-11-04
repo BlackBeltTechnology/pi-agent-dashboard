@@ -194,7 +194,7 @@ A sessionless composer SHALL list models from the global model catalogue, with f
 
 ### Requirement: Spawn-time model and thinking reach pi
 
-A `spawn_session` carrying `model` and/or `thinkingLevel` SHALL start pi with that model and thinking level, and the dashboard's configured default model and default thinking level SHALL NOT override either value; when only `thinkingLevel` is carried and a default model is configured, the session SHALL run that default model with the carried thinking level. When no `thinkingLevel` field is carried, a `model` ending in `:<level>` for a valid thinking level SHALL be treated as that model plus that thinking level; when a `thinkingLevel` field is carried, the model SHALL be used as given. The server SHALL accept `model` only as a `provider/id` string of at most 200 characters from a restricted character set (letters, digits, `.`, `_`, `-`, and in the id also `:`, `@`, `/`, `+`), with a non-empty provider and id and no `/`-separated segment empty or starting with `-`, and `thinkingLevel` only from `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. An invalid value SHALL be ignored and the spawn SHALL proceed without it. Values SHALL never be interpreted by a shell: they SHALL be passed as discrete arguments or, where a launch path builds a command string, escaped per argument.
+A `spawn_session` carrying `model` and/or `thinkingLevel` SHALL start pi with that model and thinking level, and the dashboard's configured default model and default thinking level SHALL NOT override either value; when only `thinkingLevel` is carried and a default model is configured, the session SHALL run that default model with the carried thinking level. When no `thinkingLevel` field is carried, a `model` ending in `:<level>` for a valid thinking level SHALL be treated as that model plus that thinking level; when a `thinkingLevel` field is carried, the model SHALL be used as given. The server SHALL accept `model` only as a `provider/id` string of at most 200 characters from a restricted character set (letters, digits, `.`, `_`, `-`, and in the id also `:`, `@`, `/`, `+`), with a non-empty provider and id and no `/`-separated segment empty or starting with `-`, and `thinkingLevel` only from `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. A `model` beginning with `@` SHALL instead be treated as a role reference (`@role` or `@role:<level>`) and resolved once at spawn time against `~/.pi/agent/providers.json#roles` into a concrete `provider/id` (plus level), which is then validated as above. An invalid value or an unresolvable role SHALL be ignored, the spawn SHALL proceed without it, and `spawn_result` SHALL carry a `choiceWarning` describing what was dropped. Values SHALL never be interpreted by a shell: they SHALL be passed as discrete arguments or, where a launch path builds a command string, escaped per argument.
 
 #### Scenario: Valid choices start pi with them
 
@@ -258,3 +258,16 @@ A `spawn_session` carrying `model` and/or `thinkingLevel` SHALL start pi with th
 - **GIVEN** the dashboard default thinking level is `medium`
 - **WHEN** the server receives `spawn_session { cwd: "/p", model: "anthropic/claude-sonnet-5", thinkingLevel: "high" }`
 - **THEN** the started session SHALL run with thinking level `high`
+
+#### Scenario: Role reference is resolved, not ignored
+
+- **GIVEN** `providers.json#roles` assigns `fast` to `anthropic/claude-haiku-5-5`
+- **WHEN** the server receives `spawn_session { cwd: "/p", model: "@fast" }`
+- **THEN** pi SHALL be started with model `anthropic/claude-haiku-5-5`
+
+#### Scenario: Unresolvable role is ignored with a warning
+
+- **GIVEN** no role `ghost` is configured
+- **WHEN** the server receives `spawn_session { cwd: "/p", model: "@ghost" }`
+- **THEN** pi SHALL be started in `/p` without a model argument
+- **AND** `spawn_result` SHALL carry a `choiceWarning`

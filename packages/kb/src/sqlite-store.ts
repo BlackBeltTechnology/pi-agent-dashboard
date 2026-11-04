@@ -807,6 +807,27 @@ export class SqliteFtsStore implements KbStore {
     return { ...rowToChunk(r), suppressedSections: Math.max(0, n - 1) };
   }
 
+  /** Distinct chunk roots (source ids) in the index — remote roots included,
+   *  unlike the filesystem-only `resolvedSources`. See change: fix-kb-get-roots-and-guard. */
+  listRoots(): string[] {
+    return (this.db.prepare("SELECT DISTINCT root FROM chunks ORDER BY root").all() as any[]).map((r) => r.root);
+  }
+
+  /** Section lookup for a fetch: exact `heading_path` first (first match only,
+   *  as `getChunk`); else, when `section` has no ` > `, every chunk of the file
+   *  whose LAST heading equals it, in document order. Exact suffix comparison,
+   *  no LIKE. `getChunk` keeps its exact semantics. See change: fix-kb-get-roots-and-guard (D3). */
+  getChunkBySection(root: string, path: string, section: string): Chunk[] {
+    const exact = this.db.prepare("SELECT * FROM chunks WHERE root=? AND path=? AND heading_path=? ORDER BY rowid LIMIT 1").get(root, path, section) as any;
+    if (exact) return [rowToChunk(exact)];
+    if (section.includes(" > ")) return [];
+    return (
+      this.db
+        .prepare("SELECT * FROM chunks WHERE root=? AND path=? AND substr(heading_path, -(length(?) + 3)) = ' > ' || ? ORDER BY rowid")
+        .all(root, path, section, section) as any[]
+    ).map(rowToChunk);
+  }
+
   /** All chunks of a file in document order — the non-truncating companion to a
    *  path-only `getChunk`. */
   getChunks(root: string, path: string): Chunk[] {

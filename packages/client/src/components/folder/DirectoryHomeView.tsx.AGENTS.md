@@ -17,3 +17,5 @@ See change: redesign-folder-workspace-add-flow — the eligibility guard is REMO
 - In-flight: ref guard (double Enter = one spawn); `failedSpawn.requestId` match → re-enable + restore draft. Page never navigates (App owns).
 
 - YOLO signal is the dock footer: `<ComposerDock session={undefined} cwd openLane={null}/>` replaces `YoloComposerStrip` directly above `CommandInput` (no lanes, `data-footer-only`). See change: add-composer-dock (8.2).
+
+See change: add-spawn-model-choice. Worktree dialog mounted `modelChoice="hidden"` (composer owns the choice). `dispatchSpawn` omits `model`/`thinkingLevel` when an ACP agent is selected.

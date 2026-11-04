@@ -14,6 +14,9 @@
  *                                    keeper's piChild SIGKILL on shutdown.
  *                                    Writes own PID to MOCK_PI_PID_FILE when set.
  *                                    See change: fix-keeper-kill-escalation.
+ *   MOCK_PI_ENV_OUT=<file>         — (any mode reaching normal) write
+ *                                    `{ PWD, cwd }` JSON first.
+ *                                    See change: fix-spawned-session-pwd.
  *
  * CommonJS-pure, only Node built-ins.
  */
@@ -115,6 +118,18 @@ if (mode === "writer") {
 if (!logPath) {
   process.stderr.write("[mock-pi] FATAL: MOCK_PI_LOG env var required\n");
   process.exit(2);
+}
+
+// Write `{ PWD, cwd }` as JSON to MOCK_PI_ENV_OUT when set, then continue in
+// normal mode. Used by the keeper PWD regression test (test-plan #E14).
+// See change: fix-spawned-session-pwd.
+if (process.env.MOCK_PI_ENV_OUT) {
+  try {
+    fs.writeFileSync(
+      process.env.MOCK_PI_ENV_OUT,
+      JSON.stringify({ PWD: process.env.PWD, cwd: process.cwd() }),
+    );
+  } catch { /* ignore */ }
 }
 
 // Dump env to MOCK_PI_ENV_LOG (one VAR=value per line) when set. Used by

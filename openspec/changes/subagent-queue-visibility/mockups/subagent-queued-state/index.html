@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subagent queued state: show waiting subagents as waiting</title>
+<!--
+  GROUNDING
+  - Producer: pi-dashboard-subagents/extensions/agent.ts:1416 emits details.status="queued"
+    before acquireSpawnSlot() (FIFO semaphore, settings.maxConcurrent default 4).
+  - Consumer today: subagents-plugin/src/client/AgentToolRenderer.tsx
+      mapStatus(): case "queued" -> "running"         (line ~103)
+      render: status==="running"||"queued" -> AgentCardShell status="running" (line ~481)
+  - Shell: client-utils/src/AgentCardShell.tsx; icons: client-utils/src/agent-card-utils.ts
+      statusIconDefs.pending = mdiCircleOutline + text-tertiary (already exists, unused by subagents)
+  - Outer row: client/src/components/chat/ToolCallStep.tsx status union is
+      "running"|"complete"|"error"|"elided": no queued, so the row spins (core-owned).
+  Tokens come from the live dashboard stylesheet; local CSS only cites var(--*).
+-->
+<link rel="stylesheet" href="http://localhost:8000/assets/index-FuIbqkuy.css">
+<style>
+  body{background:var(--bg-primary);color:var(--text-secondary);margin:0;padding:24px 16px 80px;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+  .page{max-width:980px;margin:0 auto}
+  h1{color:var(--text-primary);font-size:17px;margin:0 0 4px}
+  .lead{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;line-height:1.55;max-width:760px}
+  .cap{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted);font-weight:600;margin:34px 0 4px}
+  .desc{font-size:11.5px;color:var(--text-tertiary);margin:2px 0 10px;line-height:1.6;max-width:820px}
+  .desc b{color:var(--text-secondary);font-weight:600}
+  code{font-family:'SF Mono',Menlo,monospace;font-size:11px;background:var(--bg-code, var(--bg-tertiary));padding:1px 4px;border-radius:3px}
+  .bar{position:fixed;top:12px;right:14px;display:flex;gap:6px;z-index:20}
+  .bar button{font:inherit;font-size:11px;padding:5px 11px;border-radius:7px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+  .bar button[aria-pressed=true]{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+
+  /* ---- clone of the chat timeline: thread rail + ToolCallStep row + AgentCardShell ---- */
+  .thread{border-left:2px solid var(--border-secondary);padding-left:10px;margin-left:6px}
+  .row{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-secondary);padding:5px 0 4px}
+  .row .t{color:var(--text-muted);font-size:11px}
+  .row .sp{flex:1}
+  .row .stop{width:8px;height:8px;background:var(--status-error, #b91c1c);border-radius:1px;opacity:.85}
+  .row .chev{color:var(--text-muted)}
+  .row.q{color:var(--text-tertiary)}
+  .card{margin:0 0 8px 10px;border-radius:8px;border:1px solid var(--border-subtle);padding:10px;
+    background:color-mix(in srgb,var(--bg-secondary),var(--bg-tertiary))}
+  .card.running{border-color:color-mix(in srgb,#eab308 30%,transparent)}
+  .card.queued{border-style:dashed;border-color:var(--border-secondary);background:var(--bg-secondary)}
+  .card.queued.dim .body{opacity:.75}
+  .hdr{display:flex;align-items:center;gap:6px}
+  .hdr .name{font-size:14px;font-weight:500;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hdr .dur{font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+  .btn{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:3px 8px;border-radius:6px;
+    border:1px solid var(--border-secondary);color:var(--text-secondary);background:var(--bg-primary)}
+  .btn[disabled]{opacity:.45}
+  .stats{font-size:11px;color:var(--text-tertiary);margin-top:2px}
+  .descr{font-size:11px;color:var(--text-secondary);margin-top:4px}
+  .act{font-size:10px;color:var(--text-tertiary);margin-top:4px;height:16px;line-height:16px}
+  .plabel{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-top:8px}
+  .prompt{font-family:'SF Mono',Menlo,monospace;font-size:11.5px;color:var(--text-secondary);margin-top:2px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ico{display:inline-flex;width:14px;height:14px}
+  .ico svg{width:14px;height:14px;fill:currentColor}
+  .spin svg{animation:sp 1s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .y{color:#eab308}.mut{color:var(--text-tertiary)}
+  /* queued pill: neutral, not a severity colour */
+  .pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:999px;
+    border:1px solid var(--border-secondary);color:var(--text-secondary);background:var(--bg-tertiary);white-space:nowrap}
+  .slots{display:inline-flex;gap:2px;margin-left:2px}
+  .slots i{width:6px;height:6px;border-radius:2px;background:#eab308;opacity:.8}
+  .slots i.free{background:transparent;border:1px solid var(--border-secondary)}
+  /* variant C: collapsed queue strip */
+  .strip{margin:0 0 8px 10px;border:1px dashed var(--border-secondary);border-radius:8px;background:var(--bg-secondary)}
+  .strip summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12.5px;color:var(--text-secondary)}
+  .strip summary::-webkit-details-marker{display:none}
+  .strip ol{margin:0;padding:0 10px 8px 32px;font-size:12px;color:var(--text-tertiary)}
+  .strip li{padding:3px 0;display:flex;gap:8px}
+  .strip li .n{flex:1;color:var(--text-secondary)}
+  .note{font-size:11px;color:var(--text-tertiary);border-left:2px solid var(--border-secondary);padding:4px 10px;margin:8px 0 0 10px}
+  .grid{display:grid;grid-template-columns:1fr;gap:6px}
+</style>
+</head>
+<body>
+<div class="bar">
+  <button id="next" title="Simulate a running subagent finishing so the next queued one gets its slot">Free a slot</button>
+  <button id="reset">Reset</button>
+  <button data-theme-btn="dark" aria-pressed="true">Dark</button>
+  <button data-theme-btn="light" aria-pressed="false">Light</button>
+</div>
+<div class="page">
+  <h1>Subagent queued state</h1>
+  <p class="lead">Fan-out of 6 subagents with <code>maxConcurrent = 4</code>. The producer already sends
+  <code>status: "queued"</code> while a subagent waits for a slot. Today the renderer maps it to <code>running</code>,
+  so a waiting subagent looks the same as a working one. Use <b>Free a slot</b> to watch the queue drain.</p>
+
+  <div class="cap">Before: today</div>
+  <p class="desc">C094 and C017 are queued, but they show the same spinner, yellow border and growing timer as the running cards.</p>
+  <div class="thread" id="v0"></div>
+
+  <div class="cap">A: quiet "queued" state (plugin-only change)</div>
+  <p class="desc">This reuses the existing <code>pending</code> shell icon (circle outline, tertiary text). The border is dashed and neutral,
+  and a <b>Queued</b> pill replaces the timer. When the subagent gets a slot, the run timer starts at 0.
+  The outer row's spinner remains, because that row is owned by core.</p>
+  <div class="thread" id="vA"></div>
+
+  <div class="cap">B (recommended): A + queue position and slots</div>
+  <p class="desc">Each queued card shows <b>#n in queue</b>, a slot meter (4 filled = all busy) and how long it has waited. The outer
+  chat row shows a clock and the word "queued" instead of a spinner. The position comes from this session's queued <code>Agent</code> calls in start order,
+  and the slot reading from its running subagents and the configured limit.</p>
+  <div class="thread" id="vB"></div>
+
+  <div class="note" style="margin-top:28px">Rule: <b>queued is neutral, not a warning</b>. No yellow, no animation, nothing that suggests work is happening.</div>
+</div>
+
+<script>
+const P={
+  load:"M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z",
+  circ:"M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+  clock:"M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z",
+  chev:"M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z",
+  pop:"M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z",
+  check:"M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z",
+};
+const ic=(p,c="",st="")=>`<span class="ico ${c}" style="${st}"><svg viewBox="0 0 24 24"><path d="${P[p]}"/></svg></span>`;
+const MAX=4;
+const SEED=[
+  {id:"C091",type:"judo-ng-reader",desc:"Read judo-ng batch C091",file:"reader",run:118,turns:9,tools:14,tok:"88.1k"},
+  {id:"C092",type:"judo-ng-reader",desc:"Read judo-ng batch C092",file:"reader",run:91,turns:8,tools:11,tok:"92.2k"},
+  {id:"C093",type:"judo-ng-reader",desc:"Read judo-ng batch C093",file:"reader",run:94,turns:11,tools:19,tok:"83.8k"},
+  {id:"C016",type:"judo-ng-validator",desc:"Validate batch C016 (opus)",file:"validator",run:60,turns:4,tools:6,tok:"41.0k"},
+  {id:"C094",type:"judo-ng-reader",desc:"Read judo-ng batch C094",file:"reader",wait:102},
+  {id:"C017",type:"judo-ng-validator",desc:"Validate batch C017 (opus)",file:"validator",wait:102},
+  {id:"C095",type:"judo-ng-reader",desc:"Read judo-ng batch C095",file:"reader",wait:98},
+];
+// statuses: running | queued | done
+const V={};
+function reset(){for(const v of ["0","A","B"]) V[v]=SEED.map(x=>({...x,status:x.run!=null?"running":"queued",run:x.run??0,wait:x.wait??0}));render()}
+const fmt=s=>s<60?`${s.toFixed(1)}s`:`${Math.floor(s/60)}m ${Math.floor(s%60)}s`;
+const prompt=a=>`Read and follow the instructions in ${a.file}-prompt.md with {ID} = ${a.id}.`;
+const queued=S=>S.filter(a=>a.status==="queued");
+const busy=S=>S.filter(a=>a.status==="running").length;
+const pos=(S,a)=>queued(S).indexOf(a)+1;
+const live=a=>a.status==="running"||a.status==="queued";
+const slots=S=>`<span class="slots" title="${busy(S)}/${MAX} slots busy">${Array.from({length:MAX},(_,i)=>`<i class="${i<busy(S)?"":"free"}"></i>`).join("")}</span>`;
+function drain(S){while(busy(S)<MAX&&queued(S).length){const q=queued(S)[0];q.status="running";q.run=0;q.turns=1;q.tools=0;q.tok="1.2k"}}
+
+const stopBtn=()=>`<span class="stop" aria-hidden="true"></span>`;
+function finalIcon(a){ return ic("check","","color:#22c55e"); }
+function finalText(a){ return fmt(a.run); }
+function outerRow(v,S,a){
+  const q=a.status==="queued";
+  let lead,t,cls="";
+  if(!live(a)){lead=finalIcon(a);t=finalText(a);cls="q"}
+  else if(q&&v==="B"){lead=ic("clock","mut");t=`queued · #${pos(S,a)} · ${fmt(a.wait)}`;cls="q"}
+  else {lead=ic("load","spin y");t=fmt(q?a.wait:a.run)+"…"}
+  return `<div class="row ${cls}">${lead}<span>${a.type}: ${a.desc}</span><span class="t">${t}</span><span class="sp"></span>
+    <span class="chev">${ic("chev")}</span>${live(a)?stopBtn():""}</div>`;
+}
+const stats=a=>`cc/claude-haiku-4-5 · thinking medium · ⟳${a.turns} · ${a.tools} tool uses · ${a.tok}`;
+const head=(icon,a,right,popOff)=>`<div class="hdr">${icon}<span class="name">${a.type}</span>${right}
+  <span class="btn">${ic("chev")} Details</span><span class="btn" ${popOff?"disabled":""}>${ic("pop")} Popout</span></div>`;
+function card(v,S,a){
+  const q=a.status==="queued";
+  if(!live(a)) return `<div class="card" style="opacity:.8">${head(finalIcon(a),a,`<span class="dur">${a.status==="done"?fmt(a.run):""}</span>`,false)}
+    ${a.run?`<div class="stats">${stats(a)}</div>`:""}
+    <div class="descr">"${a.desc}"</div><div class="act">${finalText(a)}</div></div>`;
+  if(v==="0"||!q){
+    const t=v==="0"&&q?fmt(a.wait):fmt(a.run);
+    return `<div class="card running">${head(ic("load","spin y"),a,`<span class="dur">${t}…</span>`,q)}
+      ${q?"":`<div class="stats">${stats(a)}</div>`}
+      <div class="descr">"${a.desc}"</div>${q?"":`<div class="act">▸ thinking</div>`}
+      <div class="plabel">Prompt</div><div class="prompt">${prompt(a)}</div></div>`;
+  }
+  const right=v==="A"?`<span class="pill">Queued</span>`
+    :`<span class="pill" title="Waiting for a free subagent slot">#${pos(S,a)} in queue ${slots(S)}</span><span class="dur">waiting ${fmt(a.wait)}</span>`;
+  const p=pos(S,a);
+  return `<div class="card queued dim">${head(ic(v==="A"?"circ":"clock","mut"),a,right,true)}
+    <div class="body"><div class="descr">"${a.desc}"</div>
+    <div class="act">▸ waiting for a slot${v==="B"?` · ${busy(S)}/${MAX} running · starts after ${p===1?"the next one finishes":`${p} finish`}`:""}</div>
+    <div class="plabel">Prompt</div><div class="prompt">${prompt(a)}</div></div></div>`;
+}
+function render(){for(const v of ["0","A","B"]){const S=V[v];document.getElementById("v"+v).innerHTML=S.map(a=>outerRow(v,S,a)+card(v,S,a)).join("")}}
+function tick(){for(const v in V)for(const a of V[v]){if(a.status==="running")a.run+=1;else if(a.status==="queued")a.wait+=1}render()}
+document.getElementById("next").onclick=()=>{for(const v in V){const S=V[v];const r=S.find(a=>a.status==="running");if(r)r.status="done";drain(S)}render()};
+document.getElementById("reset").onclick=reset;
+document.querySelectorAll("[data-theme-btn]").forEach(b=>b.onclick=()=>{
+  document.documentElement.dataset.theme=b.dataset.themeBtn;
+  document.querySelectorAll("[data-theme-btn]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+});
+reset(); setInterval(tick,1000);
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import { indexOptionsFromConfig, loadConfig, type ResolvedConfig, type ResolvedS
 import { agentsChain, doxInit, doxLint, listEmptyPurposeRows } from "./dox.js";
 import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { evaluate, loadGolden } from "./eval.js";
+import { buildFetchRoots, renderFetch, resolveFetch } from "./fetch-resolve.js";
 import { beginForcedSource, sourceGateIsStale, stampPass, stampSource } from "./index-gate.js";
 import { BUILDING_LINE, isFirstIndexLive, runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
@@ -130,6 +131,7 @@ async function sourcesForRun(cfg: ResolvedConfig, flags: Flags): Promise<RResolv
     cwd: cfg.cwd,
     cacheDir: cfg.cacheDirAbs,
     refresh: !!flags.refresh,
+    extensions: cfg.extensions,
     promptTrust: interactive ? defaultPromptTrust : undefined,
   });
 }
@@ -343,16 +345,13 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       const n = store.backlinks(flags._[1]);
       console.log(flags.json ? JSON.stringify(n, null, 2) : n.map((x) => `${x.type}\t${x.name}`).join("\n"));
     } else if (cmd === "get") {
-      // search every resolved root (not just the first) for the path
-      let c = null;
-      for (const s of sources) {
-        c = store.getChunk(s.id, flags._[1], flags.section as string | undefined);
-        if (c) break;
-      }
-      // A path-only fetch of a multi-chunk file must never look like the whole
-      // file. See change: fix-kb-search-retrieval-quality (design D7).
-      const more = c?.suppressedSections ?? 0;
-      console.log(c ? (more > 0 ? `${c.body}\n\n(+${more} more section${more === 1 ? "" : "s"} in this file — pass --section <headingPath> to fetch one)` : c.body) : `(not found: ${flags._[1]})`);
+      // Every indexed root via the shared resolver (same rules as the kb_get
+      // tool): qualified paths, candidate list on collision, last-heading
+      // section fallback. See change: fix-kb-get-roots-and-guard.
+      const section = flags.section as string | undefined;
+      const roots = buildFetchRoots(store.listRoots(), cfg.resolvedSources, cfg.cwd);
+      const r = resolveFetch(store, roots, flags._[1], section);
+      console.log(renderFetch(r, flags._[1], section, "pass --section <headingPath>").text);
     } else if (cmd === "eval") {
       const gf = flags.golden as string | undefined;
       if (!gf) { console.error("eval needs --golden <file.json>"); process.exit(2); }

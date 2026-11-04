@@ -67,6 +67,7 @@ import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { choiceToSpawnOptions, resolveSpawnChoice } from "./browser-handlers/spawn-choice.js";
 import { createReplayState, decideSkipWipe, type ReplayState, validLeafEntryId } from "./session/hydration-state.js";
 import type { ReplayExitCause } from "./session/replay-exit-controller.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
@@ -2722,8 +2723,16 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "spawn_new_session") {
-      const spawnStrategy = loadConfig().spawnStrategy;
-      spawnPiSession(msg.cwd, { strategy: spawnStrategy }).then((result) => {
+      const bridgeConfig = loadConfig();
+      const spawnStrategy = bridgeConfig.spawnStrategy;
+      // Inherit the requesting session's model/thinking through the shared
+      // resolver. No reply channel, so a drop is log-only (the resolver warns).
+      // See change: add-spawn-model-choice (D2, D5).
+      const { choice: bridgeChoice } = resolveSpawnChoice(
+        { model: msg.model, thinkingLevel: msg.thinkingLevel },
+        { defaultModel: bridgeConfig.defaultModel || undefined },
+      );
+      spawnPiSession(msg.cwd, { strategy: spawnStrategy, ...choiceToSpawnOptions(bridgeChoice) }).then((result) => {
         // Bridge-initiated spawn is a spawn entry point too: without the arm, a
         // duplicate refused for contention here is never reclaimed.
         // See change: fix-duplicate-bridge-registration (D0/D2).
