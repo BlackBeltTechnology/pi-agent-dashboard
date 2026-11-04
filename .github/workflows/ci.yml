@@ -138,11 +138,12 @@ jobs:
         run: node scripts/check-client-sinks.mjs
       # Completeness gate for the removed subagent fan-out admission gate: none
       # of its symbols may come back. `decideAdmission` is not listed: cwd-guard
-      # owns an unrelated function of that name. The one allowlisted file is the
-      # leftover-key config test. See change: subagent-queue-visibility (D6, #E21).
+      # owns an unrelated function of that name. The two allowlisted files are the
+      # tests that assert the absence: the leftover-key config test and the #E17
+      # bridge test. See change: subagent-queue-visibility (D6, #E17, #E21).
       - name: Removed subagent-admission symbols stay removed
         run: |
-          if git grep -nE "maxConcurrentSubagents|MAX_CONCURRENT_SUBAGENTS|FanoutAdmissionGate|fanoutAdmission|resolveAdmissionConfig|subagentCap|subagent-fanout-admission|subagent-saturation|subagentSaturation|SaturationSampler" -- packages docs tests qa scripts docker ':!packages/shared/src/__tests__/config-removed-admission-key.test.ts'; then
+          if git grep -nE "maxConcurrentSubagents|MAX_CONCURRENT_SUBAGENTS|FanoutAdmissionGate|fanoutAdmission|resolveAdmissionConfig|subagentCap|subagent-fanout-admission|subagent-saturation|subagentSaturation|SaturationSampler" -- packages docs tests qa scripts docker ':!packages/shared/src/__tests__/config-removed-admission-key.test.ts' ':!packages/extension/src/__tests__/no-subagent-admission.test.ts'; then
             echo "::error::removed subagent-admission symbols found (see change subagent-queue-visibility)"
             exit 1
           fi

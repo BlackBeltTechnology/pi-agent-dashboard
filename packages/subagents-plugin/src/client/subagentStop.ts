@@ -140,7 +140,7 @@ export function agentRowStatus(
     return {
       state: "queued",
       label:
-        typeof pos === "number" && pos > 0
+        typeof pos === "number" && Number.isSafeInteger(pos) && pos > 0
           ? plainT("rowQueuedPos", { pos }, "queued · #{pos}")
           : plainT("rowQueued", undefined, "queued"),
     };

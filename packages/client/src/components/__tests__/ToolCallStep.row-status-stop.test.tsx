@@ -98,6 +98,9 @@ describe("claim rowStatus decision table (#E5)", () => {
           expect(queued).not.toBeNull();
           expect(label?.textContent).toBe("queued · #2");
           expect(spinner(container)).toBeNull();
+          // The wait time stays visible: queueing starts with the call, so the
+          // row's live elapsed counter IS the wait (spec: "with the wait time").
+          expect(container.querySelector('[data-testid="tool-row-wait-time"]')?.textContent).toMatch(/^(\d+s|<1s)…$/);
         } else if (name === "stopped" && status === "complete") {
           expect(stopped).not.toBeNull();
           expect(stopped?.className).not.toContain("text-green-400");

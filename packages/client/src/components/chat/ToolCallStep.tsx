@@ -323,7 +323,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           </span>
         )}
         <span className="truncate">{getSummary(toolName, args)}</span>
-        {rowStatus?.state === "queued" ? null : <ElapsedBadge startedAt={startedAt} duration={duration} />}
+        {rowStatus?.state === "queued" ? (
+          // A queued call has not run yet: its elapsed time since the call IS the
+          // wait, so the counter stays (marked as wait) next to the waiting glyph.
+          <span data-testid="tool-row-wait-time" className="inline-flex">
+            <ElapsedBadge startedAt={startedAt} duration={duration} />
+          </span>
+        ) : (
+          <ElapsedBadge startedAt={startedAt} duration={duration} />
+        )}
         {rowStatus?.label && (
           <span data-testid="tool-row-status-label" className="ml-1 shrink-0 text-[10px] text-[var(--text-muted)]">
             {rowStatus.label}

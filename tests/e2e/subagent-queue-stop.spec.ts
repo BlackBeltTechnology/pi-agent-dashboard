@@ -97,6 +97,8 @@ test.describe("queued subagents + per-subagent stop (L3)", () => {
       await expect(row.locator(".animate-spin")).toHaveCount(0);
       await expect(row.getByTestId("tool-row-status-label").first()).toHaveText(`queued · #${n}`);
       await expect(row.getByTestId("tool-row-status-queued").first()).toBeVisible();
+      // … with the wait time (spec subagent-queue-state "Queued chat row does not spin").
+      await expect(row.getByTestId("tool-row-wait-time").first()).toHaveText(/^(\d+s|<1s|\d+m( \d+s)?)…$/);
     }
 
     // #F2 — the first child finishes: former #1 runs from ~0 s, former #2 becomes #1.

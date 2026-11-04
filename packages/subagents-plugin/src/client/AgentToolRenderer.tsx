@@ -572,7 +572,7 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
             data-testid="agent-queue-pill"
             className="rounded border border-[var(--severity-neutral-border)] bg-[var(--severity-neutral-bg)] px-1 text-[var(--severity-neutral-fg)]"
           >
-            {typeof pos === "number" && pos > 0
+            {typeof pos === "number" && Number.isSafeInteger(pos) && pos > 0
               ? t("agentQueuePos", { pos }, "#{pos} in queue")
               : t("agentQueued", undefined, "Queued")}
           </span>
