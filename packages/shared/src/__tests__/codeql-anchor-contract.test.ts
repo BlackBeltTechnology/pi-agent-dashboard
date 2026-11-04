@@ -56,6 +56,14 @@ function checkAnchor(source: string, root: string, anchorRel = ANCHOR_REL): stri
       .filter(Boolean);
     imported.set(mod, names);
   }
+  errs.push(...registrarErrors(imported, root));
+  errs.push(...topLevelErrors(src.replace(importRe, "")));
+  return errs;
+}
+
+/** Imported modules == allowlist; each allowlisted module exists and exports its registrar. */
+function registrarErrors(imported: Map<string, string[]>, root: string): string[] {
+  const errs: string[] = [];
   const allowedMods = new Set(Object.values(ALLOWLIST));
   for (const mod of imported.keys()) if (!allowedMods.has(mod)) errs.push(`module ${mod} is outside the allowlist`);
   for (const [registrar, mod] of Object.entries(ALLOWLIST)) {
@@ -70,9 +78,15 @@ function checkAnchor(source: string, root: string, anchorRel = ANCHOR_REL): stri
       errs.push(`module ${mod} no longer exports ${registrar}`);
     }
   }
-  if (/\blisten\s*\(/.test(src)) errs.push("anchor calls listen(");
+  return errs;
+}
+
+/** Inert by construction: only imports and exported functions at top level, no `listen(`. */
+function topLevelErrors(withoutImports: string): string[] {
+  const errs: string[] = [];
+  if (/\blisten\s*\(/.test(withoutImports)) errs.push("anchor calls listen(");
   // Top level: only imports and exported function declarations.
-  let top = src.replace(importRe, "");
+  let top = withoutImports;
   const fnRe = /^(export\s+)?(async\s+)?function\s+(\w+)\s*\([^)]*\)\s*\{/m;
   let exported = 0;
   for (let m = fnRe.exec(top); m; m = fnRe.exec(top)) {
