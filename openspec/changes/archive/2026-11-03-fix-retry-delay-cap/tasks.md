@@ -56,7 +56,7 @@
 
 - [x] 5.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`. Verify that all change-touched suites pass. The remaining failures (TLS IP servername on Node 26, localStorage/drag timing, perf thresholds) reproduce identically on unmodified `develop` and are pre-existing.
 - [x] 5.2 Build: `npm run build` exits 0 in the worktree. The API shape is verified by `pi-retry-routes.test.ts` (fastify inject). Live-instance redeploy (`npm run reload` + `restart-server.ts`, then `curl /api/pi-retry` includes `maxAgentDelayMs`) runs from the main checkout after merge.
-- [x] 5.3 Manual check: with `baseDelayMs 2700` and `maxRetries 11`, trigger a 429 chain to attempt ≥ 7. Verify the banner countdown never shows > 60 s and that the next attempt starts when the countdown reaches about 0 (test-plan #F1, manual-only).
+- [x] 5.3 Manual check: with `baseDelayMs 2700` and `maxRetries 11`, trigger a 429 chain to attempt ≥ 7. Verify the banner countdown never shows > 60 s and that the next attempt starts when the countdown reaches about 0 (test-plan #F1, manual-only). Deferred to post-merge verification: not yet performed at ship time.
 - [x] 5.4 Delegate the `docs/architecture.md` "Retry Lifecycle" formula update to DocScribe (caveman rule). Verify the doc states the capped formula.
 
 ## Workflow follow-up
