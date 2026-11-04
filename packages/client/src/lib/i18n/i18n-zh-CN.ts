@@ -5,7 +5,6 @@
  */
 export const zhCNCatalog: Record<string, string> = {
   "acp.agent": "代理",
-  "acp.chooseAgent": "选择新会话的代理",
   "acp.metaPi": "默认 · 流程、子代理、扩展",
   "acp.metaAcp": "ACP 代理",
   "acp.driverChip": "ACP · {agent}",
@@ -1299,6 +1298,10 @@ export const zhCNCatalog: Record<string, string> = {
   "terminal.openTerminalsView": "打开终端视图",
   "terminal.piStderr": "Pi stderr",
   "terminal.renameTerminal": "重命名终端",
+  "spawnChoice.default": "默认",
+  "spawnChoice.defaultModel": "默认模型",
+  "spawnChoice.newSessionMenu": "新会话选项",
+  "spawnChoice.piDefault": "pi 默认",
   "terminal.showStderr": "显示 stderr",
   "terminal.terminalClosed": "终端已关闭",
   "terminal.terminals": "终端（",

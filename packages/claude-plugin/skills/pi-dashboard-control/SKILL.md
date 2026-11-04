@@ -14,6 +14,8 @@ curl -s BASE/api/sessions
 curl -s -X POST BASE/api/session/ID/prompt -H 'Content-Type: application/json' -d '{"text":"run the tests"}'
 curl -s -X POST BASE/api/session/ID/abort -H 'Content-Type: application/json' -d '{}'
 curl -s -X POST BASE/api/session/spawn -H 'Content-Type: application/json' -d '{"cwd":"/path/to/project"}'
+# optional: "model":"@planning" (or provider/id), "thinkingLevel":"high", "initialPrompt":"...", "attachProposal":"<change>"
+# @role resolves once at spawn time; an invalid model, unknown role or bad level returns 400
 ```
 
 Take `ID` from `GET /api/sessions`. Replace `BASE` with the literal URL every time.

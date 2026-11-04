@@ -2,27 +2,38 @@
  * AgentSpawnPicker — split button for starting a new session with pi or a
  * configured ACP agent (WAI-ARIA APG Menu Button pattern).
  *
- * - No agents configured → renders the plain button EXACTLY as before (the
- *   caller passes today's content/classes), no menu, no extra DOM.
- * - Agents → main button spawns with the REMEMBERED agent for this folder
- *   (label names it); the chevron opens a radio menu (`pi` + agents). Choosing
- *   an item updates the folder's memory; it does not spawn.
+ * - The chevron ALWAYS renders. Its menu holds the agent radios (only when ACP
+ *   agents exist) plus the spawn model · thinking chip (disabled while an ACP
+ *   agent is selected). See change: add-spawn-model-choice (D7).
+ * - Main button spawns with the REMEMBERED agent for this folder (label names it
+ *   when agents exist) and, for pi, the folder's effective model choice
+ *   (remembered ?? Settings default). Choosing in the menu updates the folder's
+ *   memory; it does not spawn.
  * - Keyboard: ArrowDown/Up/Home/End move, Enter/Space choose, Escape closes;
- *   focus returns to the chevron.
+ *   focus returns to the chevron. The chip item focuses its own trigger, which
+ *   opens its own popover.
  *
  * See change: add-acp-session-driver (D16, mockup S1).
  */
 import { mdiCheck, mdiChevronDown } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useAcpAgents } from "../hooks/useAcpAgents.js";
 import { getRememberedAgent, rememberAgent } from "../lib/acp/agent-memory.js";
 import { t as i18nT } from "../lib/i18n/i18n.js";
+import { getEffectiveSpawnChoice, type SpawnChoice } from "../lib/spawn/spawn-choice-memory.js";
+
+// The chip (ModelSelector + catalogue) loads only when the menu opens, keeping it
+// off the cold landing chunk. See change: add-spawn-model-choice.
+const SpawnChoiceChip = lazy(() => import("./spawn/SpawnChoiceChip.js").then((m) => ({ default: m.SpawnChoiceChip })));
 
 interface Props {
   cwd: string;
-  /** Called with the chosen agent id, or `undefined` for pi. */
-  onSpawn: (agent?: string) => void;
+  /**
+   * Called with the chosen agent id (`undefined` = pi) and, for pi, the folder's
+   * effective model choice (omitted when empty).
+   */
+  onSpawn: (agent?: string, choice?: SpawnChoice) => void;
   disabled?: boolean;
   /** Today's button content (icon + "New Session"). */
   children: ReactNode;
@@ -58,6 +69,8 @@ function menuKeyAction(key: string, focused: number, count: number): MenuKeyActi
   }
 }
 
+type MenuItem = { kind: "agent"; id: string | undefined; name: string; meta: string } | { kind: "choice" };
+
 export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, className, title }: Props) {
   const agents = useAcpAgents();
   const [current, setCurrent] = useState<string | undefined>(() => getRememberedAgent(cwd, agents));
@@ -71,11 +84,25 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
     setCurrent(getRememberedAgent(cwd, agents));
   }, [cwd, agents]);
 
-  const items: Array<{ id: string | undefined; name: string; meta: string }> = [
-    { id: undefined, name: "pi", meta: i18nT("acp.metaPi", undefined, "Default · flows, subagents, extensions") },
-    ...agents.map((a) => ({ id: a.id, name: a.name, meta: i18nT("acp.metaAcp", undefined, "ACP agent") })),
-  ];
-  const checkedIndex = Math.max(0, items.findIndex((i) => i.id === current));
+  const agentItems: MenuItem[] =
+    agents.length === 0
+      ? []
+      : [
+          { kind: "agent", id: undefined, name: "pi", meta: i18nT("acp.metaPi", undefined, "Default · flows, subagents, extensions") },
+          ...agents.map((a): MenuItem => ({ kind: "agent", id: a.id, name: a.name, meta: i18nT("acp.metaAcp", undefined, "ACP agent") })),
+        ];
+  const items: MenuItem[] = [...agentItems, { kind: "choice" }];
+  const checkedIndex = Math.max(0, agentItems.findIndex((i) => i.kind === "agent" && i.id === current));
+  const currentName = agentItems[checkedIndex]?.kind === "agent" ? (agentItems[checkedIndex] as { name: string }).name : "pi";
+
+  const focusItem = useCallback((index: number) => {
+    const el = itemRefs.current[index];
+    if (!el) return;
+    // The lazy chip may still be loading: focus its item; the chip moves focus to
+    // its trigger on mount.
+    if (el.dataset.item === "choice") (el.querySelector<HTMLElement>("button") ?? el).focus();
+    else el.focus();
+  }, []);
 
   const close = useCallback((returnFocus: boolean) => {
     setOpen(false);
@@ -84,49 +111,50 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
 
   useEffect(() => {
     if (!open) return;
-    itemRefs.current[checkedIndex]?.focus();
+    focusItem(agentItems.length > 0 ? checkedIndex : 0);
     const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      // Mousedown inside the chip's portaled model panel must not close the menu.
+      const t = e.target as Element;
+      if (!rootRef.current?.contains(t) && !t.closest?.('[data-testid="model-dropdown"]')) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: focus once per open / checked change
   }, [open, checkedIndex]);
 
-  if (agents.length === 0) {
-    return (
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onSpawn(); }}
-        disabled={disabled}
-        data-testid={testId}
-        className={className}
-        title={title}
-      >
-        {children}
-      </button>
-    );
-  }
-
-  const currentName = items[checkedIndex]?.name ?? "pi";
   const choose = (id: string | undefined) => {
     setCurrent(id);
     rememberAgent(cwd, id);
     close(true);
   };
 
+  const spawn = () => {
+    if (current) {
+      onSpawn(current);
+      return;
+    }
+    const choice = getEffectiveSpawnChoice(cwd);
+    if (choice.model || choice.thinkingLevel) onSpawn(undefined, choice);
+    else onSpawn();
+  };
+
   const onMenuKey = (e: React.KeyboardEvent) => {
-    const focused = itemRefs.current.findIndex((el) => el === document.activeElement);
+    const focused = itemRefs.current.findIndex((el) => el?.contains(document.activeElement));
     const action = menuKeyAction(e.key, focused, items.length);
     if (!action) return;
     if (action.kind === "focus") {
       e.preventDefault();
-      itemRefs.current[action.index]?.focus();
+      focusItem(action.index);
     } else if (action.kind === "close") {
       if (e.key === "Escape") e.preventDefault();
       close(e.key === "Escape");
-    } else if (focused >= 0) {
-      e.preventDefault();
-      choose(items[focused]?.id);
+    } else {
+      const item = items[focused];
+      // The chip trigger handles Enter/Space natively (opens its popover).
+      if (item?.kind === "agent") {
+        e.preventDefault();
+        choose(item.id);
+      }
     }
   };
 
@@ -134,7 +162,7 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
     <div ref={rootRef} className="relative flex w-full" data-testid={`${testId}-split`}>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); onSpawn(current); }}
+        onClick={(e) => { e.stopPropagation(); spawn(); }}
         disabled={disabled}
         data-testid={testId}
         className={`${className} rounded-r-none border-r-0 min-w-0`}
@@ -142,7 +170,9 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
       >
         <span className="flex min-w-0 items-center justify-center gap-1.5">
           {children}
-          <span className="truncate font-normal" data-testid={`${testId}-agent`}>· {currentName}</span>
+          {agents.length > 0 && (
+            <span className="truncate font-normal" data-testid={`${testId}-agent`}>· {currentName}</span>
+          )}
         </span>
       </button>
       <button
@@ -150,8 +180,15 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={i18nT("acp.chooseAgent", undefined, "Choose agent for new session")}
+        aria-label={i18nT("spawnChoice.newSessionMenu", undefined, "New session options")}
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        onKeyDown={(e) => {
+          // APG menu button: ArrowDown/Up open the menu (Enter/Space click natively).
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
         disabled={disabled}
         data-testid={`${testId}-chevron`}
         className={`${className} !w-11 sm:!w-8 shrink-0 rounded-l-none !px-0`}
@@ -161,29 +198,46 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
       {open && (
         <ul
           role="menu"
-          aria-label={i18nT("acp.agent", undefined, "Agent")}
+          aria-label={i18nT("spawnChoice.newSessionMenu", undefined, "New session options")}
           onKeyDown={onMenuKey}
           data-testid={`${testId}-menu`}
           className="absolute left-0 top-full z-30 mt-1 max-w-[calc(100vw-2rem)] min-w-[14rem] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] p-1 shadow-lg"
         >
-          {items.map((item, i) => (
-            <li
-              key={item.id ?? "pi"}
-              ref={(el) => { itemRefs.current[i] = el; }}
-              role="menuitemradio"
-              aria-checked={i === checkedIndex}
-              tabIndex={-1}
-              data-agent={item.id ?? "pi"}
-              onClick={(e) => { e.stopPropagation(); choose(item.id); }}
-              className="focus-ring flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] min-h-[44px] sm:min-h-0"
-            >
-              <span className="mt-0.5 w-4 shrink-0">{i === checkedIndex && <Icon path={mdiCheck} size={0.6} />}</span>
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate font-bold">{item.name}</span>
-                <span className="truncate text-[11px] text-[var(--text-secondary)]">{item.meta}</span>
-              </span>
-            </li>
-          ))}
+          {items.map((item, i) =>
+            item.kind === "agent" ? (
+              <li
+                key={item.id ?? "pi"}
+                ref={(el) => { itemRefs.current[i] = el; }}
+                role="menuitemradio"
+                aria-checked={i === checkedIndex}
+                tabIndex={-1}
+                data-agent={item.id ?? "pi"}
+                onClick={(e) => { e.stopPropagation(); choose(item.id); }}
+                className="focus-ring flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] min-h-[44px] sm:min-h-0"
+              >
+                <span className="mt-0.5 w-4 shrink-0">{i === checkedIndex && <Icon path={mdiCheck} size={0.6} />}</span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate font-bold">{item.name}</span>
+                  <span className="truncate text-[11px] text-[var(--text-secondary)]">{item.meta}</span>
+                </span>
+              </li>
+            ) : (
+              <li
+                key="model-choice"
+                ref={(el) => { itemRefs.current[i] = el; }}
+                role="menuitem"
+                tabIndex={-1}
+                data-item="choice"
+                onClick={(e) => e.stopPropagation()}
+                className={`flex flex-col gap-1 rounded-lg px-2 py-1.5 ${agentItems.length > 0 ? "mt-1 border-t border-[var(--border-secondary)] pt-2" : ""}`}
+              >
+                {/* Named by the chip trigger ("Model …, thinking …"). */}
+                <Suspense fallback={null}>
+                  <SpawnChoiceChip cwd={cwd} disabled={current !== undefined} testId={`${testId}-model-choice`} />
+                </Suspense>
+              </li>
+            ),
+          )}
         </ul>
       )}
     </div>

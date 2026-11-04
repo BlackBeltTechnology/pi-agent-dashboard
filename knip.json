@@ -607,11 +607,16 @@
     "packages/mockup-loop": {
       "entry": [
         "src/extension.ts",
+        "src/mock-site/plugin.mjs",
+        "src/mock-site/cli.mjs",
+        "site/main.tsx",
+        "site/kit.tsx",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
       "project": [
-        "src/**/*.{ts,tsx,mjs}"
+        "src/**/*.{ts,tsx,mjs}",
+        "site/**/*.{ts,tsx}"
       ]
     },
     "packages/nano-banana": {

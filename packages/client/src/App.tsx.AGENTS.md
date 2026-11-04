@@ -90,3 +90,5 @@ Subscribes `onDeviceBearerNotice` → one keyed `warning` toast (`device-bearer-
 Read-only archived view: `viewedSession` (lib/session/archived-read-only-session) feeds the header row and the editor-pane `cwd` (`paneSession`); `archivedView` (= `?archived=1`) unwires rename/tags/seek/resume and trims mobile actions to refresh. Summary not yet fetched → header placeholder `archived-header-placeholder` ("Loading archived session…"); fetch failed (`archivedSummaryFailed`) → "Archived session unavailable"; provider gets `cwdUnavailable`. See change: fix-archived-session-view-header-and-stale-artifact-tab.
 
 See change: fix-chat-transcript-layout (D5) — `composer-stack-anchor` = content-height canvas chip slot (`shrink-0 mx-5`, no `aria-hidden`; 0 px while no chip), still gated `!frozen && !readOnly`, directly above `ComposerDockHost`; `CanvasDriver` portals the chip tray into it. `columnEl` (= its `parentElement`) unchanged.
+
+See change: add-spawn-model-choice. Mirrors `spawnDefaults` into `setSpawnDefaults` (spawn-choice store). Keyboard sibling (`handleForkPendingPrompt`) → `siblingSpawnOpts(target)`.

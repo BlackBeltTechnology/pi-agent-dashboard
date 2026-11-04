@@ -38,3 +38,5 @@ See change: fix-popover-container-clip — ModelSelector opts into the horizonta
 - Face appends `· level` (`model-chip-level`, `hidden @[26.25rem]:inline-flex`; omitted when model and level are both unset). Level `thinking-tag` rides there. `aria-label` = `Model <m>, thinking <l>` (only in merged mode).
 - Popover appends `LevelRadioGroup` (`model-level-group`, `role=radiogroup` "Thinking level", `role=radio` + `data-level`, roving tabindex, arrows move focus); levels via `thinkingLevelsFor(supportedLevels)`; a pick calls `onSelectLevel`, closes, refocuses the trigger.
 - Root `min-w-0`, trigger `max-w-full min-w-0`: the id truncates with an ellipsis before any other toolbar control folds. Role display (`from @<role>`, `RoleRef`) unchanged. See change: add-composer-dock.
+
+See change: add-spawn-model-choice. Opt-in render slots `renderPanelHeader(close)` (top of the panel) + `renderLevelPrefix(close)` (leads the level radiogroup); `close` closes + refocuses the trigger. Host-rendered so slot markup stays off this eager module; absent → unchanged.
