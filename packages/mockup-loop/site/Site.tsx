@@ -47,8 +47,8 @@ function Player({ f, n, base }: { f: Frame; n: number; base: string }): ReactEle
     return () => clearInterval(t);
   }, [playing, steps.length]);
   return (
-    <div className="mk-player" style={{ width: phone ? 375 : f.width ?? 320 }}>
-      <div className="mk-canvas mk-stage">
+    <div className="mk-player" style={{ width: phone ? undefined : f.width ?? 320 }}>
+      <div className={`mk-canvas mk-stage${phone ? " mk-stage-phone" : ""}`}>
         <InPlayer.Provider value={true}>
           {steps.map((s, i) => <div key={i} className={`mk-scene${i === k ? " on" : ""}`} aria-hidden={i !== k} inert={i !== k}>{phone ? <PhonePane spec={`${base}/step-${i + 1}`} /> : s.proposed}</div>)}
         </InPlayer.Provider>
