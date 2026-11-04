@@ -99,7 +99,14 @@ const MDI_MARKER = "mdiZodiacAquarius";
 // (lazy-plugin-claims policy): the chip, the shared flow-actions hook, the catalog hook + timings and the pill
 // copy. 612,367 B on CI, 15 B over the old cap; 599 KiB (613,376 B) leaves ~1 KB for CI's compressor variance.
 // Smallest KiB step that clears it; not a general raise.
-const INDEX_GZ_CAP_BYTES = 599 * 1024;
+// update-flows-plugin (2026-11-04): 599 -> 602 KiB. Size win first: the new group / decision / skipped cards
+// (FlowStepCards) and the Agent cards section live in the lazy FlowDashboard claim module, and the flow graph
+// stays off the landing graph. What stays is the flows plugin's session-event reducer, which every session
+// reduces through and so cannot be lazy: pi-flows 0.10 fan-out items + group-parent precedence, flow_decision
+// routes / skipped targets and the frozen-terminal guard (+~1.5 KB gz), plus the generic plugin entry-type
+// reducer input. 614,754 B in this test's own gzip, 1,378 B over the old cap; 601 KiB would leave ~670 B, so
+// 602 KiB (616,448 B, ~1.7 KB headroom for CI's compressor variance). Smallest step with headroom; not a general raise.
+const INDEX_GZ_CAP_BYTES = 602 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
