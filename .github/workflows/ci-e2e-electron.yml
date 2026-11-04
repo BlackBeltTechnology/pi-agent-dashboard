@@ -176,7 +176,10 @@ jobs:
 
       - name: Start Verdaccio (throwaway storage)
         run: |
-          npm install -g verdaccio
+          # Pinned: Verdaccio 7 (latest since 2026-10-25) rejects the fixed
+          # fake `_authToken` runtime-e2e-registry.mjs publishes with (E401);
+          # 6.11.1 accepts it on Node 22/24/26. See change: raise-node-floor-to-26.
+          npm install -g verdaccio@6.11.1
           echo "VERDACCIO_CONFIG=$(node scripts/runtime-e2e-registry.mjs config --dir "$RUNNER_TEMP/verdaccio")" >> "$GITHUB_ENV"
 
       - name: Serve Verdaccio

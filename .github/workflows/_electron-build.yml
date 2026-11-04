@@ -315,7 +315,10 @@ jobs:
       # (node-native — Windows-safe). See change: add-nightly-verdaccio-build.
       - name: Install Verdaccio (nightly)
         if: ${{ inputs.registry_url != '' }}
-        run: npm install -g verdaccio
+        # Pinned: Verdaccio 7 rejects the fixed fake `_authToken`
+        # nightly-verdaccio-publish.mjs publishes with (E401). See change:
+        # raise-node-floor-to-26.
+        run: npm install -g verdaccio@6.11.1
 
       - name: Start Verdaccio (nightly)
         if: ${{ inputs.registry_url != '' }}

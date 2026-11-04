@@ -829,6 +829,11 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
           MOCK_PI_WRITE_CHUNK: "4096",
           MOCK_PI_WRITE_TICK_MS: "10",
           MOCK_PI_WRITE_TOTAL: "1048576", // 1 MiB of child bytes, no keeper activity
+          // One trailing child byte after the final rotation check: without it
+          // a rotation that fires right after the last chunk leaves the log
+          // empty and the post-rotation wait below never sees child bytes
+          // (reproduced on Linux + Node 26). See change: raise-node-floor-to-26.
+          MOCK_PI_WRITE_TAIL: "1",
         },
       }),
     );
