@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { matchesPattern, stripThinkingLevel } from "@blackbelt-technology/pi-dashboard-shared/enabled-models-match.js";
+import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import type { UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import type { BridgeContext } from "./bridge-context.js";
@@ -165,6 +166,8 @@ export function sendStateSync(
     ...(leafEntryId !== undefined ? { leafEntryId } : {}),
     ...(opts?.liveTailOpen !== undefined ? { liveTailOpen: opts.liveTailOpen } : {}),
     pid: process.pid,
+    // See change: scope-pids-to-namespace.
+    pidNamespace: processPidNamespace(),
     registerReason,
     // See change: prove-vault-bridge-tls (D7).
     ...(bc.connection.certValidation ? { certValidation: "enforced" as const } : {}),
@@ -306,6 +309,8 @@ export function handleSessionChange(
     // The switch path never leaves the tail open (see replaySessionEntries below).
     liveTailOpen: false,
     pid: process.pid,
+    // See change: scope-pids-to-namespace.
+    pidNamespace: processPidNamespace(),
     registerReason: "spawn",
     // See change: prove-vault-bridge-tls (D7).
     ...(bc.connection.certValidation ? { certValidation: "enforced" as const } : {}),

@@ -75,6 +75,9 @@ import {
   buildModelErrorLogLine,
   extractModelTurnError,
 } from "./spawn-process/spawned-turn-log.js";
+import { resolvePidTarget, sanitizePidNamespace } from "./session/pid-target.js";
+import { getServerPidContext } from "./session/server-pid-context.js";
+import { linkRegisterToSpawn } from "./spawn-process/link-register.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -1726,21 +1729,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       // `spawn-correlation-token`. cwd-FIFO is the legacy fallback for old
       // bridges that send neither token nor pid (and is logged so we can see
       // when it actually triggers).
-      let linked = false;
-      if (msg.spawnToken) {
-        linked = browserGateway.headlessPidRegistry.linkByToken(msg.spawnToken, sessionId, msg.pid);
-      }
-      if (!linked && msg.pid !== undefined) {
-        linked = browserGateway.headlessPidRegistry.linkByPid(sessionId, msg.pid);
-      }
-      if (!linked) {
-        if (msg.spawnToken || msg.pid !== undefined) {
-          console.error(
-            `[event-wiring] cwd-FIFO fallback for session ${sessionId} — token=${msg.spawnToken ?? ""} pid=${msg.pid ?? ""} cwd=${msg.cwd}`,
-          );
-        }
-        browserGateway.headlessPidRegistry.linkSession(sessionId, msg.cwd);
-      }
+      // Tiers 2–3 are gated by the register's pid target, resolved WITHOUT
+      // own-entry evidence (never circular). See change: scope-pids-to-namespace.
+      const registered = sessionManager.get(sessionId) ?? {
+        pid: msg.pid,
+        cwd: msg.cwd,
+        pidNamespace: sanitizePidNamespace(msg.pidNamespace),
+      };
+      linkRegisterToSpawn(
+        browserGateway.headlessPidRegistry,
+        { sessionId, spawnToken: msg.spawnToken, pid: msg.pid, cwd: msg.cwd },
+        msg.pid !== undefined ? resolvePidTarget(registered, getServerPidContext()) : undefined,
+      );
 
       // ── generic plugin-ref resolution ────────────────────────────────
       // A plugin (or a first-party feature spawning in core) filed an opaque
@@ -2780,7 +2780,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     // Forward process list from bridge to subscribed browsers, enriched with
     // per-entry classification. See change: classify-process-list-entries.
     if (msg.type === "process_list") {
-      const pidIndex = buildPidIndex(sessionManager.listActive());
+      const pidIndex = buildPidIndex(sessionManager.listActive(), getServerPidContext());
       const enriched = classifyProcesses(msg.processes, pidIndex);
       // Store enriched entries so late subscribers replay with classification.
       sessionManager.update(sessionId, { processes: enriched });

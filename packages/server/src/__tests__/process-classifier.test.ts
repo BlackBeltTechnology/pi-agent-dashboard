@@ -1,11 +1,16 @@
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, PidNamespace } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
+import type { ServerPidContext } from "../session/pid-target.js";
 import {
-  buildPidIndex,
+  buildPidIndex as buildPidIndexIn,
   classifyProcesses,
   type PidIndex,
   type RawProcessEntry,
 } from "../spawn-process/process-classifier.js";
+
+// Legacy sessions (no reported namespace) on a Linux server resolve `host`.
+const SL: ServerPidContext = { platform: "linux", hostId: "boot-A", nsId: "pid:[4026531836]" };
+const buildPidIndex = (sessions: readonly DashboardSession[]) => buildPidIndexIn(sessions, SL);
 
 function raw(partial: Partial<RawProcessEntry> & { pid: number; command: string }): RawProcessEntry {
   return { pgid: partial.pid, elapsedMs: 60_000, ...partial };
@@ -100,5 +105,48 @@ describe("classifyProcesses", () => {
     const [out] = classifyProcesses([raw({ pid: 100, command: "pi" })], idx);
     expect(out.kind).toBe("pi-worker");
     expect(out.sessionRef).toBeUndefined();
+  });
+});
+
+/**
+ * Only `host`-target sessions are indexed: a pid number from another
+ * namespace never names a local process. Test-plan rows E86, E87.
+ * See change: scope-pids-to-namespace.
+ */
+describe("buildPidIndex by pid target", () => {
+  const RL: PidNamespace = { platform: "linux", kind: "host", hostId: "boot-A", nsId: "pid:[4026531836]" };
+  const RL_WSL: PidNamespace = { platform: "linux", kind: "wsl", distro: "U", hostId: "boot-W", nsId: "pid:[1]" };
+  const piProc = (pid: number) => raw({ pid, command: "pi --mode rpc" });
+
+  it("E86: only connected host sessions contribute", () => {
+    const idx = buildPidIndexIn(
+      [
+        session({ id: "A", pid: 100, pidNamespace: RL }),
+        session({ id: "B", pid: 101, originDeviceId: "dev-remote-1" }),
+        session({ id: "C", pid: 102, pidNamespace: RL_WSL }),
+        session({ id: "D", pid: 103, pidNamespace: { platform: "linux", kind: "host", hostId: "boot-A" } }),
+        session({ id: "E", pid: 104, pidNamespace: RL, status: "ended" }),
+      ],
+      SL,
+    );
+    const out = classifyProcesses([100, 101, 102, 103, 104].map(piProc), idx);
+    expect(out[0]).toMatchObject({ kind: "sub-session", sessionRef: "A" });
+    for (const e of out.slice(1)) {
+      expect(e.kind).toBe("pi-worker");
+      expect(e.sessionRef).toBeUndefined();
+    }
+  });
+
+  it("E87: the same pid number in two namespaces maps to the host session only", () => {
+    const idx = buildPidIndexIn(
+      [session({ id: "A", pid: 100, pidNamespace: RL }), session({ id: "B", pid: 100, originDeviceId: "dev-remote-1" })],
+      SL,
+    );
+    expect(classifyProcesses([piProc(100)], idx)[0].sessionRef).toBe("A");
+    const reversed = buildPidIndexIn(
+      [session({ id: "B", pid: 100, originDeviceId: "dev-remote-1" }), session({ id: "A", pid: 100, pidNamespace: RL })],
+      SL,
+    );
+    expect(classifyProcesses([piProc(100)], reversed)[0].sessionRef).toBe("A");
   });
 });

@@ -187,7 +187,7 @@ export interface HeadlessPidRegistry {
    * `sessionId`. Returns `true` on match. Used when the bridge sent
    * `session_register.pid` but no token. See change: spawn-correlation-token.
    */
-  linkByPid(sessionId: string, pid: number): boolean;
+  linkByPid(sessionId: string, pid: number, opts?: { cwd?: string }): boolean;
   /**
    * Tier 3 (legacy) link: find first entry by `cwd` where `!sessionId`,
    * set its `sessionId`. Returns `true` on match. Cwd-FIFO fallback for
@@ -438,11 +438,14 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       return false;
     },
 
-    linkByPid(sessionId: string, pid: number): boolean {
+    linkByPid(sessionId: string, pid: number, opts?: { cwd?: string }): boolean {
+      // `opts.cwd`: an `unknown` pid target links by pid only to an entry in
+      // the register's own cwd. See change: scope-pids-to-namespace (D3).
+      const cwdOk = (e: HeadlessEntry) => opts?.cwd === undefined || e.cwd === opts.cwd;
       // Tier 2a: match by Map key (= spawn-time pid). Always tried first
       // because it's O(1) and exact for non-keeper mode.
       const direct = entries.get(pid);
-      if (direct && !direct.sessionId) {
+      if (direct && !direct.sessionId && cwdOk(direct)) {
         direct.sessionId = sessionId;
         return true;
       }
@@ -455,7 +458,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       // mis-maps and `/ctx-stats` dispatches to the wrong keeper).
       // See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
       for (const entry of entries.values()) {
-        if (entry.piPid === pid && !entry.sessionId) {
+        if (entry.piPid === pid && !entry.sessionId && cwdOk(entry)) {
           entry.sessionId = sessionId;
           return true;
         }

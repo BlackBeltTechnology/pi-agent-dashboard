@@ -60,6 +60,8 @@ interface ProvisionalRegisterPayload {
   sessionDir?: string;
   firstMessage?: string;
   pid?: number;
+  /** Untrusted; carried with `pid` and sanitised at register. See change: scope-pids-to-namespace. */
+  pidNamespace?: unknown;
 }
 
 /** What the caller is told. Deliberately carries no detail. */

@@ -1,5 +1,6 @@
 import { type KillFn, signalZero } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import type { ClosedReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { PidTarget } from "./pid-target.js";
 
 /**
  * Best-effort classification of an involuntary death from the recorded `pid`.
@@ -15,18 +16,21 @@ import type { ClosedReason } from "@blackbelt-technology/pi-dashboard-shared/typ
  * `unknown` rather than claiming the process persists. An unprobeable pid
  * (EPERM, no pid) is likewise `unknown`.
  *
- * A REMOTE-origin session's pid lives in ANOTHER host's PID namespace, so a
- * local probe of it is meaningless — an ESRCH would assert `process_gone` about
- * a process this host cannot see (a running remote pi behind a dropped tunnel
- * is the common case). Remote origin therefore downgrades to `unknown` WITHOUT
- * probing. See change: stop-discarding-known-session-state (design D1, task 4.10).
+ * Only a pid whose resolved target is `host` is probed. Any other target —
+ * remote origin, WSL, a container, `unknown` — lives in (or may live in)
+ * ANOTHER pid namespace, where a local ESRCH asserts `process_gone` about a
+ * process this host cannot see (a running remote pi behind a dropped tunnel is
+ * the common case). Those downgrade to `unknown` WITHOUT probing.
+ * See changes: stop-discarding-known-session-state (design D1, task 4.10),
+ *              scope-pids-to-namespace (D3).
  */
 export function classifyCarrierLoss(
-  session: { pid?: number; originDeviceId?: string },
+  session: { pid?: number },
+  target: PidTarget | undefined,
   opts: { kill?: KillFn } = {},
 ): ClosedReason {
-  if (session.originDeviceId) return "unknown";
   if (session.pid === undefined) return "unknown";
+  if (target?.kind !== "host") return "unknown";
   // `esrch` is PROOF of absence; `alive` (including a recycled pid) and
   // `other-errno` (e.g. EPERM — process exists but is not ours) are both
   // "we could not tell", so they read `unknown`.

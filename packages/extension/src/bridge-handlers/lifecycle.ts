@@ -8,6 +8,7 @@
 import { loadConfig, resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { formatHostPort } from "@blackbelt-technology/pi-dashboard-shared/host-port.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { processPidNamespace } from "@blackbelt-technology/pi-dashboard-shared/pid-namespace.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { Loader } from "@earendil-works/pi-tui";
 import { cleanupAttachmentsForSession, } from "../ask-user-attachments.js";
@@ -605,6 +606,8 @@ export function registerSessionStart(inst: BridgeInstance): void {
       // fresh session, did not.
       // See change: fix-tmux-session-shutdown-leak (D6).
       pid: process.pid,
+      // Which pid namespace `pid` lives in. See change: scope-pids-to-namespace.
+      pidNamespace: processPidNamespace(),
       // See change: prove-vault-bridge-tls (D7).
       ...(inst.connection.certValidation ? { certValidation: "enforced" as const } : {}),
       // The spawn correlation token, echoed back so the server can match THIS
