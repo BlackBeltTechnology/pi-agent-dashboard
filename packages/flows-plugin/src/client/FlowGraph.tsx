@@ -3,7 +3,7 @@ import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-run
 // Stays as a direct import. See add-plugin-ui-primitive-registry Decision 4.
 import { useZoomPan } from "@blackbelt-technology/pi-dashboard-client-utils/useZoomPan";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { mdiCallSplit, mdiCodeTags, mdiRobotOutline, mdiSourceBranch } from "@mdi/js";
 import { graphlib } from "dagre-d3-es";
 import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
@@ -46,7 +46,11 @@ export function mapStepType(stepType: string | undefined): FlowStepType | undefi
 export interface FlowGraphStep {
   id: string;
   label: string;
-  status: "pending" | "running" | "complete" | "error" | "blocked";
+  status: "pending" | "running" | "complete" | "error" | "blocked" | "skipped";
+  /** Short status word shown AFTER the name (never instead of it): `skipped`,
+   *  a fan-out `xN (k failed)` count, or a decision's chosen routes. Colour is
+   *  never the sole channel. See change: update-flows-plugin (D6). */
+  statusWord?: string;
   blockedBy: string[];
   type?: FlowStepType;
   /** Decision branch label → target step id (fork / agent-decision / code-decision). */
@@ -64,6 +68,23 @@ export interface FlowGraphStep {
  *  Uses dagSteps when available, falls back to agents map for backward compat.
  *  Implicit-segment + branch edges are derived later by `deriveFlowEdges` in
  *  computeLayout; here we only carry `blockedBy` + `branches`. */
+/** Status word for a step: skipped / fan-out count / chosen decision routes. */
+export function graphStatusWord(flowState: FlowState, stepId: string, status: FlowGraphStep["status"]): string | undefined {
+  if (status === "skipped") return "skipped";
+  const items = flowState.groups?.[stepId]?.filter(Boolean);
+  const card = flowState.agents.get(stepId);
+  const count = Math.max(items?.length ?? 0, card?.itemCount ?? 0);
+  if (items && items.length > 0) {
+    const failed = items.filter((i) => i.status === "error").length;
+    return failed > 0 ? `x${count} (${failed} failed)` : `x${count}`;
+  }
+  const decision = flowState.decisions?.[stepId];
+  if (decision && !decision.routeError && decision.routes && decision.routes.length > 0) {
+    return decision.routes.map((r) => r.branch).join(", ");
+  }
+  return undefined;
+}
+
 export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
   if (flowState.dagSteps && flowState.dagSteps.length > 0) {
     const stepStatus = new Map<string, FlowGraphStep["status"]>();
@@ -72,12 +93,18 @@ export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
       if (agent.stepId) stepStatus.set(agent.stepId, agent.status);
       stepStatus.set(agent.agentName, agent.status);
     }
+    // Card-less steps an unchosen decision route skipped.
+    for (const id of flowState.skippedSteps ?? []) if (!stepStatus.has(id)) stepStatus.set(id, "skipped");
 
     const allStepIds = new Set(flowState.dagSteps.map(s => s.id));
-    return flowState.dagSteps.map(step => ({
+    return flowState.dagSteps.map(step => {
+      const status = stepStatus.get(step.id) || stepStatus.get(step.agent || "") || "pending";
+      const statusWord = graphStatusWord(flowState, step.id, status);
+      return {
       id: step.id,
       label: step.id,
-      status: stepStatus.get(step.id) || stepStatus.get(step.agent || "") || "pending",
+      status,
+      ...(statusWord ? { statusWord } : {}),
       blockedBy: step.blockedBy.filter(dep => allStepIds.has(dep)),
       type: mapStepType(step.stepType),
       branches: step.branches,
@@ -86,7 +113,8 @@ export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
       // fix-flow-ui-graph-zoom-summary.
       onComplete: step.onComplete,
       onError: step.onError,
-    }));
+      };
+    });
   }
 
   // Fallback: build from agents map (backward compat for old events without dagSteps)
@@ -107,6 +135,7 @@ export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
 interface PositionedNode {
   id: string;
   label: string;
+  statusWord?: string;
   status: FlowGraphStep["status"];
   type?: FlowStepType;
   x: number;
@@ -159,6 +188,8 @@ const STATUS_COLORS: Record<string, { border: string; fill: string; text: string
   complete: { border: "#22c55e", fill: "#0a2a10", text: "#22c55e" },
   error:    { border: "#ef4444", fill: "#2a0a0a", text: "#ef4444" },
   blocked:  { border: "#f97316", fill: "#2a1a00", text: "#f97316" },
+  // Skipped = the pending style; the word "skipped" carries the meaning.
+  skipped:  { border: "#555",    fill: "#2a2a2a", text: "#888"    },
 };
 
 function getEdgeColor(sourceStatus: string, targetStatus: string): { stroke: string; animated: boolean; dashed: boolean } {
@@ -286,6 +317,7 @@ export function computeLayout(
     return {
       id: step.id,
       label: step.label,
+      ...(step.statusWord ? { statusWord: step.statusWord } : {}),
       status: step.status,
       type: step.type,
       x: n.x - NODE_WIDTH / 2,
@@ -633,7 +665,9 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
             const iconScale = ICON_SIZE / 24;
             const labelX = node.x + 7 + ICON_SIZE + 4;
             const availW = node.x + node.width - labelX - 8;
-            const naturalW = node.label.length * FONT_SIZE * 0.6;
+            // Name first, then the short status word (` · skipped`, ` · x3`).
+            const wordText = node.statusWord ? ` · ${node.statusWord}` : "";
+            const naturalW = (node.label.length + wordText.length) * FONT_SIZE * 0.6;
             const labelFontSize = naturalW > availW
               ? Math.max(7, FONT_SIZE * (availW / naturalW))
               : FONT_SIZE;
@@ -643,6 +677,7 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
               <g
                 key={node.id}
                 data-node={node.id}
+                data-status={node.status}
                 style={{ cursor: onSelectStep ? "pointer" : "default" }}
                 className={`${isRunning ? "flow-node-running" : ""}${isSelected ? " flow-node-selected" : ""}`.trim()}
                 onClick={onSelectStep ? () => onSelectStep(node.id) : undefined}
@@ -701,6 +736,11 @@ export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSele
                   fontFamily="system-ui, -apple-system, sans-serif"
                 >
                   {node.label}
+                  {wordText && (
+                    <tspan data-status-word="" fillOpacity={0.85}>
+                      {wordText}
+                    </tspan>
+                  )}
                 </text>
               </g>
             );

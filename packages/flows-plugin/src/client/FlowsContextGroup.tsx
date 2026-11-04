@@ -12,7 +12,8 @@
  * See change: flows-dock-chip-and-panel-actions (D5–D7, D9).
  */
 import { ComposerContextGroup, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { DashboardSession, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { mdiEyeOutline, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";

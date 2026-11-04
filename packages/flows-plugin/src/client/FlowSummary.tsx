@@ -1,6 +1,7 @@
 import { usePluginSend, useUiPrimitive, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { DashboardSession, FlowAgentState, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 import { mdiAlertCircle, mdiCheckCircle, mdiChevronDown, mdiChevronRight, mdiCircleOutline, mdiCloseCircle, mdiCloseCircleOutline, mdiStopCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";

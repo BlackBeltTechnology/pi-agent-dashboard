@@ -8,7 +8,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { reduceFlowEvent } from "../reducer.js";
-import type { DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 
 function ev(type: string, data: Record<string, unknown>): DashboardEvent {
   return { seq: 1, timestamp: 0, sessionId: "s1", eventType: type, data } as unknown as DashboardEvent;

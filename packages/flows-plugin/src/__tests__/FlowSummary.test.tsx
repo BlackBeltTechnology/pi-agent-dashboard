@@ -26,7 +26,7 @@ import {
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { FlowAgentState, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 import { FlowSummary } from "../client/FlowSummary.js";
 import { flowCollapseKey } from "../client/flow-collapse-storage.js";
 

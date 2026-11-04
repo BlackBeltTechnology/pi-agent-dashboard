@@ -1,25 +1,29 @@
 /**
  * L2 contract-pinned bridge-forward + reducer coverage.
  *
- * The dashboard bridge forwards pi-flows `flow:*` events to the dashboard
- * protocol via `FLOW_EVENT_MAP` (packages/extension/src/flow-event-wiring.ts);
- * the flows-plugin reducer consumes the mapped `flow_*` types. This test PINS
- * the reducer to that map: event types are read from `FLOW_EVENT_MAP` VALUES
- * (never hand-typed literals), so a pi-flows rename that updates the map
+ * The flows plugin bridge declares the pi-flows `flow:*` channels and their
+ * forwarded `flow_*` types (`FLOW_RUN_CHANNELS`, bridge/flow-event-forward.ts);
+ * the flows-plugin reducer consumes those types. This test PINS the reducer to
+ * that declaration: event types are read from its `as` VALUES (never
+ * hand-typed literals), so a pi-flows rename that updates the declaration
  * propagates here, and a reducer that stops handling a core lifecycle event
- * fails loudly.
+ * fails loudly. Nothing is imported from packages/extension (core holds no
+ * flow map). See change: update-flows-plugin (test-plan E50).
  *
  * Hermetic by design (design D2): no browser, no network, no runtime
  * dependency on pi-flows. Real-engine event fidelity is covered at L3 (the
  * Docker harness), where pi-flows is genuinely installed.
  */
 
-import type { DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { describe, expect, it } from "vitest";
-// Relative import into the extension package source: vitest maps the `.js`
-// specifier to the `.ts` source. This is the CONTRACT PIN — the same map the
-// bridge forwards through at runtime.
-import { FLOW_EVENT_MAP } from "../../../extension/src/flow-event-wiring.js";
+// CONTRACT PIN — the same declaration the plugin bridge registers at runtime.
+import { FLOW_RUN_CHANNELS } from "../bridge/flow-event-forward.js";
+
+const FLOW_EVENT_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(FLOW_RUN_CHANNELS).map(([channel, spec]) => [channel, spec.as as string]),
+);
 import { reduceFlowEvent } from "../reducer.js";
 
 function ev(type: string, data: Record<string, unknown>): DashboardEvent {
@@ -33,7 +37,7 @@ const T_AGENT_STARTED = FLOW_EVENT_MAP["flow:agent-started"];
 const T_AGENT_COMPLETE = FLOW_EVENT_MAP["flow:agent-complete"];
 const T_COMPLETE = FLOW_EVENT_MAP["flow:complete"];
 
-describe("flow reducer × bridge FLOW_EVENT_MAP contract", () => {
+describe("flow reducer × flows bridge declaration contract", () => {
   it("the map exposes the core lifecycle event types", () => {
     expect(T_STARTED).toBe("flow_started");
     expect(T_AGENT_STARTED).toBe("flow_agent_started");
@@ -104,5 +108,17 @@ describe("flow reducer × bridge FLOW_EVENT_MAP contract", () => {
 
     const complete = reduceFlowEvent(agentComplete, ev(T_COMPLETE, { status: "success" }));
     expect(complete?.status).toBe("success");
+  });
+});
+
+describe("contract source", () => {
+  it("imports nothing from packages/extension", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(new URL(import.meta.url), "utf8");
+    expect(src).not.toMatch(/from\s+["'][^"']*\/extension\//);
+  });
+
+  it("declares flow_decision, which the reducer handles", () => {
+    expect(FLOW_EVENT_MAP["flow:decision"]).toBe("flow_decision");
   });
 });

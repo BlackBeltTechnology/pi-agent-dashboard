@@ -13,7 +13,8 @@
  * `flow-yaml-parse.ts` (the shallow `flow_write` snapshot parser) is untouched.
  * See change: attach-flow-before-run (D1, D3, D4).
  */
-import type { DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { parse as parseYaml } from "yaml";
 import { reduceFlowEvent } from "../reducer.js";
 

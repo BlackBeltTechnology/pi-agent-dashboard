@@ -11,7 +11,7 @@
  */
 
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { FlowStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowStatus } from "../types.js";
 import { mdiAlertCircle, mdiCheckCircle, mdiLoading, mdiStop, mdiStopCircle } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode } from "react";

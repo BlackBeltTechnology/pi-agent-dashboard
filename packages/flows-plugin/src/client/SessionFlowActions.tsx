@@ -1,5 +1,6 @@
 import { usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { DashboardSession, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import React from "react";
 import { FlowActivityBadge } from "./FlowActivityBadge.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";

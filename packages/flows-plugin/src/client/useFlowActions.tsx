@@ -12,7 +12,8 @@
  * flows-dock-chip-and-panel-actions (D6, D9).
  */
 import { usePluginSend, useSessionData, useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { CommandInfo, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { lazy, Suspense, useMemo, useState } from "react";
 import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";

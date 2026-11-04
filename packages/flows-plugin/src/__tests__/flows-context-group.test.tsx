@@ -5,7 +5,8 @@
  * See change: flows-dock-chip-and-panel-actions (test-plan E19–E21).
  */
 import { initPluginConfigs, publishSessionData, publishSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime/host";
-import type { DashboardSession, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deriveChipFlow, FlowsContextGroup } from "../client/FlowsContextGroup.js";
