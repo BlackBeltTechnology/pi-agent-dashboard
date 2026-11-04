@@ -1,0 +1,167 @@
+{
+  "57": {
+    "entryKey": "js/path-injection packages/server/src/browse.ts ac0911b3ba5dba0b:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse?detect and /flags (also :660): non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused)"
+  },
+  "58": {
+    "entryKey": "js/path-injection packages/server/src/browse.ts 7febd2c0a55cb911:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse?detect and /flags (also :660): non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused)"
+  },
+  "59": {
+    "entryKey": "js/path-injection packages/server/src/browse.ts 8f56012ee7254808:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse: non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused); out-of-root parent row withheld (:633)"
+  },
+  "60": {
+    "entryKey": "js/path-injection packages/server/src/browse.ts daa4b34b3fc8d92a:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse: non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused); out-of-root parent row withheld (:633)"
+  },
+  "61": {
+    "entryKey": "js/path-injection packages/server/src/browse.ts ba853c4fee67143f:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:678; control POST /api/browse/mkdir: non-local parent confined to browse roots; name checked by validateMkdirName browse.ts:209"
+  },
+  "62": {
+    "entryKey": "js/path-injection packages/server/src/browse.ts 2fcdef6c6a4624db:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:678; control POST /api/browse/mkdir: non-local parent confined to browse roots; name checked by validateMkdirName browse.ts:209"
+  },
+  "67": {
+    "entryKey": "js/path-injection packages/server/src/changelog/changelog-fs.ts 93b0da8c5a5f6c04:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
+  },
+  "68": {
+    "entryKey": "js/path-injection packages/server/src/changelog/changelog-fs.ts 55de509927bc59c5:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
+  },
+  "69": {
+    "entryKey": "js/path-injection packages/server/src/changelog/changelog-fs.ts c732d156608016cd:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
+  },
+  "70": {
+    "entryKey": "js/path-injection packages/server/src/changelog/changelog-fs.ts baa7947723127218:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
+  },
+  "71": {
+    "entryKey": "js/path-injection packages/server/src/changelog/changelog-parser.ts a3625b8ab2814626:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
+  },
+  "72": {
+    "entryKey": "js/path-injection packages/server/src/changelog/changelog-parser.ts afcbe8a64cd30270:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
+  },
+  "77": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts f893e576687d4fea:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "78": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts 898d45d355ac9d2d:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "83": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts 32beb3b22e38928e:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "84": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts 3160fb7ad12b689b:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "85": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts e4f2c3ea8fbd125d:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "86": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts e4f2c3ea8fbd125d:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "92": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts a20438526fb1dbce:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: realRootWithSep packages/server/src/git-worktree/git-operations.ts:1784; control POST /api/git/worktree/orphan-cleanup: lexical (:1749) and realpath containment in repo root; registered worktrees and .git refused"
+  },
+  "94": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts d6277b65f3d1b6f1:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: realRootWithSep packages/server/src/git-worktree/git-operations.ts:1784; control POST /api/git/worktree/orphan-cleanup: lexical (:1749) and realpath containment in repo root; registered worktrees and .git refused"
+  },
+  "96": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts ec77555d97374540:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: realRootWithSep packages/server/src/git-worktree/git-operations.ts:1784; control POST /api/git/worktree/orphan-cleanup: lexical (:1749) and realpath containment in repo root; registered worktrees and .git refused"
+  },
+  "102": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts f893e576687d4fea:2",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "103": {
+    "entryKey": "js/path-injection packages/server/src/git-worktree/git-operations.ts 898d45d355ac9d2d:2",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
+  },
+  "120": {
+    "entryKey": "js/path-injection packages/server/src/routes/file-routes.ts cbfa693d22ed7f6a:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: isWritableMdTarget packages/server/src/routes/file-routes.ts:245; control POST /api/file/write: resolveScopedMdPath (:243) scopes the target; markdown only, realpath, scope-bounded"
+  },
+  "131": {
+    "entryKey": "js/path-injection packages/server/src/routes/file-routes.ts 9f8b559045ac19db:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: admitFileCwd packages/server/src/routes/file-routes.ts:1265; observe GET /api/file/raw: containmentAllows (:1280, :1288); image-only artifact-root branch (isImageUnderArtifactRoot) skips the barrier"
+  },
+  "140": {
+    "entryKey": "js/path-injection packages/server/src/spawn-process/process-manager.ts d2a7121032bda765:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
+  },
+  "244": {
+    "entryKey": "js/path-injection packages/server/src/rpc-keeper/keeper-manager.ts fa136041986cd10b:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "false-positive: request ids reach readPidSidecar only for a registered session (sessionManager.get, session-action-handler.ts:552), else server-minted or readdirSync names; reads a fixed-suffix .pid file, parses a PID only"
+  },
+  "417": {
+    "entryKey": "js/path-injection packages/server/src/lib/folder-project.ts e1e4b63b7398c5c0:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: admitCwd packages/server/src/routes/folder-project-routes.ts:65; observe GET /api/folder/project: known-folder admission, 403 before any fs call"
+  },
+  "418": {
+    "entryKey": "js/path-injection packages/server/src/routes/folder-project-routes.ts 2d567cce8a6dc061:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: admitCwd packages/server/src/routes/folder-project-routes.ts:65; observe GET /api/folder/project: known-folder admission, 403 before any fs call"
+  },
+  "424": {
+    "entryKey": "js/path-injection packages/server/src/spawn-process/spawn-preflight.ts d1f1bb540e18cd67:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
+  },
+  "425": {
+    "entryKey": "js/path-injection packages/server/src/spawn-process/spawn-preflight.ts 4f8a6f259624304b:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
+  },
+  "426": {
+    "entryKey": "js/path-injection packages/server/src/spawn-process/spawn-preflight.ts 18257088b78cd55d:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
+  },
+  "493": {
+    "entryKey": "js/path-injection packages/server/src/lib/dashboard-state-guard.ts 2e052cf210d8c1d1:1",
+    "dismissedReason": "won't fix",
+    "reasonText": "operator-authz: gate: handleIsAlwaysRefused packages/server/src/lib/dashboard-state-guard.ts:429; read-only; an always-refused handle is refused before any read; gated state is path-checked pre-open; callers admit the path first"
+  }
+}

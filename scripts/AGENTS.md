@@ -25,7 +25,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/claude-plugin-zip.test.mjs` | Release zip layout (E44) and version gate (E45) for `build-claude-plugin-zip.mjs`. |
 | `__tests__/codeql-local-cli.test.mjs` | `codeql-local.mjs` end to end against a fake `CODEQL_BIN`… → see `__tests__/codeql-local-cli.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local-real.test.mjs` | `codeql-local.mjs` against the REAL CodeQL CLI on tiny repos (#E4, #E18, #X6). → see `__tests__/codeql-local-real.test.mjs.AGENTS.md` |
-| `__tests__/codeql-local-mirror.test.mjs` | `--mirror-dismissal` vs fake `codeql` + fake `gh` (#M1-#M17). See change: codeql-model-pack-and-mirror. |
+| `__tests__/codeql-local-mirror.test.mjs` | → `__tests__/codeql-local-mirror.test.mjs.AGENTS.md` |
 | `__tests__/codeql-local.test.mjs` | Pure decision logic of `codeql-local.mjs` (#E14, #E15, #E17… → see `__tests__/codeql-local.test.mjs.AGENTS.md` |
 | `__tests__/coverage-config.test.mjs` | Coverage config shape; `coverage-unloaded` fixture stays unloaded (E29-E31). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/coverage-report.test.mjs` | Live coverage runs; E2 scoped to `fixtures/coverage-unloaded`. See change: triage-browser-e2e-offbox-poison. |
@@ -116,6 +116,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-loader-neutral-source.mjs` | Loader-neutral source gate (AST; server scope). → see `check-loader-neutral-source.mjs.AGENTS.md` |
 | `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific absolute path in a committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
 | `check-plugin-boundary.mjs` | Core/plugin import ratchet for `ship-it` step 4.4 + `npm run check:plugin-boundary`: NEW edge / STALE row… → see `check-plugin-boundary.mjs.AGENTS.md` |
+| `codeql-anchor/plugin-routes.mjs` | → `codeql-anchor/plugin-routes.mjs.AGENTS.md` |
 | `host-api-surface.mjs` | Host API surface snapshot + bump gate. `--write` regenerates… → see `host-api-surface.mjs.AGENTS.md` |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
 | `check-vendor-specifiers.mjs` | Static specifier guard for the vendored relay: every import under `relay/vendor/` mus… → see `check-vendor-specifiers.mjs.AGENTS.md` |

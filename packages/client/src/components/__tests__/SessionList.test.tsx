@@ -1499,6 +1499,9 @@ describe("SessionList — ended paging release + exhausted (close-registry-frame
           <SessionList
             sessions={[]}
             onSelect={() => {}}
+            // Pinned: an unpinned stub is hidden by default.
+            // See change: fix-sidebar-folder-visibility.
+            pinnedDirectories={[CWD]}
             endedTotalsMap={props.endedTotals}
             pagedCount={props.pagedCount}
             pageReplyGen={props.pageReplyGen}
