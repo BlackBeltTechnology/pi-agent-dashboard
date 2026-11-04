@@ -115,8 +115,18 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
     const onDown = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node) && !inModelPanel(e.target)) setOpen(false);
     };
+    // Escape while focus drifted outside the menu (e.g. to <body> after the chip's
+    // popover closed) still closes it; the menu and the model panel handle their
+    // own Escape first (default-prevented / propagation stopped).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) close(true);
+    };
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
     // biome-ignore lint/correctness/useExhaustiveDependencies: focus once per open / checked change
   }, [open, checkedIndex]);
 

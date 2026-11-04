@@ -112,4 +112,16 @@ describe("folder split button model choice", () => {
     fireEvent.click(chevron);
     expect(screen.getByRole("menu")).toBeTruthy();
   });
+
+  it("Escape with focus drifted to <body> still closes the menu", () => {
+    _setAcpAgentsForTests([]);
+    picker();
+    const chevron = screen.getByTestId("spawn-chevron");
+    fireEvent.click(chevron);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(chevron);
+  });
 });
