@@ -60,3 +60,33 @@ describe("flow reducer seed-on-start", () => {
     expect(seeded?.agents.get("s1")?.status).toBe("pending");
   });
 });
+
+/** E29: flow types are owned by the plugin; core shared types carry none. */
+describe("flow types owned by the flows plugin (E29)", () => {
+  it("flow_started seeds the plugin slice; shared types.ts exports no flow-run type", async () => {
+    const s = reduceFlowEvent(null, {
+      eventType: "flow_started",
+      timestamp: 0,
+      data: {
+        flowName: "research",
+        task: "Find bugs",
+        steps: [
+          { id: "r", stepType: "agent", agent: "researcher", blockedBy: [] },
+          { id: "d", stepType: "agent", agent: "developer", blockedBy: ["r"] },
+        ],
+      },
+    } as never)!;
+    expect(s.flowName).toBe("research");
+    expect([...s.agents.values()].map((a) => a.status)).toEqual(["pending", "pending"]);
+    expect(s.agents.get("d")!.blockedBy).toEqual(["r"]);
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(`${import.meta.dirname}/../../../shared/src/types.ts`, "utf8");
+    for (const name of ["FlowState", "FlowAgentState", "FlowAgentStatus", "FlowAgentCardConfig", "NodeKind"]) {
+      expect(src, name).not.toMatch(new RegExp(`export (type|interface) ${name}\\b`));
+    }
+    // Core SessionState carries no flow field.
+    const reducer = fs.readFileSync(`${import.meta.dirname}/../../../client/src/lib/chat/event-reducer.ts`, "utf8");
+    const ss = reducer.slice(reducer.indexOf("export interface SessionState"));
+    expect(ss.slice(0, ss.indexOf("\n}\n"))).not.toMatch(/^\s+flow[A-Z]\w*\??:/m);
+  });
+});

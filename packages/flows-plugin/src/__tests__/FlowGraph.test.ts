@@ -7,7 +7,8 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import { cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeLayout, FlowGraph, type FlowGraphStep, mapStepType } from "../client/FlowGraph.js";
+import { computeLayout, FlowGraph, type FlowGraphStep, flowStateToGraphSteps, mapStepType } from "../client/FlowGraph.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.zoomControls, ((() => null) as never));
@@ -301,5 +302,101 @@ describe("computeLayout", () => {
     const fwd = result.edges.find(e => e.source === "gate" && e.target === "done");
     expect(fwd?.label).toBe("go");
     expect(fwd?.isLoop).toBeFalsy();
+  });
+});
+
+// ── pi-flows 0.10 status words (E30, E31). See change: update-flows-plugin. ──
+
+function card(stepId: string, status: FlowAgentState["status"], extra: Partial<FlowAgentState> = {}): FlowAgentState {
+  return { agentName: stepId, stepId, status, blockedBy: [], recentTools: [], detailHistory: [], ...extra };
+}
+function stateWith(over: Partial<FlowState>, cards: FlowAgentState[]): FlowState {
+  return {
+    flowName: "f",
+    task: "t",
+    status: "running",
+    autonomousMode: false,
+    agents: new Map(cards.map((c) => [c.stepId, c])),
+    dagSteps: cards.map((c) => ({ id: c.stepId, stepType: c.stepId === "triage" ? "agent-decision" : "agent", agent: c.agentName, blockedBy: [] })),
+    ...over,
+  };
+}
+function renderGraph(state: FlowState) {
+  const { container } = render(
+    createElement(UiPrimitiveProvider, {
+      value: registry,
+      children: createElement(FlowGraph, { steps: flowStateToGraphSteps(state) }),
+    }),
+  );
+  return container;
+}
+function nodeText(container: HTMLElement, id: string): string {
+  return container.querySelector(`[data-node="${id}"] text`)?.textContent ?? "";
+}
+
+describe("graph status words (E30)", () => {
+  const items = (n: number, failed: number) =>
+    Array.from({ length: n }, (_, i) => card("review", i < failed ? "error" : "complete", { itemIndex: i }));
+  it.each([
+    [3, 0, "review · x3"],
+    [3, 1, "review · x3 (1 failed)"],
+    [1, 0, "review · x1"],
+  ])("fan-out of %i with %i failed reads %s", (n, failed, text) => {
+    const c = renderGraph(stateWith({ groups: { review: items(n, failed) } }, [card("review", failed ? "error" : "complete")]));
+    expect(nodeText(c, "review")).toBe(text);
+  });
+
+  it("a skipped step reads `skipped` and uses the pending style", () => {
+    const c = renderGraph(stateWith({}, [card("doc", "skipped")]));
+    expect(nodeText(c, "doc")).toBe("doc · skipped");
+    const pending = renderGraph(stateWith({}, [card("doc", "pending")]));
+    const rect = (el: HTMLElement) => el.querySelector('[data-node="doc"] rect')?.getAttribute("fill");
+    expect(rect(c)).toBe(rect(pending));
+    expect(c.querySelector('[data-node="doc"]')?.getAttribute("data-status")).toBe("skipped");
+  });
+
+  it("a card-less skipped step (decision target) reads skipped", () => {
+    const s = stateWith({ skippedSteps: ["gate"] }, [card("triage", "complete")]);
+    s.dagSteps!.push({ id: "gate", stepType: "code", blockedBy: [] });
+    const c = renderGraph(s);
+    expect(nodeText(c, "gate")).toBe("gate · skipped");
+  });
+
+  it.each([
+    [[{ branch: "fix" }], "triage · fix"],
+    [[{ branch: "fix" }, { branch: "doc" }], "triage · fix, doc"],
+  ])("a decision shows its chosen routes", (routes, text) => {
+    const c = renderGraph(
+      stateWith({ decisions: { triage: { routes, chosenTargets: [], notTaken: [] } } }, [card("triage", "complete")]),
+    );
+    expect(nodeText(c, "triage")).toBe(text);
+  });
+
+  it("the step name is the first text in every node", () => {
+    const c = renderGraph(
+      stateWith({ groups: { review: items(3, 1) }, decisions: { triage: { routes: [{ branch: "fix" }], chosenTargets: [], notTaken: [] } } }, [
+        card("review", "error"),
+        card("triage", "complete"),
+        card("doc", "skipped"),
+      ]),
+    );
+    for (const id of ["review", "triage", "doc"]) expect(nodeText(c, id).startsWith(id)).toBe(true);
+  });
+});
+
+describe("graph stays minimal (E31)", () => {
+  it("never renders item output, decision labels or per-item results", () => {
+    const s = stateWith(
+      {
+        groups: { review: [card("review", "complete", { itemIndex: 0, summary: "RESULT-XYZ" })] },
+        decisions: { triage: { labels: ["bug found"], routes: [{ branch: "fix" }], chosenTargets: ["fix"], notTaken: [] } },
+      },
+      [card("review", "complete", { summary: "RESULT-XYZ" }), card("triage", "complete")],
+    );
+    const c = renderGraph(s);
+    const text = c.textContent ?? "";
+    expect(text).not.toContain("RESULT-XYZ");
+    expect(text).not.toContain("bug found");
+    expect(c.querySelector('[data-node*="flow-ref"]')).toBeNull();
   });
 });

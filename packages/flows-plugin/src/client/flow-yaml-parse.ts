@@ -62,6 +62,12 @@ export function parseFlowYaml(content: string): ParsedFlow | null {
       branches = {};
       for (const [k, v] of Object.entries(branchesRaw as Record<string, unknown>)) {
         if (typeof v === "string") branches[k] = v;
+        // pi-flows 0.10 object form `{ to, means }` / `{ to, for_each }`; a
+        // branch with no `to` yields no edge (G8). See change: update-flows-plugin.
+        else if (v && typeof v === "object" && !Array.isArray(v)) {
+          const to = (v as { to?: unknown }).to;
+          if (typeof to === "string" && to !== "") branches[k] = to;
+        }
       }
     }
     steps.push({

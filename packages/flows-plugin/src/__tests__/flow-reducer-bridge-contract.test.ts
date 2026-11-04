@@ -114,7 +114,7 @@ describe("flow reducer × flows bridge declaration contract", () => {
 describe("contract source", () => {
   it("imports nothing from packages/extension", async () => {
     const fs = await import("node:fs");
-    const src = fs.readFileSync(new URL(import.meta.url), "utf8");
+    const src = fs.readFileSync(import.meta.filename, "utf8");
     expect(src).not.toMatch(/from\s+["'][^"']*\/extension\//);
   });
 
