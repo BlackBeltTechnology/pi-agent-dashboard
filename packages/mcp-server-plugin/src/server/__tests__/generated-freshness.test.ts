@@ -97,3 +97,14 @@ describe("E47 — answer tools are absent from every generated artifact", () => 
     expect(GENERATED_VERB_TIERS).toEqual(GENERATED_TOOLS.map((t) => ({ name: t.name, tier: t.tier })));
   });
 });
+
+// test-plan #E21 — see change: add-spawn-model-choice.
+describe("E21 — spawn_session schema follows the widened SpawnSessionRequest", () => {
+  it("advertises cwd, agent, model, thinkingLevel, initialPrompt — never attachProposal", () => {
+    const { tools } = build(routeTier);
+    const spawn = tools.find((t) => t.name === "spawn_session");
+    const props = Object.keys(spawn?.inputSchema.properties ?? {}).sort();
+    expect(props).toEqual(["agent", "cwd", "initialPrompt", "model", "thinkingLevel"]);
+    expect(GENERATED_TOOLS.find((t) => t.name === "spawn_session")?.inputSchema).toEqual(spawn?.inputSchema);
+  });
+});

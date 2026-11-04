@@ -3,7 +3,7 @@
  * test-plan: E1, E6, E22, E23, E24, E25, X5, X6.
  * See change: redesign-directory-home-split.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,12 +27,19 @@ vi.mock("../../spawn-process/spawn-register-watchdog.js", () => ({
   armSpawnWatchdog: vi.fn(),
 }));
 vi.mock("../../spawn-process/spawn-failure-log.js", () => ({ appendSpawnFailure: vi.fn() }));
+vi.mock("../../spawn-process/acp-spawn.js", () => ({
+  validateAcpAgent: (id: unknown) =>
+    id === "qmt" ? { ok: true, agent: { id: "qmt", command: "qmt" } } : { ok: false, message: "unknown" },
+  preflightAcpSpawn: () => ({ ok: true, reasons: [] }),
+  spawnAcpSession: vi.fn().mockResolvedValue({ success: true, message: "ok", spawnToken: "acp" }),
+}));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", () => ({
   ToolResolver: function MockToolResolver() {
     return { resolvePi: vi.fn().mockReturnValue(["pi"]), resolveNode: vi.fn().mockReturnValue("/usr/bin/node") };
   },
 }));
 
+import { spawnAcpSession } from "../../spawn-process/acp-spawn.js";
 import { spawnPiSession } from "../../spawn-process/process-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
 import { handleResumeSession, handleSendPrompt, handleSpawnSession } from "../session-action-handler.js";
@@ -191,5 +198,54 @@ describe("resume_session", () => {
     expect(lastOptions().mode).toBe("fork");
     expect(lastOptions()).not.toHaveProperty("model");
     expect(lastOptions()).not.toHaveProperty("thinking");
+  });
+});
+
+// See change: add-spawn-model-choice.
+describe("spawn_session role refs + choiceWarning", () => {
+  function writeProviders(content: string): void {
+    const dir = join(process.env.HOME as string, ".pi", "agent");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "providers.json"), content);
+  }
+  const spawnResult = (sent: unknown[]) =>
+    sent.find((m) => (m as { type: string }).type === "spawn_result") as Record<string, unknown>;
+
+  it("X4: unknown role → spawned without --model, choiceWarning names it, warn once", async () => {
+    writeProviders(JSON.stringify({ roles: { fast: "openai/gpt-6-mini" } }));
+    const warn = vi.mocked(console.warn);
+    warn.mockClear();
+    const { ctx, sent } = makeCtx({});
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p", model: "@ghost" }, ctx);
+    expect(lastOptions()).not.toHaveProperty("model");
+    const r = spawnResult(sent);
+    expect(r.success).toBe(true);
+    expect(String(r.choiceWarning)).toContain("ghost");
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("X5: garbled roles file → no throw, no model, choiceWarning present", async () => {
+    writeProviders("{not json");
+    const { ctx, sent } = makeCtx({});
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p", model: "@fast" }, ctx);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(lastOptions()).not.toHaveProperty("model");
+    expect(spawnResult(sent).choiceWarning).toBeTruthy();
+  });
+
+  it("X6: ACP agent + model → agent started, choiceWarning present", async () => {
+    const { ctx, sent } = makeCtx({});
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p", agent: "qmt", model: "openai/gpt-6" }, ctx);
+    expect(spawnAcpSession).toHaveBeenCalledTimes(1);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnResult(sent).choiceWarning).toBeTruthy();
+  });
+
+  it("role resolves to its concrete model; valid choice carries no warning", async () => {
+    writeProviders(JSON.stringify({ roles: { planning: "anthropic/claude-opus-5-5:high" } }));
+    const { ctx, sent } = makeCtx({});
+    await handleSpawnSession({ type: "spawn_session", cwd: "/p", model: "@planning" }, ctx);
+    expect(lastOptions()).toMatchObject({ model: "anthropic/claude-opus-5-5", thinking: "high" });
+    expect(spawnResult(sent)).not.toHaveProperty("choiceWarning");
   });
 });

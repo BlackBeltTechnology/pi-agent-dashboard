@@ -23,6 +23,7 @@ import type {
   SessionsSnapshotMessage,
   SessionUpdatedMessage,
   SpawnResultBrowserMessage,
+  SpawnSessionBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type {
   DashboardSession,
@@ -99,6 +100,12 @@ export interface SpawnOptions {
   attachProposal?: string;
   gitWorktreeBase?: string;
   initialPrompt?: string;
+  /** `provider/id`, `provider/id:<level>`, `@role` or `@role:<level>`; the server resolves `@role` once at spawn time. See change: add-spawn-model-choice. */
+  model?: string;
+  /** Canonical thinking level; beats a ref / role level. */
+  thinkingLevel?: SpawnSessionBrowserMessage["thinkingLevel"];
+  /** Called with `spawn_result.choiceWarning` when the server dropped the model / role / thinking choice (the spawn still ran). */
+  onWarning?: (warning: string) => void;
   timeout?: number;
 }
 
@@ -403,6 +410,8 @@ export class BusClient {
       ...(opts.attachProposal ? { attachProposal: opts.attachProposal } : {}),
       ...(opts.gitWorktreeBase ? { gitWorktreeBase: opts.gitWorktreeBase } : {}),
       ...(opts.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.thinkingLevel ? { thinkingLevel: opts.thinkingLevel } : {}),
     });
     // Fail fast on an explicit spawn failure; otherwise the exact-correlated
     // session_added resolves the id (headless strategy).
@@ -411,6 +420,7 @@ export class BusClient {
       added.catch(() => {}); // avoid an unhandled rejection when we bail early
       throw new Error(`session start failed: ${res.message}${res.code ? ` (${res.code})` : ""}`);
     }
+    if (res.choiceWarning) opts.onWarning?.(res.choiceWarning);
     return (await added).session.id;
   }
 

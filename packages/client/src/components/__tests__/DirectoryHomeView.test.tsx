@@ -14,6 +14,7 @@ import { memoryLocation } from "wouter/memory-location";
 import { yoloStatus } from "../../lib/access-grants/yolo-status.js";
 import { folderPaneId } from "../../lib/layout/folder-pane-id.js";
 import { scopedSession } from "../access-grant/__tests__/yolo-test-server.js";
+import { _setAcpAgentsForTests } from "../../hooks/useAcpAgents.js";
 import { DirectoryHomeView } from "../folder/DirectoryHomeView.js";
 import { FolderSplitProvider } from "../folder/FolderSplitProvider.js";
 
@@ -423,5 +424,18 @@ describe("composer dock footer (F15)", () => {
   it("no YOLO for the folder: no dock renders", () => {
     renderView({ cwd: "/a" });
     expect(screen.queryByTestId("composer-dock")).toBeNull();
+  });
+});
+
+// test-plan #E45 — see change: add-spawn-model-choice.
+describe("E45: an ACP agent drops the composer model", () => {
+  afterEach(() => _setAcpAgentsForTests(null));
+  it("sends agent and no model / thinkingLevel", () => {
+    _setAcpAgentsForTests([{ id: "qmt", name: "querymt" }]);
+    const { onSpawnSession } = renderView({ defaultModel: "anthropic/claude-opus-5-5", defaultThinkingLevel: "medium" });
+    fireEvent.change(screen.getByTestId("agent-select"), { target: { value: "qmt" } });
+    typePrompt("hi");
+    send();
+    expect(onSpawnSession).toHaveBeenCalledWith("/a", undefined, { initialPrompt: "hi", agent: "qmt" });
   });
 });

@@ -122,10 +122,16 @@ export async function spawnAcpSession(
  * (never silently dropped) and an unknown id is rejected. Returns the error
  * message, or `undefined` when the spawn may proceed.
  */
-export function validatePluginAcpSpawn(opts: { agent?: unknown; scope?: unknown; resume?: unknown; model?: unknown }): string | undefined {
+export function validatePluginAcpSpawn(opts: {
+  agent?: unknown;
+  scope?: unknown;
+  resume?: unknown;
+  model?: unknown;
+  thinkingLevel?: unknown;
+}): string | undefined {
   if (opts.agent === undefined) return undefined;
   const v = validateAcpAgent(opts.agent);
   if (!v.ok) return v.message;
-  const piOnly = (["scope", "resume", "model"] as const).filter((k) => opts[k] !== undefined);
+  const piOnly = (["scope", "resume", "model", "thinkingLevel"] as const).filter((k) => opts[k] !== undefined);
   return piOnly.length > 0 ? `option(s) ${piOnly.join(", ")} are pi-only and cannot be combined with agent "${v.agent.id}"` : undefined;
 }

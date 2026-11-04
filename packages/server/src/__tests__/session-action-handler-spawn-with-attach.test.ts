@@ -20,14 +20,15 @@ import { spawnPiSession } from "../spawn-process/process-manager.js";
 
 function makeCtx() {
   const enqueue = vi.fn();
+  const withdraw = vi.fn();
   const ctx = {
     ws: { readyState: 1 } as unknown as WebSocket,
     headlessPidRegistry: { register: vi.fn() },
     pendingDashboardSpawns: new Map<string, number>(),
-    pendingAttachRegistry: { enqueue, consume: vi.fn(), size: vi.fn() },
+    pendingAttachRegistry: { enqueue, consume: vi.fn(), size: vi.fn(), withdraw },
     sendTo: () => {},
   } as any;
-  return { ctx, enqueue };
+  return { ctx, enqueue, withdraw };
 }
 
 describe("handleSpawnSession — attachProposal", () => {
@@ -80,14 +81,17 @@ describe("handleSpawnSession — attachProposal", () => {
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
-  it("still enqueues even when spawn throws (spawn failure isn't a reason to lose intent — TTL handles it)", async () => {
+  // A spawn that never registers withdraws ITS OWN intent (newest match) so it
+  // cannot attach to an unrelated later session. See change: add-spawn-model-choice (D3).
+  it("still enqueues before the spawn; a thrown spawn withdraws its own intent", async () => {
     (spawnPiSession as any).mockRejectedValueOnce(new Error("boom"));
-    const { ctx, enqueue } = makeCtx();
+    const { ctx, enqueue, withdraw } = makeCtx();
     await handleSpawnSession(
       { type: "spawn_session", cwd: "/proj", attachProposal: "add-baz" } as any,
       ctx,
     );
     expect(enqueue).toHaveBeenCalledOnce();
+    expect(withdraw).toHaveBeenCalledWith("/proj", "add-baz");
   });
 
   it("works when pendingAttachRegistry is undefined (back-compat)", async () => {

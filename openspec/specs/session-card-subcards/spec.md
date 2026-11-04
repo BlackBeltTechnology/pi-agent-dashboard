@@ -224,6 +224,7 @@ Activation SHALL emit a `spawn_session` ws message with:
 - `cwd` set to the parent session's `cwd`,
 - `attachProposal` set to the parent session's `attachedProposal` when that field is a non-empty string (omitted otherwise),
 - a fresh `requestId` (UUIDv4).
+- `model` and `thinkingLevel` set to the parent session's `model` / `thinkingLevel` when the parent is a pi session and the field is a non-empty string (omitted otherwise).
 
 The action SHALL be disabled when `session.cwdMissing === true`, with the reason `session's directory no longer exists`.
 
@@ -252,6 +253,11 @@ The action SHALL use the green session-spawn palette, consistent with every othe
 - **WHEN** the parent session has `cwdMissing === true`
 - **THEN** the New session item SHALL be `aria-disabled="true"` with reason `session's directory no longer exists`
 - **AND** activating it SHALL NOT emit a `spawn_session` message
+
+#### Scenario: Sibling carries the parent's model and thinking level
+- **GIVEN** a pi session with `model: "anthropic/claude-opus-5-5"` and `thinkingLevel: "high"`
+- **WHEN** the user activates New session on its card
+- **THEN** the emitted `spawn_session` SHALL carry `model: "anthropic/claude-opus-5-5"` and `thinkingLevel: "high"`
 
 ### Requirement: +Worktree button on session card
 The desktop session card SHALL offer a New worktree session action (formerly the inline `+Worktree` button) as an item of the session actions menu's SESSION group, with test id `session-card-spawn-worktree`.

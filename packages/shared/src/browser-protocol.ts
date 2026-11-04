@@ -485,6 +485,8 @@ export interface SpawnResultBrowserMessage {
   code?: string;
   /** Interpolation vars for `err.<domain>.<code>`. Additive. */
   vars?: Record<string, string | number>;
+  /** Set on a successful spawn when a model / role / thinking choice was dropped (incl. one ignored for an ACP agent). Absent when nothing was dropped. See change: add-spawn-model-choice. */
+  choiceWarning?: string;
 }
 
 /**

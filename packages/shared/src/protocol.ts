@@ -728,6 +728,10 @@ export interface SpawnNewSessionMessage {
   type: "spawn_new_session";
   sessionId: string;
   cwd: string;
+  /** Requesting session's current `provider/id`; omitted when unknown. See change: add-spawn-model-choice (D5). */
+  model?: string;
+  /** Requesting session's current thinking level; sent only together with `model`. */
+  thinkingLevel?: string;
 }
 
 // ── PromptBus protocol messages ─────────────────────────────────────

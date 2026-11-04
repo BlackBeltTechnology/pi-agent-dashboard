@@ -7,6 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { RestSpawnSessionRequest } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
@@ -30,6 +31,7 @@ import type { PendingResumeIntentRegistry } from "../pending/pending-resume-inte
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { isAcp, UNSUPPORTED_FOR_ACP, unsupportedMessage } from "../browser-handlers/acp-guard.js";
+import { choiceToSpawnOptions, resolveSpawnChoice } from "../browser-handlers/spawn-choice.js";
 import { preflightAcpSpawn, spawnAcpSession, validateAcpAgent } from "../spawn-process/acp-spawn.js";
 import { spawnPiSession } from "../spawn-process/process-manager.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
@@ -65,6 +67,11 @@ export interface SessionApiDeps {
    */
   pendingAttachRegistry?: import("../pending/pending-attach-registry.js").PendingAttachRegistry;
   /**
+   * Initial-prompt intents consumed on `session_register` (REST spawn
+   * `initialPrompt`). See change: add-spawn-model-choice (D3).
+   */
+  pendingInitialPromptRegistry?: import("../pending/pending-initial-prompt-registry.js").PendingInitialPromptRegistry;
+  /**
    * Prompts transmitted and awaiting a bridge acknowledgement.
    * See change: fix-spawn-correlation-ttl-coupling (D7).
    */
@@ -97,6 +104,24 @@ export interface SessionApiDeps {
 }
 
 type IdParams = { Params: { id: string } };
+
+const REST_SPAWN_STRING_FIELDS = ["agent", "model", "thinkingLevel", "initialPrompt", "attachProposal"] as const;
+
+function nonEmpty(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+/** Type + combination checks for `POST /api/session/spawn`; returns an error text or null. See change: add-spawn-model-choice. */
+function validateRestSpawnBody(body: Partial<Record<keyof RestSpawnSessionRequest, unknown>>): string | null {
+  for (const field of REST_SPAWN_STRING_FIELDS) {
+    const v = body[field];
+    if (v !== undefined && v !== null && typeof v !== "string") return `${field} must be a string`;
+  }
+  if (nonEmpty(body.agent) && (nonEmpty(body.model) || nonEmpty(body.thinkingLevel))) {
+    return "model and thinkingLevel are pi-only and cannot be combined with agent";
+  }
+  return null;
+}
 
 /** Helper: validate session exists, return it or send error response */
 function getSessionOrFail(sessionManager: SessionManager, id: string): { session: any } | { error: ApiResponse } {
@@ -299,13 +324,35 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
   );
 
   // POST /api/session/spawn
-  fastify.post<{ Body: { cwd?: string; agent?: string } }>(
+  fastify.post<{ Body: Partial<Record<keyof RestSpawnSessionRequest, unknown>> }>(
     "/api/session/spawn",
     async (request, reply) => {
-      const { cwd, agent } = request.body ?? {};
+      const body = request.body ?? {};
+      const { cwd, agent } = body as { cwd?: string; agent?: string };
       if (!cwd) {
         reply.code(400);
         return { success: false, error: "cwd is required" } satisfies ApiResponse;
+      }
+      // Validate the WHOLE body before any side effect (owner token, queued
+      // intents, spawn). REST is strict: a dropped choice is a 400, never a
+      // silent default-model spawn. Empty strings count as absent.
+      // See change: add-spawn-model-choice (D2, D3).
+      const bodyError = validateRestSpawnBody(body);
+      if (bodyError) {
+        reply.code(400);
+        return { success: false, error: bodyError } satisfies ApiResponse;
+      }
+      const model = nonEmpty(body.model);
+      const thinkingLevel = nonEmpty(body.thinkingLevel);
+      const initialPrompt = nonEmpty(body.initialPrompt);
+      const attachProposal = nonEmpty(body.attachProposal);
+      const { choice, warnings } = resolveSpawnChoice(
+        { model, thinkingLevel },
+        { defaultModel: loadConfig().defaultModel || undefined },
+      );
+      if (warnings.length > 0) {
+        reply.code(400);
+        return { success: false, error: warnings.join("; ") } satisfies ApiResponse;
       }
       // `agent` selects a configured ACP agent (see change: add-acp-session-driver).
       const acpAgent = agent === undefined ? undefined : validateAcpAgent(agent);
@@ -333,12 +380,22 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       const ownerSpawnToken = ownerToStamp ? mintSpawnToken() : undefined;
       if (ownerToStamp && ownerSpawnToken) deps.pendingPrincipalOwnerRegistry?.file(ownerSpawnToken, ownerToStamp);
 
+      // Queue intents BEFORE the spawn await so a fast `session_register`
+      // cannot miss them (same race-safe FIFO as the browser road).
+      if (initialPrompt) deps.pendingInitialPromptRegistry?.enqueue(cwd, initialPrompt);
+      if (attachProposal) pendingAttachRegistry?.enqueue(cwd, attachProposal);
+      const withdrawIntents = (): void => {
+        if (initialPrompt) deps.pendingInitialPromptRegistry?.withdraw(cwd, initialPrompt);
+        if (attachProposal) pendingAttachRegistry?.withdraw(cwd, attachProposal);
+      };
+
       const doSpawn = async () => {
         const config = loadConfig();
         const spawnResult = acpAgent?.ok
           ? await spawnAcpSession(cwd, { agent: acpAgent.agent.id, ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}) })
           : await spawnPiSession(cwd, {
               strategy: config.spawnStrategy,
+              ...choiceToSpawnOptions(choice),
               ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}),
             });
         // REST spawn has no browser socket; the reclaim must run regardless, or
@@ -360,9 +417,17 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return spawnResult;
       };
 
-      const spawnResult = await doSpawn();
+      let spawnResult: Awaited<ReturnType<typeof doSpawn>>;
+      try {
+        spawnResult = await doSpawn();
+      } catch (err) {
+        if (ownerSpawnToken) deps.pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
+        withdrawIntents();
+        throw err;
+      }
       if (!spawnResult.success) {
         if (ownerSpawnToken) deps.pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
+        withdrawIntents();
         reply.code(500);
         return { success: false, error: spawnResult.message } satisfies ApiResponse;
       }

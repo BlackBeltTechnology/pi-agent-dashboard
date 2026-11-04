@@ -28,7 +28,7 @@ to teach BASE-URL derivation or GET `/api/sessions` id-resolution.
 Canonical example:
 
 ```bash
-npx tsx ./scripts/dashboard-bus.ts spawn /path/to/proj --prompt "/opsx-explore add-auth"
+npx tsx ./scripts/dashboard-bus.ts spawn /path/to/proj --prompt "/opsx-explore add-auth" --model @planning --thinking high
 npx tsx ./scripts/dashboard-bus.ts until <id> idle
 npx tsx ./scripts/dashboard-bus.ts prompt <id> "run the tests"
 ```
@@ -115,7 +115,7 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 > Archiving an alive-but-idle session terminates its pi process and completes on
 > the ended transition; a running or interrupted (`live:true`) session is refused
 > (WS error / REST 409).
-| Spawn new | `pi-dashboard api POST /api/session/spawn --data '{"cwd":"/path"}'` |
+| Spawn new | `pi-dashboard api POST /api/session/spawn --data '{"cwd":"/path","model":"@fast","thinkingLevel":"low"}'` (`model`/`thinkingLevel`/`initialPrompt`/`attachProposal` optional; `@role` resolved once; invalid → 400) |
 | Resume/Fork | `pi-dashboard api POST /api/session/ID/resume --data '{"mode":"continue"}'` |
 
 ### Flow Control

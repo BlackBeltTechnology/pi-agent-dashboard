@@ -12,6 +12,7 @@ import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/co
 import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
+import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
@@ -320,12 +321,23 @@ export type RequestSessionCloseFn = (args: {
 export interface PluginSpawnOptions {
   /** Working directory the new pi session runs in. */
   cwd: string;
-  /** Optional model id (resolved provider/model) passed as `--model`. */
+  /**
+   * Optional model passed as `--model`. A literal value is passed through
+   * verbatim; an `@role` / `@role:<level>` ref is resolved ONCE at spawn time
+   * against `~/.pi/agent/providers.json#roles` (unresolvable → dropped, see
+   * {@link PluginSpawnResult.warning}). See change: add-spawn-model-choice.
+   */
   model?: string;
+  /**
+   * Optional canonical thinking level passed as `--thinking`. For `@role`
+   * refs it beats the ref suffix and the role level. pi-only.
+   * See change: add-spawn-model-choice.
+   */
+  thinkingLevel?: string;
   /**
    * Configured ACP agent id (`acpAgents[].id`). When set the host starts that
    * agent instead of pi, routed exactly like a UI spawn. pi-only options
-   * (`scope`, `resume`, `model`) are REJECTED with `agent`; an unknown id is
+   * (`scope`, `resume`, `model`, `thinkingLevel`) are REJECTED with `agent`; an unknown id is
    * rejected. See change: add-acp-session-driver (D14).
    */
   agent?: string;
@@ -551,6 +563,10 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
   // default headless result (design D7: total, pure mapper).
   const input: Record<string, unknown> = isRecord(opts) ? opts : {};
   if (isSafeArgvString(input.model)) result.model = input.model;
+  // Canonical levels only; anything else maps to nothing. See change: add-spawn-model-choice.
+  if (typeof input.thinkingLevel === "string" && (THINKING_LEVELS as readonly string[]).includes(input.thinkingLevel)) {
+    result.thinking = input.thinkingLevel;
+  }
   if (isSafeArgvString(input.name)) result.name = input.name;
   // Resume → SESSION-level { sessionFile, mode: "continue" } (the argv
   // builder's resume pair — SessionFlags.mode, NOT the caller's run-isolation
@@ -712,6 +728,8 @@ export interface PluginSpawnResult {
   message?: string;
   /** Spawn correlation token (present on success). */
   spawnToken?: string;
+  /** Set when a model / role / thinking choice was dropped (the spawn still ran). See change: add-spawn-model-choice. */
+  warning?: string;
 }
 
 /**
