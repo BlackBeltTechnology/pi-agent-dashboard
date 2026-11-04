@@ -2,7 +2,7 @@
 
 ONE termination primitive for every server-initiated kill of a session's `pi` process: the unattended reclaims (idle reaper, caps reclaim, automation stop / run completion) and `shutdownSession`. NOT `handleForceKill` (pid-first order kept on purpose).
 
-Exports: `createSessionTerminator({sessionManager, headlessPidRegistry, ...primitives})` → `{ terminate }`; `Terminate`; `TerminateOptions {graceMs?, spawnToken?, verifyIdentity?, stampManualClose?}`; `TerminateResult {outcome, terminated, pid?}`; `TerminateOutcome` = `confirmed-dead` | `unconfirmed` | `refused-identity` | `no-identity`; `IDENTITY_TOLERANCE_MS` (2000).
+Exports: `createSessionTerminator({sessionManager, headlessPidRegistry, ...primitives})` → `{ terminate }`; `Terminate`; `TerminateOptions {graceMs?, spawnToken?, verifyIdentity?, stampManualClose?, operator?}`; `TerminateResult {outcome, terminated, pid?}`; `TerminateOutcome` = `confirmed-dead` | `unconfirmed` | `refused-identity` | `no-identity` | `not-local`; `IDENTITY_TOLERANCE_MS` (2000).
 
 Ladder (design D1):
 - step 0: `stampManualClose` ⇒ in-memory `closedReason:"manual"` before any signal (record exists, not ended, no reason).
@@ -14,6 +14,8 @@ Ladder (design D1):
 - steps 6–7: `killProcess(pid,{timeoutMs:2000})`; confirm ONLY by `signalZero==="esrch"` (`killProcess.ok` never read; EPERM = alive ⇒ `unconfirmed`).
 - step 8: stamp withdrawn (`closedReason: undefined`) when not `confirmed-dead` and record not `ended`.
 
-Contracts: empty `sessionId` = token-only call (no record / registry-by-id rung). Never calls `process.kill` (`no-direct-process-kill` invariant); signals only via `killProcess`, probes via `signalZero`. `isProcessAlive` untouched. Callers: reaper (`graceMs:0, verifyIdentity, stampManualClose`), caps `reclaim` (same), `createAbortSpawnedRun` (+`spawnToken`), `shutdownSession` (`graceMs:SHUTDOWN_GRACE_MS, verifyIdentity:false`).
+Contracts: empty `sessionId` = token-only call (no record / registry-by-id rung). Never calls `process.kill` (`no-direct-process-kill` invariant); signals only via `killProcess`, probes via `signalZero`. `isProcessAlive` untouched. Callers: reaper (`graceMs:0, verifyIdentity, stampManualClose`), caps `reclaim` (same), `createAbortSpawnedRun` (+`spawnToken`), `shutdownSession` (`graceMs:SHUTDOWN_GRACE_MS, verifyIdentity:false, operator:true`).
 
 See change: fix-session-reclaim-tmux.
+
+Resolves pid target once before registry rung (registry pid as `ownEntryPid`). Unattended non-`host` ⇒ `refused-identity` before liveness. `TerminateOptions.operator`; operator + non-local ⇒ new outcome `not-local` (registry rung still runs). Deps `pidContext`, `resolvePidTarget`. See change: scope-pids-to-namespace.

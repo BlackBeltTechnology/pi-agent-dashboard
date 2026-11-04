@@ -19,17 +19,19 @@ import {
   type DispatchReloadContext,
   dispatchReload,
 } from "../rpc-keeper/dispatch-reload.js";
+import { operatorMaySignal, resolvePidTarget, type ServerPidContext } from "../session/pid-target.js";
+import { getServerPidContext } from "../session/server-pid-context.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { decideResume } from "../session/session-origin.js";
-import { type AcpGuardContext, endedPromptHint, refuseIfAcp, UNSUPPORTED_FOR_ACP, unsupportedMessage } from "./acp-guard.js";
 import { preflightAcpSpawn, spawnAcpSession, validateAcpAgent } from "../spawn-process/acp-spawn.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
-import { createSessionTerminator } from "../spawn-process/session-terminator.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
+import { createSessionTerminator, type Terminate } from "../spawn-process/session-terminator.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { type AcpGuardContext, endedPromptHint, refuseIfAcp, UNSUPPORTED_FOR_ACP, unsupportedMessage } from "./acp-guard.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { isBareReloadCommand } from "./session-action-helpers.js";
 import { choiceToSpawnOptions, resolveResumeChoice, validateSpawnChoice } from "./spawn-choice.js";
@@ -1003,6 +1005,8 @@ export interface ShutdownSessionDeps {
   headlessPidRegistry: BrowserHandlerContext["headlessPidRegistry"];
   broadcast: BrowserHandlerContext["broadcast"];
   metaPersistence?: BrowserHandlerContext["metaPersistence"];
+  /** Test seam: the shared terminator (default: built from the deps above). */
+  terminate?: Terminate;
 }
 
 export async function handleShutdown(
@@ -1056,11 +1060,18 @@ export async function shutdownSession(
   // also collapses its tmux pane (`remain-on-exit` off).
   // `verifyIdentity: false`: this is the operator path — the unattended callers
   // add the start-time identity guard, shutdown keeps its shipped signalling.
+  // `operator: true`: a pid outside this host's namespace is `not-local` (never
+  // signalled) instead of refused as an unattended reclaim would be.
   //
   // See change: fix-tmux-session-shutdown-leak (design D6),
-  //             fix-session-reclaim-tmux (design D1, D7).
-  const { terminate } = createSessionTerminator({ sessionManager, headlessPidRegistry });
-  const result = await terminate(msg.sessionId, { graceMs: SHUTDOWN_GRACE_MS, verifyIdentity: false });
+  //             fix-session-reclaim-tmux (design D1, D7),
+  //             scope-pids-to-namespace (D3).
+  const terminate = deps.terminate ?? createSessionTerminator({ sessionManager, headlessPidRegistry }).terminate;
+  const result = await terminate(msg.sessionId, {
+    graceMs: SHUTDOWN_GRACE_MS,
+    verifyIdentity: false,
+    operator: true,
+  });
   // Headless sibling the registry lost (marker scan; caller-only, a no-op for tmux).
   killHeadlessBySessionId(msg.sessionId);
 
@@ -1071,6 +1082,16 @@ export async function shutdownSession(
       `[dashboard] shutdown(${msg.sessionId}): no process identity held; ` +
         `termination NOT verified. The session record is being released.`,
     );
+  } else if (result.outcome === "not-local" && result.pid !== undefined) {
+    // The recorded pid lives in another pid namespace (remote origin, WSL, a
+    // container): nothing was signalled, so the removal is UNCONFIRMED — the
+    // same orphan signal as a survivor, with an honest log line.
+    // See change: scope-pids-to-namespace.
+    console.error(
+      `[dashboard] shutdown(${msg.sessionId}): process ${result.pid} is not on this host; ` +
+        `nothing was signalled. The session record is being released; termination is UNCONFIRMED.`,
+    );
+    broadcast({ type: "session_orphaned", sessionId: msg.sessionId, pid: result.pid });
   } else if (!result.terminated && result.pid !== undefined) {
     // C2 — never report a clean removal for a process that outlived its
     // shutdown. The record is still released (retaining it would wedge the UI
@@ -1288,7 +1309,14 @@ export interface ForceKillResult {
 export type ForceKillDeps = Pick<
   BrowserHandlerContext,
   "sessionManager" | "piGateway" | "headlessPidRegistry" | "broadcast" | "metaPersistence"
->;
+> & {
+  /** Test seams: the server's pid namespace and the resolver. See change: scope-pids-to-namespace. */
+  pidContext?: ServerPidContext;
+  resolvePidTarget?: typeof resolvePidTarget;
+};
+
+/** Refusal text for a force-kill of a pid outside this host's namespace. */
+const FORCE_KILL_NOT_LOCAL_MESSAGE = "Process not on this host — use Shutdown";
 
 /**
  * The force-kill ladder, shared by the browser `force_kill` message and
@@ -1306,32 +1334,58 @@ export async function forceKillSession(
     return { success: false, message: "Session not found", code: "resume.session_not_found" };
   }
 
-  // Force-kill is an intentional close: durably clear the liveness marker
-  // with a manual reason so cold start does not offer to reopen it.
-  // See change: reopen-sessions-after-shutdown.
-  if (session.sessionFile && metaPersistence) {
-    metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
-  }
-  // In-memory `manual` before any signal, so no racing bridge unregister can
-  // relabel it. See change: fix-recovery-pi-signal-unregister (D2).
-  sessionManager.update(sessionId, { closedReason: "manual" });
+  /** Force-kill is an intentional close: liveness marker + in-memory `manual`. */
+  const markIntentionalClose = () => {
+    // Durably clear the liveness marker with a manual reason so cold start does
+    // not offer to reopen it. See change: reopen-sessions-after-shutdown.
+    if (session.sessionFile && metaPersistence) {
+      metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
+    }
+    // In-memory `manual` before any signal, so no racing bridge unregister can
+    // relabel it. See change: fix-recovery-pi-signal-unregister (D2).
+    sessionManager.update(sessionId, { closedReason: "manual" });
+  };
 
-  // Force-close the bridge WebSocket regardless of PID availability.
-  piGateway.closeSession(sessionId);
-
-  const pid = session?.pid;
+  // Snapshot the pid ONCE: every later step uses this value, never a re-read of
+  // a record a concurrent re-register may have replaced (X37).
+  const pid = session.pid;
   if (!pid) {
+    // No pid ⇒ nothing to signal: the WS-only branch runs BEFORE any target
+    // resolution (S2), exactly as before.
+    markIntentionalClose();
+    piGateway.closeSession(sessionId);
     const endedAt = Date.now();
     sessionManager.update(sessionId, { status: "ended", endedAt, closedReason: "manual" });
     broadcast({ type: "session_updated", sessionId, updates: { status: "ended", endedAt, closedReason: "manual" } });
     return { success: true, message: "WebSocket closed (no PID available)" };
   }
 
+  // Resolve WHICH namespace the pid lives in before anything is closed or
+  // signalled. A pid this host cannot see (remote origin, WSL, a container, or
+  // `unknown` on POSIX) is REFUSED: no signal, no WS close, no registry kill,
+  // not marked ended. `unknown` on a Windows server is a legacy native pi and
+  // keeps today's signal (Q8). See change: scope-pids-to-namespace (D3, D4).
+  const ctxPid = deps.pidContext ?? getServerPidContext();
+  const ownEntryPid = headlessPidRegistry.getPid?.(sessionId);
+  const target = deps.resolvePidTarget
+    ? deps.resolvePidTarget(session, ctxPid, ownEntryPid)
+    : resolvePidTarget(session, ctxPid, ownEntryPid);
+  if (!operatorMaySignal(target, ctxPid)) {
+    console.warn(`[dashboard] force_kill(${sessionId}): refused — pid ${pid} target ${target.kind} is not on this host`);
+    return { success: false, message: FORCE_KILL_NOT_LOCAL_MESSAGE };
+  }
+
+  markIntentionalClose();
+
   // Delegate the full SIGTERM → wait → SIGKILL escalation to the platform
   // helper so Windows uses `taskkill /F /T /PID <pid>` (genuine tree kill) and
   // POSIX keeps the 2s grace window.
   // See change: route-kill-paths-through-platform.
   const killResult = await killProcess(pid, { timeoutMs: 2000 });
+
+  // Force-close the bridge WebSocket after the kill (spec: "Bridge WebSocket
+  // force-closed after kill").
+  piGateway.closeSession(sessionId);
 
   // Also kill any headless-registered siblings (same session ID).
   // See change: fix-keeper-kill-escalation (await for SIGKILL escalation).

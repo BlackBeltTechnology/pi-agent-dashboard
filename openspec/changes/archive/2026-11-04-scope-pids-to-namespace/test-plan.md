@@ -8,7 +8,7 @@ Decisions applied (all accepted at the gate; see design D4 and D8):
 - S2 — force-kill with no pid runs the existing no-pid branch before resolution (E101).
 - S3 — same-pid fast accept needs incumbent and newcomer targets both `host` (or both `unknown` on Windows) (E88, E102).
 - S4 — argument-free enforcement scan, explicit `own-spawn` allowlist, `__tests__` excluded (X70–X74, E103).
-- S5 — `pidNamespace` persisted with `pid` (E104).
+- S5 — `pidNamespace` persisted with `pid`; `pid` is persisted nowhere, so neither is persisted (ship-it decision A; E104).
 - S6 — `pidNamespace` stripped from browser and peer payloads (E105).
 - S7 — malformed `pidNamespace` ⇒ `unknown`; caps distro 64, ids 128 (E106, E109).
 - S8 — operator `not-local` shutdown still runs the registry rung by token (X100, X102).
@@ -122,7 +122,7 @@ Nearest harnesses: E58/E59 → `packages/extension/src/__tests__/session-registe
 | E90 | Placeholder/provisional unchanged | EP | L1 | automated | newcomer target wsl; incumbent `source:"unknown"` | `decideClaim` | `accept placeholder` (placeholder rule precedes pid rule) |
 | E102 | Same-pid fast accept — incumbent in another namespace (S3) | decision-table (incumbent × newcomer target) | L1 | automated | incumbent socket holds `S` with `{pid:5, ns: RL-wsl}` on ctx SW (target wsl); newcomer target host, pid 5; then incumbent host + newcomer host; then incumbent unknown + newcomer unknown on win32; then incumbent host + newcomer unknown on win32 | `decideClaim` ×4 | `probe`; `accept same-pid`; `accept same-pid`; `probe` |
 | E91 | Old bridge, POSIX server (back-compat) | EP | L1 | automated | register without namespace, pid 4242 → operator force-kill | force-kill | `killProcess(4242,{timeoutMs:2000})` once (unchanged) |
-| E104 | Namespace persisted with `pid` (S5) | state-transition | L1 | automated | session `{pid:4242, pidNamespace:RL-wsl}` saved, server store reloaded (restore); a second persisted JSON `{pid:4242}` with no `pidNamespace` | save → load → `resolvePidTarget` on ctx SW | first: stored namespace deep-equal RL-wsl and target `{wsl, "Ubuntu-24.04"}`; second: `pidNamespace` undefined (legacy rules); no throw |
+| E104 | Namespace never persisted apart from `pid` (S5, decision A) | state-transition | L1 | automated | live session `{pid:4242, pidNamespace:RL-wsl}` | `sessionToMeta` → `sessionFromMeta` (restore) | meta has no `pid` / `pidNamespace` key and no `boot-W`; restored session has neither; no throw |
 | E105 | Namespace is server-internal (S6) | decision-table (channel) | L1 | automated | session with `pidNamespace:RL`; channels: `session_list`, `session_updated`, REST session GET, paired-peer sync payload | serialize each channel | `JSON.stringify` of each payload contains no `pidNamespace` key and no `boot-A` / `pid:[4026531836]` string; the in-memory session still has it |
 | E106 | Malformed `pidNamespace` (S7) | error-guessing | L1 | automated | register with `{kind:"wsl"}` (no distro); `{platform:42}`; `nsId:null`; an array; a string; each as `pidNamespace`, pid 4242, ctx SL | register, then `resolvePidTarget` | register succeeds (session stored, no throw, no close); target `unknown` in all 5 cases (not `host`, not `foreign`) |
 | E109 | Field-length caps (S7) | BVA | L1 | automated | `distro` of 64 / 65 chars; `hostId` of 128 / 129 chars; `nsId` of 128 / 129 chars (otherwise valid RL-wsl) | register, then resolve | 64 and 128 accepted (resolves on its merits); 65 and 129 ⇒ `unknown`; a 1 MB `hostId` is rejected without being stored or logged in full |
