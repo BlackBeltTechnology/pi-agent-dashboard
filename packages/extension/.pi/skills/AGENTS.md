@@ -16,8 +16,8 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 | `browser/UPSTREAM.md` | Vendoring provenance + refresh procedure. Records upstream tag/SHA/CLI version; marks `own-browser.md`, `challenge.md` + `check-panerelay.sh` authored, exempt from refresh. |
 | `canvas-webapp/SKILL.md` | Bundled skill: render a web app on the dashboard canvas. Canvas loopback `kind:"url"` loads under… → see `canvas-webapp/SKILL.md.AGENTS.md` |
 | `pi-dashboard/commands/` | `/dashboard:*` slash-command templates (33 `dashboard-*.md`). → see `pi-dashboard/commands/.AGENTS.md` |
-| `pi-dashboard/commands/dashboard-flow-abort.md` | LLM-bound command. Resolves `<id-prefix>` via GET /api/sessions, POST /api/session/<full-id>/flow-control body {"action":"abort"}. Reports result. Usage `/dashboard:flow-abort <id-prefix>`. |
-| `pi-dashboard/commands/dashboard-flow-auto.md` | LLM-bound command. POST /api/session/<full-id>/flow-control body {"action":"toggle_autonomous"}. Reports new autonomous state. Usage `/dashboard:flow-auto <id-prefix>`. |
+| `pi-dashboard/commands/dashboard-flow-abort.md` | LLM-bound command. Resolves `<id-prefix>` via the bus snapshot, sends the flows plugin `flow.abort` action (REST twin POST /api/plugins/flows/control). Reports result. Usage `/dashboard:flow-abort <id-prefix>`. |
+| `pi-dashboard/commands/dashboard-flow-auto.md` | LLM-bound command. Sends the flows plugin `flow.toggle-autonomous` action (REST twin POST /api/plugins/flows/control). Reports new autonomous state. Usage `/dashboard:flow-auto <id-prefix>`. |
 | `pi-dashboard/commands/dashboard-git-branches.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/git/branches?cwd=$PWD`, jq prints branches, current marked `*`. |
 | `pi-dashboard/commands/dashboard-git-init.md` | LLM-bound command. POST /api/git/init body {"cwd":"<cwd>"}. Defaults cwd to `$PWD` if no arg. Usage `/dashboard:git-init [cwd]`. |
 | `pi-dashboard/commands/dashboard-git-stash-pop.md` | LLM-bound command. POST /api/git/stash-pop body {"cwd":"<cwd>"}. Defaults cwd to `$PWD` if no arg. Usage `/dashboard:git-stash-pop [cwd]`. |

@@ -41,7 +41,7 @@ orchestration (spawn → prompt → until idle → read → plugin) using `conne
 ### Tier split
 
 - **COMMAND verbs → bus** (`dashboard-bus.ts`): abort, send_prompt, spawn,
-  resume, flow_control, set_model, set_thinking_level, rename, archive/unarchive,
+  resume, flow (flows plugin action), set_model, set_thinking_level, rename, archive/unarchive,
   attach/detach_proposal, plugin goal.
 - **READ-ONLY + no-WS-twin → REST** (`dashboard-api.sh`): session / health /
   config reads, git ops, grep/browse, `plugin_config_write`, tunnel, peer scan,
@@ -122,8 +122,8 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 
 | Action | Command |
 |--------|---------|
-| Abort flow | `pi-dashboard api POST /api/session/ID/flow-control --data '{"action":"abort"}'` |
-| Toggle autonomous | `pi-dashboard api POST /api/session/ID/flow-control --data '{"action":"toggle_autonomous"}'` |
+| Abort flow | `pi-dashboard api POST /api/plugins/flows/control --data '{"sessionId":"ID","action":"flow.abort"}'` |
+| Toggle autonomous | `pi-dashboard api POST /api/plugins/flows/control --data '{"sessionId":"ID","action":"flow.toggle-autonomous"}'` |
 
 ### Model / Thinking
 

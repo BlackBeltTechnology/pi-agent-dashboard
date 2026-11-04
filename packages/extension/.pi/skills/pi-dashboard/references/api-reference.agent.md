@@ -25,7 +25,7 @@ Pull-only condensed map. Source: packages/extension/.pi/skills/pi-dashboard/refe
 - `POST /api/session/spawn` — `{ cwd, agent?, model?, thinkingLevel?, initialPrompt?, attachProposal? }`. `model` = `provider/id[:level]` or `@role[:level]` (role resolved once at spawn). Level: field > ref suffix > role. 400 missing cwd / non-string field / invalid model / unknown role / bad level / agent+model|thinkingLevel (before any side effect), 500. WS `spawn_session` drops instead and sets `spawn_result.choiceWarning`. `POST /api/session/:id/resume` — `{ mode: "continue"|"fork" }`. 400, 404, 409 active/already resuming, 500.
 
 ## Flow Control
-- `POST /api/session/:id/flow-control` — `{ action: "abort"|"toggle_autonomous" }`. 400, 404.
+- `POST /api/plugins/flows/control` — `{ sessionId, action: "flow.abort"|"flow.toggle-autonomous"|"flow.dismiss-summary"|"flow.run"|"flow.delete"|"flow.set-edit-mode", flowName?, task?, enabled? }` (operate). 400, 403, 404, 409 (ACP).
 
 ## Model Configuration
 - `GET /api/models` — reachable model catalogue. `annotated=1` → +`excludedReason` (`no-credential`|`oauth-incompatible`). `{ object:"list", data:[{ id:"provider/modelId", provider, reasoning?, input?, contextWindow?, maxTokens?, cost?, excludedReason? }] }`. 503 pi-ai down. Do NOT parse `~/.pi/agent/providers.json` / `models.json`.

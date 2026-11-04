@@ -51,3 +51,26 @@ describe("dashboard slash commands — shipped in extension skill", () => {
     ).toBe(true);
   });
 });
+
+/** E44: flow commands call the flows plugin route / action. See change: update-flows-plugin. */
+describe("flow skill commands moved to the plugin route (E44)", () => {
+  const skillDir = path.join(pkgDir, ".pi", "skills", "pi-dashboard");
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = path.join(dir, e.name);
+      return e.isDirectory() ? walk(p) : [p];
+    });
+  it("abort / auto commands keep their names and reference the plugin route", () => {
+    for (const name of ["dashboard-flow-abort.md", "dashboard-flow-auto.md"]) {
+      const src = fs.readFileSync(path.join(commandsDir, name), "utf8");
+      expect(src, name).toContain("/api/plugins/flows/control");
+    }
+  });
+  it("no file under the skill names the removed route or verb", () => {
+    for (const f of walk(skillDir)) {
+      const src = fs.readFileSync(f, "utf8");
+      expect(src, f).not.toContain("/flow-control");
+      expect(src, f).not.toContain("flow_control");
+    }
+  });
+});
