@@ -16,6 +16,7 @@
  *
  * See change: fix-codeql-baseline-coverage.
  */
+// biome-ignore lint/correctness/noUndeclaredDependencies: never executed or published; CodeQL resolves `fastify` by name (build-mode none), so declaring it would add a dependency nothing runs
 import Fastify from "fastify";
 import { mountAutomationRoutes } from "../../packages/automation-plugin/src/server/routes.ts";
 import { registerBlackholeRoutes } from "../../packages/blackhole-plugin/src/server/index.ts";
