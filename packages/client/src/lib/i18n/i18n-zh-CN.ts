@@ -1467,6 +1467,7 @@ export const zhCNCatalog: Record<string, string> = {
   "settings.defaultGroupingHint": "适用于所有未单独设置分组的文件夹。可在文件夹菜单中更改单个文件夹。",
   "sessionList.hideEndedCount": "隐藏 {count} 个已结束会话",
   "sessionList.noActiveSessions": "没有活跃会话",
+  "sessionList.noMatchingFolders": "没有匹配的文件夹",
   "sessionList.noSessionsMatch": "没有会话匹配搜索条件",
   "sessionList.pinDirectory": "固定目录",
   "sessionList.removeFromWorkspace": "从工作区移除",

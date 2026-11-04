@@ -1,5 +1,5 @@
 import { connectBus, expect, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { gotoDashboard, setSearch } from "./helpers/index.js";
 
 /**
  * Browser E2E — a reconnect snapshot re-arms a stale `pageExhausted` mark.
@@ -145,6 +145,10 @@ test.describe("a reconnect snapshot re-arms a stale exhausted mark (X4)", () => 
     await armSocketCut(page);
     const snapshots = collectSnapshotTotals(page, STUB_DIR_CWD);
     await gotoDashboard(page);
+    // An unpinned stub is hidden by default; the Folders filter reveals it and
+    // keeps it revealed across the pin/unpin staging below.
+    // See change: fix-sidebar-folder-visibility.
+    await setSearch(page, "folders", "stub-dir");
 
     const toggle = page.getByTestId(`folder-ended-toggle-${STUB_DIR_CWD}`);
     await expect(toggle).toBeVisible({ timeout: 30_000 });

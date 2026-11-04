@@ -24,6 +24,7 @@ import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.j
 import type { ChildProcess, SpawnOptions } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { stripDashboardHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+import { normalizeCwdKey } from "../spawn-process/spawn-register-watchdog.js";
 
 /**
  * Default env for every hook child (gate, script run, agent spawn): a COPY of
@@ -343,7 +344,10 @@ async function runAgent(
     try {
       child = spawnFn(piBin, args, {
         cwd,
-        env: opts.env ?? defaultHookEnv(),
+        // pi is exec'd without a shell, so nothing re-derives PWD: name the
+        // checkout. Gate/script (`bash -c`) envs stay as-is. See change:
+        // fix-spawned-session-pwd (D2b).
+        env: opts.env ?? { ...defaultHookEnv(), PWD: normalizeCwdKey(path.resolve(cwd)) },
         detached: true,
         stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
       } as SpawnOptions);

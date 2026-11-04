@@ -17,6 +17,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { HEAP_FLAG_MARKER_ENV } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   KeeperManager,
@@ -27,7 +29,20 @@ import {
   setKeeperManager,
   setResolver,
   spawnPiSession,
+  spawnWslTmux,
 } from "../spawn-process/process-manager.js";
+
+// E12 (fix-spawned-session-pwd) needs the tmux / wsl-tmux / wt env sinks
+// captured. Partial mocks: only the launching entry points are stubbed, every
+// other export (waitForNoCrash, buildSafeArgv, …) stays real.
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/exec.js", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, execFileSync: vi.fn(), execSync: vi.fn() };
+});
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, spawnDetached: vi.fn() };
+});
 
 // Fake resolver returning a fixed pi argv so spawnHeadlessViaKeeper's
 // resolvePiCommand() call succeeds. The PI_NOT_FOUND branch is exercised
@@ -425,5 +440,89 @@ describe("headless heap delivery", () => {
       if (restore === null) fs.rmSync(configPath, { force: true });
       else fs.writeFileSync(configPath, restore);
     }
+  });
+});
+
+// test-plan #E12 — every mechanism hands its sink an env whose PWD names the
+// canonical spawn cwd, even when the server env carries a stale one.
+// See change: fix-spawned-session-pwd.
+describe("PWD at every spawn sink (E12)", () => {
+  const realPlatform = process.platform;
+  const setPlatform = (p: NodeJS.Platform) => Object.defineProperty(process, "platform", { value: p });
+
+  beforeEach(() => {
+    vi.stubEnv("PWD", "/launch/dir");
+    vi.mocked(execFileSync).mockReset();
+    vi.mocked(spawnDetached).mockReset();
+    vi.mocked(spawnDetached).mockResolvedValue({ ok: true, pid: 4242 } as never);
+    setResolver({
+      resolvePi: () => ["/usr/bin/node", "/opt/pi/cli.js"],
+      resolveNode: () => "/usr/bin/node",
+      which: (name: string) => (name === "tmux" ? "/usr/bin/tmux" : name === "wt" ? "C:\\wt.exe" : null),
+      buildSpawnEnv: (env: NodeJS.ProcessEnv) => env,
+    } as unknown as ToolResolver);
+    const fakeChild = new FakeKeeperChild(7777);
+    const { km, state } = makeFakeKeeperManager({
+      spawnResult: {
+        success: true,
+        pid: 7777,
+        sockPath: "/fake/sessions/pwd.sock",
+        process: fakeChild as unknown as import("node:child_process").ChildProcess,
+      },
+    });
+    sink = state;
+    setKeeperManager(km);
+  });
+  afterEach(() => {
+    setPlatform(realPlatform);
+    vi.unstubAllEnvs();
+  });
+
+  let sink: FakeKeeperManagerState;
+
+  const envOfExecFile = () => vi.mocked(execFileSync).mock.calls[0]?.[2]?.env as NodeJS.ProcessEnv;
+
+  it.each([
+    [
+      "tmux",
+      async (cwd: string) => {
+        setPlatform("linux");
+        await spawnPiSession(cwd, { strategy: "tmux" });
+        return envOfExecFile();
+      },
+    ],
+    [
+      "wsl-tmux",
+      async (cwd: string) => {
+        spawnWslTmux(cwd, { spawnToken: "t" });
+        return envOfExecFile();
+      },
+    ],
+    [
+      "wt",
+      async (cwd: string) => {
+        setPlatform("win32");
+        await spawnPiSession(cwd, { strategy: "tmux" });
+        return vi.mocked(spawnDetached).mock.calls[0]?.[0]?.env as NodeJS.ProcessEnv;
+      },
+    ],
+    [
+      "headless",
+      async (cwd: string) => {
+        await spawnPiSession(cwd, { strategy: "headless" });
+        return sink.spawnCalls[0]?.env;
+      },
+    ],
+    [
+      "ACP childCmd",
+      async (cwd: string) => {
+        await spawnPiSession(cwd, { childCmd: ["/usr/bin/node", "/srv/bin/acp-bridge.mjs", "--agent", "x"] });
+        return sink.spawnCalls[0]?.env;
+      },
+    ],
+  ])("%s", async (_label, run) => {
+    const env = await run(tmpCwd);
+    expect(env).toBeDefined();
+    expect(env.PWD).toBe(fs.realpathSync(tmpCwd));
   });
 });

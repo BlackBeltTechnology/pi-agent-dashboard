@@ -477,6 +477,15 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Reasons:
   - `untriaged` — seed default. Never grows per rule+file.
   - `operator-authz: …` — only `js/path-injection`, `js/command-line-injection`, `js/shell-command-constructed-from-input`.
+    - Form: `operator-authz: gate: <symbol> <repo-path>:<line>; <basis>`. Gate first (GitHub comment cut at 280).
+    - `operator-authz: control-tier: <basis>` only for `packages/server/src/git-worktree/git-operations.ts`, `packages/server/src/spawn-process/process-manager.ts`, `packages/server/src/spawn-process/spawn-preflight.ts`. No per-sink gate; caller may already spawn.
+    - Body after any `github-dismissed (…): ` prefix ≤ 236 chars.
+    - Banned: canned universal-guard sentence ("behind the universal network guard", "can already spawn shell-capable"). False for `observe`-tier credentials.
+    - Not request sinks → `false-positive:`, never `operator-authz`: `rpc-keeper/keeper-manager.ts`, `lib/path-containment.ts`.
+    - Enforced by `packages/shared/src/__tests__/codeql-baseline-gates.test.ts`. Reads baseline file alone.
+    - Checks symbol presence + line range. Not that gate runs before sink — that is review.
+    - Not enforced by `scripts/codeql-local.mjs` grammar.
+    - `ship-it` step 4.4b preset = this template. See change: `fix-codeql-baseline-coverage`.
   - `false-positive: …`
   - `accepted-risk: …`
   - `github-dismissed (#<n>[, #<m>…], false positive|won't fix|used in tests): <text>`
@@ -563,7 +572,7 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Same db without flag → local == CI exactly (150/150, 0/0).
   - Fix: `analyseLanguage` in `scripts/codeql-local.mjs` passes no `--threat-model` flag.
   - Local + CI now use same suite + options.
-- Cause 2 — 29 plugin-server results lost at default→advanced switch, missing on BOTH sides:
+- Cause 2 — 29 plugin-server results (2026-10-17 measurement) lost at default→advanced switch, missing on BOTH sides:
   - `js/path-injection` 23, `js/missing-rate-limiting` 5, `js/tainted-format-string` 1.
   - Shared `paths-ignore` `**/__tests__/**` excludes only resolvable `Fastify()` → route-registrar call path.
   - Example files: `packages/automation-plugin/src/__tests__/routes-stop.test.ts`, `packages/team-plugin/src/server/__tests__/harness.ts`.
@@ -573,10 +582,34 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
 - Ruled out `cwd-guard` model: NOT evidence guard irrelevant. Model was dead when measured (unquoted type strings, see [Model type strings](#model-type-strings)). Fixed model applies on both sides.
 - Decision (2026-10-17) — align:
   - Follow-up drops `--threat-model=remote`. DONE: `triage-codeql-alert-debt`.
-  - Follow-up restores server coverage: un-ignore `__tests__` or data-extension model of registrar. OPEN.
+  - Follow-up restores server coverage. DONE: `fix-codeql-baseline-coverage` (Fixes #1062, Refs #1059). Analysis anchor, see below.
   - Each = own MODIFIED delta.
-  - Remaining local ≠ GitHub difference = cause 2 only.
-  - Neither side covers 29 plugin-server results. Follow-up GitHub issue tracked: `triage-codeql-alert-debt` `evidence/residue.md` (task 8.5).
+  - Remaining local ≠ GitHub difference = unmeasured registrars + 2 `js/missing-rate-limiting` (cause 2 addressed by anchor).
+  - 2026-10-17: neither side covered 29 plugin-server results. Issue tracked: `triage-codeql-alert-debt` `evidence/residue.md` (task 8.5).
+- Cause 2 re-measured 2026-11-03 (`develop` @ `43fc54fd4`):
+  - Hidden set = 20 production results in 7 files. None in a test file.
+  - Rate-limiting 2, format-string 1, path-injection 17.
+  - Evidence: change `fix-codeql-baseline-coverage` `evidence/spike-hidden-results.md` (moves under `openspec/changes/archive/<date>-…`).
+  - `**/__tests__/**` + test globs stay ignored ON PURPOSE. Un-ignoring all test globs adds 38 test-fixture results, none a product defect.
+- Cause 2 fix — analysis anchor `scripts/codeql-anchor/plugin-routes.mjs`:
+  - Exported, never-called `codeqlPluginRoutesAnchor()` gives real `Fastify()` to 5 registrars: `mountAutomationRoutes`, `mountTeamRoutes`, `registerGoalRoutes`, `registerBlackholeRoutes`, `mountRolesRoutes`.
+  - Never imported, never executed, not published (root `package.json` `files`).
+  - Allowlist criterion: anchor a registrar iff a run with test ignores lifted showed ≥1 hidden production result for its module.
+  - Other ~24 `FastifyInstance` modules unmeasured, not anchored. Known gap.
+  - Contract: `packages/shared/src/__tests__/codeql-anchor-contract.test.ts`.
+    - Import set == allowlist.
+    - Each module exports its registrar.
+    - No `listen(`.
+    - No top-level code outside exported function.
+    - `paths-ignore` keeps tests, does not ignore anchor.
+  - Recovered locally without `node_modules` (= CI build-mode none): 17 results = spike 18 minus goal-plugin `routes.ts:345` format string.
+  - Format string fixed: constant `%s` format.
+  - Triaged in baseline:
+    - team-plugin `TeamPaths.confine` → `false-positive:`.
+    - automation `run-store.ts` `isSafeRunId` → `false-positive:`.
+    - `automation-writer.ts` → `accepted-risk:` citing #1104, finding F1. Alerts stay open on GitHub.
+  - Known gap: 2 `js/missing-rate-limiting` (blackhole `index.ts`, roles `roles-routes.ts`) not recovered, even with real blackhole deps shape.
+  - Post-merge (dismiss new plugin alerts, `--mirror-dismissal`, local-vs-GitHub parity numbers) tracked on #1059. Stays open.
 - Evidence: change `harden-codeql-ratchet-followups` `evidence/local-vs-ci.md` (path moves under `openspec/changes/archive/<date>-…` on archive).
 - Seed gated: unmatched share > 5 % → stop for decision.
 - Parity record:
@@ -591,6 +624,12 @@ Exit: `0` pass/skipped · `1` new alerts or growth violation · `2` error.
   - Mirror: `node scripts/codeql-local.mjs --mirror-dismissal <rule> <file> <lineHash> --alert <n>`.
   - Run mirror on clean checkout of the analysed commit. See [Mirror a GitHub dismissal](#mirror-a-github-dismissal).
   - Entry still reported after a fix (line stays flagged): reason cites the fix. Mirror post-merge at merge commit's analysed SHA.
+  - GitHub refuses comment edit on dismissed alert (HTTP 400 "Alert is already dismissed").
+  - Reword dismissal comment = `PATCH state=open`, then `PATCH state=dismissed` + same `dismissed_reason` + new `dismissed_comment`. `dismissed_at` resets.
+  - Reference one-off: change `fix-codeql-baseline-coverage` `evidence/sync-dismissal-comments.mjs`.
+    - Pre-flight reads all alerts. Aborts before any PATCH unless dismissed with expected reason.
+    - Resumable via `reopened` log record.
+  - #1062 sync 2026-11-03: 33 alerts reworded. #128 #129 #136 #137 #138 left as historical (no result at HEAD).
 - Gap G3 — no gate:
   - Nothing checks every open GitHub alert matches a `github-dismissed` entry.
   - Checked by hand per change. Record: `evidence/residue.md`.

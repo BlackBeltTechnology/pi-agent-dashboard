@@ -23,7 +23,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 /** Dwell before a hovered collapsed workspace spring-opens during a drag. */
 export const SPRING_LOAD_DWELL_MS = 600;
 
-/** Min height of the empty-pinned-tier eject drop zone, in px. */
+/** Min height of the pinned-tier eject drop zone (shown for every workspace-folder drag), in px. */
 export const PINNED_TIER_MIN_HEIGHT_PX = 64;
 
 /**

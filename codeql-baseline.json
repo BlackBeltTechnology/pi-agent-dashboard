@@ -197,6 +197,55 @@
       "reason": "github-dismissed (#238, won't fix): Read-only token, output attached to no release; the shipped build is a cold install. design.md D5 (harden-ci-cache-poisoning)."
     },
     {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/automation-writer.ts",
+      "lineHash": "14d5e7e33b99b3ec:1",
+      "count": 1,
+      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/automation-writer.ts",
+      "lineHash": "5fb8ae74848164cb:1",
+      "count": 2,
+      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/automation-writer.ts",
+      "lineHash": "65baf5ece431d7b:1",
+      "count": 1,
+      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/automation-writer.ts",
+      "lineHash": "c76980f6e4a9bc3:1",
+      "count": 1,
+      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/automation-writer.ts",
+      "lineHash": "d4632e7c8aee92e8:1",
+      "count": 1,
+      "reason": "accepted-risk: writeAutomation scopeBase reachable from WS plugin_action create without admitCwd; tracked in #1104, not a verified false positive"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/run-store.ts",
+      "lineHash": "539155b1648aaebf:1",
+      "count": 1,
+      "reason": "false-positive: gate: isSafeRunId packages/automation-plugin/src/server/run-store.ts:85; runId has no separator or .., scopeBase from a cwd admitted by withCwd (admitRouteCwdParam routes.ts:169)"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/automation-plugin/src/server/run-store.ts",
+      "lineHash": "7b4759c1b97754fa:1",
+      "count": 1,
+      "reason": "false-positive: gate: isSafeRunId packages/automation-plugin/src/server/run-store.ts:85; runId has no separator or .., scopeBase from a cwd admitted by withCwd (admitRouteCwdParam routes.ts:169)"
+    },
+    {
       "ruleId": "js/missing-rate-limiting",
       "file": "packages/dashboard-plugin-runtime/src/server/app-mount.ts",
       "lineHash": "cedd8cfebeaf61a7:1",
@@ -243,84 +292,84 @@
       "file": "packages/server/src/browse.ts",
       "lineHash": "2fcdef6c6a4624db:1",
       "count": 1,
-      "reason": "github-dismissed (#62, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#62, won't fix): operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:678; control POST /api/browse/mkdir: non-local parent confined to browse roots; name checked by validateMkdirName browse.ts:209"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/browse.ts",
       "lineHash": "7febd2c0a55cb911:1",
       "count": 1,
-      "reason": "github-dismissed (#58, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#58, won't fix): operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse?detect and /flags (also :660): non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/browse.ts",
       "lineHash": "8f56012ee7254808:1",
       "count": 1,
-      "reason": "github-dismissed (#59, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#59, won't fix): operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse: non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused); out-of-root parent row withheld (:633)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/browse.ts",
       "lineHash": "ac0911b3ba5dba0b:1",
       "count": 1,
-      "reason": "github-dismissed (#57, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#57, won't fix): operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse?detect and /flags (also :660): non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/browse.ts",
       "lineHash": "ba853c4fee67143f:1",
       "count": 1,
-      "reason": "github-dismissed (#61, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#61, won't fix): operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:678; control POST /api/browse/mkdir: non-local parent confined to browse roots; name checked by validateMkdirName browse.ts:209"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/browse.ts",
       "lineHash": "daa4b34b3fc8d92a:1",
       "count": 1,
-      "reason": "github-dismissed (#60, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#60, won't fix): operator-authz: gate: isWithinBrowseRoots packages/server/src/routes/file-routes.ts:621; observe GET /api/browse: non-local callers confined to browse roots (realpath, ~/.ssh ~/.pi refused); out-of-root parent row withheld (:633)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/changelog/changelog-fs.ts",
       "lineHash": "55de509927bc59c5:1",
       "count": 1,
-      "reason": "github-dismissed (#68, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#68, won't fix): operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/changelog/changelog-fs.ts",
       "lineHash": "93b0da8c5a5f6c04:1",
       "count": 1,
-      "reason": "github-dismissed (#67, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#67, won't fix): operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/changelog/changelog-fs.ts",
       "lineHash": "baa7947723127218:1",
       "count": 1,
-      "reason": "github-dismissed (#70, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#70, won't fix): operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/changelog/changelog-fs.ts",
       "lineHash": "c732d156608016cd:1",
       "count": 1,
-      "reason": "github-dismissed (#69, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#69, won't fix): operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/changelog/changelog-parser.ts",
       "lineHash": "a3625b8ab2814626:1",
       "count": 1,
-      "reason": "github-dismissed (#71, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#71, won't fix): operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/changelog/changelog-parser.ts",
       "lineHash": "afcbe8a64cd30270:1",
       "count": 1,
-      "reason": "github-dismissed (#72, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#72, won't fix): operator-authz: gate: isValidNpmPackageName packages/server/src/routes/pi-changelog-routes.ts:62; observe GET /api/pi-core/changelog: name or @scope/name only, no .. or extra separator, before any fs call; file is literal CHANGELOG.md"
     },
     {
       "ruleId": "js/shell-command-constructed-from-input",
@@ -341,14 +390,14 @@
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "3160fb7ad12b689b:1",
       "count": 1,
-      "reason": "github-dismissed (#84, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#84, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "32beb3b22e38928e:1",
       "count": 1,
-      "reason": "github-dismissed (#83, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#83, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
@@ -362,63 +411,63 @@
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "898d45d355ac9d2d:1",
       "count": 1,
-      "reason": "github-dismissed (#78, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#78, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "898d45d355ac9d2d:2",
       "count": 1,
-      "reason": "github-dismissed (#103, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#103, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "a20438526fb1dbce:1",
       "count": 1,
-      "reason": "github-dismissed (#92, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#92, won't fix): operator-authz: gate: realRootWithSep packages/server/src/git-worktree/git-operations.ts:1784; control POST /api/git/worktree/orphan-cleanup: lexical (:1749) and realpath containment in repo root; registered worktrees and .git refused"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "d6277b65f3d1b6f1:1",
       "count": 1,
-      "reason": "github-dismissed (#94, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#94, won't fix): operator-authz: gate: realRootWithSep packages/server/src/git-worktree/git-operations.ts:1784; control POST /api/git/worktree/orphan-cleanup: lexical (:1749) and realpath containment in repo root; registered worktrees and .git refused"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "e4f2c3ea8fbd125d:1",
       "count": 2,
-      "reason": "github-dismissed (#85, #86, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#85, #86, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "ec77555d97374540:1",
       "count": 1,
-      "reason": "github-dismissed (#96, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#96, won't fix): operator-authz: gate: realRootWithSep packages/server/src/git-worktree/git-operations.ts:1784; control POST /api/git/worktree/orphan-cleanup: lexical (:1749) and realpath containment in repo root; registered worktrees and .git refused"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "f893e576687d4fea:1",
       "count": 1,
-      "reason": "github-dismissed (#77, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#77, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/git-worktree/git-operations.ts",
       "lineHash": "f893e576687d4fea:2",
       "count": 1,
-      "reason": "github-dismissed (#102, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#102, won't fix): operator-authz: control-tier: POST /api/git/worktree and /from-pr; cwd admitted (admitGitCwd git-routes.ts:220); path is the caller-chosen worktree target by design, only option/control-char checked (isValidRefArg)"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/lib/dashboard-state-guard.ts",
       "lineHash": "2e052cf210d8c1d1:1",
       "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login. openStateChecked is reached only for paths the route containment gate already admitted, and refuses a handle that is a dashboard secret file."
+      "reason": "operator-authz: gate: handleIsAlwaysRefused packages/server/src/lib/dashboard-state-guard.ts:429; read-only; an always-refused handle is refused before any read; gated state is path-checked pre-open; callers admit the path first"
     },
     {
       "ruleId": "js/path-injection",
@@ -432,7 +481,7 @@
       "file": "packages/server/src/lib/folder-project.ts",
       "lineHash": "e1e4b63b7398c5c0:1",
       "count": 1,
-      "reason": "github-dismissed (#417, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#417, won't fix): operator-authz: gate: admitCwd packages/server/src/routes/folder-project-routes.ts:65; observe GET /api/folder/project: known-folder admission, 403 before any fs call"
     },
     {
       "ruleId": "js/path-injection",
@@ -446,7 +495,7 @@
       "file": "packages/server/src/lib/path-containment.ts",
       "lineHash": "4ddbc7764036ed7c:1",
       "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "false-positive: safeRealpath (path-containment.ts:65) only resolves a path, no read; it is the containment primitive itself"
     },
     {
       "ruleId": "js/path-injection",
@@ -467,21 +516,21 @@
       "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "9f8b559045ac19db:1",
       "count": 1,
-      "reason": "github-dismissed (#131, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#131, won't fix): operator-authz: gate: admitFileCwd packages/server/src/routes/file-routes.ts:1265; observe GET /api/file/raw: containmentAllows (:1280, :1288); image-only artifact-root branch (isImageUnderArtifactRoot) skips the barrier"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/file-routes.ts",
       "lineHash": "cbfa693d22ed7f6a:1",
       "count": 1,
-      "reason": "operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "operator-authz: gate: isWritableMdTarget packages/server/src/routes/file-routes.ts:245; control POST /api/file/write: resolveScopedMdPath (:243) scopes the target; markdown only, realpath, scope-bounded"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/routes/folder-project-routes.ts",
       "lineHash": "2d567cce8a6dc061:1",
       "count": 1,
-      "reason": "github-dismissed (#418, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#418, won't fix): operator-authz: gate: admitCwd packages/server/src/routes/folder-project-routes.ts:65; observe GET /api/folder/project: known-folder admission, 403 before any fs call"
     },
     {
       "ruleId": "js/server-side-unvalidated-url-redirection",
@@ -495,35 +544,35 @@
       "file": "packages/server/src/rpc-keeper/keeper-manager.ts",
       "lineHash": "fa136041986cd10b:1",
       "count": 1,
-      "reason": "github-dismissed (#244, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#244, won't fix): false-positive: request ids reach readPidSidecar only for a registered session (sessionManager.get, session-action-handler.ts:552), else server-minted or readdirSync names; reads a fixed-suffix .pid file, parses a PID only"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/spawn-process/process-manager.ts",
       "lineHash": "d2a7121032bda765:1",
       "count": 1,
-      "reason": "github-dismissed (#140, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#140, won't fix): operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/spawn-process/spawn-preflight.ts",
       "lineHash": "18257088b78cd55d:1",
       "count": 1,
-      "reason": "github-dismissed (#426, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#426, won't fix): operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/spawn-process/spawn-preflight.ts",
       "lineHash": "4f8a6f259624304b:1",
       "count": 1,
-      "reason": "github-dismissed (#425, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#425, won't fix): operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
     },
     {
       "ruleId": "js/path-injection",
       "file": "packages/server/src/spawn-process/spawn-preflight.ts",
       "lineHash": "d1f1bb540e18cd67:1",
       "count": 1,
-      "reason": "github-dismissed (#424, won't fix): operator-authz: Operator API behind the universal network guard (createNetworkGuardHook); an admitted caller can already spawn shell-capable sessions. Caveat: trusted-CIDR callers are admitted without login."
+      "reason": "github-dismissed (#424, won't fix): operator-authz: control-tier: POST /api/session/spawn (WS spawn_session); probe targets a directory the caller may already start a shell in; no per-sink gate"
     },
     {
       "ruleId": "js/path-injection",
@@ -629,6 +678,62 @@
       "lineHash": "752f8b07b7358981:1",
       "count": 1,
       "reason": "false-positive: allowed() parses both URLs, refuses userinfo and requires the same origin plus a path-segment boundary (matchesRegisteredUri); the registered prefixes come from the test harness, not a request — See change: triage-codeql-alert-debt"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/paths.ts",
+      "lineHash": "41b1e55d63fb7745:1",
+      "count": 2,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/paths.ts:93; realFs ops only receive paths confined under TEAM_HOME (canonicalize + isInside); ids checked by CONVERSATION_ID_RE, ukSeg"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/paths.ts",
+      "lineHash": "49e2de30c4cc6312:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/paths.ts:93; realFs ops only receive paths confined under TEAM_HOME (canonicalize + isInside); ids checked by CONVERSATION_ID_RE, ukSeg"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/paths.ts",
+      "lineHash": "8a9e767724e1acc0:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/paths.ts:93; realFs ops only receive paths confined under TEAM_HOME (canonicalize + isInside); ids checked by CONVERSATION_ID_RE, ukSeg"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/paths.ts",
+      "lineHash": "f41e9cb67ca36a35:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/paths.ts:93; realFs ops only receive paths confined under TEAM_HOME (canonicalize + isInside); ids checked by CONVERSATION_ID_RE, ukSeg"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/records.ts",
+      "lineHash": "9b5d3045b8f8fcf9:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/records.ts:90; list base confined under TEAM_HOME; persona dirs come from readdirSync(base), filtered by personaKeyFromDir"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/records.ts",
+      "lineHash": "bf45cf98e0d74bf4:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/records.ts:60; conversation id must match CONVERSATION_ID_RE (:59) and the record path is confined under TEAM_HOME"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/records.ts",
+      "lineHash": "d19bdcb2b8cb6cd9:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/records.ts:90; list base confined under TEAM_HOME; persona dirs come from readdirSync(base), filtered by personaKeyFromDir"
+    },
+    {
+      "ruleId": "js/path-injection",
+      "file": "packages/team-plugin/src/server/records.ts",
+      "lineHash": "d80baa5f8f0f4f1b:1",
+      "count": 1,
+      "reason": "false-positive: gate: TeamPaths.confine packages/team-plugin/src/server/records.ts:60; conversation id must match CONVERSATION_ID_RE (:59) and the record path is confined under TEAM_HOME"
     }
   ]
 }

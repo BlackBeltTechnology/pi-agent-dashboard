@@ -7,7 +7,9 @@ plugin pins a TIGHTENING capability floor (tools / skills allowlists, denylists,
 directory; the host composes every ancestor-or-equal policy and merges it into
 EVERY `spawnPiSession` via a non-weakening merge, so a spawned session cannot
 exceed the floor set for its cwd regardless of caller-supplied options.
+
 ## Requirements
+
 ### Requirement: Host exposes a per-plugin, cwd-keyed capability policy registry
 
 The host SHALL provide a `CwdPolicyRegistry` with `registerCwdPolicy(cwd, policy)`, `unregisterCwdPolicy(cwd)`, and `resolveCwdPolicy(cwd)`. Registry entries SHALL be keyed by the pair `(owningPluginId, canonicalCwd)`, where `canonicalCwd` is computed by resolving the LONGEST EXISTING ancestor of `cwd` through the real filesystem path (`fs.realpathSync`) and appending any not-yet-existing trailing segments lexically (on Windows, case-folded) so a policy for a not-yet-created dir under a symlinked ancestor keys to the same canonical prefix the spawn will resolve to. A single registry instance SHALL be wired into BOTH the spawn funnel and every plugin `ServerPluginContext`, so no spawn path or context observes a different registry.
@@ -75,7 +77,7 @@ When a plugin is unloaded or disabled, the host SHALL remove ALL registry entrie
 
 ### Requirement: The spawn funnel applies cwd policy to ANY spawn
 
-`spawnPiSession(cwd, options)` SHALL resolve the cwd policy for its `cwd` and merge it into `options` (via `mergeCwdPolicy`) BEFORE building argv or env, for EVERY spawn regardless of origin — including generic (non-plugin) spawns routed through `session-api` and plugin spawns routed through the `spawnSession` hook. When `resolveCwdPolicy(cwd)` returns no policy, the produced argv and env SHALL be byte-identical to the output produced before this capability existed.
+`spawnPiSession(cwd, options)` SHALL resolve the cwd policy for its `cwd` and merge it into `options` (via `mergeCwdPolicy`) BEFORE building argv or env, for EVERY spawn regardless of origin — including generic (non-plugin) spawns routed through `session-api` and plugin spawns routed through the `spawnSession` hook. When `resolveCwdPolicy(cwd)` returns no policy, the produced argv and env SHALL be byte-identical to the output produced before this capability existed, apart from the cwd-derived `PWD` the headless-spawn capability sets.
 
 #### Scenario: Policy applied to a generic (non-plugin) spawn
 - **WHEN** `registerCwdPolicy("/w/secrets", { noTools: true })` is registered and a generic user-initiated spawn lands in `/w/secrets` with no caller `scope`
@@ -84,7 +86,7 @@ When a plugin is unloaded or disabled, the host SHALL remove ALL registry entrie
 
 #### Scenario: No matching policy is byte-identical
 - **WHEN** a spawn lands in a cwd with no registered policy
-- **THEN** the produced argv and env SHALL be byte-identical to the pre-change `spawnPiSession` output for that mechanism
+- **THEN** the produced argv and env SHALL be byte-identical to the pre-change `spawnPiSession` output for that mechanism, apart from the cwd-derived `PWD` (headless-spawn capability)
 
 #### Scenario: Policy tools allowlist reaches argv
 - **WHEN** a policy `{ tools: ["read","grep"] }` is registered for the spawn cwd and the caller supplies no `scope`
@@ -145,4 +147,3 @@ In this change there SHALL be no entry point that causes host policy to ADD an `
 #### Scenario: No plugin path produces an extension-bearing policy
 - **WHEN** the only registrations came through the plugin-facing `registerCwdPolicy`
 - **THEN** no resolved policy SHALL carry `extensions` / `extensionConfig`, and no spawn SHALL gain a `-e` flag or `PI_EXT_*` var from host policy
-

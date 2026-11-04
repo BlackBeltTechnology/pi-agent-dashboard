@@ -51,4 +51,14 @@ Constant / same-origin navigation sink carries a `client-sinks: allow — <reaso
 
 Optional `lookupOnlyIds` prop feeds `heldEndedByGroup` (deep-link lookup rows do not count as held). See change: add-session-ui-deep-links-for-agents.
 
+## fix-sidebar-folder-visibility
+
+- `visibleUnpinned` (memo): unpinned, non-workspace folders shown. Tag/phase filter → `folderMatchesFilters`. Folders query → `folderMatchesFilters` OR (archive match AND cwd matches query). Else: alive session (post-`filterSessions`, hidden excluded) OR selected session while `sessionSearch` empty OR archive-search match.
+- `endedTotals` / stub group alone never reveals an unpinned folder. `stubGroupCwds` still feeds grouping (pinned/workspace stubs, Folders-filter reveal).
+- Empty-state gate: `visibleUnpinned.length === 0 && pinnedGroups.length === 0 && no workspaces` → `DashboardSpawnButtons` (when `onOpenPinDialog`) + "No active sessions", or "No matching folders" (`sessionList.noMatchingFolders`) while a Folders/Session/tag filter is active.
+- `renderArchiveMatches()` (per group): `archive-matches-<cwd>` section, rendered in the full body AND a stub body (an archive match can reveal a stub).
+- `folderMatchesFilters` now `useCallback` (memo dep).
+- `WorkspaceFolderEjectZone` (module-local): reads `useDndContext().active`; renders `<li><PinnedTierDropZone/></li>` for every `workspace-folder` drag. Replaces `visibleTopPinned.length === 0 && activeDragType` gate. `activeDragType` kept for `useFlipOnLaneChange` only.
+- Tests: `__tests__/SessionList.folder-visibility.test.tsx`, eject block in `SessionList.folder-membership-drag.test.tsx` (thin `DndContext` mock tracks `active`).
+
 See change: add-spawn-model-choice. Folder spawn forwards `AgentSpawnPicker` choice into opts. Initialize (menu item + both banners) → `initializeSpawnOpts(cwd, PROJECT_INIT_PROMPT)` (pi + effective choice). Card sibling → `siblingSpawnOpts(s)` (ACP agent, or pi model/thinking).

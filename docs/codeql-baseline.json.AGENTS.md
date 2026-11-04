@@ -1,3 +1,3 @@
 # codeql-baseline.json — index
 
-(repo root) CodeQL ratchet baseline. Per-alert debt ceiling keyed rule+file+lineHash with typed reasons. Edit only via `scripts/codeql-local.mjs` incl. `--mirror-dismissal`. See change: add-local-codeql-ratchet. See change: codeql-model-pack-and-mirror.
+(repo root) CodeQL ratchet baseline. Per-alert debt ceiling keyed rule+file+lineHash with typed reasons. Edit only via `scripts/codeql-local.mjs` incl. `--mirror-dismissal`. See change: add-local-codeql-ratchet. See change: codeql-model-pack-and-mirror. `operator-authz` reasons cite their bounding gate (`gate: <symbol> <path>:<line>` or `control-tier:` on 3 allowlisted files), contract `packages/shared/src/__tests__/codeql-baseline-gates.test.ts`; anchor-recovered plugin keys triaged (`automation-writer.ts` = `accepted-risk:` #1104). See change: fix-codeql-baseline-coverage.
