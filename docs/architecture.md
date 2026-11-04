@@ -8245,6 +8245,32 @@ Result render emits leaf heading, not breadcrumb, plus `(+N more sections)`. Ful
 
 Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `suppressedSections` count. Never a silent 1-of-N slice.
 
+- `kb_get` tool + `kb get` CLI share `resolveFetch` / `renderFetch` / `buildFetchRoots` (`packages/kb/src/fetch-resolve.ts`).
+- Roots = `store.listRoots()` (`SELECT DISTINCT root FROM chunks`). Remote git/https roots included.
+- NOT `resolvedSources[0]`. Old bug: ~88% sections unfetchable in 9-root KB (issue #1114).
+- Path readings:
+  - literal in every root.
+  - id-qualified `<source-id>:<path>`. Longest id wins. Ids with `:` round-trip.
+  - dir-qualified `<relDir>/<path>`. `relDir` = `relative(cwd, dir)`, `/`-normalized, filesystem roots only.
+  - Dedup by (root, path).
+- 1 reading → hit.
+- 0 → `(not found: <arg>)`.
+- >1 → `(ambiguous: <arg> is indexed in N sources — pass one of:)` + sorted `<source-id>:<path>` candidates. No body. Details `{found:false, candidates:N}`.
+- Section: `getChunkBySection(root, path, section)` (`packages/kb/src/sqlite-store.ts`).
+  - Exact `heading_path` first.
+  - Else (no ` > ` in arg) last-heading suffix match.
+  - Several distinct heading paths → ambiguous section candidate list.
+  - `getChunk` exact semantics unchanged.
+- Source classification (`classifyRef`, `packages/kb/src/sources.ts`):
+  - `ssh://` → `git`.
+  - GitHub repo ref (`[https://]github.com/<o>/<r>` + optional `.git`, `@<ref>`, `/tree/<ref>`) → `git` (regex `GITHUB_REPO`). Cloned as `https://github.com/<o>/<r>` (`.git` kept if given). Revision from `@ref`/`/tree/<ref>`. `pin` wins. No auto-subdir.
+  - Other `github.com/...` paths, raw, `/blob/`, `/archive/` → `https`.
+- https plain fetch: `assertIndexableBody` rejects HTML body or file name without configured extension (`ResolveCtx.extensions`, default `DEFAULTS.extensions`, case-insensitive). Runs before cache swap → old cache + `.fetched` marker survive.
+  - Error names URL. `/blob/` → raw URL hint. Else `kind: "git"` hint.
+- Remote sources still index via `kb index` CLI only. Extension auto-reindex walks filesystem `resolvedSources`.
+
+See change: fix-kb-get-roots-and-guard.
+
 #### DOX doctrine injection (`doctrine` config)
 
 Config group `doctrine: { "inject": "kb" | "off", "write": boolean }`. Layered project `.pi/dashboard/knowledge_base.json` → global `~/.pi/dashboard/knowledge_base.json` → defaults. Deep-merged one level, same as `readDiscipline` / `ranking`. Defaults `{ inject: "kb", write: false }`. Validation: `inject` ∈ {`kb`,`off`}; `write` boolean.

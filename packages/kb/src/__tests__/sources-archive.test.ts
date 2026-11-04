@@ -251,6 +251,48 @@ d("https resolver: guarded fetch + archive extraction", () => {
       noLeftovers();
     });
   });
+
+  // --- fix-kb-get-roots-and-guard: indexable-content check (test-plan X1–X4) ---
+
+  it("X1 an HTML repo page fetched as https is refused with a kind:git hint; nothing cached, no marker", async () => {
+    const spec = { kind: "https" as const, ref: "https://github.com/o/r" };
+    await expect(resolveSpec(spec, Buffer.from("\uFEFF  <!-- x -->\n<!DOCTYPE html><html><body>repo</body></html>"))).rejects.toThrow(/https:\/\/github\.com\/o\/r.*kind: "git"/);
+    const dest = join(cacheDir, cacheKey(spec));
+    expect(existsSync(dest)).toBe(false);
+    expect(existsSync(join(dest, "r"))).toBe(false);
+    noLeftovers();
+  });
+
+  it("X1b a /blob/ page names the equivalent raw URL", async () => {
+    const spec = { kind: "https" as const, ref: "https://github.com/o/r/blob/main/docs/a.md" };
+    await expect(resolveSpec(spec, Buffer.from("<html><body>blob</body></html>"))).rejects.toThrow("https://raw.githubusercontent.com/o/r/main/docs/a.md");
+  });
+
+  it("X2 a non-HTML body without an indexable extension is refused, naming the URL", async () => {
+    const spec = { kind: "https" as const, ref: `https://example.test/${++n}/LICENSE` };
+    await expect(resolveSpec(spec, Buffer.from("plain text, not markdown"))).rejects.toThrow(spec.ref);
+    expect(existsSync(join(cacheDir, cacheKey(spec)))).toBe(false);
+    noLeftovers();
+  });
+
+  it("X3 a markdown file is cached; the extension matches case-insensitively", async () => {
+    const lower = await resolveBody("guide.md", Buffer.from("# Guide\nbody\n"));
+    expect(files(lower.r.dir)).toEqual([".fetched", "guide.md"]);
+    const upper = await resolveBody("README.MD", Buffer.from("# Readme\nbody\n"));
+    expect(files(upper.r.dir)).toEqual([".fetched", "README.MD"]);
+    const custom = await resolveBody("notes.txt", Buffer.from("notes"), { extensions: [".TXT"] });
+    expect(files(custom.r.dir)).toEqual([".fetched", "notes.txt"]);
+  });
+
+  it("X4 a refresh refused by the content check leaves the earlier cache and marker unchanged", async () => {
+    const spec = { kind: "https" as const, ref: `https://example.test/${++n}/doc.md` };
+    const first = await resolveSpec(spec, Buffer.from("# Doc\nfirst\n"));
+    const marker = readFileSync(join(first.r.dir, ".fetched"), "utf8");
+    await expect(resolveSpec(spec, Buffer.from("<!doctype html><html>login wall</html>"), {}, true)).rejects.toThrow(/nothing indexable/);
+    expect(readFileSync(join(first.r.dir, "doc.md"), "utf8")).toBe("# Doc\nfirst\n");
+    expect(readFileSync(join(first.r.dir, ".fetched"), "utf8")).toBe(marker);
+    noLeftovers();
+  });
 });
 
 d("lock-free swap under concurrent refreshes (review B1: last-writer-wins, never lose the cache)", () => {
@@ -402,6 +444,7 @@ d("lock-free swap under concurrent refreshes (review B1: last-writer-wins, never
     }
     expect(readdirSync(cacheDir)).toEqual([cacheKey(spec)]);
   });
+
 });
 
 // Keep tar() referenced for the bsdtar/GNU rendering pin below.

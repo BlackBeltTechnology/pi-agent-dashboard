@@ -23,7 +23,10 @@ freely on any uncertainty.
    config keys, function names).
 2. Run: `kb search "<entities>" --limit 8 --json`
 3. Read only the top 1–2 hits' full content when needed:
-   `kb get <path> --section "<heading_path>"`
+   `kb get <path> --section "<heading_path>"` (a unique last heading also works).
+   Every indexed source is searched; a path in several sources prints a
+   candidate list (`<source-id>:<path>`) — pass one back. A path may be
+   qualified by its source dir (`.pi/docs/x.md`) or id (`<id>:<path>`).
 4. Still unresolved? Walk the graph from a hit:
    `kb neighbors "<heading_path>" --depth 2` and `kb backlinks "<path>"`.
 5. Paraphrase miss? Lexical search is weak when your words differ from the
