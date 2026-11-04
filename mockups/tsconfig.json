@@ -19,5 +19,5 @@
       "@blackbelt-technology/pi-dashboard-client-utils": ["../packages/client-utils/src"]
     }
   },
-  "include": ["mock-site.config.ts", "mock-site.app.tsx", "*/mock.tsx", "../openspec/changes/*/mockups/*/mock.tsx", "../packages/mockup-loop/site/virtual.d.ts"]
+  "include": ["mock-site.config.ts", "mock-site.app.tsx", "*/mock.tsx", "../packages/mockup-loop/examples/*/mock.tsx", "../openspec/changes/*/mockups/*/mock.tsx", "../packages/mockup-loop/site/virtual.d.ts"]
 }

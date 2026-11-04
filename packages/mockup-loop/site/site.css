@@ -51,20 +51,64 @@ html body { margin: 0; background: var(--mk-page); color: var(--mk-fg); }
 .mk-ft { font-size: 15px; font-weight: 600; }
 .mk-pair { display: flex; flex-wrap: wrap; gap: 24px 16px; align-items: flex-start; padding: 14px 6px 10px; }
 .mk-pane { flex: none; max-width: 100%; display: flex; flex-direction: column; gap: 6px; }
-.mk-lab { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.mk-lab.mk-bad { color: var(--mk-bad-text, var(--mk-bad)); } .mk-lab.mk-ok { color: var(--mk-ok-text, var(--mk-ok)); }
+/* pane labels = quiet chips (red / green stays reserved for rings) */
+.mk-lab { align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 1px 8px; border-radius: 5px; background: var(--mk-panel); border: 1px solid var(--mk-line-2); color: var(--mk-muted); }
+.mk-lab.mk-bad { color: var(--mk-muted); }
+.mk-lab.mk-ok { color: var(--mk-ok-text, var(--mk-ok)); background: color-mix(in srgb, var(--mk-ok) 10%, var(--mk-panel)); border-color: color-mix(in srgb, var(--mk-ok) 35%, var(--mk-line-2)); }
+.mk-why { margin: 0 0 4px 36px; font-size: 13px; color: var(--mk-muted); max-width: 90ch; }
+.mk-long.mk-long-inline { position: static; display: inline-block; margin-left: 8px; }
+
+/* page overview: one caption card per frame (invoice-bot style index) */
+.mk-ov { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 16px; max-width: 1100px; }
+.mk-ov-card { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--mk-line-2); border-radius: 10px; background: var(--mk-panel); color: inherit; text-decoration: none; }
+.mk-ov-card:hover, .mk-ov-card:focus-visible { border-color: var(--mk-accent); outline: none; }
+.mk-ov-n { flex: none; min-width: 24px; height: 24px; border-radius: 12px; display: inline-grid; place-items: center; border: 1px solid var(--mk-line-2); font-size: 12px; font-weight: 700; }
+.mk-ov-b { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 13px; }
+.mk-ov-why { color: var(--mk-muted); font-size: 12.5px; }
+.mk-ov-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.mk-chip { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 5px; border: 1px solid var(--mk-line-2); color: var(--mk-muted); }
+.mk-chip-ok { color: var(--mk-ok-text, var(--mk-ok)); border-color: color-mix(in srgb, var(--mk-ok) 35%, var(--mk-line-2)); }
+.mk-none { padding: 28px; border: 1px dashed var(--mk-line-2); border-radius: 10px; text-align: center; max-width: 640px; }
+.mk-none b { color: var(--mk-fg); font-size: 15px; }
+
+/* steps: side by side (default) or animated player */
+.mk-pane-steps { max-width: 100%; }
+.mk-strip { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 16px 4px 6px; }
+.mk-step-wrap { display: flex; align-items: stretch; flex: none; }
+.mk-arrow { align-self: center; padding: 0 10px; color: var(--mk-faint); font-size: 18px; }
+.mk-step { display: flex; flex-direction: column; gap: 6px; flex: none; scroll-margin-top: 64px; }
+.mk-step-l { font: 500 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mk-muted); text-decoration: none; }
+.mk-step-l b { color: var(--mk-fg); }
+.mk-player { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; }
+.mk-stage { display: grid; }
+.mk-scene { grid-area: 1 / 1; opacity: 0; visibility: hidden; transition: opacity .45s ease, visibility 0s linear .45s; }
+.mk-scene.on { opacity: 1; visibility: visible; transition: opacity .45s ease; }
+.mk-dots { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--mk-muted); }
+.mk-pp { min-height: 28px; padding: 2px 10px; }
+.mk-dot { width: 10px; height: 10px; padding: 0; border: 0; border-radius: 5px; background: var(--mk-line-2); cursor: pointer; }
+.mk-dot.on { width: 22px; background: var(--mk-accent); }
+.mk-dot-l { margin-left: 4px; }
+.mk-tap { position: relative; display: inline-block; }
+.mk-tap-dot { position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; border: 2px solid var(--mk-accent); background: color-mix(in srgb, var(--mk-accent) 30%, transparent); pointer-events: none; }
+.mk-scene.on .mk-tap-anim .mk-tap-dot { animation: mk-tap 1.2s ease-out .6s both; }
+.mk-tap-anim .mk-tap-dot { opacity: 0; }
+@keyframes mk-tap { 0% { transform: scale(.3); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mk-scene, .mk-scene.on { transition: none; } }
 .mk-canvas { background: var(--mk-panel); border: 1px solid var(--mk-line-2); border-radius: 10px; padding: 16px; contain: layout paint; isolation: isolate; }
 /* content box = exactly 375px (border outside), zero padding inside -> innerWidth 375 */
+.mk-phone-wrap { position: relative; }
+.mk-phone-load { position: absolute; inset: 1px; display: grid; place-items: center; border-radius: 12px; background: var(--mk-panel); color: var(--mk-muted); font-size: 12.5px; pointer-events: none; }
 .mk-phone { display: block; box-sizing: content-box; border: 1px solid var(--mk-line-2); border-radius: 12px; background: var(--mk-panel); }
 html body.mk-pane-only { margin: 0; padding: 0; background: var(--mk-panel); }
-body.mk-pane-only .mk-canvas { border: 0; padding: 0; border-radius: 0; }
-body.mk-pane-only .mk-ring-n { left: 2px; top: 2px; } /* inside the ring corner: the iframe edge never clips it */
+/* zero side padding keeps the content exactly 375px; top padding leaves room for a badge above a top-edge ring */
+body.mk-pane-only .mk-canvas { border: 0; padding: 22px 0 0; border-radius: 0; }
+body.mk-pane-only .mk-ring-n { left: 0; top: -22px; } /* above the ring, never over its text; the iframe edge never clips it */
 .mk-error { margin: 12px; padding: 12px; border: 1px solid var(--mk-bad); border-radius: 8px; color: var(--mk-bad-text, var(--mk-bad)); font: 600 13px system-ui; }
 .mk-problems { margin: 16px 4px 0; padding: 8px 8px 8px 22px; border: 1px solid var(--mk-bad); border-radius: 8px; font-size: 12px; color: var(--mk-bad-text, var(--mk-bad)); }
 
 /* rings: outline on the element; number badge = child of the ring (scrolls with it, under the bar);
    tip = body layer above everything */
-.mk-ring { position: relative; display: inline-block; outline: 3px solid; outline-offset: 4px; border-radius: 12px; cursor: help; }
+.mk-ring { position: relative; display: inline-flex; align-items: center; flex-wrap: nowrap; gap: inherit; vertical-align: middle; outline: 3px solid; outline-offset: 4px; border-radius: 12px; cursor: help; }
 .mk-ring.mk-block { display: grid; }
 .mk-ring.mk-bad { outline-color: var(--mk-bad); } .mk-ring.mk-ok { outline-color: var(--mk-ok); }
 .mk-ring-n { position: absolute; left: -15px; top: -15px; z-index: 5; min-width: 22px; height: 22px; border-radius: 11px; color: #fff; font: 700 12px/22px system-ui; text-align: center; text-decoration: none; }

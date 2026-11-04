@@ -3,14 +3,137 @@
 // Accept / Reject per MOCK PAGE -> POST /__mock/decide -> <mockDir>/decision.json (git-visible).
 // Only open mocks are listed unless "Show accepted / rejected". See change: add-live-component-mock-site.
 import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { tipsOf, type Frame, type Mock, type Status, type Decision, RefBase, RefLink, refId } from "./kit.tsx";
+import { tipsOf, type Frame, type Mock, type Status, type Decision, RefBase, RefLink, refId, InPlayer, MAX_WHY } from "./kit.tsx";
 import { MOCK_CONFIG } from "virtual:mock-site/config";
 import { MOCKS as LOADED, ERRORS } from "virtual:mock-site/mocks";
 
 type M = Mock & { id: string };
 const ALL: M[] = LOADED.map(({ id, mock }) => ({ ...mock, id }));
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-const frameText = (m: M, f: Frame) => fold([m.id, m.title, m.category, m.change ?? "", f.title, ...tipsOf([f.current, f.proposed])].join(" "));
+const frameText = (m: M, f: Frame) => fold([m.id, m.title, m.category, m.change ?? "", f.title, f.why ?? "", ...(f.steps ?? []).map((s) => s.label),
+  ...tipsOf([f.current, f.proposed, ...(f.steps ?? []).map((s) => s.proposed)])].join(" "));
+/** Frames that declare both `steps` and panes: steps win, reported as a problem. */
+const STEP_PROBLEMS = ALL.flatMap((m) => m.frames.flatMap((f, i) => (f.steps?.length && (f.current !== undefined || f.proposed !== undefined)
+  ? [`${m.id} frame ${i + 1}: steps and current/proposed both set (steps shown)`] : [])));
+const letter = (k: number) => String.fromCharCode(97 + k);
+const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+
+/** Steps side by side: each card is a ref target `<id>/<n>/proposed/step-<k>`. */
+function Strip({ f, base, n }: { f: Frame; base: string; n: number }): ReactElement {
+  return (
+    <div className="mk-strip">
+      {f.steps!.map((s, k) => (
+        <div key={k} className="mk-step-wrap">
+          {k > 0 ? <span className="mk-arrow" aria-hidden>→</span> : null}
+          <div className="mk-step" id={refId(`${base}/step-${k + 1}`)} style={{ width: f.width ?? 300 }}>
+            <RefLink to={`${base}/step-${k + 1}`} className="mk-step-l"><b>{n}{letter(k)}</b> {s.label}</RefLink>
+            <div className="mk-canvas">{s.proposed}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Steps animated in one pane: 2.5 s per step, Pause/Play, one dot per step. */
+function Player({ f, n }: { f: Frame; n: number }): ReactElement {
+  const steps = f.steps!;
+  const [k, setK] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  useEffect(() => {
+    if (!playing) return;
+    const t = setInterval(() => setK((x) => (x + 1) % steps.length), 2500);
+    return () => clearInterval(t);
+  }, [playing, steps.length]);
+  return (
+    <div className="mk-player" style={{ width: f.width ?? 320 }}>
+      <div className="mk-canvas mk-stage">
+        <InPlayer.Provider value={true}>
+          {steps.map((s, i) => <div key={i} className={`mk-scene${i === k ? " on" : ""}`} aria-hidden={i !== k}>{s.proposed}</div>)}
+        </InPlayer.Provider>
+      </div>
+      <div className="mk-dots">
+        <button type="button" className="mk-btn mk-pp" onClick={() => setPlaying((p) => !p)}>{playing ? "Pause" : "Play"}</button>
+        {steps.map((s, i) => <button key={i} type="button" className={`mk-dot${i === k ? " on" : ""}`} aria-label={`Step ${n}${letter(i)} ${s.label}`} onClick={() => { setK(i); setPlaying(false); }} />)}
+        <span className="mk-dot-l">{n}{letter(k)} {steps[k].label}</span>
+      </div>
+    </div>
+  );
+}
+/** Page overview: one caption card per frame, linking to `#<id>/<n>`. */
+function Overview({ m }: { m: M }): ReactElement {
+  return (
+    <nav className="mk-ov" aria-label="Frames">
+      {m.frames.map((f, i) => (
+        <a key={i} href={`#${m.id}/${i + 1}`} className="mk-ov-card">
+          <span className="mk-ov-n">{i + 1}</span>
+          <span className="mk-ov-b">
+            <b>{f.title}</b>
+            {f.why ? <span className="mk-ov-why">{f.why}</span> : null}
+            <span className="mk-ov-chips"><Chips f={f} /></span>
+          </span>
+        </a>
+      ))}
+    </nav>
+  );
+}
+function Chips({ f }: { f: Frame }): ReactElement {
+  const phone = f.phone ? <span className="mk-chip">phone</span> : null;
+  if (f.steps?.length) return <><span className="mk-chip mk-chip-ok">{f.steps.length} steps{f.play ? " \u00b7 animated" : ""}</span>{phone}</>;
+  return (
+    <>
+      {f.current !== undefined ? <span className="mk-chip">Current</span> : null}
+      <span className="mk-chip mk-chip-ok">{f.current === undefined ? "New" : "Proposed"}</span>
+      {phone}
+    </>
+  );
+}
+const Why = ({ why }: { why: string }): ReactElement => (
+  <p className="mk-why">{why}{why.length > MAX_WHY ? <span className="mk-long mk-long-inline">WHY &gt; {MAX_WHY}</span> : null}</p>
+);
+/** A `steps` frame: strip by default, player when `play` (reduced motion: strip). */
+function StepsPane({ f, n, base, reducedMotion }: { f: Frame; n: number; base: string; reducedMotion: boolean }): ReactElement {
+  const side = `${base}/proposed`;
+  return (
+    <div className="mk-pair">
+      <div className="mk-pane mk-pane-steps" id={refId(side)}>
+        <RefLink to={side} className="mk-lab mk-ok">{f.steps!.length} steps</RefLink>
+        <RefBase.Provider value={side}>
+          {f.play && !reducedMotion ? <Player f={f} n={n} /> : <Strip f={f} base={side} n={n} />}
+        </RefBase.Provider>
+      </div>
+    </div>
+  );
+}
+const pane = (m: M, i: number, f: Frame, side: "current" | "proposed") =>
+  f.phone ? <PhonePane spec={`${m.id}/${i + 1}/${side}`} /> : <RefBase.Provider value={`${m.id}/${i + 1}/${side}`}><div className="mk-canvas">{side === "current" ? f.current : f.proposed}</div></RefBase.Provider>;
+
+/** One frame: header, `why`, then Current | Proposed panes or its steps. */
+function FrameView({ m, f, i, reducedMotion }: { m: M; f: Frame; i: number; reducedMotion: boolean }): ReactElement {
+  const w = f.phone ? 375 : f.width ?? 640;
+  const ref = `${m.id}/${i + 1}`;
+  return (
+    <article id={refId(ref)} className="mk-frame">
+      <div className="mk-fh">
+        <RefLink to={ref} className="mk-fn">{i + 1}</RefLink>
+        <span className="mk-ft">{f.title}</span>
+        <RefLink to={ref} className="mk-ref">#{ref}</RefLink>
+      </div>
+      {f.why ? <Why why={f.why} /> : null}
+      {f.steps?.length ? <StepsPane f={f} n={i + 1} base={ref} reducedMotion={reducedMotion} /> : (
+        <div className="mk-pair">
+          {f.current !== undefined ? <div className="mk-pane" id={refId(`${ref}/current`)} style={{ width: w }}><RefLink to={`${ref}/current`} className="mk-lab mk-bad">Current</RefLink>{pane(m, i, f, "current")}</div> : null}
+          <div className="mk-pane" id={refId(`${ref}/proposed`)} style={{ width: w }}><RefLink to={`${ref}/proposed`} className="mk-lab mk-ok">{f.current === undefined ? "New" : "Proposed"}</RefLink>{pane(m, i, f, "proposed")}</div>
+        </div>
+      )}
+    </article>
+  );
+}
+function useReducedMotion(): boolean {
+  const [r, setR] = useState(reduced.matches);
+  useEffect(() => { const on = () => setR(reduced.matches); reduced.addEventListener("change", on); return () => reduced.removeEventListener("change", on); }, []);
+  return r;
+}
 const matches = (text: string, q: string) => fold(q).split(/\s+/).filter(Boolean).every((w) => text.includes(w));
 
 type Theme = { id: string; label: string; attrs?: Record<string, string | null>; system?: { dark: string; light: string } };
@@ -53,16 +176,24 @@ function PaneOnly({ spec }: { spec: string }): ReactElement {
   return <RefBase.Provider value={spec}><div className="mk-canvas">{side === "current" ? f.current : f.proposed}</div></RefBase.Provider>;
 }
 function PhonePane({ spec }: { spec: string }): ReactElement {
-  const [h, setH] = useState(160);
+  // Start at the last height seen this session (else 240) with a loading line: no blank flash, no jump.
+  const key = `mk-h:${spec}`;
+  const [h, setH] = useState(() => Number(sessionStorage.getItem(key)) || 240);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.origin !== location.origin || e.data?.mkPane !== spec) return;
       const frame = document.querySelector<HTMLIFrameElement>(`iframe[data-pane="${CSS.escape(spec)}"]`);
-      if (frame && e.source === frame.contentWindow) setH(e.data.h);
+      if (frame && e.source === frame.contentWindow) { setH(e.data.h); setLoaded(true); sessionStorage.setItem(key, String(e.data.h)); }
     };
     addEventListener("message", on); return () => removeEventListener("message", on);
-  }, [spec]);
-  return <iframe className="mk-phone" data-pane={spec} title={spec} src={`?pane=${encodeURIComponent(spec)}`} style={{ width: 375, height: h }} />;
+  }, [spec, key]);
+  return (
+    <div className="mk-phone-wrap">
+      <iframe className="mk-phone" data-pane={spec} title={spec} src={`?pane=${encodeURIComponent(spec)}`} style={{ width: 375, height: h }} />
+      {loaded ? null : <div className="mk-phone-load">Loading phone view…</div>}
+    </div>
+  );
 }
 
 /** Scroll a ring inside a phone iframe into view (parent <-> iframe handshake). */
@@ -146,10 +277,8 @@ function Shell(): ReactElement {
   const hits = useMemo(() => (q.trim() ? listed.map((m) => ({ m, frames: m.frames.map((f, i) => ({ f, i })).filter(({ f }) => matches(frameText(m, f), q)) })).filter((h) => h.frames.length) : []), [q, listed]);
   const shown = q.trim() ? hits : selected ? [{ m: selected, frames: selected.frames.map((f, i) => ({ f, i })) }] : [];
   const categories = [...new Set(listed.map((m) => m.category))];
-  const problems = [...ERRORS, ...state.warnings];
-
-  const pane = (m: M, i: number, f: Frame, side: "current" | "proposed") =>
-    f.phone ? <PhonePane spec={`${m.id}/${i + 1}/${side}`} /> : <RefBase.Provider value={`${m.id}/${i + 1}/${side}`}><div className="mk-canvas">{side === "current" ? f.current : f.proposed}</div></RefBase.Provider>;
+  const problems = [...ERRORS, ...STEP_PROBLEMS, ...state.warnings];
+  const reducedMotion = useReducedMotion();
 
   return (
     <div className="mk-site">
@@ -192,7 +321,9 @@ function Shell(): ReactElement {
             ))}
           </span>
         </div>
-        {shown.length === 0 ? <p className="mk-empty">{q.trim() ? "No match." : "Nothing open. All mocks are decided."}</p> : null}
+        {ALL.length === 0 ? (
+          <div className="mk-empty mk-none"><b>No mocks yet</b><p>Create <code>mockups/&lt;yyyy-mm-dd-slug&gt;/mock.tsx</code> (or <code>openspec/changes/&lt;change&gt;/mockups/&lt;id&gt;/mock.tsx</code>).</p></div>
+        ) : shown.length === 0 ? <p className="mk-empty">{q.trim() ? "No match." : "Nothing open. All mocks are decided."}</p> : null}
         {shown.map(({ m, frames }) => (
           <section key={m.id} className="mk-change">
             <header className={`mk-ch mk-st-${statusOf(m)}`}>
@@ -202,23 +333,8 @@ function Shell(): ReactElement {
                 {decOf(m)?.note ? <p className="mk-note">{decOf(m)!.note}</p> : null}
               </div>
             </header>
-            {frames.map(({ f, i }) => {
-              const w = f.phone ? 375 : f.width ?? 640;
-              const ref = `${m.id}/${i + 1}`;
-              return (
-                <article key={i} id={refId(ref)} className="mk-frame">
-                  <div className="mk-fh">
-                    <RefLink to={ref} className="mk-fn">{i + 1}</RefLink>
-                    <span className="mk-ft">{f.title}</span>
-                    <RefLink to={ref} className="mk-ref">#{ref}</RefLink>
-                  </div>
-                  <div className="mk-pair">
-                    {f.current !== undefined ? <div className="mk-pane" id={refId(`${ref}/current`)} style={{ width: w }}><RefLink to={`${ref}/current`} className="mk-lab mk-bad">Current</RefLink>{pane(m, i, f, "current")}</div> : null}
-                    <div className="mk-pane" id={refId(`${ref}/proposed`)} style={{ width: w }}><RefLink to={`${ref}/proposed`} className="mk-lab mk-ok">{f.current === undefined ? "New" : "Proposed"}</RefLink>{pane(m, i, f, "proposed")}</div>
-                  </div>
-                </article>
-              );
-            })}
+            {!q.trim() && m.frames.length > 1 ? <Overview m={m} /> : null}
+            {frames.map(({ f, i }) => <FrameView key={i} m={m} f={f} i={i} reducedMotion={reducedMotion} />)}
           </section>
         ))}
       </main>

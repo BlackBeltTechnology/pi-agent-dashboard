@@ -45,6 +45,7 @@
   "files": [
     "src/",
     "site/",
+    "examples/",
     "!src/__tests__",
     "presets-data/",
     ".pi/skills/",

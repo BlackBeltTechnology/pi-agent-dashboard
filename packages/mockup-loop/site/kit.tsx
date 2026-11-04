@@ -18,10 +18,20 @@ export interface Frame {
   width?: number;
   /** Render each side in a real 375px iframe so the app's @media rules apply. */
   phone?: boolean;
+  /** One-line reason (≤ 120 chars), shown under the title and in the page overview. */
+  why?: string;
   /** Today's UI with today's props. Omit for a part that does not exist yet ("New"). */
   current?: ReactNode;
-  proposed: ReactNode;
+  /** Required unless `steps` is given. */
+  proposed?: ReactNode;
+  /** States of one flow, drawn instead of clicked: side by side by default. Ring numbers stay unique across steps. */
+  steps?: Step[];
+  /** Animate `steps` in one pane (reduced motion: side by side). */
+  play?: boolean;
 }
+
+/** One state of a flow. Wrap the element whose click leads to the next step in `Tap`. */
+export interface Step { label: string; proposed: ReactNode }
 
 /** Default export of `<root>/<id>/mock.tsx`. The id is the directory name. */
 export interface Mock {
@@ -34,6 +44,15 @@ export interface Mock {
 }
 
 const MAX_TIP = 40;
+export const MAX_WHY = 120;
+
+/** True inside the animated player: `Tap` pulses instead of showing a static marker. */
+export const InPlayer = createContext(false);
+/** Marks the click target that leads to the next step (no handler: mocks stay prop-driven). */
+export function Tap({ children }: { children: ReactNode }): ReactElement {
+  const anim = useContext(InPlayer);
+  return <span className={`mk-tap${anim ? " mk-tap-anim" : ""}`}>{children}<span className="mk-tap-dot" aria-hidden /></span>;
+}
 
 /** `<id>/<frame>/<side>` of the pane being rendered; rings derive their ref from it. */
 export const RefBase = createContext<string | null>(null);
