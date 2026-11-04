@@ -1,14 +1,18 @@
-// Example live-component mock (first dashboard mock). Real client components, rings on the divs that change.
-// See change: add-live-component-mock-site.
+// Example live-component mock: real client components, rings on the divs that change,
+// a `why` per frame, and a `steps` flow (states drawn, not clicked).
+// Lives in packages/mockup-loop/examples/ (NOT a mock root): never listed by default.
+// Copy it to mockups/<yyyy-mm-dd-slug>/mock.tsx to start a mock. The E2E fixture copies it too.
+// See changes: add-live-component-mock-site, fix-mock-site-ux.
 // A mock = ONE PAGE (or flow). Frames are the full page at different widths / states.
 // Accept / Reject applies to the whole page. Rings circle the divs that changed.
-import type { ReactNode } from "react";
-import { mdiFolderRemoveOutline, mdiMagnify, mdiPlus } from "@mdi/js";
-import { Icon } from "@mdi/react";
-import { GitDirtyPill } from "@app/components/worktree/GitDirtyPill.tsx";
+
 import { CwdGonePill } from "@app/components/folder/CwdGonePill.tsx";
 import { InlineMessage } from "@app/components/primitives/InlineMessage.tsx";
-import { Fix, Issue, type Mock } from "mock-site/kit";
+import { GitDirtyPill } from "@app/components/worktree/GitDirtyPill.tsx";
+import { mdiCheckCircleOutline, mdiFolderRemoveOutline, mdiMagnify, mdiPlus } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { Fix, Issue, type Mock, Tap } from "mock-site/kit";
+import type { ReactNode } from "react";
 
 const dirty = { dirtyCount: 7, staged: 2, unstaged: 3, untracked: 2, ahead: 3, behind: 1 } as never;
 const smallDirty = { dirtyCount: 2, staged: 0, unstaged: 2, untracked: 0, ahead: 0, behind: 0 } as never;
@@ -74,14 +78,17 @@ function Detail({ variant }: { variant: "current" | "proposed" }) {
   );
   return (
     <main className="flex-1 flex flex-col gap-3 p-4 bg-[var(--bg-primary)] min-w-0">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold text-[var(--text-primary)]">fix-login-redirect</h2>
-        <span className="text-xs text-[var(--text-tertiary)]">~/work/web-app</span>
-      </div>
+      {variant === "proposed" ? (
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold text-[var(--text-primary)]">fix-login-redirect</h2>
+          <span className="text-xs text-[var(--text-tertiary)]">~/work/web-app</span>
+        </div>
+      ) : null}
       {variant === "current" ? (
-        <Issue n={2} tip="No way to recover here" block>
-          <div className="rounded-lg border border-dashed border-[var(--border-primary)] p-3 text-xs text-[var(--text-tertiary)]">
-            Prompt failed: ENOENT ~/work/web-app
+        <Issue n={2} tip="No sign the folder is gone" block>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">fix-login-redirect</h2>
+            <span className="text-xs text-[var(--text-tertiary)]">~/work/web-app</span>
           </div>
         </Issue>
       ) : (
@@ -97,6 +104,29 @@ function Detail({ variant }: { variant: "current" | "proposed" }) {
   );
 }
 
+// ---- re-link flow (frame 3): one state per step; Tap marks the click that leads on ----
+const btn = "px-2 py-0.5 rounded border border-[var(--border-primary)] text-xs";
+const RelinkBanner = () => (
+  <InlineMessage severity="warning" icon={mdiFolderRemoveOutline} title="This session's folder no longer exists"
+    actions={<><Tap><button className={btn}>Re-link folder</button></Tap><button className={btn}>Archive session</button></>}>
+    ~/work/web-app was removed outside the dashboard.
+  </InlineMessage>
+);
+const Picker = () => (
+  <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-2 text-xs flex flex-col gap-1">
+    <div className="text-[var(--text-tertiary)]">Pick the new folder</div>
+    <div className="px-2 py-1 rounded text-[var(--text-secondary)]">~/work/web-app-old</div>
+    <Tap><div className="px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">~/work/web-app-2</div></Tap>
+    <div className="px-2 py-1 rounded text-[var(--text-secondary)]">Browse...</div>
+  </div>
+);
+const Relinked = () => (
+  <div className="flex flex-col gap-2">
+    <InlineMessage severity="success" icon={mdiCheckCircleOutline} title="Re-linked to ~/work/web-app-2" />
+    <Card s={{ ...sessions[0], folder: "~/work/web-app-2", time: "now", state: "Idle", missing: false }} variant="proposed" />
+  </div>
+);
+
 const Page = ({ variant }: { variant: "current" | "proposed" }): ReactNode => (
   <div className="flex min-h-[420px]"><Sidebar variant={variant} /><Detail variant={variant} /></div>
 );
@@ -107,8 +137,16 @@ const mock: Mock = {
   category: "Sessions",
   change: "add-live-component-mock-site",
   frames: [
-    { title: "Sessions page - desktop", width: 1040, current: <Page variant="current" />, proposed: <Page variant="proposed" /> },
-    { title: "Sessions page - phone", phone: true, current: <PhonePage variant="current" />, proposed: <PhonePage variant="proposed" /> },
+    { title: "Sessions page - desktop", width: 1040, why: "Missing folder wins over git; the page says why and offers a way out.",
+      current: <Page variant="current" />, proposed: <Page variant="proposed" /> },
+    { title: "Sessions page - phone", phone: true, why: "Same rule at 375px: one pill per row.",
+      current: <PhonePage variant="current" />, proposed: <PhonePage variant="proposed" /> },
+    { title: "Re-link flow - after the click", width: 300, why: "Each state is drawn: the reviewer never has to click.",
+      steps: [
+        { label: "folder gone", proposed: <RelinkBanner /> },
+        { label: "picker open", proposed: <Picker /> },
+        { label: "re-linked", proposed: <Relinked /> },
+      ] },
   ],
 };
 export default mock;

@@ -15,7 +15,8 @@ export const readMarker = (): Marker => JSON.parse(fs.readFileSync(MARKER, "utf8
 const pkg = (p: string) => path.join(REPO_ROOT, "packages", p);
 
 /**
- * Temp project for the mock-site E2E: the dashboard's real example mock + an
+ * Temp project for the mock-site E2E: the package example mock
+ * (`packages/mockup-loop/examples/`, never a mock root) + an
  * e2e-only mock exercising ring lint, Tailwind scan, containment and a phone
  * edge ring. Decisions written by tests land here, never in the repo.
  */
@@ -24,7 +25,7 @@ export function makeE2eProject(): string {
   fs.symlinkSync(path.join(REPO_ROOT, "node_modules"), path.join(root, "node_modules"), "dir");
   const mockups = path.join(root, "mockups");
   fs.mkdirSync(mockups, { recursive: true });
-  fs.cpSync(path.join(REPO_ROOT, "mockups", PILLS_MOCK, "mock.tsx"), path.join(mockups, PILLS_MOCK, "mock.tsx"), { recursive: true });
+  fs.cpSync(path.join(REPO_ROOT, "packages", "mockup-loop", "examples", PILLS_MOCK, "mock.tsx"), path.join(mockups, PILLS_MOCK, "mock.tsx"), { recursive: true });
   fs.mkdirSync(path.join(root, "openspec", "changes"), { recursive: true });
   const w = (rel: string, body: string) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), body); };
   w("mockups/mock-site.css", `@import ${JSON.stringify(path.join(pkg("client"), "src/index.css"))};
@@ -61,6 +62,7 @@ const mock: Mock = {
     {
       title: "Lint, Tailwind, containment",
       width: 700,
+      why: "${"w".repeat(121)}",
       current: (
         <div style={{ display: "grid", gap: 24, padding: 20 }}>
           <Issue n={1} tip="exactly forty characters long tip text!!"><Box t="forty" /></Issue>
@@ -82,6 +84,21 @@ const mock: Mock = {
       phone: true,
       current: <Issue n={1} tip="edge"><div style={{ height: 40 }}>edge</div></Issue>,
       proposed: <Fix n={1} tip="edge"><div style={{ height: 40 }}>edge</div></Fix>,
+    },
+    {
+      title: "Animated steps",
+      play: true,
+      steps: [{ label: "one", proposed: <Box t="scene one" /> }, { label: "two", proposed: <Box t="scene two" /> }],
+    },
+    {
+      title: "Steps and panes",
+      current: <Box t="ignored" />,
+      steps: [{ label: "only", proposed: <Box t="step wins" /> }],
+    },
+    {
+      title: "Phone steps",
+      phone: true,
+      steps: [{ label: "one", proposed: <Box t="phone one" /> }, { label: "two", proposed: <Box t="phone two" /> }],
     },
   ],
 };

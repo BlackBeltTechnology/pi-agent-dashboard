@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock site quick fix - proposal</title>
+<style>
+:root{--page:#f6f6f7;--panel:#fff;--fg:#18181b;--muted:#52525b;--faint:#71717a;--line:#e4e4e7;--line2:#d4d4d8;--accent:#2563eb;--bad:#dc2626;--ok:#16a34a;--warn-bg:#fff7ed;--warn:#c2410c;--chip:#f4f4f5}
+[data-theme=dark]{--page:#0f0f11;--panel:#18181b;--fg:#f4f4f5;--muted:#a1a1aa;--faint:#8b8b94;--line:#27272a;--line2:#3f3f46;--accent:#60a5fa;--bad:#f87171;--ok:#4ade80;--warn-bg:#2a1a0e;--warn:#fdba74;--chip:#27272a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--fg);font:14px/1.45 system-ui,-apple-system,sans-serif}
+.top{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;padding:10px 24px;background:var(--page);border-bottom:1px solid var(--line)}
+.top h1{font-size:15px;margin:0 12px 0 0}
+.sp{flex:1}
+.btn{min-height:32px;padding:4px 12px;border:1px solid var(--line2);background:var(--panel);color:var(--fg);border-radius:6px;font:inherit;font-size:12.5px;cursor:pointer}
+.btn[aria-pressed=true]{border-color:var(--accent)}
+.tabs{display:flex;gap:4px}
+main{max-width:1240px;margin:0 auto;padding:20px 24px 80px}
+.sec{font-size:16px;font-weight:700;margin:32px 0 4px}
+.lede{color:var(--muted);margin:0 0 14px;max-width:80ch}
+.view{display:none}.view.on{display:block}
+
+/* issue list */
+.issues{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.iss{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.iss b{display:block;margin-bottom:4px}
+.iss .fix{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line2);color:var(--muted);font-size:13px}
+.iss .fix::before{content:"Fix: ";font-weight:700;color:var(--ok)}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:9px;background:var(--chip);color:var(--muted);margin-right:6px}
+
+/* ---- PROPOSED mock-site chrome (invoice-bot style) ---- */
+.site{background:var(--page);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+.site-bar{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.site-bar .t{font-weight:700}
+.site-bar .crumb{color:var(--faint);font-size:12.5px}
+.site-body{padding:18px 18px 22px}
+.grp{font-size:13.5px;font-weight:700;margin:4px 0 10px}
+.grp small{font-weight:500;color:var(--faint);margin-left:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.card:hover{border-color:var(--accent);box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.thumb{height:130px;background:var(--page);border-bottom:1px solid var(--line);overflow:hidden;position:relative}
+.thumb .scale{transform:scale(.85);transform-origin:0 0;width:118%;padding:12px}
+.cap{padding:10px 12px 12px;font-size:12.5px;color:var(--muted)}
+.cap b{display:block;color:var(--fg);font-size:13px;margin-bottom:2px}
+.cap .fid{font:600 11.5px ui-monospace,Menlo,monospace;color:var(--faint);margin-right:4px}
+.side{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:4px;margin-bottom:4px}
+.side.cur{background:var(--chip);color:var(--muted)}
+.side.pro{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+.empty{border:1px dashed var(--line2);border-radius:10px;padding:26px;text-align:center;color:var(--muted)}
+.empty code{background:var(--chip);padding:1px 6px;border-radius:4px}
+
+/* fake dashboard bits used inside frames */
+.sess{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin-bottom:7px}
+.sess .r{display:flex;gap:6px;align-items:center;min-width:0}
+.sess .n{font-weight:600;font-size:13px;white-space:nowrap}
+.sess .tm{margin-left:auto;font-size:11.5px;color:var(--faint)}
+.sess .f{font-size:11.5px;color:var(--faint)}
+.pill{font-size:11px;font-weight:600;padding:1px 7px;border-radius:9px;white-space:nowrap}
+.pill.gone{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.pill.git{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.banner{border-left:3px solid var(--warn);background:var(--warn-bg);border-radius:6px;padding:8px 10px;font-size:12.5px;margin-bottom:8px}
+.banner b{color:var(--warn)}
+.banner .acts{display:flex;gap:6px;margin-top:6px}
+.banner .acts>span{border:1px solid var(--line2);background:var(--panel);border-radius:5px;padding:2px 8px;font-size:12px;position:relative}
+.okmsg{border-left:3px solid var(--ok);background:color-mix(in srgb,var(--ok) 10%,transparent);border-radius:6px;padding:8px 10px;font-size:12.5px;margin-bottom:8px}
+.picker{border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:8px;font-size:12px;margin-bottom:8px;box-shadow:0 6px 18px rgba(0,0,0,.12)}
+.picker div{padding:3px 6px;border-radius:4px}.picker .sel{position:relative;background:color-mix(in srgb,var(--accent) 16%,transparent)}
+
+/* lighter review rings: 2px, badge OUTSIDE the ring, never on top of text */
+.ring{position:relative;display:inline-block;outline:2px solid var(--ok);outline-offset:3px;border-radius:9px}
+.ring.bad{outline-color:var(--bad)}
+.ring .n{white-space:normal;font-size:11px;position:absolute;right:-14px;top:-14px;width:18px;height:18px;border-radius:9px;background:var(--ok);color:#fff;font:700 11px/18px system-ui;text-align:center}
+.ring.bad .n{background:var(--bad)}
+
+/* ---- frame detail (focus view) ---- */
+.detail-h{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.detail-h .t{font-weight:700;font-size:15px}
+.why{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;color:var(--muted);margin-top:12px;max-width:84ch}
+.why b{color:var(--fg)}
+
+/* SEPARATE: filmstrip of states */
+.strip{display:flex;gap:10px;align-items:stretch;overflow-x:auto;padding-bottom:6px}
+.step{flex:0 0 268px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+.step .sl{font:600 11.5px ui-monospace,Menlo,monospace;color:var(--faint);margin-bottom:6px;display:flex;gap:6px}
+.step .sl i{font-style:normal;color:var(--fg)}
+.arrow{align-self:center;color:var(--faint);font-size:18px;flex:none}
+.tap{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:color-mix(in srgb,var(--accent) 35%,transparent);border:2px solid var(--accent)}
+
+/* ANIMATE: one pane plays the flow, step dots, pause, reduced-motion => static strip */
+.player{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;width:320px}
+.stage{position:relative;height:190px}
+.scene{position:absolute;inset:0;opacity:0;transition:opacity .45s ease}
+.scene.on{opacity:1}
+.dots{display:flex;gap:6px;align-items:center;margin-top:10px;font-size:12px;color:var(--muted)}
+.dots button{width:9px;height:9px;border-radius:5px;border:0;padding:0;background:var(--line2);cursor:pointer}
+.dots button.on{background:var(--accent);width:22px}
+.dots .lbl{margin-left:6px}
+.scene.on .tap{animation:tap 1.2s ease-out .5s 1 both}
+@keyframes tap{0%{transform:scale(.3);opacity:0}30%{opacity:1}100%{transform:scale(1.6);opacity:0}}
+@media (prefers-reduced-motion:reduce){.scene{transition:none}.scene.on .tap{animation:none;opacity:1}}
+
+.pair{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:6px}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.cmp{grid-template-columns:1fr}}
+.cmp h3{margin:0 0 6px;font-size:13px}
+.shot{border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:var(--panel)}
+.shot img{display:block;width:100%}
+.bld{display:flex;flex-direction:column;gap:12px;max-width:980px}
+.bi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.bh{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+.bh b{font-size:14.5px}
+.num{width:24px;height:24px;border-radius:12px;display:inline-grid;place-items:center;background:var(--accent);color:#fff;font-weight:700;font-size:12.5px}
+.bi dl{display:grid;grid-template-columns:96px 1fr;gap:6px 14px;margin:0;font-size:13px}
+.bi dt{font-weight:700;color:var(--muted)}
+.bi dd{margin:0;color:var(--fg)}
+.bi pre{margin:2px 0 6px;padding:8px 10px;background:var(--page);border:1px solid var(--line);border-radius:6px;font-size:12px;overflow-x:auto}
+code{font-size:12px}
+.mmd{max-width:980px;margin:0 0 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px}
+.mmd summary{cursor:pointer;font-weight:700;color:var(--muted)}
+.mmd-grid{display:grid;grid-template-columns:1fr;gap:16px;margin-top:10px}
+@media (max-width:860px){.mmd-grid{grid-template-columns:1fr}}
+.mmd h3{margin:0 0 6px;font-size:13px}
+.mmd pre.mermaid{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px;margin:0;font-size:12px}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Mock site quick fix</h1>
+  <div class="tabs" role="tablist">
+    <button class="btn" data-v="issues" aria-pressed="true">1 What's wrong</button>
+    <button class="btn" data-v="overview" aria-pressed="false">2 Proposed overview</button>
+    <button class="btn" data-v="states" aria-pressed="false">3 States: separate vs animate</button>
+    <button class="btn" data-v="empty" aria-pressed="false">4 Fresh install (empty)</button>
+    <button class="btn" data-v="build" aria-pressed="false">5 What to build</button>
+  </div>
+  <span class="sp"></span>
+  <button class="btn" id="th">Dark</button>
+</div>
+
+<main>
+<!-- ================= 1 ISSUES ================= -->
+<section class="view on" id="v-issues">
+  <div class="sec">What the archived change shipped (origin/develop 349440832)</div>
+  <p class="lede">Explored <code>mockups/2026-11-03-session-pills/mock.tsx</code>, <code>packages/mockup-loop/site/{Site,kit}.tsx</code>, <code>site.css</code>, and the live site on :5299. Compared against <code>invoice-bot-dashboard/docs/ui-rework/mock</code>.</p>
+  <div class="issues">
+    <div class="iss"><span class="tag">default</span><b>Example mock ships as a real, open mock</b>It sits in <code>mockups/</code>, so <code>discoverMocks()</code> lists it as "Open" with Accept/Reject on every checkout. It also invents UI (an "ENOENT" box that the app does not have). It exists only because the E2E fixture copies it.<div class="fix">Move it to <code>packages/mockup-loop/examples/</code> (E2E <code>makeE2eProject()</code> copies from there). Drop its <code>mockups/AGENTS.md</code> row. A fresh site shows the empty state (tab 4).</div></div>
+    <div class="iss"><span class="tag">state</span><b>Clicks do nothing</b>"Re-link folder" and "Archive session" are dead buttons. The reviewer cannot see what happens after the click. The only other mock (flows) fakes it with "scripted user clicks".<div class="fix">Kit gets <code>steps</code>: each state is drawn. Default = separate (filmstrip). Opt-in = animate (one pane plays the steps). Tab 3.</div></div>
+    <div class="iss"><span class="tag">look</span><b>Wall of huge side-by-side panes</b>One mock = one long page of 1040px panes. No overview, no thumbnails, no "why" text next to a frame. Red CURRENT / green PROPOSED labels shout.<div class="fix">Invoice-bot layout: overview grid of thumbnails, each with id + title + one-line reason. Click opens a focus view with prev/next and a "why" block. Quiet Current/Proposed chips. Tab 2.</div></div>
+    <div class="iss"><span class="tag">ring</span><b>Ring badge covers the text</b>In the phone iframe, badge 1 sits on the pill ("ler missing"). On desktop the 3px ring + 4px offset pushes the pill to wrap and truncates "fix-login-re...".<div class="fix">2px ring, 3px offset, badge outside the top-right corner. Rings never change the wrapped element's layout.</div></div>
+    <div class="iss"><span class="tag">phone</span><b>Phone frames load blank first</b>Each phone pane is an iframe that boots the whole site. Both panes stay white until Vite answers, then jump in height.<div class="fix">Reserve the height (min 240px) and show a "loading" line, so the page does not jump. (Real fix later: thumbnail cache.)</div></div>
+  </div>
+  <div class="sec">Side by side</div>
+  <div class="cmp">
+    <div><h3>Dashboard mock site today</h3><div class="shot"><div style="padding:14px;font-size:12px;color:var(--muted)">Sidebar list + one page of wide panes. Labels CURRENT / PROPOSED in red / green. No rationale per frame. See :5299/#2026-11-03-session-pills.</div></div></div>
+    <div><h3>Invoice bot mock (target feel)</h3><div class="shot"><div style="padding:14px;font-size:12px;color:var(--muted)">Overview grid of thumbnails, each "f=N title" + reason caption. Click opens one frame with prev/next. States drawn as separate frames; the "working" indicator uses live CSS animation, static under reduced motion.</div></div></div>
+  </div>
+</section>
+
+<!-- ================= 2 OVERVIEW ================= -->
+<section class="view" id="v-overview">
+  <div class="sec">Proposed: overview grid (start page of a mock)</div>
+  <p class="lede">Each card is one frame side. The caption carries the WHY, so the frame itself stays clean. Click a card to open the focus view.</p>
+  <div class="site">
+    <div class="site-bar"><span class="t">Dashboard mocks</span><span class="crumb">/ Sessions / Missing folder</span><span class="sp"></span><button class="btn">Accept page</button><button class="btn">Reject page</button></div>
+    <div class="site-body">
+      <div class="grp">1 Session list <small>desktop 1040</small></div>
+      <div class="grid">
+        <div class="card" data-go="states">
+          <div class="thumb"><div class="scale">
+            <div class="sess"><div class="r"><span class="n">fix-login-redirect</span><span class="pill gone">folder missing</span><span class="pill git">7 ↑3 ↓1</span><span class="tm">2m</span></div><div class="f">~/work/web-app · Working</div></div>
+            <div class="sess"><div class="r"><span class="n">add-billing-export</span><span class="pill git">2</span><span class="tm">14m</span></div><div class="f">~/work/web-app · Idle</div></div>
+          </div></div>
+          <div class="cap"><span class="side cur">Current</span><b><span class="fid">1a</span>Two pills on one row</b>Folder-missing and git-dirty both show. The git count means nothing when the folder is gone.</div>
+        </div>
+        <div class="card" data-go="states">
+          <div class="thumb"><div class="scale">
+            <div class="sess"><div class="r"><span class="n">fix-login-redirect</span><span class="ring"><span class="pill gone">folder missing</span><span class="n">1</span></span><span class="tm">2m</span></div><div class="f">~/work/web-app · Working</div></div>
+            <div class="sess"><div class="r"><span class="n">add-billing-export</span><span class="pill git">2</span><span class="tm">14m</span></div><div class="f">~/work/web-app · Idle</div></div>
+          </div></div>
+          <div class="cap"><span class="side pro">Proposed</span><b><span class="fid">1b</span>Missing folder wins</b>Git pill hidden while the folder is gone. One signal per row.</div>
+        </div>
+      </div>
+      <div class="grp" style="margin-top:22px">2 Re-link flow <small>3 states · separate</small></div>
+      <div class="grid">
+        <div class="card" data-go="states"><div class="thumb"><div class="scale">
+          <div class="banner"><b>This session's folder no longer exists</b><div class="acts"><span>Re-link folder</span><span>Archive session</span></div></div></div></div>
+          <div class="cap"><span class="side pro">Step 1</span><b><span class="fid">2a</span>Banner with two exits</b>Shown on the session page when the folder is gone.</div></div>
+        <div class="card" data-go="states"><div class="thumb"><div class="scale">
+          <div class="picker"><div>~/work/web-app-old</div><div class="sel">~/work/web-app-2</div><div>Browse…</div></div></div></div>
+          <div class="cap"><span class="side pro">Step 2</span><b><span class="fid">2b</span>After "Re-link folder"</b>Picker opens with recent folders of the same repo.</div></div>
+        <div class="card" data-go="states"><div class="thumb"><div class="scale">
+          <div class="okmsg">Re-linked to ~/work/web-app-2</div>
+          <div class="sess"><div class="r"><span class="n">fix-login-redirect</span><span class="pill git">7 ↑3 ↓1</span><span class="tm">now</span></div></div></div></div>
+          <div class="cap"><span class="side pro">Step 3</span><b><span class="fid">2c</span>Back to normal</b>Banner gone, git pill returns, row updates in place.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 3 STATES ================= -->
+<section class="view" id="v-states">
+  <div class="sec">States: "nothing happens when I click" → separate or animate</div>
+  <p class="lede">Mocks stay non-interactive (no fake click handlers). A state change is drawn, never hidden behind a click. Left: the default. Right: opt-in for motion-heavy UI (spinners, streaming, toasts).</p>
+
+  <div class="detail-h"><button class="btn">← 1b</button><span class="t">2 Re-link flow</span><span class="crumb" style="color:var(--faint)">#…/2</span><span class="sp"></span><button class="btn">2d →</button></div>
+
+  <div class="grp">A · Separate (default) <small>each state = one frame, linkable as #…/2/step/2</small></div>
+  <div class="strip">
+    <div class="step"><div class="sl">2a <i>folder gone</i></div>
+      <div class="banner"><b>This session's folder no longer exists</b><div style="color:var(--muted)">~/work/web-app was removed outside the dashboard.</div><div class="acts"><span>Re-link folder<span class="tap" style="opacity:.9"></span></span><span>Archive session</span></div></div>
+      <div style="font-size:12px;color:var(--faint)">tap marker = the click that leads to 2b</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="sl">2b <i>picker open</i></div>
+      <div class="banner" style="opacity:.45"><b>This session's folder no longer exists</b></div>
+      <div class="picker"><div>~/work/web-app-old</div><div class="sel">~/work/web-app-2<span class="tap" style="left:85%;opacity:.9"></span></div><div>Browse…</div></div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="sl">2c <i>re-linked</i></div>
+      <div class="okmsg">Re-linked to ~/work/web-app-2</div>
+      <div class="sess"><div class="r"><span class="n">fix-login-redirect</span><span class="pill git">7 ↑3 ↓1</span><span class="tm">now</span></div><div class="f">~/work/web-app-2 · Idle</div></div></div>
+  </div>
+
+  <div class="grp" style="margin-top:26px">B · Animate (opt-in) <small>one pane plays the steps, 2.5 s each; pause / dots; reduced motion = strip A</small></div>
+  <div class="pair">
+    <div class="player">
+      <div class="stage">
+        <div class="scene on"><div class="banner"><b>This session's folder no longer exists</b><div style="color:var(--muted)">~/work/web-app was removed.</div><div class="acts"><span>Re-link folder<span class="tap"></span></span><span>Archive session</span></div></div></div>
+        <div class="scene"><div class="banner" style="opacity:.45"><b>This session's folder no longer exists</b></div><div class="picker"><div>~/work/web-app-old</div><div class="sel">~/work/web-app-2<span class="tap" style="left:85%"></span></div><div>Browse…</div></div></div>
+        <div class="scene"><div class="okmsg">Re-linked to ~/work/web-app-2</div><div class="sess"><div class="r"><span class="n">fix-login-redirect</span><span class="pill git">7 ↑3 ↓1</span><span class="tm">now</span></div><div class="f">~/work/web-app-2 · Idle</div></div></div>
+      </div>
+      <div class="dots"><button class="btn" id="pp" style="width:auto;height:auto;min-height:26px;padding:2px 8px;border-radius:5px">Pause</button><button class="on" aria-label="step 1"></button><button aria-label="step 2"></button><button aria-label="step 3"></button><span class="lbl" id="lbl">2a folder gone</span></div>
+    </div>
+    <div class="why" style="margin-top:0;flex:1;min-width:260px">
+      <b>Authoring (kit change, small):</b>
+      <pre style="margin:6px 0 0;font-size:12px;white-space:pre-wrap">frames: [{
+  title: "Re-link flow",
+  steps: [                       // NEW, optional
+    { label: "folder gone",  proposed: &lt;Banner/&gt;, tap: "relink" },
+    { label: "picker open",  proposed: &lt;Picker/&gt; },
+    { label: "re-linked",    proposed: &lt;Row relinked/&gt; },
+  ],
+  play: false,                   // true = animate (B)
+  why: "One banner, two exits; row heals in place.",
+}]</pre>
+      <p style="margin:8px 0 0">Site renders <code>steps</code> as strip A, or as player B when <code>play: true</code>. <code>tap</code> marks the click target with a pulse. <code>why</code> = caption under the thumbnail and in the focus view.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 4 EMPTY ================= -->
+<section class="view" id="v-empty">
+  <div class="sec">Fresh install: no example mock by default</div>
+  <p class="lede">After moving the example out of <code>mockups/</code>, a new checkout opens the site to an empty state, not to someone else's fake review item.</p>
+  <div class="site">
+    <div class="site-bar"><span class="t">Dashboard mocks</span><span class="sp"></span><button class="btn">System</button><button class="btn">Dark</button><button class="btn">Light</button></div>
+    <div class="site-body">
+      <div class="empty">
+        <b style="color:var(--fg);font-size:15px">No mocks yet</b>
+        <p>Create <code>mockups/&lt;yyyy-mm-dd-slug&gt;/mock.tsx</code> or ask the agent to "mockup this UI".</p>
+        <p style="margin-bottom:0">Want a reference? <code>packages/mockup-loop/examples/</code> holds the example (not listed here).</p>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ================= 5 BUILD ================= -->
+<section class="view" id="v-build">
+  <div class="sec">What to build: change <code>fix-mock-site-ux</code></div>
+  <p class="lede">Five work items. Each one has its scope, the files it touches, the exact behaviour, and how to check it is done. It is ordered so each item can ship alone. Items 1 and 4 take about an hour each. Items 2, 3 and 5 take half a day each.</p>
+
+  <details class="mmd" id="mmd">
+    <summary>Optional: old vs new structure (Mermaid)</summary>
+    <div class="mmd-grid">
+      <div><h3>Old (shipped)</h3><pre class="mermaid">
+flowchart TD
+  subgraph Roots["Mock roots (discoverMocks)"]
+    R1["mockups/*/mock.tsx"]
+    R2["openspec/changes/*/mockups/*/mock.tsx"]
+  end
+  EX["mockups/2026-11-03-session-pills&lt;br/&gt;example + E2E source"]:::bad
+  EX --> R1
+  E2E["tests/e2e fixture.ts&lt;br/&gt;copies from mockups/"] -.-> EX
+  Roots --> SH["Shell"]
+  SH --> SB["Sidebar list&lt;br/&gt;example shows as Open"]:::bad
+  SH --> PG["id = one long page"]
+  PG --> FR["Frame"]
+  FR --> PR["Current | Proposed&lt;br/&gt;1040px panes, static"]:::bad
+  PR --> RG["Rings 3px&lt;br/&gt;badge over text"]:::bad
+  FR --> PH["Phone iframe&lt;br/&gt;blank, then jumps"]:::bad
+  classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+</pre></div>
+      <div><h3>New (proposed)</h3><pre class="mermaid">
+flowchart TD
+  subgraph Roots["Mock roots (unchanged)"]
+    R1["mockups/*/mock.tsx"]
+    R2["openspec/changes/*/mockups/*/mock.tsx"]
+  end
+  EX["packages/mockup-loop/examples/&lt;br/&gt;session-pills (not a root)"]:::ok
+  E2E["tests/e2e fixture.ts&lt;br/&gt;copies from examples/"] -.-> EX
+  Roots --> SH["Shell"]
+  SH --> EM["0 mocks: empty state&lt;br/&gt;how to create one"]:::ok
+  SH --> OV["id = overview grid&lt;br/&gt;thumb + chip + why"]:::ok
+  OV -->|click| FV["id/n = focus view&lt;br/&gt;prev/next + why"]:::ok
+  FV --> FR["Frame"]
+  FR -->|current/proposed| PR["Pair (as today)"]
+  FR -->|steps| ST{"play?"}:::ok
+  ST -->|false: default| SEP["Strip: 2a &gt; 2b &gt; 2c&lt;br/&gt;id/n/step/k"]:::ok
+  ST -->|true| ANI["Player: crossfade + tap pulse&lt;br/&gt;reduced motion = strip"]:::ok
+  FR --> RG["Rings 2px&lt;br/&gt;badge outside"]:::ok
+  FR --> PH["Phone iframe&lt;br/&gt;reserved + cached height"]:::ok
+  classDef ok fill:#dcfce7,stroke:#16a34a,color:#14532d
+</pre></div>
+    </div>
+  </details>
+
+  <div class="bld">
+    <div class="bi"><div class="bh"><span class="num">1</span><b>Example mock is not listed by default</b><span class="tag">S</span></div>
+      <dl>
+        <dt>Goal</dt><dd>A fresh checkout's mock site lists only real, team-authored mocks. The example stays available as a reference and as the E2E source.</dd>
+        <dt>Files</dt><dd><code>git mv mockups/2026-11-03-session-pills packages/mockup-loop/examples/2026-11-03-session-pills</code><br><code>tests/e2e/mock-site/fixture.ts</code>: <code>makeE2eProject()</code> copies from <code>packages/mockup-loop/examples/&lt;PILLS_MOCK&gt;/mock.tsx</code><br><code>mockups/AGENTS.md</code>: drop the row · <code>packages/mockup-loop/AGENTS.md</code>: add an <code>examples/</code> row<br><code>packages/mockup-loop/references/live-mock-site.md</code>: "copy an example from <code>examples/</code>"</dd>
+        <dt>Behaviour</dt><dd><code>discoverMocks()</code> is unchanged (<code>examples/</code> is not a mock root). With zero mocks, <code>Shell</code> renders the empty state (tab 4): "No mocks yet", the path pattern <code>mockups/&lt;yyyy-mm-dd-slug&gt;/mock.tsx</code>, and a pointer to <code>examples/</code>. Today the empty state reads "Nothing open. All mocks are decided.", which is wrong when nothing exists.</dd>
+        <dt>Also</dt><dd>Rewrite the example so it shows only UI the app really has: drop the invented "Prompt failed: ENOENT" box and use a real chat error row or nothing. Convert it to <code>steps</code> (item 3) so it also serves as the states reference.</dd>
+        <dt>Done when</dt><dd>Running <code>npm run mocks</code> on a clean develop shows no session-pills entry. The E2E mock-site specs pass unchanged. <code>grep -r session-pills mockups/</code> returns nothing.</dd>
+      </dl></div>
+
+    <div class="bi"><div class="bh"><span class="num">2</span><b>Overview grid + focus view</b><span class="tag">M</span></div>
+      <dl>
+        <dt>Goal</dt><dd>Open a mock and read it in 10 seconds, like the invoice-bot portfolio: thumbnails plus reasons first, detail on click.</dd>
+        <dt>Kit API</dt><dd><code>Frame.why?: string</code>: one line, at most 120 characters, shown in the caption and the focus view. Lint like <code>TIP &gt; 40</code>: show <code>WHY &gt; 120</code> on the card.<br><code>Frame.group?: string</code>: groups cards under a heading ("1 Session list"). Defaults to the frame title.</dd>
+        <dt>Site</dt><dd><code>#&lt;id&gt;</code> becomes the <b>overview</b>: a CSS grid of <code>minmax(250px,1fr)</code> cards, one card per frame side (Current, Proposed, or each step). A card is a scaled live render of the pane (<code>transform: scale()</code> inside a fixed-height clip, <code>pointer-events:none</code>) plus a caption: chip (Current / Proposed / Step n), ref id (<code>1a</code>, <code>1b</code>, <code>2a</code>…), title, <code>why</code>.<br><code>#&lt;id&gt;/&lt;n&gt;</code> becomes the <b>focus view</b>: today's full-size Current | Proposed pair, plus prev/next buttons (←/→ keys) and the <code>why</code> block under it.<br>Deep links <code>#id/n/side/ring</code> keep working and land in the focus view. Search hits open the focus view.</dd>
+        <dt>Style</dt><dd>Current / Proposed labels become small chips: neutral for Current, a quiet green tint for Proposed. Red/green stays reserved for rings. All colours stay <code>--mk-*</code> tokens.</dd>
+        <dt>Done when</dt><dd>A mock with 2 frames shows 4 cards. Clicking a card opens <code>#id/n</code>, and ←/→ walk the frames. The existing ref-link and ring-flash tests still pass.</dd>
+      </dl></div>
+
+    <div class="bi"><div class="bh"><span class="num">3</span><b>States: separate (default) or animate (opt-in)</b><span class="tag">M</span></div>
+      <dl>
+        <dt>Goal</dt><dd>A reviewer sees what happens after a click without clicking. Mocks stay prop-driven: no fake handlers, no hidden state.</dd>
+        <dt>Kit API</dt><dd><pre>interface Step { label: string; current?: ReactNode; proposed: ReactNode; tap?: string }
+interface Frame { …; steps?: Step[]; play?: boolean }   // steps XOR current/proposed
+export const Tap = ({ id, children }) =&gt; …             // wraps the click target</pre>
+          <code>tap: "relink"</code> on step k pulses the <code>&lt;Tap id="relink"&gt;</code> element inside step k: the click that leads to step k+1.</dd>
+        <dt>Separate</dt><dd>Default. Steps render as a horizontal strip: step card → arrow → step card. Each card is labelled <code>2a label</code> and is linkable as <code>#id/n/step/k</code>. The Tap marker is drawn statically (ring dot).</dd>
+        <dt>Animate</dt><dd><code>play: true</code>. A single pane stacks every step and crossfades between them (opacity 450 ms, 2.5 s per step, loops), with a tap pulse 500 ms after a step enters. Controls: Pause/Play, one dot per step (click = jump + pause), and the current label. <code>prefers-reduced-motion</code> renders the separate strip instead. The overview thumbnail always shows step 1.</dd>
+        <dt>Lint</dt><dd>A frame with both <code>steps</code> and <code>current</code>/<code>proposed</code> raises a <code>problems</code> entry. A <code>tap</code> with no matching <code>&lt;Tap&gt;</code> shows <code>TAP?</code> on the step.</dd>
+        <dt>Done when</dt><dd>The example's re-link flow is 3 steps and readable without interaction. Under reduced motion the player shows a static strip. Vitest covers the <code>steps</code> XOR rule and ref parsing for <code>step/k</code>.</dd>
+      </dl></div>
+
+    <div class="bi"><div class="bh"><span class="num">4</span><b>Rings never cover or reflow content</b><span class="tag">S</span></div>
+      <dl>
+        <dt>Files</dt><dd><code>packages/mockup-loop/site/site.css</code> only.</dd>
+        <dt>Behaviour</dt><dd><code>.mk-ring</code>: <code>outline: 2px</code>, <code>outline-offset: 3px</code>, <code>display: inline-flex</code> (so it no longer wraps or truncates its siblings). Badge <code>.mk-ring-n</code> moves to <code>right:-14px; top:-14px</code>, outside the ring. Drop the phone-iframe override that moved the badge inside (<code>body.mk-pane-only .mk-ring-n</code>), and give the pane 14px top/right padding instead so the badge is not clipped.</dd>
+        <dt>Done when</dt><dd>In the example at 375px, the text "folder missing" is fully visible with ring 1 on it. On desktop, "fix-login-redirect" is not truncated. The Playwright ring-visibility spec has one new assertion: the badge's box does not intersect the wrapped element's text box.</dd>
+      </dl></div>
+
+    <div class="bi"><div class="bh"><span class="num">5</span><b>Phone frames: no blank flash, no jump</b><span class="tag">S</span></div>
+      <dl>
+        <dt>Files</dt><dd><code>Site.tsx</code> (<code>PhonePane</code>), <code>site.css</code>.</dd>
+        <dt>Behaviour</dt><dd>The iframe starts at <code>min-height: 240px</code> with a "Loading phone view…" placeholder, which is removed on the first <code>mkPane</code> height message. Heights are cached per spec in <code>sessionStorage</code>, so a revisit opens at the right height. Overview thumbnails of phone frames use the same iframe, rendered lazily (<code>loading="lazy"</code> plus IntersectionObserver).</dd>
+        <dt>Done when</dt><dd>On a reload of the example, page layout shift stays under 0.1 (measured in Playwright with <code>PerformanceObserver('layout-shift')</code>).</dd>
+      </dl></div>
+  </div>
+
+  <div class="sec">Out of scope</div>
+  <p class="lede">Real interactivity in mocks (click handlers, routing). Screenshot thumbnail cache. Redesigning the sidebar or the Accept/Reject flow (<code>decision.json</code> unchanged). The flows mock (<code>2026-11-04-flows-plugin-update</code>, local and uncommitted) converts to <code>steps</code> in its own change.</p>
+
+  <div class="sec">Discipline skills</div>
+  <p class="lede"><code>review-code</code> before commit. No auth, secrets or untrusted-input surface: <code>/__mock/decide</code> is untouched. The rest is CSS/React only.</p>
+</section>
+</main>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" });
+let drawn = false;
+document.getElementById("mmd").addEventListener("toggle", (e) => { if (e.target.open && !drawn) { drawn = true; mermaid.run({ querySelector: "#mmd .mermaid" }); } });
+</script>
+<script>
+const views=[...document.querySelectorAll('.view')],tabs=[...document.querySelectorAll('[data-v]')];
+const go=v=>{views.forEach(x=>x.classList.toggle('on',x.id==='v-'+v));tabs.forEach(t=>t.setAttribute('aria-pressed',t.dataset.v===v));scrollTo(0,0)};
+tabs.forEach(t=>t.onclick=()=>go(t.dataset.v));
+document.querySelectorAll('[data-go]').forEach(c=>c.onclick=()=>go(c.dataset.go));
+const th=document.getElementById('th');
+th.onclick=()=>{const d=document.documentElement.dataset.theme==='dark';document.documentElement.dataset.theme=d?'':'dark';th.textContent=d?'Dark':'Light'};
+// player
+const scenes=[...document.querySelectorAll('.scene')],dots=[...document.querySelectorAll('.dots button[aria-label]')],lbl=document.getElementById('lbl');
+const names=['2a folder gone','2b picker open','2c re-linked'];let i=0,playing=!matchMedia('(prefers-reduced-motion: reduce)').matches,t;
+const show=k=>{i=k;scenes.forEach((s,j)=>s.classList.toggle('on',j===k));dots.forEach((d,j)=>d.classList.toggle('on',j===k));lbl.textContent=names[k]};
+const tick=()=>{clearTimeout(t);if(playing)t=setTimeout(()=>{show((i+1)%scenes.length);tick()},2500)};
+dots.forEach((d,j)=>d.onclick=()=>{show(j);tick()});
+const pp=document.getElementById('pp');pp.textContent=playing?'Pause':'Play';
+pp.onclick=()=>{playing=!playing;pp.textContent=playing?'Pause':'Play';tick()};tick();
+</script>
+</body>
+</html>

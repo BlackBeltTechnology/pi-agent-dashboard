@@ -67,7 +67,7 @@ file that holds it.
 ## Writing a mock
 
 ```tsx
-import { Fix, Issue, type Mock } from "mock-site/kit";
+import { Fix, Issue, Tap, type Mock } from "mock-site/kit";
 import { SessionCard } from "@app/components/SessionCard";
 
 const mock: Mock = {
@@ -94,6 +94,26 @@ export default mock;
 - A frame without `current` shows one pane labelled `New`.
 - `phone: true` renders each side in a real 375px iframe, so `@media` rules apply.
 - Keep mocks prop-driven; wrap app context in `Providers` if a component needs it.
+- `why`: one-line reason per frame (≤ 120 chars, else `WHY > 120`). Shown under
+  the frame title and in the page overview (one card per frame, top of page).
+- **State changes are drawn, never clicked.** Use `steps` instead of
+  `current`/`proposed` for a flow: side by side by default (`3a`, `3b`, …, each
+  linkable as `#<id>/<n>/proposed/step-<k>`), `play: true` animates them in one
+  pane (reduced motion falls back to side by side). Wrap the element whose click
+  leads to the next step in `<Tap>`. Ring numbers stay unique across the steps.
+  `steps` with `current`/`proposed` is reported; steps win.
+
+  ```tsx
+  { title: "Re-link flow", why: "Each state is drawn.", steps: [
+      { label: "folder gone", proposed: <Banner action={<Tap><Btn>Re-link</Btn></Tap>} /> },
+      { label: "re-linked",   proposed: <Row relinked /> },
+  ] }
+  ```
+- `phone: true` with `steps`: each step renders in its own 375px iframe.
+- Start from the example (in the dashboard repo only, not in the npm package):
+  copy `packages/mockup-loop/examples/2026-11-03-session-pills/mock.tsx` to
+  `mockups/<yyyy-mm-dd-slug>/mock.tsx`. `examples/` is not a mock root, so the
+  example is never listed by default; a site with no mocks shows "No mocks yet".
 
 ## References
 
