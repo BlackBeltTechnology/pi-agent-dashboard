@@ -33,9 +33,17 @@
  * greater. A row whose file no longer violates is STALE. Skipped when
  * `src/host.ts` is absent.
  *
+ * Flow-literal check (D8): a string literal starting `flow:` / `flow_` /
+ * `flow-`, or containing `pi-flows`, in a NON-TEST core source
+ * (`packages/{extension,server,shared,client}/src`) fails — core names no
+ * pi-flows channel, message or entry type. Comments are ignored; the generated
+ * client plugin registry is exempt. Known catalog / false-positive hits live in
+ * the allowlist's `literalRows` (`{ file, literal, reason }`); a row with no
+ * matching literal is STALE.
+ *
  * Exit: 0 ok, 1 violations, 2 script error. No dependencies beyond `typescript`.
  *
- * See change: decouple-plugins-from-core.
+ * See change: decouple-plugins-from-core; update-flows-plugin (D8).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -327,6 +335,80 @@ export function reconcileHostRoot(imports, rows, version) {
   return lines;
 }
 
+// ── Flow-literal check (update-flows-plugin D8) ─────────────────────
+const LITERAL_CORE = ["extension", "server", "shared", "client"];
+const FLOW_LITERAL = /^(flow[:_-])|pi-flows/;
+
+/** String-literal texts (plain + no-substitution template + template heads/spans) with their line. */
+function stringLiterals(rel, content) {
+  const kind = rel.endsWith(".tsx") || rel.endsWith(".jsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(rel, content, ts.ScriptTarget.Latest, true, kind);
+  const out = [];
+  const visit = (n) => {
+    if (
+      ts.isStringLiteral(n) ||
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      ts.isTemplateHead(n) ||
+      ts.isTemplateMiddle(n) ||
+      ts.isTemplateTail(n)
+    ) {
+      out.push({ literal: n.text, line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1 });
+    }
+    // JSX attribute string values are StringLiterals too; JSX text is not a literal.
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+const isLiteralScope = (rel) =>
+  LITERAL_CORE.some((p) => rel.startsWith(`${PACKAGES}/${p}/src/`)) &&
+  SOURCE_FILE.test(rel) &&
+  !rel.endsWith(".d.ts") &&
+  !isTestFile(rel) &&
+  !GENERATED.has(rel) &&
+  !rel.startsWith(`${PACKAGES}/client/src/generated/`);
+
+/** Every flow literal in non-test core sources: `{ file, line, literal }`. */
+export function findFlowLiterals(root) {
+  const out = [];
+  for (const rel of walk(path.join(root, PACKAGES), root)) {
+    if (!isLiteralScope(rel)) continue;
+    const content = fs.readFileSync(path.join(root, rel), "utf8");
+    if (!/flow[:_-]|pi-flows/.test(content)) continue;
+    for (const { literal, line } of stringLiterals(rel, content)) {
+      if (FLOW_LITERAL.test(literal)) out.push({ file: rel, line, literal });
+    }
+  }
+  return out.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+/** Compare literal hits with `literalRows` (`{ file, literal }`) → violation lines. */
+export function reconcileLiterals(hits, rows) {
+  const lines = [];
+  const key = (r) => `${r.file}\u0000${r.literal}`;
+  const allowed = new Set(rows.map(key));
+  const seen = new Set(hits.map(key));
+  for (const h of hits) {
+    if (!allowed.has(key(h))) {
+      lines.push(`FLOW-LITERAL ${h.file}:${h.line} "${h.literal.slice(0, 80)}" — core names no pi-flows channel/type; move it into the flows plugin or a generic seam`);
+    }
+  }
+  for (const r of rows) {
+    if (!seen.has(key(r))) lines.push(`STALE literal allowlist row ${r.file} "${r.literal}" — no such literal any more, delete it`);
+  }
+  return lines;
+}
+
+/** Optional `literalRows` (`{ file, literal, reason }`). */
+function loadLiteralRows(file) {
+  if (!fs.existsSync(file)) return [];
+  const rows = readJson(file)?.literalRows;
+  if (rows === undefined) return [];
+  if (!Array.isArray(rows)) throw new Error(`${file}: "literalRows" must be an array`);
+  return rows;
+}
+
 const PLACEHOLDER = "TODO";
 const ANNOTATIONS = ["reason", "disposition", "removedBy"];
 const isUnannotated = (row) => ANNOTATIONS.some((f) => !row[f] || row[f] === PLACEHOLDER);
@@ -396,8 +478,9 @@ function parseArgs(argv) {
 function writeBaseline(file, edges) {
   const rows = rebaseline(edges, loadRows(file));
   const hostRootImports = loadHostRows(file);
+  const literalRows = loadLiteralRows(file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const body = hostRootImports.length ? { rows, hostRootImports } : { rows };
+  const body = { rows, ...(hostRootImports.length ? { hostRootImports } : {}), ...(literalRows.length ? { literalRows } : {}) };
   fs.writeFileSync(file, `${JSON.stringify(body, null, 2)}\n`);
   return rows;
 }
@@ -412,9 +495,11 @@ function main(argv) {
   }
   const rows = opts.noAllowlist ? [] : loadRows(opts.allowlist);
   const hostRows = opts.noAllowlist ? [] : loadHostRows(opts.allowlist);
+  const literalRows = opts.noAllowlist ? [] : loadLiteralRows(opts.allowlist);
   const lines = [
     ...report(reconcile(edges, rows)),
     ...reconcileHostRoot(findHostRootImports(opts.root), hostRows, runtimeVersion(opts.root)),
+    ...reconcileLiterals(findFlowLiterals(opts.root), literalRows),
   ];
   if (lines.length === 0) {
     console.log(`plugin boundary: OK — ${edges.length} allowlisted edge(s), ${hostRows.length} host-import row(s)`);
