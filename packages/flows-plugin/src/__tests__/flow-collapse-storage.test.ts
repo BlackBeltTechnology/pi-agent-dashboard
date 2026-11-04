@@ -113,3 +113,29 @@ describe("usePersistedToggle (global error-route visibility)", () => {
     expect(result.current[0]).toBe(true);
   });
 });
+
+/** E52: the Agent cards section kind. See change: update-flows-plugin (D7). */
+describe("cards kind (E52)", () => {
+  it("keys per session, defaults collapsed, persists per session", () => {
+    expect(flowCollapseKey("cards", "A")).toBe("dashboard:flow-cards-collapsed:A");
+    const a = renderHook(() => useFlowCollapsePersisted("A", "cards"));
+    expect(a.result.current[0]).toBe(true);
+    act(() => a.result.current[1]());
+    a.unmount();
+    expect(renderHook(() => useFlowCollapsePersisted("A", "cards")).result.current[0]).toBe(false);
+    expect(renderHook(() => useFlowCollapsePersisted("B", "cards")).result.current[0]).toBe(true);
+  });
+
+  it("degrades to in-memory when localStorage throws", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    const { result } = renderHook(() => useFlowCollapsePersisted("A", "cards"));
+    expect(result.current[0]).toBe(true);
+    expect(() => act(() => result.current[1]())).not.toThrow();
+    expect(result.current[0]).toBe(false);
+  });
+});
