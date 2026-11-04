@@ -3,7 +3,7 @@
  * test-plan: E38, E39, E40, E41, F1. See change: add-spawn-model-choice.
  * Exemplar: AgentSpawnPicker.test.tsx.
  */
-import { cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _setAcpAgentsForTests } from "../../hooks/useAcpAgents.js";
 import { useAgentAwareSpawn } from "../../hooks/useAgentAwareSpawn.js";
@@ -49,12 +49,12 @@ const picker = (onSpawn = vi.fn()) => {
 };
 
 describe("folder split button model choice", () => {
-  it("E38: no agents → menu has only the model chip", () => {
+  it("E38: no agents → menu has only the model chip", async () => {
     _setAcpAgentsForTests([]);
     picker();
     fireEvent.click(screen.getByTestId("spawn-chevron"));
     const menu = screen.getByRole("menu");
-    expect(within(menu).getByTestId("spawn-model-choice")).toBeTruthy();
+    expect(await within(menu).findByTestId("spawn-model-choice")).toBeTruthy();
     expect(within(menu).queryAllByRole("menuitemradio")).toHaveLength(0);
   });
 
@@ -63,7 +63,7 @@ describe("folder split button model choice", () => {
     store[spawnChoiceKey("/a")] = JSON.stringify({ model: "@fast" });
     const onSpawn = picker();
     fireEvent.click(screen.getByTestId("spawn-chevron"));
-    fireEvent.click(within(screen.getByTestId("spawn-model-choice")).getByTestId("model-selector-button"));
+    fireEvent.click(within(await screen.findByTestId("spawn-model-choice")).getByTestId("model-selector-button"));
     fireEvent.click(await screen.findByTestId("model-tab-role"));
     fireEvent.click(screen.getAllByTestId("role-row").find((r) => r.getAttribute("data-role") === "review") as HTMLElement);
     expect(onSpawn).not.toHaveBeenCalled();
@@ -97,7 +97,7 @@ describe("folder split button model choice", () => {
     expect(inner).toHaveBeenLastCalledWith("/a", "chg", { model: "x/y" });
   });
 
-  it("F1: APG keyboard on the always-on chevron", () => {
+  it("F1: APG keyboard on the always-on chevron", async () => {
     _setAcpAgentsForTests([]);
     picker();
     const chevron = screen.getByTestId("spawn-chevron");
@@ -105,6 +105,9 @@ describe("folder split button model choice", () => {
     fireEvent.keyDown(chevron, { key: "ArrowDown" });
     const menu = screen.getByRole("menu");
     expect(screen.getByRole("menuitem").contains(document.activeElement)).toBe(true);
+    // Once the lazy chip mounts, focus moves to its trigger (Enter/Space open it).
+    const chip = await screen.findByTestId("spawn-model-choice");
+    await waitFor(() => expect(document.activeElement).toBe(within(chip).getByTestId("model-selector-button")));
     fireEvent.keyDown(menu, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(chevron);

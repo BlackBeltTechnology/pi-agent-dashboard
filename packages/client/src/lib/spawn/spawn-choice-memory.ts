@@ -9,8 +9,6 @@
  *
  * See change: add-spawn-model-choice (design D6).
  */
-import { useSyncExternalStore } from "react";
-
 export interface SpawnChoice {
   model?: string;
   thinkingLevel?: string;
@@ -70,19 +68,14 @@ export function setSpawnDefaults(next: { defaultModel?: string; defaultThinkingL
   for (const l of listeners) l();
 }
 
-function getSpawnDefaults(): SpawnChoice {
+export function getSpawnDefaults(): SpawnChoice {
   return defaults;
 }
 
-export function useSpawnDefaults(): SpawnChoice {
-  return useSyncExternalStore(
-    (cb) => {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
-    },
-    getSpawnDefaults,
-    getSpawnDefaults,
-  );
+/** Subscribe to Settings-default changes (the chip's `useSyncExternalStore`). */
+export function subscribeSpawnDefaults(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
 }
 
 /** Remembered ?? Settings default, per field. */

@@ -17,12 +17,15 @@
  */
 import { mdiCheck, mdiChevronDown } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useAcpAgents } from "../hooks/useAcpAgents.js";
 import { getRememberedAgent, rememberAgent } from "../lib/acp/agent-memory.js";
 import { t as i18nT } from "../lib/i18n/i18n.js";
 import { getEffectiveSpawnChoice, type SpawnChoice } from "../lib/spawn/spawn-choice-memory.js";
-import { SpawnChoiceChip } from "./spawn/SpawnChoiceChip.js";
+
+// The chip (ModelSelector + catalogue) loads only when the menu opens, keeping it
+// off the cold landing chunk. See change: add-spawn-model-choice.
+const SpawnChoiceChip = lazy(() => import("./spawn/SpawnChoiceChip.js").then((m) => ({ default: m.SpawnChoiceChip })));
 
 interface Props {
   cwd: string;
@@ -100,7 +103,9 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
   const focusItem = useCallback((index: number) => {
     const el = itemRefs.current[index];
     if (!el) return;
-    if (el.dataset.item === "choice") el.querySelector<HTMLElement>("button")?.focus();
+    // The lazy chip may still be loading: focus its item; the chip moves focus to
+    // its trigger on mount.
+    if (el.dataset.item === "choice") (el.querySelector<HTMLElement>("button") ?? el).focus();
     else el.focus();
   }, []);
 
@@ -238,6 +243,7 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
                 key="model-choice"
                 ref={(el) => { itemRefs.current[i] = el; }}
                 role="menuitem"
+                tabIndex={-1}
                 aria-label={i18nT("spawnChoice.modelThinking", undefined, "Model · thinking")}
                 data-item="choice"
                 onClick={(e) => e.stopPropagation()}
@@ -246,7 +252,9 @@ export function AgentSpawnPicker({ cwd, onSpawn, disabled, children, testId, cla
                 <span className="text-[11px] text-[var(--text-secondary)]">
                   {i18nT("spawnChoice.modelThinking", undefined, "Model · thinking")}
                 </span>
-                <SpawnChoiceChip cwd={cwd} disabled={current !== undefined} testId={`${testId}-model-choice`} />
+                <Suspense fallback={<span className="text-xs text-[var(--text-secondary)]">…</span>}>
+                  <SpawnChoiceChip cwd={cwd} disabled={current !== undefined} testId={`${testId}-model-choice`} />
+                </Suspense>
               </li>
             ),
           )}

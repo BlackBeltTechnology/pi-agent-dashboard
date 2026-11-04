@@ -8,16 +8,21 @@
  * Not a session picker (`model-selector` "resolve a role once" governs pickers
  * of a RUNNING session). See change: add-spawn-model-choice (design D6, D7).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useModelCatalogue } from "../../hooks/useModelCatalogue.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   getRememberedSpawnChoice,
+  getSpawnDefaults,
   type SpawnChoice,
   setRememberedSpawnChoice,
-  useSpawnDefaults,
+  subscribeSpawnDefaults,
 } from "../../lib/spawn/spawn-choice-memory.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
+
+/** Dashed `default` entry (clears a remembered field), per the adopted mockup. */
+const DEFAULT_ENTRY_CLASS =
+  "focus-ring tap-target px-2.5 rounded-md border border-dashed border-[var(--border-secondary)] text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]";
 
 interface Props {
   /** Folder whose remembered choice the chip edits. */
@@ -30,8 +35,15 @@ interface Props {
 }
 
 export function SpawnChoiceChip({ cwd, disabled, onChange, testId = "spawn-choice-chip" }: Props) {
-  const defaults = useSpawnDefaults();
+  const defaults = useSyncExternalStore(subscribeSpawnDefaults, getSpawnDefaults, getSpawnDefaults);
   const { models } = useModelCatalogue({ seedFromCache: true });
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Lazy-loaded inside a menu item that may already hold focus: hand focus to
+  // the trigger so Enter/Space open the popover (APG menu keyboard contract).
+  useEffect(() => {
+    const root = rootRef.current;
+    if (root?.parentElement && root.parentElement === document.activeElement) root.querySelector("button")?.focus();
+  }, []);
   const [remembered, setRemembered] = useState<SpawnChoice>(() => getRememberedSpawnChoice(cwd));
   useEffect(() => setRemembered(getRememberedSpawnChoice(cwd)), [cwd]);
 
@@ -58,7 +70,7 @@ export function SpawnChoiceChip({ cwd, disabled, onChange, testId = "spawn-choic
   const piDefault = i18nT("spawnChoice.piDefault", undefined, "pi default");
 
   return (
-    <div data-testid={testId} aria-disabled={disabled ? "true" : undefined} className="min-w-0">
+    <div ref={rootRef} data-testid={testId} aria-disabled={disabled ? "true" : undefined} className="min-w-0">
       <ModelSelector
         current={model}
         models={models}
@@ -71,8 +83,39 @@ export function SpawnChoiceChip({ cwd, disabled, onChange, testId = "spawn-choic
         levelTag={!remembered.thinkingLevel && defaults.thinkingLevel ? "default" : undefined}
         supportedLevels={models.find((m) => `${m.provider}/${m.id}` === model)?.supportedThinkingLevels}
         onSelectLevel={(l) => update({ ...remembered, thinkingLevel: l })}
-        onSelectDefaultModel={() => update(withoutField("model"))}
-        onSelectDefaultLevel={() => update(withoutField("thinkingLevel"))}
+        renderPanelHeader={(close) => (
+          <div className="flex-none border-b border-[var(--border-secondary)] px-2 py-1.5">
+            <button
+              type="button"
+              data-testid="model-default-entry"
+              aria-pressed={!remembered.model}
+              onClick={() => {
+                update(withoutField("model"));
+                close();
+              }}
+              className={DEFAULT_ENTRY_CLASS}
+            >
+              {i18nT("spawnChoice.defaultModel", undefined, "default model")}
+            </button>
+          </div>
+        )}
+        renderLevelPrefix={(close) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!remembered.thinkingLevel}
+            tabIndex={-1}
+            data-level="default"
+            data-testid="level-default-entry"
+            onClick={() => {
+              update(withoutField("thinkingLevel"));
+              close();
+            }}
+            className={`${DEFAULT_ENTRY_CLASS} font-mono`}
+          >
+            {i18nT("spawnChoice.default", undefined, "default")}
+          </button>
+        )}
         disabled={disabled}
       />
     </div>
