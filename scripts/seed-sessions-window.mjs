@@ -15,12 +15,47 @@ export const STUB_DIR_CWD = "/fixtures/stub-dir";
 export const STUB_SESSION_ID = "019f0000-0000-7000-8000-000000000001";
 export const SEED_SESSIONS_COUNT = 125;
 
-export function seedSessionsWindow(sessionsRoot) {
+const DAY_MS = 86_400_000;
+
+/**
+ * Date prefix of an existing `<prefix>_<sid>.jsonl|.meta.json` record, or
+ * `undefined`. A half-written pair is completed under the SAME prefix: the
+ * scanner derives the sidecar path from the JSONL basename.
+ */
+function existingPrefix(dir, sid) {
+  for (const f of fs.readdirSync(dir)) {
+    for (const suffix of [".jsonl", ".meta.json"]) {
+      if (f.endsWith(`_${sid}${suffix}`)) return f.slice(0, -`_${sid}${suffix}`.length);
+    }
+  }
+  return undefined;
+}
+
+/** Inverse of the `toISOString().replace(/:/g, "-")` prefix encoding. */
+function prefixTime(prefix) {
+  return Date.parse(prefix.replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3"));
+}
+
+/** True when `dir` already holds a `<prefix>_<sid><suffix>` record (any date prefix). */
+function hasRecord(dir, sid, suffix) {
+  return fs.readdirSync(dir).some((f) => f.endsWith(`_${sid}${suffix}`));
+}
+
+/**
+ * `now` anchors every timestamp: the boot sweep archives ended sessions older
+ * than `sessionList.archiveAfterDays` (default 30), so fixed calendar dates
+ * aged out and emptied the stub group. Day-granular (3 days before the seeding
+ * day), and idempotent by session id, so a re-seed on a later day adds nothing.
+ * See change: fix-sidebar-folder-visibility.
+ */
+export function seedSessionsWindow(sessionsRoot, now = Date.now()) {
   fs.mkdirSync(sessionsRoot, { recursive: true });
 
   // 1. Seed 125 ended sessions in distinct directories (1 per dir) with recent timestamps
-  // Baseline time = 2026-09-01T12:00:00.000Z
-  const baseTime = 1788264000000;
+  const baseTime = Math.floor(now / DAY_MS) * DAY_MS - 3 * DAY_MS + DAY_MS / 2;
+  // Oldest window start actually on disk: a recreated stub must stay older than
+  // every preserved window session, or it lands inside the snapshot window.
+  let oldestWindowStart = Number.POSITIVE_INFINITY;
   for (let i = 0; i < SEED_SESSIONS_COUNT; i++) {
     const sid = `019f0000-0000-7000-8000-${String(i + 10).padStart(12, "0")}`;
     const cwd = `/fixtures/seed-win-${String(i).padStart(3, "0")}`;
@@ -28,20 +63,22 @@ export function seedSessionsWindow(sessionsRoot) {
     const dir = path.join(sessionsRoot, dirEncoded);
     fs.mkdirSync(dir, { recursive: true });
 
-    const startedAt = baseTime + i * 1000;
+    const prior = existingPrefix(dir, sid);
+    const startedAt = prior ? prefixTime(prior) : baseTime + i * 1000;
+    oldestWindowStart = Math.min(oldestWindowStart, startedAt);
     const endedAt = startedAt + 500;
-    const datePrefix = new Date(startedAt).toISOString().replace(/:/g, "-");
+    const datePrefix = prior ?? new Date(startedAt).toISOString().replace(/:/g, "-");
     const jsonlName = `${datePrefix}_${sid}.jsonl`;
     const metaName = `${datePrefix}_${sid}.meta.json`;
 
-    if (!fs.existsSync(path.join(dir, jsonlName))) {
+    if (!hasRecord(dir, sid, ".jsonl")) {
       fs.writeFileSync(
         path.join(dir, jsonlName),
         `${JSON.stringify({ type: "session", id: sid, cwd })}\n`,
       );
     }
 
-    if (!fs.existsSync(path.join(dir, metaName))) {
+    if (!hasRecord(dir, sid, ".meta.json")) {
       fs.writeFileSync(
         path.join(dir, metaName),
         `${JSON.stringify({
@@ -61,20 +98,21 @@ export function seedSessionsWindow(sessionsRoot) {
   const stubDir = path.join(sessionsRoot, stubDirEncoded);
   fs.mkdirSync(stubDir, { recursive: true });
 
-  const stubStartedAt = baseTime - 100000000; // far older
+  const stubPrior = existingPrefix(stubDir, STUB_SESSION_ID);
+  const stubStartedAt = stubPrior ? prefixTime(stubPrior) : Math.min(baseTime, oldestWindowStart) - 100000000; // far older
   const stubEndedAt = stubStartedAt + 500;
-  const stubDatePrefix = new Date(stubStartedAt).toISOString().replace(/:/g, "-");
+  const stubDatePrefix = stubPrior ?? new Date(stubStartedAt).toISOString().replace(/:/g, "-");
   const stubJsonlName = `${stubDatePrefix}_${STUB_SESSION_ID}.jsonl`;
   const stubMetaName = `${stubDatePrefix}_${STUB_SESSION_ID}.meta.json`;
 
-  if (!fs.existsSync(path.join(stubDir, stubJsonlName))) {
+  if (!hasRecord(stubDir, STUB_SESSION_ID, ".jsonl")) {
     fs.writeFileSync(
       path.join(stubDir, stubJsonlName),
       `${JSON.stringify({ type: "session", id: STUB_SESSION_ID, cwd: STUB_DIR_CWD })}\n`,
     );
   }
 
-  if (!fs.existsSync(path.join(stubDir, stubMetaName))) {
+  if (!hasRecord(stubDir, STUB_SESSION_ID, ".meta.json")) {
     fs.writeFileSync(
       path.join(stubDir, stubMetaName),
       `${JSON.stringify({

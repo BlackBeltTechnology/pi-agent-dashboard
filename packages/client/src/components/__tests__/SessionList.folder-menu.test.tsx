@@ -21,6 +21,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { SessionList } from "../session/SessionList.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { setSidebarSearch } from "./sidebar-search-helper.js";
 
 const CWD = "/home/user/project";
 
@@ -212,11 +213,15 @@ describe("stub groups + ended paging (fix-connect-snapshot-frame-loss)", () => {
     expect(screen.queryByTestId("folder-openspec-refresh")).toBeNull();
   });
 
-  it("E36: an unpinned stub group renders and sorts last in recency mode", () => {
+  // An unpinned stub is hidden by default; a Folders filter reveals it.
+  // See change: fix-sidebar-folder-visibility.
+  it("E36: an unpinned stub group is hidden by default, and sorts last once a Folders filter reveals it", () => {
     renderList({
       sessions: [session], // live session under CWD
       endedTotalsMap: new Map([["/old", 3]]),
     });
+    expect(screen.queryByTestId("folder-header-name-/old")).toBeNull();
+    setSidebarSearch("folders", "/");
     const headers = Array.from(document.querySelectorAll('[data-testid^="folder-header-name-"]'));
     expect(headers.map((h) => h.getAttribute("data-testid"))).toEqual([
       `folder-header-name-${CWD}`,
@@ -229,6 +234,7 @@ describe("stub groups + ended paging (fix-connect-snapshot-frame-loss)", () => {
     renderList({
       sessions: [],
       endedTotalsMap: new Map([["/old", 5]]),
+      pinnedDirectories: ["/old"],
       pagedCount: new Map(),
       onSessionsPage,
     });
@@ -237,6 +243,7 @@ describe("stub groups + ended paging (fix-connect-snapshot-frame-loss)", () => {
     expect(onSessionsPage).toHaveBeenCalledWith("/old", 0);
   });
 
+  // #X3 — on an unpinned folder revealed by a Folders filter.
   it("does not page when every ended session is already held", () => {
     const onSessionsPage = vi.fn();
     const ended = { ...session, id: "e1", status: "ended" as const, cwd: "/done" };
@@ -245,10 +252,12 @@ describe("stub groups + ended paging (fix-connect-snapshot-frame-loss)", () => {
       endedTotalsMap: new Map([["/done", 1]]),
       onSessionsPage,
     });
+    setSidebarSearch("folders", "/done");
     fireEvent.click(screen.getByTestId("folder-ended-toggle-/done"));
     expect(onSessionsPage).not.toHaveBeenCalled();
   });
 
+  // #X2 — on a stub revealed by a Folders filter.
   it("X6: a lost sessions_page reply is retried with the same offset after the 15 s in-flight timeout", () => {
     vi.useFakeTimers();
     try {
@@ -260,6 +269,7 @@ describe("stub groups + ended paging (fix-connect-snapshot-frame-loss)", () => {
         onSessionsPage,
         connected: true,
       });
+      setSidebarSearch("folders", "/old");
       fireEvent.click(screen.getByTestId("folder-ended-toggle-/old"));
       expect(onSessionsPage).toHaveBeenCalledTimes(1);
       expect(onSessionsPage).toHaveBeenCalledWith("/old", 0);
