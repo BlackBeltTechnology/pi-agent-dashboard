@@ -1,0 +1,15 @@
+name: slow
+description: >
+  A code step that waits up to 60 s (returns early on abort) followed by a
+  second step, so an L3 test can click Abort while the run is live and the run
+  ends `aborted`. Drives tests/e2e/flow-abort-plugin-action.spec.ts.
+  See change: update-flows-plugin (F7).
+task_required: false
+
+steps:
+  - id: wait
+    type: code
+    timeout: 90000
+
+  - id: after
+    type: code

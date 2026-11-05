@@ -20,7 +20,9 @@ const FLOW_COLLAPSE_DEFAULT = true;
 /** Same-tab listeners per key, so an explicit write reaches mounted toggles. */
 const keyListeners = new Map<string, Set<(v: boolean) => void>>();
 
-export type FlowCollapseKind = "summary" | "dashboard";
+/** `cards` = the live panel's Agent cards section (graph-first panel, default
+ *  collapsed). See change: update-flows-plugin (D7). */
+export type FlowCollapseKind = "summary" | "dashboard" | "cards";
 
 /** localStorage key for a (kind, session) pair. */
 export function flowCollapseKey(kind: FlowCollapseKind, sessionId: string): string {

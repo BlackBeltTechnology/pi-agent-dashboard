@@ -237,7 +237,7 @@ const ACTIVITY_EVENT_TYPES: ReadonlySet<string> = new Set([
 // Note: flow / architect events used to live in this allowlist but the
 // classification of "is this user-visible activity?" is plugin business.
 // The plugin marks activity via its own session-state-derived signal
-// (e.g. lastActivityAt stamping based on flowState changes). For now,
+// (e.g. lastActivityAt stamping based on its own plugin slice). For now,
 // the simpler tool/agent/message events are sufficient to keep
 // `lastActivityAt` accurate; if a flow that does no other tool calls
 // fails to bump activity, the user can re-add the events here behind a

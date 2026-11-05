@@ -523,3 +523,69 @@ describe("check-plugin-boundary — ./host symbol check", () => {
     expect(readAllowlist(root).hostRootImports).toHaveLength(1);
   });
 });
+
+/**
+ * Flow-literal check (D8): core names no pi-flows channel / type.
+ * See change: update-flows-plugin (test-plan E45, E46).
+ */
+describe("flow-literal gate (E45)", () => {
+  const extraPkgs = {
+    "packages/extension/package.json": pkgJson("extension"),
+    "packages/flows-plugin/package.json": pkgJson("flows-plugin", { plugin: { client: "./src/client/index.tsx" } }),
+  };
+  it.each([
+    ["packages/extension/src/bridge.ts", 'export const c = "flow:complete";\n', "flow:complete"],
+    ["packages/server/src/pairing/browser-gateway.ts", 'export function f(t: string) { switch (t) { case "flow_control": return 1; } return 0; }\n', "flow_control"],
+    ["packages/shared/src/x.ts", 'export const t = "flow-event";\n', "flow-event"],
+    ["packages/client/src/y.ts", "export const p = 'pi-flows';\n", "pi-flows"],
+  ])("%s fails and is reported with file, line and literal", (rel, src, literal) => {
+    const root = makeTree({ ...extraPkgs, [rel]: src });
+    const r = run(root);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(`FLOW-LITERAL ${rel}:1 "${literal}"`);
+  });
+
+  it.each([
+    ["comment", "packages/extension/src/a.ts", "// flow:complete\n/* \"flow_x\" */\nexport const a = 1;\n"],
+    ["core test file", "packages/shared/src/__tests__/state-replay.test.ts", 'export const t = "flow-event";\n'],
+    ["generated registry", "packages/client/src/generated/plugin-registry.tsx", 'export const r = "flow:x";\n'],
+    ["plugin source", "packages/flows-plugin/src/a.ts", 'export const a = "flow:x";\n'],
+    ["non-flow words", "packages/client/src/z.ts", 'export const z = ["overflow:hidden", "workflow-x", "flow"];\n'],
+  ])("%s passes", (_label, rel, src) => {
+    const root = makeTree({ ...extraPkgs, [rel]: src });
+    const r = run(root);
+    expect(r.out).not.toContain("FLOW-LITERAL");
+    expect(r.status).toBe(0);
+  });
+
+  it("an allowlisted catalog literal passes; its row goes STALE once the literal is gone", () => {
+    const rel = "packages/shared/src/recommended-extensions.ts";
+    const allow = { rows: [], literalRows: [{ file: rel, literal: "pi-flows", reason: "catalog" }] };
+    const ok = makeTree({ ...extraPkgs, [rel]: 'export const n = "pi-flows";\n', [ALLOWLIST]: allow });
+    expect(run(ok).status).toBe(0);
+    const stale = makeTree({ ...extraPkgs, [rel]: "export const n = 1;\n", [ALLOWLIST]: allow });
+    const r = run(stale);
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("STALE literal allowlist row");
+  });
+});
+
+describe("flow-literal gate on the real tree (E46)", () => {
+  it("passes; literal rows cover exactly the catalog + false-positive files; replay sources are clean", async () => {
+    const r = spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", cwd: REPO_ROOT });
+    expect(`${r.stdout}${r.stderr}`).not.toContain("FLOW-LITERAL");
+    expect(r.status).toBe(0);
+    const files = new Set(JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ALLOWLIST), "utf8")).literalRows.map((x) => x.file));
+    expect([...files].sort()).toEqual([
+      "packages/client/src/components/settings/ProviderAuthSection.tsx",
+      "packages/server/src/routes/provider-auth-routes.ts",
+      "packages/shared/src/custom-event-groups.ts",
+      "packages/shared/src/recommended-extensions.ts",
+    ]);
+    for (const rel of ["packages/shared/src/state-replay.ts", "packages/extension/src/custom-entry-forward.ts"]) {
+      expect(fs.readFileSync(path.join(REPO_ROOT, rel), "utf8")).not.toMatch(/["'`]flow-event["'`]/);
+    }
+    const { DEBUG_TOOL_NAMES } = await import("../../packages/client/src/hooks/useDebugToolsVisible.js");
+    expect([...DEBUG_TOOL_NAMES]).toEqual(["resources_discover"]);
+  });
+});

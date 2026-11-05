@@ -148,13 +148,6 @@ The dashboard server SHALL expose a `POST /api/session/:id/resume` endpoint that
 - **WHEN** a `POST /api/session/:id/resume` request is received with `{ "mode": "continue" }`
 - **THEN** the server SHALL resume the session and respond with `{ success: true }`
 
-### Requirement: Flow control REST endpoint
-The dashboard server SHALL expose a `POST /api/session/:id/flow-control` endpoint. The endpoint SHALL accept a JSON body with `action` ("abort" or "toggle_autonomous").
-
-#### Scenario: Abort flow
-- **WHEN** a `POST /api/session/:id/flow-control` request is received with `{ "action": "abort" }`
-- **THEN** the server SHALL forward the flow control message to the pi session and respond with `{ success: true }`
-
 ### Requirement: Set model REST endpoint
 The dashboard server SHALL expose a `POST /api/session/:id/model` endpoint. The endpoint SHALL accept a JSON body with `provider` and `modelId` (both required strings).
 

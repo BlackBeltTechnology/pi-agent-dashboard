@@ -49,6 +49,12 @@ export interface BridgeContext {
    */
   gitTracker?: GitTracker;
   /**
+   * Plugin-declared persisted entry types (flows: its run records), read by
+   * session replay. Absent in unit-test contexts (= none declared).
+   * See change: update-flows-plugin (D3).
+   */
+  replayEntryTypes?: () => ReadonlySet<string>;
+  /**
    * Last serialized `GitWorktreeInfo` snapshot sent to the server, or
    * the literal string `"null"` when we explicitly cleared worktree
    * state. Compared on every probe tick so we only re-send when the

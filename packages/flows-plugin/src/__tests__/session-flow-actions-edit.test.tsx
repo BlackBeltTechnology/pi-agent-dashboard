@@ -150,3 +150,25 @@ describe("pushed state + errors (#X3 client)", () => {
     expect(screen.queryByText(/could not be reached/)).toBeNull();
   });
 });
+
+/** E41: remaining client flow actions ride plugin_action. See change: update-flows-plugin (D2). */
+describe("delete uses the flow.delete plugin_action (E41)", () => {
+  it("Delete… → confirm sends flow.delete { flowName }, never flow_management", async () => {
+    const send = vi.fn<(m: unknown) => void>();
+    const sid = `edit-S-${++n}`;
+    publishCatalog(sid, [entry("batch:apply")]);
+    publishSessionData(sid, "commandsList", [{ name: "flows" }, { name: "flows:delete" }]);
+    editMode.served = true;
+    render(tree(chip(sid), send));
+    await settle();
+    openPencil();
+    fireEvent.click(await screen.findByTestId("flows-chip-edit-delete"));
+    fireEvent.click(await screen.findByText(/^batch:apply\|/));
+    fireEvent.click(await screen.findByText("confirm"));
+    const sent = send.mock.calls.map(([m]) => m as Record<string, unknown>);
+    expect(sent.filter((m) => m.action === "flow.delete")).toEqual([
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.delete", payload: { flowName: "batch:apply" } },
+    ]);
+    expect(sent.some((m) => m.type === "flow_management" || m.type === "flow_control")).toBe(false);
+  });
+});

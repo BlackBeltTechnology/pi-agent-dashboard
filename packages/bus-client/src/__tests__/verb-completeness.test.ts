@@ -70,3 +70,11 @@ describe("verb completeness (S2)", () => {
     expect(missing).toEqual([]);
   });
 });
+
+/** E43: the retired flow verbs are not generated. See change: update-flows-plugin. */
+describe("retired flow verbs (E43)", () => {
+  it("GENERATED_VERBS has no flow_control / flow_management", () => {
+    expect(GENERATED_VERBS).not.toContain("flow_control");
+    expect(GENERATED_VERBS).not.toContain("flow_management");
+  });
+});

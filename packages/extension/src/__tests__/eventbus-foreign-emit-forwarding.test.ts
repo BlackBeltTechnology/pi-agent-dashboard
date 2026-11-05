@@ -13,27 +13,28 @@
  * from a foreign facade, i.e. the exact link that fails.
  * See change: fix-automation-run-lifecycle.
  */
+import { REGISTER_EVENT_FORWARD_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import { describe, expect, it } from "vitest";
+import * as wiring from "../flow-event-wiring.js";
 import {
   EVENT_BUS_MAP_FOR_TEST,
   forwardBusEvent,
   forwardedBusChannels,
   registerEventBusForwarding,
 } from "../flow-event-wiring.js";
+import { PluginForwardRegistry } from "../plugin-event-forward-registry.js";
 import { makeDeps, makeHost } from "./helpers/event-bus-host.js";
 
 describe("EventBus forwarding across per-extension facades", () => {
-  it("forwards flow:complete emitted by a FOREIGN extension facade", () => {
+  it("forwards subagents:completed emitted by a FOREIGN extension facade", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
     registerEventBusForwarding(host.bridgeEvents, deps);
 
-    // The flows extension emits through ITS OWN facade over the same bus.
-    host.foreignEvents.emit("flow:complete", { flowName: "ns:demo", status: "success" });
+    host.foreignEvents.emit("subagents:completed", { agentId: "a1", status: "success" });
 
-    expect(sent.map((s) => s.channel)).toContain("flow:complete");
-    expect(sent.find((s) => s.channel === "flow:complete")?.data).toEqual({
-      flowName: "ns:demo",
+    expect(sent.find((s) => s.channel === "subagents:completed")?.data).toEqual({
+      agentId: "a1",
       status: "success",
     });
   });
@@ -54,7 +55,6 @@ describe("EventBus forwarding across per-extension facades", () => {
     const { deps, sent, buffered } = makeDeps({ isSessionReady: () => false });
     registerEventBusForwarding(host.bridgeEvents, deps);
 
-    host.foreignEvents.emit("flow:complete", { status: "success" });
     host.foreignEvents.emit("subagents:started", { id: "a1" });
 
     expect(sent).toHaveLength(0);
@@ -67,9 +67,9 @@ describe("EventBus forwarding across per-extension facades", () => {
     const { deps, sent } = makeDeps();
     registerEventBusForwarding(host.bridgeEvents, deps);
 
-    host.bridgeEvents.emit("flow:complete", { status: "success" });
+    host.bridgeEvents.emit("subagents:completed", { id: "a1" });
 
-    expect(sent.filter((s) => s.channel === "flow:complete")).toHaveLength(1);
+    expect(sent.filter((s) => s.channel === "subagents:completed")).toHaveLength(1);
   });
 
   it("subscribes every channel in the rename mapping", () => {
@@ -96,14 +96,14 @@ describe("EventBus forwarding across per-extension facades", () => {
     // Assert the isolation in `forwardBusEvent` ITSELF: the host wraps `on`
     // handlers in its own try/catch, so going through the bus would still pass
     // if forwardBusEvent lost its catch block. See CodeRabbit review, PR #456.
-    expect(() => forwardBusEvent(deps, "flow:complete", { status: "success" })).not.toThrow();
+    expect(() => forwardBusEvent(deps, "subagents:completed", { id: "a1" })).not.toThrow();
     registerEventBusForwarding(host.bridgeEvents, deps);
 
     const seen: unknown[] = [];
-    host.foreignEvents.on("flow:complete", (d) => seen.push(d));
+    host.foreignEvents.on("subagents:completed", (d) => seen.push(d));
 
-    expect(() => host.foreignEvents.emit("flow:complete", { status: "success" })).not.toThrow();
-    expect(seen).toEqual([{ status: "success" }]);
+    expect(() => host.foreignEvents.emit("subagents:completed", { id: "a1" })).not.toThrow();
+    expect(seen).toEqual([{ id: "a1" }]);
   });
 
   it("dispose releases the wiring and stops forwarding", () => {
@@ -112,8 +112,60 @@ describe("EventBus forwarding across per-extension facades", () => {
     const dispose = registerEventBusForwarding(host.bridgeEvents, deps);
     dispose();
 
-    host.foreignEvents.emit("flow:complete", { status: "success" });
+    host.foreignEvents.emit("subagents:completed", { id: "a1" });
 
     expect(sent).toHaveLength(0);
+  });
+});
+
+/**
+ * E49: the core map holds only subagent channels; flow channels reach the
+ * dashboard only through the flows plugin's declaration.
+ * See change: update-flows-plugin (test-plan E49).
+ */
+describe("core forwards no flow channel (E49)", () => {
+  it("exports SUBAGENT_EVENT_MAP and no FLOW_EVENT_MAP; every core key is subagents:", () => {
+    expect(wiring.SUBAGENT_EVENT_MAP).toBeDefined();
+    expect("FLOW_EVENT_MAP" in wiring).toBe(false);
+    for (const k of forwardedBusChannels()) expect(k.startsWith("subagents:"), k).toBe(true);
+  });
+
+  function wire(flowsEnabled: boolean) {
+    const host = makeHost();
+    const { deps, sent } = makeDeps();
+    registerEventBusForwarding(host.bridgeEvents, deps);
+    const pluginSent: string[] = [];
+    const registry = new PluginForwardRegistry(host.bridgeEvents, {
+      send: (eventType) => pluginSent.push(eventType),
+      isSessionReady: () => true,
+      isActive: () => true,
+      isConnected: () => true,
+      isCoreChannel: (c) => c in wiring.SUBAGENT_EVENT_MAP,
+    });
+    registry.attach();
+    if (flowsEnabled) {
+      host.foreignEvents.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+        pluginId: "flows",
+        channels: { "flow:flow-started": { as: "flow_started", delivery: "stream", key: "flowName" } },
+      });
+    }
+    return { host, sent, pluginSent };
+  }
+
+  it("flows disabled: subagent forwarded, flow:flow-started not, no error", () => {
+    const { host, sent, pluginSent } = wire(false);
+    expect(() => {
+      host.foreignEvents.emit("subagents:created", { agentId: "a" });
+      host.foreignEvents.emit("flow:flow-started", { flowName: "r" });
+    }).not.toThrow();
+    expect(sent.map((s) => s.channel)).toEqual(["subagents:created"]);
+    expect(pluginSent).toEqual([]);
+  });
+
+  it("flows enabled: exactly one flow_started through the plugin path", () => {
+    const { host, sent, pluginSent } = wire(true);
+    host.foreignEvents.emit("flow:flow-started", { flowName: "r" });
+    expect(pluginSent).toEqual(["flow_started"]);
+    expect(sent).toEqual([]);
   });
 });

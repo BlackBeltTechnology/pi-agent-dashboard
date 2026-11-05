@@ -108,3 +108,16 @@ describe("E21 — spawn_session schema follows the widened SpawnSessionRequest",
     expect(GENERATED_TOOLS.find((t) => t.name === "spawn_session")?.inputSchema).toEqual(spawn?.inputSchema);
   });
 });
+
+/** E43: the retired core flow verbs are gone from both generated surfaces. See change: update-flows-plugin. */
+describe("retired flow verbs (E43)", () => {
+  it("no flow_control / flow_management tool or verb tier; the plugin route is the replacement", () => {
+    for (const name of ["flow_control", "flow_management"]) {
+      expect(GENERATED_TOOLS.some((t) => t.name === name), name).toBe(false);
+      expect(GENERATED_VERB_TIERS.some((t) => t.name === name), name).toBe(false);
+    }
+    const flows = GENERATED_TOOLS.find((t) => t.name === "flows_control");
+    expect(flows?.bind).toMatchObject({ kind: "rest", method: "POST", path: "/api/plugins/flows/control" });
+    expect(routeTier("POST", "/api/plugins/flows/control")).toBe("operate");
+  });
+});

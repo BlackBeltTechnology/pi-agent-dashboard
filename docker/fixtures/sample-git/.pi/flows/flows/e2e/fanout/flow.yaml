@@ -1,0 +1,37 @@
+name: fanout
+description: >
+  pi-flows 0.10 e2e flow (faux-driven). `list` (code) yields 3 items; the multi
+  agent-decision `triage` chooses `fan` only, so `fan` runs once per item (item
+  1 fails soft on purpose) and the `doc` branch is skipped. Emits flow:decision,
+  per-item lifecycle events (itemIndex) and skipped results. Drives
+  tests/e2e/flow-fanout-decision.spec.ts. See change: update-flows-plugin (task 7.1).
+task_required: false
+max_concurrent: 3
+
+steps:
+  - id: list
+    type: code
+    outputs: [items]
+
+  - id: triage
+    type: agent-decision
+    agent: e2e-judge
+    multi: true
+    task: "[[faux:flow-multi-decision]] choose the lanes"
+    branches:
+      fan: { to: fan, for_each: "${{result.list.items}}", means: "review each item" }
+      docs: { to: doc, means: "write docs" }
+
+  - id: fan
+    type: agent
+    agent: e2e-alpha
+    task: "[[faux:flow-item-branch]] review item ${{item_index}} ${{item}}"
+    on_error: done
+
+  - id: doc
+    type: agent
+    agent: e2e-beta
+    task: "[[faux:flow-agent-branch]] docs"
+
+  - id: done
+    type: code

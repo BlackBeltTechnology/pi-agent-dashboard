@@ -122,3 +122,37 @@ steps:
     expect(m).not.toContain("[[\"orphan");
   });
 });
+
+/** E32: object-form branches (pi-flows 0.10). See change: update-flows-plugin (G8). */
+describe("parseFlowYaml object-form branches (E32)", () => {
+  const OBJ = `
+steps:
+  - id: triage
+    type: agent-decision
+    blockedBy: []
+    branches:
+      bug: { to: fix, means: "bug found" }
+      many: { to: review, for_each: "{{items}}" }
+      legacy: doc
+      broken: { means: "x" }
+  - id: fix
+    blockedBy: []
+  - id: review
+    blockedBy: []
+  - id: doc
+    blockedBy: []
+`;
+  it("keeps edges to each `to`; a branch without `to` yields none; no throw", () => {
+    let flow: ReturnType<typeof parseFlowYaml> = null;
+    expect(() => {
+      flow = parseFlowYaml(OBJ);
+    }).not.toThrow();
+    const triage = flow!.steps.find((s) => s.id === "triage")!;
+    expect(triage.branches).toEqual({ bug: "fix", many: "review", legacy: "doc" });
+    const mermaid = flowToMermaid(flow!);
+    expect(mermaid).toMatch(/triage[^\n]*-->[^\n]*fix/);
+    expect(mermaid).toMatch(/triage[^\n]*-->[^\n]*review/);
+    expect(mermaid).toMatch(/triage[^\n]*-->[^\n]*doc/);
+    expect(mermaid).not.toContain("broken");
+  });
+});

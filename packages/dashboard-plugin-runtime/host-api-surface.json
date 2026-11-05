@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publicExports": [
     "AutomationActionEditorSlot",
     "ComposerContextGroup",
@@ -269,6 +269,7 @@
     "id": "string",
     "priority": "?number | undefined",
     "projectTypes": "?undefined | { markers: string[]; type: string }[]",
+    "replayEntryTypes": "?string[] | undefined",
     "requires": "?undefined | { binaries?: string[] | undefined; paths?: string[] | undefined; piExtensions?: string[] | undefined; services?: string[] | undefined }",
     "server": "?string | undefined",
     "vaultBindings": "?string[] | undefined"

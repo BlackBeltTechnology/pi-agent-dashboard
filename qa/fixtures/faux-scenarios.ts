@@ -1592,6 +1592,42 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "flow-agent" },
   },
 
+  // pi-flows 0.10 multi agent-decision: chooses the `fan` branch only (so the
+  // `docs` branch is skipped). A multi decision finishes with `branches: [...]`.
+  // See change: update-flows-plugin (task 7.1).
+  "flow-multi-decision": {
+    script: [
+      fauxAssistantMessage([
+        fauxToolCall("finish", { status: "complete", summary: "chose fan", files: [], branches: ["fan"] }),
+      ]),
+    ],
+    expect: { text: "chose fan" },
+  },
+
+  // pi-flows 0.10 fan-out item: finishes `complete`, except item index 1 which
+  // finishes `error` (a SOFT failure — the other items still finish). The item
+  // index rides in the task text (`review item <i> …`, from `${{item_index}}`).
+  // Drives the `e2e:fanout` flow. See change: update-flows-plugin (task 7.1).
+  "flow-item-branch": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const index = /review item (\d+)/.exec(text)?.[1] ?? "?";
+        const failed = index === "1";
+        return fauxAssistantMessage([
+          fauxToolCall("finish", {
+            status: failed ? "error" : "complete",
+            summary: `item ${index} ${failed ? "failed" : "done"}`,
+            files: [],
+            note: `item ${index}`,
+          }),
+        ]);
+      },
+    ],
+    expect: { text: "item" },
+  },
+
   // Spawns a REAL subagent via the `Agent` tool, then terminates. The spawned
   // subagent's prompt embeds a `[[faux:plain-text]]` sentinel so it resolves the
   // plain-text scenario, replies once, and completes — firing the subagent

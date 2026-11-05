@@ -15,7 +15,7 @@ import {
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState } from "../types.js";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

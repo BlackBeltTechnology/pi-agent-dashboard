@@ -43,7 +43,6 @@ import { instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.
 import { mapEventToProtocol, } from "./event-forwarder.js";
 import { bridgeExtensionIdentity } from "./extension-identity.js";
 import {
-  FLOW_EVENT_MAP,
   registerEventBusForwarding,
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
@@ -890,9 +889,9 @@ function initBridge(pi: ExtensionAPI) {
    * - `appendCustomEntry` (pi.appendEntry) → `custom_entry` protocol event —
    *   pi does not dispatch `entry_appended` to extensions at all.
    *
-   * pi-flows' `flow-event` entries are excluded inside the shared mapper
-   * (they are appended live by pi-flows itself; forwarding would
-   * double-render beside the dedicated flow card).
+   * Plugin-declared entry types (`replayEntryTypes` in a plugin bridge's
+   * forward declaration) are excluded inside the shared mapper (the owning
+   * plugin renders them from its live events; forwarding would double-render).
    */
   function wrapCustomPersistenceForCtx(ctx: any): void {
     const sm = ctx?.sessionManager;
@@ -908,7 +907,10 @@ function initBridge(pi: ExtensionAPI) {
       // its own flush. See change: coalesce-bridge-message-update-snapshots (D5).
       coalescer.flush();
       try {
-        const forward = toCustomMessageForward({ customType, content, display, details, entryId });
+        const forward = toCustomMessageForward(
+          { customType, content, display, details, entryId },
+          inst.pluginForwardRegistry?.replayEntryTypes(),
+        );
         if (forward && inst.sessionReady && isActive()) {
           inst.connection.send({
             type: "event_forward",
@@ -931,7 +933,10 @@ function initBridge(pi: ExtensionAPI) {
       // Chat-row ordering: the second out-of-loop sink. See D5.
       coalescer.flush();
       try {
-        const forward = toCustomEntryForward({ type: "custom", customType, data, id: entryId });
+        const forward = toCustomEntryForward(
+          { type: "custom", customType, data, id: entryId },
+          inst.pluginForwardRegistry?.replayEntryTypes(),
+        );
         if (forward && inst.sessionReady && isActive()) {
           inst.connection.send({
             type: "event_forward",
@@ -1781,6 +1786,7 @@ function initBridge(pi: ExtensionAPI) {
       selfSpawnedPgids,
       prStatus,
       gitTracker: polling.gitTracker ?? undefined,
+      replayEntryTypes: () => inst.pluginForwardRegistry?.replayEntryTypes() ?? new Set<string>(),
     };
   }
   inst.syncBc = syncBc;
@@ -1904,9 +1910,10 @@ function initBridge(pi: ExtensionAPI) {
   inst.sendCwdMissingIfChanged = sendCwdMissingIfChanged;
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
   inst.sendPiVersionIfChanged = sendPiVersionIfChanged;
-  // Unified EventBus rename map (flow + subagent events): used by `sendEventForward` for the
-  // channel→eventType rename and by `registerEventBusForwarding` for the per-channel subscription set.
-  const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
+  // Core EventBus rename map (subagent lifecycle only — flow channels are declared by the
+  // flows plugin bridge): used by `sendEventForward` for the channel→eventType rename and by
+  // `registerEventBusForwarding` for the per-channel subscription set. See change: update-flows-plugin.
+  const EVENT_BUS_MAP: Record<string, string> = { ...SUBAGENT_EVENT_MAP };
 
   registerEnrichedForwarders(inst);
 

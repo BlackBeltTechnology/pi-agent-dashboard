@@ -10,8 +10,9 @@
  *     per configured group (no respawn storm).
  *   - Resolution is memoized per distinct `customType` for the process
  *     lifetime: pattern matching is never re-executed per rendered row.
- *   - `customType: "flow-event"` is excluded entirely — no group, no matcher
- *     call (pi-flows owns its dedicated rendering path).
+ *   - A plugin-declared entry type (`replayEntryTypes`, via `isPluginEntryType`)
+ *     is excluded entirely — no group, no matcher call (its plugin owns its
+ *     rendering path). Core names no type. See change: update-flows-plugin (D3).
  */
 import {
   RESERVED_OTHER_GROUP_ID,
@@ -22,12 +23,15 @@ import type { CustomEventGroupMatcher } from "./custom-event-group-matcher.js";
 export interface CustomEventGroupResolverDeps {
   /** Logger hook (defaults to console.warn). Tests inject a sink. */
   warn?(message: string): void;
+  /** True for a plugin-declared entry type (never grouped). Default: none. */
+  isPluginEntryType?(customType: string): boolean;
 }
 
 export class CustomEventGroupResolver {
   private readonly groups: CustomEventGroup[];
   private readonly matcher: CustomEventGroupMatcher;
   private readonly warn: (message: string) => void;
+  private readonly isPluginEntryType: (customType: string) => boolean;
   private readonly memo = new Map<string, Promise<string | undefined>>();
   private readonly quarantined = new Set<string>();
 
@@ -39,15 +43,16 @@ export class CustomEventGroupResolver {
     this.groups = groups;
     this.matcher = matcher;
     this.warn = deps.warn ?? ((m) => console.warn(`[custom-event-groups] ${m}`));
+    this.isPluginEntryType = deps.isPluginEntryType ?? (() => false);
   }
 
   /**
    * Resolve `customType` to its group id, or `undefined` when the type must
-   * not be grouped at all (`flow-event`). Unmatched types resolve to the
-   * reserved `other` group.
+   * not be grouped at all (a plugin-declared entry type). Unmatched types
+   * resolve to the reserved `other` group.
    */
   resolve(customType: string): Promise<string | undefined> {
-    if (customType === "flow-event") return Promise.resolve(undefined);
+    if (this.isPluginEntryType(customType)) return Promise.resolve(undefined);
     const hit = this.memo.get(customType);
     if (hit) return hit;
     const p = this.run(customType);

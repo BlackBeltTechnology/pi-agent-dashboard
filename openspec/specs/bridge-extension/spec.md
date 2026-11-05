@@ -180,28 +180,6 @@ The standalone `.pi/extensions/ask-user.ts` file SHALL be removed from the proje
 - **WHEN** the project is built
 - **THEN** `.pi/extensions/ask-user.ts` SHALL NOT exist
 
-### Requirement: Bridge listens to flow events on pi.events
-The bridge extension SHALL register listeners on `pi.events` for every `flow:*` channel in `FLOW_EVENT_MAP` (a `flow:*` channel outside that map, e.g. `flow:list-flows` or `flow:run`, is not forwarded, per `catch-all-event-forwarding`) and forward them as `event_forward` messages using the mapped `eventType` values defined in the flow-event-bridge spec.
-
-#### Scenario: Flow event listeners registered at activation
-- **WHEN** the bridge extension activates and `pi.events` is available
-- **THEN** listeners SHALL be registered for `flow:flow-started`, `flow:agent-started`, `flow:agent-complete`, `flow:subagent-tool-call`, `flow:subagent-tool-result`, `flow:assistant-text`, `flow:thinking-text`, `flow:loop-iteration`, `flow:auto-decision`, `flow:complete`
-
-#### Scenario: pi.events not available
-- **WHEN** `pi.events` is not available (pi-flows not installed)
-- **THEN** the bridge SHALL continue to function normally without flow event forwarding
-
-### Requirement: Bridge handles flow_control messages from server
-The bridge SHALL handle incoming `flow_control` messages from the server. For `action: "abort"`, it SHALL call the existing abort mechanism. For `action: "toggle_autonomous"`, it SHALL emit a `flow:toggle-autonomous` event on `pi.events` or call the pi-flows autonomous mode API.
-
-#### Scenario: Abort flow control received
-- **WHEN** the bridge receives `{ type: "flow_control", action: "abort" }`
-- **THEN** the bridge SHALL emit `flow:abort` on `pi.events` (pi-flows listens for this and calls `flowManager.abort()`)
-
-#### Scenario: Toggle autonomous control received
-- **WHEN** the bridge receives `{ type: "flow_control", action: "toggle_autonomous" }`
-- **THEN** the bridge SHALL emit `flow:toggle-autonomous` on `pi.events` (pi-flows listens for this and toggles `setAutonomousMode`)
-
 ### Requirement: Heartbeat acknowledgment handling
 The bridge extension SHALL treat incoming `heartbeat_ack` messages as server liveness signals. These messages SHALL be processed by the `ConnectionManager`'s `onMessage` handler, which updates the `lastMessageAt` timestamp used by the watchdog timer.
 

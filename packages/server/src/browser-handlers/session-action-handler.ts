@@ -1,5 +1,5 @@
 /**
- * Session action handlers: send_prompt, abort, resume, spawn, shutdown, flow_control.
+ * Session action handlers: send_prompt, abort, resume, spawn, shutdown.
  */
 import { existsSync } from "node:fs";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -1233,12 +1233,6 @@ export function handlePromoteFollowupEntry(
 
 
 
-export function handleFlowControl(
-  msg: Extract<BrowserToServerMessage, { type: "flow_control" }>,
-  ctx: BrowserHandlerContext,
-): void {
-  ctx.piGateway.sendToSession(msg.sessionId, { type: "flow_control", sessionId: msg.sessionId, action: msg.action });
-}
 
 export function handleKillProcess(
   msg: Extract<BrowserToServerMessage, { type: "kill_process" }>,

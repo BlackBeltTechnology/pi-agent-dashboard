@@ -350,7 +350,6 @@ describe("prompt bucket", () => {
   const gatedRows: Array<[string, Record<string, unknown>]> = [
     ["retry_session", { type: "retry_session", sessionId: "S1" }],
     ["git_commit_draft", { type: "git_commit_draft", sessionId: "S1", cwd: "/x" }],
-    ["flow_management", { type: "flow_management", action: "run", flowName: "f" }],
     ["plugin_emit_event", { type: "plugin_emit_event", eventType: "automation:go", data: {} }],
     ["promote_followup_entry", { type: "promote_followup_entry", index: 1 }],
   ];
@@ -372,14 +371,14 @@ describe("prompt bucket", () => {
 
   it("BE14: a mixed flood drains ONE bucket (total accepted = B)", async () => {
     const s = setup();
-    const each = B / 6;
+    const each = B / 5;
     const all: Array<Record<string, unknown>> = [{ type: "send_prompt", sessionId: "S1", text: "x" }, ...gatedRows.map(([, m]) => m)];
-    expect(all).toHaveLength(6);
+    expect(all).toHaveLength(5);
     for (let i = 0; i < each; i++) for (const m of all) await run(s.h as never, m);
     expect(accepted(s)).toBe(B);
     for (const m of all) await run(s.h as never, m);
     expect(accepted(s)).toBe(B);
-    expect(feedbacks(s.h.connection)).toHaveLength(6);
+    expect(feedbacks(s.h.connection)).toHaveLength(5);
   });
 
   it("BE14: non-turn messages never spend a token", async () => {
@@ -388,7 +387,7 @@ describe("prompt bucket", () => {
     expect(feedbacks(s.h.connection)).toEqual([]);
     await run(s.h as never, { type: "send_prompt", sessionId: "S1", text: "still full" });
     expect(s.handle).toHaveBeenCalledTimes(1);
-    await run(s.h as never, { type: "flow_management", action: "delete", flowName: "f" });
+    await run(s.h as never, { type: "stop_after_turn" });
     expect(feedbacks(s.h.connection)).toEqual([]);
   });
 

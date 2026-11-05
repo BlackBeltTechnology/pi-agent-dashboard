@@ -13,7 +13,7 @@
  *                              `@role`, `provider/model[:thinking]`, and
  *                              bare `model-id`. Cooperative early-return
  *                              when `probe.model` is already set.
- *   flow:get-available-models — list models known to the registry.
+ *   models:get-available     — list models known to the registry.
  *   roles:*                  — owned by `role-manager.ts` (capability
  *                              `dashboard-roles-ownership`); not registered
  *                              here.
@@ -806,7 +806,7 @@ export function buildProviderCatalogue(): ProviderInfo[] {
 export function getModelDisplayName(modelId: string): string {
   if (piRef) {
     const data: any = {};
-    piRef.events.emit("flow:get-available-models", data);
+    piRef.events.emit("models:get-available", data);
     if (data.models && Array.isArray(data.models)) {
       const match = data.models.find((m: any) => m.id === modelId || `${m.provider}/${m.id}` === modelId);
       if (match?.name) return match.name;
@@ -1194,7 +1194,7 @@ export function activate(pi: ExtensionAPI) {
     await resolveModelProbe(probe, ref.trim());
   });
 
-  pi.events.on("flow:get-available-models", (data: any) => {
+  pi.events.on("models:get-available", (data: any) => {
     const registry = getModelRegistry();
     if (!registry) {
       data.models = [];

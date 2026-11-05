@@ -26,7 +26,7 @@ Conventions: JSON responses; mutations need `Content-Type: application/json`. Lo
 - `POST /api/session/:id/hide` and `/unhide` `{}`. 200 / 404.
 - `POST /api/session/spawn` `{cwd, agent?, model?, thinkingLevel?, initialPrompt?, attachProposal?}`. `model` = `provider/id[:level]` or `@role[:level]` (role resolved once at spawn). 200 `{data:{message}}` / 400 (invalid model, unknown role, bad level, agent+model|thinkingLevel — before any side effect) / 500.
 - `POST /api/session/:id/resume` `{mode: "continue"|"fork"}`. 200 / 400 / 404 / 409 (active or resuming) / 500.
-- `POST /api/session/:id/flow-control` `{action: "abort"|"toggle_autonomous"}`. 200 / 400 / 404.
+- `POST /api/plugins/flows/control` — `{ sessionId, action: "flow.abort"|"flow.toggle-autonomous"|"flow.dismiss-summary"|"flow.run"|"flow.delete"|"flow.set-edit-mode", flowName?, task?, enabled? }` (operate). 400, 403, 404, 409 (ACP).
 
 ## Model config
 - `GET /api/models` → `{object:"list", data:[{id:"provider/modelId", provider, reasoning?, input?, contextWindow?, maxTokens?, cost?, excludedReason?}]}`. Reachable only by default; `?annotated=1` adds `excludedReason` (`no-credential|oauth-incompatible`). 503 if pi-ai unavailable.

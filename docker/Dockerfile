@@ -125,7 +125,9 @@ RUN npm install -g @earendil-works/pi-coding-agent@1.3.0 openspec \
 # >= 0.8.1: no project-local skill sync at session_start and a no-op
 # setEditFlowFlag on an unchanged value, so flows leaves repos clean
 # (change: stop-flows-edit-mode-project-writes).
-ARG PI_FLOWS_VERSION=0.8.1
+# >= 0.10.0: fan-out, multi-route decisions, `skipped`, `flow:decision` — the
+# `e2e:fanout` fixture needs them (change: update-flows-plugin, task 7.1).
+ARG PI_FLOWS_VERSION=0.10.0
 # pi-dashboard-subagents is the ONLY producer of `tool_execution_update` for a
 # subagent: its `extensions/agent.ts` drives `createProgressEmitter` ->
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it

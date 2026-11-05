@@ -84,7 +84,6 @@ const WS_ROADS: Readonly<Record<string, readonly [HostAction, string]>> = {
   browser_relay_input: ["plugin:browser:write", "plugin"],
   browser_relay_subscribe: ["plugin:browser:read", "plugin"],
   browser_relay_unsubscribe: ["plugin:browser:read", "plugin"],
-  flow_management: ["plugin:flows:write", "plugin"],
   request_roles: ["plugin:roles:read", "plugin"],
   role_preset_delete: ["plugin:roles:write", "plugin"],
   role_preset_load: ["plugin:roles:write", "plugin"],

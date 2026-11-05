@@ -161,8 +161,6 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "extension_ui_response", reason: "agent prompt answers stay human-in-the-loop; broken session bind" },
   { pattern: "favorite_model", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "fetch_content", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
-  { pattern: "flow_control", reason: "duplicate-of:flow_control" },
-  { pattern: "flow_management", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "force_kill", reason: "duplicate-of:force_kill" },
   // An operator's answer to an access-grant prompt (change: add-access-grant-dialog).
   // NEVER an MCP tool: an agent able to send it could approve its own denied

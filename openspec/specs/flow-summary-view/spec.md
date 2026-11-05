@@ -75,7 +75,7 @@ Agent names in the summary SHALL be clickable, navigating to the agent detail vi
 
 ### Requirement: Post-flow summary renders preserved agent cards
 
-When a flow completes and `FlowSummary` mounts, it SHALL render the preserved agent cards (`FlowAgentCard`) from `flowState.agents` in a grid layout, frozen and read-only, above the summary lines. The cards SHALL reflect the final state captured at flow completion and SHALL NOT update afterward. The cards SHALL retain their detail-popout (eye) and view-source affordances, so `FlowSummary` SHALL receive the `session` and `sessionId` needed to build them.
+When a flow completes and `FlowSummary` mounts, it SHALL render the preserved agent cards (`FlowAgentCard`) from the agents in the flows plugin's own per-session flow slice in a grid layout, frozen and read-only, above the summary lines. The cards SHALL reflect the final state captured at flow completion and SHALL NOT update afterward. The cards SHALL retain their detail-popout (eye) and view-source affordances, so `FlowSummary` SHALL receive the `session` and `sessionId` needed to build them.
 
 If an agent has no meaningful card content, the agent SHALL still be represented by its summary line (graceful fallback); the widget SHALL NOT throw or render an empty frame. No overflow cap is applied to tall grids.
 

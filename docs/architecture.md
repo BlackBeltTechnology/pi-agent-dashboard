@@ -53,7 +53,7 @@ Node.js HTTP + WebSocket server that:
 - Serves the built web client as static files (production) or proxies to Vite dev server (dev mode)
 - Writes per-session `.meta.json` sidecar files with dashboard state and cached stats
 - Exposes REST API for session management, event content fetch, pinned directories, and file reading
-- Provides session control REST endpoints (`/api/session/:id/*`) wrapping WebSocket-only operations (prompt, abort, spawn, resume, rename, hide, flow-control, model, thinking-level, attach/detach-proposal) — see `src/server/session-api.ts`
+- Provides session control REST endpoints (`/api/session/:id/*`) wrapping WebSocket-only operations (prompt, abort, spawn, resume, rename, hide, model, thinking-level, attach/detach-proposal) — see `src/server/session-api.ts`
 
 **Bind model.** HTTP listener + pi gateway WS listener bind `127.0.0.1` by default. Loopback removes socket from wire.
 
@@ -330,7 +330,7 @@ See change: add-acp-session-driver.
 - `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
 - ONE `pi.events.on(channel, ...)` subscription per declared channel.
 - `on()` observes every emitter.
-- Declared set = keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed).
+- Declared set = keys of `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed). `FLOW_EVENT_MAP` removed; flow channels plugin-declared.
 - Channel list IS the contract. Undeclared channel -> never forwarded.
 - New channel -> new map entry. Identity entry when no rename wanted.
 - Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
@@ -363,6 +363,9 @@ See change: add-acp-session-driver.
 **Validation.** `validateDeclaration` — untrusted input.
 - Channel regex requires `:`. Caps: 32 channels/plugin, 256 total.
 - Rejected: `RESERVED_EVENT_TYPES`, channel already in core `EVENT_BUS_MAP`. First owner wins on conflict (counted).
+- `RESERVED_EVENT_TYPES` no longer lists `flow_*`.
+- `as`-type owner index: declaration whose `as` type owned by another `pluginId` → rejected, counted in `pluginEventForward.conflicts`. Same plugin may map two channels to one `as`. Source `packages/extension/src/plugin-event-forward-registry.ts`.
+- Optional `replayEntryTypes: string[]` (plugin's persisted custom-entry types). Registry exposes `replayEntryTypes()`. Live bridge excludes those types from generic custom-entry forwarding and replays them on reconnect.
 - `pluginId`/key regex-validated. Key value string or finite number ≤128 chars, else delivered live-only.
 
 **Delivery.**
@@ -383,6 +386,15 @@ See change: add-acp-session-driver.
   - Server-start re-ask: 5 s interval × 60 s.
 - Client `useFlowCatalog`: re-asks every 5 s, max 12 per view, while catalog unknown.
 - Timings: flows plugin settings (`configSchema`).
+
+**Example consumer: flow runs.**
+- Flows bridge `packages/flows-plugin/src/bridge/flow-event-forward.ts` (`FLOW_RUN_CHANNELS`) declares 16 pi-flows channels.
+- Step channels (`agent-*`, `subagent-tool-*` → `flow_tool_*`, `assistant-text`, `thinking-text`, `loop-iteration`, `decision` → `flow_decision`) `stream`, keyed `stepId`.
+- `flow:flow-started` / `flow:complete` `stream`, keyed `flowName`.
+- `flow:auto-decision` `stream`, keyed `agentName`.
+- `summary-*` and `autonomous-mode-changed` `live`.
+- Core `FLOW_EVENT_MAP` removed. `SUBAGENT_EVENT_MAP` stays core (`packages/extension/src/flow-event-wiring.ts`).
+- Flows disabled → no flow events forwarded.
 
 **Retention.** `StreamForwardBuffer` (`packages/extension/src/stream-forward-buffer.ts`).
 - One buffer keyed by (pluginId, key value) — cross-channel order (delta vs entry) survives.
@@ -413,6 +425,28 @@ See change: add-acp-session-driver.
 
 **Second consumer.** `packages/roles-plugin/src/bridge/index.ts`.
 - `before_agent_start` appends one `toolGuidelines.Agent` bullet. Prefer `model:"@role"`, ≤12 configured roles. Only when Agent tool selected.
+
+### Generic commands-changed seam (change: update-flows-plugin)
+
+- Bus channel `dashboard:commands-changed` (`COMMANDS_CHANGED_CHANNEL`, `packages/shared/src/event-forward-declaration.ts`). Payload ignored.
+- Core bridge: `registerCommandsChangedListener` (`packages/extension/src/flow-event-wiring.ts`), wired from `bridge-handlers/lifecycle.ts`. Resends `commands_list`.
+- Flows bridge emits it on `flow:rediscover` / `flow:complete`. Replaces former core listeners.
+
+### Plugin entry replay (change: update-flows-plugin)
+
+- Manifest field `pi-dashboard-plugin.replayEntryTypes: string[]` (flows: `["flow-event"]`). Lenient: malformed → contributes nothing.
+- `packages/shared/src/dashboard-plugin/replay-entry-types.ts`: `normalizeReplayEntryTypes`, `computeReplayEntryTypes` → `{ replay (enabled plugins), hidden (every declaring plugin) }`.
+- Server `packages/server/src/plugin-entry-stats.ts`: provider set at boot from discovered manifests (5 s cache).
+- Session load (`session-load-worker-pool.ts` → `session-load-worker.ts`) passes sets to `replayEntriesAsEvents`. OFFLINE sessions replay from manifests, not a live bridge.
+- `packages/shared/src/state-replay.ts`:
+  - `opts.replayEntryTypes` replays `{ seq, eventType, data }` records, seq-sorted, verbatim. Extra fields (`flowRunId`) ignored. Malformed skipped.
+  - `opts.hiddenEntryTypes` keeps disabled plugins' entries off every generic path. No replay.
+  - Core names no entry type.
+- Live bridge: `custom-entry-forward.ts` excludes declared types.
+- Client reducer `lib/plugins/plugin-entry-types.ts` (seeded in `App.tsx` from bundled registry) refuses generic rows.
+- Server `CustomEventGroupResolver` never groups them.
+- KNOWN BLOCKER: pi flushes custom entries only after first assistant message.
+- `/api/health` `pluginEntries`: `declaredReplayTypes`, `replayedPluginEntries`, `rejectedPluginActions`.
 
 ### Subagent Timeline Push/Pull Split (change: reduce-subagent-details-payload)
 
@@ -984,8 +1018,11 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 5. React renders `FlowDashboard` (sticky card grid above ChatView), `FlowAgentDetail` (replaces chat), `FlowSummary` (post-completion). Component code lives in `packages/flows-plugin/src/client/` and is imported by the shell via `@blackbelt-technology/pi-dashboard-flows-plugin/client`. Slot-consumer-based mounting is tracked as the follow-up change `migrate-flows-jsx-to-slots`; the current shell imports the components directly. See change: extract-flows-as-plugin.
 
 **Flow controls (browser → pi-flows):**
-- Abort: browser sends `flow_control { action: "abort" }` → server → bridge → `pi.events.emit("flow:abort")` → `flowManager.abort()`
-- Autonomous toggle: browser sends `flow_control { action: "toggle_autonomous" }` → same path → `setAutonomousMode()`
+- Flow commands: `plugin_action { pluginId: "flows", action }`, action ∈ `flow.abort | flow.toggle-autonomous | flow.dismiss-summary | flow.run | flow.delete | flow.set-edit-mode`. Handled in `packages/flows-plugin/src/server/flow-control.ts`.
+- REST: `POST /api/plugins/flows/control` (operate authority + network guard). ACP session → 409 `unsupported_for_acp`.
+- MCP tool: `flows_control`.
+- Probe channel for models: `models:get-available`.
+- Flow types (`FlowState` etc.) live in `packages/flows-plugin/src/types.ts`, not shared.
 
 **Flow actions UI (flows-dock-chip-and-panel-actions):**
 - `FLOWS` chip: `composer-context-group` claim.
@@ -1111,7 +1148,7 @@ sequenceDiagram
 
 **Relationship to existing capabilities:**
 - `interactive-ui-dialogs` / `ui-proxy` / PromptBus — handle one-shot `ctx.ui.*` dialogs (request/response, awaited). The extension-ui-system handles persistent push-based descriptors (no awaiting). Orthogonal mechanisms; both ship.
-- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: core `FLOW_EVENT_MAP` / `SUBAGENT_EVENT_MAP` + plugin-declared via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
+- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: core `SUBAGENT_EVENT_MAP` + plugin-declared via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
 - pi-flows: in Phase 3 pi-flows itself adopts the system to surface registered workflows (breadcrumb), gates, and cards (agent-metric) for any flow-using extension automatically.
 
 **No-dashboard fallback:** When no bridge is connected, `ui:list-modules` is never emitted; extension listeners are dormant; slash commands fall back to existing text-output behavior. Extensions remain pi-runnable in pure-pi mode without code changes.
@@ -1501,7 +1538,7 @@ flowchart LR
 - Client pieces: `packages/client/src/lib/plugins/runtime-plugin-loader.ts`, `packages/client/src/host-shims/*`.
 - Remote-server mode (`getApiBase()` non-empty) + Vite `--dev` page: loader does nothing.
 
-**Core/plugin boundary.** `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`, ratcheting `scripts/plugin-boundary-allowlist.json`, vitest wrapper). Plugin set from manifests. Shared contracts + `packages/mcp-core` in `docs/plugin-seams.md`.
+**Core/plugin boundary.** `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`, ratcheting `scripts/plugin-boundary-allowlist.json`, vitest wrapper). Plugin set from manifests. Flow-literal check: string literals starting `flow:` / `flow_` / `flow-` or containing `pi-flows` in non-test `packages/{extension,server,shared,client}/src` fail unless in allowlist `literalRows`. Shared contracts + `packages/mcp-core` in `docs/plugin-seams.md`.
 
 **Absent-owner UX.** Manifest `eventTypes` → one group row per owned event type; availability decided at render time by `pluginAvailability`. Subagent state written by subagents-plugin slice + finalizers; generic heals in core. See `docs/plugin-seams.md`.
 
@@ -3184,7 +3221,7 @@ Bridge caps per-unit-time work that server or bridge-socket holder can trigger. 
 
 - `PI_DASHBOARD_BRIDGE_MAX_BASH` = max concurrent `!` / `!!` / exec-template bash per session. Default `4`.
 - `PI_DASHBOARD_BRIDGE_PROMPT_RATE` = `<burst>/<refillPerSec>`. One token bucket per bridge process. Default `30/10`.
-- Prompt bucket shared by: `send_prompt`, `retry_session`, `git_commit_draft`, flow_management run, `plugin_emit_event`, `promote_followup_entry`.
+- Prompt bucket shared by: `send_prompt`, `retry_session`, `git_commit_draft`, flows `flow.run`, `plugin_emit_event`, `promote_followup_entry`.
 - Valid values: positive integers only. Invalid (`0`, negative, non-integer, empty) → default + one log line per process per variable. `0` ≠ unlimited.
 - Bucket survives WS reconnect and `/reload` (per bridge process). Keyed on process-global shared state (`inst.shared`), not the connection: a per-connection key let the server refill it via `send_prompt /reload`.
 - Refusal visible: inline `command_feedback` error in chat. Never silent drop.
@@ -6812,7 +6849,7 @@ The `.pi/skills/pi-dashboard/` directory is both a local project skill (discover
 | `POST /api/session/:id/unhide` | Unhide session |
 | `POST /api/session/spawn` | Spawn new session in a directory. Body `{cwd, agent?, model?, thinkingLevel?, initialPrompt?, attachProposal?}`; `@role` resolved once; invalid choice → 400 (before side effects) |
 | `POST /api/session/:id/resume` | Resume or fork ended session |
-| `POST /api/session/:id/flow-control` | Abort flow or toggle autonomous |
+| `POST /api/plugins/flows/control` | Flow controls (abort, autonomous, run, delete, edit mode). Operate authority + network guard; ACP → 409 `unsupported_for_acp` |
 | `POST /api/session/:id/model` | Set provider + model |
 | `POST /api/session/:id/thinking-level` | Set thinking level |
 | `POST /api/session/:id/attach-proposal` | Attach OpenSpec change |

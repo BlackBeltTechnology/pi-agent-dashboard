@@ -237,7 +237,10 @@ export function replaySessionEntries(bc: BridgeContext, opts?: { liveTailOpen?: 
   try {
     const entries = bc.cachedCtx?.sessionManager?.getBranch?.();
     if (!entries || entries.length === 0) return;
-    const events = replayEntriesAsEvents(bc.sessionId, entries, undefined, opts);
+    const events = replayEntriesAsEvents(bc.sessionId, entries, undefined, {
+      ...opts,
+      replayEntryTypes: bc.replayEntryTypes?.(),
+    });
     for (const msg of events) {
       // Mark every replayed forward so the server never treats it as live,
       // whatever its replay timers say. See change: fix-large-session-resume-replay (D1).

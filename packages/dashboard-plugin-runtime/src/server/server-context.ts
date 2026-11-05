@@ -1112,6 +1112,13 @@ export interface ServerPluginContext {
    */
   emitEventToSession: EmitEventToSessionFn;
   /**
+   * Count one REJECTED `plugin_action` / plugin-route command (unknown action,
+   * invalid payload, refused session) in `/api/health`
+   * (`pluginEntries.rejectedPluginActions`). Optional: absent on hosts without
+   * the counter. See change: update-flows-plugin (task 2.4).
+   */
+  recordRejectedAction?: () => void;
+  /**
    * Send a raw server→extension control message to one session's bridge
    * socket, WITHOUT the `pi.events` re-emit `plugin_emit_event` does.
    * Trusted-gated. See change: wire-mcp-session-token (D5).
@@ -1405,6 +1412,8 @@ export interface ServerContextDeps {
   onSessionResolved: OnSessionResolvedFn;
   sendToSession: SendToSessionFn;
   emitEventToSession: EmitEventToSessionFn;
+  /** Host counter for rejected plugin actions (see the context field). */
+  recordRejectedPluginAction?: (pluginId: string) => void;
   sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
   registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
@@ -1540,6 +1549,9 @@ export function createServerPluginContext(
     onSessionResolved: deps.onSessionResolved,
     sendToSession: deps.sendToSession,
     emitEventToSession: deps.emitEventToSession,
+    recordRejectedAction: deps.recordRejectedPluginAction
+      ? () => deps.recordRejectedPluginAction!(pluginId)
+      : undefined,
     sendExtensionMessage: deps.sendExtensionMessage,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,

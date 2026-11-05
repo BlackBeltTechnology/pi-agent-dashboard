@@ -256,19 +256,24 @@ Resume or fork an ended session.
 
 ## Flow Control
 
-### `POST /api/session/:id/flow-control`
-Control a running flow.
+### `POST /api/plugins/flows/control`
+Control a session's flow (flows plugin route; replaces the removed core
+session flow route). Requires operate authority.
 
 **Body:**
 ```json
-{ "action": "abort" }
+{ "sessionId": "abc123", "action": "flow.abort" }
 ```
-- `action`: `"abort"` or `"toggle_autonomous"`
+- `action`: `"flow.abort"`, `"flow.toggle-autonomous"`, `"flow.dismiss-summary"`,
+  `"flow.run"` (`flowName`, optional `task`), `"flow.delete"` (`flowName`),
+  `"flow.set-edit-mode"` (`enabled: boolean`)
 
 **Responses:**
 - `200`: `{ "success": true }`
-- `400`: Invalid `action`
+- `400`: Unknown `action` or invalid payload
+- `403`: Missing operate authority
 - `404`: Session not found
+- `409`: ACP session (`code: "unsupported_for_acp"`)
 
 ---
 

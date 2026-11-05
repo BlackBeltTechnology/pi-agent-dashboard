@@ -14,6 +14,11 @@
 
 export const REGISTER_EVENT_FORWARD_CHANNEL = "dashboard:register-event-forward";
 export const BRIDGE_READY_CHANNEL = "dashboard:bridge-ready";
+/**
+ * Bare signal any plugin bridge emits to make the core bridge resend
+ * `commands_list` (payload ignored). See change: update-flows-plugin (D4).
+ */
+export const COMMANDS_CHANGED_CHANNEL = "dashboard:commands-changed";
 
 export type EventForwardDelivery = "live" | "latest" | "stream";
 
@@ -28,6 +33,13 @@ export interface EventForwardChannelSpec {
 export interface EventForwardDeclaration {
   pluginId: string;
   channels: Record<string, EventForwardChannelSpec>;
+  /**
+   * Persisted custom-entry types this plugin owns (its manifest
+   * `replayEntryTypes`). The live bridge replays them as recorded protocol
+   * events and never forwards them as generic `custom_entry` rows. Malformed
+   * values contribute nothing. See change: update-flows-plugin (D3).
+   */
+  replayEntryTypes?: string[];
 }
 
 /** Normalized accepted channel (as resolved, delivery, key). */
@@ -48,7 +60,7 @@ const KEY_RE = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 
 /**
  * Event types a plugin channel may NOT forward as: pi core event types, the
- * core-mapped flow/subagent types, and bridge→server control message types.
+ * core-mapped subagent types, and bridge→server control message types.
  * A plugin hijacking one would inject frames the reducer trusts.
  */
 export const RESERVED_EVENT_TYPES: ReadonlySet<string> = new Set([
@@ -62,10 +74,6 @@ export const RESERVED_EVENT_TYPES: ReadonlySet<string> = new Set([
   "model_select", "user_bash", "auto_compaction_start", "auto_compaction_end",
   "auto_retry_start", "auto_retry_end", "compaction_start", "compaction_end",
   // core-mapped bus channels
-  "flow_started", "flow_agent_started", "flow_agent_complete", "flow_agent_error",
-  "flow_tool_call", "flow_tool_result", "flow_assistant_text", "flow_thinking_text",
-  "flow_loop_iteration", "flow_auto_decision", "flow_complete", "flow_summary_started",
-  "flow_summary_ready", "flow_summary_dismissed", "flow_autonomous_changed",
   "subagent_created", "subagent_started", "subagent_completed", "subagent_failed",
   // bridge control / protocol message types
   "event_forward", "entry_persisted", "session_register", "session_unregister",

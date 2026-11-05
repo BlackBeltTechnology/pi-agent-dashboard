@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change fix-skill-discovery-parity. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: The bridge SHALL populate CommandInfo.path from pi's sourceInfo
 
 `CommandInfo` declares an optional `path`, but the bridge forwards pi's raw command objects, where the path is carried at `sourceInfo.path`. The bridge SHALL map that value onto `path` in `filterHiddenCommands()`, the single function every `commands_list` sender passes through, tolerating its absence.
@@ -22,9 +24,15 @@ TBD - created by archiving change fix-skill-discovery-parity. Update Purpose aft
 
 #### Scenario: Every sender carries the path
 
-- **GIVEN** `commands_list` is sent on session register, on spawn, on flow rediscovery, on `session_start` reload, and in response to `request_commands`
+- **GIVEN** `commands_list` is sent on session register, on spawn, on `dashboard:commands-changed` (emitted by any plugin bridge, for example the flows plugin on `flow:rediscover` or `flow:complete`), on `session_start` reload, and in response to `request_commands`
 - **WHEN** any of those senders emits the message
 - **THEN** its skill entries SHALL carry `path`
+
+#### Scenario: No resend on flow rediscovery while the flows plugin is disabled
+
+- **GIVEN** the flows plugin is disabled, so its bridge is not loaded
+- **WHEN** pi-flows emits `flow:rediscover`
+- **THEN** the bridge SHALL NOT resend `commands_list`
 
 #### Scenario: No new message is introduced
 
@@ -163,4 +171,3 @@ Where more than one session for the folder has reported, the payload SHALL be sc
 - **GIVEN** an attached session whose working directory is a worktree or subdirectory of the scanned folder
 - **WHEN** the payload is built
 - **THEN** the differing working directory SHALL be exposed alongside the statuses
-

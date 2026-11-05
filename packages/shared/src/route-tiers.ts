@@ -437,6 +437,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Pins a client bundle hash or grants pi-package server trust: operate AND isLocallyTrusted (a remote operate bearer is refused).
   { method: "POST", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/create", tier: "control" },
+  // update-flows-plugin: flow commands (abort / auto / dismiss / run / delete /
+  // edit mode) — replaces POST /api/session/:id/flow-control; operate + the
+  // plugin's operate-authority predicate.
+  { method: "POST", path: "/api/plugins/flows/control", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/run", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/stop", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/update", tier: "control" },
@@ -469,7 +473,6 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/session/:id/attach-proposal", tier: "control" },
   { method: "POST", path: "/api/session/:id/detach-proposal", tier: "control" },
   { method: "POST", path: "/api/session/:id/extension-ui-response", tier: "control" },
-  { method: "POST", path: "/api/session/:id/flow-control", tier: "control" },
   { method: "POST", path: "/api/session/:id/lifecycle", tier: "control" },
   { method: "POST", path: "/api/session/:id/model", tier: "control" },
   { method: "POST", path: "/api/session/:id/prompt", tier: "control" },

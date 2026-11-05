@@ -269,7 +269,16 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "emits": [
             "flow:run",
             "flow:set-edit-mode",
+            "flow:abort",
+            "flow:architect-abort",
+            "flow:toggle-autonomous",
+            "flow:summary-dismissed",
+            "flow:delete-request",
+            "flow:notify",
             "dashboard-flows:report-files"
+        ],
+        "replayEntryTypes": [
+            "flow-event"
         ]
     },
     claims: [

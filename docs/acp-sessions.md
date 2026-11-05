@@ -58,7 +58,7 @@ Absent `acpAgents` → no ACP UI, no ACP spawn. Spawn with `agent` → error.
 | Chat, streaming | resume, fork, continue |
 | Tool cards | reload, retry |
 | Thinking (live) | goals (`/goal`, link existing) |
-| Plans (debug raw-event view only) | flows (`flow_control`, `flow_management`) |
+| Plans (debug raw-event view only) | flows (`plugin_action` `pluginId: "flows"`, `POST /api/plugins/flows/control` — refused `unsupported_for_acp`) |
 | Model + thought-level selection (when agent advertises `model` / `thought_level`) | roles (`role_*`, `request_roles`) |
 | Prompt queue (follow-up edit/remove/promote/clear) | inline terminal (`open_inline_terminal`) |
 | Abort (`session/cancel`) | `list_files`, stop-after-turn, kill_process |

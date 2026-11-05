@@ -49,3 +49,20 @@ describe("WS_MESSAGE_TIERS — browser_host_* (E33)", () => {
     }
   });
 });
+
+/** E59: the WS tables no longer carry the retired flow message types. See change: update-flows-plugin. */
+describe("WS tables drop flow_control / flow_management (E59)", () => {
+  it("tier, scope and road tables have no flow key; plugin_action is present in each", async () => {
+    const { classifyWsRoad } = await import("../ws-road-classification.js");
+    for (const t of ["flow_control", "flow_management"]) {
+      expect(t in WS_MESSAGE_TIERS, t).toBe(false);
+      expect(NON_SESSION_MESSAGES.has(t), t).toBe(false);
+      expect(SESSION_OWNED_MESSAGES.has(t), t).toBe(false);
+      expect(SESSION_LIST_MESSAGES.has(t), t).toBe(false);
+      expect(classifyWsRoad({ type: t }), t).toBeUndefined();
+    }
+    expect(WS_MESSAGE_TIERS.plugin_action).toBe("operate");
+    expect(NON_SESSION_MESSAGES.has("plugin_action") || SESSION_OWNED_MESSAGES.has("plugin_action")).toBe(true);
+    expect(classifyWsRoad({ type: "plugin_action", pluginId: "flows" })).toBeDefined();
+  });
+});

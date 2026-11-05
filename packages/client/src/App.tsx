@@ -259,6 +259,7 @@ import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
 import { setEventTypeOwners } from "./lib/plugins/event-type-owners.js";
+import { setPluginEntryTypes } from "./lib/plugins/plugin-entry-types.js";
 import {
   RUNTIME_PLUGINS_REGISTERED_EVENT,
   regroupAllSessionStates,
@@ -299,6 +300,9 @@ for (const entry of PLUGIN_REGISTRY) {
 // Ownership is a reducer input (availability is not): seed it before any event
 // reduces. See change: decouple-plugins-from-core.
 setEventTypeOwners(_pluginRegistry.getEventTypeOwners());
+// Plugin-declared persisted entry types (every bundled plugin, enabled or not)
+// never render as generic custom rows. See change: update-flows-plugin (D3).
+setPluginEntryTypes(PLUGIN_REGISTRY.flatMap((e) => e.manifest.replayEntryTypes ?? []));
 
 // Feed plugin `shell-overlay-route` claims into the back-target classifier so
 // the depth-aware back action resolves plugin routes (declared depth/parent)

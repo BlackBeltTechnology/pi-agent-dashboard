@@ -57,7 +57,7 @@ describe("stampEventGroup", () => {
     expect((e.data.message as Record<string, unknown>).groupId).toBe("memory");
   });
 
-  it("never stamps when the group is undefined (flow-event exclusion)", () => {
+  it("never stamps when the group is undefined (plugin-declared entry exclusion)", () => {
     const e = event("custom_entry", { customType: "flow-event" });
     stampEventGroup(e, undefined);
     expect("groupId" in e.data).toBe(false);

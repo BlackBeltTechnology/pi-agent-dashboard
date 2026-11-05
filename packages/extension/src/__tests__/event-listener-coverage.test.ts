@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { forwardedBusChannels } from "../flow-event-wiring.js";
 
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const BENIGN = new Set(["flow:rediscover", "flow:complete", "flow:get-available-models"]);
+const BENIGN = new Set(["models:get-available"]);
 
 function walk(dir: string): string[] {
   const out: string[] = [];

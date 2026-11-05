@@ -40,9 +40,9 @@ export function isGroupableCustomEvent(event: DashboardEvent): boolean {
 
 /**
  * Stamp the resolved group onto the event, in place, BEFORE ingest. Absent
- * (undefined) resolution — flow-event's dedicated path — leaves the event
- * unannotated; the client then treats the row as `other`, which the gate
- * never reaches for flow cards anyway.
+ * (undefined) resolution — a plugin-declared entry type's dedicated path —
+ * leaves the event unannotated; the client then treats the row as `other`,
+ * which the gate never reaches for plugin cards anyway.
  */
 export function stampEventGroup(event: DashboardEvent, groupId: string | undefined): void {
   if (typeof groupId !== "string") return;

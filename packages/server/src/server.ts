@@ -8,6 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { computeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
+import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
 import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
@@ -721,6 +723,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const customEventGroupResolver = new CustomEventGroupResolver(
     customEventGroupsStore.list(),
     customEventGroupMatcher,
+    // Plugin-declared entry types are never grouped. See change: update-flows-plugin (D3).
+    { isPluginEntryType: (t) => getReplayEntryTypes().hidden.includes(t) },
   );
 
   migrateCustomEntryFallbackOverrides(undefined, undefined, Object.fromEntries(
@@ -3068,6 +3072,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch { /* best-effort */ }
     }
   };
+  // Plugin-declared replay entry types (manifest `replayEntryTypes`): enabled
+  // plugins replay, every declaring plugin hides. Read by each session replay;
+  // short-TTL cache so a toggle lands without a per-load disk scan.
+  // See change: update-flows-plugin (D3, G5).
+  {
+    let cached: { at: number; sets: ReturnType<typeof computeReplayEntryTypes> } | undefined;
+    setReplayEntryTypesProvider(() => {
+      const now = Date.now();
+      if (cached && now - cached.at < 5_000) return cached.sets;
+      const config = loadConfig();
+      const sets = computeReplayEntryTypes(
+        discoverPlugins().map((p) => ({
+          replayEntryTypes: p.manifest.replayEntryTypes,
+          enabled: resolvePluginEnabled(
+            getPluginConfigFromFile(config, p.manifest.id) as Record<string, unknown>,
+            p.manifest.defaultEnabled,
+          ),
+        })),
+      );
+      cached = { at: now, sets };
+      return sets;
+    });
+  }
   const embedLifecycle = createEmbedLifecycleController({
     closers: sessionClosers,
     markArchiveOnEnd,
@@ -4556,6 +4583,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Only event types in the plugin's manifest `emits` (live; automation also
               // gets its accepted action providers' emits) pass.
               // See change: harden-git-terminal-plugin-boundaries (D16).
+              // Rejected plugin_action / plugin-route command counter (/api/health).
+              // See change: update-flows-plugin (task 2.4).
+              recordRejectedPluginAction: () => recordRejectedPluginAction(),
               emitEventToSession: (sessionId, eventType, data) =>
                 pluginEventSeam.emitEventToSession(
                   (plugin.manifest.priority ?? 1000) <= 100,

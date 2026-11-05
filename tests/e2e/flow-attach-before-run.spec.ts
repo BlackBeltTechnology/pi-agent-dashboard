@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
-import { chipOpen, chipRun, expandSummary, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
+import { chipOpen, chipRun, expandSummary, openAgentCards, pickFlow, waitForFlowsChip } from "./helpers/flows-chip.js";
 
 // Change: attach-flow-before-run — L3 against the REAL pi-flows engine + faux
 // agents (exemplar: flow-roundtrip.spec.ts). The harness bakes the synthetic
@@ -33,6 +33,8 @@ test.describe("attach flow before run (L3: real pi-flows engine + faux agents)",
     await expect(panel).toHaveAttribute("data-flow-mode", "idle");
     await expect(panel.getByText("not started")).toBeVisible();
     await expect(panel.locator("[data-node]")).toHaveCount(2);
+    // Cards sit in the Agent cards section (collapsed by default; update-flows-plugin D7).
+    await openAgentCards(panel);
     await expect(panel.locator("[data-step]")).toHaveCount(2);
     await expect(panel.getByText("waiting: alpha")).toBeVisible();
     await expect(panel.getByTestId("flow-idle-run")).toBeVisible();

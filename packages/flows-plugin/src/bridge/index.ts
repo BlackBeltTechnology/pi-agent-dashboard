@@ -17,7 +17,9 @@
  *
  * Also starts the flow-files reporter (see `flow-files-reporter.ts`) and the
  * flow catalog publisher (see `flow-catalog-publisher.ts`; change
- * flows-dock-chip-and-panel-actions).
+ * flows-dock-chip-and-panel-actions), and declares every pi-flows run channel
+ * plus the persisted `flow-event` entry type through the generic forward seam
+ * (see `flow-event-forward.ts`; change update-flows-plugin).
  *
  * Claude subscription compat for flow agents: pi-flows builds agents with an
  * in-memory loader that never loads the settings packages, so the dashboard
@@ -30,6 +32,7 @@
  */
 import { claudeCompatExtension } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/claude-compat.js";
 import { startFlowCatalogPublisher } from "./flow-catalog-publisher.js";
+import { startFlowEventForward } from "./flow-event-forward.js";
 import { startFlowFilesReporter } from "./flow-files-reporter.js";
 import { FlowQuestionAdapter } from "./flow-question-adapter.js";
 
@@ -63,6 +66,9 @@ export default function activate(ctx: unknown): void {
   // Report this session's flow / agent / handler files to the plugin server so
   // the UI can open them. See change: attach-flow-before-run.
   startFlowFilesReporter(pi as Parameters<typeof startFlowFilesReporter>[0]);
+  // Forward pi-flows run events (core holds no flow map) and request a
+  // commands resend on rediscover / complete. See change: update-flows-plugin.
+  startFlowEventForward(pi as Parameters<typeof startFlowEventForward>[0]);
   // Publish this session's flow catalog through declared event forwarding.
   // See change: flows-dock-chip-and-panel-actions.
   startFlowCatalogPublisher(pi as Parameters<typeof startFlowCatalogPublisher>[0]);

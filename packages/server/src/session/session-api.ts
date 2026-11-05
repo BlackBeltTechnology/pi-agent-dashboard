@@ -593,30 +593,6 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
     },
   );
 
-  // POST /api/session/:id/flow-control
-  fastify.post<IdParams & { Body: { action?: string } }>(
-    "/api/session/:id/flow-control",
-    async (request, reply) => {
-      const { id } = request.params;
-      const { action } = request.body ?? {};
-      if (action !== "abort" && action !== "toggle_autonomous") {
-        reply.code(400);
-        return { success: false, error: "action must be 'abort' or 'toggle_autonomous'" } satisfies ApiResponse;
-      }
-      const result = getSessionOrFail(sessionManager, id);
-      if ("error" in result) {
-        reply.code(404);
-        return result.error;
-      }
-      if (isAcp(result.session)) {
-        reply.code(409);
-        return { success: false, error: unsupportedMessage("flow_control"), code: UNSUPPORTED_FOR_ACP } as ApiResponse;
-      }
-      piGateway.sendToSession(id, { type: "flow_control", sessionId: id, action });
-      return { success: true } satisfies ApiResponse;
-    },
-  );
-
   // POST /api/session/:id/model
   fastify.post<IdParams & { Body: { provider?: string; modelId?: string } }>(
     "/api/session/:id/model",
