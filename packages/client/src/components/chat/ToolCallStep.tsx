@@ -101,12 +101,15 @@ function claimRowStatus(
  * Put a claim's per-row `stop` in front of the existing stop path (own abort or
  * enclosing burst controller). `true` consumes the click; `false` / a throw
  * fall through to the existing path. See change: subagent-queue-visibility (D2).
+ * A consumed click calls `onConsumed` (the row expands so the claim's own
+ * feedback is visible). See change: drop-subagent-card-stop-button (D3).
  */
 function withClaimStop(
   base: StopController | null,
   claim: ClaimEntry | null,
   toolName: string,
   input: { sessionId: string | undefined; toolCallId: string; toolDetails: Record<string, unknown> | undefined },
+  onConsumed: () => void,
 ): StopController | null {
   const claimStop = claim?.stop;
   if (!base || !claim || !claimStop) return base;
@@ -115,7 +118,10 @@ function withClaimStop(
     stop: () => {
       if (base.state === "idle") {
         try {
-          if (claimStop(input) === true) return;
+          if (claimStop(input) === true) {
+            onConsumed();
+            return;
+          }
         } catch (err) {
           warnClaimOnce(claim, "stop", toolName, err);
         }
@@ -241,7 +247,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const [expanded, setExpanded] = useState(hasImages || expandsWhileRunning || (isAskUser && !isFailedAskUser) || toolName === "canvas");
   // Hook always called (rules of hooks); inactive when a burst controller is supplied.
   const ownStop = useToolStopState({ active: status === "running" && !stopController, onAbort, onForceKill });
-  const stop = withClaimStop(stopController ?? ownStop, pluginClaim, toolName, { sessionId: context.sessionId, toolCallId, toolDetails });
+  const stop = withClaimStop(stopController ?? ownStop, pluginClaim, toolName, { sessionId: context.sessionId, toolCallId, toolDetails }, () => setExpanded(true));
   const stopLabel = claimStopLabel(pluginClaim, toolName, toolDetails);
   const rowStatus = claimRowStatus(pluginClaim, toolName, status, toolDetails, context.session);
   const Renderer = getToolRenderer(toolName);

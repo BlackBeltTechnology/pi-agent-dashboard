@@ -27,7 +27,7 @@ import {
   type SubagentLiveTail,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { mdiChevronDown, mdiChevronUp, mdiClockOutline, mdiHeadLightbulb, mdiOpenInNew, mdiPencil, mdiStop } from "@mdi/js";
+import { mdiChevronDown, mdiChevronUp, mdiClockOutline, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -37,12 +37,7 @@ import {
   noteSubagentTerminal,
   trackInspectorMounted,
 } from "./subagent-inspector-telemetry.js";
-import {
-  agentStopLabel,
-  clearSubagentStop,
-  requestSubagentStop,
-  useSubagentStopState,
-} from "./subagentStop.js";
+import { clearSubagentStop, useSubagentStopState } from "./subagentStop.js";
 import { useSubagentResyncCadence } from "./useSubagentResyncCadence.js";
 
 type ToolRendererProps = SlotProps<"tool-renderer">;
@@ -321,37 +316,25 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
   useEffect(() => {
     if (sessionId && agentId && details?.status && !liveForStop) clearSubagentStop(sessionId, agentId);
   }, [sessionId, agentId, details?.status, liveForStop]);
-  const stopControl =
-    details?.stoppable === true && agentId && sessionId && liveForStop ? (
-      <div data-testid="agent-stop-row" className="mt-1 flex items-center gap-2 text-[11px]">
-        <button
-          type="button"
-          data-testid="agent-stop-button"
-          disabled={stopState?.phase === "pending"}
-          onClick={(e) => {
-            e.stopPropagation();
-            void requestSubagentStop(sessionId, agentId);
-          }}
-          className="focus-ring inline-flex items-center gap-1 rounded border border-[var(--border-subtle)] px-1.5 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Icon path={mdiStop} size={0.5} />
-          <span>{agentStopLabel(details as Record<string, unknown>)}</span>
-        </button>
-        {stopState?.phase === "pending" && (
-          <span data-testid="agent-stop-pending" className="text-[var(--text-tertiary)]">{t("stopPending", undefined, "stopping…")}</span>
-        )}
-        {stopState?.phase === "unconfirmed" && (
-          <span data-testid="agent-stop-unconfirmed" className="text-[var(--severity-warning-fg)]">
-            {t("stopUnconfirmed", undefined, "stop not confirmed")}
-          </span>
-        )}
-        {stopState?.phase === "error" && (
-          <span data-testid="agent-stop-error" className="text-[var(--severity-warning-fg)]">
-            {t("stopRefused", { reason: stopState.reason }, "stop refused: {reason}")}
-          </span>
-        )}
-      </div>
-    ) : null;
+  // The chat row ■ is the only stop control; the card shows only its feedback,
+  // and only once a stop was requested. See change: drop-subagent-card-stop-button (D1, D2).
+  const stopControl = stopState ? (
+    <div data-testid="agent-stop-row" className="mt-1 flex items-center gap-2 text-[11px]">
+      {stopState.phase === "pending" && (
+        <span data-testid="agent-stop-pending" className="text-[var(--text-tertiary)]">{t("stopPending", undefined, "stopping…")}</span>
+      )}
+      {stopState.phase === "unconfirmed" && (
+        <span data-testid="agent-stop-unconfirmed" className="text-[var(--severity-warning-fg)]">
+          {t("stopUnconfirmed", undefined, "stop not confirmed")}
+        </span>
+      )}
+      {stopState.phase === "error" && (
+        <span data-testid="agent-stop-error" className="text-[var(--severity-warning-fg)]">
+          {t("stopRefused", { reason: stopState.reason }, "stop refused: {reason}")}
+        </span>
+      )}
+    </div>
+  ) : null;
 
   const detailDialog = agentId && session ? (
     <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} size="lg" flush>

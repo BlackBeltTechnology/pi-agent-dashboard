@@ -2,8 +2,10 @@
  * `tool-renderer` claim seams `rowStatus`, `stop` and `stopLabel` in `ToolCallStep`.
  *
  * Covers test-plan #E5 (row status decision table) and #E6 (claim-owned stop,
- * standalone and inside a burst controller).
+ * standalone and inside a burst controller), #E3/#E4 of
+ * drop-subagent-card-stop-button (a claim-handled stop expands the row).
  * See change: subagent-queue-visibility (design D2).
+ * See change: drop-subagent-card-stop-button (design D3).
  */
 import { type ClaimEntry, createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/host";
 import { mdiLoading } from "@mdi/js";
@@ -175,4 +177,42 @@ describe("claim-owned per-row stop (#E6)", () => {
     const btn = container.querySelector('[data-testid="tool-stop-button"]') as HTMLButtonElement;
     expect(btn.getAttribute("aria-label")).toBe("Remove from queue");
   });
+});
+
+describe("a claim-handled stop expands the row (#E3/#E4)", () => {
+  /** Collapse the row with header clicks, whatever its initial state. */
+  function collapse(container: HTMLElement) {
+    const header = container.querySelector('[data-testid="tool-call-step"] button') as HTMLButtonElement;
+    if (container.querySelector('[data-testid="plugin-renderer"]')) fireEvent.click(header);
+    expect(container.querySelector('[data-testid="plugin-renderer"]')).toBeNull();
+  }
+
+  it("#E3 claim stop → true on a collapsed row: row body shown, onAbort not called", () => {
+    const onAbort = vi.fn();
+    const { container } = renderRow({ stop: () => true }, { status: "running", onAbort });
+    collapse(container);
+    fireEvent.click(container.querySelector('[data-testid="tool-stop-button"]') as HTMLButtonElement);
+    expect(container.querySelector('[data-testid="plugin-renderer"]')).not.toBeNull();
+    expect(onAbort).not.toHaveBeenCalled();
+  });
+
+  for (const [name, stopImpl] of [
+    ["false", () => false],
+    [
+      "throws",
+      () => {
+        throw new Error("stop boom");
+      },
+    ],
+  ] as const) {
+    it(`#E4 claim stop → ${name}: row stays collapsed, onAbort called once`, () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const onAbort = vi.fn();
+      const { container } = renderRow({ stop: stopImpl }, { status: "running", onAbort });
+      collapse(container);
+      fireEvent.click(container.querySelector('[data-testid="tool-stop-button"]') as HTMLButtonElement);
+      expect(container.querySelector('[data-testid="plugin-renderer"]')).toBeNull();
+      expect(onAbort).toHaveBeenCalledTimes(1);
+    });
+  }
 });
