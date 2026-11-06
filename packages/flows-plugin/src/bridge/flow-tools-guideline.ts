@@ -17,11 +17,11 @@ export const FLOW_WRITE_TOOL = "flow_write";
 
 export const FLOW_TOOLS_GUIDELINE =
   "Code handlers (code / code-decision nodes) can run any dashboard-registered tool (bash, git, node, npm, npx, gh, …) " +
-  "through the pi-dashboard tool registry instead of spawning bare names off PATH. Guard and fall back, because the " +
+  "through the pi-dashboard tool registry instead of running bare names off PATH. Guard and fall back, because the " +
   `facade exists only under the dashboard: \`const tools = (globalThis as any)[Symbol.for("${FLOW_TOOLS_SYMBOL_KEY}")]; ` +
   'if (tools) { const r = await tools.run("git", ["status"], { cwd: ctx.cwd, signal: ctx.signal }); } ' +
   "else { /* node:child_process fallback */ }`. Methods: `has(name)`, `resolve(name)` (absolute path or null; do not " +
-  "spawn it, use run), `await run(name, args, { cwd, env, timeoutMs, signal })`, `await shell(script, opts)` (registry " +
+  "execute it directly, use run), `await run(name, args, { cwd, env, timeoutMs, signal })`, `await shell(script, opts)` (registry " +
   "bash without login profiles). Results are `{ ok, code, stdout, stderr, out }` and never throw: 127 = tool not " +
   "found, 130 = aborted; output is capped at 64 MiB per stream. Address tools by name; there is no list().";
 

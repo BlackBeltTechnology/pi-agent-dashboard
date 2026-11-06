@@ -17,7 +17,6 @@
  * Plugin-scoped: nothing in pi-flows, dashboard core or the registry changes.
  * See change: add-flow-code-node-tools (design D1–D4, D6).
  */
-import type { ChildProcess } from "node:child_process";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { spawn as defaultSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { killProcessGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
@@ -109,12 +108,12 @@ function execArgv(
   if (opts?.signal?.aborted) return Promise.resolve(fail(130, "aborted before start"));
   const [bin, ...prefix] = argv;
   return new Promise<FlowToolResult>((resolve) => {
-    let child: ChildProcess;
+    let child: ReturnType<typeof defaultSpawn>;
     try {
       child = spawnFn(bin, [...prefix, ...args], {
         cwd: opts?.cwd,
         env: spawnEnv(bin, opts, dropShellInit),
-        detached: process.platform !== "win32",
+        detached: process.platform !== "win32", // platform-branch-ok: POSIX own process group so killProcessGroup reaches grandchildren; win32 detach would escape the job object
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
       });
