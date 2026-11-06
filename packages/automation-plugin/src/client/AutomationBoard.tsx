@@ -27,7 +27,8 @@ import { SettingsNotice, useT, useUiPrimitive } from "@blackbelt-technology/dash
 import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import type { AutomationConfig, AutomationScope, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 import { nextFire } from "../shared/cron.js";
