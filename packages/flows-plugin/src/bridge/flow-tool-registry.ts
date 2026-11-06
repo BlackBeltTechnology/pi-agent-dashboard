@@ -155,9 +155,12 @@ function execArgv(
       if (timer) clearTimeout(timer);
       opts?.signal?.removeEventListener("abort", onAbort);
       // Chunks are already cut at the byte cap; a cut stream may end mid-character.
+      // Invalid bytes decode to U+FFFD (3 bytes each), so re-cap the decoded text too.
       const decode = (chunks: Buffer[], total: number) => {
         const buf = Buffer.concat(chunks);
-        return (total > MAX_OUTPUT_BYTES ? dropPartialUtf8Tail(buf) : buf).toString("utf8");
+        const text = (total > MAX_OUTPUT_BYTES ? dropPartialUtf8Tail(buf) : buf).toString("utf8");
+        if (Buffer.byteLength(text, "utf8") <= MAX_OUTPUT_BYTES) return text;
+        return dropPartialUtf8Tail(Buffer.from(text, "utf8").subarray(0, MAX_OUTPUT_BYTES)).toString("utf8");
       };
       const stdout = decode(out, outBytes);
       let stderr = decode(err, errBytes);

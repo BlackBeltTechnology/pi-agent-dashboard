@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getManagedBin } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
-import { spawn as realSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { spawn as realSpawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { envProbeStrategy, ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -55,14 +55,20 @@ const isGone = (pid: number) => {
     return (e as NodeJS.ErrnoException).code === "ESRCH";
   }
 };
-/** Gone (ESRCH) within `withinMs` — a reparented child may linger as a zombie until init reaps it. */
-async function goneWithin(pid: number, withinMs: number): Promise<boolean> {
-  const deadline = Date.now() + withinMs;
+/** Terminated: gone (ESRCH) or a zombie awaiting reaping — a zombie has already exited. */
+const isTerminated = (pid: number): boolean => {
+  if (isGone(pid)) return true;
+  const stat = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+  return String(stat.stdout ?? "").trim().startsWith("Z");
+};
+/** Terminated within `withinMs` (never less than one check). */
+async function terminatedWithin(pid: number, withinMs: number): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, withinMs);
   while (Date.now() < deadline) {
-    if (isGone(pid)) return true;
+    if (isTerminated(pid)) return true;
     await sleep(25);
   }
-  return isGone(pid);
+  return isTerminated(pid);
 }
 async function waitForPid(file: string): Promise<number> {
   for (let i = 0; i < 50; i++) {
@@ -193,6 +199,14 @@ describe.skipIf(process.platform === "win32")("timeouts and output cap", () => {
     expect(Date.now() - t0).toBeLessThan(2_500);
   }, 30_000);
 
+  it("E13c: invalid UTF-8 within the raw cap never decodes past the cap", async () => {
+    const payload = path.join(tmp(), "payload-invalid");
+    // Every 0xFF byte decodes to U+FFFD (3 UTF-8 bytes): 3x expansion if uncapped.
+    fs.writeFileSync(payload, Buffer.alloc(MAX_OUTPUT_BYTES, 0xff));
+    const r = await tools.shell(`cat ${payload}`);
+    expect(Buffer.byteLength(r.stdout, "utf8")).toBeLessThanOrEqual(MAX_OUTPUT_BYTES);
+  }, 30_000);
+
   it("E13b: truncation never splits a UTF-8 sequence", async () => {
     const payload = path.join(tmp(), "payload-mb");
     // cap-1 ASCII bytes then a 2-byte "é": the byte cap falls inside the "é".
@@ -293,7 +307,7 @@ describe.skipIf(process.platform === "win32")("runaway children and failures", (
     const r = await p;
     expect(r.ok).toBe(false);
     expect(Date.now() - t0).toBeLessThan(2_500);
-    expect(await goneWithin(grandchild, 2_500 - (Date.now() - t0))).toBe(true);
+    expect(await terminatedWithin(grandchild, 2_500 - (Date.now() - t0))).toBe(true);
   });
 
   it("X2: abort kills the child and its grandchild within 2 s", async () => {
@@ -307,7 +321,7 @@ describe.skipIf(process.platform === "win32")("runaway children and failures", (
     const r = await p;
     expect(r.ok).toBe(false);
     expect(Date.now() - t0).toBeLessThan(2_000);
-    expect(await goneWithin(grandchild, 2_000 - (Date.now() - t0))).toBe(true);
+    expect(await terminatedWithin(grandchild, 2_000 - (Date.now() - t0))).toBe(true);
   });
 
   it("X6: win32 .cmd shims are routed through cmd.exe, args preserved", async () => {
