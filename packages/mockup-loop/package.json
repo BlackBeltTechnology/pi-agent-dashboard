@@ -49,6 +49,7 @@
     "src/",
     "site/",
     "!src/__tests__",
+    "!site/__tests__",
     "presets-data/",
     ".pi/skills/",
     "references/",
