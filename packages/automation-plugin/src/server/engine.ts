@@ -301,6 +301,8 @@ export interface RunContext {
   stopRequested?: boolean;
   /** Idempotency guard: true once this child has been finalized. */
   finalized?: boolean;
+  /** In-flight live Stop: concurrent Stops share one abort and one outcome. */
+  stopInFlight?: Promise<StopOutcome>;
 }
 
 /** Per-parent finalization counter (decision 4). */
@@ -653,17 +655,21 @@ export function createEngine(deps: EngineDeps): Engine {
    * child that later registers and runs on.
    */
   async function stopChild(ctx: RunContext): Promise<StopOutcome> {
+    if (ctx.stopInFlight !== undefined) return ctx.stopInFlight;
     if (ctx.finalized) return "not-found";
     if (ctx.sessionId || ctx.spawnToken) {
-      // Guard the await: a rejected abort MUST NOT skip finalization, or the
-      // child's lease would never be released. See change:
-      // automation-work-source-fanout.
-      const outcome = await abortWithOutcome(ctx.runId, {
+      // Set synchronously so a concurrent Stop (child or parent cascade) joins
+      // this attempt instead of issuing a second abort. Guard the await: a
+      // rejected abort MUST NOT skip finalization, or the child's lease would
+      // never be released. See change: automation-work-source-fanout.
+      ctx.stopInFlight = abortWithOutcome(ctx.runId, {
         ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
         ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+      }).then((outcome) => {
+        finalizeChild(ctx, { status: "stopped", result: "_(stopped by user)_", error: reasonFor(outcome) });
+        return outcome;
       });
-      finalizeChild(ctx, { status: "stopped", result: "_(stopped by user)_", error: reasonFor(outcome) });
-      return outcome;
+      return ctx.stopInFlight;
     }
     // Spawn window: no handle yet — defer the kill to the spawn continuation.
     // Nothing is verified yet, so the honest answer is `unconfirmed`.

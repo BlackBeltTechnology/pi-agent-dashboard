@@ -1438,4 +1438,31 @@ describe("engine orphan definition + live stop outcomes", () => {
     expect(await silent.stopRun(kid2)).toBe("unconfirmed");
     silent.dispose();
   });
+
+  it("concurrent tracked Stops (child + child, parent + child) share one abort and one outcome", async () => {
+    let calls = 0;
+    const results = ["unconfirmed", "confirmed-dead"] as const;
+    const engine = createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok-dup" }),
+      abortSpawnedRun: async ({ onResult }) => {
+        const r = results[calls++] ?? "confirmed-dead";
+        await flush();
+        onResult?.({ outcome: r });
+        return r === "confirmed-dead";
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: cfg,
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    const { runId } = engine.startRunFor(promptAutomation("dup", "x"))!;
+    await flush();
+    const childId = children(repo, "dup", runId)[0]!.runId;
+    engine.onSessionRegisteredForRun("sess-dup", childId);
+    const outs = await Promise.all([engine.stopRun(childId), engine.stopRun(runId), engine.stopRun(childId)]);
+    expect(calls).toBe(1);
+    expect(outs).toEqual(["unconfirmed", "unconfirmed", "unconfirmed"]);
+    expect(children(repo, "dup", runId)[0]!.error).toContain("may still be running");
+    engine.dispose();
+  });
 });

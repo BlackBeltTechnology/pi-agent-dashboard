@@ -306,7 +306,8 @@ export function CreateAutomationDialog({
     initialConfig?.visibility ?? "default",
   );
   const [advancedOpen, setAdvancedOpen] = useState(initialSection === "advanced");
-  const [gitCapable, setGitCapable] = useState(false);
+  // null = probe pending: neither offer nor take away worktree until it answers.
+  const [gitCapable, setGitCapable] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -341,6 +342,7 @@ export function CreateAutomationDialog({
   useEffect(() => {
     let cancelled = false;
     if (scope === "folder" && cwd) {
+      setGitCapable(null);
       void isGitCapable(cwd).then((ok) => {
         if (!cancelled) setGitCapable(ok);
       });
@@ -352,11 +354,12 @@ export function CreateAutomationDialog({
     };
   }, [scope, cwd]);
 
-  const worktreeAvailable = scope === "folder" && gitCapable;
-  // Force `local` whenever worktree is unavailable.
+  const worktreeAvailable = scope === "folder" && gitCapable === true;
+  const gitProbePending = gitCapable === null;
+  // Force `local` once worktree is known to be unavailable (never while the probe is pending).
   useEffect(() => {
-    if (!worktreeAvailable && mode === "worktree") setMode("local");
-  }, [worktreeAvailable, mode]);
+    if (!gitProbePending && !worktreeAvailable && mode === "worktree") setMode("local");
+  }, [gitProbePending, worktreeAvailable, mode]);
 
   const activeCategory = useMemo(
     () => categories.find((c) => c.category === category),
@@ -387,7 +390,11 @@ export function CreateAutomationDialog({
     const el = sectionRefs.current.get(initialSection);
     if (!el) return;
     el.scrollIntoView?.({ block: "nearest" });
-    el.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
+    // Edit mode locks Identity's fields; with no enabled field, focus the section itself.
+    const field = el.querySelector<HTMLElement>(
+      "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+    );
+    (field ?? el).focus();
   }, [initialSection]);
   const nextRun = useMemo(() => {
     const next = nextFire(effectiveCron, new Date());
@@ -406,7 +413,7 @@ export function CreateAutomationDialog({
   const isFile = category === "file";
   const filePathMissing = isFile && !filePath.trim();
   const submitDisabled =
-    busy || categoryPlanned || eventsMissing || (isScheduled && cronInvalid) || filePathMissing || (!model && !agentId) || skillMissing;
+    busy || (mode === "worktree" && gitProbePending) || categoryPlanned || eventsMissing || (isScheduled && cronInvalid) || filePathMissing || (!model && !agentId) || skillMissing;
 
   function toggleEvent(ev: string): void {
     setSelectedEvents((prev) =>
@@ -1130,7 +1137,7 @@ function Group({
     <section
       ref={sectionRef}
       data-testid={`group-${title.toLowerCase()}`}
-      {...(open ? { "data-open": "true" } : {})}
+      {...(open ? { "data-open": "true", tabIndex: -1 } : {})}
       className="space-y-2 rounded-lg border border-[var(--border-secondary)] p-3"
     >
       <h3 className="text-[12px] font-semibold text-[var(--text-secondary)]">{label ?? title}</h3>
