@@ -1,0 +1,13 @@
+name: tools
+description: >
+  One code step that runs `git --version` through the flows-plugin tool-registry
+  facade (`Symbol.for("pi-dashboard.flow-tools")`) and fails when the facade is
+  absent, proving dashboard code nodes reach the registry. Drives
+  tests/e2e/flow-code-node-tools.spec.ts. See change: add-flow-code-node-tools (F1).
+task_required: false
+
+steps:
+  - id: probe
+    type: code
+    timeout: 60000
+    outputs: [version]
