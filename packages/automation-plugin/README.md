@@ -40,6 +40,28 @@ reconnect-grace wait). See change: finalize-automation-run-on-session-death.
   set `concurrency: queue|parallel` so the next fire self-heals the schedule —
   it masks the freeze but leaves the orphaned record for the reaper.
 
+### Orphan Stop (after a server restart)
+
+A `running` record the engine is not tracking whose run started before the
+current server process is **orphaned** (the `/runs` listing marks it, with
+`tracked`, `sessionConnected` and `scope`; these are computed per-listing and
+never read from `run.json`). The user can Stop an orphan. The kill targets a
+session only when all four hold, else it signals nothing:
+
+1. the record names a `sessionId` whose **bridge socket is open**;
+2. that session carries the dashboard's **`automationRun.runId` stamp** for this run;
+3. its stamped **`scope`** equals the request's scope;
+4. its real working directory (`realpathSync`) **is the admitted scope base**.
+
+A `sessionId` in `run.json` alone is never trusted. The record is then finalized
+`stopped` (never pruned, never auto-archived) with one honest outcome:
+`killed` (process verified gone), `not-found` (no addressable session), or
+`unconfirmed` (anything else — the reason says the process may still be running).
+Concurrent Stops of the same run collapse to one kill (in-flight dedupe), and a
+Stop that loses the race to the reaper reports `alreadyFinalized`. Both entry
+points (REST `/stop`, the `stop` plugin action) admit the cwd and act only in
+that scope. See change: polish-automation-board.
+
 ## Slots claimed
 
 | Slot | Component | Purpose |

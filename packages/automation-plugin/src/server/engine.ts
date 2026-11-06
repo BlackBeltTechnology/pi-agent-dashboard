@@ -23,7 +23,9 @@ import type {
   AutomationScope,
   DiscoveredAutomation,
   RunMode,RunStatus, 
+  RunRecord,
   Sandbox,
+  StopOutcome,
   Visibility
 } from "../shared/automation-types.js";
 import type { LeasedHandle, WorkSource, WorkSourceContext } from "../shared/work-source.js";
@@ -34,6 +36,7 @@ import {
   normalizeActionKind,
 } from "./action-registry.js";
 import { fileTrigger } from "./file-trigger.js";
+import { combineOutcomes, reasonFor, SPAWN_WINDOW_STOP_REASON } from "./stop-outcome.js";
 import { interpolate } from "./interpolate.js";
 import { resolveModel } from "./model-resolver.js";
 import {
@@ -46,7 +49,9 @@ import {
   listStaleRunningRuns,
   readChildRuns as storeReadChildRuns,
   finishParentRun as storeFinishParentRun,
+  finishParentRunIfRunning as storeFinishParentRunIfRunning,
   finishRun as storeFinishRun,
+  finishRunIfRunning as storeFinishRunIfRunning,
   setSessionId as storeSetSessionId,
   startChildRun as storeStartChildRun,
   startParentRun as storeStartParentRun,
@@ -220,6 +225,9 @@ export interface EngineDeps {
     sessionId?: string;
     spawnToken?: string;
     graceful?: boolean;
+    /** Detailed outcome (host `onResult`); a missing call counts as
+     *  unconfirmed. See change: polish-automation-board (design D4). */
+    onResult?: (r: { outcome: string; pid?: number }) => void;
   }) => Promise<boolean>;
   /**
    * Shared action registry (built-ins + plugin-registered). When omitted the
@@ -293,6 +301,8 @@ export interface RunContext {
   stopRequested?: boolean;
   /** Idempotency guard: true once this child has been finalized. */
   finalized?: boolean;
+  /** In-flight live Stop: concurrent Stops share one abort and one outcome. */
+  stopInFlight?: Promise<StopOutcome>;
 }
 
 /** Per-parent finalization counter (decision 4). */
@@ -331,9 +341,25 @@ export interface Engine {
    * window) and finalize the run record once, AFTER termination is attempted.
    * Idempotent vs `onSessionEnded` — a subsequent end event for that session
    * is a no-op. Returns false when the run is unknown/already finalized.
-   * See change: automation-ui-mockup-parity, fix-automation-stop-zombie-runs.
+   * Resolves the honest {@link StopOutcome} (`killed` only when the host
+   * verified the process gone), or `null` when the run is unknown/already
+   * finalized.
+   * See change: automation-ui-mockup-parity, fix-automation-stop-zombie-runs,
+   * polish-automation-board.
    */
-  stopRun(runId: string): Promise<boolean>;
+  stopRun(runId: string): Promise<StopOutcome | null>;
+  /** Epoch ms this engine (= server process) started. See change: polish-automation-board (D1). */
+  readonly bootedAt: number;
+  /** True while the engine holds live state for `runId` (unfinalized child/flat context, or a live parent counter). */
+  isTracked(runId: string): boolean;
+  /** Scope base of a tracked run, or `undefined` when untracked. */
+  trackedScopeBase(runId: string): string | undefined;
+  /**
+   * Orphaned = `running` on disk ∧ untracked ∧ started before this process
+   * (D1). A run started by this process is never orphaned, so the
+   * spawn→register window never takes the orphan path.
+   */
+  isOrphaned(rec: Pick<RunRecord, "runId" | "status" | "startedAt">): boolean;
   /** Run-context lookup by cwd (used by the register correlation). */
   pendingForCwd(cwd: string): RunContext | undefined;
   /** Run-context lookup by runId (exact, race-free correlation). */
@@ -399,6 +425,7 @@ export function createEngine(deps: EngineDeps): Engine {
   const log = deps.log ?? (() => {});
   const warn = deps.warn ?? ((m: string) => console.warn(m));
   const homeDir = deps.homeDir ?? os.homedir();
+  const bootedAt = deps.now?.() ?? Date.now();
 
   const registry = new TriggerRegistry();
   registry.register(scheduleTrigger);
@@ -504,7 +531,10 @@ export function createEngine(deps: EngineDeps): Engine {
           }
         } else {
           // Pre-existing on-disk orphan (no live context) — clear the record.
-          storeFinishRun(s.base, rec.runId, {
+          // Compare-and-set: a concurrent orphan Stop that already finalized
+          // it wins, and the reaper writes nothing. See change:
+          // polish-automation-board (design D6).
+          storeFinishRunIfRunning(s.base, rec.runId, {
             status: "error",
             error: "run exceeded max age",
             result: "_(run exceeded max age)_",
@@ -530,7 +560,7 @@ export function createEngine(deps: EngineDeps): Engine {
         if (now - rec.startedAt <= maxAgeMs) continue;
         const kids = storeReadChildRuns(s.base, rec);
         if (kids.some((k) => k.status === "running")) continue;
-        storeFinishParentRun(s.base, rec.runId, {
+        storeFinishParentRunIfRunning(s.base, rec.runId, {
           status: aggregateStatus(kids.map((k) => k.status)),
           findings: kids.reduce((n, k) => n + (k.findings ?? 0), 0),
           retention: cfg.retention,
@@ -624,27 +654,58 @@ export function createEngine(deps: EngineDeps): Engine {
    * (decision 7a) — do NOT finalize yet, or the parent counter would drop a
    * child that later registers and runs on.
    */
-  async function stopChild(ctx: RunContext): Promise<void> {
-    if (ctx.finalized) return;
+  async function stopChild(ctx: RunContext): Promise<StopOutcome> {
+    if (ctx.stopInFlight !== undefined) return ctx.stopInFlight;
+    if (ctx.finalized) return "not-found";
     if (ctx.sessionId || ctx.spawnToken) {
-      if (deps.abortSpawnedRun) {
-        // Guard the await: a rejected abort MUST NOT skip finalization, or the
-        // child's lease would never be released. See change:
-        // automation-work-source-fanout.
-        try {
-          await deps.abortSpawnedRun({
-            ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
-            ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
-          });
-        } catch (e) {
-          warn(`[engine] abort failed for ${ctx.runId}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
-      finalizeChild(ctx, { status: "stopped", result: "_(stopped by user)_", error: "stopped by user" });
-      return;
+      // Set synchronously so a concurrent Stop (child or parent cascade) joins
+      // this attempt instead of issuing a second abort. Guard the await: a
+      // rejected abort MUST NOT skip finalization, or the child's lease would
+      // never be released. See change: automation-work-source-fanout.
+      ctx.stopInFlight = abortWithOutcome(ctx.runId, {
+        ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+        ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+      }).then((outcome) => {
+        finalizeChild(ctx, { status: "stopped", result: "_(stopped by user)_", error: reasonFor(outcome) });
+        return outcome;
+      });
+      return ctx.stopInFlight;
     }
     // Spawn window: no handle yet — defer the kill to the spawn continuation.
+    // Nothing is verified yet, so the honest answer is `unconfirmed`.
     ctx.stopRequested = true;
+    return "unconfirmed";
+  }
+
+  /**
+   * Terminate via the host hook and report the honest outcome (design D4):
+   * only a host-reported `confirmed-dead` is `killed`; a missing hook, a
+   * missing `onResult` call (untrusted no-op) or a rejection is `unconfirmed`.
+   */
+  async function abortWithOutcome(
+    runId: string,
+    target: { sessionId?: string; spawnToken?: string },
+  ): Promise<StopOutcome> {
+    if (!deps.abortSpawnedRun) return "unconfirmed";
+    let outcome: StopOutcome = "unconfirmed";
+    try {
+      await deps.abortSpawnedRun({
+        ...target,
+        onResult: (r) => {
+          outcome = r.outcome === "confirmed-dead" ? "killed" : "unconfirmed";
+        },
+      });
+    } catch (e) {
+      warn(`[engine] abort failed for ${runId}: ${e instanceof Error ? e.message : String(e)}`);
+      return "unconfirmed";
+    }
+    return outcome;
+  }
+
+  function isTracked(runId: string): boolean {
+    if (parents.has(runId)) return true;
+    const ctx = findByRunId(runId);
+    return !!ctx && !ctx.finalized;
   }
 
   function scopeBaseFor(a: DiscoveredAutomation): string {
@@ -772,6 +833,9 @@ export function createEngine(deps: EngineDeps): Engine {
             name: parent.name,
             runId: childRec.runId,
             visibility: vis,
+            // Scope the run belongs to — orphan Stop requires it to match the
+            // request. See change: polish-automation-board (design D2).
+            scope: childAutomation.scope,
             ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
           },
           lifecyclePolicy: "ephemeral",
@@ -814,10 +878,12 @@ export function createEngine(deps: EngineDeps): Engine {
                 ),
               );
           }
+          // The Stop already answered `unconfirmed`; the record says so too.
+          // See change: polish-automation-board (design D4).
           finalizeChild(c, {
             status: "stopped",
             result: "_(stopped by user)_",
-            error: "stopped by user",
+            error: SPAWN_WINDOW_STOP_REASON,
           });
         }
       })
@@ -1201,7 +1267,7 @@ export function createEngine(deps: EngineDeps): Engine {
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
     },
 
-    async stopRun(runId: string): Promise<boolean> {
+    async stopRun(runId: string): Promise<StopOutcome | null> {
       // Parent stop: cascade to every live child (decision 7). The child
       // counter finalizes the parent once the last child terminates.
       const parent = parents.get(runId);
@@ -1209,18 +1275,30 @@ export function createEngine(deps: EngineDeps): Engine {
         const children = [...pending.values()]
           .flat()
           .filter((c) => c.parentRunId === runId && !c.finalized);
-        if (children.length === 0) return false;
-        await Promise.all(children.map((c) => stopChild(c)));
+        if (children.length === 0) return null;
+        const outcomes = await Promise.all(children.map((c) => stopChild(c)));
         log(`[engine] parent run ${runId} stop cascaded to ${children.length} child(ren)`);
-        return true;
+        return combineOutcomes(outcomes);
       }
       // Child (or legacy flat) stop: terminate only that run. A run already
       // finalized was removed from `pending`, so this is a no-op — idempotent.
       const ctx = findByRunId(runId);
-      if (!ctx || ctx.finalized) return false;
-      await stopChild(ctx);
-      log(`[engine] run ${ctx.runId} stopped (${ctx.key})`);
-      return true;
+      if (!ctx || ctx.finalized) return null;
+      const outcome = await stopChild(ctx);
+      log(`[engine] run ${ctx.runId} stopped (${ctx.key}) outcome=${outcome}`);
+      return outcome;
+    },
+
+    bootedAt,
+    isTracked,
+    trackedScopeBase(runId: string): string | undefined {
+      const parent = parents.get(runId);
+      if (parent) return parent.scopeBase;
+      const ctx = findByRunId(runId);
+      return ctx && !ctx.finalized ? ctx.scopeBase : undefined;
+    },
+    isOrphaned(rec): boolean {
+      return rec.status === "running" && !isTracked(rec.runId) && rec.startedAt < bootedAt;
     },
 
     onSessionEnded(sessionId: string, result: string): void {
