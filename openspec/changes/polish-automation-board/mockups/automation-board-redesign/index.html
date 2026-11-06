@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Automation board redesign: option mocks</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="board.css">
+</head>
+<body>
+<header class="mk-top">
+  <div class="mk-title">
+    <div><h1>Automation board redesign</h1>
+      <span class="sub">Option mocks for /folder/:cwd/automations. Dashed red = issue today, green = proposed fix.</span></div>
+    <button class="mk-theme" id="theme">Light theme</button>
+  </div>
+  <nav class="mk-tabs" role="tablist">
+    <span class="grp">Baseline</span>
+    <button data-t="today" aria-selected="true">0 Today</button>
+    <span class="grp">Navigate</span>
+    <button data-t="A">A List + session links</button>
+    <button data-t="B">B Master-detail</button>
+    <span class="grp">Edit</span>
+    <button data-t="E1">E1 Edit button + modal</button>
+    <button data-t="E2">E2 Inline Form/YAML</button>
+    <button data-t="E3">E3 Quick card toggles</button>
+    <span class="grp">Stop</span>
+    <button data-t="S1">S1 Stop orphaned run</button>
+    <button data-t="S2">S2 Survive restart</button>
+    <span class="grp">Polish</span>
+    <button data-t="P">P Before/after</button>
+  </nav>
+</header>
+
+<main class="mk-page">
+
+<!-- ============================ 0 TODAY ============================ -->
+<section class="mk-panel on" id="today">
+  <div class="mk-note"><b>Today:</b> a replica of the current <code>AutomationBoard.tsx</code>, with each problem ringed.
+    <ul>
+      <li><b>#1</b> Stop is a no-op on a run the engine lost after a server restart (<code>engine.stopRun</code> returns false).</li>
+      <li><b>#2</b> "watch" opens a plain <code>&lt;pre&gt;</code> modal. Nothing links to the session or the existing run-monitor route.</li>
+      <li><b>#3</b> Edit is hidden behind <code>...</code> and opens a big modal.</li>
+      <li><b>#4</b> Cron is shown raw, metadata is dense, and "0 findings" appears everywhere.</li>
+      <li><b>#5</b> Runs table shows raw run ids; "(1)" is an unexplained child count; colours are hardcoded.</li>
+    </ul></div>
+  <div class="app">
+    <div class="app-head"><div class="l"><button class="back">&larr; Back</button><h2>Automations</h2><span class="crumb">pi-agent-dashboard</span></div>
+      <div class="l"><button class="btn sm primary">+ Create Automation</button><label class="crumb"><input type="checkbox"> Show archived</label></div></div>
+    <div class="app-body">
+      <div class="sec-h">Definitions</div>
+      <div class="card"><div class="rail r-ok"></div><div class="card-in">
+        <div class="row"><span class="dot ok"></span><span class="name">notes-to-issues</span><span class="chip">folder</span><span class="pill p-ok">enabled</span></div>
+        <div class="meta issue"><span class="tag">#4</span>schedule: 30 16 * * * &nbsp; next: 06/11/2026, 16:30:00 &nbsp; model: @coding &nbsp; action: flows.run &nbsp; mode: local</div>
+        <div class="row" style="font-size:11px"><span class="pill p-off">done</span><span class="crumb">17h ago</span><span class="crumb">0 findings</span><a class="link" style="font-size:10px">result &#9656;</a></div>
+        <div class="row"><button class="btn tiny">&#9654; Run now</button><button class="btn tiny">Disable</button><button class="btn tiny issue"><span class="tag">#3</span>...</button></div>
+      </div></div>
+      <div class="card stripes"><div class="rail r-run"></div><div class="card-in">
+        <div class="row"><span class="dot run"></span><span class="name">update-dashboard</span><span class="chip">folder</span><span class="pill p-run">running</span></div>
+        <div class="meta">schedule: 20 9 * * * &nbsp; next: 07/11/2026, 09:20:00 &nbsp; model: @coding &nbsp; action: flows.run &nbsp; mode: local</div>
+        <div class="row" style="font-size:11px"><span class="pill p-run">running</span><span class="crumb">18m ago</span><span class="crumb">0 findings</span><a class="link issue" style="font-size:10px"><span class="tag">#2</span>watch &#9656;</a></div>
+        <div class="row"><button class="btn tiny danger issue"><span class="tag">#1</span>&#9209; Stop</button><button class="btn tiny">...</button></div>
+      </div></div>
+      <div class="sec-h">Recent runs</div>
+      <table class="old issue"><tbody>
+        <tr><td><span class="pill p-run">running</span></td><td class="mono">2026-11-06-082000-update-dashboard-00003 (1)</td><td class="crumb">18m ago</td><td class="crumb">0 findings</td><td><a class="link">watch</a></td></tr>
+        <tr><td><span class="pill p-off">done</span></td><td class="mono">2026-11-05-153000-notes-to-issues-00001 (1)</td><td class="crumb">17h ago</td><td class="crumb">0 findings</td><td><a class="link">result</a></td></tr>
+        <tr><td><span class="pill p-err">error</span></td><td class="mono">2026-11-05-082000-update-dashboard-00001 (1)</td><td class="crumb">1d ago</td><td class="crumb">0 findings</td><td><a class="link">log</a></td></tr>
+      </tbody></table>
+      <span class="tag" style="position:relative;top:4px;right:auto">#5</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ A ============================ -->
+<section class="mk-panel" id="A">
+  <div class="mk-note"><b>A: keep the list and add direct links.</b> Smallest change.
+    <ul>
+      <li>Every run gets <b>Open session &#8599;</b> (<code>/session/:sessionId</code>, the real session view) and <b>Monitor</b> (the existing <code>/automations/run/:sid</code> route: ChatView plus result).</li>
+      <li>Run history moves under its automation, collapsible and showing the last 3 runs. The global "Recent runs" table goes away.</li>
+      <li>Rows show a human time and duration instead of raw ids. The findings chip appears only when the count is above 0.</li>
+    </ul></div>
+  <div class="app">
+    <div class="app-head"><div class="l"><button class="back">&larr; Back</button><h2>Automations</h2><span class="crumb">pi-agent-dashboard</span></div>
+      <div class="l"><button class="btn primary">+ New automation</button><label class="crumb"><input type="checkbox"> Show archived</label></div></div>
+    <div class="app-body">
+      <div class="card stripes"><div class="rail r-run"></div><div class="card-in">
+        <div class="row"><span class="dot run"></span><span class="name">update-dashboard</span><span class="pill p-run"><span class="d"></span>running 18m</span>
+          <span class="spacer"></span><button class="btn danger">&#9632; Stop</button><button class="btn">Edit</button><button class="btn ghost">...</button></div>
+        <div class="meta"><span><b>Daily at 09:20</b></span><span>next tomorrow 09:20</span><span>flow <b>custom:update-dashboard</b></span><span>@coding</span></div>
+        <div class="lastrun fix"><span class="tag">FIX</span><span class="pill p-run"><span class="d"></span>running</span><span>Today 09:20, 18m so far, step <b>launch</b> (6/7)</span><span class="spacer"></span>
+          <a class="link">Open session &#8599;</a><a class="link">Monitor</a></div>
+        <details open><summary class="crumb" style="cursor:pointer">Runs (3)</summary>
+          <div class="runs fix" style="margin-top:6px"><span class="tag">FIX</span>
+            <div class="run"><span class="pill p-run"><span class="d"></span>running</span><div><div class="when">Today 09:20</div><div class="sub">18m so far</div></div><span></span><div class="acts"><a class="link">Session &#8599;</a><a class="link">Monitor</a></div></div>
+            <div class="run"><span class="pill p-err">error</span><div><div class="when">Yesterday 09:20</div><div class="sub">30m, reaped: run exceeded max age</div></div><span></span><div class="acts"><a class="link">Session &#8599;</a><a class="link">Log</a></div></div>
+            <div class="run"><span class="pill p-ok">done</span><div><div class="when">Tue 09:20</div><div class="sub">3m 41s</div></div><span class="chip">2 findings</span><div class="acts"><a class="link">Session &#8599;</a><a class="link">Result</a></div></div>
+          </div></details>
+      </div></div>
+      <div class="card"><div class="rail r-ok"></div><div class="card-in">
+        <div class="row"><span class="dot ok"></span><span class="name">notes-to-issues</span><span class="pill p-ok">enabled</span>
+          <span class="spacer"></span><button class="btn">&#9654; Run now</button><button class="btn">Edit</button><button class="btn ghost">...</button></div>
+        <div class="meta"><span><b>Daily at 16:30</b></span><span>next today 16:30 (in 6h)</span><span>flow <b>custom:notes-to-issues</b></span><span>@coding</span></div>
+        <div class="lastrun"><span class="pill p-ok">done</span><span>Yesterday 16:30, 4m 02s</span><span class="spacer"></span><a class="link">Open session &#8599;</a><a class="link">Result</a></div>
+        <details><summary class="crumb" style="cursor:pointer">Runs (1)</summary></details>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ B ============================ -->
+<section class="mk-panel" id="B">
+  <div class="mk-note"><b>B: master-detail.</b> The list stays compact on the left. The selected automation fills the right pane with tabs: <b>Overview</b> (live run plus a transcript tail), <b>Runs</b>, <b>Settings</b> (see E2).
+    The URL tracks the selection (<code>/automations/:name</code>), so a run can be deep-linked. Below about 860px the panes stack, list above detail.</div>
+  <div class="app">
+    <div class="app-head"><div class="l"><button class="back">&larr; Back</button><h2>Automations</h2><span class="crumb">pi-agent-dashboard</span></div>
+      <div class="l"><button class="btn primary">+ New automation</button></div></div>
+    <div class="md">
+      <div class="md-list">
+        <div class="md-item sel"><span class="dot run"></span><div><div class="nm">update-dashboard</div><div class="sm">running 18m, daily 09:20</div></div></div>
+        <div class="md-item"><span class="dot ok"></span><div><div class="nm">notes-to-issues</div><div class="sm">done 17h ago, daily 16:30</div></div></div>
+        <div class="md-item"><span class="dot off"></span><div><div class="nm">weekly-deps</div><div class="sm">disabled, Mon 08:00</div></div></div>
+      </div>
+      <div class="md-detail fix"><span class="tag">FIX</span>
+        <div class="row"><span class="name" style="font-size:16px">update-dashboard</span><span class="pill p-run"><span class="d"></span>running 18m</span><span class="spacer"></span>
+          <button class="btn danger">&#9632; Stop</button><button class="btn">&#9654; Run now</button><button class="btn ghost">...</button></div>
+        <div class="meta" style="margin-top:4px"><span><b>Daily at 09:20</b></span><span>flow custom:update-dashboard</span><span>@coding</span><span>local, full-access</span><span>hidden from board</span></div>
+        <div class="dtabs"><span class="on">Overview</span><span>Runs (3)</span><span>Settings</span></div>
+        <div class="mk-cols" style="gap:12px">
+          <div>
+            <p class="mk-cap">Current run, today 09:20</p>
+            <div class="tx">
+              <div class="m"><div class="who">flow</div>pull &#10003; &middot; build &#10003; &middot; <b>launch</b> &#8230;</div>
+              <div class="m"><div class="who">tool</div><span class="tool">$ pi-dashboard status</span> running (pid 4120)</div>
+              <div class="m"><div class="who">launch</div>restart deferred until run finishes (watcher pid 50121)</div>
+              <div class="m"><div class="who">flow</div><b>report</b> &#8230;</div>
+            </div>
+            <div class="row" style="margin-top:8px"><a class="link">Open full session &#8599;</a><a class="link">Monitor view</a></div>
+          </div>
+          <div>
+            <p class="mk-cap">Last result, Tue 09:20</p>
+            <div class="tx md-res"><h4>dashboard updated</h4><ul><li>pulled 14 commits (ff)</li><li>build ok in 2m 51s</li><li>restarted, open ok</li></ul></div>
+            <p class="mk-cap" style="margin-top:12px">Recent</p>
+            <div class="runs">
+              <div class="run"><span class="pill p-err">error</span><div><div class="when">Yesterday 09:20</div><div class="sub">reaped after 30m</div></div><span></span><div class="acts"><a class="link">Session &#8599;</a></div></div>
+              <div class="run"><span class="pill p-ok">done</span><div><div class="when">Tue 09:20</div><div class="sub">3m 41s</div></div><span></span><div class="acts"><a class="link">Session &#8599;</a></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ E1 ============================ -->
+<section class="mk-panel" id="E1">
+  <div class="mk-note"><b>E1: Edit as a primary button, modal kept.</b> Moves <b>Edit</b> out of <code>...</code> so it sits next to Run now and Stop. Clicking the card name opens the editor too. Only Delete stays in <code>...</code>. The modal keeps today's groups, but it opens on the section you clicked (here Trigger) and gains a dirty-aware footer.</div>
+  <div class="modal-wrap">
+    <div class="app" style="filter:saturate(.8)">
+      <div class="app-body">
+        <div class="card"><div class="rail r-ok"></div><div class="card-in">
+          <div class="row"><span class="dot ok"></span><span class="name">notes-to-issues</span><span class="pill p-ok">enabled</span><span class="spacer"></span>
+            <button class="btn">&#9654; Run now</button><button class="btn fix"><span class="tag">FIX</span>&#9998; Edit</button><button class="btn ghost">...</button></div>
+          <div class="meta"><span><b>Daily at 16:30</b></span><span>flow custom:notes-to-issues</span></div>
+        </div></div>
+        <div style="height:340px"></div>
+      </div>
+    </div>
+    <div class="scrim"></div>
+    <div style="position:absolute;inset:0">
+      <div class="modal">
+        <div class="mh"><b>Edit notes-to-issues</b><span class="crumb">folder scope</span></div>
+        <div class="mb">
+          <div class="dtabs" style="margin-top:0"><span>Identity</span><span class="on">Trigger</span><span>Action</span><span>Advanced</span></div>
+          <div class="fgrid">
+            <div class="fld"><label>Schedule</label><select class="inp dirty"><option>Daily</option></select></div>
+            <div class="fld"><label>At</label><input class="inp dirty" value="17:00"></div>
+          </div>
+          <div class="help">cron <code>0 17 * * *</code>, next run today at 17:00</div>
+        </div>
+        <div class="mf"><span class="crumb" style="margin-right:auto">1 unsaved change</span><button class="btn">Cancel</button><button class="btn primary">Save</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ E2 ============================ -->
+<section class="mk-panel" id="E2">
+  <div class="mk-note"><b>E2: inline editor in the detail pane, with a Form/YAML toggle.</b> No modal. Settings is a tab in B's detail pane. Form and YAML edit the same draft: switching tabs round-trips through the schema validator, and YAML errors show inline with a line number. A sticky save bar appears only when the draft is dirty. Today's 1307-line dialog becomes this pane's form body.</div>
+  <div class="mk-cols">
+    <div>
+      <p class="mk-cap">Form</p>
+      <div class="md-detail" style="border:1px solid var(--border-primary);border-radius:10px">
+        <div class="row"><span class="name" style="font-size:15px">notes-to-issues</span><span class="pill p-ok">enabled</span><span class="spacer"></span><span class="seg"><span class="on">Form</span><span>YAML</span></span></div>
+        <div class="dtabs"><span>Overview</span><span>Runs</span><span class="on">Settings</span></div>
+        <div class="fgroup"><div class="gt">Trigger</div>
+          <div class="fgrid"><div class="fld"><label>Repeat</label><select class="inp"><option>Daily</option></select></div>
+            <div class="fld"><label>At</label><input class="inp dirty" value="17:00"></div></div>
+          <div class="help">next run today at 17:00 &middot; <a class="link">edit cron</a></div></div>
+        <div class="fgroup"><div class="gt">Action</div>
+          <div class="fgrid"><div class="fld"><label>Kind</label><select class="inp"><option>Run flow</option></select></div>
+            <div class="fld"><label>Flow</label><select class="inp"><option>custom:notes-to-issues</option></select></div></div>
+          <div class="fld" style="margin-top:8px"><label>Task</label><textarea class="inp" rows="2">Turn new lines in the Apple Notes ISSUES note into GitHub issues.</textarea></div></div>
+        <div class="fgroup"><div class="gt">Run as</div>
+          <div class="fgrid"><div class="fld"><label>Model</label><select class="inp"><option>@coding (claude-haiku-5-5)</option></select></div>
+            <div class="fld"><label>Show on board</label><select class="inp"><option>Hidden (Automations view only)</option></select></div></div>
+          <details style="margin-top:8px"><summary class="crumb">Advanced: mode, sandbox, concurrency</summary></details></div>
+        <div class="savebar fix"><span class="tag">FIX</span><b>1 unsaved change</b><span class="crumb">Trigger &middot; At</span><span class="spacer"></span><button class="btn">Discard</button><button class="btn primary">Save</button></div>
+      </div>
+    </div>
+    <div>
+      <p class="mk-cap">YAML (same draft)</p>
+      <div class="md-detail" style="border:1px solid var(--border-primary);border-radius:10px">
+        <div class="row"><span class="name" style="font-size:15px">notes-to-issues</span><span class="spacer"></span><span class="seg"><span>Form</span><span class="on">YAML</span></span></div>
+        <div class="dtabs"><span>Overview</span><span>Runs</span><span class="on">Settings</span></div>
+<textarea class="yaml" spellcheck="false">on: { kind: schedule, cron: "0 17 * * *" }
+action:
+  kind: flows.run
+  payload:
+    flow: "custom:notes-to-issues"
+    task: "Turn new lines in the Apple Notes ISSUES note into GitHub issues."
+model: "@coding"
+mode: local
+sandbox: full-access
+concurrency: skip
+visibility: hiden</textarea>
+        <div class="banner warn fix" style="margin-top:8px"><span class="tag">FIX</span><span>&#9888;</span><div><b>Line 11:</b> <code>visibility</code> must be one of hidden | shown. <a class="link">Fix to "hidden"</a></div></div>
+        <div class="savebar"><b>Invalid: fix to save</b><span class="spacer"></span><button class="btn">Discard</button><button class="btn primary" disabled style="opacity:.5">Save</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ E3 ============================ -->
+<section class="mk-panel" id="E3">
+  <div class="mk-note"><b>E3: quick toggles on the card (adds to E2).</b> The three most common edits need no editor:
+    <b>enabled switch</b>, <b>schedule chip</b> (a popover with a humanised picker), and <b>board visibility eye</b>. Each saves immediately with an undo toast. Everything else is still in Settings.</div>
+  <div class="app"><div class="app-body" style="padding-bottom:150px">
+    <div class="card"><div class="rail r-ok"></div><div class="card-in">
+      <div class="row"><span class="sw on fix" title="Enabled"><span class="tag">FIX</span></span><span class="name">notes-to-issues</span>
+        <span class="spacer"></span><button class="btn">&#9654; Run now</button><button class="btn">Edit</button><button class="btn ghost">...</button></div>
+      <div class="row" style="position:relative">
+        <button class="btn sm fix"><span class="tag">FIX</span>&#128339; Daily at 16:30 &#9662;</button>
+        <button class="btn sm" title="Hidden from main board">&#128065;&#65039;&#8205; hidden</button>
+        <span class="chip">flow custom:notes-to-issues</span><span class="chip">@coding</span>
+        <div class="pop" style="top:30px;left:0;width:280px">
+          <div class="fgrid"><div class="fld"><label>Repeat</label><select class="inp"><option>Daily</option><option>Weekdays</option><option>Hourly</option><option>Custom cron</option></select></div>
+            <div class="fld"><label>At</label><input class="inp" value="16:30"></div></div>
+          <div class="help">next: today 16:30 &middot; cron <code>30 16 * * *</code></div>
+          <div class="row" style="margin-top:8px;justify-content:flex-end"><button class="btn sm">Cancel</button><button class="btn sm primary">Apply</button></div>
+        </div>
+      </div>
+    </div></div>
+    <div class="card" style="opacity:.75"><div class="rail r-off"></div><div class="card-in">
+      <div class="row"><span class="sw"></span><span class="name">weekly-deps</span><span class="pill p-off">disabled</span><span class="spacer"></span><button class="btn">Edit</button></div>
+      <div class="row"><button class="btn sm">&#128339; Mondays at 08:00 &#9662;</button><button class="btn sm">&#128065; shown</button></div>
+    </div></div>
+  </div></div>
+  <div class="banner ok" style="margin-top:10px;max-width:420px"><span>&#10003;</span><div><b>notes-to-issues disabled.</b> <a class="link">Undo</a></div></div>
+</section>
+
+<!-- ============================ S1 ============================ -->
+<section class="mk-panel" id="S1">
+  <div class="mk-note"><b>S1: Stop always works.</b> When the engine has no record of a run (for example after a server restart) but <code>run.json</code> says <code>running</code>, the board marks it <b>orphaned</b> and explains why.
+    Stop then falls back to the on-disk record: it kills by <code>sessionId</code> (or spawn token), finalizes the record as <code>stopped</code>, and frees the concurrency slot. Today's no-op becomes a confirmed result.</div>
+  <div class="mk-cols">
+    <div>
+      <p class="mk-cap">1. Orphaned run detected</p>
+      <div class="card"><div class="rail r-err"></div><div class="card-in">
+        <div class="row"><span class="dot err"></span><span class="name">update-dashboard</span><span class="pill p-warn fix"><span class="tag">FIX</span>orphaned</span><span class="spacer"></span><button class="btn danger">&#9632; Stop</button></div>
+        <div class="banner warn"><span>&#9888;</span><div><b>Lost track of this run.</b> The server restarted at 09:24 while it was running, so no completion was recorded.
+          Session <code>01a1aff1</code> is <b>still alive</b>. <a class="link">Open session &#8599;</a></div></div>
+        <div class="crumb">The reaper will mark it error at 09:50 if left alone.</div>
+      </div></div>
+    </div>
+    <div>
+      <p class="mk-cap">2. Stop: confirm what happens</p>
+      <div class="card" style="overflow:visible"><div class="rail r-err"></div><div class="card-in" style="position:relative">
+        <div class="row"><span class="dot err"></span><span class="name">update-dashboard</span><span class="pill p-warn">orphaned</span><span class="spacer"></span><button class="btn danger">&#9632; Stop</button></div>
+        <div class="pop fix" style="position:relative;margin-top:4px"><span class="tag">FIX</span>
+          <b>Stop this run?</b>
+          <ul style="margin:6px 0;padding-left:18px;color:var(--text-secondary)"><li>kill session <code>01a1aff1</code> (pid 49210)</li><li>mark run <code>stopped</code> and keep its partial result</li><li>archive the session card</li></ul>
+          <div class="row" style="justify-content:flex-end"><button class="btn sm">Cancel</button><button class="btn sm danger">Stop run</button></div></div>
+      </div></div>
+      <p class="mk-cap" style="margin-top:12px">3. Result</p>
+      <div class="card"><div class="rail r-off"></div><div class="card-in">
+        <div class="row"><span class="dot off"></span><span class="name">update-dashboard</span><span class="pill p-ok">enabled</span><span class="spacer"></span><button class="btn">&#9654; Run now</button></div>
+        <div class="lastrun"><span class="pill p-off">stopped</span><span>Today 09:20, stopped by you after 21m, process gone</span><span class="spacer"></span><a class="link">Session &#8599;</a><a class="link">Partial result</a></div>
+      </div></div>
+      <div class="banner warn" style="margin-top:8px"><span>&#9888;</span><div><b>If the kill can't be confirmed</b> (e.g. a Windows non-headless run), the record says "stop requested, process may still be running" and offers <a class="link">Force kill</a>. It never claims success.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ S2 ============================ -->
+<section class="mk-panel" id="S2">
+  <div class="mk-note"><b>S2: runs survive a server restart (adds to S1).</b> The engine saves <code>sessionId</code> and the declared completion event into <code>run.json</code>. At boot it rebuilds a lightweight run context. When the still-alive session reconnects, it is <b>rebound</b> instead of un-archived, so a later <code>flow_complete</code> finalizes the run normally (kill pi, archive the card).
+    The UI only needs a run timeline that shows the restart honestly.</div>
+  <div class="mk-cols">
+    <div>
+      <p class="mk-cap">Run timeline (Runs tab, expanded row)</p>
+      <div class="md-detail" style="border:1px solid var(--border-primary);border-radius:10px">
+        <div class="row"><span class="pill p-ok">done</span><b>Today 09:20</b><span class="crumb">6m 12s</span><span class="spacer"></span><a class="link">Session &#8599;</a><a class="link">Result</a></div>
+        <ol class="tl fix" style="margin-top:12px"><span class="tag">FIX</span>
+          <li class="g"><span class="t">09:20:00</span>started, session <code>01a1aff1</code></li>
+          <li class="g"><span class="t">09:23:51</span>flow step <b>launch</b>: server restart requested</li>
+          <li class="o"><span class="t">09:24:02</span><b>server restarted</b>, run restored from disk</li>
+          <li class="g"><span class="t">09:24:05</span>session reconnected and <b>rebound</b> to run</li>
+          <li class="g"><span class="t">09:26:12</span>flow_complete, result captured</li>
+          <li class="g"><span class="t">09:26:12</span>session terminated (pid exited), card archived</li>
+        </ol>
+      </div>
+    </div>
+    <div>
+      <p class="mk-cap">Today vs S2</p>
+      <div class="compare" style="border:1px solid var(--border-primary);border-radius:10px;padding:12px;background:var(--bg-primary)">
+        <span></span><span class="h">Today</span><span class="h">S2</span>
+        <span class="lbl">Run status</span><span><span class="pill p-run">running</span> for 30m, then <span class="pill p-err">error</span></span><span><span class="pill p-ok">done</span></span>
+        <span class="lbl">Session card</span><span>archived, then un-archived on reconnect</span><span>archived once</span>
+        <span class="lbl">pi process</span><span>idle until killed by hand</span><span>terminated</span>
+        <span class="lbl">Stop button</span><span>no-op</span><span>works (via S1)</span>
+        <span class="lbl">Scope</span><span>-</span><span>automation-plugin engine + server <code>onBridgeRegister</code></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ P ============================ -->
+<section class="mk-panel" id="P">
+  <div class="mk-note"><b>Polish: applies to any option.</b> Theme tokens only (no <code>#fcd34d</code> / <code>rgba()</code> literals), 26px buttons instead of 10px text, humanised schedules, results rendered as markdown, and no zero-noise.</div>
+  <div class="compare" style="border:1px solid var(--border-primary);border-radius:10px;padding:14px;background:var(--bg-primary)">
+    <span></span><span class="h">Today</span><span class="h">Proposed</span>
+    <span class="lbl">Schedule</span><span class="mono">schedule: 20 9 * * *</span><span><b>Daily at 09:20</b> <span class="crumb">(cron on hover)</span></span>
+    <span class="lbl">Next fire</span><span class="mono">next: 07/11/2026, 09:20:00</span><span>tomorrow 09:20</span>
+    <span class="lbl">Run label</span><span class="mono">2026-11-06-082000-update-dashboard-00003 (1)</span><span><b>Today 09:20</b> <span class="crumb">6m 12s</span></span>
+    <span class="lbl">Findings</span><span>0 findings</span><span><span class="crumb">(hidden at 0)</span> <span class="chip">2 findings</span></span>
+    <span class="lbl">Status pill</span><span><span class="pill" style="background:rgba(234,179,8,.16);color:#fcd34d">running</span> hardcoded</span><span><span class="pill p-run"><span class="d"></span>running</span> tint tokens</span>
+    <span class="lbl">Buttons</span><span><button class="btn tiny">&#9654; Run now</button> 10px</span><span><button class="btn">&#9654; Run now</button> 26px hit area</span>
+    <span class="lbl">Result view</span><span class="mono">&lt;pre&gt; raw text modal</span><span>markdown, in the detail pane or monitor</span>
+    <span class="lbl">Action</span><span class="mono">action: flows.run</span><span>flow <b>custom:update-dashboard</b></span>
+    <span class="lbl">Running card</span><span>full-card barber stripes</span><span>stripes on the rail and pill only (calmer)</span>
+    <span class="lbl">Empty state</span><span>"No automations in this folder."</span><span>short explainer + <button class="btn sm primary">+ New automation</button> + template picks</span>
+  </div>
+</section>
+
+</main>
+<script>
+  const tabs = document.querySelectorAll('.mk-tabs button');
+  function show(id) {
+    tabs.forEach(b => b.setAttribute('aria-selected', String(b.dataset.t === id)));
+    document.querySelectorAll('.mk-panel').forEach(p => p.classList.toggle('on', p.id === id));
+    history.replaceState(null, '', '#' + id);
+  }
+  tabs.forEach(b => b.addEventListener('click', () => show(b.dataset.t)));
+  if (location.hash && document.getElementById(location.hash.slice(1))) show(location.hash.slice(1));
+  const tb = document.getElementById('theme');
+  tb.addEventListener('click', () => {
+    const light = document.documentElement.dataset.theme !== 'light';
+    document.documentElement.dataset.theme = light ? 'light' : '';
+    tb.textContent = light ? 'Dark theme' : 'Light theme';
+  });
+  document.querySelectorAll('.seg span').forEach(s => s.addEventListener('click', () => {
+    s.parentElement.querySelectorAll('span').forEach(x => x.classList.toggle('on', x === s));
+  }));
+  document.querySelectorAll('.sw').forEach(s => s.addEventListener('click', () => s.classList.toggle('on')));
+</script>
+</body>
+</html>

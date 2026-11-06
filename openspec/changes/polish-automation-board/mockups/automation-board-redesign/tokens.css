@@ -1,0 +1,43 @@
+/* Token mirror of packages/client/src/index.css (base palette, dark + light).
+   Names match the real dashboard tokens 1:1 so promotion is a straight copy
+   of class names; values only exist here so the static board renders. */
+:root {
+  --bg-primary: #0a0a0a; --bg-secondary: #141414; --bg-tertiary: #1e1e1e; --bg-surface: #2a2a2a;
+  --bg-hover: rgba(255,255,255,.06); --bg-overlay: rgba(0,0,0,.6); --bg-code: #1a1a1a;
+  --text-primary: #e5e5e5; --text-secondary: #b0b0b0; --text-tertiary: #919191; --text-muted: #585858;
+  --border-primary: #252525; --border-secondary: #333333; --border-subtle: rgba(255,255,255,.06);
+  --accent-blue: #3b82f6; --accent-green: #22c55e; --accent-yellow: #eab308; --accent-red: #ef4444;
+  --accent-orange: #f97316; --accent-purple: #a855f7;
+  --accent: #3b82f6; --accent-soft: #1d3a63; --accent-solid: #2563eb; --accent-text: #60a5fa;
+  --status-working: var(--accent-yellow); --status-idle: var(--accent-green); --status-error: var(--accent-red);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+[data-theme="light"] {
+  --bg-primary: #ffffff; --bg-secondary: #fafafa; --bg-tertiary: #f0f0f0; --bg-surface: #e0e0e0;
+  --bg-hover: rgba(0,0,0,.04); --bg-overlay: rgba(0,0,0,.3); --bg-code: #f5f5f5;
+  --text-primary: #1a1a1a; --text-secondary: #444444; --text-tertiary: #636363; --text-muted: #8a8a8a;
+  --border-primary: #e0e0e0; --border-secondary: #cccccc; --border-subtle: rgba(0,0,0,.06);
+  --accent: #2563eb; --accent-soft: #dbeafe; --accent-solid: #2563eb; --accent-text: #1d4ed8;
+}
+:root, [data-theme="light"] {
+  --tint-green-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --tint-green-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --tint-green-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --tint-orange-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --tint-orange-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --tint-orange-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --tint-blue-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --tint-blue-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --tint-blue-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --tint-red-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --tint-red-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --tint-red-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --tint-yellow-bg: color-mix(in srgb, var(--accent-yellow) 12%, var(--bg-tertiary));
+  --tint-yellow-fg: color-mix(in srgb, var(--accent-yellow) 50%, var(--text-primary));
+  --tint-yellow-border: color-mix(in srgb, var(--accent-yellow) 40%, transparent);
+  --severity-error-bg: var(--tint-red-bg); --severity-error-fg: var(--tint-red-fg); --severity-error-border: var(--tint-red-border);
+  --severity-warning-bg: var(--tint-orange-bg); --severity-warning-fg: var(--tint-orange-fg); --severity-warning-border: var(--tint-orange-border);
+  --severity-success-bg: var(--tint-green-bg); --severity-success-fg: var(--tint-green-fg); --severity-success-border: var(--tint-green-border);
+  --severity-info-bg: var(--tint-blue-bg); --severity-info-fg: var(--tint-blue-fg); --severity-info-border: var(--tint-blue-border);
+  --severity-neutral-bg: var(--bg-tertiary); --severity-neutral-fg: var(--text-secondary); --severity-neutral-border: var(--border-primary);
+}
