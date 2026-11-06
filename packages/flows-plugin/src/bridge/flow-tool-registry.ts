@@ -35,7 +35,7 @@ const KILL_GRACE_MS = 1000;
 /** Upper wait for stdio to close after the group is killed. */
 const CLOSE_WAIT_MS = 500;
 
-export interface FlowToolRunOptions {
+interface FlowToolRunOptions {
   cwd?: string;
   /** Merged over the dashboard spawn env (caller wins). */
   env?: Record<string, string>;
@@ -44,7 +44,7 @@ export interface FlowToolRunOptions {
   signal?: AbortSignal;
 }
 
-export interface FlowToolResult {
+interface FlowToolResult {
   /** True only when the process exited 0. */
   ok: boolean;
   /** Exit code; 127 unresolved, 130 aborted, 124 timed out. */
@@ -64,7 +64,7 @@ export interface FlowTools {
 }
 
 /** The registry surface the facade reads. */
-export interface RegistryLike {
+interface RegistryLike {
   has(name: string): boolean;
   resolve(name: string): { ok: boolean; path: string | null };
   resolveExecutor(name: string): { ok: boolean; argv: string[] };
