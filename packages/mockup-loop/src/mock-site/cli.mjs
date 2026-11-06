@@ -39,7 +39,7 @@ export function findProjectRoot(cwd) {
   }
   const declared = chain.find(hasManifestKey);
   if (declared) return declared;
-  const withMocks = chain.find((d) => !isChangeDir(d) && fs.existsSync(path.join(d, "mockups")) && fs.statSync(path.join(d, "mockups")).isDirectory());
+  const withMocks = chain.find((d) => !isChangeDir(d) && !!fs.statSync(path.join(d, "mockups"), { throwIfNoEntry: false })?.isDirectory());
   if (withMocks) return withMocks;
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();

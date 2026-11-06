@@ -326,6 +326,21 @@ describe("mock-capture (X5, X6)", () => {
       expect(r.out).toContain("GET http://app.local/api/runs");
       expect(fs.existsSync(path.join(dir, "fixtures.har.json")), kind).toBe(false);
     }
+    // B1 (review r1): a secret under a cookie name or in the URL path the redaction list does not cover.
+    for (const [where, mutate] of [
+      ["request cookie prefs", (h: ReturnType<typeof har>) => { h.log.entries[0].request.cookies.push({ name: "prefs", value: jwt }); }],
+      ["response cookie", (h: ReturnType<typeof har>) => { (h.log.entries[0].response.cookies as { name: string; value: string }[]).push({ name: "theme", value: jwt }); }],
+      ["url", (h: ReturnType<typeof har>) => { h.log.entries[0].request.url = `http://app.local/api/${jwt}/runs`; }],
+    ] as const) {
+      const dir = path.join(root, "m", where.replace(/\W/g, ""));
+      const h = har(); mutate(h);
+      const r = await captureRun(["http://app.local/", dir], { cwd: root, record: async () => h });
+      expect(r.code, where).not.toBe(0);
+      expect(r.out, where).toContain(where);
+      expect(fs.existsSync(path.join(dir, "fixtures.har.json")), where).toBe(false);
+    }
+    const bad = await captureRun(["http://app.local/", path.join(root, "bad")], { cwd: root, record: async () => ({ log: { entries: [{ _resourceType: "fetch", request: { method: "GET", url: "not a url" }, response: { status: 200, content: {} } }] } }) });
+    expect(bad).toMatchObject({ code: 1, out: expect.stringMatching(/^malformed HAR: /) });
     const ok = await captureRun(["http://app.local/", path.join(root, "clean")], { cwd: root, record: async () => har() });
     expect(ok.code).toBe(0);
     const fx = JSON.parse(fs.readFileSync(path.join(root, "clean/fixtures.har.json"), "utf8"));

@@ -11,6 +11,10 @@ import { prepareMockSite } from "./env.mjs";
 const argv = process.argv.slice(2);
 const i = argv.indexOf("--port");
 const port = i >= 0 ? Number(argv[i + 1]) : 5299;
+if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 8000) {
+  process.stderr.write(`mock-site: --port must be an integer 1-65535 other than the reserved 8000 (got ${argv[i + 1]})\n`);
+  process.exit(2);
+}
 const lan = argv.includes("--lan");
 const root = findProjectRoot(process.cwd());
 const prep = await prepareMockSite(root);

@@ -108,7 +108,10 @@ export function scanSecrets(har) {
   for (let i = 0; i < entries.length; i++) {
     const { request: rq = {}, response: rs = {} } = entries[i];
     const label = `entry ${i} (${rq.method ?? "?"} ${rq.url ?? "?"})`;
-    for (const [side, list] of /** @type {const} */ ([["request header", rq.headers], ["response header", rs.headers], ["query", rq.queryString]])) {
+    // Every field redactHar touches is scanned: a value under a key the list misses must still refuse.
+    const urlKind = matchSecret(String(rq.url ?? ""));
+    if (urlKind) return { location: `${label} url`, kind: urlKind };
+    for (const [side, list] of /** @type {const} */ ([["request header", rq.headers], ["response header", rs.headers], ["request cookie", rq.cookies], ["response cookie", rs.cookies], ["query", rq.queryString]])) {
       for (const p of list ?? []) { const k = matchSecret(String(p.value)); if (k) return { location: `${label} ${side} ${p.name}`, kind: k }; }
     }
     const r = scanBody(rq.postData?.text, `${label} request body`) ?? scanBody(rs.content?.text, `${label} response body`);
@@ -149,7 +152,8 @@ export function writeFixtures(har, o) {
   const clean = redactHar(har, o.redact ?? []);
   const hit = scanSecrets(clean);
   if (hit) return { ok: false, error: `refusing to write ${o.out}: ${hit.kind} at ${hit.location}. Add its key with --redact <key> (or "redact" in the mock options), or strip it from the app's data` };
-  const fx = harToFixtures(clean, o.source);
+  let fx;
+  try { fx = harToFixtures(clean, o.source); } catch (e) { return { ok: false, error: `malformed HAR: ${String(/** @type {Error} */ (e).message).split("\n")[0]}` }; }
   fs.mkdirSync(path.dirname(o.out), { recursive: true });
   fs.writeFileSync(o.out, JSON.stringify(fx, null, 2) + "\n");
   return { ok: true, file: o.out, count: fx.entries.length };

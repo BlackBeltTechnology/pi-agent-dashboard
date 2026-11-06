@@ -55,14 +55,20 @@ export async function startPane(o: PaneRuntimeOptions): Promise<void> {
   const overlay = o.step !== undefined ? null : createOverlay(document);
   const health: Health = { completed: 0, failed: 0, errors: [] };
   win.__mkHealth = health;
-  let paused = false;
+  // Paused by the Pause button, or by the shell while the pane is off-screen (a running
+  // script must never move the reviewer's page).
+  let userPaused = false;
+  let hidden = false;
   let resume: (() => void) | null = null;
   addEventListener("message", (e) => {
-    if (e.source !== parent || e.origin !== location.origin || typeof e.data?.mkPause !== "boolean") return;
-    paused = e.data.mkPause;
-    if (!paused) { resume?.(); resume = null; }
+    if (e.source !== parent || e.origin !== location.origin) return;
+    if (typeof e.data?.mkPause === "boolean") userPaused = e.data.mkPause;
+    else if (typeof e.data?.mkHidden === "boolean") hidden = e.data.mkHidden;
+    else return;
+    if (!userPaused && !hidden) { resume?.(); resume = null; }
   });
-  const waitIfPaused = () => (paused ? new Promise<void>((r) => { resume = r; }) : Promise.resolve());
+  const waitIfPaused = () => (userPaused || hidden ? new Promise<void>((r) => { resume = r; }) : Promise.resolve());
+  post({ mkReady: o.spec }); // the shell answers with the current mkHidden / mkPause state
 
   for (let i = 0; i < loops; i++) {
     if (i > 0) {

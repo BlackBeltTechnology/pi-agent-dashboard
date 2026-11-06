@@ -115,8 +115,8 @@ export async function runSteps(
       return { ok: false, error: `${tag} failed: act "${s.act}" needs a target` };
     }
     if (el && s.act !== "wait" && o.overlay) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      // Aim, then re-aim while the target still moves (late data reflows it during travel).
+      // No scrollIntoView: the pane document is sized to its content, and scrolling
+      // here would scroll the reviewer's page (the parent) too. Aim, then re-aim while the target still moves (late data reflows it during travel).
       let instant = !!o.fast;
       for (let k = 0; k < 4; k++) {
         const b = el.getBoundingClientRect();
@@ -135,15 +135,15 @@ export async function runSteps(
       case "type":
         await user.click(el!);
         for (const ch of s.text ?? "") {
-          (el as HTMLElement).focus();
+          (el as HTMLElement).focus({ preventScroll: true });
           await user.keyboard(ch === "{" || ch === "[" ? ch + ch : ch);
           if (!o.fast) await sleep(TYPE_DELAY_MS);
         }
         break;
-      case "clear": (el as HTMLElement).focus(); await user.clear(el!); break;
+      case "clear": (el as HTMLElement).focus({ preventScroll: true }); await user.clear(el!); break;
       case "hover": await user.hover(el!); break;
       case "press":
-        if (el) (el as HTMLElement).focus();
+        if (el) (el as HTMLElement).focus({ preventScroll: true });
         await user.keyboard(s.key?.startsWith("{") ? s.key : `{${s.key ?? "Enter"}}`);
         break;
       case "wait": break;

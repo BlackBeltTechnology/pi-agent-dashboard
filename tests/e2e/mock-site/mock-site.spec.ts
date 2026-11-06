@@ -441,9 +441,11 @@ test("stateful fixtures: panes isolated, pointer aims before the click, captions
   await expect(cur.locator("[data-flag=off]")).toHaveCount(1);
   await expect(pro.getByTestId("aim")).toHaveText("on-target");
   await expect(pro.locator(".mk-cursor")).toHaveCSS("pointer-events", "none");
-  // loop 2 starts from the original fixture data (else its "toggle → on" expect fails)
-  await expect(pro.locator("[data-flag=off]")).toHaveCount(1, { timeout: 15_000 });
-  await expect(health(page, `${S}/5/proposed`)).toContainText(/loops: ([2-9]|\d{2,}) completed, 0 failed/, { timeout: 30_000 });
+  // loop 2 starts from the original fixture data (else its "toggle → on" expect fails).
+  // Off-screen scripted panes pause, and panes above resize as they load: keep this one on screen.
+  const onScreen = () => page.locator(`[id="r-${S}/5/proposed"]`).scrollIntoViewIfNeeded();
+  await expect.poll(async () => { await onScreen(); return pro.locator("[data-flag=off]").count(); }, { timeout: 15_000 }).toBe(1);
+  await expect.poll(async () => { await onScreen(); return health(page, `${S}/5/proposed`).textContent(); }, { timeout: 30_000 }).toMatch(/loops: ([2-9]|\d{2,}) completed, 0 failed/);
   await expect(cur.locator("[data-flag=off]")).toHaveCount(1);
 });
 
@@ -461,6 +463,7 @@ test("unfixtured request: 501 in the pane, listed once as a missing fixture (F5)
 });
 
 test("two scripted frames run together without crossing over (F7)", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 3000 }); // both on screen: off-screen scripted panes pause
   await page.goto(url(`${S}/5`)); await ready(page);
   const a = await isoPane(page, `${S}/5/proposed`);
   const b = await isoPane(page, `${S}/8/proposed`);

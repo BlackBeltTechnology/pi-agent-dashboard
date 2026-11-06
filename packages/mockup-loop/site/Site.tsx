@@ -275,10 +275,26 @@ function PaneFrame({ spec, phone = false, width, lazy = false, scripted: isScrip
       if (e.origin !== location.origin || !frame.current || e.source !== frame.current.contentWindow) return;
       if (e.data?.mkPane === spec) { setH(e.data.h); setLoaded(true); sessionStorage.setItem(key, String(e.data.h)); }
       if (e.data?.mkHealth === spec) setHealth({ completed: e.data.completed, failed: e.data.failed, error: e.data.error });
+      if (e.data?.mkReady === spec) {
+        frame.current.contentWindow?.postMessage({ mkHidden: !visible.current }, location.origin);
+        frame.current.contentWindow?.postMessage({ mkPause: paneState.current.paused }, location.origin);
+      }
     };
     addEventListener("message", on); return () => removeEventListener("message", on);
   }, [spec, key]);
-  const togglePause = () => { const p = !paused; setPaused(p); frame.current?.contentWindow?.postMessage({ mkPause: p }, location.origin); };
+  // Scripted panes run only while on screen: off-screen ones pause (no CPU, no focus/scroll side effects).
+  const visible = useRef(true);
+  const paneState = useRef({ paused: false });
+  useEffect(() => {
+    if (!isScripted || !near || !wrap.current) return;
+    const io = new IntersectionObserver((es) => {
+      visible.current = es.some((e) => e.isIntersecting);
+      frame.current?.contentWindow?.postMessage({ mkHidden: !visible.current }, location.origin);
+    });
+    io.observe(wrap.current);
+    return () => io.disconnect();
+  }, [isScripted, near]);
+  const togglePause = () => { const p = !paused; setPaused(p); paneState.current.paused = p; frame.current?.contentWindow?.postMessage({ mkPause: p }, location.origin); };
   return (
     <div className="mk-phone-wrap" ref={wrap}>
       {near ? <iframe ref={frame} className={`mk-iso${phone ? " mk-phone" : ""}`} data-pane={spec} title={spec} src={`?pane=${encodeURIComponent(spec)}`} style={{ width: phone ? 375 : width ?? 640, height: h }} />
