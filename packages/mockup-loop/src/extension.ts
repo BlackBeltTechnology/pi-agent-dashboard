@@ -12,8 +12,9 @@
  *                          and return them plus a scoring rubric for the
  *                          agent's vision pass.
  *   - `serve_mock_site`  — start the project's live-component mock site
- *                          (real app components, rings, page accept/reject)
- *                          on an isolated port via the host's Vite.
+ *                          (real app components, rings, read-only decisions)
+ *                          on an isolated port through the project's own
+ *                          launcher and inherited build config.
  *   - `init_ui_contract` — scaffold a token-referencing ui-contract.md
  *                          control plane (the cross-screen consistency
  *                          source of truth) if one is absent.
@@ -35,6 +36,7 @@ import * as os from "node:os";
 import { listPresets, resolvePreset } from "./presets/registry.js";
 import { loadContract, refreshContract } from "./presets/contract.js";
 import { loadRubric, validateMockup } from "./presets/validators.js";
+import { INSTALL_HINT, launchChromium } from "./mock-site/browser.mjs";
 import { children as mockSiteChildren, DEFAULT_MOCK_SITE_PORT, startMockSite, stopAllMockSites, stopMockSite } from "./mock-site-serve.js";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -246,7 +248,7 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
           content: [
             {
               type: "text",
-              text: `Serving ${root}\n  local: ${local}\n  LAN:   ${lan}\n\nOpen the LAN URL on a phone to check responsive. For canvas(), use the local URL. Stop with serve_mockup{stop:true,port:${port}}.`,
+              text: `Serving ${root}\n  local: ${local}\n  LAN:   ${lan}\n\nShow the local URL to the user. Use the LAN URL only for a phone check. Stop with serve_mockup{stop:true,port:${port}}.`,
             },
           ],
           details: { port, root, local, lan },
@@ -262,7 +264,7 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
     name: "serve_mock_site",
     label: "Serve Mock Site",
     description:
-      "Start the project's live-component mock site (mockups/<id>/mock.tsx rendered with the app's real components, numbered rings, page-level Accept/Reject) using the project's own Vite and mockups/mock-site.config.ts. Localhost-only unless lan:true (LAN = view-only). Never port 8000. Pass stop:true with a port to stop it. The agent decides with the mock-decide CLI.",
+      "Start the project's live-component mock site (mockups/<id>/mock.tsx rendered with the app's real components, numbered rings, fixtures and scripted frames) through the project's own launcher and inherited build config (package.json mockSite, else detected). Show the returned URL to the user. Decisions are read-only in the site: record them with the mock-decide CLI. Localhost-only unless lan:true (LAN = view-only). Reserved ports are refused. Pass stop:true with a port to stop it.",
     parameters: Type.Object({
       dir: Type.Optional(Type.String({ description: "Project root (default: cwd)." })),
       port: Type.Optional(Type.Number({ description: `Port (default ${DEFAULT_MOCK_SITE_PORT}).` })),
@@ -280,10 +282,11 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       const lines = [`Mock site for ${r.root}`, `  local: ${r.local}`];
       if (params.lan) {
         lines.push(`  LAN:   ${r.lan ?? "(no LAN IPv4 detected)"}`);
-        lines.push("LAN clients are view-only (Accept/Reject only from this machine). Project sources are readable on the LAN while it runs.");
+        lines.push("LAN clients are view-only. Project sources are readable on the LAN while it runs.");
       }
-      lines.push("", `For canvas(), use the local URL. Decide as the agent: mock-decide accept|reject <ref> [note]. Stop: serve_mock_site{stop:true,port:${r.port}}.`);
-      return { content: [{ type: "text", text: lines.join("\n") }], details: { port: r.port, local: r.local, lan: r.lan, root: r.root } };
+      lines.push(`  launcher: ${r.launcher}`, `  app config: ${r.config}`);
+      lines.push("", `Show the URL to the user, with #ref links for anything you ask about. Record decisions with the CLI: mock-decide accept|reject <ref> [note]. Stop: serve_mock_site{stop:true,port:${r.port}}.`);
+      return { content: [{ type: "text", text: lines.join("\n") }], details: { port: r.port, local: r.local, lan: r.lan, root: r.root, launcher: r.launcher, config: r.config } };
     },
   });
 
@@ -351,7 +354,7 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
             {
               type: "text",
               text:
-                "Playwright not available. Install it to enable breakpoint capture:\n  npm i -D playwright && npx playwright install chromium\n\nMeanwhile, capture manually (e.g. the agent-browser CLI) at widths " +
+                `Playwright not available. Install it to enable breakpoint capture:\n  npm i -D playwright && ${INSTALL_HINT}\n\nMeanwhile, capture manually (e.g. the agent-browser CLI) at widths ` +
                 widths.join(", ") +
                 " and score against the rubric below." +
                 "\n" +
@@ -367,7 +370,17 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
           ? path.resolve(params.outDir)
           : await fsp.mkdtemp(path.join(os.tmpdir(), "mockup-shots-"));
         await fsp.mkdir(outDir, { recursive: true });
-        const browser = await pw.chromium.launch();
+        let launched: { browser: any; build: string };
+        try {
+          launched = await launchChromium(pw.chromium);
+        } catch (e) {
+          const msg = String((e as Error).message ?? e);
+          return {
+            content: [{ type: "text", text: `${msg}\n\nMeanwhile, capture manually at widths ${widths.join(", ")} and score against the rubric below.\n${rubric}` }],
+            details: { playwright: true, browser: false, widths, error: msg },
+          };
+        }
+        const { browser, build } = launched;
         const files: string[] = [];
         for (const w of widths) {
           const context = await browser.newContext({ viewport: { width: w, height: 900 } });
@@ -384,13 +397,13 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
             {
               type: "text",
               text:
-                `Captured ${files.length} screenshots — Read each, then fill the rubric:\n` +
+                `Captured ${files.length} screenshots${build === "pinned" ? "" : ` (cached browser ${build})`} — Read each, then fill the rubric:\n` +
                 files.map((f) => `  ${f}`).join("\n") +
                 "\n" +
                 rubric,
             },
           ],
-          details: { playwright: true, files, outDir, widths },
+          details: { playwright: true, files, outDir, widths, browser: build },
         };
       } catch (err) {
         return {

@@ -4,7 +4,7 @@ description: "Plan, build, and iterate UX-friendly frontend mockups via a ground
 license: MIT
 metadata:
   author: blackbelt-technology
-  version: "0.2"
+  version: "0.3"
 ---
 
 # frontend-mockup-loop
@@ -134,22 +134,47 @@ references a design token — never a raw hex or px literal.** If a surface need
 a token that doesn't exist, add it to the theme layer first, then cite it in
 the contract. This file is what stops screens from drifting apart.
 
-### 3. MOCKUP — real components first, serve it live
-**Default for a React project whose components + CSS Vite can process: the
-live-component mock site** — one page per `mockups/<yyyy-mm-dd-slug>/mock.tsx`
-rendering the app's REAL components in Current | Proposed frames, numbered rings
-(`Issue` red / `Fix` green) around the divs that change, page-level
-Accept/Reject, and a `#ref` link for every page/frame/side/ring. Serve it with
-`serve_mock_site{}`; record the agent's verdict with
-`mock-decide accept|reject <ref> "why"`. Full guide:
-`references/live-mock-site.md`.
+### 3. MOCKUP — live components, mandatory default
+**Any mock, mockup, UI-option, variant or redesign request in a project the mock
+site can build is a live-component mock — no exceptions by habit.** One page per
+`mockups/<yyyy-mm-dd-slug>/mock.tsx` renders the app's REAL components in
+Current | Proposed frames, with numbered rings (`Issue` red / `Fix` green) around
+the parts that change and a `#ref` link for every page / frame / side / ring /
+step. The site inherits the app's own build config (package.json `mockSite`
+`{ launcher, config }`, else detected), so no aliases or plugins are copied.
+Full guide: `references/live-mock-site.md`.
 
-**Otherwise** (no React/Vite app, pure geometry repros, brand-new surfaces with no
-components yet) build standalone HTML/Tailwind mockups and serve them with
-`serve_mockup`.
+**Static HTML is a named exception, never a default.** Only (a) a pure geometry
+repro, or (b) a project with no buildable components. "No components yet" does
+NOT apply when the surface is composed of existing app components. Say which
+exception applies whenever you build one; a static board lives in its own
+directory with a `STATIC.md` naming the exception, served with `serve_mockup`.
 
-Either way hand back the clickable **local URL** (LAN URL for a phone) — **not a
-screenshot** — so the human reacts to a real page. Render dark AND light.
+**Fidelity rules — confirm all four before showing a mock:**
+- **R1 same surroundings** — both panes render the same shell (frame
+  `surroundings`, or bare in both).
+- **R2 Current is today** — Current renders the SHIPPED components with today's
+  props; never a redraw or copied markup.
+- **R3 only ringed parts differ** — anything that differs between panes is ringed.
+- **R4 real data** — fixtures follow real record shapes (`mock-capture` records
+  them); real product nouns, never placeholder names.
+
+**Behaviour is shown, not described.** When the reviewer must judge an
+interaction, give the frame a `script` (click / type / clear / hover / press /
+wait on the real DOM, `unless` / `expect` per step) over a fixture factory
+(`fixtures`, fresh per pane and loop). Check it with `mock-check <ref> --loops 10`
+before showing it.
+
+**Show it with the package tools.** Serve with `serve_mock_site{}` and show the
+returned URL to the user (LAN URL only for a phone check) — **not a screenshot**.
+Every question to the user about a mock carries the full clickable `#ref` URL of
+each page, frame, side, ring or step it concerns (e.g. both rings when asking
+the user to pick between two variants). Render dark AND light.
+
+**Decisions are recorded by you, with the CLI.** The site shows decisions
+read-only. After the user's verdict in conversation (or your own scored review),
+run `mock-decide accept <ref> ["note"]` or `mock-decide reject <ref> "why"` (a
+reject always carries a reason) and report what was recorded.
 
 ### 4. TEST — run the expert-UX evaluation protocol
 Run `score_mockup` to capture full-page screenshots at mobile/tablet/desktop
@@ -187,15 +212,22 @@ the change's notes.
 - `serve_mockup{dir, port?, stop?}` — Node static server on 0.0.0.0; returns
   local + LAN URLs. Zero external deps.
 - `serve_mock_site{dir?, port?, lan?, stop?}` — start the project's
-  live-component mock site with the project's own Vite and
-  `mockups/mock-site.config.ts` (default port 5299, never the dashboard's;
-  localhost-only unless `lan`, and LAN clients are view-only). CLI
-  `mock-decide list|accept|reject|reopen|adoptable` writes the same
-  `decision.json` as the site's buttons, with `by: "agent"`.
+  live-component mock site through the project's own launcher with the
+  inherited build config, plus the optional `mockups/mock-site.config.ts`
+  options (default port 5299; reserved ports refused; localhost-only unless
+  `lan`, and LAN clients are view-only). The result names the launcher and app
+  config used.
+- CLIs: `mock-decide list|accept|reject|reopen|adoptable|move` (the only writer
+  of `decision.json`, `by: "agent"`), `mock-capture <url> <mockDir>` (HTTP →
+  redacted `fixtures.har.json`; refuses on a surviving secret),
+  `mock-check <ref> [--loops N]` (headless script loops, default 3, non-zero on
+  a failed loop), `mock-video <ref> [--out f.webm]` (one loop; default under the
+  project's build cache).
 - `score_mockup{url, widths?, outDir?, system?}` — Playwright breakpoint screenshots +
   scoring rubric. Chromium is declared in this package's `pi.tools` (optional
-  `pw-browser` probe); absent → install guidance via the registry's Install
-  dropdown or `pi-dashboard-ensure` (`npx playwright@1.62.1 install chromium`).
+  `pw-browser` probe). When Playwright's pinned build is missing it tries the
+  cached builds, newest first; none launches → install guidance
+  (`npx playwright install chromium`).
 - `init_ui_contract{path?, force?, system?, refresh?}` — scaffold the
   token-referencing contract. With `system`, write that preset's DTCG contract
   (offline snapshot; `refresh` re-fetches upstream first). No `system` →
@@ -207,8 +239,9 @@ the change's notes.
 
 ## Pitfalls
 
-- Live mock site: decisions are per PAGE (never per frame); an agent reject needs
-  a reason. A ring adds one wrapper element — use `block` for grid/flex children,
+- Live mock site: decisions are per PAGE (never per frame), recorded only with
+  `mock-decide`; a reject needs a reason. Unfixtured requests show under
+  "Missing fixtures": add a fixture, never a live backend. A ring adds one wrapper element — use `block` for grid/flex children,
   and know that `>` / `first:` / `space-x-*` selectors can shift. App overlays
   portaled to `document.body` escape pane containment: render dialogs inline. A
   rejected mock is revised and reopened, or deleted together with its

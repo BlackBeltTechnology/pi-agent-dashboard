@@ -1,15 +1,16 @@
 /**
- * `serve_mock_site` process management: spawn the HOST project's Vite on
- * `mockups/mock-site.config.ts`, wait until the mock-site marker answers, stop
- * it, and kill every child on shutdown. Erasable-only TypeScript (jiti gate).
- * See change: add-live-component-mock-site (design D11).
+ * `serve_mock_site` process management: start the project's OWN launcher on the
+ * generated inheriting config (`prepareMockSite`), wait until the mock-site marker
+ * answers, stop it, and kill every child on shutdown. Erasable-only TypeScript
+ * (jiti gate). See change: add-live-component-mock-site (design D11),
+ * add-mock-site-exact-env (D1, D10).
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createRequire } from "node:module";
+import { prepareMockSite } from "./mock-site/env.mjs";
 
 export const DEFAULT_MOCK_SITE_PORT = 5299;
 const READY_TIMEOUT_MS = 30_000;
@@ -17,7 +18,9 @@ const KILL_GRACE_MS = 3_000;
 
 export const children = new Map<number, ChildProcess>();
 
-export type ServeResult = { ok: true; port: number; local: string; lan: string | null; root: string } | { ok: false; error: string };
+export type ServeResult =
+  | { ok: true; port: number; local: string; lan: string | null; root: string; launcher: string; config: string }
+  | { ok: false; error: string };
 
 /** Ports the mock site must never take: 8000, PI_DASHBOARD_PORT, ~/.pi/dashboard/config.json port. */
 function forbiddenPorts(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): Set<number> {
@@ -73,20 +76,13 @@ function killChild(child: ChildProcess): Promise<void> {
 export async function startMockSite(opts: { dir?: string; port?: number; lan?: boolean }): Promise<ServeResult> {
   const root = path.resolve(opts.dir ?? process.cwd());
   const port = opts.port ?? DEFAULT_MOCK_SITE_PORT;
-  if (forbiddenPorts().has(port)) return { ok: false, error: `port ${port} is reserved for the dashboard; pick another port` };
-  const config = path.join(root, "mockups", "mock-site.config.ts");
-  if (!fs.existsSync(config)) return { ok: false, error: `no mock site config: expected ${config}` };
-  let viteBin: string;
-  try {
-    const req = createRequire(path.join(root, "package.json"));
-    viteBin = path.join(path.dirname(req.resolve("vite/package.json")), "bin", "vite.js");
-  } catch {
-    return { ok: false, error: `vite not found from ${root}; install vite in the project` };
-  }
+  if (forbiddenPorts().has(port)) return { ok: false, error: `port ${port} is reserved; pick another port` };
   if (children.has(port)) return { ok: false, error: `a mock site is already running on port ${port}` };
+  const prep = await prepareMockSite(root);
+  if (!prep.ok) return { ok: false, error: prep.error };
   if (await portInUse(port)) return { ok: false, error: `port ${port} is busy; stop that process or pass another port` };
 
-  const child = spawn(process.execPath, [viteBin, "--config", config, "--port", String(port), "--strictPort"], {
+  const child = spawn(process.execPath, [prep.launcher, "--config", prep.generated, "--port", String(port), "--strictPort"], {
     cwd: root,
     env: { ...process.env, MOCK_SITE_LAN: opts.lan ? "1" : "0", FORCE_COLOR: "0" },
     stdio: ["ignore", "pipe", "pipe"],
@@ -104,7 +100,7 @@ export async function startMockSite(opts: { dir?: string; port?: number; lan?: b
     if (await probe(port)) {
       children.set(port, child);
       const ip = opts.lan ? lanIp() : null;
-      return { ok: true, port, root, local: `http://localhost:${port}`, lan: ip ? `http://${ip}:${port}` : null };
+      return { ok: true, port, root, local: `http://localhost:${port}`, lan: ip ? `http://${ip}:${port}` : null, launcher: prep.launcher, config: prep.config };
     }
     await new Promise((r) => setTimeout(r, 200));
   }

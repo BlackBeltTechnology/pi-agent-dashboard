@@ -1,7 +1,8 @@
 /**
- * L1 — mock-site Vite plugin over real HTTP + the mock-decide CLI.
+ * L1 — mock-site Vite plugin over real HTTP + the mock-decide CLI + launcher resolution.
  * A real Vite dev server runs the plugin against a temp fixture project.
- * See change: add-live-component-mock-site (test-plan E5-E13, E16, E17).
+ * See change: add-live-component-mock-site (test-plan E5-E13, E16, E17) and
+ * add-mock-site-exact-env (test-plan E3, E4; tasks 4.1, 4.4: decide endpoint removed).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -12,6 +13,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer, type ViteDevServer } from "vite";
 import { isLanSafeVite, mockSite } from "../mock-site/plugin.mjs";
+import { resolveLauncher } from "../mock-site/env.mjs";
 import { makeFixture } from "./mock-site-fixture";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +37,7 @@ function req(port: number, method: string, p: string, opts: { body?: string | Bu
   });
 }
 const JSONH = { "content-type": "application/json" };
-const decide = (port: number, body: unknown, headers: Record<string, string> = JSONH) => req(port, "POST", "/__mock/decide", { body: typeof body === "string" ? body : JSON.stringify(body), headers });
+const decide = (port: number, body: unknown, opts: { host?: string; localAddress?: string } = {}) => req(port, "POST", "/__mock/decide", { body: JSON.stringify(body), headers: JSONH, ...opts });
 
 async function start(root: string, lan = false): Promise<{ server: ViteDevServer; port: number }> {
   const server = await createServer({ configFile: false, logLevel: "silent", plugins: [mockSite({ projectRoot: root, app: "./mock-site.app.tsx", lan })], server: { port: 0 } });
@@ -52,7 +54,7 @@ async function stop(server?: ViteDevServer) {
   (server.httpServer as { closeAllConnections?: () => void } | null)?.closeAllConnections?.();
 }
 
-describe("mock-site plugin HTTP (E5-E13)", () => {
+describe("mock-site plugin HTTP (E5-E13; read-only since add-mock-site-exact-env)", () => {
   let root: string; let server: ViteDevServer; let port: number;
   const file = () => path.join(root, "mockups/2026-11-03-a/decision.json");
   beforeAll(async () => { root = makeFixture(); ({ server, port } = await start(root)); }, 15_000);
@@ -61,83 +63,41 @@ describe("mock-site plugin HTTP (E5-E13)", () => {
   it("binds 127.0.0.1 by default (E13)", () => {
     expect((server.httpServer!.address() as { address: string }).address).toBe("127.0.0.1");
   });
-  it("serves the HTML entry and the decisions marker", async () => {
+  it("serves the HTML entry and the read-only decisions marker", async () => {
     const html = await req(port, "GET", "/");
     expect(html.status).toBe(200);
     expect(html.body).toMatch(/<script type="module" src="\/@fs\/.*site\/main\.tsx"/);
     const d = JSON.parse((await req(port, "GET", "/__mock/decisions")).body);
-    expect(d).toMatchObject({ mockSite: true, canDecide: true, decisions: {} });
+    expect(d).toEqual({ mockSite: true, decisions: {}, warnings: [], errors: [] });
   });
-  it("note length boundary (E5)", async () => {
-    expect((await decide(port, { id: "2026-11-03-a", status: "rejected", note: "n".repeat(499) })).status).toBe(200);
-    expect((await decide(port, { id: "2026-11-03-a", status: "rejected", note: "n".repeat(500) })).status).toBe(200);
-    expect(JSON.parse(fs.readFileSync(file(), "utf8")).note).toHaveLength(500);
-    expect((await decide(port, { id: "2026-11-03-a", status: "rejected", note: "n".repeat(500) + "😀" })).status).toBe(400);
-    expect(JSON.parse(fs.readFileSync(file(), "utf8")).note).toHaveLength(500);
-  });
-  it("body size boundary (E6)", async () => {
-    fs.rmSync(file(), { force: true });
-    const body = (n: number) => { const base = JSON.stringify({ id: "2026-11-03-a", status: "accepted", pad: "" }); return base.replace('"pad":""', `"pad":"${"p".repeat(n - base.length)}"`); };
-    for (const n of [4095, 4096]) { const r = await decide(port, body(n)); expect(r.status, String(n)).toBe(200); }
-    fs.rmSync(file(), { force: true });
-    expect((await decide(port, body(4097))).status).toBe(413);
+  it("the decide endpoint is gone: any method 404, nothing written (4.1)", async () => {
+    for (const m of ["POST", "GET", "PUT"]) {
+      const r = m === "POST" ? await decide(port, { id: "2026-11-03-a", status: "accepted" }) : await req(port, m, "/__mock/decide");
+      expect(r.status, m).toBe(404);
+    }
     expect(fs.existsSync(file())).toBe(false);
   });
-  it("method and content type (E7)", async () => {
-    expect((await req(port, "GET", "/__mock/decide")).status).toBe(405);
-    expect((await req(port, "PUT", "/__mock/decide", { body: "{}", headers: JSONH })).status).toBe(405);
-    expect((await decide(port, { id: "2026-11-03-a", status: "accepted" }, { "content-type": "text/plain" })).status).toBe(415);
-    expect((await decide(port, { id: "2026-11-03-a", status: "accepted" }, { "content-type": "application/json; charset=utf-8" })).status).toBe(200);
-  });
-  it("id allow-list, no file outside (E8)", async () => {
-    const list = () => execFileSync("find", [root, "-not", "-path", "*/node_modules*"]).toString().split("\n").sort().join("\n");
-    const before = list();
-    for (const id of ["../../etc", "2026-11-03-a/../../x", "2099-01-01-unknown", ""]) expect((await decide(port, { id, status: "accepted" })).status, id).toBe(400);
-    expect(list()).toBe(before);
-  });
-  it("status enum; open deletes (E9)", async () => {
-    const codes = [];
-    for (const status of ["accepted", "rejected", "open", "ACCEPTED", "approved", undefined]) codes.push((await decide(port, { id: "2026-11-03-a", status })).status);
-    expect(codes).toEqual([200, 200, 200, 400, 400, 400]);
-    expect(fs.existsSync(file())).toBe(false);
-  });
-  it("Origin allow-list (E10)", async () => {
-    const o = (origin?: string) => decide(port, { id: "2026-11-03-a", status: "accepted" }, { ...JSONH, ...(origin ? { origin } : {}) });
-    expect([(await o()).status, (await o(`http://localhost:${port}`)).status, (await o(`http://127.0.0.1:${port}`)).status, (await o("http://evil.example")).status, (await o("http://localhost:9999")).status]).toEqual([200, 200, 200, 403, 403]);
-  });
-  it("concurrent UI + CLI writes leave one valid decision, no temp files (X4)", async () => {
-    const posts = Array.from({ length: 20 }, (_, i) => decide(port, { id: "2026-11-03-a", status: i % 2 ? "accepted" : "rejected" }));
-    const clis = Array.from({ length: 5 }, () => new Promise<void>((r) => { const c = spawn(process.execPath, [CLI, "accept", "2026-11-03-a"], { cwd: path.join(root, "mockups") }); c.on("exit", () => r()); }));
-    const codes = (await Promise.all(posts)).map((r) => r.status);
+  it("CLI writes reach the marker; concurrent CLI writes leave one valid decision, no temp files (X4)", async () => {
+    const clis = Array.from({ length: 6 }, (_, i) => new Promise<void>((r) => { const c = spawn(process.execPath, [CLI, i % 2 ? "accept" : "reject", "2026-11-03-a", "n"], { cwd: path.join(root, "mockups") }); c.on("exit", () => r()); }));
     await Promise.all(clis);
-    expect(codes.every((c) => c === 200)).toBe(true);
     expect(["accepted", "rejected"]).toContain(JSON.parse(fs.readFileSync(file(), "utf8")).status);
     expect(fs.readdirSync(path.dirname(file())).filter((f) => f.includes(".tmp-"))).toEqual([]);
-  });
-  it("symlinked decision.json refused (E12)", async () => {
-    fs.rmSync(file(), { force: true });
-    const outside = path.join(root, "outside.json");
-    fs.writeFileSync(outside, "X");
-    fs.symlinkSync(outside, file());
-    expect((await decide(port, { id: "2026-11-03-a", status: "accepted" })).status).toBe(400);
-    expect(fs.readFileSync(outside, "utf8")).toBe("X");
-    fs.rmSync(file(), { force: true });
+    const d = JSON.parse((await req(port, "GET", "/__mock/decisions")).body);
+    expect(d.decisions["2026-11-03-a"].by).toBe("agent");
   });
 });
 
 describe("LAN mode (E11)", () => {
   const ip = lanIp();
-  it.skipIf(!ip)("LAN clients view only; loopback may decide", async () => {
+  it.skipIf(!ip)("LAN clients view only: marker readable, no decide endpoint", async () => {
     const root = makeFixture();
     const { server, port } = await start(root, true);
     try {
-      const lanPost = await decide(port, { id: "2026-11-03-a", status: "accepted" }, JSONH).then(() => req(port, "POST", "/__mock/decide", { host: ip!, localAddress: ip!, body: JSON.stringify({ id: "2026-11-03-a", status: "rejected" }), headers: JSONH }));
-      expect(lanPost.status).toBe(403);
-      expect(JSON.parse(fs.readFileSync(path.join(root, "mockups/2026-11-03-a/decision.json"), "utf8")).status).toBe("accepted");
+      expect((await decide(port, { id: "2026-11-03-a", status: "rejected" }, { host: ip!, localAddress: ip! })).status).toBe(404);
+      expect(fs.existsSync(path.join(root, "mockups/2026-11-03-a/decision.json"))).toBe(false);
       const lanGet = JSON.parse((await req(port, "GET", "/__mock/decisions", { host: ip!, localAddress: ip! })).body);
-      expect(lanGet.canDecide).toBe(false);
-      const loop = JSON.parse((await req(port, "GET", "/__mock/decisions")).body);
-      expect(loop.canDecide).toBe(true);
+      expect(lanGet.mockSite).toBe(true);
+      expect("canDecide" in lanGet).toBe(false);
     } finally {
       await stop(server);
       fs.rmSync(root, { recursive: true, force: true });
@@ -221,5 +181,57 @@ describe("mock-decide CLI (E16, E17)", () => {
     expect(gl.status).toBe(0);
     expect(gl.stdout).toContain("2026-11-05-z");
     fs.rmSync(g, { recursive: true, force: true });
+  });
+});
+
+describe("launcher resolution (E3, E4)", () => {
+  const roots: string[] = [];
+  afterAll(() => { for (const r of roots) fs.rmSync(r, { recursive: true, force: true }); });
+  const proj = (files: Record<string, string>, linkModules = true) => {
+    const r = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ms-launch-")));
+    roots.push(r);
+    if (linkModules) fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(r, "node_modules"), "dir");
+    for (const [rel, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(r, rel)), { recursive: true }); fs.writeFileSync(path.join(r, rel), body); }
+    return r;
+  };
+  it("declared wins; detected uses vite; unsupported / missing explain the next step (E3)", () => {
+    const declared = proj({ "package.json": JSON.stringify({ mockSite: { launcher: "scripts/run.mjs", config: "app/vite.config.ts" } }), "scripts/run.mjs": "", "app/vite.config.ts": "", "vite.config.ts": "" });
+    expect(resolveLauncher(declared)).toEqual({ ok: true, adapter: "vite", source: "declared", launcher: path.join(declared, "scripts/run.mjs"), config: path.join(declared, "app/vite.config.ts") });
+    const detected = proj({ "package.json": "{}", "vite.config.mjs": "" });
+    const d = resolveLauncher(detected);
+    expect(d).toMatchObject({ ok: true, source: "detected", config: path.join(detected, "vite.config.mjs") });
+    expect(d.ok && d.launcher).toMatch(/vite[/\\]bin[/\\]vite\.js$/);
+    const launcherOnly = proj({ "package.json": JSON.stringify({ mockSite: { launcher: "run.mjs" } }), "run.mjs": "", "vite.config.ts": "" });
+    expect(resolveLauncher(launcherOnly)).toMatchObject({ ok: true, source: "declared", launcher: path.join(launcherOnly, "run.mjs"), config: path.join(launcherOnly, "vite.config.ts") });
+    const webpack = proj({ "package.json": "{}", "webpack.config.js": "" });
+    const w = resolveLauncher(webpack);
+    expect(w.ok).toBe(false);
+    expect(!w.ok && w.error).toMatch(/build tool webpack has no mock-site adapter \(supported adapters: vite\)/);
+    expect(!w.ok && w.error).toMatch(/"mockSite": \{ "launcher"/);
+    const none = proj({ "package.json": "{}" });
+    const n = resolveLauncher(none);
+    expect(!n.ok && n.error).toContain(`no app build config found in ${none}`);
+    expect(!n.ok && n.error).toContain("vite.config.ts");
+    expect(!n.ok && n.error).toContain("supported adapters: vite");
+  });
+  it("refuses launchers whose real path leaves the project; names the real path (E4)", () => {
+    const outside = path.join(fs.realpathSync(os.tmpdir()), `ms-outside-${process.pid}.mjs`);
+    fs.writeFileSync(outside, "");
+    try {
+      const up = proj({ "package.json": JSON.stringify({ mockSite: { launcher: "../outside.mjs", config: "vite.config.ts" } }), "vite.config.ts": "" });
+      fs.writeFileSync(path.join(path.dirname(up), "outside.mjs"), "");
+      const a = resolveLauncher(up);
+      expect(!a.ok && a.error).toContain(`refusing launcher outside the project: ${path.join(path.dirname(up), "outside.mjs")}`);
+      fs.rmSync(path.join(path.dirname(up), "outside.mjs"));
+      const link = proj({ "package.json": JSON.stringify({ mockSite: { launcher: "link.mjs", config: "vite.config.ts" } }), "vite.config.ts": "" });
+      fs.symlinkSync(outside, path.join(link, "link.mjs"));
+      const b = resolveLauncher(link);
+      expect(!b.ok && b.error).toContain(`refusing launcher outside the project: ${outside}`);
+      const ok = proj({ "package.json": JSON.stringify({ mockSite: { launcher: "./scripts/ok.mjs", config: "vite.config.ts" } }), "scripts/ok.mjs": "", "vite.config.ts": "" });
+      expect(resolveLauncher(ok)).toMatchObject({ ok: true, launcher: path.join(ok, "scripts/ok.mjs") });
+      const cfg = proj({ "package.json": JSON.stringify({ mockSite: { config: "c.ts" } }) });
+      fs.symlinkSync(outside, path.join(cfg, "c.ts"));
+      expect(resolveLauncher(cfg).ok).toBe(false);
+    } finally { fs.rmSync(outside, { force: true }); }
   });
 });

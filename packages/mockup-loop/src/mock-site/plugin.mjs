@@ -1,25 +1,29 @@
 // @ts-check
 // `mockSite(options)` — Vite plugin that turns a project's `mockups/` into the
 // live-component mock site. No runtime `vite` import (types only), so the pi
-// extension loads without Vite. See change: add-live-component-mock-site (D1-D5).
+// extension loads without Vite. Read-only: decisions are written by the
+// `mock-decide` CLI only. See change: add-live-component-mock-site (D1-D5),
+// add-mock-site-exact-env (D2, D6, D8).
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { discoverMocks, mockRoots } from "./discover.mjs";
-import { readDecisions, validateDecideBody, writeDecision } from "./decisions.mjs";
+import { readDecisions } from "./decisions.mjs";
+import { DEFAULT_FRAMEWORK, FRAMEWORK_ADAPTERS } from "./frameworks.mjs";
 
 const SITE_DIR = fileURLToPath(new URL("../../site/", import.meta.url));
 const V_CONFIG = "virtual:mock-site/config";
 const V_APP = "virtual:mock-site/app";
 const V_MOCKS = "virtual:mock-site/mocks";
-const BODY_MAX = 4096;
-const LOOPBACK_RE = /^(127\.|::1$|::ffff:127\.)/;
+/** Optional peers of fixture / script panes: pre-bundled only when the project has them. */
+const LAZY_PEERS = ["@mswjs/interceptors/fetch", "@mswjs/interceptors/XMLHttpRequest", "@mswjs/interceptors/WebSocket", "@testing-library/user-event"];
 
 /**
  * @typedef {{ id: string, label: string, attrs?: Record<string, string|null>, system?: { dark: string, light: string } }} ThemeSpec
  * @typedef {{
  *   projectRoot: string,
- *   app: string,
+ *   app?: string,
  *   title?: string,
  *   themes?: ThemeSpec[],
  *   appRoot?: string,
@@ -63,7 +67,10 @@ export function isLanSafeVite(version) {
 export function mockSite(options) {
   const projectRoot = path.resolve(options.projectRoot);
   const mockupsDir = path.join(projectRoot, "mockups");
-  const appFile = path.resolve(mockupsDir, options.app);
+  const appFile = options.app ? path.resolve(mockupsDir, options.app) : null;
+  const fw = FRAMEWORK_ADAPTERS[DEFAULT_FRAMEWORK];
+  const req = createRequire(path.join(projectRoot, "package.json"));
+  const peers = LAZY_PEERS.filter((p) => { try { req.resolve(p); return true; } catch { return false; } });
   const lan = options.lan ?? process.env.MOCK_SITE_LAN === "1";
   const siteDir = fs.existsSync(SITE_DIR) ? SITE_DIR : path.join(path.dirname(fileURLToPath(import.meta.url)), "../../site/");
   const themes = options.themes ?? [
@@ -88,11 +95,11 @@ export function mockSite(options) {
         appType: "custom",
         resolve: {
           alias: [{ find: /^mock-site\/kit$/, replacement: path.join(siteDir, "kit.tsx") }, ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({ find, replacement }))],
-          dedupe: ["react", "react-dom"],
+          dedupe: fw.dedupe,
         },
         optimizeDeps: {
           entries: [path.join(siteDir, "main.tsx"), ...mocks.map((m) => m.file)],
-          include: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime"],
+          include: [...fw.include, ...peers],
         },
         server: {
           host: lan ? "0.0.0.0" : "127.0.0.1",
@@ -116,7 +123,7 @@ export function mockSite(options) {
     /** @param {string} id */
     load(id) {
       if (id === "\0" + V_CONFIG) return `export const MOCK_CONFIG = ${JSON.stringify({ title: options.title ?? "Mocks", themes })};`;
-      if (id === "\0" + V_APP) return `export * from ${JSON.stringify(appFile)};`;
+      if (id === "\0" + V_APP) return appFile ? `export * from ${JSON.stringify(appFile)};` : "export const setup = undefined;\nexport const Providers = (p) => p.children;\n";
       if (id === "\0" + V_MOCKS) {
         const { mocks, errors } = current();
         const imports = mocks.map((m, i) => `import m${i} from ${JSON.stringify(m.file)};`).join("\n");
@@ -131,7 +138,7 @@ export function mockSite(options) {
       /** @param {string} f */
       const onFs = (f) => {
         const base = path.basename(f);
-        if (!f.startsWith(projectRoot) || f.includes(`${path.sep}archive${path.sep}`)) return;
+        if (!f.startsWith(projectRoot) || f.includes(`${path.sep}archive${path.sep}`) || f.includes(`${path.sep}node_modules${path.sep}`)) return;
         if (base === "decision.json") srv.ws.send({ type: "custom", event: "mock:decisions" });
         if (base === "mock.tsx") {
           const mod = srv.moduleGraph.getModuleById("\0" + V_MOCKS);
@@ -143,51 +150,10 @@ export function mockSite(options) {
       srv.watcher.on("unlink", onFs);
       srv.watcher.on("change", (/** @type {string} */ f) => { if (path.basename(f) === "decision.json") onFs(f); });
 
-      const origins = () => {
-        const a = srv.httpServer?.address();
-        const port = a && typeof a === "object" ? a.port : options.port;
-        return new Set([`http://localhost:${port}`, `http://127.0.0.1:${port}`]);
-      };
-      /** @param {import("node:http").IncomingMessage} req */
-      const isLoopback = (req) => LOOPBACK_RE.test(req.socket.remoteAddress ?? "");
-
-      srv.middlewares.use("/__mock/decisions", (/** @type {any} */ req, /** @type {any} */ res) => {
+      srv.middlewares.use("/__mock/decisions", (/** @type {any} */ _req, /** @type {any} */ res) => {
         const { mocks, errors } = current();
         const { decisions, warnings } = readDecisions(mocks);
-        send(res, 200, { mockSite: true, canDecide: isLoopback(req), decisions, warnings, errors });
-      });
-
-      srv.middlewares.use("/__mock/decide", (/** @type {any} */ req, /** @type {any} */ res) => {
-        if (req.method !== "POST") return send(res, 405, { error: "POST only" });
-        if (!isLoopback(req)) return send(res, 403, { error: "decisions only from this machine" });
-        const origin = req.headers.origin;
-        if (origin && !origins().has(origin)) return send(res, 403, { error: "foreign origin" });
-        if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return send(res, 415, { error: "application/json required" });
-        /** @type {Buffer[]} */
-        const chunks = [];
-        let size = 0;
-        let over = false;
-        req.on("data", (/** @type {Buffer} */ c) => {
-          size += c.length;
-          if (size > BODY_MAX) over = true;
-          else chunks.push(c);
-        });
-        req.on("error", () => { if (!res.headersSent) send(res, 400, { error: "request aborted" }); });
-        req.on("end", () => {
-          if (over) return send(res, 413, { error: `body over ${BODY_MAX} bytes` });
-          let body;
-          try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return send(res, 400, { error: "invalid JSON" }); }
-          const { mocks } = current();
-          const v = validateDecideBody(body, new Set(mocks.map((m) => m.id)));
-          if (!v.ok) return send(res, 400, { error: v.error });
-          const mock = mocks.find((m) => m.id === v.id);
-          try {
-            writeDecision(/** @type {any} */ (mock), { status: v.status, by: "user", ...(v.note ? { note: v.note } : {}) });
-          } catch (e) {
-            return send(res, 400, { error: String(/** @type {Error} */ (e).message) });
-          }
-          send(res, 200, { ok: true });
-        });
+        send(res, 200, { mockSite: true, decisions, warnings, errors });
       });
 
       // HTML entry (the package ships no index.html): `/` and `/?pane=…`.

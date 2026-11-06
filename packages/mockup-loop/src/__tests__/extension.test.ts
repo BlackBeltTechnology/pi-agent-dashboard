@@ -103,8 +103,8 @@ describe("extension tool surface", () => {
   });
 });
 
-describe("serve_mockup result text (E32)", () => {
-  it("tells the agent to pass the local URL to canvas()", async () => {
+describe("serve_mockup result text (E32; add-mock-site-exact-env E17)", () => {
+  it("tells the agent to show the local URL to the user, naming no host tool", async () => {
     const f = makeFakePi();
     frontendMockupLoop(f.pi);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-serve-"));
@@ -112,7 +112,8 @@ describe("serve_mockup result text (E32)", () => {
     try {
       const res = await f.tools.get("serve_mockup")!.execute("t", { dir });
       const text = res.content[0].text;
-      expect(text).toContain("For canvas(), use the local URL.");
+      expect(text).toContain("Show the local URL to the user.");
+      expect(text).not.toMatch(/canvas\(|dashboard/i);
       expect(text).toMatch(/local: http:\/\/localhost:\d+/);
       expect(text).toContain("LAN:");
       const port = (res.details as { port: number }).port;

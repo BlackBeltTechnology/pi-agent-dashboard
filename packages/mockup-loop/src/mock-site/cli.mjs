@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // @ts-check
-// mock-decide — the agent's accept/reject for live-component mocks. Writes the
-// same `decision.json` the site's buttons write, with `by: "agent"`. Works
-// without the site running. See change: add-live-component-mock-site (D4).
+// mock-decide — the agent's accept/reject for live-component mocks: the ONLY
+// writer of `decision.json` (`by: "agent"`; the site shows it read-only). Works
+// without the site running. See change: add-live-component-mock-site (D4),
+// add-mock-site-exact-env (D6).
 //   mock-decide list
 //   mock-decide accept <ref> [note]
 //   mock-decide reject <ref> <note>        (a reason is required)
@@ -16,14 +17,30 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { parseRef } from "./refs.mjs";
 import { discoverMocks, listAdoptable, moveMockDir } from "./discover.mjs";
-import { readDecisions, writeDecision } from "./decisions.mjs";
+import { NOTE_MAX, readDecisions, writeDecision } from "./decisions.mjs";
 
-/** Nearest ancestor with `mockups/mock-site.config.ts`, else the git toplevel, else cwd. @param {string} cwd */
+/** @param {string} d */
+const hasManifestKey = (d) => {
+  try { return !!JSON.parse(fs.readFileSync(path.join(d, "package.json"), "utf8"))?.mockSite; } catch { return false; }
+};
+/** A change dir's own `mockups/` is a mock root, never a project root. @param {string} d */
+const isChangeDir = (d) => path.basename(path.dirname(path.dirname(d))) === "openspec" && path.basename(path.dirname(d)) === "changes";
+
+/**
+ * Project root: nearest ancestor whose `package.json` declares `mockSite`, else the
+ * nearest ancestor with a `mockups/` dir, else the git toplevel, else cwd.
+ * @param {string} cwd
+ */
 export function findProjectRoot(cwd) {
+  const chain = [];
   for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, "mockups", "mock-site.config.ts"))) return d;
+    chain.push(d);
     if (path.dirname(d) === d) break;
   }
+  const declared = chain.find(hasManifestKey);
+  if (declared) return declared;
+  const withMocks = chain.find((d) => !isChangeDir(d) && !!fs.statSync(path.join(d, "mockups"), { throwIfNoEntry: false })?.isDirectory());
+  if (withMocks) return withMocks;
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
   } catch {
@@ -62,8 +79,13 @@ export function run(argv, cwd = process.cwd()) {
   if (!mock) return { code: 1, out: `unknown mock id: ${id} (run: mock-decide list)` };
   const note = rest.join(" ").trim();
   if (cmd === "reject" && !note) return { code: 2, out: "reject needs a reason: mock-decide reject <ref> \"why\"" };
+  if ([...note].length > NOTE_MAX) return { code: 2, out: `note over ${NOTE_MAX} characters (${[...note].length}); shorten it` };
   const status = cmd === "accept" ? "accepted" : cmd === "reject" ? "rejected" : "open";
-  writeDecision(mock, { status, by: "agent", ...(note ? { note } : {}) });
+  try {
+    writeDecision(mock, { status, by: "agent", ...(note ? { note } : {}) });
+  } catch (e) {
+    return { code: 1, out: `cannot write decision for ${id}: ${String(/** @type {Error} */ (e).message).split("\n")[0]}` };
+  }
   return { code: 0, out: `${status} ${id}` };
 }
 

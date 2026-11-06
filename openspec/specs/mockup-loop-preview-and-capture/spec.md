@@ -8,7 +8,7 @@ Provide a zero-dependency static-HTTP preview of a mockup directory reachable fr
 
 ### Requirement: Serve a mockup directory over static HTTP
 
-The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to `0.0.0.0` and return both a localhost URL and a LAN URL for the bound port. Its result text SHALL tell the agent to pass the localhost URL, not the LAN URL, to the dashboard `canvas` tool.
+The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to `0.0.0.0` and return both a localhost URL and a LAN URL for the bound port. Its result text SHALL tell the agent to show the localhost URL to the user, and the LAN URL only for a phone check. It SHALL NOT name any host-specific display tool.
 
 #### Scenario: Start a server on an ephemeral port
 
@@ -22,10 +22,10 @@ The `serve_mockup` tool SHALL serve the files of a directory over HTTP bound to 
 - **WHEN** `serve_mockup` is called with `dir` and a `port`
 - **THEN** it binds the HTTP server on host `0.0.0.0` on that port and returns the localhost and LAN URLs for it
 
-#### Scenario: Result steers canvas to the localhost URL
+#### Scenario: Result says to show the localhost URL to the user
 
 - **WHEN** `serve_mockup` starts a server
-- **THEN** its result text states that the local URL is the one to pass to `canvas()`
+- **THEN** its result text says to show the local URL to the user, and names no host-specific tool
 
 #### Scenario: No LAN IPv4 address is available
 
@@ -119,10 +119,20 @@ The `score_mockup` tool SHALL capture full-page screenshots of a running mockup 
 
 ### Requirement: Graceful fallback when Playwright is absent
 
-When Playwright cannot be loaded, `score_mockup` SHALL return install guidance and manual-capture instructions instead of failing, including the rubric and the widths to capture.
+When the headless browser library cannot be loaded, `score_mockup` SHALL return install guidance and manual-capture instructions instead of failing, including the rubric and the widths to capture. When the library loads but its pinned browser build is not installed, `score_mockup` (and scripted-frame video export) SHALL try the browser builds present in the library's browser cache, newest first, until one launches. It SHALL report which build it used, and return install guidance only when no cached build launches.
 
 #### Scenario: Playwright not installed
 
-- **WHEN** `score_mockup` runs and the Playwright module (or its Chromium entry) cannot be imported
-- **THEN** it returns text instructing the user to install Playwright and its Chromium browser, suggests capturing manually at the requested widths, and includes the scoring rubric
+- **WHEN** `score_mockup` runs and the headless browser library (or its browser entry) cannot be imported
+- **THEN** it returns text instructing the user to install the library and its browser, suggests capturing manually at the requested widths, and includes the scoring rubric
 - **AND** it does not attempt to launch a browser
+
+#### Scenario: Pinned browser build missing, another build installed
+
+- **WHEN** the library loads, its pinned browser build is absent, and another build in the browser cache launches
+- **THEN** `score_mockup` captures the screenshots with that build and names it in its result
+
+#### Scenario: No cached build launches
+
+- **WHEN** the library loads and every cached browser build fails to launch, or none exists
+- **THEN** it returns the install guidance and rubric, naming the builds it tried

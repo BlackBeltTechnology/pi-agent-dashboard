@@ -9,6 +9,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/assert-bundled-server-plugin-load.test.mjs` | Tests for the bundled-server plugin-load gate: |
 | `__tests__/build-runtime-canary.test.mjs` | Builds canary + variants via SDK preset; artifact shape (#E95). → see `build-runtime-canary.mjs.AGENTS.md` |
 | `__tests__/check-kb-dist-fresh.test.mjs` | C1 (fix-kb-eval-measurement-integrity): fault-injection vi… → see `__tests__/check-kb-dist-fresh.test.mjs.AGENTS.md` |
+| `__tests__/check-mockups.test.mjs` | → `__tests__/check-mockups.test.mjs.AGENTS.md` |
 | `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so de… → see `__tests__/check-pi-settings-paths.test.mjs.AGENTS.md` |
 | `__tests__/check-plugin-boundary.test.mjs` | `check-plugin-boundary.mjs` via CLI on tmp `packages/*` trees (test-plan #E1–#E8) + r… → see `__tests__/check-plugin-boundary.test.mjs.AGENTS.md` |
 | `__tests__/client-sinks.test.mjs` | `check-client-sinks.mjs` tests. See change: harden-client-sinks. |
@@ -36,7 +37,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/fixtures/coverage-unloaded/` | Fixture: one source file no test imports + no-op test + pinned config (scoped E2). See change: triage-browser-e2e-offbox-poison. |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
 | `__tests__/fixtures/codeql-harness.mjs` | Test harness for `codeql-local.mjs`: temp git repos, per-ca… → see `__tests__/fixtures/codeql-harness.mjs.AGENTS.md` |
-| `__tests__/fixtures/codeql-resolve-extensions.json` | Captured real `codeql resolve extensions` JSON (CLI 2.27.2); `fake-codeql.mjs` substitutes the model file. See change: codeql-model-pack-and-mirror. |
+| `__tests__/fixtures/codeql-resolve-extensions.json` | → `__tests__/fixtures/codeql-resolve-extensions.json.AGENTS.md` |
 | `__tests__/fixtures/coverage-failing/` | Red coverage fixture. |
 | `__tests__/fixtures/fake-codeql.mjs` | Fake `codeql` (`CODEQL_BIN` seam). Plan from `$FAKE_CODEQL… → see `__tests__/fixtures/fake-codeql.mjs.AGENTS.md` |
 | `__tests__/fixtures/fake-gh.mjs` | Fake `gh` (`PI_CODEQL_GH_BIN` seam). Plan `$FAKE_GH_PLAN` `{log, alerts, exit, stderr, sleepMs}`; logs argv first. See change: codeql-model-pack-and-mirror. |
@@ -83,7 +84,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/sync-served-client.test.mjs` | E15/E16/X3/X4: the `sync-served-client.mjs` outcome table… → see `__tests__/sync-served-client.test.mjs.AGENTS.md` |
 | `__tests__/verify-release-deps-client-build-deps.test.mjs` | Vitest tests for the E7 client build-dep rules… → see `__tests__/verify-release-deps-client-build-deps.test.mjs.AGENTS.md` |
 | `__tests__/theme-token-guard.test.mjs` | Scan/ratchet/bootstrap tests for all three guard arms. → see `__tests__/theme-token-guard.test.mjs.AGENTS.md` |
-| `__tests__/harness-audit-armed.test.mjs` | Armed rule + max lifetime + unscoped mode of project-scoped `docker/harness-audit.sh` (stub docker, injected poll/max). See change: add-missing-ci-legs. |
+| `__tests__/harness-audit-armed.test.mjs` | → `__tests__/harness-audit-armed.test.mjs.AGENTS.md` |
 | `__tests__/harness-recorder-helpers.mjs` | Shared docker stub + sandbox for the harness recorder tests (not a test file). See change: add-missing-ci-legs. |
 | `__tests__/site-drift-decision.test.mjs` | → `__tests__/site-drift-decision.test.mjs.AGENTS.md` |
 | `__tests__/test-down-recorder.test.mjs` | `test-down.sh` teardown marker, ≤10 s destroy wait, dead/absent recorder (stub docker). See change: add-missing-ci-legs. |
@@ -114,6 +115,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `check-fixed-tick-waits.mjs` | Fixed-tick wait guard, run by ci.yml (standalone step) + ship gate. → see `check-fixed-tick-waits.mjs.AGENTS.md` |
 | `check-kb-dist-fresh.mjs` | CI gate (ci.yml, ship-it 4.4-adjacent): recomputes kb srcHash+tsconfigHash vs the committed… → see `check-kb-dist-fresh.mjs.AGENTS.md` |
 | `check-loader-neutral-source.mjs` | Loader-neutral source gate (AST; server scope). → see `check-loader-neutral-source.mjs.AGENTS.md` |
+| `check-mockups.mjs` | → `check-mockups.mjs.AGENTS.md` |
 | `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific absolute path in a committed `.pi/settings.json`… → see `check-pi-settings-paths.mjs.AGENTS.md` |
 | `check-plugin-boundary.mjs` | Core/plugin import ratchet for `ship-it` step 4.4 + `npm run check:plugin-boundary`: NEW edge / STALE row… → see `check-plugin-boundary.mjs.AGENTS.md` |
 | `codeql-anchor/plugin-routes.mjs` | → `codeql-anchor/plugin-routes.mjs.AGENTS.md` |

@@ -33,9 +33,11 @@ This registers:
   | `init_ui_contract` | Scaffold a token-referencing `ui-contract.md` consistency control plane. With `system`, write that preset's DTCG token contract. |
   | `list_design_systems` | Enumerate the selectable design-system presets. |
   | `validate_mockup` | Run the layered validation pipeline for a system (L1+L2 gates, L3+L4 advisory); returns `{ gates, advisory, pass }`. |
-  | `serve_mock_site` | Start the project's **live-component mock site** with the project's own Vite (port 5299, localhost only unless `lan`). |
+  | `serve_mock_site` | Start the project's **live-component mock site** through the project's own launcher with its inherited build config (port 5299, localhost only unless `lan`). Show the URL to the user. |
 - **Command** `/mockup-loop` — print the loop and point at the skill.
-- **Bin** `mock-decide` — the agent's accept / reject for live mocks.
+- **Bins** `mock-decide` (records a page decision; the only writer), `mock-capture`
+  (HTTP traffic → redacted fixtures), `mock-check` (headless script loops),
+  `mock-video` (one loop to `.webm`).
 
 ## Live-component mock site
 
@@ -52,19 +54,30 @@ const mock: Mock = { title: "Settings - save bar", category: "Settings", frames:
 export default mock;
 ```
 
-- Current | Proposed (or New) panes; `phone: true` renders a real 375px iframe.
+- **Exact environment**: the site inherits the app's own build config (aliases,
+  plugins, css, define) through the project's launcher — declared in
+  `package.json` `"mockSite": { "launcher", "config" }` or detected. No mirrored
+  config; `mockups/mock-site.config.ts` is an optional options object.
+- Current | Proposed (or New) panes; `phone: true` renders a real 375px iframe;
+  `surroundings` wraps both panes in the same real app shell.
 - Numbered rings (`Issue` red, `Fix` green) circle the elements that change.
-- **Accept page / Reject page** per mock, stored in `mockups/<id>/decision.json`
-  (in git). The agent decides with `mock-decide accept|reject <ref> "why"`.
-- Every page, frame, side and ring has a link: `#<id>/<frame>/<side>/<ring>`.
-- Themes come from the project config (first = default; `system` follows the OS).
+- **Fixtures**: a per-pane factory answers the app's HTTP / WebSocket traffic
+  in-page; unanswered requests are listed as missing fixtures.
+  `mock-capture` records real traffic, redacted, refusing on secrets.
+- **Scripts**: real click / type / hover steps on the real components with a
+  visible pointer, looped; `mock-check` proves them, `mock-video` records them.
+- Decisions are read-only in the site; the agent records them with
+  `mock-decide accept|reject <ref> "why"` into `mockups/<id>/decision.json`.
+- Every page, frame, side, ring and step has a link: `#<id>/<frame>/<side>/<ring|step-k>`.
+- Themes come from the options (first = default; `system` follows the OS).
 
-Setup (`mockups/mock-site.config.ts`, `mock-site.app.tsx`, `mock-site.css`) and
-the full authoring rules: [`references/live-mock-site.md`](references/live-mock-site.md).
-Install it in the project too (`npm i -D @blackbelt-technology/frontend-mockup-loop`)
-so the project's Vite config can import the plugin; `pi install` only gives pi
-the tools. Needs `vite`, `@vitejs/plugin-react`, `react`, `react-dom` in the
-project (optional peers).
+Setup and the full authoring rules:
+[`references/live-mock-site.md`](references/live-mock-site.md). Install it in
+the project too (`npm i -D @blackbelt-technology/frontend-mockup-loop`) so the
+site can load it; `pi install` only gives pi the tools. Needs `vite` and
+`react` / `react-dom` in the project (optional peers); fixtures need
+`@mswjs/interceptors`, scripts `@testing-library/user-event` (optional peers,
+loaded only by those panes).
 
 ## Selectable design systems
 
@@ -95,7 +108,8 @@ tools' `system` param) to target a specific system. v1 presets:
   `hig-doctor`, `material3-mcp`, MUI/Fluent eslint plugins, `lumo`.
 - `score_mockup` uses Playwright if present — enable breakpoint capture with
   `npm i -D playwright && npx playwright install chromium`; without it,
-  `score_mockup` returns the rubric plus manual-capture guidance.
+  `score_mockup` returns the rubric plus manual-capture guidance. A missing
+  pinned browser build falls back to the cached builds, newest first.
 
 ### Refreshing snapshots
 

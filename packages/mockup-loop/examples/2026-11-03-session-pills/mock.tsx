@@ -1,18 +1,19 @@
 // Example live-component mock: real client components, rings on the divs that change,
-// a `why` per frame, and a `steps` flow (states drawn, not clicked).
+// a `why` per frame, a `steps` flow (states drawn, not clicked) and a scripted frame
+// (real clicks on a fixture-backed component, looped with a visible pointer).
 // Lives in packages/mockup-loop/examples/ (NOT a mock root): never listed by default.
 // Copy it to mockups/<yyyy-mm-dd-slug>/mock.tsx to start a mock. The E2E fixture copies it too.
-// See changes: add-live-component-mock-site, fix-mock-site-ux.
+// See changes: add-live-component-mock-site, fix-mock-site-ux, add-mock-site-exact-env.
 // A mock = ONE PAGE (or flow). Frames are the full page at different widths / states.
-// Accept / Reject applies to the whole page. Rings circle the divs that changed.
+// A decision (mock-decide CLI) applies to the whole page. Rings circle the divs that changed.
 
 import { CwdGonePill } from "@app/components/folder/CwdGonePill.tsx";
 import { InlineMessage } from "@app/components/primitives/InlineMessage.tsx";
 import { GitDirtyPill } from "@app/components/worktree/GitDirtyPill.tsx";
 import { mdiCheckCircleOutline, mdiFolderRemoveOutline, mdiMagnify, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { Fix, Issue, type Mock, Tap } from "mock-site/kit";
-import type { ReactNode } from "react";
+import { Fix, type Fixtures, Issue, type Mock, Tap } from "mock-site/kit";
+import { type ReactNode, useEffect, useState } from "react";
 
 const dirty = { dirtyCount: 7, staged: 2, unstaged: 3, untracked: 2, ahead: 3, behind: 1 } as never;
 const smallDirty = { dirtyCount: 2, staged: 0, unstaged: 2, untracked: 0, ahead: 0, behind: 0 } as never;
@@ -73,7 +74,7 @@ function Detail({ variant }: { variant: "current" | "proposed" }) {
         <button className="px-2 py-0.5 rounded border border-[var(--border-primary)] text-xs">Re-link folder</button>
         <button className="px-2 py-0.5 rounded border border-[var(--border-primary)] text-xs">Archive session</button>
       </>}>
-      The worktree ~/work/web-app was removed outside the dashboard.
+      The worktree ~/work/web-app was removed outside the app.
     </InlineMessage>
   );
   return (
@@ -109,7 +110,7 @@ const btn = "px-2 py-0.5 rounded border border-[var(--border-primary)] text-xs";
 const RelinkBanner = () => (
   <InlineMessage severity="warning" icon={mdiFolderRemoveOutline} title="This session's folder no longer exists"
     actions={<><Tap><button className={btn}>Re-link folder</button></Tap><button className={btn}>Archive session</button></>}>
-    ~/work/web-app was removed outside the dashboard.
+    ~/work/web-app was removed outside the app.
   </InlineMessage>
 );
 const Picker = () => (
@@ -126,6 +127,49 @@ const Relinked = () => (
     <Card s={{ ...sessions[0], folder: "~/work/web-app-2", time: "now", state: "Idle", missing: false }} variant="proposed" />
   </div>
 );
+
+// ---- scripted re-link (frame 4): real fetch + POST against per-pane fixtures ----
+type Sess = { folder: string; missing: boolean; relinkedAt?: number };
+function RelinkLive() {
+  const [s, setS] = useState<Sess | null>(null);
+  const [picking, setPicking] = useState(false);
+  const load = () => fetch("/api/session").then((r) => r.json()).then(setS);
+  useEffect(() => { void load(); }, []);
+  const pick = async (folder: string) => {
+    await fetch("/api/session/relink", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ folder }) });
+    setPicking(false);
+    await load();
+  };
+  if (!s) return <div className="text-xs text-[var(--text-tertiary)]">Loading...</div>;
+  if (!s.missing) {
+    const ago = Math.round((Date.now() - (s.relinkedAt ?? Date.now())) / 60_000);
+    return <div data-testid="relinked"><InlineMessage severity="success" icon={mdiCheckCircleOutline} title={`Re-linked to ${s.folder}`}>{ago}m ago</InlineMessage></div>;
+  }
+  if (picking) return (
+    <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-2 text-xs flex flex-col gap-1">
+      <div className="text-[var(--text-tertiary)]">Pick the new folder</div>
+      {["~/work/web-app-old", "~/work/web-app-2"].map((f) => (
+        <button key={f} type="button" data-testid={`pick-${f.split("/").pop()}`} className="text-left px-2 py-1 rounded hover:bg-[var(--bg-tertiary)]" onClick={() => void pick(f)}>{f}</button>
+      ))}
+    </div>
+  );
+  return (
+    <InlineMessage severity="warning" icon={mdiFolderRemoveOutline} title="This session's folder no longer exists"
+      actions={<><button type="button" data-testid="relink" className={btn} onClick={() => setPicking(true)}>Re-link folder</button><button type="button" className={btn}>Archive session</button></>}>
+      {s.folder} was removed outside the app.
+    </InlineMessage>
+  );
+}
+/** Fresh state per pane and per loop: the POST changes only this instance. */
+const relinkFixtures = (): Fixtures => {
+  let session: Sess = { folder: "~/work/web-app", missing: true };
+  return {
+    http: {
+      "GET /api/session": () => session,
+      "POST /api/session/relink": (r) => { session = { folder: r.json<{ folder: string }>().folder, missing: false, relinkedAt: Date.now() }; return { ok: true }; },
+    },
+  };
+};
 
 const Page = ({ variant }: { variant: "current" | "proposed" }): ReactNode => (
   <div className="flex min-h-[420px]"><Sidebar variant={variant} /><Detail variant={variant} /></div>
@@ -146,6 +190,13 @@ const mock: Mock = {
         { label: "folder gone", proposed: <RelinkBanner /> },
         { label: "picker open", proposed: <Picker /> },
         { label: "re-linked", proposed: <Relinked /> },
+      ] },
+    { title: "Re-link flow - scripted", width: 420, why: "Real clicks on a fixture-backed component: the flow runs, it is not drawn.",
+      fixtures: relinkFixtures, proposed: <RelinkLive />,
+      script: [
+        { say: "Re-link the missing folder", target: "relink", act: "click" },
+        { say: "Pick the new folder", target: "pick-web-app-2", act: "click" },
+        { say: "Session is re-linked", act: "wait", target: "relinked", expect: "relinked" },
       ] },
   ],
 };

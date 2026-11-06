@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../../../..");
 
-/** Temp project with mockups/ + node_modules symlinked to the repo (so react/vite resolve). */
+/** Temp project with mockups/ + node_modules symlinked to the repo (so react/vite resolve). Plugin-level tests only (no app config). */
 export function makeFixture(): string {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ms-fx-")));
   fs.symlinkSync(path.join(repoRoot, "node_modules"), path.join(root, "node_modules"), "dir");
@@ -18,13 +18,11 @@ export function makeFixture(): string {
 }
 
 
-/** Fixture whose mock-site.config.ts really runs the plugin (for serve_mock_site). */
+/** Servable fixture (serve_mock_site): an app build config the site inherits + a plain options file. */
 export function makeServableFixture(): string {
   const root = makeFixture();
-  const plugin = path.resolve(here, "../mock-site/plugin.mjs");
-  fs.writeFileSync(path.join(root, "mockups/mock-site.config.ts"), `import path from "node:path";
-import { mockSite } from ${JSON.stringify(plugin)};
-export default { plugins: [mockSite({ projectRoot: path.resolve(__dirname, ".."), app: "./mock-site.app.tsx" })] };
-`);
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "fx", private: true, type: "module" }));
+  fs.writeFileSync(path.join(root, "vite.config.mjs"), "export default { server: { port: 3999 }, define: { __FX__: '1' } };\n");
+  fs.writeFileSync(path.join(root, "mockups/mock-site.config.ts"), 'export default { title: "Fixture", app: "./mock-site.app.tsx" };\n');
   return root;
 }
