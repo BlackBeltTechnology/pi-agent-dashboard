@@ -109,7 +109,7 @@ function Ring({ n, tip, kind, block, children }: { n: number | string; tip: stri
     addEventListener("scroll", hide, true);
     return () => removeEventListener("scroll", hide, true);
   }, [box]);
-  const show = () => { if (el.current) setBox(el.current.getBoundingClientRect()); };
+  const show = () => { if (el.current && !document.documentElement.classList.contains("mk-no-rings")) setBox(el.current.getBoundingClientRect()); };
   const below = !!box && box.top < 56;
   const base = useContext(RefBase);
   const okN = isRingN(n);
