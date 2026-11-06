@@ -34,7 +34,7 @@ async function setup() {
   } as unknown as Parameters<typeof registerPlugin>[0];
   await registerPlugin(ctx);
   if (!handler) throw new Error("plugin_action handler not registered");
-  return { handler, logger };
+  return { handler, logger, ctx };
 }
 
 const tick = () => new Promise((r) => setImmediate(r));
@@ -60,6 +60,27 @@ describe("automation plugin_action handler", () => {
     handler({ pluginId: "automation", action: "stop", payload: {} });
     await tick();
     expect(logger.warn).toHaveBeenCalledWith("automation stop: runId required");
+  });
+
+  // test-plan #E5 (plugin_action half) — the stop action admits its cwd like
+  // the REST route: an unadmitted cwd (and a folder stop without one) is
+  // refused before any lookup; nothing is signalled.
+  // See change: polish-automation-board (design D3).
+  it("stop with an unadmitted cwd is refused and never aborts", async () => {
+    const { handler, logger, ctx } = await setup();
+    handler({ pluginId: "automation", action: "stop", payload: { scope: "folder", cwd: "/not/admitted", runId: "r1" } });
+    await tick();
+    await tick();
+    expect(logger.warn).toHaveBeenCalledWith("automation stop runId=r1: cwd not admitted");
+    expect((ctx as unknown as { abortSpawnedRun: ReturnType<typeof vi.fn> }).abortSpawnedRun).not.toHaveBeenCalled();
+  });
+
+  it("folder stop without a cwd is refused", async () => {
+    const { handler, logger } = await setup();
+    handler({ pluginId: "automation", action: "stop", payload: { scope: "folder", runId: "r1" } });
+    await tick();
+    await tick();
+    expect(logger.warn).toHaveBeenCalledWith("automation stop runId=r1: cwd not admitted");
   });
 
   it("ignores a mismatched pluginId (defense-in-depth)", async () => {

@@ -269,7 +269,7 @@ describe("SE28 — remaining automation routes × {no cwd, unadmitted, admitted}
     await app.close();
   });
 
-  it("POST /run and /stop: no cwd unchanged; unadmitted 403 (hook not called); admitted passes cwd", async () => {
+  it("POST /run and /stop: no cwd (run) unchanged / (folder stop) 400; unadmitted 403 (hook not called); admitted passes cwd", async () => {
     const runNow = vi.fn(async () => ({ ok: true, runId: "x" }));
     const stopRun = vi.fn(async () => ({ ok: true }));
     const app = await appWith({ runNow, stopRun });
@@ -282,7 +282,14 @@ describe("SE28 — remaining automation routes × {no cwd, unadmitted, admitted}
     expect((await post("/api/plugins/automation/run", { name: "n", cwd: R })).statusCode).toBe(200);
     expect(runNow).toHaveBeenLastCalledWith({ scope: "folder", cwd: R, name: "n" });
 
-    expect((await post("/api/plugins/automation/stop", { runId: "r" })).statusCode).toBe(200);
+    // test-plan #E5: folder Stop without a cwd is a bad request (polish-automation-board D3);
+    // global Stop without a cwd is accepted.
+    const noCwd = await post("/api/plugins/automation/stop", { runId: "r" });
+    expect(noCwd.statusCode).toBe(400);
+    expect(noCwd.json().error).toBe("cwd_required");
+    expect(stopRun).toHaveBeenCalledTimes(0);
+    expect((await post("/api/plugins/automation/stop", { runId: "r", scope: "global" })).statusCode).toBe(200);
+    expect(stopRun).toHaveBeenLastCalledWith({ scope: "global", runId: "r" });
     expect((await post("/api/plugins/automation/stop", { runId: "r", cwd: U })).statusCode).toBe(403);
     expect(stopRun).toHaveBeenCalledTimes(1);
     expect((await post("/api/plugins/automation/stop", { runId: "r", cwd: R })).statusCode).toBe(200);

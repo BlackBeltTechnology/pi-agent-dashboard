@@ -89,3 +89,50 @@ describe("abortSpawnedRun", () => {
     expect(h.terminate).not.toHaveBeenCalled();
   });
 });
+
+// test-plan #E9 — honest outcome: `onResult` reports the terminator's outcome on
+// EVERY path (early return, result, throw); the boolean return is unchanged.
+// See change: polish-automation-board (design D4).
+describe("abortSpawnedRun onResult", () => {
+  const outcomes: TerminateResult[] = [
+    { outcome: "confirmed-dead", terminated: true, pid: 5 },
+    { outcome: "unconfirmed", terminated: false, pid: 6 },
+    { outcome: "refused-identity", terminated: false },
+    { outcome: "no-identity", terminated: false },
+    { outcome: "not-local", terminated: false },
+  ];
+  for (const r of outcomes) {
+    it(`reports ${r.outcome} exactly once and keeps the boolean`, async () => {
+      const h = make(r);
+      const onResult = vi.fn();
+      await expect(h.abort({ sessionId: "s1", onResult })).resolves.toBe(r.terminated);
+      expect(onResult).toHaveBeenCalledTimes(1);
+      expect(onResult).toHaveBeenCalledWith({ outcome: r.outcome, ...(r.pid !== undefined ? { pid: r.pid } : {}) });
+    });
+  }
+
+  it("reports no-identity on the early return (neither id given)", async () => {
+    const h = make(DEAD);
+    const onResult = vi.fn();
+    await expect(h.abort({ onResult })).resolves.toBe(false);
+    expect(h.terminate).not.toHaveBeenCalled();
+    expect(onResult).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith({ outcome: "no-identity" });
+  });
+
+  it("reports unconfirmed then rethrows when terminate throws", async () => {
+    const terminate = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    const abort = createAbortSpawnedRun({
+      terminate,
+      sendShutdownHint: () => false,
+      recordReclaimFailure: vi.fn(),
+      warn: vi.fn(),
+    });
+    const onResult = vi.fn();
+    await expect(abort({ sessionId: "s1", onResult })).rejects.toThrow("boom");
+    expect(onResult).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith({ outcome: "unconfirmed" });
+  });
+});

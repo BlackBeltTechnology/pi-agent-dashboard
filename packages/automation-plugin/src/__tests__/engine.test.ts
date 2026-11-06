@@ -567,7 +567,7 @@ describe("engine run lifecycle", () => {
         calls.push(opts);
         return { success: true, spawnToken: token };
       },
-      abortSpawnedRun: async (args) => {
+      abortSpawnedRun: async ({ onResult: _onResult, ...args }) => {
         terminations.push(args);
         return true;
       },
@@ -589,7 +589,7 @@ describe("engine run lifecycle", () => {
     await flushSpawn();
     engine.onSessionRegistered("sess-1", repo);
 
-    expect(await engine.stopRun(runId)).toBe(true);
+    expect(await engine.stopRun(runId)).toBe("unconfirmed");
     expect(terminations).toEqual([{ sessionId: "sess-1", spawnToken: "tok-1" }]);
     const parent = parentRun(repo, "nightly", runId);
     expect(parent.status).toBe("stopped");
@@ -613,7 +613,7 @@ describe("engine run lifecycle", () => {
     const terminations: any[] = [];
     const engine = createEngine({
       spawnSession: async () => ({ success: true, spawnToken: "tok-x17" }),
-      abortSpawnedRun: async (args) => {
+      abortSpawnedRun: async ({ onResult: _onResult, ...args }) => {
         terminations.push(args);
         engineRef?.onSessionDeath("sess-x17", "");
         return true;
@@ -641,7 +641,7 @@ describe("engine run lifecycle", () => {
     await flushSpawn(); // spawn resolved + token captured, but NO session_register yet
 
     // Stop before register: no sessionId bound, only the spawnToken handle.
-    expect(await engine.stopRun(runId)).toBe(true);
+    expect(await engine.stopRun(runId)).toBe("unconfirmed");
     expect(terminations).toEqual([{ spawnToken: "tok-prereg" }]);
 
     // The late register must find no pending child → no prompt delivery, no zombie.
@@ -672,7 +672,7 @@ describe("engine run lifecycle", () => {
 
   it("stopRun on an unknown/finalized run is a no-op returning false", async () => {
     const engine = makeEngine([]);
-    expect(await engine.stopRun("does-not-exist")).toBe(false);
+    expect(await engine.stopRun("does-not-exist")).toBeNull();
   });
 
   it("arms valid automations via start()", () => {
@@ -1050,7 +1050,7 @@ describe("engine fan-out", () => {
     });
     const r = engine.startRunFor(fanoutAutomation("win", 1))!;
     // spawn has NOT resolved: no sessionId, no spawnToken yet.
-    expect(await engine.stopRun(r.runId)).toBe(true);
+    expect(await engine.stopRun(r.runId)).toBe("unconfirmed");
     resolveSpawn({ success: true, spawnToken: "tok-w" });
     await flushSpawn();
     expect(terminations).toContainEqual({ spawnToken: "tok-w" });
@@ -1319,5 +1319,123 @@ describe("folder-scope contributions (union → scan/arm)", () => {
       expect(calls).toHaveLength(2);
       engine.dispose();
     });
+  });
+});
+
+// ── Orphan definition + honest live Stop outcomes ───────────────────────────
+// See change: polish-automation-board (design D1, D4).
+describe("engine orphan definition + live stop outcomes", () => {
+  const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+  const cfg = () => ({ defaultVisibility: "hidden" as const, retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 });
+
+  // test-plan #E1 — decision table: status × tracked × startedAt vs bootedAt.
+  it("E1: orphaned only for running ∧ untracked ∧ started before boot", async () => {
+    const BOOT = 1_000_000;
+    const engine = createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok" }),
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: cfg,
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+      now: () => BOOT,
+    });
+    expect(engine.bootedAt).toBe(BOOT);
+    const { runId } = engine.startRunFor(promptAutomation("tracked", "x"))!;
+    await flush();
+    const trackedId = children(repo, "tracked", runId)[0]!.runId;
+    expect(engine.isTracked(trackedId)).toBe(true);
+    expect(engine.isTracked(runId)).toBe(true); // live parent counter
+    expect(engine.isTracked("never-seen")).toBe(false);
+
+    const rows: Array<[string, "running" | "done", boolean, number, boolean]> = [];
+    for (const status of ["running", "done"] as const) {
+      for (const tracked of [true, false]) {
+        for (const startedAt of [BOOT - 1, BOOT]) {
+          rows.push([tracked ? trackedId : "untracked-id", status, tracked, startedAt,
+            status === "running" && !tracked && startedAt < BOOT]);
+        }
+      }
+    }
+    expect(rows).toHaveLength(8);
+    for (const [id, status, , startedAt, expected] of rows) {
+      expect(engine.isOrphaned({ runId: id, status, startedAt })).toBe(expected);
+    }
+    expect(rows.filter((r) => r[4])).toHaveLength(1);
+    engine.dispose();
+  });
+
+  // test-plan #X7 — spawn-window stop: nothing verified yet → `unconfirmed`,
+  // and the record says why once the spawn continuation finalizes.
+  it("X7: a stop before any session/token is unconfirmed; the record reason says so", async () => {
+    let resolveSpawn!: (r: { success: boolean; spawnToken?: string }) => void;
+    const aborts: unknown[] = [];
+    const engine = createEngine({
+      spawnSession: () => new Promise((r) => { resolveSpawn = r; }),
+      abortSpawnedRun: async (a) => { aborts.push(a); return true; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: cfg,
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    const { runId } = engine.startRunFor(promptAutomation("window", "x"))!;
+    const childId = children(repo, "window", runId)[0]!.runId;
+    expect(await engine.stopRun(childId)).toBe("unconfirmed");
+    expect(children(repo, "window", runId)[0]!.status).toBe("running"); // deferred
+    resolveSpawn({ success: true, spawnToken: "tok-late" });
+    await flush();
+    const child = children(repo, "window", runId)[0]!;
+    expect(child.status).toBe("stopped");
+    expect(child.error).toContain("before the session registered");
+    expect(aborts).toHaveLength(1);
+    engine.dispose();
+  });
+
+  // test-plan #X8 — a registered run whose kill the host cannot verify.
+  function registeredEngine(outcome: "confirmed-dead" | "unconfirmed" | undefined) {
+    const engine = createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok-x8" }),
+      abortSpawnedRun: async ({ onResult }) => {
+        if (outcome) onResult?.({ outcome });
+        return outcome === "confirmed-dead";
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: cfg,
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    return engine;
+  }
+
+  it("X8: an unverifiable kill is unconfirmed and the record says the process may still be running", async () => {
+    const engine = registeredEngine("unconfirmed");
+    const { runId } = engine.startRunFor(promptAutomation("x8", "x"))!;
+    await flush();
+    const childId = children(repo, "x8", runId)[0]!.runId;
+    engine.onSessionRegisteredForRun("sess-x8", childId);
+    expect(await engine.stopRun(childId)).toBe("unconfirmed");
+    const child = children(repo, "x8", runId)[0]!;
+    expect(child.status).toBe("stopped");
+    expect(child.error).toContain("may still be running");
+    expect(child.error).not.toBe("stopped by user");
+    engine.dispose();
+  });
+
+  it("a host-verified kill is `killed` with the plain reason; no onResult call counts as unconfirmed", async () => {
+    const killed = registeredEngine("confirmed-dead");
+    const a = killed.startRunFor(promptAutomation("k", "x"))!;
+    await flush();
+    const kid = children(repo, "k", a.runId)[0]!.runId;
+    killed.onSessionRegisteredForRun("sess-k", kid);
+    expect(await killed.stopRun(a.runId)).toBe("killed"); // parent: every child killed
+    expect(children(repo, "k", a.runId)[0]!.error).toBe("stopped by user");
+    killed.dispose();
+
+    const silent = registeredEngine(undefined);
+    const b = silent.startRunFor(promptAutomation("s", "x"))!;
+    await flush();
+    const kid2 = children(repo, "s", b.runId)[0]!.runId;
+    silent.onSessionRegisteredForRun("sess-s", kid2);
+    expect(await silent.stopRun(kid2)).toBe("unconfirmed");
+    silent.dispose();
   });
 });
