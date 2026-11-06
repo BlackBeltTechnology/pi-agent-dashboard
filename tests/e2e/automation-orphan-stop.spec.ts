@@ -20,7 +20,7 @@
 import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
 import { residentPiPids, resolveContainer, waitUntilGone } from "./helpers/container-proc.js";
-import { FIXTURE_GIT } from "./helpers/index.js";
+import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 const NAME = "e2e-orphan-stop";
@@ -157,13 +157,16 @@ test.describe("orphaned automation run after a restart (polish-automation-board)
       .toBe("true/true");
 
     // F1 — the board names it and Stop (after confirm) kills the real process.
-    await page.goto(`/folder/${encodeFolderPath(FIXTURE_GIT)}/automations`);
+    // gotoDashboard arms the first-launch modal auto-dismiss before navigating.
+    await gotoDashboard(page, `/folder/${encodeFolderPath(FIXTURE_GIT)}/automations`);
     await expect(page.getByTestId(`automation-enabled-${NAME}`)).toHaveText("orphaned", { timeout: 30_000 });
     await expect(page.getByTestId(`automation-orphan-notice-${NAME}`)).toContainText("still connected");
     await page.getByTestId(`stop-${NAME}`).click();
     await page.getByTestId(`stop-confirm-yes-${NAME}`).click();
+    // Honest outcome surfaced on the card: a verified kill reads "process is gone".
     await expect(page.getByTestId(`automation-stop-notice-${NAME}`)).toContainText("process is gone", { timeout: 60_000 });
-    await expect(page.getByTestId(`run-now-${NAME}`)).toBeVisible({ timeout: 30_000 });
+    // THIS run's child is finalized stopped, and THIS run's pi is gone. (Asserted
+    // per-run, not at card level: the shared harness may hold other occurrences.)
     await expect.poll(async () => (await child(page.request, parentRunId))?.status, { timeout: 30_000 }).toBe("stopped");
     for (const pid of fresh) {
       expect(await waitUntilGone(container, pid, 30_000), `pi ${pid} outlived the orphan Stop`).toBe(true);
@@ -181,9 +184,12 @@ test.describe("orphaned automation run after a restart (polish-automation-board)
       data: { scope: "folder", cwd: FIXTURE_GIT, runId: (await child(page.request, parentRunId))!.runId },
     });
     expect(stopped.ok(), `stop failed: ${stopped.status()} ${await stopped.text()}`).toBe(true);
-    await expect.poll(async () => (await child(page.request, parentRunId))?.status, { timeout: 30_000 }).toBe("stopped");
+    // A live tracked stop may finalize `stopped` or `error` (killing the pid
+    // closes the bridge, racing onSessionDeath); F2 only needs a TERMINAL run
+    // that still carries its sessionId for the Open-session nav.
+    await expect.poll(async () => (await child(page.request, parentRunId))?.status, { timeout: 30_000 }).not.toBe("running");
 
-    await page.goto(`/folder/${encodeFolderPath(FIXTURE_GIT)}/automations`);
+    await gotoDashboard(page, `/folder/${encodeFolderPath(FIXTURE_GIT)}/automations`);
     await page.getByTestId(`last-run-session-${NAME}`).click();
     await expect(page).toHaveURL(new RegExp(`/session/${sid}\\?archived=1$`), { timeout: 30_000 });
     await expect(page.getByTestId("session-not-found")).toHaveCount(0);
