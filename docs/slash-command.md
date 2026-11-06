@@ -96,7 +96,7 @@ Per `notes/preflight-empirical-checks.md` Q1 plus proposal Impact section. `pi.r
 
 Excluded by `isExtensionSlashCommand`: names in `DASHBOARD_NATIVE_COMMANDS` (`{"roles"}`) and `__`-prefixed names (`/__dashboard_reload`).
 
-Flow buttons in kebab menu mask the old bug because they route via `flow_management` ws message (separate handler in `bridge.ts`). Typed `/flows:new` in chat hit the broken path.
+Flow buttons in kebab menu mask the old bug because they route via a separate message (then `flow_management`, now the flows plugin `plugin_action`). Typed `/flows:new` in chat hit the broken path.
 
 Empirical proof: `echo '{"type":"prompt","message":"/flows:new","id":"1"}' | pi --mode rpc` dispatches correctly via `session.prompt`, returns `extension_ui_request` from pi-flows.
 

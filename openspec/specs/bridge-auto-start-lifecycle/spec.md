@@ -324,7 +324,7 @@ a pinned session must never become a competitor-launching session.
 
 Whenever the auto-start path does NOT launch — because a dashboard already
 answers on the resolved port, the endpoint is pinned, the worktree refusal
-fires, or the resolved port is occupied by another service — the durable
+fires, or the resolved port is occupied by another service, or no Node satisfying the server engines range was resolved — the durable
 auto-start log (`appendAutoStartLog`) SHALL gain a line naming the ports
 involved. When the resolved port serves, auto-start SHALL return it without
 consulting discovery, and SHALL NOT emit any port-mismatch record or warning.
@@ -369,6 +369,13 @@ SHALL be greppable in the server log.
   container
 - **AND** `tests/e2e/faux-text.spec.ts` SHALL pass, as the canary any other
   E2E verdict depends on
+
+#### Scenario: No qualifying Node is logged
+- **GIVEN** no dashboard answers on the resolved port
+- **AND** server-spawn runtime resolution returns unresolved
+- **WHEN** auto-start runs
+- **THEN** the launch step is not invoked
+- **AND** the durable auto-start log gains one line naming the resolved port, the required Node range and every skipped candidate with its reason
 
 ### Requirement: The resolved port's status is established before discovery can win
 

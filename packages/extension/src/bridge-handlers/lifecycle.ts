@@ -21,7 +21,7 @@ import { DashboardDefaultAdapter } from "../dashboard-default-adapter.js";
 import { decideRetarget } from "../endpoint-resolution.js";
 import { mapEventToProtocol } from "../event-forwarder.js";
 import { bridgeExtensionIdentity } from "../extension-identity.js";
-import { registerFlowEventListeners } from "../flow-event-wiring.js";
+import { registerCommandsChangedListener } from "../flow-event-wiring.js";
 import { createGitPollState, runGitPollTick } from "../git-poll.js";
 import { flipHasUI } from "../hasui-flip.js";
 import { healthUrlForInstance, verifyInstanceIdentity } from "../instance-verification.js";
@@ -924,11 +924,6 @@ export function registerSessionStart(inst: BridgeInstance): void {
           pluginForwardRetained: inst.pluginForwardRegistry.stats.buffer.retained,
           pluginForwardDropped:
             inst.pluginForwardRegistry.stats.buffer.dropped + inst.pluginForwardRegistry.stats.buffer.keyRejected,
-          // Subagent fan-out admission counters ride the same transport, so a
-          // narrowed fan-out is observable instead of looking like a model that
-          // chose not to parallelize. See change:
-          // bound-subagent-fanout-under-host-pressure (D7).
-          ...inst.fanoutAdmission.counters,
           // Agent path gate counters (in-root decisions are counted, not logged).
           pathGateInRoot: inst.pathGate.counters.inRoot,
           pathGateAsked: inst.pathGate.counters.asked,
@@ -977,8 +972,8 @@ export function registerSessionStart(inst: BridgeInstance): void {
     inst.polling.replaceProcessScan(scheduler);
     scheduler.start();
 
-    // Register flow event listeners (pi-flows emits these via pi.events)
-    registerFlowEventListeners(inst.syncBc(), () => inst.sessionReady);
+    // Generic commands-list resend seam (plugins emit dashboard:commands-changed).
+    registerCommandsChangedListener(inst.syncBc(), () => inst.sessionReady);
 
     // Extension UI System (Phase 1): subscribe to invalidate once per
     // session, then run the discovery probe. The probe is synchronous

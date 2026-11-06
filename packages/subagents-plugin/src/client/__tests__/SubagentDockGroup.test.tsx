@@ -101,6 +101,32 @@ describe("SubagentDockGroup — rows mode", () => {
     expect(screen.getAllByTestId("composer-dock-row")).toHaveLength(2);
   });
 
+  // See change: subagent-queue-visibility (review B3, test-plan #E11).
+  it("shows a queued subagent as waiting: `#n in queue`, no run timer", () => {
+    subagents = mapOf(
+      sub({ id: "q1", status: "running", queuePosition: 2, startedAt: NOW - 30_000, displayName: "waiter" }),
+      sub({ id: "q2", status: "created", queuePosition: 1 }),
+    );
+    renderGroup("rows");
+    const metas = screen.getAllByTestId("composer-dock-row-meta").map((m) => m.textContent);
+    expect(metas).toEqual(["#2 in queue", "#1 in queue"]);
+    expect(screen.queryByTestId("composer-dock-row-elapsed")).toBeNull();
+  });
+
+  it("a running subagent whose slot was granted is no longer shown as queued", () => {
+    subagents = mapOf(sub({ id: "r1", status: "running", queuePosition: 0, slotGrantedAt: NOW - 5_000, startedAt: NOW - 60_000 }));
+    renderGroup("rows");
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Explore");
+    // Run time counts from the slot grant, not from the call (spec: wait is not run time).
+    expect(screen.getByTestId("composer-dock-row-elapsed").textContent).toBe("5s");
+  });
+
+  it("a stopped subagent leaves the Processes lane like any finished one", () => {
+    subagents = mapOf(sub({ id: "s1", status: "stopped", stopReason: "queued" }), sub({ id: "a1", startedAt: NOW }));
+    renderGroup("rows");
+    expect(screen.getAllByTestId("composer-dock-row")).toHaveLength(1);
+  });
+
   it("renders nothing with zero subagents", () => {
     const { container } = renderGroup("rows");
     expect(container.innerHTML).toBe("");

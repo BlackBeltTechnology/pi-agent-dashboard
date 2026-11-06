@@ -8,7 +8,9 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { computeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
+import { getReplayEntryTypes, recordRejectedPluginAction, setReplayEntryTypesProvider } from "./plugin-entry-stats.js";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createPluginServiceRegistry, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getFileValidatorPool, getFileValidatorRegistry, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginServerAllowed, redactPluginConfigForClient, refreshRequirementProbesFor, registerPluginAssetsRoute, resolvePluginEnabled, type ServerLoadDeps, setDeclaredBundledPluginIds } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import {
   createMcpClientConfigService,
   createRealConfigIO,
@@ -387,6 +389,7 @@ import { bootScanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
 import { createAbortSpawnedRun } from "./spawn-process/abort-spawned-run.js";
 import { setLocalAcpHost, spawnAcpSession, validatePluginAcpSpawn } from "./spawn-process/acp-spawn.js";
+import { mapPluginSpawnOptions } from "./spawn-process/plugin-spawn-choice.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
@@ -720,6 +723,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const customEventGroupResolver = new CustomEventGroupResolver(
     customEventGroupsStore.list(),
     customEventGroupMatcher,
+    // Plugin-declared entry types are never grouped. See change: update-flows-plugin (D3).
+    { isPluginEntryType: (t) => getReplayEntryTypes().hidden.includes(t) },
   );
 
   migrateCustomEntryFallbackOverrides(undefined, undefined, Object.fromEntries(
@@ -2716,6 +2721,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingPrincipalOwnerRegistry,
     pendingResumeIntents,
     pendingAttachRegistry,
+    pendingInitialPromptRegistry,
     pendingPromptAcks,
     sessionArchive,
     pendingArchiveIntents,
@@ -3066,6 +3072,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       } catch { /* best-effort */ }
     }
   };
+  // Plugin-declared replay entry types (manifest `replayEntryTypes`): enabled
+  // plugins replay, every declaring plugin hides. Read by each session replay;
+  // short-TTL cache so a toggle lands without a per-load disk scan.
+  // See change: update-flows-plugin (D3, G5).
+  {
+    let cached: { at: number; sets: ReturnType<typeof computeReplayEntryTypes> } | undefined;
+    setReplayEntryTypesProvider(() => {
+      const now = Date.now();
+      if (cached && now - cached.at < 5_000) return cached.sets;
+      const config = loadConfig();
+      const sets = computeReplayEntryTypes(
+        discoverPlugins().map((p) => ({
+          replayEntryTypes: p.manifest.replayEntryTypes,
+          enabled: resolvePluginEnabled(
+            getPluginConfigFromFile(config, p.manifest.id) as Record<string, unknown>,
+            p.manifest.defaultEnabled,
+          ),
+        })),
+      );
+      cached = { at: now, sets };
+      return sets;
+    });
+  }
   const embedLifecycle = createEmbedLifecycleController({
     closers: sessionClosers,
     markArchiveOnEnd,
@@ -4257,7 +4286,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // options rejected, unknown agent rejected). See change: add-acp-session-driver (D14).
                 const acpRejection = validatePluginAcpSpawn(opts);
                 if (acpRejection) return { success: false, message: acpRejection };
-                const sessionOptions = pluginSpawnToSessionOptions(opts);
+                // Literal model passes through; `@role` resolves once; a dropped
+                // choice is reported in `warning`. See change: add-spawn-model-choice.
+                const { options: sessionOptions, warning: choiceWarning } = mapPluginSpawnOptions(opts, {
+                  defaultModel: loadConfig().defaultModel || undefined,
+                });
                 // Honour a caller-supplied spawn token VERBATIM (trusted-only
                 // — this code only runs past the trusted gate). A token
                 // already pending for ANY owner is rejected via the
@@ -4332,16 +4365,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   // is consumed with it.
                   if (!result.success) {
                     pendingPluginRefRegistry.remove(spawnToken);
-                    if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
+                    if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
                   }
                   return {
                     success: result.success,
                     message: result.message,
                     ...(result.spawnToken ? { spawnToken: result.spawnToken } : { spawnToken }),
+                    ...(result.success && choiceWarning ? { warning: choiceWarning } : {}),
                   };
                 } catch (err) {
                   pendingPluginRefRegistry.remove(spawnToken);
-                  if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
+                  if (initialPrompt) pendingInitialPromptRegistry.withdraw(opts.cwd, initialPrompt);
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
               },
@@ -4549,6 +4583,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Only event types in the plugin's manifest `emits` (live; automation also
               // gets its accepted action providers' emits) pass.
               // See change: harden-git-terminal-plugin-boundaries (D16).
+              // Rejected plugin_action / plugin-route command counter (/api/health).
+              // See change: update-flows-plugin (task 2.4).
+              recordRejectedPluginAction: () => recordRejectedPluginAction(),
               emitEventToSession: (sessionId, eventType, data) =>
                 pluginEventSeam.emitEventToSession(
                   (plugin.manifest.priority ?? 1000) <= 100,

@@ -234,7 +234,7 @@ When no source is available and `--install` was not passed, the script SHALL wri
 
 ### Requirement: Consented install of the latest release
 
-With `--install`, the script SHALL first check prerequisites: npm must be resolvable (same lookup as the CLI), and Node must be in the dashboard's usable Node range: the repository's `engines.node` range (`>=22.19.0 <27`), excluding the Fastify-affected versions v22.0–v22.18 and v24.1–v24.2, the same accept-set the doctor uses. If either check fails, it SHALL write `STATUS=failed` and exit 1 without downloading.
+With `--install`, the script SHALL first check prerequisites: npm must be resolvable (same lookup as the CLI), and Node must be in the dashboard's usable Node range: the repository's `engines.node` range (`>=26.0.0 <27`), the same accept-set the doctor uses. The script's range constants SHALL be pinned to `package.json#engines.node` by a repo-lint test. If either check fails, it SHALL write `STATUS=failed` and exit 1 without downloading.
 
 It SHALL run `npm install -g @blackbelt-technology/pi-agent-dashboard@latest` with `npm_config_allow_remote=all` set on that command only.
 
@@ -266,7 +266,7 @@ On success, stdout SHALL contain `INSTALL=global` or `INSTALL=npx-cache` besides
 
 #### Scenario: Node too old
 
-- **WHEN** `--install` is passed and the resolved Node is outside the usable range (for example v22.18.0, v24.2.0 or v27.0.0)
+- **WHEN** `--install` is passed and the resolved Node is outside the usable range (for example v22.19.0, v24.15.0, v25.9.0 or v27.0.0)
 - **THEN** the script SHALL write `STATUS=failed`, exit 1 naming the usable range, and SHALL NOT run npm or npx
 
 #### Scenario: Prerelease refused

@@ -1,21 +1,25 @@
 /**
  * pick-node.ts — select the Node.js binary used to spawn the dashboard server.
  *
- * Under the immutable-bundle architecture (see change:
- * eliminate-electron-runtime-install), the bundled Node binary is the
- * only supported choice:
+ * Order (change raise-node-floor-to-26, design D7):
  *
- *   <resourcesPath>/node/bin/node       (POSIX)
- *   <resourcesPath>/node/node.exe       (Windows)
+ *   1. bundled  — `<resourcesPath>/node/bin/node` (POSIX) /
+ *                 `<resourcesPath>/node/node.exe` (Windows). The normal case
+ *                 for every packaged app.
+ *   2. system   — a pre-resolved Node satisfying the server engines range
+ *                 (`resolveServerRuntime`, run by `launch-source.ts` ONLY when
+ *                 the bundled binary is missing: dev / localLink / overlay).
+ *   3. execpath-fallback — Electron's own executable with
+ *                 `ELECTRON_RUN_AS_NODE=1`, ONLY when its embedded Node
+ *                 (`process.versions.node`) satisfies the server range.
+ *   4. unavailable — none qualifies; the caller surfaces `reason` as a
+ *                 user-facing error and never calls `launchDashboardServer`.
  *
- * The previous system-vs-bundled selection logic existed only to defend
- * against runtime-extraction failure modes that cannot occur once
- * Electron is a pure launcher reading from read-only resources.
- *
- * Pure function: all inputs are injected so tests stay free of real I/O.
+ * Pure and synchronous: all inputs are injected so tests stay free of real I/O.
  */
-import path from "node:path";
 import { existsSync as fsExistsSync } from "node:fs";
+import path from "node:path";
+import { isUsableNodeVersion, SERVER_ENGINES_RANGE } from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
 
 export interface PickNodeInput {
   /** Resolved Resources/node dir. Required — bundled Node must exist for packaged Electron. */
@@ -26,18 +30,30 @@ export interface PickNodeInput {
   platform: NodeJS.Platform;
   /** Injected for testability; defaults to existsSync from node:fs. */
   existsSync?: (p: string) => boolean;
+  /**
+   * Electron's embedded Node version (`process.versions.node`). The
+   * execPath fallback is chosen only when this satisfies the server range.
+   */
+  embeddedNodeVersion: string;
+  /** A qualifying system Node pre-resolved by the caller (bundled missing only). */
+  systemNode?: { nodeBin: string; version: string } | null;
 }
 
 export type PickNodeResult =
   | { kind: "bundled"; nodeBin: string }
-  | { kind: "execpath-fallback"; nodeBin: string; needsElectronRunAsNode: true };
+  | { kind: "system"; nodeBin: string; version: string }
+  | { kind: "execpath-fallback"; nodeBin: string; needsElectronRunAsNode: true }
+  | { kind: "unavailable"; reason: string };
+
+/** Path of the bundled Node binary inside `bundledNodeDir` for `platform`. */
+function bundledBinary(bundledNodeDir: string, platform: NodeJS.Platform): string {
+  return platform === "win32"
+    ? path.win32.join(bundledNodeDir, "node.exe")
+    : path.posix.join(bundledNodeDir, "bin", "node");
+}
 
 /**
  * Determine which Node binary to use for spawning the dashboard server.
- *
- * Returns the bundled Node when available. Falls back to Electron's own
- * execPath (with `ELECTRON_RUN_AS_NODE=1`) only when bundled Node is
- * missing — a corrupted-install signal, not a normal operating mode.
  *
  * IMPORTANT: process.execPath is referenced only through the injected
  * `processExecPath` field — sole allowed site per no-electron-execpath-spawn lint.
@@ -47,20 +63,40 @@ export function pickNodeForServer(input: PickNodeInput): PickNodeResult {
   const fsExists = input.existsSync ?? fsExistsSync;
 
   if (bundledNodeDir) {
-    const pjoin = platform === "win32" ? path.win32.join : path.posix.join;
-    const nodeBin =
-      platform === "win32"
-        ? pjoin(bundledNodeDir, "node.exe")
-        : pjoin(bundledNodeDir, "bin", "node");
-    if (fsExists(nodeBin)) {
-      return { kind: "bundled", nodeBin };
-    }
+    const nodeBin = bundledBinary(bundledNodeDir, platform);
+    if (fsExists(nodeBin)) return { kind: "bundled", nodeBin };
   }
 
-  // Bundled Node missing — corrupted install. Use Electron's own binary
-  // (with ELECTRON_RUN_AS_NODE=1) so the user at least sees an error,
-  // not a silent no-op.
-  return { kind: "execpath-fallback", nodeBin: processExecPath, needsElectronRunAsNode: true };
+  if (input.systemNode) {
+    return { kind: "system", nodeBin: input.systemNode.nodeBin, version: input.systemNode.version };
+  }
+
+  if (isUsableNodeVersion(input.embeddedNodeVersion)) {
+    return { kind: "execpath-fallback", nodeBin: processExecPath, needsElectronRunAsNode: true };
+  }
+
+  const embedded = input.embeddedNodeVersion.startsWith("v")
+    ? input.embeddedNodeVersion
+    : `v${input.embeddedNodeVersion}`;
+  return {
+    kind: "unavailable",
+    reason:
+      `No Node satisfying ${SERVER_ENGINES_RANGE} is available to run the dashboard server: ` +
+      "the bundled Node is missing, no qualifying system Node was found, and Electron's " +
+      `embedded Node ${embedded} is outside the range. Install Node 26 (e.g. \`nvm install 26\`).`,
+  };
+}
+
+/**
+ * True when the bundled Node binary exists — lets the caller skip the async
+ * system-Node resolution on every packaged launch.
+ */
+export function hasBundledNode(
+  bundledNodeDir: string | null,
+  platform: NodeJS.Platform,
+  exists: (p: string) => boolean = fsExistsSync,
+): boolean {
+  return !!bundledNodeDir && exists(bundledBinary(bundledNodeDir, platform));
 }
 
 /**

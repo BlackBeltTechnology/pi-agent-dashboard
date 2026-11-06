@@ -350,20 +350,6 @@ export interface ProcessMetrics {
   pluginForwardRetained?: number;
   pluginForwardDropped?: number;
   /**
-   * Subagent fan-out admission counters (change:
-   * bound-subagent-fanout-under-host-pressure, D7). Cumulative for the bridge's
-   * lifetime. `fanoutAdmitted` are calls the gate admitted; `fanoutRefused` are
-   * refusals by any cause, of which `fanoutSaturationRefused` were caused by
-   * resource saturation rather than the static cap. The refusals are ALSO
-   * written to the durable session record, because the failure mode this
-   * capability addresses ends with the process gone and these live counters
-   * vanish with it. Ride the existing heartbeat metrics transport rather than a
-   * new one.
-   */
-  fanoutAdmitted?: number;
-  fanoutRefused?: number;
-  fanoutSaturationRefused?: number;
-  /**
    * V8 heap ceiling of this process in bytes (`v8.getHeapStatistics()
    * .heap_size_limit`). Without it `heapUsed` is unreadable: "148 MB" means
    * nothing until you know whether the ceiling is 512 MB or 8 GB.
@@ -728,6 +714,10 @@ export interface SpawnNewSessionMessage {
   type: "spawn_new_session";
   sessionId: string;
   cwd: string;
+  /** Requesting session's current `provider/id`; omitted when unknown. See change: add-spawn-model-choice (D5). */
+  model?: string;
+  /** Requesting session's current thinking level; sent only together with `model`. */
+  thinkingLevel?: string;
 }
 
 // ── PromptBus protocol messages ─────────────────────────────────────
@@ -1387,12 +1377,6 @@ export interface StopAfterTurnExtensionMessage {
   sessionId: string;
 }
 
-export interface FlowControlExtensionMessage {
-  type: "flow_control";
-  sessionId: string;
-  action: "abort" | "toggle_autonomous" | "dismiss_summary";
-}
-
 // LoadSessionEventsMessage removed — server loads directly via DirectoryService
 
 export interface HeartbeatAckMessage {
@@ -1446,17 +1430,6 @@ export interface McpTokenMintedExtensionMessage {
    * See change: migrate-mcp-to-pi-builtin (D1).
    */
   url?: string;
-}
-
-export interface FlowManagementExtensionMessage {
-  type: "flow_management";
-  sessionId: string;
-  action: "run" | "new" | "edit" | "delete" | "set-edit-mode";
-  flowName?: string;
-  task?: string;
-  description?: string;
-  /** For action "set-edit-mode": toggles pi-flows `flows.editFlow`. */
-  enabled?: boolean;
 }
 
 export interface ArchitectPromptResponseExtensionMessage {
@@ -1730,7 +1703,6 @@ export type ServerToExtensionMessage =
   | ShutdownExtensionMessage
   | StopAfterTurnExtensionMessage
   | GitInfoRefreshExtensionMessage
-  | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
   | PathGrantResultMessage
@@ -1740,7 +1712,6 @@ export type ServerToExtensionMessage =
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage
   | PluginReplyMessage
-  | FlowManagementExtensionMessage
   | ArchitectPromptResponseExtensionMessage
   | PromptResponseServerMessage
   | RoleSetExtensionMessage

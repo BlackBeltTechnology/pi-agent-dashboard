@@ -16,6 +16,8 @@
  *
  * See change: skip-rpc-probes-in-event-forwarder.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { forwardedBusChannels, registerEventBusForwarding } from "../flow-event-wiring.js";
 import { type BridgeSourceFile, readBridgeSource } from "./helpers/bridge-source.js";
@@ -26,6 +28,7 @@ const RPC_PROBE_CHANNELS = [
   "flow:list-flows",
   "flow:get-agents",
   "flow:get-available-models",
+  "models:get-available",
   "model:resolve",
   "role:resolve-model",
   "roles:get-all",
@@ -47,13 +50,13 @@ function stripComments(src: string): string {
   );
 }
 
-/** `EVENT_BUS_MAP` in `bridge.ts` must be exactly `{ ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP }`. */
+/** `EVENT_BUS_MAP` in `bridge.ts` must be exactly `{ ...SUBAGENT_EVENT_MAP }` (flow channels are plugin-declared). */
 function assertEventBusMapPinned(src: string): void {
   const m = /const EVENT_BUS_MAP\s*:\s*Record<string,\s*string>\s*=\s*\{([^}]*)\}/.exec(stripComments(src));
   if (!m) throw new Error("EVENT_BUS_MAP literal not found in bridge.ts");
   const body = m[1].replace(/\s+/g, " ").replace(/,\s*$/, "").trim();
-  if (body !== "...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP") {
-    throw new Error(`EVENT_BUS_MAP must be exactly { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP }, found { ${body} }`);
+  if (body !== "...SUBAGENT_EVENT_MAP") {
+    throw new Error(`EVENT_BUS_MAP must be exactly { ...SUBAGENT_EVENT_MAP }, found { ${body} }`);
   }
 }
 
@@ -128,7 +131,9 @@ describe("RPC probes are not forwarded (static set)", () => {
   it("E1: no probe channel is a forwarded channel; real channels still are", () => {
     const channels = forwardedBusChannels();
     for (const probe of RPC_PROBE_CHANNELS) expect(channels, probe).not.toContain(probe);
-    expect(channels).toContain("flow:complete");
+    // flow:* channels are declared by the flows plugin bridge, never core.
+    // See change: update-flows-plugin.
+    expect(channels).not.toContain("flow:complete");
     expect(channels).toContain("subagents:completed");
   });
 });
@@ -147,10 +152,10 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
 
     const probe: { flows?: unknown } = {};
     host.foreignEvents.emit("flow:list-flows", probe);
-    host.foreignEvents.emit("flow:complete", { status: "success" });
+    host.foreignEvents.emit("subagents:completed", { agentId: "a" });
 
     expect(probe.flows).toEqual([{ name: "x" }]);
-    expect(sent.map((s) => s.channel)).toEqual(["flow:complete"]);
+    expect(sent.map((s) => s.channel)).toEqual(["subagents:completed"]);
   });
 
   it("E3: a probe emitted by a foreign facade is answered but not forwarded", () => {
@@ -188,15 +193,41 @@ describe("RPC probes are not forwarded (two-facade bus)", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("E5: only the mapped flow:* channels are forwarded", () => {
+  it("E5: core forwards no flow:* channel; only the subagent map", () => {
     const host = makeHost();
     const { deps, sent } = makeDeps();
     registerEventBusForwarding(host.bridgeEvents, deps);
 
     host.foreignEvents.emit("flow:run", { flowName: "f" });
     host.foreignEvents.emit("flow:agent-error", { agentName: "a" });
+    host.foreignEvents.emit("subagents:failed", { agentId: "a" });
 
-    expect(sent.map((s) => s.channel)).toEqual(["flow:agent-error"]);
+    expect(sent.map((s) => s.channel)).toEqual(["subagents:failed"]);
+  });
+
+  it("E48: the model-list probe is models:get-available; the old flow: name is unanswered", () => {
+    const src = stripComments(readFileSync(resolve(import.meta.dirname, "..", "provider-register.ts"), "utf8"));
+    expect(src).toContain('pi.events.on("models:get-available"');
+    expect(src).toContain('events.emit("models:get-available"');
+    expect(src).not.toContain("flow:get-available-models");
+
+    const host = makeHost();
+    const { deps, sent } = makeDeps();
+    registerEventBusForwarding(host.bridgeEvents, deps);
+    // Stand-in for provider-register's handler (same channel, same fill shape).
+    host.bridgeEvents.on("models:get-available", (d) => {
+      (d as { models?: unknown }).models = [{ provider: "p", id: "m", name: "M" }];
+    });
+    const probe: { models?: unknown } = {};
+    const old: { models?: unknown } = {};
+    host.foreignEvents.emit("models:get-available", probe);
+    host.foreignEvents.emit("flow:get-available-models", old);
+    expect(probe.models).toEqual([{ provider: "p", id: "m", name: "M" }]);
+    expect(old.models).toBeUndefined();
+    expect(sent).toHaveLength(0);
+    const channels = forwardedBusChannels();
+    expect(channels).not.toContain("models:get-available");
+    expect(channels).not.toContain("flow:get-available-models");
   });
 
   it("X1: an async probe handler fills after a flush and is still not forwarded", async () => {
@@ -230,7 +261,7 @@ describe("source guards over bridge code", () => {
     "bridge-handlers/instance.ts",
   ];
 
-  it("E6: EVENT_BUS_MAP is exactly the flow + subagent maps", () => {
+  it("E6: EVENT_BUS_MAP is exactly the subagent map", () => {
     const src = readBridgeSource("bridge.ts");
     expect(() => assertEventBusMapPinned(src)).not.toThrow();
 

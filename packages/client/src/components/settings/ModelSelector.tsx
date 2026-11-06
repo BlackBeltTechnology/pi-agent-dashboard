@@ -70,6 +70,15 @@ interface Props {
   onSelectLevel?: (level: string) => void;
 
   /**
+   * Opt-in slots (spawn-choice chips put their `default` entries here): content
+   * at the top of the panel, and leading the thinking-level radiogroup. `close`
+   * closes the popover and refocuses the trigger. Rendered by the host so the
+   * markup stays off this eager module. See change: add-spawn-model-choice (D6).
+   */
+  renderPanelHeader?: (close: () => void) => React.ReactNode;
+  renderLevelPrefix?: (close: () => void) => React.ReactNode;
+
+  /**
    * Opt-in disable of the trigger. Default (undefined/false) leaves the trigger
    * openable even with an empty catalogue — the composer's recovery path (see
    * change: open-empty-model-selector). Surfaces that legitimately want a dead
@@ -800,7 +809,18 @@ function useGridKeyboard({
 }
 
 /** Single-choice thinking-level group appended to the popover (arrows move focus; Enter/Space picks). */
-function LevelRadioGroup({ levels, current, onPick }: { levels: readonly string[]; current?: string; onPick: (level: string) => void }) {
+function LevelRadioGroup({
+  levels,
+  current,
+  onPick,
+  prefix,
+}: {
+  levels: readonly string[];
+  current?: string;
+  onPick: (level: string) => void;
+  /** Host content leading the radios (e.g. a `default` radio). See change: add-spawn-model-choice. */
+  prefix?: React.ReactNode;
+}) {
   const headingId = `${useId()}-level-h`;
   const onKey = (e: React.KeyboardEvent) => {
     if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
@@ -817,6 +837,7 @@ function LevelRadioGroup({ levels, current, onPick }: { levels: readonly string[
         {i18nT("thinking.level", undefined, "Thinking level")}
       </div>
       <div role="radiogroup" aria-labelledby={headingId} className="flex flex-wrap gap-1" onKeyDown={onKey}>
+        {prefix}
         {levels.map((l) => (
           <button
             key={l}
@@ -926,7 +947,7 @@ function useDismissOutside(open: boolean, panelRef: React.RefObject<HTMLElement 
   }, [open, panelRef, triggerRef, close]);
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole, level, levelPlaceholder, levelTag, supportedLevels, onSelectLevel }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, tag, disabled, allowRoles, viaRole, level, levelPlaceholder, levelTag, supportedLevels, onSelectLevel, renderPanelHeader, renderLevelPrefix }: Props) {
   const [open, setOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   // Which cell of the active row the combobox's `aria-activedescendant` points at.
@@ -1015,6 +1036,11 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     },
     [onSelectLevel],
   );
+
+  const closeAndFocus = useCallback(() => {
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }, []);
 
   const handleRolePick = useCallback(
     (role: string) => {
@@ -1150,6 +1176,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
             data-testid="model-dropdown"
             id={dropdownId}
           >
+          {renderPanelHeader?.(closeAndFocus)}
           {rolesAvailable && <RoleTabs tab={tab} setTab={setTab} baseId={dropdownId} />}
           {rolesAvailable && tab === "role" ? (
             <RoleList rows={roleRows} current={current} onPick={handleRolePick} baseId={dropdownId} />
@@ -1187,7 +1214,14 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
               )}
             </div>
           )}
-          {merged && <LevelRadioGroup levels={thinkingLevelsFor(supportedLevels)} current={level} onPick={handleLevelPick} />}
+          {merged && (
+            <LevelRadioGroup
+              levels={thinkingLevelsFor(supportedLevels)}
+              current={level}
+              onPick={handleLevelPick}
+              prefix={renderLevelPrefix?.(closeAndFocus)}
+            />
+          )}
           </div>
         </LayerPortal>
       )}

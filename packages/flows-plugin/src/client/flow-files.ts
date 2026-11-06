@@ -6,7 +6,7 @@
  * `~/.pi/agent/**`, `node_modules/**`). Never touches host core.
  * See change: attach-flow-before-run.
  */
-import type { FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 

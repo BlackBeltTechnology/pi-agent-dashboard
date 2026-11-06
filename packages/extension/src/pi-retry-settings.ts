@@ -24,6 +24,12 @@ export interface PiRetrySettings {
   enabled: boolean;
   maxRetries: number;
   baseDelayMs: number;
+  /**
+   * pi's `retry.maxAgentDelayMs`; default 60000. pi-ai `retryDelayMs` caps every
+   * agent-level wait at this value. Any finite number is honored, mirroring pi's
+   * own `??` read. See change: fix-retry-delay-cap.
+   */
+  maxAgentDelayMs: number;
 }
 
 /** pi's own defaults, applied when no `retry` block is present. */
@@ -31,6 +37,7 @@ export const PI_RETRY_DEFAULTS: PiRetrySettings = {
   enabled: true,
   maxRetries: 3,
   baseDelayMs: 2000,
+  maxAgentDelayMs: 60000,
 };
 
 interface ReadDeps {
@@ -44,7 +51,7 @@ interface ReadDeps {
   fileExists?: (path: string) => boolean;
 }
 
-/** Pull `retry.{enabled,maxRetries,baseDelayMs}` from one parsed settings blob. */
+/** Pull `retry.{enabled,maxRetries,baseDelayMs,maxAgentDelayMs}` from one parsed settings blob. */
 function extract(raw: unknown): Partial<PiRetrySettings> {
   if (!raw || typeof raw !== "object") return {};
   const retry = (raw as { retry?: unknown }).retry;
@@ -53,9 +60,11 @@ function extract(raw: unknown): Partial<PiRetrySettings> {
   const en = (retry as { enabled?: unknown }).enabled;
   const mr = (retry as { maxRetries?: unknown }).maxRetries;
   const bd = (retry as { baseDelayMs?: unknown }).baseDelayMs;
+  const cap = (retry as { maxAgentDelayMs?: unknown }).maxAgentDelayMs;
   if (typeof en === "boolean") out.enabled = en;
   if (typeof mr === "number" && Number.isFinite(mr)) out.maxRetries = mr;
   if (typeof bd === "number" && Number.isFinite(bd)) out.baseDelayMs = bd;
+  if (typeof cap === "number" && Number.isFinite(cap)) out.maxAgentDelayMs = cap;
   return out;
 }
 
@@ -86,6 +95,6 @@ export function readPiRetrySettings(deps: ReadDeps = {}): PiRetrySettings {
 
   // A file existed but could not be parsed → we cannot trust the delay math;
   // render elapsed-only instead of a fabricated countdown.
-  if (parseFailed) return { enabled: merged.enabled, maxRetries: merged.maxRetries, baseDelayMs: 0 };
+  if (parseFailed) return { ...merged, baseDelayMs: 0 };
   return merged;
 }

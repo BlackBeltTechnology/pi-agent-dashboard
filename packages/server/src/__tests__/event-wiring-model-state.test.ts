@@ -24,6 +24,7 @@ function makeRig() {
   } as any;
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway);
   const broadcast = vi.spyOn(browserGateway, "broadcastSessionUpdated");
+  const broadcastEvent = vi.spyOn(browserGateway, "broadcastEvent");
   wireEvents({
     sessionManager, eventStore, piGateway, browserGateway, replayState,
     sessionOrderManager: {
@@ -51,7 +52,7 @@ function makeRig() {
       event: { eventType, timestamp: Date.now(), data },
     });
   cleanups.push(() => replayState.controller.release(SID));
-  return { sessionManager, eventStore, replayState, broadcast, event };
+  return { sessionManager, eventStore, replayState, broadcast, broadcastEvent, event };
 }
 
 const historicalSelection = {
@@ -107,5 +108,34 @@ describe("event-wiring: current model is not historical model state", () => {
     event("model_select", historicalSelection);
     expect(sessionManager.get(SID)).toMatchObject({ model: BONSAI, thinkingLevel: "low" });
     expect(broadcast).toHaveBeenCalledWith(SID, { model: BONSAI, thinkingLevel: "low" });
+  });
+});
+
+/**
+ * E58: plugin-declared event types (e.g. the new `flow_decision`) are stored
+ * and broadcast like any other forwarded event — core needs no per-type entry.
+ * See change: update-flows-plugin (shared-protocol).
+ */
+describe("event-wiring: plugin-declared event types (E58)", () => {
+  it("stores and broadcasts flow_decision and flow_started with data unchanged", () => {
+    const { eventStore, broadcastEvent, event } = makeRig();
+    const decision = { stepId: "triage", labels: ["bug"], routes: [{ branch: "bug", itemCount: 2 }] };
+    const started = { flowName: "research", steps: [] };
+    event("flow_decision", decision);
+    event("flow_started", started);
+    const stored = eventStore.getEvents(SID, 1).map((e) => e.event);
+    expect(stored).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: "flow_decision", data: decision }),
+        expect.objectContaining({ eventType: "flow_started", data: started }),
+      ]),
+    );
+    const sent = broadcastEvent.mock.calls.map((c) => c[2] as { eventType: string; data: unknown });
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: "flow_decision", data: decision }),
+        expect.objectContaining({ eventType: "flow_started", data: started }),
+      ]),
+    );
   });
 });

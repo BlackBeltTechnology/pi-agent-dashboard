@@ -15,3 +15,5 @@ Add-ons catalog types: `AddonFeature`, `AddonFeatureKind`, `AddonOrigin`, `Addon
 Known-servers types carry `routes`, `scheme?`, `fingerprint?`; `RemoveKnownServerRequest` = route | `{fingerprint}`; `PairPollApproved.routes?` https origins. See change: group-servers-by-identity.
 
 `PairPollApproved.expiresAt?` (epoch ms; present only for a `holder:"browser"` pairing). See change: harden-auth-credentials.
+
+See change: add-spawn-model-choice. `SpawnSessionRequest` gains `model?`, `thinkingLevel?`, `initialPrompt?` (also MCP `spawn_session` input); `RestSpawnSessionRequest = SpawnSessionRequest & {attachProposal?}` (REST only).

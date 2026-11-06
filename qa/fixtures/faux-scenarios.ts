@@ -549,14 +549,16 @@ export function fanoutWidth(context: FauxContext): number {
   return 1;
 }
 
+/** Final parent text of `subagent-fanout-queued`. See change: subagent-queue-visibility. */
+export const SUBAGENT_FANOUT_QUEUED_TAIL = "fanout queued scenario complete";
+
 /** Tail marker for the `fanout-width` measurement scenario. */
 export const FANOUT_WIDTH_TAIL = "fanout width complete";
 
 /**
  * Measurement fixture: emits `[[fanout:N]]`-many `Agent` calls in ONE assistant
- * message, so admission sees the whole batch at preflight. Drives the P1/P4
- * stall table (`tests/e2e/subagent-fanout-measurement.spec.ts`).
- * See change: bound-subagent-fanout-under-host-pressure.
+ * message. Originally the P1/P4 stall-table driver of the (removed) admission
+ * gate. See change: bound-subagent-fanout-under-host-pressure.
  */
 function fanoutWidthStep(context: FauxContext): unknown {
   const width = fanoutWidth(context);
@@ -1590,6 +1592,42 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "flow-agent" },
   },
 
+  // pi-flows 0.10 multi agent-decision: chooses the `fan` branch only (so the
+  // `docs` branch is skipped). A multi decision finishes with `branches: [...]`.
+  // See change: update-flows-plugin (task 7.1).
+  "flow-multi-decision": {
+    script: [
+      fauxAssistantMessage([
+        fauxToolCall("finish", { status: "complete", summary: "chose fan", files: [], branches: ["fan"] }),
+      ]),
+    ],
+    expect: { text: "chose fan" },
+  },
+
+  // pi-flows 0.10 fan-out item: finishes `complete`, except item index 1 which
+  // finishes `error` (a SOFT failure — the other items still finish). The item
+  // index rides in the task text (`review item <i> …`, from `${{item_index}}`).
+  // Drives the `e2e:fanout` flow. See change: update-flows-plugin (task 7.1).
+  "flow-item-branch": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const index = /review item (\d+)/.exec(text)?.[1] ?? "?";
+        const failed = index === "1";
+        return fauxAssistantMessage([
+          fauxToolCall("finish", {
+            status: failed ? "error" : "complete",
+            summary: `item ${index} ${failed ? "failed" : "done"}`,
+            files: [],
+            note: `item ${index}`,
+          }),
+        ]);
+      },
+    ],
+    expect: { text: "item" },
+  },
+
   // Spawns a REAL subagent via the `Agent` tool, then terminates. The spawned
   // subagent's prompt embeds a `[[faux:plain-text]]` sentinel so it resolves the
   // plain-text scenario, replies once, and completes — firing the subagent
@@ -1613,27 +1651,27 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "subagent spawn complete" },
   },
 
-  // Parent that emits a THREE-wide `Agent` fan-out in ONE assistant message, so
-  // the calls preflight sequentially while none has executed. With admission
-  // active at the default cap (2), the first two are admitted and the third is
-  // REFUSED with a real errored tool result — the terminal, non-orphaned refusal
-  // the admission change exists to produce. Drives the L3 rows F1-F4 and the L2
-  // X4 kill-durability row. See change: bound-subagent-fanout-under-host-pressure.
-  "subagent-fanout-refused": {
+  // Parent that emits a THREE-wide `Agent` fan-out in ONE assistant message whose
+  // children each run `subagent-slow-inner` (~6 s). With the producer's
+  // `maxConcurrent: 1` (written to its settings file by the spec) one child runs
+  // and two wait as `queued` — the queue the L3 rows F1-F5 / F8 drive.
+  // Replaces `subagent-fanout-refused` (admission gate removed).
+  // See change: subagent-queue-visibility (test-plan #F1-#F5, #F8).
+  "subagent-fanout-queued": {
     script: [
       fauxAssistantMessage(
         [1, 2, 3].map((n) =>
           fauxToolCall("Agent", {
             subagent_type: "Explore",
-            description: `faux fanout child ${n}`,
-            prompt: `[[faux:plain-text]] run fanout child ${n}`,
+            description: `faux queued child ${n}`,
+            prompt: `[[faux:subagent-slow-inner]] run queued child ${n}`,
           }),
         ),
         { stopReason: "toolUse" },
       ),
-      fauxAssistantMessage([fauxText("fanout refused scenario complete")]),
+      fauxAssistantMessage([fauxText(SUBAGENT_FANOUT_QUEUED_TAIL)]),
     ],
-    expect: { text: "fanout refused scenario complete" },
+    expect: { text: SUBAGENT_FANOUT_QUEUED_TAIL },
   },
 
   // Measurement fixture (P1/P4): emits `[[fanout:N]]` `Agent` calls in one

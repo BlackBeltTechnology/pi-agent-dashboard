@@ -93,7 +93,7 @@ Step cards SHALL distinguish a SOFT failure (recoverable, routed to `on_error`, 
 
 ### Requirement: FlowGraph renders the new node set minimally
 
-The live FlowGraph SHALL stay minimal (node names + running-step highlight; details live in the cards) and SHALL render the canonical node set `agent`, `agent-decision`, `code`, `code-decision`, `fork` with backward/loop edges driven by `max_iterations`. The removed `conditional`, `agent-loop-decision`, `loopTarget`, and `flow-ref` mappings SHALL NOT be referenced; the FlowGraph SHALL NOT read `flowRefSteps`.
+The live FlowGraph SHALL stay minimal and name-first (node names + running-step highlight; details live in the cards). A node MAY append short status words only: `skipped` for a skipped step, a fan-out count `xN` with `(k failed)` when any item failed, and the chosen routes on a decision node. The live FlowGraph SHALL render the canonical node set `agent`, `agent-decision`, `code`, `code-decision`, `fork` with backward/loop edges driven by `max_iterations`. The removed `conditional`, `agent-loop-decision`, `loopTarget`, and `flow-ref` mappings SHALL NOT be referenced; the FlowGraph SHALL NOT read `flowRefSteps`.
 
 The rendered edge set SHALL be produced by the shared flow-edge derivation (see `flow-graph-edges`) and SHALL include, in addition to the existing `blockedBy` sequential and implicit-segment edges: decision-branch edges (`fork` / `agent-decision` / `code-decision` `branches`, labeled with the branch name), with a branch whose target is declared earlier rendered as a backward/loop edge. Decision routing SHALL be visible while the flow is running, not only in the static snapshot. `on_complete`/`on_error` routing edges are NOT part of the `flow:flow-started` payload pi-flows emits, so the live graph SHALL NOT be required to render them; they remain exclusive to the static `flow_write` snapshot (parsed from YAML).
 
@@ -122,6 +122,12 @@ The rendered edge set SHALL be produced by the shared flow-edge derivation (see 
 #### Scenario: Backward branch renders as loop edge while running
 - **WHEN** a running decision step has a branch whose target is declared earlier in the flow
 - **THEN** the live FlowGraph SHALL render that branch as a backward/loop edge
+
+#### Scenario: Status words appended without replacing the node name
+- **WHEN** a live graph node is `skipped`, is a fan-out step with 3 items of which 1 failed, or is a decision step that chose route `fix`
+- **THEN** the node SHALL still show its step name first
+- **AND** it SHALL append only the short status word `skipped`, the count `x3 (1 failed)`, or the chosen route `fix` respectively
+- **AND** per-item results, outputs and decision labels SHALL NOT render in the graph; they SHALL remain in the cards
 
 ### Requirement: New-node cards replay identically from persisted events
 

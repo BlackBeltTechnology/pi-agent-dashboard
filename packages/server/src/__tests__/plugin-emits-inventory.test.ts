@@ -60,15 +60,27 @@ describe("emitEventToSession caller inventory (task 6.22)", () => {
         expect(Array.isArray(manifest.emits), `plugin "${id}" calls emitEventToSession without manifest emits`).toBe(true);
       }
     }
-    // Recorded inventory (design.md D16): automation (dynamic, via accepted actions) + flows.
-    expect(emitters.sort()).toEqual(["automation", "flows"]);
+    // Recorded inventory (design.md D16): automation (dynamic, via accepted actions) + flows,
+    // + subagents (`subagents:stop`, change: subagent-queue-visibility D3).
+    expect(emitters.sort()).toEqual(["automation", "flows", "subagents"]);
   });
 
   it("flows declares exactly the event types it emits; automation declares none of its own", () => {
     const m = loadManifests();
     // flow:set-edit-mode: the explicit per-project edit-mode action.
     // See change: stop-flows-edit-mode-project-writes (D5).
-    expect([...(m.get("flows")!.manifest.emits ?? [])].sort()).toEqual(["dashboard-flows:report-files", "flow:run", "flow:set-edit-mode"]);
+    // update-flows-plugin (D2): the flow-control relays are plugin-owned now.
+    expect([...(m.get("flows")!.manifest.emits ?? [])].sort()).toEqual([
+      "dashboard-flows:report-files",
+      "flow:abort",
+      "flow:architect-abort",
+      "flow:delete-request",
+      "flow:notify",
+      "flow:run",
+      "flow:set-edit-mode",
+      "flow:summary-dismissed",
+      "flow:toggle-autonomous",
+    ]);
     expect(m.get("automation")!.manifest.emits).toEqual([]);
   });
 });
@@ -98,5 +110,44 @@ describe("real flows + automation manifests under enforcement (SE26)", () => {
     expect(emitAs("flows", FLOW_FILES_REQUEST_EVENT)).toBe(true);
     expect(send).toHaveBeenCalledTimes(2);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+/** E38: every relayed flow event passes the emits gate; manifest replay types; no /flows command route. See change: update-flows-plugin. */
+describe("flows manifest emits + claims (E38)", () => {
+  const RELAYED = [
+    "flow:run",
+    "flow:set-edit-mode",
+    "flow:abort",
+    "flow:architect-abort",
+    "flow:toggle-autonomous",
+    "flow:summary-dismissed",
+    "flow:delete-request",
+    "flow:notify",
+  ];
+  it("each relayed event passes the real seam with no refusal; replayEntryTypes; no /flows command-route", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const manifests = loadManifests();
+    const flows = manifests.get("flows")!.manifest;
+    expect(flows.emits).toEqual(expect.arrayContaining(RELAYED));
+    expect(flows.replayEntryTypes).toEqual(["flow-event"]);
+    const registry = createPluginServiceRegistry();
+    const deps = {
+      manifestEmits: (id: string) => (id === "flows" ? flows.emits ?? [] : undefined),
+      actionEntries: () => registry.entries("automation.action."),
+    };
+    const send = vi.fn(() => true);
+    for (const ev of RELAYED) {
+      expect(
+        emitEventToSession(true, send, "s1", ev, {}, { pluginId: "flows", allowed: () => computeEmitAllowlist("flows", deps) }),
+        ev,
+      ).toBe(true);
+    }
+    expect(send).toHaveBeenCalledTimes(RELAYED.length);
+    expect(warn).not.toHaveBeenCalled();
+    const routeClaims = (flows.claims as Array<{ slot?: string; command?: string }>).filter(
+      (c) => c.slot === "command-route" && typeof c.command === "string" && c.command.startsWith("/flows"),
+    );
+    expect(routeClaims).toEqual([]);
   });
 });

@@ -12,8 +12,14 @@
  * X2 (content-array edges), X3 (oversized payload) and the D9
  * turn-boundary classification.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
+import { setPluginEntryTypes } from "../plugins/plugin-entry-types.js";
+
+// Plugin-declared entry types are a reducer input (core names none).
+// See change: update-flows-plugin (test-plan E16).
+beforeEach(() => setPluginEntryTypes(["demo-event", "flow-event"]));
+afterEach(() => setPluginEntryTypes([]));
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
@@ -69,9 +75,11 @@ describe("message_end role=custom — display exclusion (E1)", () => {
     expect(state.messages).toHaveLength(1);
   });
 
-  it("refuses customType flow-event on the message arm too (label-spoofing parity with E8)", () => {
-    const state = applyEvents([customMessageEnd({ customType: "flow-event", display: true })]);
+  it("refuses a declared type on the message arm too (label-spoofing parity with E8, E16)", () => {
+    const state = applyEvents([customMessageEnd({ customType: "demo-event", display: true })]);
     expect(customRows(state)).toHaveLength(0);
+    const ok = applyEvents([customMessageEnd({ customType: "e2e:note", display: true })]);
+    expect(customRows(ok)).toHaveLength(1);
   });
 
   it("caps a payload of very long lines at the byte ceiling (security advisory #2)", () => {
@@ -138,9 +146,17 @@ describe("custom_entry event — appendEntry surface (D2)", () => {
     expect(customRows(s2)[0].content).toBe("");
   });
 
-  it("ignores customType flow-event (E8 defense-in-depth — pi-flows owns its card)", () => {
-    const state = applyEvents([customEntryEvent({ seq: 0 }, "flow-event")]);
+  it("ignores a declared type (E8 defense-in-depth — the owning plugin renders it; E16)", () => {
+    const state = applyEvents([customEntryEvent({ seq: 0 }, "demo-event")]);
     expect(customRows(state)).toHaveLength(0);
+    const ok = applyEvents([customEntryEvent({ seq: 0 }, "e2e:note")]);
+    expect(customRows(ok)).toHaveLength(1);
+  });
+
+  it("an undeclared type renders even if it looks like a plugin type (core names none)", () => {
+    setPluginEntryTypes([]);
+    const state = applyEvents([customEntryEvent({ seq: 0 }, "flow-event")]);
+    expect(customRows(state)).toHaveLength(1);
   });
 });
 

@@ -3,7 +3,9 @@
 ## Purpose
 
 pi-coding-agent owns its provider-retry policy and exposes NO `auto_retry_*` events to extensions. When a provider call fails with a retryable error, pi fires `message_end` for the failed assistant message, sleeps through a provider backoff (5–60 s), then starts a fresh assistant `message_start` for the next attempt — all inside a single agent turn. The dashboard bridge cannot subscribe to pi's internal retry lifecycle, so this capability RECONSTRUCTS it by OBSERVING the message/agent event sequence, synthesizes `auto_retry_start` / `auto_retry_end` events for the dashboard, and keeps a user abort effective across a long backoff that outlives the persistent-abort scheduler.
+
 ## Requirements
+
 ### Requirement: Synthesize retry lifecycle from observed events
 
 The bridge SHALL synthesize `auto_retry_start` and `auto_retry_end` by observing pi's real
@@ -25,10 +27,12 @@ NOTHING and the retry surface was dead. The corrected rules are:
   `auto_retry_end` and clear all per-session retry tracking.
 
 `maxAttempts` and `delayMs` SHALL be derived read-only from pi's retry settings
-(`retry.maxRetries`, `retry.baseDelayMs`; defaults `3` and `2000` when absent), computing the
-delay as `baseDelayMs · 2^(attempt-1)` — pi's own arithmetic. When the settings cannot be read
-the bridge SHALL emit `delayMs: 0`, which the surface renders elapsed-only. The `-1` sentinels
-are REMOVED. The bridge SHALL NOT write pi's settings.
+(`retry.maxRetries`, `retry.baseDelayMs`, `retry.maxAgentDelayMs`; defaults `3`, `2000` and
+`60000` when absent), computing the delay exactly as pi does:
+`min(baseDelayMs · 2^(attempt-1), maxAgentDelayMs)`. The emitted delay SHALL never exceed the
+wait pi will actually take, so a countdown cannot outrun the real retry. When the settings cannot
+be read the bridge SHALL emit `delayMs: 0`, which the surface renders elapsed-only. The `-1`
+sentinels are REMOVED. The bridge SHALL NOT write pi's settings.
 
 **`agent_end.willRetry` SHALL NOT be relied upon.** pi 0.83 computes it, but only on the session
 (RPC/SDK) channel: `agent-session.js` line 353 emits `{ ...event, willRetry }` to session listeners
@@ -74,7 +78,7 @@ structural — keyed on `role` and `stopReason` — and SHALL NOT inspect error 
 
 - **WHEN** a second error `agent_end` occurs for a session whose chain is already in flight
 - **THEN** the emitted attempt number SHALL be incremented to the next value
-- **AND** the emitted `delayMs` SHALL be `baseDelayMs · 2^(attempt-1)` for that attempt
+- **AND** the emitted `delayMs` SHALL be `min(baseDelayMs · 2^(attempt-1), maxAgentDelayMs)` for that attempt
 
 #### Scenario: agent_settled closes the chain
 
@@ -154,6 +158,32 @@ structural — keyed on `role` and `stopReason` — and SHALL NOT inspect error 
 - **GIVEN** an `agent_end` whose `messages` array contains no entry with `role: "assistant"`
 - **THEN** the bridge SHALL NOT treat the turn as failed
 - **AND** SHALL NOT emit a waiting signal
+
+#### Scenario: Delay is capped at maxAgentDelayMs
+
+- **GIVEN** `retry.baseDelayMs` is `2700` and `retry.maxAgentDelayMs` is absent
+- **WHEN** the waiting signal for attempt `10` is synthesized
+- **THEN** `delayMs` SHALL be `60000`, not `1382400`
+- **AND** `nextAttemptAt` SHALL be the `agent_end` timestamp plus `60000`
+
+#### Scenario: A configured cap is honored
+
+- **GIVEN** `retry.baseDelayMs` is `2000` and `retry.maxAgentDelayMs` is `5000`
+- **WHEN** waiting signals for attempts `1`, `2`, `3` and `4` are synthesized
+- **THEN** their `delayMs` values SHALL be `2000`, `4000`, `5000` and `5000`
+
+#### Scenario: Project settings override the global cap
+
+- **GIVEN** global `retry.maxAgentDelayMs` is `60000` and project `.pi/settings.json` sets `retry.maxAgentDelayMs` to `10000`
+- **WHEN** a waiting signal whose uncapped delay exceeds `10000` is synthesized
+- **THEN** `delayMs` SHALL be `10000`
+
+#### Scenario: A negative computed delay degrades to elapsed-only
+
+- **GIVEN** `retry.maxAgentDelayMs` is hand-written as `-1`, so pi sleeps for about 0 ms
+- **WHEN** a waiting signal is synthesized
+- **THEN** `delayMs` SHALL be `0` and `nextAttemptAt` SHALL be absent
+- **AND** the surface SHALL render elapsed-only rather than a negative countdown
 
 ### Requirement: Close the retry chain on success or terminal error
 
@@ -248,4 +278,3 @@ The bridge SHALL, on a user abort, re-invoke a raw abort at fixed intervals for 
 
 - WHEN the aborted turn's `agent_end` flips streaming to false during the scheduler window
 - THEN the persistent-abort scheduler breaks early and stops re-issuing aborts
-

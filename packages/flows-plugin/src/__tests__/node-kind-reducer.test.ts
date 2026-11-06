@@ -5,7 +5,8 @@
  * cards, and replay identity (same fold for live + persisted events).
  */
 
-import type { DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { describe, expect, it } from "vitest";
 import { reduceFlowEvent } from "../reducer.js";
 

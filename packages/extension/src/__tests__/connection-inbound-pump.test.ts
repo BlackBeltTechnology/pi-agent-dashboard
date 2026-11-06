@@ -273,7 +273,7 @@ describe("inbound message pump — immediate lane", () => {
   });
 
   // E8 — the immediate lane is exactly the three named types.
-  it("serializes abort, shutdown and flow_control", async () => {
+  it("serializes abort, shutdown and a retired flow_control frame (X4)", async () => {
     const entered: string[] = [];
     const gate = deferred();
     const { cm, ws } = connect({

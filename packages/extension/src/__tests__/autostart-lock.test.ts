@@ -2,7 +2,7 @@
  * Lock staleness + acquisition scenarios E5, E6, E7, E8, E9, X6, X7.
  * See change: fix-worktree-server-autostart-leak.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,7 @@ import {
   type AutoStartLockRecord,
   type LockProbes,
 } from "../autostart-lock.js";
+import { autoStartServer, type AutoStartDeps } from "../server-auto-start.js";
 
 const BUDGET = 30_000;
 const NOW = 1_700_000_000_000;
@@ -163,5 +164,45 @@ describe("lock mutations are ownership-checked", () => {
     acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 42 }, probes(), BUDGET);
     recordChildPid(8000, 4242, dir, 42);
     expect(readLock(autoStartLockPath(8000, dir))?.childPid).toBe(4242);
+  });
+});
+
+// raise-node-floor-to-26 (test-plan #X4): server-spawn runtime resolution runs
+// inside the single-flight lock — two concurrent sessions resolve once.
+describe("server Node resolution under the single-flight lock (#X4)", () => {
+  beforeEach(() => { process.env["PI_DASHBOARD_NO_MDNS"] = "1"; });
+  afterEach(() => { delete process.env["PI_DASHBOARD_NO_MDNS"]; });
+
+  it("resolves once and logs one selection line across two concurrent sessions", async () => {
+    const resolveServerNode = vi.fn().mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { resolved: true, nodeBinary: "/n26/bin/node", version: "v26.0.0", step: "path", range: ">=26.0.0 <27", trail: [] };
+    });
+    let up = false;
+    const launchServer = vi.fn().mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      up = true;
+      return { success: true, message: "ok" };
+    });
+    const log = vi.fn();
+    const deps = (): AutoStartDeps => ({
+      discoverDashboard: vi.fn().mockResolvedValue([]),
+      isDashboardRunning: vi.fn().mockImplementation(async () => ({ running: up })),
+      launchServer,
+      notify: vi.fn(),
+      resolveCliPath: () => "/opt/pi-dashboard/packages/server/src/cli.ts",
+      lockDir: dir,
+      log,
+      readinessBudgetMs: BUDGET,
+      lossPollIntervalMs: 5,
+      resolveServerNode,
+    });
+    const cfg = { piPort: 9999, port: 8000, autoStart: true };
+
+    await Promise.all([autoStartServer(cfg, deps()), autoStartServer(cfg, deps())]);
+
+    expect(resolveServerNode).toHaveBeenCalledTimes(1);
+    expect(launchServer).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls.filter((c) => String(c[0]).startsWith("server runtime:"))).toHaveLength(1);
   });
 });

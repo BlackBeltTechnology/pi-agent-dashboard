@@ -1778,24 +1778,6 @@ time.
 - **THEN** the panel SHALL warn
 - **AND** the value SHALL remain saveable
 
-### Requirement: The panel SHALL disclose the heap/fan-out coupling
-
-`Agent` children run inside the parent session's process and share its heap, so
-raising the fan-out bound spends session memory that is invisible at the point
-of the edit. When the session ceiling and `maxConcurrentSubagents` together
-leave each concurrent child under roughly `100` MB
-(`maxOldSpaceMb / (maxConcurrentSubagents + 1)`), the panel SHALL surface a
-non-blocking warning naming the computed per-child figure.
-
-#### Scenario: Risky pairing is disclosed at the point of edit
-- **WHEN** the operator raises `maxConcurrentSubagents` to `8` against a `512` MB ceiling
-- **THEN** the panel SHALL warn and name the per-child figure
-- **AND** the value SHALL remain saveable
-
-#### Scenario: Default pairing is silent
-- **WHEN** the ceiling is `512` and `maxConcurrentSubagents` is the default `2`
-- **THEN** no coupling warning SHALL be shown
-
 ### Requirement: Models nav group
 
 The settings navigation SHALL render a **Models** group as its FIRST group. It SHALL contain the built-in **Providers** page followed by every PROMOTED plugin page, ordered by the promotion's `order` (ascending, default 1000), then `nav.label`, then plugin id. The group SHALL render even when no plugin is promoted (Providers alone). The **Resources** group SHALL likewise list its built-in pages (Skills, Agents, Extensions, Prompts, Themes) first, followed by every plugin page PROMOTED into `resources`, in the same order. The rules below (trust, reserved labels, uniqueness, health dot, disabled handling, active entry, Save Bar label) apply to every allowlisted group; "Models" in them stands for the promoting group.

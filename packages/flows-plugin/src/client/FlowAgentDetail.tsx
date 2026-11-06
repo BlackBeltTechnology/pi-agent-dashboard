@@ -15,11 +15,7 @@ import {
   MinimalChatView,
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type {
-  FlowAgentState,
-  FlowAgentStatus,
-  FlowDetailEntry,
-} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState, FlowAgentStatus, FlowDetailEntry } from "../types.js";
 import React from "react";
 import { formatCost } from "./format-cost.js";
 
@@ -35,6 +31,8 @@ function mapFlowStatus(status: FlowAgentStatus): MinimalChatStatus {
       return "error";
     case "blocked":
       return "blocked";
+    case "skipped":
+      return "pending";
     default: {
       const _exhaustive: never = status;
       void _exhaustive;

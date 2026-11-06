@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, zrok.
+# Stage `base`  — Debian Bookworm + Node 26 LTS, system tools, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 
 # ============================ base stage ===================================
-FROM node:24-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
 ARG ZROK_VERSION=2.0.4
@@ -105,7 +105,7 @@ RUN set -eux; \
 # ============================ app stage ====================================
 FROM base AS app
 
-# 1.4 Non-root user (UID 1000). node:22 image already ships a `node` user at
+# 1.4 Non-root user (UID 1000). node:26 image already ships a `node` user at
 # UID 1000; create a dedicated `pi` user instead for clarity.
 RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cut -d: -f1)"; fi \
  && useradd --create-home --uid 1000 --shell /bin/bash pi
@@ -125,13 +125,15 @@ RUN npm install -g @earendil-works/pi-coding-agent@1.3.0 openspec \
 # >= 0.8.1: no project-local skill sync at session_start and a no-op
 # setEditFlowFlag on an unchanged value, so flows leaves repos clean
 # (change: stop-flows-edit-mode-project-writes).
-ARG PI_FLOWS_VERSION=0.8.1
+# >= 0.10.0: fan-out, multi-route decisions, `skipped`, `flow:decision` — the
+# `e2e:fanout` fixture needs them (change: update-flows-plugin, task 7.1).
+ARG PI_FLOWS_VERSION=0.10.0
 # pi-dashboard-subagents is the ONLY producer of `tool_execution_update` for a
 # subagent: its `extensions/agent.ts` drives `createProgressEmitter` ->
 # `progress.schedule(details)` into the tool's `onProgress` callback. Without it
 # the collapse scenarios (P2/F4) have no workload and pass vacuously.
 # See change: collapse-superseded-tool-execution-updates.
-ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.5.0
+ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.6.0
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
       "@blackbelt-technology/pi-dashboard-subagents@${PI_DASHBOARD_SUBAGENTS_VERSION}" \
@@ -141,7 +143,10 @@ RUN npm install -g \
 # Enable corepack so `pnpm` resolves to the version pinned by the root
 # package.json `packageManager` field (pnpm@11.15.1). The global `npm install
 # -g` tool installs above stay npm (Column C-style user installs).
-RUN corepack enable
+# Node 25+ no longer bundles corepack, so install a pinned copy first.
+# See change: raise-node-floor-to-26.
+ARG COREPACK_VERSION=0.36.0
+RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack enable
 
 WORKDIR /app
 

@@ -89,7 +89,7 @@ sandbox behaviour (97% of its calls) is replaced by pi's built-in `codemode`.
 - **Retrospective lesson miner:** `/lessons mine` and `/lessons import-hermes`,
   dry-run by default.
   - Pipeline: `packages/session-distiller` candidates → triage → card writing
-    by parallel subagents under the existing `maxConcurrentSubagents` gate →
+    by parallel subagents under the subagents producer `maxConcurrent` limit →
     trigger replay gate → semantic dedupe → PII/secret scrub → verify →
     staged files.
   - Items above a confidence threshold are auto-accepted; the rest go to review.

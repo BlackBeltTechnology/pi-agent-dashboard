@@ -76,6 +76,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
   { pattern: "/api/plugins/context-mode-settings/", reason: "plugin-internal config; writes a file under ~/.pi and alters session env" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
+  // See change: subagent-queue-visibility.
+  { pattern: "/api/plugins/subagents/", reason: "per-subagent stop + heap-ceiling read behind the dashboard card / settings field; UI-only" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
   // add-service-registry-core: service mutations start processes and write
   // secrets; core keeps the whole surface out of MCP (skills use the CLI).
@@ -159,8 +161,6 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "extension_ui_response", reason: "agent prompt answers stay human-in-the-loop; broken session bind" },
   { pattern: "favorite_model", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "fetch_content", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
-  { pattern: "flow_control", reason: "duplicate-of:flow_control" },
-  { pattern: "flow_management", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "force_kill", reason: "duplicate-of:force_kill" },
   // An operator's answer to an access-grant prompt (change: add-access-grant-dialog).
   // NEVER an MCP tool: an agent able to send it could approve its own denied

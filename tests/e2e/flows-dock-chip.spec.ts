@@ -123,6 +123,11 @@ test.describe("FLOWS dock chip (L3: real pi-flows engine + faux agents)", () => 
     const panel = page.getByTestId("flow-dashboard");
     await expect(panel).toHaveAttribute("data-flow-mode", "idle", { timeout: 30_000 });
     await expect(panel.getByText("not started")).toBeVisible();
+    // Expanded = the graph shows; the cards sit in the Agent cards section,
+    // collapsed by default (update-flows-plugin D7). Opening it shows them.
+    await expect(panel.locator("[data-node]").first()).toBeVisible();
+    await expect(panel.getByTestId("flow-agent-cards-toggle")).toHaveAttribute("aria-expanded", "false");
+    await panel.getByTestId("flow-agent-cards-toggle").click();
     await expect(panel.locator("[data-step]").first()).toBeVisible();
     await expect(page.getByTestId("flows-chip-status")).toHaveText("not started");
   });

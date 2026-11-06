@@ -69,10 +69,10 @@ describe("handleServerMessage", () => {
 
   it("pi-only and housekeeping messages are ignored; an unknown one does not throw", () => {
     const c = ctx();
-    for (const type of ["flow_control", "role_set", "kill_process", "heartbeat_ack", "plugin_reply", "stop_after_turn", "retry_session"]) {
+    for (const type of ["role_set", "kill_process", "heartbeat_ack", "plugin_reply", "stop_after_turn", "retry_session"]) {
       handleServerMessage(m({ type }), c);
     }
-    expect(c.ignored).toHaveBeenCalledTimes(7);
+    expect(c.ignored).toHaveBeenCalledTimes(6);
     expect(() => handleServerMessage(m({ type: "brand_new_member" }), c)).not.toThrow();
     expect(c.send).not.toHaveBeenCalled();
   });

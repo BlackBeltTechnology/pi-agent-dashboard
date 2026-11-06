@@ -8,13 +8,14 @@ TBD - created by archiving change retry-forever-with-stop-control. Update Purpos
 ### Requirement: Dashboard exposes pi's native retry policy as a GLOBAL editor
 
 The dashboard SHALL expose pi's own retry policy as an editable settings surface on the Sessions
-settings tab, covering ALL SIX native fields:
+settings tab, covering ALL SEVEN native fields:
 
 | Field | pi default |
 |---|---|
 | `retry.enabled` | `true` |
 | `retry.maxRetries` | `3` |
 | `retry.baseDelayMs` | `2000` |
+| `retry.maxAgentDelayMs` | `60000` |
 | `retry.provider.timeoutMs` | SDK default (absent) |
 | `retry.provider.maxRetries` | `0` |
 | `retry.provider.maxRetryDelayMs` | `60000` |
@@ -39,6 +40,12 @@ global file — so the surface SHALL NOT present a per-session or project-scoped
   `retry.baseDelayMs`, `retry.provider.timeoutMs`, `retry.provider.maxRetries`,
   `retry.provider.maxRetryDelayMs`
 
+#### Scenario: The agent delay cap is editable
+
+- **WHEN** the retry settings surface is rendered
+- **THEN** it SHALL also offer a control for `retry.maxAgentDelayMs`
+- **AND** where the key is absent it SHALL display pi's default `60000`
+
 #### Scenario: No project-scope or per-session editor
 
 - **WHEN** the retry settings surface is rendered
@@ -59,8 +66,8 @@ global file — so the surface SHALL NOT present a per-session or project-scoped
 
 ### Requirement: The editor lives on the Sessions tab and commits through the unified Save
 
-The retry editor SHALL render on the **Sessions** settings tab, not Providers. Three of the six
-fields (`retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`) are turn-level rather than
+The retry editor SHALL render on the **Sessions** settings tab, not Providers. Four of the seven
+fields (`retry.enabled`, `retry.maxRetries`, `retry.baseDelayMs`, `retry.maxAgentDelayMs`) are turn-level rather than
 provider-scoped, the policy's observable effect is on a session (waiting / attempt n / countdown /
 Stop), and the sibling turn-lifecycle settings (`askUserPromptTimeoutSeconds`,
 `spawnRegisterTimeoutMs`) already live there. The enclosing section SHALL be titled "Retry"; the
@@ -164,6 +171,7 @@ The surface SHALL reject values pi cannot use. An invalid value SHALL NOT be wri
 - `enabled` — boolean.
 - `maxRetries` — non-negative integer.
 - `baseDelayMs` — positive integer.
+- `maxAgentDelayMs` — non-negative integer.
 - `provider.timeoutMs` — positive integer, or absent (meaning "SDK default").
 - `provider.maxRetries` — non-negative integer.
 - `provider.maxRetryDelayMs` — non-negative integer; `0` disables pi's server-requested-delay limit.
@@ -202,8 +210,14 @@ The surface SHALL reject values pi cannot use. An invalid value SHALL NOT be wri
 
 - **WHEN** the user turns `retry.enabled` off and saves
 - **THEN** `retry.enabled: false` SHALL be written
-- **AND** the agent-level attempt-count and base-delay controls SHALL be shown as inactive, because
+- **AND** the agent-level attempt-count, base-delay and delay-cap controls SHALL be shown as inactive, because
   pi ignores them when retry is disabled
+
+#### Scenario: Invalid delay cap is rejected
+
+- **WHEN** the user submits `maxAgentDelayMs: -1` or `maxAgentDelayMs: 1.5`
+- **THEN** nothing SHALL be written
+- **AND** the surface SHALL report the offending field
 
 ### Requirement: Saving applies the policy to running sessions
 
@@ -232,14 +246,33 @@ new policy takes effect immediately.
 
 ### Requirement: The delay curve is disclosed, not hidden
 
-Because pi's agent-level delay is `baseDelayMs · 2^(attempt-1)` with no ceiling, the surface SHALL
-show the consequence of the chosen values rather than leaving the user to discover a multi-hour tail.
+Because pi's agent-level delay is `min(baseDelayMs · 2^(attempt-1), maxAgentDelayMs)`, the surface SHALL
+show the consequence of the chosen values — computed with that same capped formula — rather than
+leaving the user to discover either a long tail or a silently clamped base delay.
 
 #### Scenario: Surface previews the resulting schedule
 
 - **WHEN** `maxRetries: 8` and `baseDelayMs: 2000` are entered
 - **THEN** the surface SHALL show the resulting delay progression and the total time before the turn
   finally fails
+
+#### Scenario: Preview applies the cap
+
+- **WHEN** `maxRetries: 11`, `baseDelayMs: 2700` and `maxAgentDelayMs: 60000` are entered
+- **THEN** every previewed delay SHALL be at most `60 s`
+- **AND** the total wait SHALL be the sum of the capped delays, not of the uncapped `2^n` curve
+
+#### Scenario: Clamping is disclosed
+
+- **GIVEN** the entered values make at least one attempt's uncapped delay exceed `maxAgentDelayMs`
+- **WHEN** the preview is rendered
+- **THEN** the surface SHALL state that delays are capped at `maxAgentDelayMs` and from which attempt the cap applies
+
+#### Scenario: No clamping, no notice
+
+- **GIVEN** every attempt's uncapped delay is at or below `maxAgentDelayMs`
+- **WHEN** the preview is rendered
+- **THEN** the surface SHALL NOT show the cap notice
 
 ### Requirement: Retry saves coordinate with pi's settings lock
 

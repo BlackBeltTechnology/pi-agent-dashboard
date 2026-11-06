@@ -10,7 +10,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { isFlowEvent, reduceFlowEvent } from "../reducer.js";
-import type { DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 
 function ev(type: string, data: Record<string, unknown>): DashboardEvent {
   return {
@@ -102,5 +103,42 @@ describe("flow-reducer parity (post-extract-flows-as-plugin)", () => {
     );
     expect(s!.status).toBe("success");
     expect(s!.flowResult).toBeDefined();
+  });
+});
+
+/**
+ * X10: a pi-flows 0.9-shape producer (no itemIndex, no flow_decision, no
+ * skipped) reduces exactly as before: one card per step, no groups, and the
+ * final state carries no 0.10-only field. See change: update-flows-plugin.
+ */
+describe("pre-0.10 producer parity (X10)", () => {
+  it("a 2-step lifecycle yields one card per step and no groups / decisions", () => {
+    const events: Array<[string, Record<string, unknown>]> = [
+      ["flow_started", { flowName: "f", task: "t", steps: [
+        { id: "a", stepType: "agent", agent: "alpha", blockedBy: [] },
+        { id: "b", stepType: "agent", agent: "beta", blockedBy: ["a"] },
+      ] }],
+      ["flow_agent_started", { agentName: "alpha", stepId: "a" }],
+      ["flow_tool_call", { agentName: "alpha", stepId: "a", toolName: "read", input: { path: "x.ts" } }],
+      ["flow_agent_complete", { agentName: "alpha", stepId: "a", result: { success: true, summary: "ok" } }],
+      ["flow_agent_started", { agentName: "beta", stepId: "b" }],
+      ["flow_agent_complete", { agentName: "beta", stepId: "b", result: { success: false } }],
+      ["flow_complete", { status: "error" }],
+    ];
+    let s: FlowState | null = null;
+    for (const [t, d] of events) s = reduceFlowEvent(s, ev(t, d));
+    expect([...s!.agents.keys()]).toEqual(["a", "b"]);
+    expect(s!.groups).toBeUndefined();
+    expect(s!.decisions).toBeUndefined();
+    expect(s!.skippedSteps).toBeUndefined();
+    expect(s!.agents.get("a")).toMatchObject({ status: "complete", outcome: "success", summary: "ok" });
+    expect(s!.agents.get("a")!.recentTools).toEqual([{ toolName: "read", inputPreview: "x.ts" }]);
+    expect(s!.agents.get("b")).toMatchObject({ status: "error", outcome: "soft" });
+    for (const a of s!.agents.values()) {
+      expect(a.itemKey).toBeUndefined();
+      expect(a.rollup).toBeUndefined();
+      expect(a.decision).toBeUndefined();
+    }
+    expect(s!.status).toBe("error");
   });
 });

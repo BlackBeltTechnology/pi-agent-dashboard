@@ -27,6 +27,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
+import { getReplayEntryTypes, recordPluginEntriesReplayed } from "../plugin-entry-stats.js";
 import {
   loadAndReplay,
   type SessionLoadRequest,
@@ -123,6 +124,7 @@ export function createSessionLoadWorkerPool(
   function finish(p: Pending, out: SessionLoadResult): void {
     if (p.resolved) return;
     p.resolved = true;
+    recordPluginEntriesReplayed(out.pluginEntriesReplayed ?? 0);
     p.resolve(out);
   }
 
@@ -235,7 +237,15 @@ export function createSessionLoadWorkerPool(
 
   function load(req: Omit<SessionLoadRequest, "jobId">): SessionLoadDispatch {
     const id = nextId++;
-    const payload: SessionLoadRequest = { ...req, jobId: id };
+    // Manifest-derived plugin entry types ride every request, so an offline
+    // session replays its plugin runs. See change: update-flows-plugin (D3).
+    const types = getReplayEntryTypes();
+    const payload: SessionLoadRequest = {
+      replayEntryTypes: types.replay,
+      hiddenEntryTypes: types.hidden,
+      ...req,
+      jobId: id,
+    };
     let resolveOuter!: (out: SessionLoadResult) => void;
     const result = new Promise<SessionLoadResult>((r) => { resolveOuter = r; });
     const p: Pending = {

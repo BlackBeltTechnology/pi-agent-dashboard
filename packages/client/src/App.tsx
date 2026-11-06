@@ -78,6 +78,8 @@ import { useRemoteAccessIndicator } from "./hooks/useRemoteAccessIndicator.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
+import { setSpawnDefaults as mirrorSpawnDefaults } from "./lib/spawn/spawn-choice-memory.js";
+import { siblingSpawnOpts } from "./lib/spawn/spawn-opts.js";
 import { fetchArchivedSessionById } from "./lib/api/archived-sessions-api.js";
 import { getInitialWsUrl, LAST_SERVER_KEY, performServerSwitch } from "./lib/api/server-switch.js";
 import { openStagingSocket } from "./lib/api/staging-socket.js";
@@ -257,6 +259,7 @@ import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 import { registerPluginRouteDescriptors } from "./lib/nav/back-target.js";
 import { setEventTypeOwners } from "./lib/plugins/event-type-owners.js";
+import { setPluginEntryTypes } from "./lib/plugins/plugin-entry-types.js";
 import {
   RUNTIME_PLUGINS_REGISTERED_EVENT,
   regroupAllSessionStates,
@@ -297,6 +300,9 @@ for (const entry of PLUGIN_REGISTRY) {
 // Ownership is a reducer input (availability is not): seed it before any event
 // reduces. See change: decouple-plugins-from-core.
 setEventTypeOwners(_pluginRegistry.getEventTypeOwners());
+// Plugin-declared persisted entry types (every bundled plugin, enabled or not)
+// never render as generic custom rows. See change: update-flows-plugin (D3).
+setPluginEntryTypes(PLUGIN_REGISTRY.flatMap((e) => e.manifest.replayEntryTypes ?? []));
 
 // Feed plugin `shell-overlay-route` claims into the back-target classifier so
 // the depth-aware back action resolves plugin routes (declared depth/parent)
@@ -780,6 +786,9 @@ export default function App() {
     defaultModel: "",
     defaultThinkingLevel: "",
   });
+  // Quick-spawn paths read the Settings defaults from the spawn-choice store.
+  // See change: add-spawn-model-choice (D6).
+  useEffect(() => mirrorSpawnDefaults(spawnDefaults), [spawnDefaults]);
   const [spawningCwds, setSpawningCwds] = useState<Set<string>>(new Set());
   const spawningCwdsRef = useRef<Set<string>>(spawningCwds);
   spawningCwdsRef.current = spawningCwds;
@@ -1986,9 +1995,10 @@ export default function App() {
   // session in the same folder. See change: stop-discarding-known-session-state.
   const handleForkPendingPrompt = useCallback(() => {
     const target = selectedId ? sessions.get(selectedId) : undefined;
-    // Keyboard sibling spawn inherits the source session's agent (no picker).
-    // See change: add-acp-session-driver (D16).
-    if (target) handleSpawnSession(target.cwd, undefined, target.driver === "acp" && target.acpAgentId ? { agent: target.acpAgentId } : undefined);
+    // Keyboard sibling spawn inherits the source session's agent, or for pi its
+    // model + thinking level (no picker).
+    // See changes: add-acp-session-driver (D16), add-spawn-model-choice (D7).
+    if (target) handleSpawnSession(target.cwd, undefined, siblingSpawnOpts(target));
   }, [selectedId, sessions, handleSpawnSession]);
   const handleCollapseStreamingThinking = useCallback(() => {
     if (!selectedId) return;

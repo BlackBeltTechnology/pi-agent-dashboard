@@ -20,9 +20,11 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/npm.js", () => ({
   rootGlobalOr: mockNpmRootGlobalOr,
 }));
 
+const { mockReaddirSync } = vi.hoisted(() => ({ mockReaddirSync: vi.fn((): string[] => []) }));
 vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
+  readdirSync: mockReaddirSync,
 }));
 
 // Tool-registry mock: detectPi / detectOpenSpec / detectSystemNode
@@ -138,8 +140,8 @@ describe("dependency-detector", () => {
       });
       // detectSystemNode then calls execFileSync("<path>", ["--version"]) via platform/exec
       // (chained through node:child_process which IS mocked).
-      // v22.19.0 is the engines floor — usable per isUsableNodeVersion.
-      mockExecFileSync.mockReturnValue("v22.19.0\n");
+      // v26.0.0 is the engines floor — usable per isUsableNodeVersion.
+      mockExecFileSync.mockReturnValue("v26.0.0\n");
       const result = detectSystemNode();
       expect(result).toMatchObject({ found: true, path: "/usr/local/bin/node", source: "system" });
     });
@@ -154,7 +156,7 @@ describe("dependency-detector", () => {
         tried: [],
         resolvedAt: Date.now(),
       });
-      // Version is below the engines floor (>=22.19) so detectSystemNode
+      // Version is below the engines floor (>=26.0.0) so detectSystemNode
       // rejects and falls through to scanForUsableNodeOnDisk. mockExistsSync
       // is false by default so the on-disk scan finds no candidates → {found:false}.
       mockExecFileSync.mockReturnValue("v18.0.0\n");
@@ -184,7 +186,7 @@ describe("dependency-detector", () => {
       "/tmp/a&b/node",
     ])("BE36 %s is one program argument, never a shell string", (p) => {
       resolveTo(p);
-      mockExecFileSync.mockReturnValue("v22.19.0\n");
+      mockExecFileSync.mockReturnValue("v26.0.0\n");
       const result = detectSystemNode();
       expect(result).toMatchObject({ found: true, path: p });
       expect(mockExecFileSync).toHaveBeenCalledWith(p, ["--version"], expect.any(Object));
@@ -386,5 +388,44 @@ describe("dependency-detector", () => {
         source: "system",
       });
     });
+  });
+});
+
+// test-plan #E13 (change raise-node-floor-to-26): accept-set narrowed to >=26.0.0 <27.
+describe("detectSystemNode — Node 26 accept-set (#E13)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
+    mockHas.mockReturnValue(true);
+    mockResolve.mockReturnValue({
+      name: "node", ok: true, path: "/usr/local/bin/node", source: "system", tried: [], resolvedAt: Date.now(),
+    });
+  });
+
+  it.each([
+    ["v24.15.0", false],
+    ["v25.9.0", false],
+    ["v26.0.0", true],
+    ["v27.0.0", false],
+  ])("system Node %s → found=%s", (version, found) => {
+    mockExecFileSync.mockReturnValue(`${version}\n`);
+    expect(detectSystemNode().found).toBe(found);
+  });
+
+  it.skipIf(process.platform === "win32")("on-disk nvm scan skips v24.15.0 and returns v26.0.0", async () => {
+    const os = await import("node:os");
+    const nvmRoot = `${os.homedir()}/.nvm/versions/node`;
+    const n24 = `${nvmRoot}/v24.15.0/bin/node`;
+    const n26 = `${nvmRoot}/v26.0.0/bin/node`;
+    mockExistsSync.mockImplementation((p: string) => p === nvmRoot || p === n24 || p === n26);
+    mockReaddirSync.mockReturnValue(["v24.15.0", "v26.0.0"]);
+    mockExecFileSync.mockImplementation((bin: string) => {
+      if (bin === "/usr/local/bin/node") return "v24.15.0\n";
+      if (bin === n24) return "v24.15.0\n";
+      if (bin === n26) return "v26.0.0\n";
+      throw new Error("unexpected probe");
+    });
+    expect(detectSystemNode()).toMatchObject({ found: true, path: n26, source: "system" });
   });
 });

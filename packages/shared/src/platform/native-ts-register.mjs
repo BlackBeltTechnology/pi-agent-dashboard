@@ -19,7 +19,7 @@ const tier = selectLoaderTier(nodeModule);
 if (typeof (tier === 1 ? nodeModule.registerHooks : nodeModule.register) !== "function") {
   throw new Error(
     `pi-dashboard: this Node (${process.version}) lacks the module hook registration API ` +
-      "(module.registerHooks / module.register) the native TypeScript loader needs. Use a supported Node (>=22.19.0 <27).",
+      "(module.registerHooks / module.register) the native TypeScript loader needs. Use a supported Node (>=26.0.0 <27).",
   );
 }
 

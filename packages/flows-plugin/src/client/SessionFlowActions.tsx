@@ -1,5 +1,6 @@
 import { usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { DashboardSession, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import React from "react";
 import { FlowActivityBadge } from "./FlowActivityBadge.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
@@ -16,7 +17,7 @@ export function SessionFlowActions({
 }: {
   /** Current flow state for this session. Drives the status pill. */
   flowState?: FlowState | null;
-  /** Dispatch flow_control abort. Called by the running-flow pill's Abort button. */
+  /** Dispatch the `flow.abort` plugin_action. Called by the running-flow pill's Abort button. */
   onAbortFlow?: () => void;
 }) {
   // Compute running-flow badge inputs from flowState (when present).
@@ -49,7 +50,7 @@ export function SessionFlowActionsClaim({ session }: { session: DashboardSession
   return (
     <SessionFlowActions
       flowState={flowState}
-      onAbortFlow={() => send({ type: "flow_control", sessionId: session.id, action: "abort" })}
+      onAbortFlow={() => send({ type: "plugin_action", pluginId: "flows", sessionId: session.id, action: "flow.abort" })}
     />
   );
 }

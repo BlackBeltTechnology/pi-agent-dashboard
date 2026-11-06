@@ -3,159 +3,104 @@ import os from "node:os";
 import path from "node:path";
 import * as sharedNodeVersion from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as nodeGuard from "../auth/node-guard.js";
 import {
+  assertNodeVersionSupported,
   buildEnginesRangeMessage,
-  buildNodeUpgradeMessage,
   foreignTsLoaderWarning,
-  isAffectedNode,
   isOutOfEnginesRange,
   warnTsLoaderState,
 } from "../auth/node-guard.js";
 
-describe("node-guard re-exports the shared canonical predicates", () => {
-  it("isAffectedNode is the same reference as the shared source", () => {
-    expect(isAffectedNode).toBe(sharedNodeVersion.isAffectedNode);
-  });
+// Pass-through spies so the #E4 "no Node spawned" assertion can observe any
+// child-process call made while building the message.
+const childProcessSpies = vi.hoisted(() => ({}) as Record<string, ReturnType<typeof vi.fn>>);
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  const wrapped: Record<string, unknown> = { ...actual };
+  for (const name of ["spawn", "spawnSync", "execFile", "execFileSync", "exec", "execSync"] as const) {
+    const fn = vi.fn((...args: unknown[]) => (actual[name] as (...a: unknown[]) => unknown)(...args));
+    childProcessSpies[name] = fn;
+    wrapped[name] = fn;
+  }
+  return { ...wrapped, default: wrapped };
+});
 
+describe("node-guard re-exports the shared canonical predicate", () => {
   it("isOutOfEnginesRange is the same reference as the shared source", () => {
     expect(isOutOfEnginesRange).toBe(sharedNodeVersion.isOutOfEnginesRange);
   });
-});
 
-describe("isAffectedNode", () => {
-  it("returns true for v22.0.0 (lower bound of 22.x affected)", () => {
-    expect(isAffectedNode("v22.0.0")).toBe(true);
-  });
-
-  it("returns true for v22.17.999 (well inside 22.x affected)", () => {
-    expect(isAffectedNode("v22.17.999")).toBe(true);
-  });
-
-  it("returns true for v22.18.0 (now refused after bump-pi-compat-to-0-75)", () => {
-    expect(isAffectedNode("v22.18.0")).toBe(true);
-  });
-
-  it("returns true for v22.18.999 (upper bound of 22.x affected)", () => {
-    expect(isAffectedNode("v22.18.999")).toBe(true);
-  });
-
-  it("returns false for v22.19.0 (first 22.x fixed; new floor)", () => {
-    expect(isAffectedNode("v22.19.0")).toBe(false);
-  });
-
-  it("returns false for v22.22.2 (current LTS)", () => {
-    expect(isAffectedNode("v22.22.2")).toBe(false);
-  });
-
-  it("returns true for v24.1.0 (lower bound of 24.x affected)", () => {
-    expect(isAffectedNode("v24.1.0")).toBe(true);
-  });
-
-  it("returns true for v24.2.999 (upper bound of 24.x affected)", () => {
-    expect(isAffectedNode("v24.2.999")).toBe(true);
-  });
-
-  it("returns false for v24.3.0 (first 24.x fixed)", () => {
-    expect(isAffectedNode("v24.3.0")).toBe(false);
-  });
-
-  it("returns false for v24.0.0 (below affected range)", () => {
-    expect(isAffectedNode("v24.0.0")).toBe(false);
-  });
-
-  it("returns false for v25.0.0 (entire 25.x unaffected)", () => {
-    expect(isAffectedNode("v25.0.0")).toBe(false);
-  });
-
-  it("returns false for v20.x (pre-bug range)", () => {
-    expect(isAffectedNode("v20.15.0")).toBe(false);
-  });
-
-  it("returns false for v23.x (odd releases all unaffected)", () => {
-    expect(isAffectedNode("v23.5.0")).toBe(false);
-  });
-
-  it("accepts versions without the v prefix", () => {
-    expect(isAffectedNode("22.18.0")).toBe(true);
-    expect(isAffectedNode("22.19.0")).toBe(false);
-  });
-
-  it("returns false for malformed input rather than throwing", () => {
-    expect(isAffectedNode("")).toBe(false);
-    expect(isAffectedNode("not-a-version")).toBe(false);
-    expect(isAffectedNode("v22")).toBe(false);
-    expect(isAffectedNode("22.17")).toBe(false);
+  it("no longer exports the #58515 startup helpers", () => {
+    expect("buildNodeUpgradeMessage" in nodeGuard).toBe(false);
+    expect("isAffectedNode" in nodeGuard).toBe(false);
   });
 });
 
-describe("buildNodeUpgradeMessage", () => {
-  it("interpolates the running version into the message", () => {
-    const msg = buildNodeUpgradeMessage("v22.17.1");
-    expect(msg).toContain("v22.17.1");
+describe("isOutOfEnginesRange (>=26.0.0 <27)", () => {
+  it("refuses 22.x, 24.x, 25.x and 27+", () => {
+    for (const v of ["v20.15.0", "v22.18.0", "v22.19.0", "v22.22.2", "v24.15.0", "v25.9.0", "v27.0.0", "v28.1.0"]) {
+      expect(isOutOfEnginesRange(v), v).toBe(true);
+    }
   });
 
-  it("includes the upstream Node issue link", () => {
-    const msg = buildNodeUpgradeMessage("v22.17.1");
-    expect(msg).toContain("https://github.com/nodejs/node/issues/58515");
-  });
-
-  it("names the minimum acceptable versions", () => {
-    const msg = buildNodeUpgradeMessage("v22.17.1");
-    expect(msg).toMatch(/22\.19/);
-    expect(msg).toMatch(/24\.3/);
-  });
-
-  it("suggests nvm, brew, and Windows installer paths", () => {
-    const msg = buildNodeUpgradeMessage("v22.17.1");
-    expect(msg).toMatch(/nvm/);
-    expect(msg).toMatch(/brew/);
-    expect(msg).toMatch(/nodejs\.org/);
-  });
-});
-
-
-describe("isOutOfEnginesRange", () => {
-  it("returns true for major < 22 (too old)", () => {
-    expect(isOutOfEnginesRange("v20.15.0")).toBe(true);
-    expect(isOutOfEnginesRange("v18.0.0")).toBe(true);
-  });
-
-  it("returns true for v22.x below 22.19 (below engines floor)", () => {
-    expect(isOutOfEnginesRange("v22.0.0")).toBe(true);
-    expect(isOutOfEnginesRange("v22.18.0")).toBe(true);
-    expect(isOutOfEnginesRange("v22.18.999")).toBe(true);
-  });
-
-  it("returns false for v22.19.0 (engines floor exactly)", () => {
-    expect(isOutOfEnginesRange("v22.19.0")).toBe(false);
-  });
-
-  it("returns false for v22.22.x, v23.x, v24.x, v25.x, v26.x within range", () => {
-    expect(isOutOfEnginesRange("v22.22.2")).toBe(false);
-    expect(isOutOfEnginesRange("v23.5.0")).toBe(false);
-    expect(isOutOfEnginesRange("v24.15.0")).toBe(false);
-    expect(isOutOfEnginesRange("v25.0.0")).toBe(false);
-    expect(isOutOfEnginesRange("v25.9.0")).toBe(false);
-    expect(isOutOfEnginesRange("v26.0.0")).toBe(false);
-    expect(isOutOfEnginesRange("v26.8.1")).toBe(false);
-  });
-
-  it("returns true for v27.x and above (engines cap)", () => {
-    expect(isOutOfEnginesRange("v27.0.0")).toBe(true);
-    expect(isOutOfEnginesRange("v28.4.2")).toBe(true);
-  });
-
-  it("accepts versions without the v prefix", () => {
-    expect(isOutOfEnginesRange("26.0.0")).toBe(false);
-    expect(isOutOfEnginesRange("27.0.0")).toBe(true);
-    expect(isOutOfEnginesRange("22.19.0")).toBe(false);
-    expect(isOutOfEnginesRange("25.0.0")).toBe(false);
+  it("accepts 26.x", () => {
+    for (const v of ["v26.0.0", "v26.8.1", "26.13.0"]) {
+      expect(isOutOfEnginesRange(v), v).toBe(false);
+    }
   });
 
   it("returns false for malformed input rather than throwing", () => {
     expect(isOutOfEnginesRange("")).toBe(false);
     expect(isOutOfEnginesRange("not-a-version")).toBe(false);
-    expect(isOutOfEnginesRange("v22")).toBe(false);
+  });
+});
+
+// test-plan #E3
+describe("assertNodeVersionSupported", () => {
+  const realVersion = process.version;
+  afterEach(() => {
+    Object.defineProperty(process, "version", { value: realVersion, configurable: true });
+    vi.restoreAllMocks();
+  });
+
+  function runUnder(version: string): { exitCode: number | undefined; stderr: string } {
+    Object.defineProperty(process, "version", { value: version, configurable: true });
+    let stderr = "";
+    vi.spyOn(console, "error").mockImplementation((m: unknown) => {
+      stderr += String(m);
+    });
+    let exitCode: number | undefined;
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      exitCode = code;
+      throw new Error("__exit__");
+    }) as never);
+    try {
+      assertNodeVersionSupported();
+    } catch (e) {
+      if ((e as Error).message !== "__exit__") throw e;
+    }
+    return { exitCode, stderr };
+  }
+
+  it("exits 1 on Node 24.15.0 with the engines-range message and no #58515 text", () => {
+    const { exitCode, stderr } = runUnder("v24.15.0");
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Required: >=26.0.0 <27");
+    expect(stderr).not.toContain("58515");
+  });
+
+  it("exits 1 on Node 22.18.0 (formerly the #58515 path) with the engines-range message only", () => {
+    const { exitCode, stderr } = runUnder("v22.18.0");
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Required: >=26.0.0 <27");
+    expect(stderr).not.toContain("58515");
+  });
+
+  it("returns normally on Node 26.0.0", () => {
+    const { exitCode, stderr } = runUnder("v26.0.0");
+    expect(exitCode).toBeUndefined();
+    expect(stderr).toBe("");
   });
 });
 
@@ -165,30 +110,35 @@ describe("buildEnginesRangeMessage", () => {
   });
 
   it("names the engines range", () => {
-    expect(buildEnginesRangeMessage("v27.0.0")).toMatch(/>=22\.19\.0 <27/);
+    expect(buildEnginesRangeMessage("v24.15.0")).toContain("Required: >=26.0.0 <27");
   });
 
   it("explains the EBADENGINE / engines-range link", () => {
-    const msg = buildEnginesRangeMessage("v27.0.0");
+    const msg = buildEnginesRangeMessage("v24.15.0");
     expect(msg).toMatch(/EBADENGINE/);
     expect(msg).toMatch(/floor/);
   });
 
-  // Full remediation contract in one probe at the new refusal boundary.
-  // See change: fix-pi-install-node26-and-omit-dev-build (test-plan #E4).
-  it("names the version, the new range, and every remediation route when a managed Node exists", () => {
+  it("names Node 26 for nvm and never an out-of-range brew line", () => {
+    const msg = buildEnginesRangeMessage("v24.15.0", { managedNodeExists: false });
+    expect(msg).toContain("nvm install 26");
+    expect(msg).toContain("brew install node");
+    expect(msg).not.toMatch(/node@2[0-5]/);
+    expect(msg).not.toContain("nvm install 24");
+  });
+
+  it("names the version, the range, and every remediation route when a managed Node qualifies", () => {
     const msg = buildEnginesRangeMessage("v27.0.0", { managedNodeExists: true });
     expect(msg).toContain("cannot start on Node v27.");
-    expect(msg).toContain("Required: >=22.19.0 <27");
+    expect(msg).toContain("Required: >=26.0.0 <27");
     expect(msg).toContain("nvm install");
     expect(msg).toContain('PATH="$HOME/.pi-dashboard/node/bin');
     expect(msg).toContain("brew install node");
   });
 
-  // Managed PATH hint is emitted ONLY when `<managedDir>/node/` actually
-  // holds a managed runtime — without one the hint is dead advice.
-  // See change: unify-pi-runtime-identity (task 6.3 / test-plan E9).
-  describe("managed-Node hint existence probe (test-plan E9)", () => {
+  // Managed PATH hint is emitted ONLY when `<managedDir>/node/` holds a
+  // runtime whose `.version` marker meets the engines range (test-plan #E4).
+  describe("managed-Node hint marker probe (test-plan #E4)", () => {
     let managedDir: string;
 
     beforeEach(() => {
@@ -197,32 +147,56 @@ describe("buildEnginesRangeMessage", () => {
 
     afterEach(() => {
       fs.rmSync(managedDir, { recursive: true, force: true });
+      vi.restoreAllMocks();
     });
 
-    it("lists all three install paths when a managed Node runtime exists", () => {
-      const msg = buildEnginesRangeMessage("v27.0.0", { managedNodeExists: true });
-      expect(msg).toContain("nvm install");
-      expect(msg).toContain('PATH="$HOME/.pi-dashboard/node/bin');
-      expect(msg).toContain("brew install node");
-    });
-
-    it("omits the managed hint and the `.pi-dashboard` substring when absent", () => {
-      const msg = buildEnginesRangeMessage("v27.0.0", { managedNodeExists: false });
-      expect(msg).toContain("nvm install");
-      expect(msg).toContain("brew install node");
-      expect(msg).not.toContain(".pi-dashboard");
-    });
-
-    it("probes `<managedDir>/node/` on disk when not overridden", () => {
-      // No node/ under the tmp managedDir → machine without a managed
-      // runtime → hint absent.
-      expect(buildEnginesRangeMessage("v27.0.0", { managedDir })).not.toContain(".pi-dashboard");
-      // With node/ present → the managed PATH hint is emitted.
+    const writeMarker = (content: string | null): void => {
       fs.mkdirSync(path.join(managedDir, "node"), { recursive: true });
-      expect(buildEnginesRangeMessage("v27.0.0", { managedDir })).toContain(
-        'PATH="$HOME/.pi-dashboard/node/bin',
-      );
+      if (content !== null) fs.writeFileSync(path.join(managedDir, "node", ".version"), content);
+    };
+
+    it("omits the hint when no managed runtime exists", () => {
+      const msg = buildEnginesRangeMessage("v24.15.0", { managedDir });
+      expect(msg).not.toContain(".pi-dashboard");
+      expect(msg).toContain("nvm install 26");
+      expect(msg).toContain("brew install node");
     });
+
+    it("omits the hint when the marker is absent", () => {
+      writeMarker(null);
+      expect(buildEnginesRangeMessage("v24.15.0", { managedDir })).not.toContain(".pi-dashboard");
+    });
+
+    it("omits the hint for a below-floor managed Node (v24.15.0)", () => {
+      writeMarker("v24.15.0\n");
+      const msg = buildEnginesRangeMessage("v24.15.0", { managedDir });
+      expect(msg).not.toContain(".pi-dashboard");
+      expect(msg).toContain("nvm install 26");
+    });
+
+    it("omits the hint when the marker is unreadable", () => {
+      fs.mkdirSync(path.join(managedDir, "node", ".version"), { recursive: true }); // a dir → EISDIR
+      expect(buildEnginesRangeMessage("v24.15.0", { managedDir })).not.toContain(".pi-dashboard");
+    });
+
+    it("emits the hint for a qualifying managed Node (v26.1.0)", () => {
+      writeMarker("v26.1.0\n");
+      const msg = buildEnginesRangeMessage("v24.15.0", { managedDir });
+      expect(msg).toContain('PATH="$HOME/.pi-dashboard/node/bin');
+      expect(msg).toContain("nvm install 26");
+      expect(msg).toContain("brew install node");
+    });
+  });
+
+  it("reads the marker without spawning Node", async () => {
+    const cp = await import("node:child_process");
+    for (const fn of Object.values(childProcessSpies)) fn.mockClear();
+    buildEnginesRangeMessage("v24.15.0");
+    buildEnginesRangeMessage("v24.15.0", { managedDir: os.tmpdir() });
+    for (const [name, fn] of Object.entries(childProcessSpies)) {
+      expect(fn, name).not.toHaveBeenCalled();
+    }
+    expect(cp.spawnSync).toBe(childProcessSpies.spawnSync);
   });
 });
 

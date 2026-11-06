@@ -136,6 +136,8 @@
         "openspec/changes/**/spike/**",
         "openspec/changes/**/mockup/**",
         "openspec/changes/**/mockups/**",
+        "mockups/**",
+        "packages/mockup-loop/examples/**",
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",

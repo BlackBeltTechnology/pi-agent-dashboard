@@ -47,6 +47,7 @@ TESTS=(
   "51-plugin-failing-server-entry-dist-only.sh" # a throwing server entry: row loaded:false + error, /api/health 200 before and after (#X15). See change: decouple-plugins-from-core.
   "55-keychain-linux.sh"        # real @napi-rs/keyring: Secret Service round trip + vault migrated + decodes after restart (#E91); no session bus -> keychain_unavailable, no keyutils entry, plaintext vault readable, write refused (#X13). Skips off Linux / without dbus-run-session, gnome-keyring-daemon, secret-tool. See change: encrypt-credentials-at-rest.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
+  # 56-mock-site-tarball.sh is OPT-IN too (network npm install; installed-tarball mock site, #X9). See change: add-live-component-mock-site.
   # 53-docker-credential-key.sh is OPT-IN too (PI_QA_DOCKER=1: image build + several container starts; #E80-E83, #E85, #X18).
   # one moves ~1 GB through a socket, the others soak for minutes (38: PI_QA_POLL_COST=1).
 )

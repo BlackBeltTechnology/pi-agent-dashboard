@@ -1,5 +1,5 @@
 /**
- * Session action handlers: send_prompt, abort, resume, spawn, shutdown, flow_control.
+ * Session action handlers: send_prompt, abort, resume, spawn, shutdown.
  */
 import { existsSync } from "node:fs";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
@@ -34,7 +34,7 @@ import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spa
 import { type AcpGuardContext, endedPromptHint, refuseIfAcp, UNSUPPORTED_FOR_ACP, unsupportedMessage } from "./acp-guard.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { isBareReloadCommand } from "./session-action-helpers.js";
-import { choiceToSpawnOptions, resolveResumeChoice, validateSpawnChoice } from "./spawn-choice.js";
+import { choiceToSpawnOptions, resolveResumeChoice, resolveSpawnChoice } from "./spawn-choice.js";
 
 /**
  * Status message + code emitted when fork is attempted on a session whose
@@ -844,6 +844,16 @@ export async function handleSpawnSession(
   if (typeof msg.initialPrompt === "string" && msg.initialPrompt.length > 0) {
     pendingInitialPromptRegistry?.enqueue(msg.cwd, msg.initialPrompt);
   }
+  // A spawn that never registers removes only its OWN queued intents (newest
+  // match), never another spawn's FIFO head. See change: add-spawn-model-choice (D3).
+  const withdrawSpawnIntents = (): void => {
+    if (typeof msg.attachProposal === "string" && msg.attachProposal.length > 0) {
+      pendingAttachRegistry?.withdraw(msg.cwd, msg.attachProposal);
+    }
+    if (typeof msg.initialPrompt === "string" && msg.initialPrompt.length > 0) {
+      pendingInitialPromptRegistry?.withdraw(msg.cwd, msg.initialPrompt);
+    }
+  };
 
   // ── Preflight: fast synchronous checks before spawning. See change: spawn-failure-diagnostics.
   // ACP agent spawn (`agent` given): its own validation + preflight; pi/tmux
@@ -852,6 +862,7 @@ export async function handleSpawnSession(
   const acpAgent = msg.agent === undefined ? undefined : validateAcpAgent(msg.agent);
   if (acpAgent && !acpAgent.ok) {
     if (ownerSpawnToken) pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
+    withdrawSpawnIntents();
     sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message: acpAgent.message, requestId: msg.requestId });
     sendTo(ws, { type: "spawn_error", cwd: msg.cwd, strategy: "headless", message: acpAgent.message, code: "SPAWN_ERRNO" });
     return;
@@ -862,6 +873,7 @@ export async function handleSpawnSession(
     : preflightSpawn(msg.cwd, { resolver: preflightResolver });
   if (!preflight.ok) {
     const message = preflight.reasons.map((r) => r.message).join("; ");
+    withdrawSpawnIntents();
     sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message, requestId: msg.requestId });
     sendTo(ws, { type: "spawn_error", cwd: msg.cwd, strategy, message, code: "PREFLIGHT_FAILED", reasons: preflight.reasons });
     appendSpawnFailure({
@@ -885,11 +897,13 @@ export async function handleSpawnSession(
     // post-start default thinking can never overwrite it. pi-only: an ACP agent
     // takes no pi `--model`/`--thinking` argv.
     // See change: redesign-directory-home-split (D5, D6).
-    const choice: ReturnType<typeof validateSpawnChoice> = acpAgent?.ok ? {} : validateSpawnChoice(msg);
-    if (choice.thinking && !choice.model && config.defaultModel) {
-      const fallback = validateSpawnChoice({ model: config.defaultModel, thinkingLevel: choice.thinking });
-      if (fallback.model) choice.model = fallback.model;
-    }
+    // One resolver for every spawn road: `@role` refs resolve once here, and a
+    // dropped choice is reported on `spawn_result.choiceWarning`.
+    // See change: add-spawn-model-choice (D1, D2).
+    const { choice, warnings: choiceWarnings } = resolveSpawnChoice(
+      { model: msg.model, thinkingLevel: msg.thinkingLevel, ...(acpAgent?.ok ? { agent: acpAgent.agent.id } : {}) },
+      { defaultModel: config.defaultModel || undefined },
+    );
     const spawnResult = acpAgent?.ok
       ? await spawnAcpSession(msg.cwd, { agent: acpAgent.agent.id, ...(ownerSpawnToken ? { spawnToken: ownerSpawnToken } : {}) })
       : await spawnPiSession(msg.cwd, {
@@ -903,6 +917,7 @@ export async function handleSpawnSession(
     if (!spawnResult.success && ownerSpawnToken) {
       pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
     }
+    if (!spawnResult.success) withdrawSpawnIntents();
     if (spawnResult.process && spawnResult.pid) {
       headlessPidRegistry.register(
         spawnResult.pid,
@@ -933,6 +948,7 @@ export async function handleSpawnSession(
       message: spawnResult.message,
       requestId: msg.requestId,
       ...(spawnResult.pid ? { pid: spawnResult.pid } : {}),
+      ...(spawnResult.success && choiceWarnings.length > 0 ? { choiceWarning: choiceWarnings.join("; ") } : {}),
     });
     if (!spawnResult.success) {
       sendTo(ws, {
@@ -971,6 +987,7 @@ export async function handleSpawnSession(
   } catch (err) {
     // Thrown spawn: the session never registers, so drop the pre-filed owner.
     if (ownerSpawnToken) pendingPrincipalOwnerRegistry?.remove(ownerSpawnToken);
+    withdrawSpawnIntents();
     const message = err instanceof Error ? err.message : String(err);
     const stderr = err instanceof Error && "stderr" in err ? String((err as { stderr: unknown }).stderr).slice(-2048) : undefined;
     sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message, requestId: msg.requestId });
@@ -1216,12 +1233,6 @@ export function handlePromoteFollowupEntry(
 
 
 
-export function handleFlowControl(
-  msg: Extract<BrowserToServerMessage, { type: "flow_control" }>,
-  ctx: BrowserHandlerContext,
-): void {
-  ctx.piGateway.sendToSession(msg.sessionId, { type: "flow_control", sessionId: msg.sessionId, action: msg.action });
-}
 
 export function handleKillProcess(
   msg: Extract<BrowserToServerMessage, { type: "kill_process" }>,

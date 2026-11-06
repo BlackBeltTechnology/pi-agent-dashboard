@@ -39,7 +39,6 @@ import type { createPluginRequestClient } from "../plugin-request-client.js";
 import type { PrStatusScheduler } from "../pr-status.js";
 import type { PromptBus } from "../prompt-bus.js";
 import type { RetryTracker } from "../retry-tracker.js";
-import type { FanoutAdmissionGate } from "../subagent-fanout-admission.js";
 import type { SubagentFrameBuffer } from "../subagent-frame-buffer.js";
 import type { SubagentTickThrottle } from "../subagent-tick-throttle.js";
 import type { createTransportDiagnostics } from "../transport-diagnostics.js";
@@ -214,7 +213,6 @@ export interface BridgeInstance {
   runAutoNameOnTurnEnd: () => void;
   sendCwdMissingIfChanged: (cwd: string) => void;
   sendPiVersionIfChanged: () => void;
-  fanoutAdmission: FanoutAdmissionGate;
   sendEventForward: (channel: string, data: Record<string, unknown>) => void;
   flushPendingSubagentFrames: () => void;
   pluginForwardRegistry: PluginForwardRegistry;

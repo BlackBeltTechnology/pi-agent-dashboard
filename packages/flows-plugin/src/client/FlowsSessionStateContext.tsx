@@ -26,10 +26,8 @@
  */
 
 import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type {
-  DashboardEvent,
-  FlowState,
-} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { useMemo } from "react";
 import { FLOW_CATALOG_EVENT, type FlowCatalogEntry, parseCatalogPayload } from "../flow-catalog-contract.js";
 import { isFlowEvent, reduceFlowEvent } from "../reducer.js";

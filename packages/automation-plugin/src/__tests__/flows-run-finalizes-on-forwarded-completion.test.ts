@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FLOW_RUN_CHANNELS } from "../../../flows-plugin/src/bridge/flow-event-forward.js";
 import { flowsActionContributions } from "../../../flows-plugin/src/server/automation-actions.js";
 import { registerPlugin } from "../server/index.js";
 import { listRuns, readChildRuns } from "../server/run-store.js";
@@ -289,5 +290,17 @@ describe("flows.run run finalization (real handler)", () => {
     h.onEvent(sid, { eventType: "agent_end", data: {} });
     await sleep(50);
     expect(h.run(runId)?.status).toBe("done");
+  });
+});
+
+/**
+ * E51: the completion event the action waits for is exactly what the flows
+ * plugin bridge forwards for pi-flows' `flow:complete` (stream keyed
+ * `flowName`). See change: update-flows-plugin (task 2.7).
+ */
+describe("flows.run completion rides the plugin-declared channel (E51)", () => {
+  it("flow:complete is declared as flow_complete, stream, keyed flowName", () => {
+    expect(FLOW_RUN_CHANNELS["flow:complete"]).toEqual({ as: "flow_complete", delivery: "stream", key: "flowName" });
+    expect(FLOW_COMPLETE.eventType).toBe(FLOW_RUN_CHANNELS["flow:complete"].as);
   });
 });

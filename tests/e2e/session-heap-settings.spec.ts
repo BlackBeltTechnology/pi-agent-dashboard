@@ -6,7 +6,8 @@ import { gotoDashboard } from "./helpers/index.js";
  * on `/api/health` (change: bound-session-heap-and-gc-telemetry).
  *
  * Covers test-plan rows F1 (effect-boundary copy), F2 (save round-trip),
- * E24 (subagent coupling warning) and F3 (telemetry readable).
+ * E24 (subagent coupling warning — now on the subagents plugin's "Max parallel
+ * subagents" field, change: subagent-queue-visibility) and F3 (telemetry readable).
  *
  * These are worth L3 specifically because the jsdom tests render the panel
  * against a MOCKED `/api/config`; here the save goes through the real
@@ -83,21 +84,26 @@ test.describe("heap settings", () => {
     }
   });
 
-  // test-plan #E24 — `maxConcurrentSubagents` becomes a memory-safety knob once
-  // a ceiling is enforced, because Agent children share the parent's heap. The
-  // warning is non-blocking: it discloses a risk, it does not reject a value.
+  // test-plan #E24 — the producer's `maxConcurrent` becomes a memory-safety knob
+  // once a ceiling is enforced, because Agent children share the parent's heap.
+  // The warning lives on the subagents plugin field and is non-blocking.
+  // See change: subagent-queue-visibility (D5).
   test("a thin subagent pairing is warned about but stays saveable", async ({ page }) => {
-    await openSettingsPage(page, "Sessions");
-    await expect(page.getByTestId("session-heap-subagent-warning")).toBeHidden();
+    await page.goto("/settings/plugins/subagents");
+    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
+    const field = page.getByTestId("subagents-max-concurrent");
+    await expect(field).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("subagents-max-concurrent-heap-warning")).toBeHidden();
 
-    const subagents = page.getByRole("spinbutton", { name: /Max concurrent subagents/i });
-    await subagents.fill("8");
-    await subagents.blur();
+    await field.fill("8");
+    await field.blur();
 
-    const warning = page.getByTestId("session-heap-subagent-warning");
+    const warning = page.getByTestId("subagents-max-concurrent-heap-warning");
     await expect(warning).toBeVisible({ timeout: 20_000 });
     await expect(warning).toContainText(/56 MB/);
     await expect(page.getByTestId("save-btn").first()).toBeEnabled();
+    // Leave nothing behind: discard the draft.
+    await page.getByRole("button", { name: /discard/i }).last().click();
   });
 });
 

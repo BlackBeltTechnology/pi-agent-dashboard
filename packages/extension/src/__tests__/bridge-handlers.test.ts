@@ -280,22 +280,20 @@ describe("E5: inbound message dispatch — one row per accepted message type", (
     expect(h.shared.namerState).toBe(h.inst.namerState);
   });
 
+  // flow_control / flow_management are retired: flow commands travel as
+  // plugin_action → plugin server → plugin_emit_event. A stale frame from an
+  // un-reloaded tab is inert. See change: update-flows-plugin (D2).
   it.each([
-    ["run", { action: "run", flowName: "f", task: "t" }, "flow:run"],
-    ["set-edit-mode", { action: "set-edit-mode", enabled: true }, "flow:set-edit-mode"],
-    ["delete", { action: "delete", flowName: "f" }, "flow:delete-request"],
-  ])("flow_management %s emits %s", async (_label, extra, event) => {
-    await run({ type: "flow_management", ...extra });
-    expect(h.pi.events.emit).toHaveBeenCalledWith(event, expect.anything());
-  });
-
-  it.each([
-    ["abort", "flow:abort"],
-    ["toggle_autonomous", "flow:toggle-autonomous"],
-    ["dismiss_summary", "flow:summary-dismissed"],
-  ])("flow_control %s emits %s", async (action, event) => {
-    await run({ type: "flow_control", action });
-    expect(h.pi.events.emit).toHaveBeenCalledWith(event, {});
+    [{ type: "flow_management", action: "run", flowName: "f", task: "t" }],
+    [{ type: "flow_management", action: "delete", flowName: "f" }],
+    [{ type: "flow_control", action: "abort" }],
+    [{ type: "flow_control", action: "toggle_autonomous" }],
+  ])("retired %j emits nothing and sends nothing", async (msg) => {
+    const sentBefore = h.connection.send.mock.calls.length;
+    const emitsBefore = h.pi.events.emit.mock.calls.length;
+    await run(msg);
+    expect(h.pi.events.emit.mock.calls.length).toBe(emitsBefore);
+    expect(h.connection.send.mock.calls.length).toBe(sentBefore);
   });
 
   it.each([

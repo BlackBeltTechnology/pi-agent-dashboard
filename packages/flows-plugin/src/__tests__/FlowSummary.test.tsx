@@ -26,7 +26,7 @@ import {
   UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type { FlowAgentState, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 import { FlowSummary } from "../client/FlowSummary.js";
 import { flowCollapseKey } from "../client/flow-collapse-storage.js";
 
@@ -460,6 +460,50 @@ describe("FlowSummary header actions (E23)", () => {
       ),
     );
     fireEvent.click(q("flow-header-run-again") as HTMLButtonElement);
-    expect(send).toHaveBeenCalledWith({ type: "flow_management", sessionId: sid, action: "run", flowName: "demo-flow", task: undefined });
+    expect(send).toHaveBeenCalledWith({ type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.run", payload: { flowName: "demo-flow" } });
+    expect(send.mock.calls.some(([m]) => ["flow_control", "flow_management"].includes((m as { type: string }).type))).toBe(false);
+  });
+});
+
+/**
+ * E57: frozen cards from the plugin slice; a late per-step event after
+ * completion changes nothing. See change: update-flows-plugin (flow-summary-view).
+ */
+import { reduceFlowEvent } from "../reducer.js";
+import type { DashboardEvent as E57Event } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+describe("FlowSummary frozen cards from the plugin slice (E57)", () => {
+  const ev = (eventType: string, data: Record<string, unknown>) =>
+    ({ eventType, timestamp: 0, data }) as unknown as E57Event;
+  function completedState(): FlowState {
+    let s: FlowState | null = null;
+    const steps = ["one", "two", "three"].map((id) => ({ id, stepType: "agent", agent: id, blockedBy: [] }));
+    s = reduceFlowEvent(s, ev("flow_started", { flowName: "demo-flow", task: "t", steps }));
+    for (const id of ["one", "two", "three"]) {
+      s = reduceFlowEvent(s, ev("flow_agent_started", { agentName: id, stepId: id }));
+      s = reduceFlowEvent(s, ev("flow_tool_call", { agentName: id, stepId: id, toolName: "read", input: { path: `${id}.ts` } }));
+      s = reduceFlowEvent(s, ev("flow_agent_complete", { agentName: id, stepId: id, result: { success: true, summary: `S-${id}` } }));
+    }
+    return reduceFlowEvent(s, ev("flow_complete", { status: "success" }))!;
+  }
+
+  it("renders cards above 3 summary lines; eye reaches tool history; a late event changes nothing", () => {
+    const state = completedState();
+    let r!: ReturnType<typeof renderSummary>;
+    expect(() => {
+      r = renderSummary(state);
+    }).not.toThrow();
+    const cards = r.getAllByTestId("agent-card");
+    expect(cards.length).toBeGreaterThanOrEqual(2);
+    const section = r.getByTestId("flow-summaries");
+    expect(section.textContent).toContain("S-one");
+    expect(section.textContent).toContain("S-three");
+    expect(cards[0].compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(r.getAllByTitle(/View .* detail/)[0]);
+    expect(r.getByTestId("dialog").textContent).toContain("read");
+
+    const late = reduceFlowEvent(state, ev("flow_agent_complete", { agentName: "two", stepId: "two", result: { success: false } }));
+    expect(late).toBe(state);
+    expect(late!.agents.get("two")!.status).toBe("complete");
   });
 });

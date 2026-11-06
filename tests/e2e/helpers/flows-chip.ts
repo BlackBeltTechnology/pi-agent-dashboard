@@ -59,3 +59,14 @@ export async function expandSummary(page: Page): Promise<void> {
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
+
+/**
+ * Open the live/idle panel's Agent cards section (collapsed by default since
+ * the graph-first panel). See change: update-flows-plugin (D7, G15).
+ */
+export async function openAgentCards(panel: Locator): Promise<void> {
+  const toggle = panel.getByTestId("flow-agent-cards-toggle");
+  await expect(toggle).toBeVisible({ timeout: 30_000 });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}

@@ -30,9 +30,17 @@ Counts consecutive search actions with no kb consult. Fires at 3.
 
 Search action = raw-search tool call, OR bash segment (split on `|`, `||`, `&&`, `;`, newline) leading with a search binary (`grep`, `rg`, `find`, `fd`, `ls`, …). `cat f | grep x` counts. `npm test` never counts. `timeout 60 rg` does NOT count — accepted gap (env prefixes `FOO=1 rg` also evade). Nudge, not sandbox.
 
+File-read segment also counts. Segment leading with `cat`/`head`/`tail`/`sed`/`less`/`more`/`bat` (`READ_BINARIES`, `packages/kb-extension/src/guard.ts`) whose non-flag arg is a kb-indexed file (`GuardInput.isIndexedPath`). `sed -i` (write) excluded. `sed` script arg skipped (first non-flag token when no `-e`/`-f`). Unindexed files (`src/index.ts`, unindexed `CHANGELOG.md`) never count. No predicate / predicate throw → not counted.
+
+Predicate source: `indexedPathPredicate` (`packages/kb-extension/src/indexed-paths.ts`). Per-cwd Set of absolute paths from cwd store (filesystem roots of `cfg.resolvedSources`, `listRoots()` + `listPaths()`). Rebuilt when chunk signature (`COUNT(*)`, `MAX(rowid)`) changes. Attached by guard's own `tool_call` hook (takes `ctx`).
+
 Reset (clean slate, chain + firings): `kb_search` / `kb_neighbors` / `kb_get` tool calls, or bash leading with `kb`. Empty kb_search query still resets. Edits/writes never reset.
 
 Ladder: firing 1 = warning, firing 2 = escalation, firing 3+ = block verdict ONLY in block mode.
+
+Escalation text: `"[kb] Repeated source searching, still no kb consult. Your next call should be kb_search (or kb_get <path> for a file you are about to read)."` No "carry on" exit. Block reason unchanged.
+
+See change: fix-kb-get-roots-and-guard.
 
 Modes: `off` | `warn` | `block`. Config `readDiscipline.guard.mode` in `.pi/dashboard/knowledge_base.json`. Shipped default: `warn`. `block` never default; config-file edit required.
 

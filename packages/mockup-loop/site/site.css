@@ -1,0 +1,129 @@
+/* GENERIC mock-site chrome (layout + review layer). Plain CSS (no Tailwind). mk- prefix only;
+   never re-styles an app class. Colours come only from --mk-* tokens, which the project's
+   mock-site.app.tsx maps onto the app's own tokens. See change: add-live-component-mock-site. */
+html body { margin: 0; background: var(--mk-page); color: var(--mk-fg); }
+.mk-site { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; font: 14px/1.45 system-ui, sans-serif; }
+
+/* sidebar */
+.mk-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 16px 12px; border-right: 1px solid var(--mk-line); background: var(--mk-panel); box-sizing: border-box; }
+.mk-brand { font-weight: 700; font-size: 15px; margin: 0 4px 12px; }
+.mk-q { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 12px; border: 1px solid var(--mk-line-2); border-radius: 8px; background: var(--mk-page); color: var(--mk-fg); font: inherit; }
+.mk-sec { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--mk-muted); margin: 18px 4px 6px; }
+.mk-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; text-decoration: none; color: inherit; }
+.mk-item:hover, .mk-item:focus-visible { background: var(--mk-page); outline: none; }
+.mk-item.on { background: var(--mk-page); box-shadow: inset 3px 0 0 var(--mk-accent); }
+.mk-it { font-size: 13.5px; font-weight: 600; }
+.mk-im { font-size: 12px; color: var(--mk-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mk-closed { display: flex; gap: 8px; align-items: center; margin: 22px 4px 0; font-size: 12.5px; color: var(--mk-muted); }
+
+/* main column: the PAGE scrolls (no inner scroll box), only the slim top bar is sticky */
+.mk-main { padding: 0 28px 64px; min-width: 0; }
+/* bar sits above any app z-index (portaled overlays included); only the tip is higher */
+.mk-bar { position: sticky; top: 0; z-index: 2147483000; display: flex; align-items: center; gap: 8px; padding: 12px 0; background: var(--mk-page); }
+.mk-sp { flex: 1; }
+.mk-theme button { min-height: 32px; padding: 4px 12px; border: 1px solid var(--mk-line-2); background: var(--mk-panel); color: var(--mk-muted); border-radius: 6px; font: inherit; font-size: 12.5px; cursor: pointer; margin-left: 4px; }
+.mk-theme button[aria-pressed="true"] { color: var(--mk-fg); border-color: var(--mk-accent); }
+.mk-empty { color: var(--mk-muted); }
+
+/* page decision (whole mock) */
+.mk-actions { display: inline-flex; gap: 8px; }
+.mk-btn { min-height: 32px; padding: 4px 14px; border-radius: 6px; border: 1px solid var(--mk-line-2); background: var(--mk-panel); color: var(--mk-fg); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.mk-accept { border-color: var(--mk-ok); color: var(--mk-ok-text, var(--mk-ok)); }
+.mk-reject { border-color: var(--mk-bad); color: var(--mk-bad-text, var(--mk-bad)); }
+.mk-btn:hover { background: var(--mk-hover); }
+
+/* mock header */
+.mk-change { margin-bottom: 40px; }
+.mk-ch h1 { font-size: 22px; margin: 4px 0 6px; }
+.mk-ch.mk-st-accepted h1, .mk-ch.mk-st-rejected h1 { color: var(--mk-muted); }
+.mk-meta { font-size: 13px; color: var(--mk-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mk-by { color: var(--mk-faint); }
+.mk-note { margin: 6px 0 0; font-size: 13px; color: var(--mk-muted); font-style: italic; }
+.mk-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 10px; background: var(--mk-page); color: var(--mk-muted); text-transform: capitalize; }
+.mk-item .mk-pill { background: var(--mk-panel); }
+.mk-pill .d { width: 6px; height: 6px; border-radius: 3px; background: currentColor; }
+.mk-pill.mk-accepted { color: var(--mk-ok-text, var(--mk-ok)); } .mk-pill.mk-rejected { color: var(--mk-bad-text, var(--mk-bad)); }
+
+/* frames: flat (no box around a frame), the PANES are the cards */
+.mk-frame { margin-top: 28px; scroll-margin-top: 64px; }
+.mk-fh { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.mk-fn { min-width: 26px; height: 26px; border-radius: 13px; display: inline-grid; place-items: center; background: var(--mk-panel); border: 1px solid var(--mk-line-2); font-size: 12.5px; font-weight: 700; text-decoration: none; color: inherit; }
+.mk-ft { font-size: 15px; font-weight: 600; }
+.mk-pair { display: flex; flex-wrap: wrap; gap: 24px 16px; align-items: flex-start; padding: 14px 6px 10px; }
+.mk-pane { flex: none; max-width: 100%; display: flex; flex-direction: column; gap: 6px; }
+/* pane labels = quiet chips (red / green stays reserved for rings) */
+.mk-lab { align-self: flex-start; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 1px 8px; border-radius: 5px; background: var(--mk-panel); border: 1px solid var(--mk-line-2); color: var(--mk-muted); }
+.mk-lab.mk-bad { color: var(--mk-muted); }
+.mk-lab.mk-ok { color: var(--mk-ok-text, var(--mk-ok)); background: color-mix(in srgb, var(--mk-ok) 10%, var(--mk-panel)); border-color: color-mix(in srgb, var(--mk-ok) 35%, var(--mk-line-2)); }
+.mk-why { margin: 0 0 4px 36px; font-size: 13px; color: var(--mk-muted); max-width: 90ch; }
+.mk-long.mk-long-inline { position: static; display: inline-block; margin-left: 8px; }
+
+/* page overview: one caption card per frame (invoice-bot style index) */
+.mk-ov { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 16px; max-width: 1100px; }
+.mk-ov-card { display: flex; gap: 10px; padding: 10px 12px; border: 1px solid var(--mk-line-2); border-radius: 10px; background: var(--mk-panel); color: inherit; text-decoration: none; }
+.mk-ov-card:hover, .mk-ov-card:focus-visible { border-color: var(--mk-accent); outline: none; }
+.mk-ov-n { flex: none; min-width: 24px; height: 24px; border-radius: 12px; display: inline-grid; place-items: center; border: 1px solid var(--mk-line-2); font-size: 12px; font-weight: 700; }
+.mk-ov-b { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 13px; }
+.mk-ov-why { color: var(--mk-muted); font-size: 12.5px; }
+.mk-ov-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.mk-chip { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 5px; border: 1px solid var(--mk-line-2); color: var(--mk-muted); }
+.mk-chip-ok { color: var(--mk-ok-text, var(--mk-ok)); border-color: color-mix(in srgb, var(--mk-ok) 35%, var(--mk-line-2)); }
+.mk-none { padding: 28px; border: 1px dashed var(--mk-line-2); border-radius: 10px; text-align: center; max-width: 640px; }
+.mk-none b { color: var(--mk-fg); font-size: 15px; }
+
+/* steps: side by side (default) or animated player */
+.mk-pane-steps { max-width: 100%; }
+.mk-strip { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 16px 4px 6px; }
+.mk-step-wrap { display: flex; align-items: stretch; flex: none; }
+.mk-arrow { align-self: center; padding: 0 10px; color: var(--mk-faint); font-size: 18px; }
+.mk-step { display: flex; flex-direction: column; gap: 6px; flex: none; scroll-margin-top: 64px; }
+.mk-step-l { font: 500 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mk-muted); text-decoration: none; }
+.mk-step-l b { color: var(--mk-fg); }
+.mk-player { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; }
+.mk-stage { display: grid; }
+.mk-stage-phone { padding: 0; width: max-content; }
+.mk-scene { grid-area: 1 / 1; opacity: 0; visibility: hidden; transition: opacity .45s ease, visibility 0s linear .45s; }
+.mk-scene.on { opacity: 1; visibility: visible; transition: opacity .45s ease; }
+.mk-dots { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--mk-muted); }
+.mk-pp { min-height: 28px; padding: 2px 10px; }
+.mk-dot { width: 10px; height: 10px; padding: 0; border: 0; border-radius: 5px; background: var(--mk-line-2); cursor: pointer; }
+.mk-dot.on { width: 22px; background: var(--mk-accent); }
+.mk-dot-l { margin-left: 4px; }
+.mk-tap { position: relative; display: inline-block; }
+.mk-tap-dot { position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%; border: 2px solid var(--mk-accent); background: color-mix(in srgb, var(--mk-accent) 30%, transparent); pointer-events: none; }
+.mk-scene.on .mk-tap-anim .mk-tap-dot { animation: mk-tap 1.2s ease-out .6s both; }
+.mk-tap-anim .mk-tap-dot { opacity: 0; }
+@keyframes mk-tap { 0% { transform: scale(.3); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mk-scene, .mk-scene.on { transition: none; } }
+.mk-canvas { background: var(--mk-panel); border: 1px solid var(--mk-line-2); border-radius: 10px; padding: 16px; contain: layout paint; isolation: isolate; }
+/* content box = exactly 375px (border outside), zero padding inside -> innerWidth 375 */
+.mk-phone-wrap { position: relative; }
+.mk-phone-load { position: absolute; inset: 1px; display: grid; place-items: center; border-radius: 12px; background: var(--mk-panel); color: var(--mk-muted); font-size: 12.5px; pointer-events: none; }
+.mk-phone { display: block; box-sizing: content-box; border: 1px solid var(--mk-line-2); border-radius: 12px; background: var(--mk-panel); }
+html body.mk-pane-only { margin: 0; padding: 0; background: var(--mk-panel); }
+/* zero side padding keeps the content exactly 375px; top padding leaves room for a badge above a top-edge ring */
+body.mk-pane-only .mk-canvas { border: 0; padding: 22px 0 0; border-radius: 0; }
+body.mk-pane-only .mk-ring-n { left: 0; top: -22px; } /* above the ring, never over its text; the iframe edge never clips it */
+.mk-error { margin: 12px; padding: 12px; border: 1px solid var(--mk-bad); border-radius: 8px; color: var(--mk-bad-text, var(--mk-bad)); font: 600 13px system-ui; }
+.mk-problems { margin: 16px 4px 0; padding: 8px 8px 8px 22px; border: 1px solid var(--mk-bad); border-radius: 8px; font-size: 12px; color: var(--mk-bad-text, var(--mk-bad)); }
+
+/* rings: outline on the element; number badge = child of the ring (scrolls with it, under the bar);
+   tip = body layer above everything */
+.mk-ring { position: relative; display: inline-flex; align-items: center; flex-wrap: nowrap; gap: inherit; vertical-align: middle; outline: 3px solid; outline-offset: 4px; border-radius: 12px; cursor: help; }
+.mk-ring.mk-block { display: grid; }
+.mk-ring.mk-bad { outline-color: var(--mk-bad); } .mk-ring.mk-ok { outline-color: var(--mk-ok); }
+.mk-ring-n { position: absolute; left: -15px; top: -15px; z-index: 5; min-width: 22px; height: 22px; border-radius: 11px; color: #fff; font: 700 12px/22px system-ui; text-align: center; text-decoration: none; }
+.mk-ring-n.mk-bad { background: var(--mk-bad); } .mk-ring-n.mk-ok { background: var(--mk-ok); }
+.mk-tip { position: fixed; z-index: 2147483647; transform: translate(-50%, -100%); width: max-content; max-width: 280px; padding: 6px 10px; border-radius: 8px; font: 600 13px/1.35 system-ui; color: #fff; pointer-events: none; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.mk-tip.mk-below { transform: translate(-50%, 0); }
+.mk-tip.mk-bad { background: var(--mk-bad); } .mk-tip.mk-ok { background: var(--mk-ok); }
+.mk-long { position: absolute; right: -6px; bottom: -10px; background: var(--mk-bad); color: #fff; font: 700 10px/16px system-ui; padding: 0 5px; border-radius: 4px; }
+
+/* references: every page / frame / side / ring links to itself */
+.mk-lab { display: inline-block; text-decoration: none; }
+.mk-lab:hover, .mk-fn:hover { text-decoration: underline; }
+.mk-ref { font: 500 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mk-muted); text-decoration: none; vertical-align: middle; }
+.mk-ref:hover { text-decoration: underline; }
+.mk-ring-n:hover { filter: brightness(1.15); }
+@keyframes mk-hit { 0%, 60% { box-shadow: 0 0 0 6px var(--mk-accent); } 100% { box-shadow: 0 0 0 6px transparent; } }
+.mk-hit { animation: mk-hit 1.6s ease-out; border-radius: 12px; }

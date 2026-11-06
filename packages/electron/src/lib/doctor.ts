@@ -469,7 +469,18 @@ async function runServerLaunchTest(
     bundledNodeDir: getBundledNodeDir(),
     processExecPath: process.execPath,
     platform: process.platform,
+    embeddedNodeVersion: process.versions.node,
   });
+  if (pick.kind === "unavailable") {
+    checks.push({
+      name: "Server launch test",
+      section: "server",
+      status: "error",
+      message: "Cannot test launch — no qualifying Node runtime",
+      detail: pick.reason,
+    });
+    return;
+  }
   const nodeBin = pick.nodeBin;
 
   if (!testCli || !loaderUrl) {

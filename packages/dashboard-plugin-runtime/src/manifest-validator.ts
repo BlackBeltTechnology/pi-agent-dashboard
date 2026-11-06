@@ -9,6 +9,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isValidEventTypePattern } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
 import { isValidHostApiRange } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/host-api.js";
+import { normalizeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import {
   FILE_HANDLER_COPY_SUFFIX_RE,
   FILE_HANDLER_EXT_RE,
@@ -499,6 +500,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     "predicate",
     "shouldRender",
     "resultPending",
+    "rowStatus",
+    "stop",
+    "stopLabel",
   ] as const) {
     if (c[field] !== undefined && typeof c[field] !== "string") {
       throw new ManifestValidationError(
@@ -514,7 +518,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     throw new ManifestValidationError(pluginId, `claims[${index}].expandWhileRunning must be a boolean if provided`);
   }
   if (slotId !== "tool-renderer") {
-    for (const field of ["expandWhileRunning", "resultPending"] as const) {
+    for (const field of ["expandWhileRunning", "resultPending", "rowStatus", "stop", "stopLabel"] as const) {
       if (c[field] !== undefined) {
         throw new ManifestValidationError(
           pluginId,
@@ -583,6 +587,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
     ...(c.expandWhileRunning === true ? { expandWhileRunning: true } : {}),
     ...(typeof c.resultPending === "string" ? { resultPending: c.resultPending } : {}),
+    ...(typeof c.rowStatus === "string" ? { rowStatus: c.rowStatus } : {}),
+    ...(typeof c.stop === "string" ? { stop: c.stop } : {}),
+    ...(typeof c.stopLabel === "string" ? { stopLabel: c.stopLabel } : {}),
     ...(c.config && typeof c.config === "object" && !Array.isArray(c.config)
       ? { config: c.config as Record<string, unknown> }
       : {}),
@@ -819,6 +826,9 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   }
 
   const emits = m.emits !== undefined ? validateEmits(m.emits, pluginId) : undefined;
+  // Lenient: a malformed value contributes nothing, never a load failure (G6).
+  // See change: update-flows-plugin (D3).
+  const replayEntryTypes = normalizeReplayEntryTypes(m.replayEntryTypes);
 
   // hostApi: `^MAJOR.MINOR[.PATCH]` or exact. See change: decouple-plugins-from-core (D7).
   if (m.hostApi !== undefined && !isValidHostApiRange(m.hostApi)) {
@@ -849,6 +859,7 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
     ...(projectTypes ? { projectTypes } : {}),
     ...(eventTypes ? { eventTypes } : {}),
     ...(emits ? { emits } : {}),
+    ...(replayEntryTypes.length > 0 ? { replayEntryTypes } : {}),
     ...(typeof m.hostApi === "string" ? { hostApi: m.hostApi } : {}),
   };
 }

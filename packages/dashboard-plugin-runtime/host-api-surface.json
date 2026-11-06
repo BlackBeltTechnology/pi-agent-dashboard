@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
+  "version": "1.5.0",
   "publicExports": [
     "AutomationActionEditorSlot",
     "ComposerContextGroup",
@@ -53,6 +53,8 @@
     "ToggleField",
     "ToolRowFinalizer",
     "ToolRowFinalizerOpts",
+    "ToolRowStatus",
+    "ToolRowStopInput",
     "UiPrimitiveProvider",
     "UiPrimitiveProviderProps",
     "UiPrimitiveRegistry",
@@ -237,10 +239,13 @@
     "presentation": "?\"content\" | \"dialog\" | \"page\" | undefined",
     "resourceType": "?\"agent\" | \"extension\" | \"prompt\" | \"skill\" | \"theme\" | undefined",
     "resultPending": "?string | undefined",
+    "rowStatus": "?string | undefined",
     "sessionParam": "?string | undefined",
     "shouldRender": "?string | undefined",
     "siblingExtensions": "?string[] | undefined",
     "slot": "\"agent-metric\" | \"anchored-popover\" | \"automation-action-editor\" | \"breadcrumb\" | \"command-route\" | \"composer-context-group\" | \"composer-dock-process-group\" | \"composer-panel\" | \"content-header-sticky\" | \"content-inline-footer\" | \"content-view\" | \"custom-entry-renderer\" | \"editor-pane-file-handler\" | \"editor-pane-tab\" | \"footer-segment\" | \"gate\" | \"login-provider\" | \"management-modal\" | \"resource-page-section\" | \"rjsf-form\" | \"session-card-action-bar\" | \"session-card-badge\" | \"session-card-flows\" | \"session-card-memory\" | \"settings-section\" | \"shell-headless\" | \"shell-overlay-route\" | \"sidebar-folder-section\" | \"toast\" | \"tool-renderer\" | \"workspace-action-bar\" | \"worktree-card-section\"",
+    "stop": "?string | undefined",
+    "stopLabel": "?string | undefined",
     "tab": "?\"add-ons\" | \"agents\" | \"developer\" | \"extensions\" | \"general\" | \"openspec\" | \"plugins\" | \"prompts\" | \"providers\" | \"remote\" | \"runtimes\" | \"security\" | \"server\" | \"services\" | \"sessions\" | \"skills\" | \"themes\" | undefined",
     "toolName": "?string | undefined",
     "trigger": "?string | undefined",
@@ -248,7 +253,7 @@
   },
   "manifestFields": {
     "bridge": "?string | undefined",
-    "claims": "{ command?: string | undefined; component?: string | undefined; config?: Record<string, unknown> | undefined; copySuffix?: string | undefined; customType?: string | undefined; depth?: 1 | 2 | undefined; expandWhileRunning?: false | true | undefined; extensions?: string[] | undefined; firstOverwriteNotice?: string | undefined; id?: string | undefined; keepAlive?: undefined | { max: number }; label?: string | undefined; labelComponent?: string | undefined; maxBytes?: number | undefined; mode?: \"edit\" | \"preview\" | undefined; module?: string | undefined; nav?: undefined | { description?: string | undefined; group: string; label: string; order?: number | undefined }; parentPath?: string | undefined; path?: string | undefined; pathPrefix?: string | undefined; predicate?: string | undefined; presentation?: \"content\" | \"dialog\" | \"page\" | undefined; resourceType?: \"agent\" | \"extension\" | \"prompt\" | \"skill\" | \"theme\" | undefined; resultPending?: string | undefined; sessionParam?: string | undefined; shouldRender?: string | undefined; siblingExtensions?: string[] | undefined; slot: \"agent-metric\" | \"anchored-popover\" | \"automation-action-editor\" | \"breadcrumb\" | \"command-route\" | \"composer-context-group\" | \"composer-dock-process-group\" | \"composer-panel\" | \"content-header-sticky\" | \"content-inline-footer\" | \"content-view\" | \"custom-entry-renderer\" | \"editor-pane-file-handler\" | \"editor-pane-tab\" | \"footer-segment\" | \"gate\" | \"login-provider\" | \"management-modal\" | \"resource-page-section\" | \"rjsf-form\" | \"session-card-action-bar\" | \"session-card-badge\" | \"session-card-flows\" | \"session-card-memory\" | \"settings-section\" | \"shell-headless\" | \"shell-overlay-route\" | \"sidebar-folder-section\" | \"toast\" | \"tool-renderer\" | \"workspace-action-bar\" | \"worktree-card-section\"; tab?: \"add-ons\" | \"agents\" | \"developer\" | \"extensions\" | \"general\" | \"openspec\" | \"plugins\" | \"prompts\" | \"providers\" | \"remote\" | \"runtimes\" | \"security\" | \"server\" | \"services\" | \"sessions\" | \"skills\" | \"themes\" | undefined; toolName?: string | undefined; trigger?: string | undefined; validator?: false | true | undefined }[]",
+    "claims": "{ command?: string | undefined; component?: string | undefined; config?: Record<string, unknown> | undefined; copySuffix?: string | undefined; customType?: string | undefined; depth?: 1 | 2 | undefined; expandWhileRunning?: false | true | undefined; extensions?: string[] | undefined; firstOverwriteNotice?: string | undefined; id?: string | undefined; keepAlive?: undefined | { max: number }; label?: string | undefined; labelComponent?: string | undefined; maxBytes?: number | undefined; mode?: \"edit\" | \"preview\" | undefined; module?: string | undefined; nav?: undefined | { description?: string | undefined; group: string; label: string; order?: number | undefined }; parentPath?: string | undefined; path?: string | undefined; pathPrefix?: string | undefined; predicate?: string | undefined; presentation?: \"content\" | \"dialog\" | \"page\" | undefined; resourceType?: \"agent\" | \"extension\" | \"prompt\" | \"skill\" | \"theme\" | undefined; resultPending?: string | undefined; rowStatus?: string | undefined; sessionParam?: string | undefined; shouldRender?: string | undefined; siblingExtensions?: string[] | undefined; slot: \"agent-metric\" | \"anchored-popover\" | \"automation-action-editor\" | \"breadcrumb\" | \"command-route\" | \"composer-context-group\" | \"composer-dock-process-group\" | \"composer-panel\" | \"content-header-sticky\" | \"content-inline-footer\" | \"content-view\" | \"custom-entry-renderer\" | \"editor-pane-file-handler\" | \"editor-pane-tab\" | \"footer-segment\" | \"gate\" | \"login-provider\" | \"management-modal\" | \"resource-page-section\" | \"rjsf-form\" | \"session-card-action-bar\" | \"session-card-badge\" | \"session-card-flows\" | \"session-card-memory\" | \"settings-section\" | \"shell-headless\" | \"shell-overlay-route\" | \"sidebar-folder-section\" | \"toast\" | \"tool-renderer\" | \"workspace-action-bar\" | \"worktree-card-section\"; stop?: string | undefined; stopLabel?: string | undefined; tab?: \"add-ons\" | \"agents\" | \"developer\" | \"extensions\" | \"general\" | \"openspec\" | \"plugins\" | \"prompts\" | \"providers\" | \"remote\" | \"runtimes\" | \"security\" | \"server\" | \"services\" | \"sessions\" | \"skills\" | \"themes\" | undefined; toolName?: string | undefined; trigger?: string | undefined; validator?: false | true | undefined }[]",
     "client": "?string | undefined",
     "clientBundle": "?string | undefined",
     "clientStyles": "?string | undefined",
@@ -264,6 +269,7 @@
     "id": "string",
     "priority": "?number | undefined",
     "projectTypes": "?undefined | { markers: string[]; type: string }[]",
+    "replayEntryTypes": "?string[] | undefined",
     "requires": "?undefined | { binaries?: string[] | undefined; paths?: string[] | undefined; piExtensions?: string[] | undefined; services?: string[] | undefined }",
     "server": "?string | undefined",
     "vaultBindings": "?string[] | undefined"

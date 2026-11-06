@@ -34,8 +34,6 @@ export function turnStartingCommand(msg: { type?: unknown; action?: unknown }): 
     case "plugin_emit_event":
     case "promote_followup_entry":
       return msg.type;
-    case "flow_management":
-      return msg.action === "run" ? "flow_management" : undefined;
     default:
       return undefined;
   }
@@ -242,25 +240,6 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
   // only targets bridges whose cwd is inside the worktree. See change:
   // redesign-composer-session-strip (D5).
   if (routeGitInfoRefresh(msg, { prStatus: inst.prStatus, gitTracker: inst.polling.gitTracker })) return;
-  // Route flow management actions from dashboard buttons
-  if (msg.type === "flow_management" && pi.events) {
-    if (msg.action === "run") {
-      pi.events.emit("flow:run", { flowName: msg.flowName, task: msg.task || undefined });
-    } else if (msg.action === "set-edit-mode") {
-      // Edit-mode toggle (rework-flows-plugin-for-new-pi-flows). pi-flows
-      // persists flows.editFlow, syncs skill visibility, reloads.
-      // /flows:new + /flows:edit removed upstream — authoring is now the
-      // edit-flow skill via send_prompt from the dashboard.
-      if (typeof (msg as { enabled?: unknown }).enabled === "boolean") {
-        pi.events.emit("flow:set-edit-mode", { enabled: (msg as { enabled: boolean }).enabled });
-      }
-    } else if (msg.action === "delete") {
-      // Dashboard already confirmed upfront — delete directly
-      pi.events.emit("flow:delete-request", { flowName: msg.flowName });
-      pi.events.emit("flow:notify", { message: `Flow "${msg.flowName}" deleted.`, level: "info" });
-    }
-    return;
-  }
   // Route role management from dashboard
   if (msg.type === "role_set" && pi.events) {
     const data: any = { role: (msg as any).role, modelId: (msg as any).modelId };
@@ -436,19 +415,6 @@ export async function handleInboundMessage(inst: BridgeInstance, data: unknown):
     const token = typeof echoId === "string" && echoId.length > 0 ? echoId : undefined;
     if (inst.promptBus) {
       emitPendingPrompts(inst.promptBus, (m) => inst.connection.send(m as any), inst.sessionId, token);
-    }
-    return;
-  }
-  if (msg.type === "flow_control" && pi.events) {
-    if (msg.action === "abort") {
-      pi.events.emit("flow:abort", {});
-      // Also abort architect if running (mutually exclusive with flow execution;
-      // the irrelevant emit is a no-op due to guard checks on both listeners)
-      pi.events.emit("flow:architect-abort", {});
-    } else if (msg.action === "toggle_autonomous") {
-      pi.events.emit("flow:toggle-autonomous", {});
-    } else if (msg.action === "dismiss_summary") {
-      pi.events.emit("flow:summary-dismissed", {});
     }
     return;
   }

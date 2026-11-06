@@ -4,9 +4,10 @@
  *
  * The bridge subscribes with the same `sessionReady`/`isActive` guards as its
  * sibling loops and forwards a `custom_entry` protocol event mapping ONLY
- * `customType`/`data`/`entryId`. A `customType: "flow-event"` entry is NOT
- * forwarded — pi-flows appends those live itself, and forwarding them would
- * double-render alongside the dedicated flow card.
+ * `customType`/`data`/`entryId`. A plugin-declared entry type (e.g. the flows
+ * plugin's `flow-event`) is NOT forwarded — the owning plugin renders it from
+ * its live events, and forwarding would double-render beside its card. Core
+ * receives the declared set; it names no type (change: update-flows-plugin E15).
  *
  * The mapping is driven through the REAL `toCustomEntryForward` module; the
  * guard shape follows the established bridge shape-contract pattern (see
@@ -33,14 +34,18 @@ describe("toCustomEntryForward (mapping, real module)", () => {
     });
   });
 
-  it("returns null for a flow-event entry (never forwarded, no double render)", () => {
-    const entry = {
-      type: "custom",
-      customType: "flow-event",
-      data: { seq: 0, eventType: "flow_started", data: {} },
-      id: "f0",
-    };
-    expect(toCustomEntryForward(entry)).toBeNull();
+  it("returns null for declared entry types only (E15)", () => {
+    const declared = new Set(["flow-event", "my-ext:run"]);
+    const mk = (customType: string) => ({ type: "custom", customType, data: { seq: 0 }, id: "e1" });
+    expect(toCustomEntryForward(mk("flow-event"), declared)).toBeNull();
+    expect(toCustomEntryForward(mk("my-ext:run"), declared)).toBeNull();
+    expect(toCustomEntryForward(mk("e2e:note"), declared)).toEqual({
+      customType: "e2e:note",
+      data: { seq: 0 },
+      entryId: "e1",
+    });
+    // No declared set → nothing is special-cased (core names no plugin type).
+    expect(toCustomEntryForward(mk("flow-event"))).not.toBeNull();
   });
 
   it("returns null for non-custom entry types (messages, model_change, …)", () => {
@@ -82,6 +87,10 @@ describe("toCustomMessageForward (mapping, real module)", () => {
     expect(fwd?.message.display).toBeUndefined();
   });
 
+  it("returns null for a declared type (spoof guard)", () => {
+    expect(toCustomMessageForward({ customType: "my-ext:run", content: "x" }, new Set(["my-ext:run"]))).toBeNull();
+  });
+
   it("returns null for missing/empty customType", () => {
     expect(toCustomMessageForward({ customType: "", content: "x" })).toBeNull();
     expect(toCustomMessageForward(undefined as never)).toBeNull();
@@ -89,6 +98,7 @@ describe("toCustomMessageForward (mapping, real module)", () => {
 });
 
 describe("bridge wrapCustomPersistenceForCtx (shape contract, guards)", () => {
+  const DECLARED = new Set(["flow-event"]);
   // Mirrors the bridge's wrapper: fake sessionManager, wrap the two
   // persistence methods exactly like wrapCustomPersistenceForCtx does (real
   // mappers + guards), then drive them.
@@ -120,7 +130,7 @@ describe("bridge wrapCustomPersistenceForCtx (shape contract, guards)", () => {
       const entryId = originalEntry(customType, data);
       if (!active) return entryId;
       if (!ready) return entryId;
-      const forward = toCustomEntryForward({ type: "custom", customType, data, id: entryId });
+      const forward = toCustomEntryForward({ type: "custom", customType, data, id: entryId }, DECLARED);
       if (!forward) return entryId;
       sent.push({
         type: "event_forward",
@@ -170,7 +180,7 @@ describe("bridge wrapCustomPersistenceForCtx (shape contract, guards)", () => {
     });
   });
 
-  it("appendCustomEntry does NOT forward a flow-event entry (E7 — no double render)", () => {
+  it("appendCustomEntry does NOT forward a declared flow-event entry (E7 — no double render)", () => {
     const bridge = setup();
     bridge.sm.appendCustomEntry("flow-event", { seq: 0 });
     expect(bridge.sent).toHaveLength(0);

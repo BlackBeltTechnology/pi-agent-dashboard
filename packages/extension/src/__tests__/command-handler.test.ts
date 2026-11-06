@@ -1813,6 +1813,20 @@ describe("extension slash dispatch precedence (test-plan E15–E20)", () => {
     expect(pi.events.emit).not.toHaveBeenCalledWith("flow:list-flows", expect.anything());
   });
 
+  // E60 (update-flows-plugin): a typed flow command needs no flow handler in
+  // core — it is an ordinary extension command (command-routing note).
+  it.each([
+    ["idle", false],
+    ["streaming", true],
+  ])("E60: typed /deploy-prod fix it (%s) rides extension dispatch; no flow probe", async (_label, streaming) => {
+    const pi = mockPi([{ name: "deploy-prod", source: "extension" }]);
+    const handler = createCommandHandler(pi as any, "s1", { eventSink: vi.fn(), isStreaming: () => streaming });
+    await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/deploy-prod fix it" } as ServerToExtensionMessage);
+    expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendUserMessage).toHaveBeenCalledWith("/deploy-prod fix it", { expandPromptTemplates: true, deliverAs: "followUp" });
+    expect(pi.events.emit).not.toHaveBeenCalledWith("flow:list-flows", expect.anything());
+  });
+
   it("E16: typed /flows:new rides extension dispatch, not the fall-through", async () => {
     const pi = mockPi([{ name: "flows:new", source: "extension" }]);
     const eventSink = vi.fn();

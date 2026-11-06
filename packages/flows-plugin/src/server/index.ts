@@ -15,6 +15,7 @@ import { FLOW_REQUEST_CATALOG_ACTION } from "../flow-catalog-contract.js";
 import { registerFlowCatalog } from "./flow-catalog.js";
 import { registerFlowFileRoutes } from "./flow-files.js";
 import { mountFlowInputsRoute } from "./flow-inputs.js";
+import { FLOW_CONTROL_ACTIONS, type FlowControlDeps, registerFlowControlRoute, runFlowControl } from "./flow-control.js";
 import { renderSessionFlowActions } from "./render-actions.js";
 import { stateStore } from "./state-store.js";
 
@@ -137,6 +138,24 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     });
   }
 
+  // Flow commands (Abort / Auto / Dismiss / Run / Delete / Edit mode): shared
+  // by plugin_action and the REST route. See change: update-flows-plugin (D2).
+  const controlDeps: FlowControlDeps = {
+    ...editModeDeps,
+    sessionManager: ctx.sessionManager,
+    emitEventToSession,
+    logger,
+    recordRejectedAction: ctx.recordRejectedAction,
+  };
+  await registerFlowControlRoute({
+    ...controlDeps,
+    fastify: ctx.fastify,
+    networkGuard: ctx.networkGuard,
+    hasOperateAuthority: ctx.identity?.hasOperateAuthority
+      ? (req) => ctx.identity?.hasOperateAuthority?.(req) === true
+      : undefined,
+  });
+
   // Action handler: dispatched from any connected client (or a bus script).
   // The gateway fans out plugin_action by pluginId, so this only fires for
   // pluginId==="flows"; the guard below is defense-in-depth.
@@ -155,37 +174,14 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     }
     const payload = m.payload ?? {};
 
+    // The six flow-control actions share validation + relay with the REST
+    // route (flow-control.ts). See change: update-flows-plugin (D2).
+    if ((FLOW_CONTROL_ACTIONS as readonly string[]).includes(m.action ?? "")) {
+      runFlowControl(controlDeps, m.sessionId, m.action as string, payload);
+      return;
+    }
+
     switch (m.action) {
-      case "flow.run": {
-        // Accept `flow` (intent path) or `flowName`; run in the target session
-        // by emitting the `flow:run` event pi-flows consumes headlessly — the
-        // same event the `flow_management run` client path and the automation
-        // `flows.run` action dispatch.
-        const flowName = String(payload.flow ?? payload.flowName ?? "").trim();
-        if (!flowName) {
-          logger.warn(`flow.run from session=${m.sessionId}: missing flow name`);
-          return;
-        }
-        const task = typeof payload.task === "string" ? payload.task.trim() : "";
-        // Reject a non-object / array `inputs` (typeof [] === "object") — pi-flows
-        // consumes it as a keyed record, so an array would be malformed.
-        if (
-          payload.inputs !== undefined &&
-          (payload.inputs === null ||
-            typeof payload.inputs !== "object" ||
-            Array.isArray(payload.inputs))
-        ) {
-          logger.warn(`flow.run session=${m.sessionId}: invalid inputs (expected object)`);
-          return;
-        }
-        const inputs = payload.inputs as Record<string, unknown> | undefined;
-        const data: Record<string, unknown> = { flowName };
-        if (task) data.task = task;
-        if (inputs) data.inputs = inputs;
-        const delivered = emitEventToSession(m.sessionId, "flow:run", data);
-        logger.info(`flow.run "${flowName}" session=${m.sessionId} delivered=${delivered}`);
-        break;
-      }
       case "flow.new": {
         // No dedicated server core — authoring is the manage-flows skill,
         // launched via a slash prompt into the session (mirrors the client's
@@ -204,18 +200,9 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         catalog.requestCatalog(m.sessionId, { rediscover: payload.rediscover === true });
         break;
       }
-      case "flow.set-edit-mode": {
-        // Explicit per-project action: the ONLY path that sends
-        // flow:set-edit-mode (pi-flows writes <cwd>/.pi/settings.json).
-        // `payload.enabled` is the desired value. See change:
-        // stop-flows-edit-mode-project-writes (D5).
-        void handleSetEditMode({ ...editModeDeps, emitEventToSession, logger }, m.sessionId, payload).catch((err) =>
-          logger.warn(`flow.set-edit-mode failed: ${err instanceof Error ? err.message : String(err)}`),
-        );
-        break;
-      }
       default:
         logger.warn(`unknown flows action: ${m.action}`);
+        ctx.recordRejectedAction?.();
     }
   });
 

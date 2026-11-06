@@ -12,7 +12,8 @@
  * flows-dock-chip-and-panel-actions (D6, D9).
  */
 import { usePluginSend, useSessionData, useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { CommandInfo, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import { lazy, Suspense, useMemo, useState } from "react";
 import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
@@ -101,7 +102,7 @@ export function useFlowActions(
 
   const flows = catalog.flows;
   const dispatchRun = (flowName: string, task?: string) =>
-    dispatch({ type: "flow_management", sessionId, action: "run", flowName, task: task || undefined });
+    dispatch({ type: "plugin_action", pluginId: "flows", sessionId, action: "flow.run", payload: { flowName, ...(task ? { task } : {}) } });
 
   const openPicker = (p: "run" | "open") => {
     catalog.refresh({ rediscover: true });
@@ -142,7 +143,8 @@ export function useFlowActions(
       editModeError,
       clearEditModeError: clearError,
       dispatchRun,
-      dispatchDelete: (flowName) => dispatch({ type: "flow_management", sessionId, action: "delete", flowName }),
+      dispatchDelete: (flowName) =>
+        dispatch({ type: "plugin_action", pluginId: "flows", sessionId, action: "flow.delete", payload: { flowName } }),
       dispatchAuthor: (flowName, instruction) => {
         const intent = instruction.trim();
         // New flow: instruction describes what to build. Edit: flow name is

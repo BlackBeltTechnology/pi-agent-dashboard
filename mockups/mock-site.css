@@ -1,0 +1,7 @@
+/* Mock-site stylesheet (project-owned, real file so Tailwind can resolve @source).
+   The dashboard's real CSS, plus scan paths for app components and every mock root.
+   See change: add-live-component-mock-site (design D10). */
+@import "../packages/client/src/index.css";
+@source "../packages/client/src";
+@source ".";
+@source "../openspec/changes";

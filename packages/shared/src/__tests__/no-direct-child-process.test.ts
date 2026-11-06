@@ -37,6 +37,10 @@ const ALLOWLIST: readonly string[] = [
   // `soffice` + `pdftoppm` (when present) to render reference slide images.
   // See change: deck3d-pptx-import.
   "packages/deck3d/src/pptx/ref.ts",
+  // frontend-mockup-loop is a standalone publishable package with no
+  // dependency edge on the dashboard shared package; `serve_mock_site` spawns
+  // the HOST project's Vite. See change: add-live-component-mock-site.
+  "packages/mockup-loop/src/mock-site-serve.ts",
   // The startup recovery HTTP server runs precisely when top-level
   // dependencies are missing (corrupted node_modules) — importing the
   // platform/exec wrapper there would defeat the recovery flow because

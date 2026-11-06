@@ -8,11 +8,14 @@
  * ONLY `customType` / `data` / `entryId` — the entry's other fields are
  * transport trivia the renderer never needs.
  *
- * `customType: "flow-event"` returns null: pi-flows appends those entries
- * live itself, so forwarding them would double-render alongside the
- * dedicated flow card. Non-`custom` entry types are likewise not ours to
- * forward.
+ * A plugin-declared entry type (`hidden`, from the plugin's
+ * `replayEntryTypes`) returns null: the owning plugin renders it through its
+ * own live events, so forwarding would double-render beside its card. Core
+ * names no plugin type. Non-`custom` entry types are likewise not ours to
+ * forward. See change: update-flows-plugin (D3).
  */
+
+const NONE: ReadonlySet<string> = new Set();
 
 export interface CustomEntryForwardData {
   customType: string;
@@ -28,14 +31,17 @@ export interface CustomEntryForwardData {
 
 /**
  * Map one pi entry to the custom_entry payload, or null when the entry must
- * NOT be forwarded (non-custom type, missing/empty customType, flow-event).
+ * NOT be forwarded (non-custom type, missing/empty customType, declared type).
  */
-export function toCustomEntryForward(entry: unknown): CustomEntryForwardData | null {
+export function toCustomEntryForward(
+  entry: unknown,
+  hidden: ReadonlySet<string> = NONE,
+): CustomEntryForwardData | null {
   if (!entry || typeof entry !== "object") return null;
   const e = entry as Record<string, unknown>;
   if (e.type !== "custom") return null;
   if (typeof e.customType !== "string" || e.customType === "") return null;
-  if (e.customType === "flow-event") return null;
+  if (hidden.has(e.customType)) return null;
   return {
     customType: e.customType,
     data: e.data,
@@ -66,19 +72,22 @@ export interface CustomMessageForwardData {
  * RENDERS (absent flag = meant to be seen). Mirrors the state-replay arm so
  * live and replay forward identically.
  */
-export function toCustomMessageForward(m: {
-  customType: unknown;
-  content: unknown;
-  display?: unknown;
-  details?: unknown;
-  entryId?: unknown;
-}): CustomMessageForwardData | null {
+export function toCustomMessageForward(
+  m: {
+    customType: unknown;
+    content: unknown;
+    display?: unknown;
+    details?: unknown;
+    entryId?: unknown;
+  },
+  hidden: ReadonlySet<string> = NONE,
+): CustomMessageForwardData | null {
   if (!m || typeof m.customType !== "string" || m.customType === "") return null;
   if (m.display === false) return null;
-  // flow-event parity with the entry path: pi-flows does not send custom
-  // MESSAGES today, but a spoofing customType must not lease the generic
-  // card either. See change: render-inline-reasoning-and-custom-entries.
-  if (m.customType === "flow-event") return null;
+  // Declared-type parity with the entry path: a plugin does not send custom
+  // MESSAGES of its entry type, but a spoofing customType must not lease the
+  // generic card either. See change: render-inline-reasoning-and-custom-entries.
+  if (hidden.has(m.customType)) return null;
   return {
     message: {
       role: "custom",

@@ -18,8 +18,6 @@ export const UNSUPPORTED_FOR_ACP = "unsupported_for_acp";
 const PI_ONLY_BROWSER_OPS: ReadonlySet<string> = new Set([
   "retry_session",
   "stop_after_turn",
-  "flow_control",
-  "flow_management",
   "architect_prompt_response",
   "role_set",
   "role_preset_load",

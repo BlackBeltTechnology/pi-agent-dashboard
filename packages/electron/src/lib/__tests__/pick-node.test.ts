@@ -1,13 +1,9 @@
 /**
  * Unit tests for pickNodeForServer() — all I/O injected, no real fs calls.
  *
- * Under the immutable-bundle architecture (see change:
- * eliminate-electron-runtime-install), the picker has two branches only:
- *   - bundled         (bundled Node binary exists)
- *   - execpath-fallback (bundled missing — corrupted install)
- *
- * System-Node selection and the nodejs/node#58515 version-skip logic are
- * gone: the bundled Node is the only intended runtime.
+ * Order (change raise-node-floor-to-26, test-plan #E12): bundled → pre-resolved
+ * system Node → Electron executable only when its embedded Node satisfies the
+ * server range → unavailable (reason names the embedded version + range).
  */
 import { describe, it, expect } from "vitest";
 import path from "node:path";
@@ -21,6 +17,7 @@ function input(overrides: Partial<PickNodeInput> = {}): PickNodeInput {
     processExecPath: FAKE_EXECPATH,
     platform: "darwin",
     existsSync: () => false,
+    embeddedNodeVersion: "26.0.0",
     ...overrides,
   };
 }
@@ -74,6 +71,7 @@ describe("pickNodeForServer — launch-source regression contract", () => {
       processExecPath: "C:\\app\\pi-dashboard.exe",
       platform: "win32",
       existsSync: exists,
+      embeddedNodeVersion: "26.0.0",
     });
     expect(result).toEqual({ kind: "bundled", nodeBin: NODE_EXE });
   });
@@ -84,6 +82,7 @@ describe("pickNodeForServer — launch-source regression contract", () => {
       processExecPath: "C:\\app\\pi-dashboard.exe",
       platform: "win32",
       existsSync: exists,
+      embeddedNodeVersion: "26.0.0",
     });
     expect(result.kind).toBe("execpath-fallback");
   });
@@ -106,8 +105,7 @@ describe("pickNodeForServer — execpath-fallback branch", () => {
         existsSync: () => false,
       }),
     );
-    expect(result.kind).toBe("execpath-fallback");
-    expect(result.nodeBin).toBe(FAKE_EXECPATH);
+    expect(result).toMatchObject({ kind: "execpath-fallback", nodeBin: FAKE_EXECPATH });
   });
 
   it("needsElectronRunAsNode is only true on the fallback branch", () => {
@@ -121,5 +119,43 @@ describe("pickNodeForServer — execpath-fallback branch", () => {
 
     const fallback = pickNodeForServer(input());
     expect((fallback as { needsElectronRunAsNode?: boolean }).needsElectronRunAsNode).toBe(true);
+  });
+});
+
+describe("pickNodeForServer — Node 26 floor order (test-plan #E12)", () => {
+  const BUNDLED_DIR = "/app/Contents/Resources/node";
+  const BUNDLED_BIN = "/app/Contents/Resources/node/bin/node";
+
+  it("bundled present wins over everything", () => {
+    const r = pickNodeForServer(
+      input({
+        bundledNodeDir: BUNDLED_DIR,
+        existsSync: (p) => p === BUNDLED_BIN,
+        systemNode: { nodeBin: "/usr/local/bin/node", version: "v26.1.0" },
+        embeddedNodeVersion: "24.22.0",
+      }),
+    );
+    expect(r).toEqual({ kind: "bundled", nodeBin: BUNDLED_BIN });
+  });
+
+  it("bundled missing + qualifying system Node → system, no ELECTRON_RUN_AS_NODE", () => {
+    const r = pickNodeForServer(
+      input({ systemNode: { nodeBin: "/usr/local/bin/node", version: "v26.1.0" }, embeddedNodeVersion: "24.22.0" }),
+    );
+    expect(r).toEqual({ kind: "system", nodeBin: "/usr/local/bin/node", version: "v26.1.0" });
+    expect("needsElectronRunAsNode" in r).toBe(false);
+  });
+
+  it("bundled missing + embedded Node 26.0.0 → execpath-fallback with the flag", () => {
+    const r = pickNodeForServer(input({ embeddedNodeVersion: "26.0.0" }));
+    expect(r).toEqual({ kind: "execpath-fallback", nodeBin: FAKE_EXECPATH, needsElectronRunAsNode: true });
+  });
+
+  it("bundled missing + embedded Node 24.18.1 → unavailable naming 24.18.1 and >=26.0.0 <27", () => {
+    const r = pickNodeForServer(input({ embeddedNodeVersion: "24.18.1" }));
+    expect(r.kind).toBe("unavailable");
+    if (r.kind !== "unavailable") return;
+    expect(r.reason).toContain("v24.18.1");
+    expect(r.reason).toContain(">=26.0.0 <27");
   });
 });

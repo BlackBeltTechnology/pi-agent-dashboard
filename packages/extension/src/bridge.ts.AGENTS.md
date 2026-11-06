@@ -30,3 +30,5 @@ Default export registers shared `claudeCompatExtension(() => getBridgeState().cl
 `getFlowsList`/`sendFlowsList` + `/<flow-name>` sessionPrompt fast-path removed; typed flow commands ride extension dispatch. See change: flows-dock-chip-and-panel-actions.
 
 Provisional move `session_register` carries `pidNamespace: processPidNamespace()` (same value as every register). See change: scope-pids-to-namespace.
+
+See change: add-spawn-model-choice. `spawnNew` sends `buildSpawnNewSessionMessage(...)` (inherits current model + thinking level).

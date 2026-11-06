@@ -304,3 +304,208 @@ describe("bridge wiring: first-open drain", () => {
     expect(body).toMatch(/queueMicrotask\([\s\S]*pluginForwardRegistry\.flush\(\)/);
   });
 });
+
+/**
+ * Flow channels through the generic registry (core holds no flow map).
+ * The declaration mirrors the flows plugin bridge's; core tests may not import
+ * plugin code. See change: update-flows-plugin (test-plan E1–E3, P1–P3, X1, X2).
+ */
+const FLOW_DECL = {
+  pluginId: "flows",
+  channels: {
+    "flow:flow-started": { as: "flow_started", delivery: "stream", key: "flowName" },
+    "flow:agent-started": { as: "flow_agent_started", delivery: "stream", key: "stepId" },
+    "flow:agent-complete": { as: "flow_agent_complete", delivery: "stream", key: "stepId" },
+    "flow:assistant-text": { as: "flow_assistant_text", delivery: "stream", key: "stepId" },
+    "flow:thinking-text": { as: "flow_thinking_text", delivery: "stream", key: "stepId" },
+    "flow:decision": { as: "flow_decision", delivery: "stream", key: "stepId" },
+    "flow:complete": { as: "flow_complete", delivery: "stream", key: "flowName" },
+    "flow:summary-ready": { as: "flow_summary_ready", delivery: "live" },
+  },
+};
+
+describe("PluginForwardRegistry: plugin-declared flow channels", () => {
+  it("accepts flow_* as types; only the reserved entry is rejected (flow E1)", () => {
+    const { bus, sent, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+      pluginId: "flows",
+      channels: {
+        "flow:flow-started": { as: "flow_started", delivery: "stream", key: "flowName" },
+        "flows:x": { as: "message_update", delivery: "live" },
+      },
+    });
+    expect(registry.stats.rejected).toBe(1);
+    bus.emit("flow:flow-started", { flowName: "research" });
+    expect(sent).toEqual([{ eventType: "flow_started", data: { flowName: "research" } }]);
+  });
+
+  const FLOWS_DECISION = {
+    pluginId: "flows",
+    channels: { "flow:decision": { as: "flow_decision", delivery: "stream", key: "stepId" } },
+  };
+  const OTHER_DECISION = {
+    pluginId: "other",
+    channels: {
+      "other:x": { as: "flow_decision", delivery: "stream", key: "stepId" },
+      "other:ok": { as: "other_ok", delivery: "live" },
+    },
+  };
+
+  it("first owner of an as type wins across plugins — flows first (flow E2a)", () => {
+    const { bus, sent, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOWS_DECISION);
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, OTHER_DECISION);
+    expect(registry.stats.conflicts).toBe(1);
+    bus.emit("flow:decision", { stepId: "t" });
+    bus.emit("other:x", { stepId: "t" });
+    bus.emit("other:ok", {});
+    expect(sent.map((s) => s.eventType)).toEqual(["flow_decision", "other_ok"]);
+    expect(sent[0].data).toEqual({ stepId: "t" });
+  });
+
+  it("first owner of an as type wins across plugins — other first (flow E2b)", () => {
+    const { bus, sent, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, OTHER_DECISION);
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+      pluginId: "flows",
+      channels: {
+        ...FLOWS_DECISION.channels,
+        "flow:complete": { as: "flow_complete", delivery: "stream", key: "flowName" },
+      },
+    });
+    expect(registry.stats.conflicts).toBe(1);
+    bus.emit("flow:decision", { stepId: "t" });
+    bus.emit("other:x", { stepId: "t" });
+    bus.emit("flow:complete", { flowName: "r" });
+    expect(sent.map((s) => s.eventType)).toEqual(["flow_decision", "flow_complete"]);
+    expect(sent[0].data).toEqual({ stepId: "t" });
+    expect(registry.declaredChannels()).not.toContain("flow:decision");
+  });
+
+  it("same-plugin re-declare is idempotent (flow E3)", () => {
+    const { bus, sent, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOWS_DECISION);
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOWS_DECISION);
+    expect(registry.stats.rejected).toBe(0);
+    expect(registry.stats.conflicts).toBe(0);
+    expect(bus.onCalls.filter((c) => c === "flow:decision")).toHaveLength(1);
+    bus.emit("flow:decision", { stepId: "t" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it.each([
+    [1999, 1999, 0],
+    [2000, 2000, 0],
+    [2001, 2000, 1],
+  ])("retains %i fan-out text frames of one stepId → flushes %i, drops %i (flow P1)", (n, flushed, dropped) => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
+    for (let i = 0; i < n; i++) bus.emit("flow:assistant-text", { stepId: "review", itemIndex: i % 3, i });
+    expect(registry.stats.buffer.dropped).toBe(dropped);
+    state.connected = true;
+    expect(registry.flush()).toBe(flushed);
+    expect(sent).toHaveLength(flushed);
+    expect(sent[0].data.i).toBe(n - flushed);
+  });
+
+  it("shares the 64-key budget with subagent streams (flow P2)", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, ENTRY_DECL);
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
+    for (let i = 1; i <= 59; i++) bus.emit("subagents:entry", { agentId: `a${i}` });
+    for (let i = 1; i <= 5; i++) bus.emit("flow:agent-started", { stepId: `s${i}` });
+    expect(registry.stats.buffer.keys).toBe(64);
+    expect(registry.stats.buffer.evictedKeys).toBe(0);
+    bus.emit("flow:agent-started", { stepId: "s6" });
+    expect(registry.stats.buffer.evictedKeys).toBe(1);
+    state.connected = true;
+    registry.flush();
+    const keys = sent.map((s) => (s.data.agentId ?? s.data.stepId) as string);
+    expect(keys).toHaveLength(64);
+    expect(keys).not.toContain("a1");
+    expect(keys).toEqual([
+      ...Array.from({ length: 58 }, (_, i) => `a${i + 2}`),
+      ...Array.from({ length: 6 }, (_, i) => `s${i + 1}`),
+    ]);
+  });
+
+  it("bounds a stepId key at 2 MiB, newest frame always kept (flow P3)", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
+    const MiB = 1024 * 1024;
+    // JSON size of each frame is just under 1 MiB.
+    const frame = (n: number) => ({ stepId: "t", n, text: "x".repeat(MiB - 64) });
+    const frameBytes = JSON.stringify(frame(0)).length;
+    expect(frameBytes).toBeLessThanOrEqual(MiB);
+    const droppedAfter: number[] = [];
+    for (let n = 0; n < 3; n++) {
+      bus.emit("flow:thinking-text", frame(n));
+      expect(registry.stats.buffer.retained * frameBytes).toBeLessThanOrEqual(2 * MiB);
+      droppedAfter.push(registry.stats.buffer.dropped);
+    }
+    expect(droppedAfter).toEqual([0, 0, 1]);
+    state.connected = true;
+    registry.flush();
+    expect(sent.map((s) => s.data.n)).toEqual([1, 2]);
+  });
+
+  it("forwards keyed flow events after a reconnect in order; drops live (flow X1)", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, {
+      ...FLOW_DECL,
+      channels: { ...FLOW_DECL.channels },
+    });
+    const events: Array<[string, Record<string, unknown>]> = [
+      ["flow:agent-started", { stepId: "build" }],
+      ["flow:agent-complete", { stepId: "build" }],
+      ["flow:decision", { stepId: "triage" }],
+      ["flow:complete", { flowName: "research" }],
+      ["flow:summary-ready", {}],
+    ];
+    for (const [ch, data] of events) bus.emit(ch, data);
+    state.connected = true;
+    registry.flush();
+    expect(sent).toEqual([
+      { eventType: "flow_agent_started", data: { stepId: "build" } },
+      { eventType: "flow_agent_complete", data: { stepId: "build" } },
+      { eventType: "flow_decision", data: { stepId: "triage" } },
+      { eventType: "flow_complete", data: { flowName: "research" } },
+    ]);
+  });
+
+  it("does not retain a frame missing its key (flow X2)", () => {
+    const state = { ready: true, active: true, connected: false };
+    const { bus, sent, registry } = makeRegistry(makeBus(), state);
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, FLOW_DECL);
+    expect(() => bus.emit("flow:agent-started", { agentName: "a" })).not.toThrow();
+    expect(registry.stats.buffer.keyRejected).toBe(1);
+    expect(registry.stats.buffer.retained).toBe(0);
+    state.connected = true;
+    expect(registry.flush()).toBe(0);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe("PluginForwardRegistry: declared replay entry types", () => {
+  it("collects a declaration's replayEntryTypes; malformed values contribute nothing", () => {
+    const { bus, registry } = makeRegistry();
+    registry.attach();
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, { ...FLOW_DECL, replayEntryTypes: ["flow-event"] });
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, { pluginId: "p", channels: {}, replayEntryTypes: "x" });
+    bus.emit(REGISTER_EVENT_FORWARD_CHANNEL, { pluginId: "q", channels: {}, replayEntryTypes: [1] });
+    expect([...registry.replayEntryTypes()]).toEqual(["flow-event"]);
+  });
+});

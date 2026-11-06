@@ -226,6 +226,29 @@ export interface PluginClaim {
    * See change: decouple-plugins-from-core (design D5 item 7).
    */
   resultPending?: string;
+  /**
+   * `tool-renderer` claims only: exported sync fn name
+   * `(toolDetails, session) => { state: "queued" | "stopped"; label?: string } | undefined`.
+   * `queued` replaces the spinner/elapsed badge of a RUNNING row with a static
+   * clock + label; `stopped` replaces the success check of a non-error terminal
+   * row with a neutral stop glyph. Error and elided rows are never overridden.
+   * MUST be synchronous. See change: subagent-queue-visibility (design D2).
+   */
+  rowStatus?: string;
+  /**
+   * `tool-renderer` claims only: exported fn name
+   * `({ sessionId, toolCallId, toolDetails }) => boolean` consulted BEFORE the
+   * row's own abort and before an enclosing burst-group stop controller.
+   * `true` consumes the click; otherwise the existing stop path runs.
+   * See change: subagent-queue-visibility (design D2).
+   */
+  stop?: string;
+  /**
+   * `tool-renderer` claims only: exported fn name
+   * `(toolDetails) => string | undefined` supplying the row stop's accessible
+   * label. See change: subagent-queue-visibility (design D2).
+   */
+  stopLabel?: string;
 }
 
 /**
@@ -392,6 +415,14 @@ export interface PluginManifest {
    * See change: harden-git-terminal-plugin-boundaries (D16).
    */
   emits?: string[];
+  /**
+   * Persisted `type: "custom"` entry types this plugin owns (e.g. flows:
+   * `["flow-event"]`). An enabled plugin's types replay as their recorded
+   * `{ seq, eventType, data }` protocol events; every declared type is kept out
+   * of the generic custom-entry rendering. Malformed values contribute nothing.
+   * See change: update-flows-plugin (D3).
+   */
+  replayEntryTypes?: string[];
   /**
    * Host API range this plugin was built against: `^MAJOR.MINOR[.PATCH]` or an
    * exact `MAJOR.MINOR.PATCH`. Evaluated at discovery against

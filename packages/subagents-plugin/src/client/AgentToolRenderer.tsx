@@ -27,7 +27,7 @@ import {
   type SubagentLiveTail,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { mdiChevronDown, mdiChevronUp, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
+import { mdiChevronDown, mdiChevronUp, mdiClockOutline, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -37,6 +37,7 @@ import {
   noteSubagentTerminal,
   trackInspectorMounted,
 } from "./subagent-inspector-telemetry.js";
+import { clearSubagentStop, useSubagentStopState } from "./subagentStop.js";
 import { useSubagentResyncCadence } from "./useSubagentResyncCadence.js";
 
 type ToolRendererProps = SlotProps<"tool-renderer">;
@@ -70,6 +71,18 @@ interface AgentDetails {
    */
   liveTail?: SubagentLiveTail;
   error?: string;
+  /** Producer honours `subagents:stop { agentId }` (≥ 0.6.0). See change: subagent-queue-visibility. */
+  stoppable?: boolean;
+  /** Phase a stop landed in; set only when `status === "stopped"`. */
+  stopReason?: "queued" | "running";
+  /** 1-based FIFO place while queued. */
+  queuePosition?: number;
+  /** Spawn slots in use at the queued snapshot. */
+  activeSlots?: number;
+  /** Effective producer `maxConcurrent` (`0` = unlimited) at the queued snapshot. */
+  maxConcurrent?: number;
+  /** Epoch ms the spawn slot was granted; `durationMs` still counts from call creation. */
+  slotGrantedAt?: number;
 }
 
 /**
@@ -99,8 +112,9 @@ function mapStatus(details: AgentDetails | undefined, toolStatus: string): strin
     return "running";
   }
   switch (details.status) {
-    case "running":
     case "queued":
+      return "queued";
+    case "running":
       return "running";
     case "completed":
     case "steered":
@@ -293,7 +307,34 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
   // Popout affordance is enabled only when both the agent id and the session
   // state are available (SubagentDetailView needs both). Disabled otherwise
   // — no dialog opens (spec: "Detail affordance disabled without an agent id").
-  const canPopout = Boolean(agentId && session);
+  // A queued subagent has no timeline yet: the popout stays disabled until it runs.
+  const canPopout = Boolean(agentId && session) && details?.status !== "queued";
+  // Per-subagent stop (producer ≥ 0.6.0): shared with the chat row via the module store.
+  const stopState = useSubagentStopState(sessionId, agentId);
+  const liveForStop = details?.status === "queued" || details?.status === "running";
+  // Any terminal frame for this agent clears a pending / failed stop notice (D4).
+  useEffect(() => {
+    if (sessionId && agentId && details?.status && !liveForStop) clearSubagentStop(sessionId, agentId);
+  }, [sessionId, agentId, details?.status, liveForStop]);
+  // The chat row ■ is the only stop control; the card shows only its feedback,
+  // and only once a stop was requested. See change: drop-subagent-card-stop-button (D1, D2).
+  const stopControl = stopState ? (
+    <div data-testid="agent-stop-row" className="mt-1 flex items-center gap-2 text-[11px]">
+      {stopState.phase === "pending" && (
+        <span data-testid="agent-stop-pending" className="text-[var(--text-tertiary)]">{t("stopPending", undefined, "stopping…")}</span>
+      )}
+      {stopState.phase === "unconfirmed" && (
+        <span data-testid="agent-stop-unconfirmed" className="text-[var(--severity-warning-fg)]">
+          {t("stopUnconfirmed", undefined, "stop not confirmed")}
+        </span>
+      )}
+      {stopState.phase === "error" && (
+        <span data-testid="agent-stop-error" className="text-[var(--severity-warning-fg)]">
+          {t("stopRefused", { reason: stopState.reason }, "stop refused: {reason}")}
+        </span>
+      )}
+    </div>
+  ) : null;
 
   const detailDialog = agentId && session ? (
     <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} size="lg" flush>
@@ -419,8 +460,29 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
       onOpenPopout={openDetail}
       canPopout={canPopout}
       elapsed={
-        details?.status === "running" || details?.status === "queued"
-          ? <ElapsedBadge startedAt={details.durationMs ? Date.now() - details.durationMs : undefined} />
+        details?.status === "queued"
+          ? (
+            // Wait time, labelled as such: never shown as run time (D1).
+            <span data-testid="agent-wait-time" className="inline-flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
+              {t("agentWaiting", undefined, "waiting")}
+              <ElapsedBadge startedAt={details.durationMs ? Date.now() - details.durationMs : undefined} />
+            </span>
+          )
+          : details?.status === "running"
+          ? (
+            // Run time counts from the slot grant when the producer reports it (D1).
+            <span data-testid="agent-run-time" className="inline-flex">
+              <ElapsedBadge
+                startedAt={
+                  typeof details.slotGrantedAt === "number"
+                    ? details.slotGrantedAt
+                    : details.durationMs
+                      ? Date.now() - details.durationMs
+                      : undefined
+                }
+              />
+            </span>
+          )
           : details?.durationMs
           ? <span className="text-[11px] text-[var(--text-tertiary)]">{formatDuration(details.durationMs)}</span>
           : undefined
@@ -477,8 +539,42 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
   const shownTail = heldTail.current;
   const tickerText = shownTail ? currentSentence(shownTail.text) : "";
 
+  // --- Queued: neutral waiting card (no spinner, no run timer). See change: subagent-queue-visibility (D1). ---
+  if (details.status === "queued") {
+    const pos = details.queuePosition;
+    const showSlots =
+      typeof details.activeSlots === "number" && typeof details.maxConcurrent === "number" && details.maxConcurrent > 0;
+    return (
+      <AgentCardShell name={displayName} status="queued" headerRight={controls}>
+        {description && (
+          <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        <div data-testid="agent-queue-row" className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]">
+          <Icon path={mdiClockOutline} size={0.45} />
+          <span
+            data-testid="agent-queue-pill"
+            className="rounded border border-[var(--severity-neutral-border)] bg-[var(--severity-neutral-bg)] px-1 text-[var(--severity-neutral-fg)]"
+          >
+            {typeof pos === "number" && Number.isSafeInteger(pos) && pos > 0
+              ? t("agentQueuePos", { pos }, "#{pos} in queue")
+              : t("agentQueued", undefined, "Queued")}
+          </span>
+          {showSlots && (
+            <span data-testid="agent-slot-reading" title={t("agentSlotsTitle", undefined, "subagent slots in use")}>
+              {`${details.activeSlots}/${details.maxConcurrent}`}
+            </span>
+          )}
+        </div>
+        {stopControl}
+        {!expanded && promptText && <PromptBlock text={promptText} />}
+        {expandedBody}
+        {detailDialog}
+      </AgentCardShell>
+    );
+  }
+
   // --- Running ---
-  if (details.status === "running" || details.status === "queued") {
+  if (details.status === "running") {
     return (
       <AgentCardShell
         name={displayName}
@@ -508,6 +604,7 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
             <span className="truncate">▸ {details.activity ?? "…"}</span>
           )}
         </div>
+        {stopControl}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {expandedBody}
         {detailDialog}
@@ -560,7 +657,13 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
         <div className="text-[11px] text-orange-400 mt-1">{t("agentAborted", undefined, "Aborted (max turns exceeded)")}</div>
       )}
       {details.status === "stopped" && (
-        <div className="text-[11px] text-[var(--text-muted)] mt-1">{t("agentStopped", undefined, "Stopped")}</div>
+        <div data-testid="agent-stopped-note" className="text-[11px] text-[var(--text-muted)] mt-1">
+          {details.stopReason === "queued"
+            ? t("agentStoppedQueued", undefined, "removed from queue · never started")
+            : details.stopReason === "running"
+              ? t("agentStoppedRunning", { ran: details.durationMs ? formatDuration(details.durationMs) : "—" }, "stopped by you · ran {ran}")
+              : t("agentStopped", undefined, "Stopped")}
+        </div>
       )}
       {!expanded && promptText && <PromptBlock text={promptText} />}
       {!expanded && shownResult && <ResultBlock text={shownResult} />}

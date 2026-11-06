@@ -55,8 +55,6 @@ export const WS_MESSAGE_TIERS: Readonly<Record<string, Tier>> = {
   edit_followup_entry: "control",
   extension_ui_response: "control",
   favorite_model: "control",
-  flow_control: "control",
-  flow_management: "control",
   move_folder_to_workspace: "control",
   openspec_bulk_archive: "control",
   openspec_refresh: "control",

@@ -450,12 +450,13 @@ UI reference: `mockups/index.html` + `mockups/ui-plan.md` (states a-*, b-*, c-*)
       "Tool approval (Supervised mode)" section · render · fields: default mode, timeout, tools
       chips; no allow-list field (test-plan #E45)
 - [ ] 8.46 Non-supervised sessions add negligible cost — see
-      `packages/extension/src/__tests__/subagent-fanout-admission.test.ts`. Triple: 10 000
+      a new `packages/extension/src/__tests__/supervised-gate-cost.test.ts` (the fan-out
+      admission test it used to live in was removed by subagent-queue-visibility). Triple: 10 000
       `tool_call` dispatches (`bash`) through the supervised gate, mode `false`, owner slot
       populated with 100 other sessions · measure added latency · p95 added latency per call < 1
       ms (vs no-gate baseline) (test-plan #P1)
 - [ ] 8.47 Supervised gate on an unclassified/read call — see
-      `packages/extension/src/__tests__/subagent-fanout-admission.test.ts`. Triple: 10 000 `read`
+      `packages/extension/src/__tests__/supervised-gate-cost.test.ts`. Triple: 10 000 `read`
       calls, mode `true` (allow path, no prompt) · measure added latency · p95 added latency per
       call < 1 ms (test-plan #P2)
 - [ ] 8.48 Toggle replaced on guard-owned session — see
@@ -499,13 +500,16 @@ UI reference: `mockups/index.html` + `mockups/ui-plan.md` (states a-*, b-*, c-*)
       `chat-gateway`, mode `true`, gateway policy approval:[`bash`] / allow:[`bash`] · `bash` call
       through both handlers · exactly one gateway confirm / zero prompts; supervised `request`
       never called; out-of-root path prompt unenriched (test-plan #X9)
-- [ ] 8.58 Fan-out permit released on supervised block — see
+- [ ] 8.58 OBSOLETE — the dashboard fan-out admission gate (and its permits) was removed by
+      subagent-queue-visibility; the producer queues excess `Agent` calls instead. Re-plan or
+      drop. Was: Fan-out permit released on supervised block — see
       `packages/extension/src/__tests__/subagent-fanout-admission.test.ts`. Settles spike 0.2.
       Triple: `Agent` admitted by fan-out, then supervised deny, ×(limit+1) · each · permits
       return to pool; call limit+1 is admitted (via `tool_execution_end` or the gate's release
       hook — order never changed) (test-plan #X10)
-- [ ] 8.59 Subagent tool-call visibility (spike 0.1) — see
-      `packages/extension/src/__tests__/subagent-fanout-admission.test.ts`. Settles spike 0.1.
+- [ ] 8.59 Subagent tool-call visibility (spike 0.1) — see a new
+      `packages/extension/src/__tests__/supervised-subagent-visibility.test.ts` (the fan-out
+      admission test was removed by subagent-queue-visibility). Settles spike 0.1.
       Triple: Supervised; `Agent` child calls `bash` · child call · records whether child `bash`
       reaches parent `tool_call`; result recorded in design Q5 (test-plan #X11)
 - [ ] 8.60 Missing ApprovalSurface — see

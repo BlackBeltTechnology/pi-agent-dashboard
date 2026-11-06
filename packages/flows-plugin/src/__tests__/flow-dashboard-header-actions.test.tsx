@@ -81,3 +81,31 @@ describe("opened-not-started header", () => {
     expect(getAttachment(sid)?.name).toBe("batch:apply");
   });
 });
+
+/** E39: header Abort / Auto dispatch plugin_action. See change: update-flows-plugin (D2). */
+describe("header Abort / Auto dispatch (E39)", () => {
+  it("sends flow.abort then flow.toggle-autonomous; no flow_control / flow_management", () => {
+    const sid = `hdr-S-${++n}`;
+    const send = vi.fn();
+    publishSessionEvents(sid, [
+      { ...started("batch:apply", 10, 2), data: { ...started("batch:apply", 10, 2).data, autonomousMode: true } },
+    ]);
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />, send));
+    const auto = screen.getByTitle("Toggle autonomous mode");
+    expect(auto.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByTitle("Abort flow"));
+    fireEvent.click(auto);
+    const sent = send.mock.calls.map(([m]) => m as Record<string, unknown>);
+    expect(sent.filter((m) => m.type === "plugin_action" && String(m.action).startsWith("flow.") && m.action !== "flow.request-catalog")).toEqual([
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.abort" },
+      { type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.toggle-autonomous" },
+    ]);
+    expect(sent.some((m) => m.type === "flow_control" || m.type === "flow_management")).toBe(false);
+  });
+
+  it("no Abort button when no flow is active", () => {
+    const sid = `hdr-S-${++n}`;
+    render(tree(<FlowDashboardClaim session={{ id: sid } as DashboardSession} />));
+    expect(screen.queryByTitle("Abort flow")).toBeNull();
+  });
+});

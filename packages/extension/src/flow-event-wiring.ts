@@ -1,33 +1,15 @@
 /**
- * Flow event wiring: registers listeners for pi-flows events
- * and forwards them as protocol messages to the dashboard server.
+ * EventBus forwarding wiring for the CORE-mapped channels (pi-subagents
+ * lifecycle only) plus the generic `dashboard:commands-changed` resend seam.
+ *
+ * pi-flows channels are NOT core: the flows plugin bridge declares them through
+ * `dashboard:register-event-forward` (plugin-event-forward-registry.ts).
+ * See change: update-flows-plugin (D1, D4).
  */
 
+import { COMMANDS_CHANGED_CHANNEL } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { filterHiddenCommands } from "./bridge-context.js";
-
-/** Map of pi-flows event names to dashboard protocol event types */
-export const FLOW_EVENT_MAP: Record<string, string> = {
-  "flow:flow-started": "flow_started",
-  "flow:agent-started": "flow_agent_started",
-  "flow:agent-complete": "flow_agent_complete",
-  "flow:agent-error": "flow_agent_error",
-  "flow:subagent-tool-call": "flow_tool_call",
-  "flow:subagent-tool-result": "flow_tool_result",
-  "flow:assistant-text": "flow_assistant_text",
-  "flow:thinking-text": "flow_thinking_text",
-  "flow:loop-iteration": "flow_loop_iteration",
-  "flow:auto-decision": "flow_auto_decision",
-  "flow:complete": "flow_complete",
-  "flow:summary-started": "flow_summary_started",
-  "flow:summary-ready": "flow_summary_ready",
-  "flow:summary-dismissed": "flow_summary_dismissed",
-  // Autonomous mode feedback
-  "flow:autonomous-mode-changed": "flow_autonomous_changed",
-  // NOTE: nodeKind / outcome / typed outputs ride INSIDE the event `data` and are
-  // forwarded verbatim through the per-channel subscription (`registerEventBusForwarding`) — no per-field map entry.
-  // See change: rework-flows-plugin-for-new-pi-flows (consumes pi-flows surface-node-kind).
-};
 
 /**
  * Deps the EventBus forwarding wiring needs from the bridge. The bridge owns
@@ -112,13 +94,12 @@ interface PiEventsLike {
  * See change: fix-automation-run-lifecycle.
  */
 export const EVENT_BUS_MAP_FOR_TEST: Record<string, string> = {
-  ...FLOW_EVENT_MAP,
   ...SUBAGENT_EVENT_MAP,
 };
 
 export function forwardedBusChannels(extraMaps: Array<Record<string, string>> = []): string[] {
   const keys = new Set<string>();
-  for (const map of [FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP, ...extraMaps]) {
+  for (const map of [SUBAGENT_EVENT_MAP, ...extraMaps]) {
     for (const channel of Object.keys(map)) keys.add(channel);
   }
   return [...keys];
@@ -159,36 +140,21 @@ export function registerEventBusForwarding(
 }
 
 /**
- * Register flow event listeners on pi.events.
+ * Resend `commands_list` whenever any plugin emits `dashboard:commands-changed`
+ * (e.g. the flows plugin after pi-flows rediscovers or completes). The payload
+ * is ignored — it is a bare signal. Core names no plugin channel here.
  * Must be called after session_start when pi.events is available.
- *
- * @param bc - Bridge context (mutable state)
- * @param isSessionReady - Function that returns whether session is ready
+ * See change: update-flows-plugin (D4).
  */
-export function registerFlowEventListeners(
+export function registerCommandsChangedListener(
   bc: BridgeContext,
   isSessionReady: () => boolean,
 ): void {
   const { pi, connection } = bc;
   if (!pi.events) return;
-
-  // Re-send the commands list when pi-flows rediscovers (it re-registers flow
-  // commands) or completes. The flow list itself is plugin-owned (flows plugin
-  // catalog). See change: flows-dock-chip-and-panel-actions (D8).
-  const resendCommands = () => {
+  pi.events.on(COMMANDS_CHANGED_CHANNEL, () => {
     if (!isSessionReady()) return;
     const commands = filterHiddenCommands(pi.getCommands());
     connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
-  };
-  pi.events.on("flow:rediscover", resendCommands);
-  pi.events.on("flow:complete", resendCommands);
-
-  // Note: event_forward sending for flow and subagent events is handled by
-  // subscription-based forwarding (`registerEventBusForwarding` above, wired
-  // from bridge.ts) — NOT by an emit intercept.
-
-  // Legacy architect prompt forwarding REMOVED.
-  // Previously forwarded flow:prompt-request events with architect-* pipelines
-  // as architect_prompt_request to the dashboard. Now handled by
-  // ArchitectUIAdapter registered with the PromptBus (see architect-ui-adapter.ts).
+  });
 }

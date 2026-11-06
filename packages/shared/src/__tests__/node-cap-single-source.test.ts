@@ -121,3 +121,45 @@ describe("node engines-cap arithmetic is single-source", () => {
     ).toEqual(["27"]);
   });
 });
+
+// ── Floor literals + non-TS mirrors (change raise-node-floor-to-26, test-plan #E16) ──
+
+/** A quoted floor literal (`"26.0.0"`, `'22.19.0'`, `` `v26.0.0` ``) in code. */
+const FLOOR_LITERAL_RE = /["'`]v?(26\.0\.0|22\.19\.0)["'`]/g;
+
+describe("node floor literals are single-source", () => {
+  it("only node-version.ts quotes the 26.0.0 / 22.19.0 floor literals", () => {
+    const strays: string[] = [];
+    let inSource = 0;
+    for (const abs of packageSrcFiles()) {
+      const rel = path.relative(REPO_ROOT, abs).split(path.sep).join("/");
+      const hits = [...fs.readFileSync(abs, "utf-8").matchAll(FLOOR_LITERAL_RE)].map((m) => m[1]);
+      if (rel === CAP_SOURCE) inSource = hits.length;
+      else for (const h of hits) strays.push(`${rel} ("${h}")`);
+    }
+    expect(inSource, `${CAP_SOURCE} must define both floor constants`).toBeGreaterThanOrEqual(2);
+    expect(
+      strays,
+      "Import MIN_SERVER_NODE / MIN_PI_SPAWN_NODE from node-version.ts instead of quoting a floor:\n  " +
+        strays.join("\n  "),
+    ).toEqual([]);
+  });
+});
+
+describe("Docker base images pin the server Node major", () => {
+  // Mirrors not expressible in TS; each pinned here to MIN_SERVER_NODE's major.
+  const MIRRORS: Array<[string, RegExp]> = [
+    ["docker/Dockerfile", /^FROM node:(\d+)-bookworm-slim\b/m],
+    ["packages/electron/scripts/Dockerfile.build", /^ARG NODE_BUILD_IMAGE=node:(\d+)-bookworm-slim$/m],
+    ["packages/electron/scripts/test-server-launch.sh", /^FROM node:(\d+)-bookworm-slim$/m],
+    ["packages/electron/scripts/_node-version.sh", /^export BUNDLED_NODE_MAJOR="(\d+)"$/m],
+    ["scripts/test-standalone-npm-install-docker.sh", /^IMAGE="node:(\d+)-bookworm-slim"$/m],
+  ];
+
+  it.each(MIRRORS)("%s names the server Node major", async (rel, re) => {
+    const { MIN_SERVER_NODE } = await import("../node-version.js");
+    const m = fs.readFileSync(path.join(REPO_ROOT, rel), "utf-8").match(re);
+    expect(m, `${rel}: pattern ${re} not found`).not.toBeNull();
+    expect(m?.[1]).toBe(MIN_SERVER_NODE.split(".")[0]);
+  });
+});

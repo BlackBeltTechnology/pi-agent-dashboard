@@ -10,7 +10,7 @@
  *
  * Invoke (Node everywhere via npx tsx):
  *   npx tsx ./scripts/dashboard-bus.ts sessions [--all] [--json]
- *   npx tsx ./scripts/dashboard-bus.ts spawn <cwd> [--prompt <text>] [--attach <change>]
+ *   npx tsx ./scripts/dashboard-bus.ts spawn <cwd> [--prompt <text>] [--attach <change>] [--model <ref|@role>] [--thinking <level>]
  *   npx tsx ./scripts/dashboard-bus.ts prompt <id-prefix> <text...>
  *   npx tsx ./scripts/dashboard-bus.ts until <id-prefix> <status> [--timeout <ms>]
  *   npx tsx ./scripts/dashboard-bus.ts abort <id-prefix>
@@ -21,6 +21,7 @@
  *   npx tsx ./scripts/dashboard-bus.ts archive|unarchive <id-prefix>
  *   npx tsx ./scripts/dashboard-bus.ts resume <id-prefix> [--fork]
  *   npx tsx ./scripts/dashboard-bus.ts flow <id-prefix> <abort|toggle_autonomous|dismiss_summary>
+ *     (sent as the flows plugin's `plugin_action`; REST twin: POST /api/plugins/flows/control)
  *   npx tsx ./scripts/dashboard-bus.ts proposal-attach <id-prefix> <change>
  *   npx tsx ./scripts/dashboard-bus.ts proposal-detach <id-prefix>
  *   npx tsx ./scripts/dashboard-bus.ts plugin <pluginId> <action> [payloadJson] [--session <id-prefix>]
@@ -31,6 +32,7 @@
 import { BusClient } from "@blackbelt-technology/pi-dashboard-bus-client";
 import type { SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { dialHost, proofHeaders } from "./local-proof.ts";
+import { runSpawnCommand } from "./spawn-command.ts";
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -93,12 +95,7 @@ async function main(): Promise<void> {
       }
       case "spawn": {
         const cwd = pos[0] ?? die("spawn needs <cwd>");
-        const id = await client.spawn({
-          cwd,
-          initialPrompt: flag(rest, "prompt"),
-          attachProposal: flag(rest, "attach"),
-        });
-        console.log(`spawned ${id}`);
+        await runSpawnCommand(client, cwd, rest);
         break;
       }
       case "prompt": {
@@ -170,7 +167,10 @@ async function main(): Promise<void> {
         if (!["abort", "toggle_autonomous", "dismiss_summary"].includes(action)) {
           die("flow action must be abort|toggle_autonomous|dismiss_summary");
         }
-        client.send({ type: "flow_control", sessionId: id, action });
+        // Flow commands belong to the flows plugin (plugin_action → plugin
+        // server → fixed pi events). See change: update-flows-plugin.
+        const pluginAction = { abort: "flow.abort", toggle_autonomous: "flow.toggle-autonomous", dismiss_summary: "flow.dismiss-summary" }[action];
+        client.plugin("flows", pluginAction, undefined, { sessionId: id });
         console.log(`flow ${action} on ${id.slice(0, 8)}`);
         break;
       }

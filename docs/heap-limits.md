@@ -127,9 +127,9 @@ Single-host tripwire, not proof of fit. Asymmetry: mispaired DEFAULT fails CI; o
 ## Subagent Coupling
 
 Pi `Agent` subagents run in-process. All subagents share parent session V8 heap.
-`maxConcurrentSubagents` operates as memory-safety control.
-Guidance: keep `maxOldSpaceMb / (maxConcurrentSubagents + 1) >= 100` MB. `+ 1` accounts for the parent itself.
-Settings panel warns below 100 MB per concurrent child. Warning is non-blocking; both values stay saveable.
+Producer `maxConcurrent` (UI: "Max parallel subagents", `/settings/plugins/subagents`) operates as memory-safety control.
+Guidance: keep `maxOldSpaceMb / (maxConcurrent + 1) >= 100` MB. `+ 1` accounts for the parent itself.
+Subagents plugin field warns below 100 MB per concurrent child. `0` (unlimited) warns under heap ceiling. Warning is non-blocking; both values stay saveable.
 Shared formula: `subagentHeapBudget` (`packages/shared/src/heap-limits.ts`).
 
 ## Telemetry Metrics

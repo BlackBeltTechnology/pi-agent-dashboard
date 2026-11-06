@@ -158,6 +158,9 @@ function renderClaim(sid: string, opts: { requests?: readonly InteractiveUiReque
   if (!opts.collapsed) {
     localStorage.setItem(flowCollapseKey("dashboard", sid), "false");
     localStorage.setItem(flowCollapseKey("summary", sid), "false");
+    // The live cards sit in the Agent cards section (collapsed by default).
+    // See change: update-flows-plugin (D7, G15).
+    localStorage.setItem(flowCollapseKey("cards", sid), "false");
   }
   const requests = opts.requests;
   const session = { id: sid } as DashboardSession;
@@ -333,7 +336,7 @@ describe("not-started mobile collapsed bar (F6)", () => {
 describe("autonomous toggle before the run (F7)", () => {
   const autoOn = () => screen.getByText("AUTO").className.includes("green");
 
-  it("last known off → toggle sends flow_control and follows the event", async () => {
+  it("last known off → toggle sends the flow.toggle-autonomous plugin_action and follows the event", async () => {
     const sid = nextSid();
     publishSessionEvent(sid, ev("flow_autonomous_changed", 5, { enabled: false }));
     attach(sid, "A");
@@ -341,7 +344,7 @@ describe("autonomous toggle before the run (F7)", () => {
     await screen.findByTestId("flow-dashboard");
     expect(autoOn()).toBe(false);
     fireEvent.click(screen.getByText("AUTO"));
-    expect(send).toHaveBeenCalledWith({ type: "flow_control", sessionId: sid, action: "toggle_autonomous" });
+    expect(send).toHaveBeenCalledWith({ type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.toggle-autonomous" });
     act(() => publishSessionEvent(sid, ev("flow_autonomous_changed", 6, { enabled: true })));
     expect(autoOn()).toBe(true);
   });
@@ -392,8 +395,8 @@ describe("run from the not-started panel (F9)", () => {
     const sid = nextSid();
     attach(sid, "A");
     const { send } = await submitRun(sid);
-    const runs = send.mock.calls.filter(([m]) => (m as { type: string }).type === "flow_management");
-    expect(runs).toEqual([[{ type: "flow_management", sessionId: sid, action: "run", flowName: "A", task: "t" }]]);
+    const runs = send.mock.calls.filter(([m]) => (m as { action?: string }).action === "flow.run");
+    expect(runs).toEqual([[{ type: "plugin_action", pluginId: "flows", sessionId: sid, action: "flow.run", payload: { flowName: "A", task: "t" } }]]);
     expect((screen.getByTestId("flow-idle-run") as HTMLButtonElement).disabled).toBe(true);
     act(() => publishSessionEvent(sid, ev("flow_complete", 50, { status: "rejected", flowName: "A", reason: "A flow is already running" })));
     expect((screen.getByTestId("flow-idle-run") as HTMLButtonElement).disabled).toBe(false);
@@ -405,7 +408,7 @@ describe("run from the not-started panel (F9)", () => {
     const sid = nextSid();
     attach(sid, "A");
     const send = vi.fn((m: unknown) =>
-      (m as { type: string }).type === "flow_management" ? Promise.reject(new Error("socket closed")) : undefined,
+      (m as { action?: string }).action === "flow.run" ? Promise.reject(new Error("socket closed")) : undefined,
     );
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     render(
@@ -429,7 +432,7 @@ describe("run from the not-started panel (F9)", () => {
     attach(sid, "A");
     let rejectFirst!: (e: Error) => void;
     const send = vi.fn((m: unknown) =>
-      (m as { type: string }).type === "flow_management"
+      (m as { action?: string }).action === "flow.run"
         ? new Promise<void>((_, rej) => { rejectFirst = rej; })
         : undefined,
     );

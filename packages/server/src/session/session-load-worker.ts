@@ -57,6 +57,11 @@ export interface SessionLoadRequest {
   /** Per-field string cap for the projection's tool `args` (mirrors the
    *  store's `maxStringFieldSize`; `<= 0` disables truncation). */
   maxStringSize?: number;
+  /** Enabled plugins' declared entry types, replayed as recorded protocol
+   *  events; and every declared type, kept off the generic custom paths.
+   *  See change: update-flows-plugin (D3). */
+  replayEntryTypes?: string[];
+  hiddenEntryTypes?: string[];
 }
 
 export interface LoadedEvent {
@@ -80,6 +85,8 @@ export interface SessionLoadResult {
   /** Max timestamp over ALL transcript entries. Only set in `"diff-events"`
    *  mode; used to clamp an ended session's open Bash window. */
   lastEntryTs?: number;
+  /** Declared plugin entries replayed (health counter). */
+  pluginEntriesReplayed?: number;
 }
 
 function leafIdOf(entries: ReadonlyArray<{ id?: unknown }>): string | undefined {
@@ -93,7 +100,7 @@ function leafIdOf(entries: ReadonlyArray<{ id?: unknown }>): string | undefined 
  * body in `directory-service.ts::loadSessionEvents()`.
  */
 export function loadAndReplay(req: SessionLoadRequest): SessionLoadResult {
-  const { jobId, sessionId, sessionFile, raw, knownContextWindow, mode, maxStringSize } = req;
+  const { jobId, sessionId, sessionFile, raw, knownContextWindow, mode, maxStringSize, replayEntryTypes, hiddenEntryTypes } = req;
   const hasFile = typeof sessionFile === "string";
   const hasRaw = typeof raw === "string";
   // Two arms, exactly one set. A request naming neither (or both) cannot be
@@ -111,8 +118,20 @@ export function loadAndReplay(req: SessionLoadRequest): SessionLoadResult {
       const { events, lastEntryTs } = projectDiffEvents(sessionId, entries, { maxStringSize });
       return { jobId, success: true, events, entryCount: entries.length, leafEntryId: leafIdOf(entries), lastEntryTs };
     }
-    const events = replayEntriesAsEvents(sessionId, entries, knownContextWindow).map((m) => m.event);
-    return { jobId, success: true, events, entryCount: entries.length, leafEntryId: leafIdOf(entries) };
+    const stats = { pluginEntriesReplayed: 0 };
+    const events = replayEntriesAsEvents(sessionId, entries, knownContextWindow, {
+      replayEntryTypes,
+      hiddenEntryTypes,
+      stats,
+    }).map((m) => m.event);
+    return {
+      jobId,
+      success: true,
+      events,
+      entryCount: entries.length,
+      leafEntryId: leafIdOf(entries),
+      pluginEntriesReplayed: stats.pluginEntriesReplayed,
+    };
   } catch (err: any) {
     const error = err?.code === "ENOENT" ? "file_not_found" : (err?.message ?? "parse_error");
     return { jobId, success: false, events: [], error };

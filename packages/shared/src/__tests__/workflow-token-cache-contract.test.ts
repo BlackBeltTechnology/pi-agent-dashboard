@@ -395,3 +395,44 @@ describe("workflow token + cache contract", () => {
     }
   });
 });
+
+// ── Node version pin (change: raise-node-floor-to-26, test-plan #E17) ─────────
+// Every workflow `node-version` (setup-node `with:` keys AND matrix values) is
+// 26 or 26.x. The marketing-site workflows never run the dashboard and keep
+// their own pin.
+const NODE_PIN_EXEMPT = new Set(["deploy-site.yml", "sync-release-version.yml"]);
+
+/** Every literal `node-version` value in a workflow source (expressions skipped, `[a, b]` flattened). */
+function nodeVersionPins(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/^\s*-?\s*node-version:\s*(.+?)\s*$/gm)) {
+    const raw = m[1].replace(/\s+#.*$/, "");
+    if (raw.startsWith("${{")) continue;
+    const items = raw.startsWith("[") ? raw.slice(1, -1).split(",") : [raw];
+    for (const it of items) out.push(it.trim().replace(/^['"]|['"]$/g, ""));
+  }
+  return out;
+}
+
+describe("workflow node-version pins (Node 26 only)", () => {
+  it("every non-exempt workflow pins node-version 26 or 26.x", () => {
+    const bad: string[] = [];
+    let seen = 0;
+    for (const f of fs.readdirSync(WORKFLOWS_DIR).filter((n) => /\.ya?ml$/.test(n))) {
+      if (NODE_PIN_EXEMPT.has(f)) continue;
+      for (const v of nodeVersionPins(fs.readFileSync(path.join(WORKFLOWS_DIR, f), "utf8"))) {
+        seen++;
+        if (!/^26(\.\d+){0,2}$/.test(v)) bad.push(`${f}: node-version ${v}`);
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
+    expect(bad, `Workflows must run on Node 26:\n  ${bad.join("\n  ")}`).toEqual([]);
+  });
+
+  it("the scanner flags a stale pin and accepts matrix arrays", () => {
+    expect(nodeVersionPins("      node-version: 22\n")).toEqual(["22"]);
+    expect(nodeVersionPins("        node-version: [26]\n")).toEqual(["26"]);
+    expect(nodeVersionPins("          node-version: '26'\n")).toEqual(["26"]);
+    expect(nodeVersionPins("          node-version: ${{ matrix.node-version }}\n")).toEqual([]);
+  });
+});

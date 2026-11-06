@@ -485,6 +485,8 @@ export interface SpawnResultBrowserMessage {
   code?: string;
   /** Interpolation vars for `err.<domain>.<code>`. Additive. */
   vars?: Record<string, string | number>;
+  /** Set on a successful spawn when a model / role / thinking choice was dropped (incl. one ignored for an ACP agent). Absent when nothing was dropped. See change: add-spawn-model-choice. */
+  choiceWarning?: string;
 }
 
 /**
@@ -2075,27 +2077,10 @@ export interface BrowserExtensionUiResponseMessage {
   cancelled?: boolean;
 }
 
-export interface FlowControlBrowserMessage {
-  type: "flow_control";
-  sessionId: string;
-  action: "abort" | "toggle_autonomous" | "dismiss_summary";
-}
-
 export interface RequestInstalledPackagesBrowserMessage {
   type: "request_installed_packages";
   scope: "global" | "local";
   cwd?: string;
-}
-
-export interface FlowManagementBrowserMessage {
-  type: "flow_management";
-  sessionId: string;
-  action: "run" | "new" | "edit" | "delete" | "set-edit-mode";
-  flowName?: string;
-  task?: string;
-  description?: string;
-  /** For action "set-edit-mode": toggles pi-flows `flows.editFlow`. */
-  enabled?: boolean;
 }
 
 /**
@@ -2271,9 +2256,7 @@ export type BrowserToServerMessage =
   | OpenInlineTerminalBrowserMessage
   | CloseInlineTerminalBrowserMessage
   | RenameTerminalBrowserMessage
-  | FlowControlBrowserMessage
   | ForceKillBrowserMessage
-  | FlowManagementBrowserMessage
   | PluginConfigWriteBrowserMessage
   | ArchitectPromptResponseBrowserMessage
   | PromptResponseBrowserMessage

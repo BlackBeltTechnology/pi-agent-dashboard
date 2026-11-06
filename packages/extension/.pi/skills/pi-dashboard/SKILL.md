@@ -28,7 +28,7 @@ to teach BASE-URL derivation or GET `/api/sessions` id-resolution.
 Canonical example:
 
 ```bash
-npx tsx ./scripts/dashboard-bus.ts spawn /path/to/proj --prompt "/opsx-explore add-auth"
+npx tsx ./scripts/dashboard-bus.ts spawn /path/to/proj --prompt "/opsx-explore add-auth" --model @planning --thinking high
 npx tsx ./scripts/dashboard-bus.ts until <id> idle
 npx tsx ./scripts/dashboard-bus.ts prompt <id> "run the tests"
 ```
@@ -41,7 +41,7 @@ orchestration (spawn → prompt → until idle → read → plugin) using `conne
 ### Tier split
 
 - **COMMAND verbs → bus** (`dashboard-bus.ts`): abort, send_prompt, spawn,
-  resume, flow_control, set_model, set_thinking_level, rename, archive/unarchive,
+  resume, flow (flows plugin action), set_model, set_thinking_level, rename, archive/unarchive,
   attach/detach_proposal, plugin goal.
 - **READ-ONLY + no-WS-twin → REST** (`dashboard-api.sh`): session / health /
   config reads, git ops, grep/browse, `plugin_config_write`, tunnel, peer scan,
@@ -115,15 +115,15 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 > Archiving an alive-but-idle session terminates its pi process and completes on
 > the ended transition; a running or interrupted (`live:true`) session is refused
 > (WS error / REST 409).
-| Spawn new | `pi-dashboard api POST /api/session/spawn --data '{"cwd":"/path"}'` |
+| Spawn new | `pi-dashboard api POST /api/session/spawn --data '{"cwd":"/path","model":"@fast","thinkingLevel":"low"}'` (`model`/`thinkingLevel`/`initialPrompt`/`attachProposal` optional; `@role` resolved once; invalid → 400) |
 | Resume/Fork | `pi-dashboard api POST /api/session/ID/resume --data '{"mode":"continue"}'` |
 
 ### Flow Control
 
 | Action | Command |
 |--------|---------|
-| Abort flow | `pi-dashboard api POST /api/session/ID/flow-control --data '{"action":"abort"}'` |
-| Toggle autonomous | `pi-dashboard api POST /api/session/ID/flow-control --data '{"action":"toggle_autonomous"}'` |
+| Abort flow | `pi-dashboard api POST /api/plugins/flows/control --data '{"sessionId":"ID","action":"flow.abort"}'` |
+| Toggle autonomous | `pi-dashboard api POST /api/plugins/flows/control --data '{"sessionId":"ID","action":"flow.toggle-autonomous"}'` |
 
 ### Model / Thinking
 

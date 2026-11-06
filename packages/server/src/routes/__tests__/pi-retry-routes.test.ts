@@ -35,6 +35,7 @@ describe("PUT /api/pi-retry", () => {
     enabled: true,
     maxRetries: 24,
     baseDelayMs: 2000,
+    maxAgentDelayMs: 60000,
     provider: { maxRetries: 0, maxRetryDelayMs: 60000 },
   };
 
@@ -102,6 +103,7 @@ describe("PUT /api/pi-retry", () => {
       enabled: true,
       maxRetries: 24,
       baseDelayMs: 2000,
+      maxAgentDelayMs: 60000,
       provider: { maxRetries: 0, maxRetryDelayMs: 60000 },
     };
     const res = await app.inject({ method: "PUT", url: "/api/pi-retry", payload: policy });
@@ -118,7 +120,7 @@ describe("PUT /api/pi-retry", () => {
     const res = await app.inject({
       method: "PUT",
       url: "/api/pi-retry",
-      payload: { enabled: true, maxRetries: -1, baseDelayMs: 2000, provider: { maxRetries: 0, maxRetryDelayMs: 60000 } },
+      payload: { enabled: true, maxRetries: -1, baseDelayMs: 2000, maxAgentDelayMs: 60000, provider: { maxRetries: 0, maxRetryDelayMs: 60000 } },
     });
     const body = res.json();
     expect(res.statusCode).toBe(400);
@@ -145,11 +147,55 @@ describe("PUT /api/pi-retry", () => {
       enabled: false,
       maxRetries: 12,
       baseDelayMs: 5000,
+      maxAgentDelayMs: 60000,
       provider: { timeoutMs: 3600000, maxRetries: 5, maxRetryDelayMs: 0 },
     };
     await app.inject({ method: "PUT", url: "/api/pi-retry", payload: policy });
     const res = await app.inject({ method: "GET", url: "/api/pi-retry" });
     expect(res.json().data).toEqual(policy);
+    await app.close();
+  });
+
+  // See change: fix-retry-delay-cap.
+  it.each([-1, 1.5, "x"])(
+    "rejects maxAgentDelayMs %o: 400 on that field, byte-identical, no reload (test-plan #E9)",
+    async (bad) => {
+      writeFileSync(settingsFile(), '{"a":1}');
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/pi-retry",
+        payload: { ...goodPolicy, maxAgentDelayMs: bad },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(JSON.stringify(res.json())).toContain("maxAgentDelayMs");
+      expect(readFileSync(settingsFile(), "utf-8")).toBe('{"a":1}');
+      expect(reloads()).toBe(0);
+      await app.close();
+    },
+  );
+
+  it("persists maxAgentDelayMs:0 merge-preservingly and GET returns it (test-plan #E10)", async () => {
+    const before = { packages: ["npm:x"], retry: { someFutureKnob: 1 } };
+    writeFileSync(settingsFile(), JSON.stringify(before));
+    const put = await app.inject({
+      method: "PUT",
+      url: "/api/pi-retry",
+      payload: { ...goodPolicy, maxAgentDelayMs: 0 },
+    });
+    expect(put.statusCode).toBe(200);
+    const after = JSON.parse(readFileSync(settingsFile(), "utf-8"));
+    expect(after.retry.maxAgentDelayMs).toBe(0);
+    expect(after.retry.someFutureKnob).toBe(1);
+    expect(after.packages).toEqual(before.packages);
+    const get = await app.inject({ method: "GET", url: "/api/pi-retry" });
+    expect(get.json().data.maxAgentDelayMs).toBe(0);
+    await app.close();
+  });
+
+  it("GET reports the 60000 default when no retry block exists (test-plan #E11)", async () => {
+    writeFileSync(settingsFile(), JSON.stringify({ packages: [] }));
+    const res = await app.inject({ method: "GET", url: "/api/pi-retry" });
+    expect(res.json().data.maxAgentDelayMs).toBe(60000);
     await app.close();
   });
 });

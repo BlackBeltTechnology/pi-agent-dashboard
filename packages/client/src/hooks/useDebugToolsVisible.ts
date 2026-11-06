@@ -11,10 +11,10 @@ import { useDisplayPrefs } from "./useDisplayPrefs.js";
 
 const STORAGE_KEY = "show-debug-tools";
 
-/** Set of tool names considered "debug" — hidden by default */
+/** Set of tool names considered "debug" — hidden by default. (The former
+ *  pi-flows names were dead: pi-flows registers no such tools.)
+ *  See change: update-flows-plugin (D8). */
 export const DEBUG_TOOL_NAMES = new Set([
-  "flow:list-flows",
-  "flow:rediscover",
   "resources_discover",
 ]);
 

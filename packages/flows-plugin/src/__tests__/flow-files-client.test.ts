@@ -4,7 +4,7 @@
  * enrichment that gives cards their agent / handler file paths.
  * See change: attach-flow-before-run.
  */
-import type { FlowAgentState, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchFlowFile, withNodeFiles } from "../client/flow-files.js";
 

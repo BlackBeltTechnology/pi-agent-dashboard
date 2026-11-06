@@ -4,7 +4,8 @@
  * Harness glue copied from `settings-page-composition.test.tsx`.
  *
  * Covers: page attribution (#E19), save payload (#E20), entry validation
- * (#E21), effect-boundary copy (#F1), the subagent coupling warning (#E24),
+ * (#E21), effect-boundary copy (#F1), the removed subagent field (#E20 of
+ * subagent-queue-visibility; the coupling warning moved to the subagents plugin),
  * the cold-start label (#E31) and the configured-vs-effective divergence
  * indicator (#E32).
  *
@@ -82,7 +83,6 @@ beforeEach(() => {
     memoryLimits: { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 },
     sessionHeap: { maxOldSpaceMb: 512 },
     serverHeap: { maxOldSpaceMb: 1536 },
-    maxConcurrentSubagents: 2,
   };
   fetchAutoInitWorktreePref.mockResolvedValue(false);
   setAutoInitWorktreePref.mockResolvedValue(true);
@@ -208,22 +208,14 @@ describe("configured-vs-effective divergence (test-plan #E32)", () => {
   });
 });
 
-describe("subagent coupling warning (test-plan #E24)", () => {
-  it("is silent at the shipped 512 / 2 pairing", async () => {
+describe("Sessions has no subagent fan-out field (subagent-queue-visibility #E20)", () => {
+  it("renders no max-concurrent-subagents field and no coupling warning; heap ceiling stays", async () => {
     await renderPanel("Sessions");
+    await waitFor(() => screen.getByTestId("session-heap-max-old-space"));
+    expect(screen.queryByTestId("max-concurrent-subagents")).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: /concurrent subagents/i })).toBeNull();
+    fireEvent.change(sessionInput(), { target: { value: "128" } });
     expect(screen.queryByTestId("session-heap-subagent-warning")).toBeNull();
-  });
-
-  it("warns and names the per-child figure once the pairing gets thin", async () => {
-    await renderPanel("Sessions");
-    const subagents = screen.getByRole("spinbutton", { name: /Max concurrent subagents/i });
-    fireEvent.change(subagents, { target: { value: "8" } });
-
-    const warning = await waitFor(() => screen.getByTestId("session-heap-subagent-warning"));
-    expect(warning.textContent).toMatch(/56 MB/);
-    // Non-blocking: both values are still valid and still saveable.
-    const btn = await waitFor(() => screen.getByTestId("save-btn"));
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

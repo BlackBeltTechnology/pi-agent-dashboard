@@ -6,6 +6,7 @@
  * See change: add-tailscale-cert-tls.
  */
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import tls from "node:tls";
 import { fileURLToPath } from "node:url";
@@ -116,10 +117,16 @@ export interface Handshake {
   error?: string;
 }
 
-/** Real TLS connect (trusting the fixture CA) with an explicit SNI name. */
+/**
+ * Real TLS connect (trusting the fixture CA) with an explicit SNI name. An IP
+ * literal is sent as NO SNI — what a client does for an IP URL (RFC 6066 bars
+ * IP literals in SNI). Node <= 24 dropped it silently; Node 26 throws on it,
+ * so the helper drops it explicitly. See change: raise-node-floor-to-26.
+ */
 export function handshake(port: number, servername: string | undefined, host = "127.0.0.1"): Promise<Handshake> {
+  const sni = servername && net.isIP(servername) ? undefined : servername;
   return new Promise((resolve) => {
-    const socket = tls.connect({ host, port, servername, ca: CA_PEM, checkServerIdentity: () => undefined }, () => {
+    const socket = tls.connect({ host, port, servername: sni, ca: CA_PEM, checkServerIdentity: () => undefined }, () => {
       const cert = socket.getPeerCertificate();
       const cn = typeof cert.subject?.CN === "string" ? cert.subject.CN : undefined;
       socket.end();

@@ -201,17 +201,40 @@ Unhide a previously hidden session.
 - `404`: Session not found
 
 ### `POST /api/session/spawn`
-Spawn a new pi session in a directory.
+Spawn a new pi session (or a configured ACP agent) in a directory.
 
-**Body:**
+**Body:** (every field but `cwd` is optional; an empty string counts as absent)
 ```json
-{ "cwd": "/path/to/project" }
+{
+  "cwd": "/path/to/project",
+  "agent": "qmt",
+  "model": "@planning",
+  "thinkingLevel": "high",
+  "initialPrompt": "Run the test suite",
+  "attachProposal": "add-auth"
+}
 ```
+
+- `model` — `provider/id`, `provider/id:<level>`, `@role` or `@role:<level>`. An
+  `@role` is resolved ONCE, at spawn time, against `~/.pi/agent/providers.json#roles`;
+  the session keeps that concrete model and does not follow later role edits.
+- `thinkingLevel` — `off`, `minimal`, `low`, `medium`, `high`, `xhigh`. For an `@role`
+  the level is: this field > the ref `:<level>` suffix > the role's own level. A
+  thinking-only body is paired with the Settings default model.
+- `initialPrompt` — first prompt, sent once the session registers.
+- `attachProposal` — OpenSpec change attached once the session registers (REST only).
+- `agent` — ACP agent id; `model` / `thinkingLevel` are pi-only and rejected with it.
 
 **Responses:**
 - `200`: `{ "success": true, "data": { "message": "..." } }`
-- `400`: Missing `cwd`
+- `400`: Missing `cwd`, a non-string field, an invalid `model`, an unresolvable
+  `@role`, an invalid `thinkingLevel`, or `agent` combined with `model` /
+  `thinkingLevel`. Validated before anything is spawned or queued.
 - `500`: Spawn failed
+
+REST is strict; the WebSocket `spawn_session` verb is lenient: it drops an invalid
+or unresolvable choice, spawns with the default model, and reports the drop in
+`spawn_result.choiceWarning` (the bus client passes it to `onWarning`).
 
 ### `POST /api/session/:id/resume`
 Resume or fork an ended session.
@@ -233,19 +256,24 @@ Resume or fork an ended session.
 
 ## Flow Control
 
-### `POST /api/session/:id/flow-control`
-Control a running flow.
+### `POST /api/plugins/flows/control`
+Control a session's flow (flows plugin route; replaces the removed core
+session flow route). Requires operate authority.
 
 **Body:**
 ```json
-{ "action": "abort" }
+{ "sessionId": "abc123", "action": "flow.abort" }
 ```
-- `action`: `"abort"` or `"toggle_autonomous"`
+- `action`: `"flow.abort"`, `"flow.toggle-autonomous"`, `"flow.dismiss-summary"`,
+  `"flow.run"` (`flowName`, optional `task`), `"flow.delete"` (`flowName`),
+  `"flow.set-edit-mode"` (`enabled: boolean`)
 
 **Responses:**
 - `200`: `{ "success": true }`
-- `400`: Invalid `action`
+- `400`: Unknown `action` or invalid payload
+- `403`: Missing operate authority
 - `404`: Session not found
+- `409`: ACP session (`code: "unsupported_for_acp"`)
 
 ---
 

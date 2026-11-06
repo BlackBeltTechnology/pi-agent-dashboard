@@ -15,7 +15,8 @@
  *
  * Declarations are untrusted (D3): validated by `validateDeclaration`; a channel
  * already owned by core or another plugin keeps its first owner (conflict
- * counted). See change: add-plugin-bridge-contributions.
+ * counted), and so does a forwarded `as` type owned by another plugin.
+ * See change: add-plugin-bridge-contributions, update-flows-plugin.
  */
 
 import {
@@ -24,6 +25,7 @@ import {
   REGISTER_EVENT_FORWARD_CHANNEL,
   validateDeclaration,
 } from "@blackbelt-technology/pi-dashboard-shared/event-forward-declaration.js";
+import { normalizeReplayEntryTypes } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/replay-entry-types.js";
 import { StreamForwardBuffer, type StreamForwardBufferStats } from "./stream-forward-buffer.js";
 
 interface BusLike {
@@ -37,7 +39,7 @@ export interface PluginForwardDeps {
   isSessionReady: () => boolean;
   isActive: () => boolean;
   isConnected: () => boolean;
-  /** True when core already forwards this channel (FLOW/SUBAGENT maps). */
+  /** True when core already forwards this channel (SUBAGENT map). */
   isCoreChannel: (channel: string) => boolean;
 }
 
@@ -56,6 +58,10 @@ export interface PluginForwardStats {
 
 export class PluginForwardRegistry {
   private readonly owned = new Map<string, OwnedChannel>();
+  /** Forwarded `as` type → owning pluginId (first owner wins across plugins). */
+  private readonly asOwners = new Map<string, string>();
+  /** Declared persisted custom-entry types (union over declaring plugins). */
+  private readonly entryTypes = new Set<string>();
   private readonly perPlugin = new Map<string, number>();
   private readonly unsubscribers: Array<() => void> = [];
   private readonly buffer: StreamForwardBuffer;
@@ -106,6 +112,10 @@ export class PluginForwardRegistry {
       }
       this.counters.rejected += result.rejected.length;
       for (const spec of result.accepted) this.acceptChannel(result.pluginId, spec);
+      const replayTypes = Object.prototype.hasOwnProperty.call(raw, "replayEntryTypes")
+        ? (raw as { replayEntryTypes?: unknown }).replayEntryTypes
+        : undefined;
+      for (const t of normalizeReplayEntryTypes(replayTypes)) this.entryTypes.add(t);
     } catch {
       this.counters.rejectedDeclarations++;
     }
@@ -126,6 +136,14 @@ export class PluginForwardRegistry {
       this.counters.conflicts++;
       return;
     }
+    // A forwarded type is owned by ONE plugin: another pluginId may not forward
+    // as it (anti-spoofing; the same plugin may map two channels to it).
+    const asOwner = this.asOwners.get(spec.as);
+    if (asOwner !== undefined && asOwner !== pluginId) {
+      this.counters.conflicts++;
+      return;
+    }
+    this.asOwners.set(spec.as, pluginId);
     const owned: OwnedChannel = { ...spec, pluginId };
     this.owned.set(spec.channel, owned);
     this.perPlugin.set(pluginId, (this.perPlugin.get(pluginId) ?? 0) + 1);
@@ -171,6 +189,11 @@ export class PluginForwardRegistry {
       if (ch) this.forward(ch.as, msg.data);
     }
     return drained.length;
+  }
+
+  /** Declared plugin entry types (replayed as protocol events, never generic rows). */
+  replayEntryTypes(): ReadonlySet<string> {
+    return this.entryTypes;
   }
 
   declaredChannels(): string[] {

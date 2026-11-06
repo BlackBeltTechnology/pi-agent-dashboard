@@ -1,114 +1,142 @@
 /**
- * Replay of persisted flow-run events (change: replay-persisted-flow-runs).
- * pi-flows writes type:"custom" customType:"flow-event" entries with shape
- * { seq, eventType, data, flowRunId }. Replay re-forwards each as an
- * event_forward carrying eventType + data verbatim, ordered by seq, so the
- * client's idempotent reduceFlowEvent rebuilds the flow card on reload.
+ * Replay of plugin-declared persisted entries (change: replay-persisted-flow-runs;
+ * generalised by update-flows-plugin D3). A plugin manifest declares
+ * `replayEntryTypes`; core replays each record `{ seq, eventType, data, ...extra }`
+ * as an event_forward carrying eventType + data verbatim, ordered by seq, and keeps
+ * declared types out of the generic custom paths. Core names no entry type, so the
+ * declared set is a parameter here (test-plan E10–E14, X8).
  */
 import { describe, it, expect } from "vitest";
 import { replayEntriesAsEvents } from "../state-replay.js";
 
-function flowEventEntry(
+const TS = "2026-04-27T07:26:25.000Z";
+const FLOWS = { replayEntryTypes: ["flow-event"] };
+
+function declaredEntry(
+  customType: string,
   id: string,
   seq: number,
-  eventType: string,
+  eventType: unknown,
   data: Record<string, unknown>,
-  flowRunId = "run-1",
+  extra: Record<string, unknown> = {},
 ) {
-  return {
-    type: "custom",
-    customType: "flow-event",
-    id,
-    parentId: "root",
-    timestamp: "2026-04-27T07:26:25.000Z",
-    data: { seq, eventType, data, flowRunId },
-  };
+  return { type: "custom", customType, id, parentId: "root", timestamp: TS, data: { seq, eventType, data, ...extra } };
 }
 
-describe("replayEntriesAsEvents — persisted flow events", () => {
-  it("re-forwards flow-event entries in seq order with data verbatim", () => {
+function flowEventEntry(id: string, seq: number, eventType: string, data: Record<string, unknown>, flowRunId = "run-1") {
+  return declaredEntry("flow-event", id, seq, eventType, data, { flowRunId });
+}
+
+const userMsg = { type: "message", id: "u1", timestamp: TS, message: { role: "user", content: [{ type: "text", text: "go" }] } };
+const asstMsg = { type: "message", id: "a1", parentId: "u1", timestamp: TS, message: { role: "assistant", content: [{ type: "text", text: "hi" }] } };
+
+describe("replayEntriesAsEvents — declared plugin entries", () => {
+  it("replays a declared fixture type seq-ordered; an undeclared type emits nothing (E10)", () => {
     const entries = [
-      flowEventEntry("f0", 0, "flow_started", { flowName: "demo" }),
-      flowEventEntry("f1", 1, "flow_agent_started", { agentName: "researcher", stepId: "research" }),
-      flowEventEntry("f2", 2, "flow_tool_call", { agentName: "researcher", toolName: "read", input: { path: "a.ts" } }),
+      declaredEntry("demo-event", "d2", 2, "flow_tool_call", { toolName: "read" }),
+      declaredEntry("demo-event", "d0", 0, "flow_started", { flowName: "demo" }),
+      declaredEntry("demo-event", "d1", 1, "flow_agent_started", { stepId: "s" }),
+      declaredEntry("other-event", "o0", 0, "flow_complete", {}),
     ];
-
-    const events = replayEntriesAsEvents("sess-1", entries);
-    const flows = events.filter((e) => e.event.eventType.startsWith("flow_"));
-
-    expect(flows.map((e) => e.event.eventType)).toEqual([
-      "flow_started",
-      "flow_agent_started",
-      "flow_tool_call",
+    const stats = { pluginEntriesReplayed: 0 };
+    const events = replayEntriesAsEvents("sess-1", entries, undefined, { replayEntryTypes: ["demo-event"], stats });
+    const fwd = events.filter((e) => e.event.eventType !== "custom_entry");
+    expect(fwd.map((e) => e.event.eventType)).toEqual(["flow_started", "flow_agent_started", "flow_tool_call"]);
+    expect(fwd.map((e) => e.event.data)).toEqual([
+      { type: "flow_started", flowName: "demo" },
+      { type: "flow_agent_started", stepId: "s" },
+      { type: "flow_tool_call", toolName: "read" },
     ]);
-    expect((flows[0].event.data as any).flowName).toBe("demo");
-    expect((flows[2].event.data as any).toolName).toBe("read");
+    expect(stats.pluginEntriesReplayed).toBe(3);
+    // The undeclared type takes the generic custom path, never a protocol replay.
+    expect(events.filter((e) => e.event.eventType === "flow_complete")).toHaveLength(0);
   });
 
-  it("sorts emitted flow events by ascending seq even when file order differs", () => {
+  it("skips malformed records without throwing (E11)", () => {
     const entries = [
-      flowEventEntry("f2", 2, "flow_tool_call", { agentName: "a", toolName: "bash" }),
-      flowEventEntry("f0", 0, "flow_started", { flowName: "demo" }),
-      flowEventEntry("f1", 1, "flow_agent_started", { agentName: "a", stepId: "s" }),
+      { type: "custom", customType: "demo-event", id: "b0", timestamp: TS, data: { seq: 0, data: {} } },
+      declaredEntry("demo-event", "b1", 1, 42, {}),
+      declaredEntry("demo-event", "b2", 2, null, {}),
+      declaredEntry("demo-event", "ok", 3, "flow_complete", {}),
     ];
-
-    const events = replayEntriesAsEvents("sess-1", entries);
-    const flows = events.filter((e) => e.event.eventType.startsWith("flow_"));
-
-    expect(flows.map((e) => e.event.eventType)).toEqual([
-      "flow_started",
-      "flow_agent_started",
-      "flow_tool_call",
-    ]);
-  });
-
-  it("ignores custom entries whose customType is not flow-event", () => {
-    const entries = [
-      { type: "custom", customType: "other-thing", id: "x", timestamp: "2026-04-27T07:26:25.000Z", data: { seq: 0, eventType: "flow_started", data: {} } },
-    ];
-    const events = replayEntriesAsEvents("sess-1", entries);
-    expect(events.filter((e) => e.event.eventType.startsWith("flow_"))).toHaveLength(0);
-  });
-
-  it("skips malformed flow-event records (missing/non-string eventType) without throwing", () => {
-    const entries = [
-      { type: "custom", customType: "flow-event", id: "b1", timestamp: "2026-04-27T07:26:25.000Z", data: { seq: 0, data: {} } },
-      { type: "custom", customType: "flow-event", id: "b2", timestamp: "2026-04-27T07:26:25.000Z", data: { seq: 1, eventType: 42, data: {} } },
-      flowEventEntry("f2", 2, "flow_complete", { status: "success" }),
-    ];
-
     let events: ReturnType<typeof replayEntriesAsEvents> = [];
-    expect(() => { events = replayEntriesAsEvents("sess-1", entries); }).not.toThrow();
-    const flows = events.filter((e) => e.event.eventType.startsWith("flow_"));
-    expect(flows.map((e) => e.event.eventType)).toEqual(["flow_complete"]);
+    expect(() => {
+      events = replayEntriesAsEvents("sess-1", entries, undefined, { replayEntryTypes: ["demo-event"] });
+    }).not.toThrow();
+    expect(events.map((e) => e.event.eventType)).toEqual(["flow_complete"]);
   });
 
-  it("leaves message replay unaffected when interleaved with generic custom entries (no double-render)", () => {
-    const entries = [
-      { type: "message", id: "u1", timestamp: "2026-04-27T07:26:25.000Z", message: { role: "user", content: [{ type: "text", text: "go" }] } },
-      { type: "custom", customType: "my-ext:note", id: "c1", parentId: "u1", timestamp: "2026-04-27T07:26:26.000Z", data: { state: "half" } },
-      { type: "message", id: "a1", parentId: "c1", timestamp: "2026-04-27T07:26:30.000Z", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } },
-    ];
-
-    const events = replayEntriesAsEvents("sess-1", entries);
-    expect(events.find((e) => e.event.eventType === "message_start")).toBeDefined();
-    expect(events.find((e) => e.event.eventType === "message_end")).toBeDefined();
-    expect(events.find((e) => e.event.eventType === "custom_entry")).toBeDefined();
+  it("ignores extra record fields such as flowRunId (E12)", () => {
+    const events = replayEntriesAsEvents(
+      "sess-1",
+      [flowEventEntry("f0", 0, "flow_started", { flowName: "research" })],
+      undefined,
+      FLOWS,
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].event.eventType).toBe("flow_started");
+    expect(events[0].event.data).toEqual({ type: "flow_started", flowName: "research" });
+    expect(JSON.stringify(events)).not.toContain("flowRunId");
   });
 
-  it("leaves message and model_change replay unaffected when interleaved with flow events", () => {
-    const entries = [
-      { type: "message", id: "u1", timestamp: "2026-04-27T07:26:25.000Z", message: { role: "user", content: [{ type: "text", text: "go" }] } },
-      flowEventEntry("f0", 0, "flow_started", { flowName: "demo" }),
-      { type: "model_change", id: "m1", timestamp: "2026-04-27T07:26:26.000Z", provider: "anthropic", modelId: "claude" },
-      { type: "message", id: "a1", parentId: "u1", timestamp: "2026-04-27T07:26:30.000Z", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } },
+  it("excludes declared types from the generic paths; other output unchanged (E13)", () => {
+    const base = [
+      userMsg,
+      { type: "model_change", id: "m1", timestamp: TS, provider: "anthropic", modelId: "claude" },
+      asstMsg,
+      { type: "custom_message", id: "cm", timestamp: TS, customType: "my-ext:note", content: "hi" },
+      { type: "custom", customType: "e2e:note", id: "n1", timestamp: TS, data: { x: 1 } },
     ];
+    const withFlow = [...base.slice(0, 2), flowEventEntry("f0", 0, "flow_started", { flowName: "d" }), ...base.slice(2)];
+    const strip = (evs: ReturnType<typeof replayEntriesAsEvents>) =>
+      evs.filter((e) => !e.event.eventType.startsWith("flow_")).map((e) => ({ t: e.event.eventType, d: e.event.data }));
+    const without = replayEntriesAsEvents("sess-1", base, undefined, FLOWS);
+    const withEvents = replayEntriesAsEvents("sess-1", withFlow, undefined, FLOWS);
+    expect(strip(withEvents)).toEqual(strip(without));
+    expect(
+      withEvents.filter((e) => e.event.eventType === "custom_entry" && (e.event.data as any).customType === "flow-event"),
+    ).toHaveLength(0);
+    expect(withEvents.filter((e) => e.event.eventType === "flow_started")).toHaveLength(1);
+    // A declared custom_message is also kept off the generic row path.
+    const msgEvents = replayEntriesAsEvents(
+      "sess-1",
+      [{ type: "custom_message", id: "x", timestamp: TS, customType: "flow-event", content: "spoof" }],
+      undefined,
+      FLOWS,
+    );
+    expect(msgEvents).toHaveLength(0);
+  });
 
-    const events = replayEntriesAsEvents("sess-1", entries);
-    expect(events.find((e) => e.event.eventType === "message_start")).toBeDefined();
-    expect(events.find((e) => e.event.eventType === "message_end")).toBeDefined();
-    expect(events.find((e) => e.event.eventType === "model_select")).toBeDefined();
-    expect(events.find((e) => e.event.eventType === "flow_started")).toBeDefined();
+  it("hides a disabled plugin's entries: nothing replayed, no custom_entry (E14, G5)", () => {
+    const entries = [
+      userMsg,
+      flowEventEntry("f0", 0, "flow_started", { flowName: "d" }),
+      flowEventEntry("f1", 1, "flow_agent_started", { stepId: "s" }),
+      flowEventEntry("f2", 2, "flow_complete", {}),
+    ];
+    const events = replayEntriesAsEvents("sess-1", entries, undefined, { replayEntryTypes: [], hiddenEntryTypes: ["flow-event"] });
+    expect(events.filter((e) => e.event.eventType.startsWith("flow_"))).toHaveLength(0);
+    expect(events.filter((e) => e.event.eventType === "custom_entry")).toHaveLength(0);
+    expect(events.map((e) => e.event.eventType)).toEqual(
+      replayEntriesAsEvents("sess-1", [userMsg]).map((e) => e.event.eventType),
+    );
+  });
+
+  it("replays nothing for a flow-first session not yet flushed (X8, KNOWN BLOCKER)", () => {
+    const entries = [userMsg, asstMsg];
+    let events: ReturnType<typeof replayEntriesAsEvents> = [];
+    expect(() => {
+      events = replayEntriesAsEvents("sess-1", entries, undefined, FLOWS);
+    }).not.toThrow();
+    expect(events.filter((e) => e.event.eventType.startsWith("flow_"))).toHaveLength(0);
+    expect(events.map((e) => e.event.eventType)).toEqual(
+      replayEntriesAsEvents("sess-1", entries).map((e) => e.event.eventType),
+    );
+  });
+
+  it("without a declared set a plugin entry is a generic custom entry (core names no type)", () => {
+    const events = replayEntriesAsEvents("sess-1", [flowEventEntry("f0", 0, "flow_started", {})]);
+    expect(events.map((e) => e.event.eventType)).toEqual(["custom_entry"]);
   });
 });
 
@@ -157,10 +185,10 @@ describe("replayEntriesAsEvents — custom entries + custom messages (E6)", () =
     });
   });
 
-  it("keeps flow-event on its seq-sorted path and emits NO custom_entry for it", () => {
+  it("keeps a declared type on its seq-sorted path and emits NO custom_entry for it", () => {
     const events = replayEntriesAsEvents("sess-1", [
       flowEventEntry("f0", 0, "flow_started", { flowName: "demo" }),
-    ]);
+    ], undefined, FLOWS);
     expect(events.filter((e) => e.event.eventType === "custom_entry")).toHaveLength(0);
     expect(events.filter((e) => e.event.eventType === "flow_started")).toHaveLength(1);
   });

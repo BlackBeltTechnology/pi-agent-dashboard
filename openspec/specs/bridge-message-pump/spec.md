@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change serialize-bridge-message-pump. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Bridge dispatches accepted inbound messages in wire order
 The bridge WebSocket message pump SHALL dispatch inbound message handlers so that
 each handler runs to completion before the next accepted inbound message is
@@ -45,9 +47,9 @@ behind it:
   only mechanism able to terminate a long-running child that is itself occupying
   the serialized queue.
 
-Every other inbound message type, **including `abort`, `shutdown` and
-`flow_control`**, SHALL use the serialized queue. An unrecognized message type
-SHALL default to the serialized queue.
+Every other inbound message type, **including `abort` and `shutdown`**, SHALL
+use the serialized queue. An unrecognized message type SHALL default to the
+serialized queue.
 
 #### Scenario: a prompt response is delivered while the queue is busy
 - **WHEN** the serialized queue is occupied by a slow handler
@@ -68,6 +70,11 @@ SHALL default to the serialized queue.
 #### Scenario: an unknown message type is serialized
 - **WHEN** the bridge receives a message whose type is not recognized as the reply lane
 - **THEN** it SHALL be placed on the serialized queue in wire order
+
+#### Scenario: a retired flow_control message has no side effect
+- **WHEN** the bridge receives a message of the retired type `flow_control`
+- **THEN** it SHALL be handled as an unrecognized type on the serialized queue
+- **AND** dispatching it SHALL emit no `pi.events` event, send no outbound message and change no bridge state
 
 ### Requirement: A failed handler does not stall the queue
 A handler that throws or rejects SHALL NOT prevent subsequent messages from being
@@ -242,4 +249,3 @@ Reporting SHALL NOT throw and SHALL NOT stall the pump.
 #### Scenario: Reporting never blocks dispatch
 - **WHEN** reports are being emitted
 - **THEN** inbound dispatch order and throughput SHALL be unaffected
-

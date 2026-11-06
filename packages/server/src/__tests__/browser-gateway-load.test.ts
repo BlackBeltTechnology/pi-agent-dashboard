@@ -533,10 +533,14 @@ describe("browser-gateway load — P3 (replay path INSIDE the measured window)",
 // 10,000 state frames across 50 keys (1 KB each) against a 20 KB ceiling:
 // the pending map must never retain more than the ceiling, the socket is
 // terminated exactly once, and the transient serialized strings must not
-// accumulate (RSS delta < 5 MB).
+// accumulate (retained heap + off-heap delta < 5 MB after a forced GC).
+// Retained memory, not RSS: RSS also counts V8 heap reservation and allocator
+// page caching, which grow differently per Node line (heapTotal +9 MB on Node
+// 26 vs +4.5 MB on 24 for the same run) and per load, while heapUsed falls.
+// See change: raise-node-floor-to-26.
 // ─────────────────────────────────────────────────────────────────────────
 describe("browser-gateway load — P4 (pending-state memory bound under stall)", () => {
-  it("never-draining socket: retained bytes ≤ ceiling, terminated exactly once, RSS delta < 5 MB", async () => {
+  it("never-draining socket: retained bytes ≤ ceiling, terminated exactly once, retained memory delta < 5 MB", async () => {
     const MAX = 20 * 1024;
     const KEYS = 50;
     const FRAMES = 10_000;
@@ -559,7 +563,11 @@ describe("browser-gateway load — P4 (pending-state memory bound under stall)",
     // churn from re-serializing 10 MB of message objects.
     const serialized = Array.from({ length: KEYS }, (_, k) =>
       JSON.stringify({ initialized: true, changes: [{ name: "c".repeat(960 + k) }] }));
-    const rssBefore = process.memoryUsage().rss;
+    const retainedNow = (): number => {
+      const m = process.memoryUsage();
+      return m.heapUsed + m.external + m.arrayBuffers;
+    };
+    const retainedBefore = retainedNow();
     let peakRetained = 0;
     for (let i = 0; i < FRAMES; i++) {
       gateway.broadcastOpenSpecUpdate(`/k${i % KEYS}`, serialized[i % KEYS]);
@@ -580,7 +588,8 @@ describe("browser-gateway load — P4 (pending-state memory bound under stall)",
     // Final retained-bytes check (peak sampled mid-run must also hold).
     expect(peakRetained).toBeLessThanOrEqual(MAX);
 
-    // Nothing accumulated: force a major GC when available, then bound RSS.
+    // Nothing accumulated: force a major GC when available, then bound the
+    // retained (heap + off-heap) memory.
     for (let i = 0; i < 5; i++) await new Promise<void>((r) => setImmediate(r));
     try {
       const v8 = await import("node:v8");
@@ -590,8 +599,8 @@ describe("browser-gateway load — P4 (pending-state memory bound under stall)",
     } catch {
       /* no gc — the yields above are the best-effort collect */
     }
-    const rssDelta = process.memoryUsage().rss - rssBefore;
-    expect(rssDelta).toBeLessThan(5 * 1024 * 1024);
+    const retainedDelta = retainedNow() - retainedBefore;
+    expect(retainedDelta).toBeLessThan(5 * 1024 * 1024);
   });
 });
 

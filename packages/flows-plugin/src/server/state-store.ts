@@ -6,7 +6,8 @@
  *
  * See change: adopt-server-driven-intent-rendering.
  */
-import type { CommandInfo, DashboardEvent, FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowState } from "../types.js";
 import type { FlowCatalogEntry } from "../flow-catalog-contract.js";
 import { isFlowEvent, reduceFlowEvent } from "../flow-reducer.js";
 

@@ -14,11 +14,8 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import type {
-  DashboardEvent,
-  FlowAgentState,
-  FlowState,
-} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FlowAgentState, FlowState } from "../types.js";
 import { cleanup, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it } from "vitest";

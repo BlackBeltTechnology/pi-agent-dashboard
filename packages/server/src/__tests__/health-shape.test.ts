@@ -25,7 +25,16 @@ import {
   createMemoryEventStore,
   EMPTY_TRIM_STATS,
 } from "../persistence/memory-event-store.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  recordRejectedPluginAction,
+  resetPluginEntryStatsForTest,
+  setReplayEntryTypesProvider,
+} from "../plugin-entry-stats.js";
 import { effectiveServerMaxOldSpaceMb } from "../server-heap-telemetry.js";
+import { createSessionLoadWorkerPool } from "../session/session-load-worker-pool.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
 let handle: TestServerHandle | undefined;
@@ -351,6 +360,38 @@ describe("GET /api/health — shape", () => {
     expect(Object.keys(pef).sort()).toEqual(["conflicts", "declared", "dropped", "rejected", "retained"]);
     for (const v of Object.values(pef)) expect(v).toBe(0);
     expect(typeof body.subagentTickThrottle).toBe("object");
+  });
+
+  // X9: plugin entry replay + rejected plugin actions + as-type conflicts.
+  // See change: update-flows-plugin (task 1.7, 2.4; test-plan #X9, G2).
+  it("reports declared replay types, replayed plugin entries, rejected actions and as conflicts (X9)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    resetPluginEntryStatsForTest();
+    handle = await createTestServer();
+    // Overrides the server's manifest provider: one declared replay type.
+    setReplayEntryTypesProvider(() => ({ replay: ["demo-event"], hidden: ["demo-event"] }));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "x9-"));
+    const file = path.join(dir, "s.jsonl");
+    const rec = (seq: number) =>
+      JSON.stringify({ type: "custom", customType: "demo-event", id: `e${seq}`, parentId: seq === 0 ? null : `e${seq - 1}`, timestamp: "2026-01-01T00:00:00.000Z", data: { seq, eventType: "flow_started", data: {} } });
+    fs.writeFileSync(file, `${JSON.stringify({ type: "session", id: "s", timestamp: "2026-01-01T00:00:00.000Z", cwd: "/" })}\n${[0, 1, 2].map(rec).join("\n")}\n`);
+    const pool = createSessionLoadWorkerPool({ useWorker: false });
+    const out = await pool.load({ sessionId: "s", sessionFile: file }).result;
+    await pool.dispose();
+    expect(out.success).toBe(true);
+    recordRejectedPluginAction();
+    recordRejectedPluginAction();
+    const sm = handle.server.sessionManager;
+    sm.register({ id: "x9", cwd: "/repo", source: "tui", startedAt: 1 } as never);
+    sm.update("x9", { processMetrics: { pluginForwardConflicts: 1 } } as never);
+
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.pluginEntries).toEqual({ declaredReplayTypes: 1, replayedPluginEntries: 3, rejectedPluginActions: 2 });
+    const pef = body.pluginEventForward as Record<string, number>;
+    expect(Object.keys(pef).sort()).toEqual(["conflicts", "declared", "dropped", "rejected", "retained"]);
+    expect(pef.conflicts).toBe(1);
+    resetPluginEntryStatsForTest();
   });
 
   // X6: the `??` fallback the route takes when no event store is wired. It is

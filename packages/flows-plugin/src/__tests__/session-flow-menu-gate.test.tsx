@@ -8,6 +8,7 @@ import { ActionListMenuContext } from "@blackbelt-technology/pi-dashboard-client
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FlowsContextGroup } from "../client/FlowsContextGroup.js";
 import { flowMenuItems, SessionFlowMenuClaim } from "../client/SessionFlowMenuClaim.js";
 import { catalogAsks, editMode, entry, fetchMock, publishCatalog, type Served, tree } from "./flows-test-harness.js";
 
@@ -92,5 +93,36 @@ describe("SessionFlowMenuClaim renders the gate", () => {
     expect(catalogAsks(send)).toHaveLength(0);
     rerenderOpen(true);
     expect(catalogAsks(send)).toHaveLength(1);
+  });
+});
+
+/**
+ * E42: mounting the action-bar claim and the dock chip (menu never opened)
+ * sends no edit-mode message of any kind — neither the plugin_action nor the
+ * retired flow_management. See change: update-flows-plugin.
+ */
+describe("gates send nothing on mount (E42)", () => {
+  it("action-bar claim + dock chip, re-rendered 3×: 0 edit-mode sends; menu offers only New flow…", async () => {
+    const sid = "menu-E42";
+    publishCatalog(sid, []);
+    editMode.served = true;
+    const send = vi.fn();
+    const node = () => (
+      <>
+        <ActionListMenuContext.Provider value={{ open: false }}>
+          <SessionFlowMenuClaim session={{ id: sid } as DashboardSession} />
+        </ActionListMenuContext.Provider>
+        <FlowsContextGroup session={{ id: sid } as DashboardSession} />
+      </>
+    );
+    const r = render(tree(node(), send));
+    for (let i = 0; i < 3; i++) r.rerender(tree(node(), send));
+    await act(async () => {
+      await new Promise((res) => setTimeout(res, 0));
+    });
+    const sent = send.mock.calls.map(([m]) => m as Record<string, unknown>);
+    expect(sent.filter((m) => m.action === "flow.set-edit-mode" || m.type === "flow_management")).toEqual([]);
+    const items = screen.queryAllByRole("menuitem").map((b) => b.textContent);
+    expect(items).toEqual(["New flow…"]);
   });
 });

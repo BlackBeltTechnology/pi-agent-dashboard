@@ -223,36 +223,16 @@ The `DashboardSession.currentTool` field SHALL be typed as `string | null | unde
 - **THEN** the browser SHALL receive `null` (not `undefined`) after JSON deserialization
 - **AND** the session card SHALL clear any tool indicator
 
-### Requirement: Flow control message type in extension protocol
-The extension protocol SHALL define a `flow_control` message type from server to extension for flow-specific commands.
-
-The message SHALL have the shape:
-```
-{ type: "flow_control", sessionId: string, action: "abort" | "toggle_autonomous" }
-```
-
-#### Scenario: Flow control message in ServerToExtensionMessage union
-- **WHEN** the protocol types are compiled
-- **THEN** `FlowControlExtensionMessage` SHALL be a valid member of `ServerToExtensionMessage`
-
 ### Requirement: Flow event types recognized in event forwarding
-The event forwarding pipeline SHALL pass through flow-specific `eventType` values without modification: `flow_started`, `flow_agent_started`, `flow_agent_complete`, `flow_tool_call`, `flow_tool_result`, `flow_assistant_text`, `flow_thinking_text`, `flow_loop_iteration`, `flow_auto_decision`, `flow_complete`.
+The event forwarding pipeline SHALL pass through plugin-declared `eventType` values without modification. Core protocol definitions SHALL NOT name any flow event type; the event types forwarded beyond core's own are exactly those declared by plugins through `dashboard:register-event-forward`. The flows plugin SHALL declare the `flow_*` event types (see `flow-event-bridge`).
 
 #### Scenario: Flow events stored and broadcast
-- **WHEN** an `event_forward` message has `eventType` starting with `flow_`
+- **WHEN** an `event_forward` message has an `eventType` declared by the flows plugin, such as `flow_started`
 - **THEN** the server SHALL store it in the memory event store and broadcast it to subscribed browsers as an `EventMessage`
 
-### Requirement: Flow control message type in browser protocol
-The browser protocol SHALL define a `flow_control` message type from browser to server.
-
-The message SHALL have the shape:
-```
-{ type: "flow_control", sessionId: string, action: "abort" | "toggle_autonomous" }
-```
-
-#### Scenario: Flow control in BrowserToServerMessage union
-- **WHEN** the protocol types are compiled
-- **THEN** `FlowControlBrowserMessage` SHALL be a valid member of `BrowserToServerMessage`
+#### Scenario: Core protocol names no flow event type
+- **WHEN** `packages/shared/src` protocol sources are inspected
+- **THEN** they SHALL NOT contain a `flow_*` event type name
 
 ### Requirement: Server to extension heartbeat acknowledgment
 The `ServerToExtensionMessage` union type SHALL include a `HeartbeatAckMessage` type for server-to-extension heartbeat acknowledgments.
@@ -457,7 +437,7 @@ export interface ResumeSessionBrowserMessage {
 - **THEN** the wire message SHALL contain a UUIDv4 `requestId` field
 
 ### Requirement: `spawn_result` echoes `requestId` and may include `pid`
-The `SpawnResultBrowserMessage` (server → browser) SHALL include an optional `requestId?: string` and an optional `pid?: number` field. When the input `spawn_session` carried a `requestId`, the server SHALL echo it. The `pid` SHALL be included when the spawn produced a tracked PID (headless strategy).
+The `SpawnResultBrowserMessage` (server → browser) SHALL include an optional `requestId?: string`, an optional `pid?: number` and an optional `choiceWarning?: string` field. When the input `spawn_session` carried a `requestId`, the server SHALL echo it. The `pid` SHALL be included when the spawn produced a tracked PID (headless strategy). `choiceWarning` SHALL be included only when a model or thinking choice of the input was dropped.
 
 ```ts
 export interface SpawnResultBrowserMessage {
@@ -465,14 +445,15 @@ export interface SpawnResultBrowserMessage {
   cwd: string;
   success: boolean;
   message: string;
-  requestId?: string; // NEW
-  pid?: number;       // NEW (informational only)
+  requestId?: string;
+  pid?: number;           // informational only
+  choiceWarning?: string; // NEW: dropped model/thinking choice
 }
 ```
 
 #### Scenario: TypeScript type includes requestId and pid
 - **WHEN** `SpawnResultBrowserMessage` is referenced in TypeScript
-- **THEN** both `requestId: string | undefined` and `pid: number | undefined` SHALL be allowed
+- **THEN** `requestId: string | undefined`, `pid: number | undefined` and `choiceWarning: string | undefined` SHALL be allowed
 
 #### Scenario: requestId echoed when input had one
 - **WHEN** the server processes `spawn_session { cwd: "/p", requestId: "rq_1" }` and emits a result
@@ -481,6 +462,10 @@ export interface SpawnResultBrowserMessage {
 #### Scenario: requestId omitted when input lacked one
 - **WHEN** the server processes a legacy `spawn_session` without `requestId`
 - **THEN** the emitted `spawn_result` SHALL NOT include a `requestId` field
+
+#### Scenario: choiceWarning omitted when nothing was dropped
+- **WHEN** the server processes `spawn_session { cwd: "/p" }`
+- **THEN** the emitted `spawn_result` SHALL NOT include a `choiceWarning` field
 
 ### Requirement: `resume_result` echoes `requestId` and includes `newSessionId` for fork mode
 The `ResumeResultBrowserMessage` (server → browser) SHALL include optional `requestId?: string` and `newSessionId?: string` fields. The `requestId` SHALL be echoed when the input `resume_session` carried one. The `newSessionId` SHALL be populated for `mode: "fork"` ONLY after the forked session's bridge has registered and the server has correlated it via `linkByToken` / `linkByPid` / `linkSession`. For `mode: "continue"`, `newSessionId` SHALL be omitted (the sessionId is unchanged).

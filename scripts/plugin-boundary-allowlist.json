@@ -200,5 +200,42 @@
       "disposition": "integration-keep",
       "removedBy": "none"
     }
+  ],
+  "literalRows": [
+    {
+      "file": "packages/client/src/components/settings/ProviderAuthSection.tsx",
+      "literal": "flow-error-",
+      "reason": "OAuth sign-in flow React key prefix; not pi-flows (false positive)."
+    },
+    {
+      "file": "packages/server/src/routes/provider-auth-routes.ts",
+      "literal": "flow_input",
+      "reason": "OAuth sign-in flow input field; not pi-flows (false positive)."
+    },
+    {
+      "file": "packages/shared/src/custom-event-groups.ts",
+      "literal": "^pi-flows-help$",
+      "reason": "Shipped default custom-event group pattern (catalog data)."
+    },
+    {
+      "file": "packages/shared/src/recommended-extensions.ts",
+      "literal": "pi-flows",
+      "reason": "Recommended-extension catalog data."
+    },
+    {
+      "file": "packages/shared/src/recommended-extensions.ts",
+      "literal": "npm:@blackbelt-technology/pi-flows",
+      "reason": "Recommended-extension catalog data."
+    },
+    {
+      "file": "packages/shared/src/recommended-extensions.ts",
+      "literal": "flow_write",
+      "reason": "Recommended-extension catalog data (tool names pi-flows registers)."
+    },
+    {
+      "file": "packages/shared/src/recommended-extensions.ts",
+      "literal": "flow_results",
+      "reason": "Recommended-extension catalog data (tool names pi-flows registers)."
+    }
   ]
 }

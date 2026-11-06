@@ -53,7 +53,7 @@ Node.js HTTP + WebSocket server that:
 - Serves the built web client as static files (production) or proxies to Vite dev server (dev mode)
 - Writes per-session `.meta.json` sidecar files with dashboard state and cached stats
 - Exposes REST API for session management, event content fetch, pinned directories, and file reading
-- Provides session control REST endpoints (`/api/session/:id/*`) wrapping WebSocket-only operations (prompt, abort, spawn, resume, rename, hide, flow-control, model, thinking-level, attach/detach-proposal) — see `src/server/session-api.ts`
+- Provides session control REST endpoints (`/api/session/:id/*`) wrapping WebSocket-only operations (prompt, abort, spawn, resume, rename, hide, model, thinking-level, attach/detach-proposal) — see `src/server/session-api.ts`
 
 **Bind model.** HTTP listener + pi gateway WS listener bind `127.0.0.1` by default. Loopback removes socket from wire.
 
@@ -330,7 +330,7 @@ See change: add-acp-session-driver.
 - `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
 - ONE `pi.events.on(channel, ...)` subscription per declared channel.
 - `on()` observes every emitter.
-- Declared set = keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed).
+- Declared set = keys of `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed). `FLOW_EVENT_MAP` removed; flow channels plugin-declared.
 - Channel list IS the contract. Undeclared channel -> never forwarded.
 - New channel -> new map entry. Identity entry when no rename wanted.
 - Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
@@ -363,6 +363,9 @@ See change: add-acp-session-driver.
 **Validation.** `validateDeclaration` — untrusted input.
 - Channel regex requires `:`. Caps: 32 channels/plugin, 256 total.
 - Rejected: `RESERVED_EVENT_TYPES`, channel already in core `EVENT_BUS_MAP`. First owner wins on conflict (counted).
+- `RESERVED_EVENT_TYPES` no longer lists `flow_*`.
+- `as`-type owner index: declaration whose `as` type owned by another `pluginId` → rejected, counted in `pluginEventForward.conflicts`. Same plugin may map two channels to one `as`. Source `packages/extension/src/plugin-event-forward-registry.ts`.
+- Optional `replayEntryTypes: string[]` (plugin's persisted custom-entry types). Registry exposes `replayEntryTypes()`. Live bridge excludes those types from generic custom-entry forwarding and replays them on reconnect.
 - `pluginId`/key regex-validated. Key value string or finite number ≤128 chars, else delivered live-only.
 
 **Delivery.**
@@ -383,6 +386,15 @@ See change: add-acp-session-driver.
   - Server-start re-ask: 5 s interval × 60 s.
 - Client `useFlowCatalog`: re-asks every 5 s, max 12 per view, while catalog unknown.
 - Timings: flows plugin settings (`configSchema`).
+
+**Example consumer: flow runs.**
+- Flows bridge `packages/flows-plugin/src/bridge/flow-event-forward.ts` (`FLOW_RUN_CHANNELS`) declares 16 pi-flows channels.
+- Step channels (`agent-*`, `subagent-tool-*` → `flow_tool_*`, `assistant-text`, `thinking-text`, `loop-iteration`, `decision` → `flow_decision`) `stream`, keyed `stepId`.
+- `flow:flow-started` / `flow:complete` `stream`, keyed `flowName`.
+- `flow:auto-decision` `stream`, keyed `agentName`.
+- `summary-*` and `autonomous-mode-changed` `live`.
+- Core `FLOW_EVENT_MAP` removed. `SUBAGENT_EVENT_MAP` stays core (`packages/extension/src/flow-event-wiring.ts`).
+- Flows disabled → no flow events forwarded.
 
 **Retention.** `StreamForwardBuffer` (`packages/extension/src/stream-forward-buffer.ts`).
 - One buffer keyed by (pluginId, key value) — cross-channel order (delta vs entry) survives.
@@ -413,6 +425,28 @@ See change: add-acp-session-driver.
 
 **Second consumer.** `packages/roles-plugin/src/bridge/index.ts`.
 - `before_agent_start` appends one `toolGuidelines.Agent` bullet. Prefer `model:"@role"`, ≤12 configured roles. Only when Agent tool selected.
+
+### Generic commands-changed seam (change: update-flows-plugin)
+
+- Bus channel `dashboard:commands-changed` (`COMMANDS_CHANGED_CHANNEL`, `packages/shared/src/event-forward-declaration.ts`). Payload ignored.
+- Core bridge: `registerCommandsChangedListener` (`packages/extension/src/flow-event-wiring.ts`), wired from `bridge-handlers/lifecycle.ts`. Resends `commands_list`.
+- Flows bridge emits it on `flow:rediscover` / `flow:complete`. Replaces former core listeners.
+
+### Plugin entry replay (change: update-flows-plugin)
+
+- Manifest field `pi-dashboard-plugin.replayEntryTypes: string[]` (flows: `["flow-event"]`). Lenient: malformed → contributes nothing.
+- `packages/shared/src/dashboard-plugin/replay-entry-types.ts`: `normalizeReplayEntryTypes`, `computeReplayEntryTypes` → `{ replay (enabled plugins), hidden (every declaring plugin) }`.
+- Server `packages/server/src/plugin-entry-stats.ts`: provider set at boot from discovered manifests (5 s cache).
+- Session load (`session-load-worker-pool.ts` → `session-load-worker.ts`) passes sets to `replayEntriesAsEvents`. OFFLINE sessions replay from manifests, not a live bridge.
+- `packages/shared/src/state-replay.ts`:
+  - `opts.replayEntryTypes` replays `{ seq, eventType, data }` records, seq-sorted, verbatim. Extra fields (`flowRunId`) ignored. Malformed skipped.
+  - `opts.hiddenEntryTypes` keeps disabled plugins' entries off every generic path. No replay.
+  - Core names no entry type.
+- Live bridge: `custom-entry-forward.ts` excludes declared types.
+- Client reducer `lib/plugins/plugin-entry-types.ts` (seeded in `App.tsx` from bundled registry) refuses generic rows.
+- Server `CustomEventGroupResolver` never groups them.
+- KNOWN BLOCKER: pi flushes custom entries only after first assistant message.
+- `/api/health` `pluginEntries`: `declaredReplayTypes`, `replayedPluginEntries`, `rejectedPluginActions`.
 
 ### Subagent Timeline Push/Pull Split (change: reduce-subagent-details-payload)
 
@@ -527,69 +561,42 @@ See change: add-acp-session-driver.
 - Evicted or post-reset agents answer `resyncNoop`.
 - Client keeps its last rendered state.
 
-### Subagent Fan-out Admission (change: bound-subagent-fanout-under-host-pressure)
+### Subagent concurrency and stop (change: subagent-queue-visibility)
 
-**Problem.**
+**Ownership.** Producer `@blackbelt-technology/pi-dashboard-subagents` >= 0.6.0 owns the one concurrency limit (`maxConcurrent`). Dashboard holds no `tool_call` admission gate. Excess `Agent` calls queue, never refused.
 
-- Wide `Agent` fan-out on loaded host stalls parent event loop.
-- 13/14 census sessions died with unanswered fan-out as final transcript entry.
-- Stall triggers `hostPressure` unresponsive verdict; host reaps parent process.
+**Setting.**
 
-**Registration and ordering.**
+- UI: Settings → Plugins → Subagents, field "Max parallel subagents" (`/settings/plugins/subagents`).
+- Default `4`. Clamp `0`–`64`. `0` = unlimited.
+- Live: applies within ~1 s, incl. waiting subagents.
 
-- Bridge registers admission gate on `tool_call` (`packages/extension/src/subagent-fanout-admission.ts`).
-- Registered AFTER pass-through forwarder in `bridge.ts`.
-- `runner.emitToolCall` stops at first `{block: true}` handler.
-- Earlier registration starves forwarder; dashboard misses `tool_call` while seeing `tool_execution_end`. Order load-bearing.
+**Config mirror.**
 
-**Concurrency bound.**
+- `packages/subagents-plugin/src/server/index.ts` mirrors value to `~/.pi/agent/extensions/pi-dashboard-subagents/config.json`.
+- Startup reconcile clamps file value.
+- Write-through only when explicit and different from value producer runs.
 
-- Bound measures in-flight concurrency per session, not batch width.
-- Platform drops assistant message before extension sees `tool_call`; batch size and batch identity unknowable.
-- In-flight counter increments at admission, not execution.
-- Siblings preflight sequentially before any executes; execution-time counter reads zero across whole batch.
-- Synchronous reject-only decision. Gate never awaits child; awaiting deadlocks preflight sequence.
+**Heap coupling.**
 
-**Configuration.**
+- `subagentHeapBudget(maxOldSpaceMb, maxConcurrent)` (`packages/shared/src/heap-limits.ts`) warns on plugin field.
+- Warns when `floor(mb/(n+1)) < 100`; `0` warns under ceiling.
+- Reads `GET /api/plugins/subagents/limits` → `{heapCeilingMb}`.
 
-- Default cap: `DEFAULT_MAX_CONCURRENT_SUBAGENTS = 2` (`packages/shared/src/config.ts`).
-- Config key: `maxConcurrentSubagents`.
-- Value `0` disables gate (rollback).
-- Absent value resolves to active default (2).
-- Malformed non-integer or negative value resolves to `Infinity` (fail-open).
+**Removed.**
 
-**Resource saturation.**
+- Admission config keys removed from `packages/shared/src/config.ts`. Leftover keys in `config.json` ignored.
+- Automatic narrowing to 1 under host saturation removed. Constrained hosts lower the limit by hand.
+- Old `subagent-admission-refused` entries resolve to `diagnostics` custom-event group (hidden by default).
 
-- Saturation narrows effective cap to 1 (never 0); saturated session still makes progress.
-- Private sampler: `subagent-saturation.ts`.
-- Dedicated `monitorEventLoopDelay` over fixed 5 s window plus own CPU baseline.
-- Never reads `collectMetrics()`: destructive read resets 15 s heartbeat histogram, corrupting crash telemetry.
-- Separates process domain (`process.cpuUsage()`, event loop delay) from machine domain (`os.loadavg()`).
-- Hysteresis: enter at threshold, exit only when all metrics fall below 80 % of threshold (`SATURATION_EXIT_RATIO = 0.8`).
+**Per-subagent stop.**
 
-**Permit release.**
-
-- Releases permit on `tool_execution_end`.
-- Fires on normal, blocked, and aborted execution paths.
-- Never releases on `tool_result`: aborted call (Esc) skips result hook, leaking permits and starving session.
-
-**Refusal semantics.**
-
-- Refusal returns `{block: true, reason}`.
-- Produces real errored tool result; renders terminal card with actionable retry reason.
-- Never sets `terminate`: refusal means re-issue later, not session abort.
-
-**Observability and durability.**
-
-- Refusal writes durable session entry `subagent-admission-refused` via `pi.appendEntry`. Survives process reap.
-- Admissions skip disk writes to protect hot path.
-- Live counters on `ProcessMetrics`: `fanoutAdmitted`, `fanoutRefused`, `fanoutSaturationRefused`.
-
-**Scope boundary.**
-
-- Gate runs per gated session, not per host process.
-- Subagent sessions skip bridge initialization via re-entry guard.
-- Grandchildren and `flow_agents` run ungated.
+- Route `POST /api/plugins/subagents/stop`, body `{sessionId, agentId}`.
+- Authority: `ctx.identity?.hasOperateAuthority` else `403`.
+- Ids 1–128 chars, no control chars, else `400`. Unknown session `404`.
+- Emits fixed `subagents:stop {agentId}` via `ctx.emitEventToSession`. Manifest `emits: ["subagents:stop"]`. Emit returns `false` → `503`.
+- Behind `ctx.networkGuard`. Each request logs `stop request session=… agent=… outcome=…`.
+- No fallback to session abort.
 
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
@@ -597,10 +604,14 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 
 **1. Retry ownership & settings.**
 
-- Pi `RetrySettings` = `{ enabled, maxRetries, baseDelayMs, provider: {timeoutMs, maxRetries, maxRetryDelayMs} }`.
-- Session-layer delay = `baseDelayMs * 2^(attempt-1)`. Uncapped. No ceiling.
+- Pi `RetrySettings` = `{ enabled, maxRetries, baseDelayMs, maxAgentDelayMs, provider: {timeoutMs, maxRetries, maxRetryDelayMs} }`.
+- Session-layer delay = pi-ai `retryDelayMs`: `min(baseDelayMs * 2^max(0,attempt-1), maxAgentDelayMs ?? 60000)`.
+- Unsafe product saturates to `MAX_SAFE_INTEGER`. Capped.
+- Present since pi-ai 1.3.0 (extension peer floor). Call site: pi `AgentSession._prepareRetry`.
+- Hidden cap made raised `baseDelayMs` look ignored past the cap. Old dashboard countdown used uncapped copy → showed e.g. 1382 s while pi slept 60 s. Fixed by change fix-retry-delay-cap.
 - `retry.maxDelayMs` REMOVED from session layer. pi migrates to `retry.provider.maxRetryDelayMs` (different layer, different semantics).
-- Overshoot consequence: next attempt lands ~2x elapsed. Scale-invariant. Tuning `baseDelayMs` shifts which attempt lands where, never the ratio.
+- Overshoot consequence: next attempt lands ~2x elapsed. Holds only below the cap. Once `base*2^(n-1) > maxAgentDelayMs` every wait = cap (constant).
+- Scale-invariant below cap. Tuning `baseDelayMs` shifts which attempt lands where, never the ratio.
 - Dashboard runs NO retry loop. Raising `retry.maxRetries` is the whole "retry forever" mechanism.
 - `resume mode:"continue"` cannot re-drive live turn (refused `resume.already_active`). For ended session resolves to `pi --session <file>` which reopens IDLE + drives no turn. No re-drive mechanism exists — none needed, since pi never settles turn while budget remains.
 
@@ -611,18 +622,25 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - New rules: error `message_end` records pending error text → emits nothing. Error `agent_end` = attempt over + another coming → emits `auto_retry_start` + `auto_retry_waiting` (carries `attempt`, `delayMs`, `nextAttemptAt`), does NOT clear chain. `agent_settled` = SOLE terminal → emits `auto_retry_end`, clears chain.
 - Waiting signal suppressed once `attempt >= maxAttempts`.
 - `agent_settled` carries NO `messages` (verified pi 0.81.1/0.83), so tracker remembers terminal disposition via `lastEndWasError` at `agent_end`.
-- `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000; unreadable → `delayMs: 0` → surface renders elapsed-only).
+- `-1` sentinels REMOVED. `maxAttempts` / `delayMs` sourced read-only from pi settings via `packages/extension/src/pi-retry-settings.ts` (defaults 3 / 2000 / cap 60000).
+- `pi-retry-settings.ts` reads `retry.maxAgentDelayMs` (any finite number; project overrides global).
+- `delayMs` from pi-ai `retryDelayMs` installed via `installPiAiDelayFn(tracker)` (fire-and-forget dynamic import, rejection swallowed); else local mirror `cappedDelay`.
+- Guard in `delayFor`: base `<=0` or attempt `<1` → 0.
+- fn throw / non-number / non-finite → `cappedDelay`.
+- Final negative or non-finite → 0 (elapsed-only).
+- Parity test `packages/extension/src/__tests__/retry-delay-parity.test.ts` asserts mirror == pi-ai across grid.
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
 - Native `agent_settled` guaranteed at the 1.3.0 lockstep floor (`piCompatibility.minimum == recommended == 1.3.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 - Bridge follow-up drain (`bridgeFollowUp`) triggers on `agent_settled`, not `agent_end`. Forwarder schedules `drainFollowupQueue()` via `setTimeout(0)`; pi clears run-active before `agent_settled`, so `isIdle()` is true. No retry loop: a false `isIdle()` returns, the next `agent_settled` drains. Gate sequence: `packages/extension/src/followup-drain.ts`. See change: update-pi-core-1-3-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
 
-- Reads/writes all SIX native fields: `retry.{enabled,maxRetries,baseDelayMs}` + `retry.provider.{timeoutMs,maxRetries,maxRetryDelayMs}` in GLOBAL `~/.pi/agent/settings.json`. Blank `provider.timeoutMs` OMITTED on write (never `0`/`null`).
+- Reads/writes all SEVEN native fields: `retry.{enabled,maxRetries,baseDelayMs,maxAgentDelayMs}` (`maxAgentDelayMs` default 60000) + `retry.provider.{timeoutMs,maxRetries,maxRetryDelayMs}` in GLOBAL `~/.pi/agent/settings.json`. Blank `provider.timeoutMs` OMITTED on write (never `0`/`null`).
 - Write is MERGE-PRESERVING: every other key survives, including `retry.provider.*`.
 - Project `<cwd>/.pi/settings.json` NEVER written.
 - Distinct from `config-api.ts`, which writes dashboard's own `~/.pi/dashboard/config.json`.
-- Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer. Invalid → nothing written.
+- Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer; `maxAgentDelayMs` non-negative integer (0 = no wait, legal). Invalid → nothing written.
+- Preview `computeSchedule(maxRetries, base, cap)` in `packages/client/src/components/settings/RetrySettingsSection.tsx` uses capped curve. O(1) past cap (closed-form remainder). `retry-cap-notice` names first capped attempt.
 - No UI cap on `maxRetries`; long tail WARNED, never capped.
 - REST: `GET/PUT /api/pi-retry` (`packages/server/src/routes/pi-retry-routes.ts`), auth-gated by same network guard as `/api/config`.
 - pi reads settings only at session construction. Write alone inert for running sessions.
@@ -630,7 +648,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - Target set = `reloadTargetSessionIds` = `piGateway.getConnectedSessionIds()` ∪ `headlessPidRegistry.listSessions()`.
 - Connected-only set missed headless sessions with dead bridge WS. See change: fix-out-of-band-reload.
 - Failed write reloads nothing.
-- **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 3 fields (`enabled`, `maxRetries`, `baseDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
+- **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 4 fields (`enabled`, `maxRetries`, `baseDelayMs`, `maxAgentDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
 - Enclosing section titled "Retry".
 - NO private Save button. Registers with panel unified-Save draft registry via `useSettingsDraftSource({id:"pi-retry", page:"sessions", isDirty, commit, reset})`. See change: unify-settings-save-contract.
 - Consequences: one Save commits every dirty store. Sessions nav shows per-page dirty dot. Leave guard offers Save / Discard / Cancel.
@@ -1000,8 +1018,11 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 5. React renders `FlowDashboard` (sticky card grid above ChatView), `FlowAgentDetail` (replaces chat), `FlowSummary` (post-completion). Component code lives in `packages/flows-plugin/src/client/` and is imported by the shell via `@blackbelt-technology/pi-dashboard-flows-plugin/client`. Slot-consumer-based mounting is tracked as the follow-up change `migrate-flows-jsx-to-slots`; the current shell imports the components directly. See change: extract-flows-as-plugin.
 
 **Flow controls (browser → pi-flows):**
-- Abort: browser sends `flow_control { action: "abort" }` → server → bridge → `pi.events.emit("flow:abort")` → `flowManager.abort()`
-- Autonomous toggle: browser sends `flow_control { action: "toggle_autonomous" }` → same path → `setAutonomousMode()`
+- Flow commands: `plugin_action { pluginId: "flows", action }`, action ∈ `flow.abort | flow.toggle-autonomous | flow.dismiss-summary | flow.run | flow.delete | flow.set-edit-mode`. Handled in `packages/flows-plugin/src/server/flow-control.ts`.
+- REST: `POST /api/plugins/flows/control` (operate authority + network guard). ACP session → 409 `unsupported_for_acp`.
+- MCP tool: `flows_control`.
+- Probe channel for models: `models:get-available`.
+- Flow types (`FlowState` etc.) live in `packages/flows-plugin/src/types.ts`, not shared.
 
 **Flow actions UI (flows-dock-chip-and-panel-actions):**
 - `FLOWS` chip: `composer-context-group` claim.
@@ -1127,7 +1148,7 @@ sequenceDiagram
 
 **Relationship to existing capabilities:**
 - `interactive-ui-dialogs` / `ui-proxy` / PromptBus — handle one-shot `ctx.ui.*` dialogs (request/response, awaited). The extension-ui-system handles persistent push-based descriptors (no awaiting). Orthogonal mechanisms; both ship.
-- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: core `FLOW_EVENT_MAP` / `SUBAGENT_EVENT_MAP` + plugin-declared via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
+- `extension-ui-forwarding` (per-channel declared-set forwarding) — bridge forwards via one `pi.events.on` subscription per declared channel (`registerEventBusForwarding`). Channels: core `SUBAGENT_EVENT_MAP` + plugin-declared via `dashboard:register-event-forward`. RPC probe channels (`flow:list-flows`, `roles:*`, `model:resolve`, `ui:list-modules`…) kept out of core map; plugin declarations naming one not rejected. No `emit` wrapper. The new system is the *declarative* path for UI specifically. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs. See change: skip-rpc-probes-in-event-forwarder.
 - pi-flows: in Phase 3 pi-flows itself adopts the system to surface registered workflows (breadcrumb), gates, and cards (agent-metric) for any flow-using extension automatically.
 
 **No-dashboard fallback:** When no bridge is connected, `ui:list-modules` is never emitted; extension listeners are dormant; slash commands fall back to existing text-output behavior. Extensions remain pi-runnable in pure-pi mode without code changes.
@@ -1517,7 +1538,7 @@ flowchart LR
 - Client pieces: `packages/client/src/lib/plugins/runtime-plugin-loader.ts`, `packages/client/src/host-shims/*`.
 - Remote-server mode (`getApiBase()` non-empty) + Vite `--dev` page: loader does nothing.
 
-**Core/plugin boundary.** `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`, ratcheting `scripts/plugin-boundary-allowlist.json`, vitest wrapper). Plugin set from manifests. Shared contracts + `packages/mcp-core` in `docs/plugin-seams.md`.
+**Core/plugin boundary.** `npm run check:plugin-boundary` (`scripts/check-plugin-boundary.mjs`, ratcheting `scripts/plugin-boundary-allowlist.json`, vitest wrapper). Plugin set from manifests. Flow-literal check: string literals starting `flow:` / `flow_` / `flow-` or containing `pi-flows` in non-test `packages/{extension,server,shared,client}/src` fail unless in allowlist `literalRows`. Shared contracts + `packages/mcp-core` in `docs/plugin-seams.md`.
 
 **Absent-owner UX.** Manifest `eventTypes` → one group row per owned event type; availability decided at render time by `pluginAvailability`. Subagent state written by subagents-plugin slice + finalizers; generic heals in core. See `docs/plugin-seams.md`.
 
@@ -2862,6 +2883,23 @@ See change: add-git-checkout-root-resolver.
 - origin `live` = latest ACCEPTED non-empty `commands_list` (`SessionCommandRegistry.getEntry().receivedAt`) among sessions with `piGateway.isSessionConnected` and cwd EXACTLY equal (trailing sep stripped + `canonicalPath`); else `scan` (enabled skills as `skill:<n>`, prompts as `<n>`); else `none`.
 - Each command carries `scope` folder|global (path in `local.*` / local-scope packages / under `<cwd>/.pi`, else global). Impl `packages/server/src/pi/folder-commands.ts`.
 - Spawn choices: `spawn_session` / `send_prompt` / `resume_session` gain optional `model`, `thinkingLevel`. Validator `packages/server/src/browser-handlers/spawn-choice.ts` (`validateSpawnChoice`, `resolveResumeChoice`): model `provider/id` ≤200 chars, charset-restricted, no empty/dash-led segment; `:<level>` suffix split only when no `thinkingLevel` field; thinkingLevel ∈ `THINKING_LEVELS`; invalid → dropped + `console.warn`.
+- Spawn-choice resolver: `resolveSpawnChoice(input, {defaultModel, readRoles})` in `packages/server/src/browser-handlers/spawn-choice.ts`. One resolver for all spawn roads: WS `spawn_session`, REST `POST /api/session/spawn`, plugin `spawnSession` hook (+ MCP `spawn_session`), bridge `spawn_new_session`. Returns `{choice, warnings}`. Never throws.
+- `model` accepts `provider/id`, `provider/id:<level>`, `@role`, `@role:<level>`. `@role` resolved ONCE at spawn via `readRoleConfigFromDisk()` (`~/.pi/agent/providers.json#roles`) + `resolveModelRef`. Roles file read only for `@` refs. Spawned session keeps concrete model. No role following.
+- Role level precedence: `thinkingLevel` field > ref `:<level>` suffix > role-assigned level. Level never appended to `--model`. Literal refs keep `validateSpawnChoice` rules. Thinking-only choice pairs with `config.defaultModel`. Empty string = absent. `agent` + model/thinking → empty choice + warning.
+- Road policy:
+  - REST strict → `400` before any side effect (owner token, queued intents, spawn).
+  - WS lenient → drop + `console.warn` + `spawn_result.choiceWarning` (client warning toast; bus `SpawnOptions.onWarning`).
+  - Plugin hook lenient → `PluginSpawnResult.warning`. Literal `model` passes through verbatim (`mapPluginSpawnOptions`, `packages/server/src/spawn-process/plugin-spawn-choice.ts`). `agent` + `model`/`thinkingLevel` rejected (`validatePluginAcpSpawn`).
+  - Bridge log-only.
+- Bridge inheritance: `buildSpawnNewSessionMessage` (`packages/extension/src/spawn-new-session.ts`) adds current `model` + `thinkingLevel` to `spawn_new_session`. Unknown model or throw → plain frame.
+- Pending registries (`pending-attach-registry.ts`, `pending-initial-prompt-registry.ts`) gain `withdraw(cwd, value)`: removes NEWEST matching entry. Failed WS / REST / plugin spawn withdraws only its own intents.
+- Web client:
+  - Per-folder memory `packages/client/src/lib/spawn/spawn-choice-memory.ts`: localStorage `pi-dashboard:spawn-choice:<cwd>`, `{model?, thinkingLevel?}`, `@role` stored verbatim.
+  - `getEffectiveSpawnChoice` = remembered ?? Settings default, per field. Settings defaults mirrored by App via `setSpawnDefaults`.
+  - Chip `packages/client/src/components/spawn/SpawnChoiceChip.tsx` (ModelSelector + Role tab + `default` entries) in `WorktreeSpawnDialog` (`modelChoice="show"|"hidden"`) and `AgentSpawnPicker` menu (chevron always rendered).
+  - Quick spawns (folder button, OpenSpec board via `useAgentAwareSpawn`, Initialize project) use effective choice when agent is pi.
+  - Sibling spawn copies source `model`/`thinkingLevel` (`siblingSpawnOpts`, `lib/spawn/spawn-opts.ts`).
+- See change: add-spawn-model-choice.
 - Thinking-only spawn → config `defaultModel` so bridge default thinking cannot override. `SessionFlags.thinking` → `--thinking`; `--model`/`--thinking` on fresh + `continue` argv; fork keeps parent model; tmux pane escapes each token (`shellEscape`).
 - Ended-session composer (`useEndedSessionComposer`): folder command list + catalogue models replace absent bridge lists. Folder list kept until live `commands_list` arrives (no empty flash).
 - Model/thinking pick stored client-side per session; sent on resuming `send_prompt`/`resume_session` (continue only; applied to that resume's `spawnPiSession`, never via cwd-keyed `pendingResumeRegistry`); dropped once session no longer ended.
@@ -3183,7 +3221,7 @@ Bridge caps per-unit-time work that server or bridge-socket holder can trigger. 
 
 - `PI_DASHBOARD_BRIDGE_MAX_BASH` = max concurrent `!` / `!!` / exec-template bash per session. Default `4`.
 - `PI_DASHBOARD_BRIDGE_PROMPT_RATE` = `<burst>/<refillPerSec>`. One token bucket per bridge process. Default `30/10`.
-- Prompt bucket shared by: `send_prompt`, `retry_session`, `git_commit_draft`, flow_management run, `plugin_emit_event`, `promote_followup_entry`.
+- Prompt bucket shared by: `send_prompt`, `retry_session`, `git_commit_draft`, flows `flow.run`, `plugin_emit_event`, `promote_followup_entry`.
 - Valid values: positive integers only. Invalid (`0`, negative, non-integer, empty) → default + one log line per process per variable. `0` ≠ unlimited.
 - Bucket survives WS reconnect and `/reload` (per bridge process). Keyed on process-global shared state (`inst.shared`), not the connection: a per-connection key let the server refill it via `send_prompt /reload`.
 - Refusal visible: inline `command_feedback` error in chat. Never silent drop.
@@ -4028,7 +4066,7 @@ Bridge-side companion to **Access-Grant Prompts and YOLO** and **Access Grants a
 
 **Approve, not sandbox.** Gate asks operator when a covered tool leaves its roots. Does **not** confine: `bash`, `grep`, `find`, `ls`, custom and MCP tools are not covered (shell strings are not reliably parseable). UI copy must not call it a sandbox or confinement. Agent runs as the operator's user and can write `access-grants.json` itself; nothing here defends against a hostile local process.
 
-**Where it lives** (design D1). Pure decision module `packages/extension/src/path-gate/` (`decidePathAccess`, plus `resolve.ts`, `roots.ts`, `grant-cache.ts`, `suppression.ts`, `grant-link.ts`, `handler.ts`, `index.ts`). Registered in `bridge.ts` as its own `tool_call` handler **after** the fan-out admission handler (`fanoutAdmission.onToolCall`), **not** wrapped in the fail-open `safe(...)`. Own `try/catch` maps any internal error — including a throwing `ctx.cwd` getter after session teardown — to `{ block: true, reason }`. In-root calls take no round-trip.
+**Where it lives** (design D1). Pure decision module `packages/extension/src/path-gate/` (`decidePathAccess`, plus `resolve.ts`, `roots.ts`, `grant-cache.ts`, `suppression.ts`, `grant-link.ts`, `handler.ts`, `index.ts`). Registered in `bridge.ts` as its own `tool_call` handler, **not** wrapped in the fail-open `safe(...)`. Own `try/catch` maps any internal error — including a throwing `ctx.cwd` getter after session teardown — to `{ block: true, reason }`. In-root calls take no round-trip.
 
 **Gated tools.** `read`, `write`, `edit` only, matched by name.
 
@@ -5882,25 +5920,23 @@ pi extensions + plugin bridges still load under pi's jiti (separate process).
 
 Both server-launch call sites (`packages/server/src/cli.ts` and `packages/extension/src/server-launcher.ts`) capture **both** stdout and stderr into `~/.pi/dashboard/server.log`. The CLI uses `stdio: ["ignore", logFd, logFd]` on its direct `spawn()` call; the bridge uses `spawnDetached({ stdoutFd: logFd, logFd })`. Without this parity, crash diagnostics from jiti / Fastify / ajv-compiler that reach stdout would be invisible via the bridge path while remaining visible via the CLI path. See change: `fix-bridge-autostart-diagnostics`.
 
-#### CJS preload for Fastify (nodejs/node#58515 mitigation)
+#### CJS preload for Fastify (removed)
 
-Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <native-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
-
-When the native loader's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node 22.0.0–22.18.x / 24.1.0–24.2.x.
-
-This is a **race-independent fix**: it doesn't try to close the timing window, it removes the racy code path from the execution trace. All four spawn sites (CLI daemon, bridge auto-start, Electron, restart orchestrator) share the resolver and the same injection pattern. See change: `preload-fastify-cjs`.
+The `--require preload-fastify.cjs` injection no longer exists. `preload-fastify.cjs` and `resolvePreloadFastifyPath()` are deleted; spawn argv carries no `--require`. The #58515 `Unexpected module status 3` assertion affects Node 22.0.0–22.18.x and 24.1.0–24.2.x only — all below the Node 26 server floor. See change: `raise-node-floor-to-26`.
 
 #### Node-version preflight
 
-Single source of truth: `packages/shared/src/node-version.ts`. Exports `MIN_SUPPORTED_NODE` (`"22.19.0"`), `meetsFloor(version, floor)`, `isAffectedNode(version)`, `isOutOfEnginesRange(version)`, `isUsableNodeVersion(version)`, `isAtOrAboveEnginesCap(version)`. Version predicates live solely here — single module, no platform-split checker.
+Single source of truth: `packages/shared/src/node-version.ts`. Exports `MIN_SERVER_NODE` (`"26.0.0"`), `MIN_PI_SPAWN_NODE` (`"22.19.0"`), `SERVER_ENGINES_RANGE` (`">=26.0.0 <27"`), `meetsFloor(version, floor)`, `isAffectedNode(version)`, `isOutOfEnginesRange(version)`, `isUsableNodeVersion(version)`, `isAtOrAboveEnginesCap(version)`. Version predicates live solely here — single module, no platform-split checker.
 
-Floor `22.19.0`. Affected ranges: `22.0.0–22.18.x` + `24.1.0–24.2.x` ([nodejs/node#58515](https://github.com/nodejs/node/issues/58515) — ESM loader assertion when Fastify's `@fastify/ajv-compiler` requires CJS modules). Engines cap `<27` bounds the dashboard's tested range; cap excess accepted, flagged.
+- Server floor `26.0.0`; range `>=26.0.0 <27`. Cap `<27` bounds tested range; cap excess flagged, not refused by the server guard.
+- `isUsableNodeVersion` = clean semver AND `!isOutOfEnginesRange`. No separate #58515 check.
+- `isAffectedNode` ([nodejs/node#58515](https://github.com/nodejs/node/issues/58515); `22.0.0–22.18.x` + `24.1.0–24.2.x`) used only by the pi-session spawn-ladder gate. Pi itself keeps `>=22.19.0`.
 
-Startup guard refuses bad Node: `packages/server/src/auth/node-guard.ts` `assertNodeVersionSupported()` runs pre-boot; exits(1) when `isAffectedNode` or `isOutOfEnginesRange` — server never starts (since change `bump-pi-compat-to-0-75`).
+Startup guard: `packages/server/src/auth/node-guard.ts` `assertNodeVersionSupported()` checks `isOutOfEnginesRange` only; exits(1) on failure. `buildEnginesRangeMessage` prints `Required: >=26.0.0 <27`, `nvm install 26 && nvm use 26`, `brew install node`. Managed hint printed only when `<managedDir>/node/.version` marker meets the range (marker read, no spawn). The former #58515 startup check and `buildNodeUpgradeMessage` are removed.
 
-Consumers: startup guard; Electron `lib/dependency-detector.ts` `isUsableNodeVersion` filter on detected system Node; spawn-runtime gate `evaluateVersionGate` (pi floor + affected-range check per candidate, cap excess passes with `capExceeded`).
+Consumers: startup guard; Electron `lib/dependency-detector.ts` `detectSystemNode` (accept-set Node 26 only, via `isUsableNodeVersion`); server spawn via `resolveServerRuntime()` (below); pi-session spawn-runtime gate `evaluateVersionGate`.
 
-Root `package.json` declares `"engines": { "node": ">=22.19.0 <27" }`; `packages/server/package.json` `"node": ">=22.19.0"` as npm-level advisories.
+Root `package.json` declares `"engines": { "node": ">=26.0.0 <27" }`; `packages/server/package.json` `"node": ">=26.0.0"`.
 
 #### Spawn runtime resolution
 
@@ -5913,13 +5949,66 @@ Four rungs, first hit wins:
 3. User Node — login-shell first on Electron arm, PATH first on terminal arms (`npm`/`docker`); then version-manager fs probe (`~/.nvm/alias/default`), no shell.
 4. Managed `<managedDir>/node`; else bundled; else `process.execPath` — terminal rung, never fails.
 
-Gate (`evaluateVersionGate`): pass pi engines floor + not nodejs/node#58515-affected; cap excess (`isAtOrAboveEnginesCap`, `<27`) accepted, flagged `capExceeded`. Floor read from spawned pi copy engines; fallback `MIN_SUPPORTED_NODE`.
+Gate (`evaluateVersionGate`): pass pi engines floor + not nodejs/node#58515-affected; cap excess (`isAtOrAboveEnginesCap`, `<27`) accepted, flagged `capExceeded`. Floor read from spawned pi copy engines; fallback `MIN_PI_SPAWN_NODE`.
 
 Publication: `runtime.resolved` written to `~/.pi/dashboard/config.json` every server start (`packages/server/src/runtime-publication.ts::publishResolvedRuntime`). Diagnostic-only; override never written. `pi-dashboard runtime` CLI subcommand prints resolved runtime.
 
 Spawn-time re-validation (`packages/server/src/runtime-resolution.ts`): boot-time resolution cached process-lifetime; re-validated per spawn — stat signature (size/mtime/realpath) + probe for shim-shaped paths.
 
 Doctor rows: resolved runtime (+ rung/via), ABI mismatch, legacy `~/.pi-dashboard/` dir orphan test. Home split: `~/.pi/dashboard/` = user config + published runtime state; `~/.pi-dashboard/` = machine-managed runtime, managed node_modules, logs.
+
+#### Server spawn runtime resolution (`resolveServerRuntime`)
+
+Resolves the Node binary that runs the dashboard **server**. Separate from the pi-session ladder above. Gate = `SERVER_ENGINES_RANGE` (`>=26.0.0 <27`). Source: `packages/shared/src/platform/spawn-runtime.ts`.
+
+Order, first in-range hit wins:
+
+1. `runtime.override` (`~/.pi/dashboard/config.json`).
+2. First `node` on PATH.
+3. Version-manager defaults: nvm `alias/default`, volta, asdf, mise, fnm.
+4. Managed `<managedDir>/node`.
+5. Starter's own runtime (`ownRuntime`; version from running process, never probed).
+
+```mermaid
+flowchart TD
+  S([resolveServerRuntime]) --> O{override in range?}
+  O -- yes --> R([resolved])
+  O -- no --> P{PATH node in range?}
+  P -- yes --> R
+  P -- no --> V{version-manager default in range?}
+  V -- yes --> R
+  V -- no --> M{managed node in range?}
+  M -- yes --> R
+  M -- no --> W{own runtime in range?}
+  W -- yes --> R
+  W -- no --> X([resolved false + trail])
+```
+
+Properties:
+
+- Not total: no match → `{resolved:false, range, trail}`.
+- No shell ever run. nvm without `alias/default` is not found.
+- ≤1 `--version` probe per distinct path (`execFile`).
+- `describeServerRuntimeTrail()` formats trail for logs.
+
+#### Bridge auto-start runtime + refusal
+
+Source: `packages/extension/src/server-auto-start.ts`. Inside the single-flight lock:
+
+- Resolves server Node via `resolveServerRuntime()`. Skipped when dashboard already answers.
+- Resolved: logs `server runtime: <path> <version> via <step>` (`appendAutoStartLog`); passes `nodeBin` to `launchServer` (`packages/extension/src/server-launcher.ts`).
+- Unresolved: re-probe port (attach if up, silent). Else logs `[auto-start] refused: no Node satisfying >=26.0.0 <27 ...; candidates: ...` and shows one `ui.notify` warning per session (range, pi's Node version, install Node 26 or desktop app, `~/.pi/dashboard/server.log` path).
+
+#### Electron server Node pick
+
+Source: `packages/electron/src/lib/pick-node.ts`. Order:
+
+1. Bundled Node (`BUNDLED_NODE_VERSION` v26.13.0; `BUNDLED_NODE_MAJOR` 26).
+2. System Node — pre-resolved by `launch-source.ts` via `resolveServerRuntime({ownRuntime:null})`, only when bundled Node missing.
+3. Electron executable with `ELECTRON_RUN_AS_NODE=1` — only if embedded Node (`process.versions.node`) in range. Electron 44 embeds 24.22.0 → never qualifies.
+4. `unavailable` — `launch-source` throws `pick.reason`; no `launchDashboardServer` call; `requestServerLaunch` → `{kind:"failed"}`.
+
+Electron dev / localLink launches need Node 26 on PATH or in a version manager.
 
 #### AppImage CLI self-recursion guard (Linux power-user mode)
 
@@ -6758,9 +6847,9 @@ The `.pi/skills/pi-dashboard/` directory is both a local project skill (discover
 | `POST /api/session/:id/rename` | Rename a session |
 | `POST /api/session/:id/hide` | Hide session |
 | `POST /api/session/:id/unhide` | Unhide session |
-| `POST /api/session/spawn` | Spawn new session in a directory |
+| `POST /api/session/spawn` | Spawn new session in a directory. Body `{cwd, agent?, model?, thinkingLevel?, initialPrompt?, attachProposal?}`; `@role` resolved once; invalid choice → 400 (before side effects) |
 | `POST /api/session/:id/resume` | Resume or fork ended session |
-| `POST /api/session/:id/flow-control` | Abort flow or toggle autonomous |
+| `POST /api/plugins/flows/control` | Flow controls (abort, autonomous, run, delete, edit mode). Operate authority + network guard; ACP → 409 `unsupported_for_acp` |
 | `POST /api/session/:id/model` | Set provider + model |
 | `POST /api/session/:id/thinking-level` | Set thinking level |
 | `POST /api/session/:id/attach-proposal` | Attach OpenSpec change |
@@ -7680,6 +7769,10 @@ See change: require-git-on-boot.
 
 Package manager: **pnpm**, pinned to `pnpm@11.15.1` via root `package.json` `packageManager` field + `corepack enable`.
 
+- Node 25+ ships no `corepack`. Node 26 = required runtime/dev Node.
+- Docker: `ARG COREPACK_VERSION=0.36.0`; `npm install -g "corepack@${COREPACK_VERSION}"` then `corepack enable`.
+- Dev setup: `npm install -g corepack && corepack enable`.
+
 Scope: pnpm drives ALL dev, CI, Docker, and build work. `npm` survives ONLY in locations listed below.
 
 Lockfile: Single committed lockfile = `pnpm-lock.yaml`. Old `package-lock.json` removed.
@@ -8216,6 +8309,32 @@ Result render emits leaf heading, not breadcrumb, plus `(+N more sections)`. Ful
 #### `kb_get` path-only fetch
 
 Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `suppressedSections` count. Never a silent 1-of-N slice.
+
+- `kb_get` tool + `kb get` CLI share `resolveFetch` / `renderFetch` / `buildFetchRoots` (`packages/kb/src/fetch-resolve.ts`).
+- Roots = `store.listRoots()` (`SELECT DISTINCT root FROM chunks`). Remote git/https roots included.
+- NOT `resolvedSources[0]`. Old bug: ~88% sections unfetchable in 9-root KB (issue #1114).
+- Path readings:
+  - literal in every root.
+  - id-qualified `<source-id>:<path>`. Longest id wins. Ids with `:` round-trip.
+  - dir-qualified `<relDir>/<path>`. `relDir` = `relative(cwd, dir)`, `/`-normalized, filesystem roots only.
+  - Dedup by (root, path).
+- 1 reading → hit.
+- 0 → `(not found: <arg>)`.
+- >1 → `(ambiguous: <arg> is indexed in N sources — pass one of:)` + sorted `<source-id>:<path>` candidates. No body. Details `{found:false, candidates:N}`.
+- Section: `getChunkBySection(root, path, section)` (`packages/kb/src/sqlite-store.ts`).
+  - Exact `heading_path` first.
+  - Else (no ` > ` in arg) last-heading suffix match.
+  - Several distinct heading paths → ambiguous section candidate list.
+  - `getChunk` exact semantics unchanged.
+- Source classification (`classifyRef`, `packages/kb/src/sources.ts`):
+  - `ssh://` → `git`.
+  - GitHub repo ref (`[https://]github.com/<o>/<r>` + optional `.git`, `@<ref>`, `/tree/<ref>`) → `git` (regex `GITHUB_REPO`). Cloned as `https://github.com/<o>/<r>` (`.git` kept if given). Revision from `@ref`/`/tree/<ref>`. `pin` wins. No auto-subdir.
+  - Other `github.com/...` paths, raw, `/blob/`, `/archive/` → `https`.
+- https plain fetch: `assertIndexableBody` rejects HTML body or file name without configured extension (`ResolveCtx.extensions`, default `DEFAULTS.extensions`, case-insensitive). Runs before cache swap → old cache + `.fetched` marker survive.
+  - Error names URL. `/blob/` → raw URL hint. Else `kind: "git"` hint.
+- Remote sources still index via `kb index` CLI only. Extension auto-reindex walks filesystem `resolvedSources`.
+
+See change: fix-kb-get-roots-and-guard.
 
 #### DOX doctrine injection (`doctrine` config)
 

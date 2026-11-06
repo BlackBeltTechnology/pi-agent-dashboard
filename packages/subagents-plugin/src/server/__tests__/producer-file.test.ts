@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+	clampMaxConcurrent,
 	mergeIntoProducerSettings,
 	readProducerFile,
 	writeProducerFile,
@@ -81,5 +82,29 @@ describe("producer-file helpers", () => {
 		expect(readProducerFile(tmpFile)).toEqual({});
 		writeProducerFile({ inheritContext: false }, tmpFile);
 		expect(readProducerFile(tmpFile)).toEqual({ inheritContext: false });
+	});
+
+	// test-plan #E15 — only maxConcurrent changes. See change: subagent-queue-visibility.
+	it("#E15 merging {maxConcurrent:8} changes only maxConcurrent", () => {
+		const existing = {
+			inheritContext: false,
+			exposeInheritanceInTool: true,
+			inheritance: { recentTurns: 5 },
+			userKey: "keep",
+			maxConcurrent: 4,
+		};
+		expect(mergeIntoProducerSettings(existing, { maxConcurrent: 8 })).toEqual({ ...existing, maxConcurrent: 8 });
+		expect(mergeIntoProducerSettings(existing, { inheritContext: true })).toEqual({ ...existing, inheritContext: true });
+	});
+
+	it("clampMaxConcurrent mirrors the producer's coercion", () => {
+		expect(clampMaxConcurrent(6)).toBe(6);
+		expect(clampMaxConcurrent(100)).toBe(64);
+		expect(clampMaxConcurrent(2.7)).toBe(2);
+		expect(clampMaxConcurrent(0)).toBe(0);
+		expect(clampMaxConcurrent(-3)).toBe(4);
+		expect(clampMaxConcurrent("x")).toBeUndefined();
+		expect(clampMaxConcurrent(undefined)).toBeUndefined();
+		expect(clampMaxConcurrent(Number.NaN)).toBeUndefined();
 	});
 });

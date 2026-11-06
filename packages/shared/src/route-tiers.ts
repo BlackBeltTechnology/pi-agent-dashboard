@@ -241,6 +241,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // add-obs-studio-plugin: instance list + status are reads (never start OBS);
   // the screenshot (desktop / webcam pixels) and every toggle are `operate`,
   // and the plugin additionally requires `identity.hasOperateAuthority`.
+  // subagent-queue-visibility: heap ceiling read for the "Max parallel subagents" warning.
+  { method: "GET", path: "/api/plugins/subagents/limits", tier: "observe" },
   { method: "GET", path: "/api/plugins/obs-studio/instances", tier: "observe" },
   { method: "GET", path: "/api/plugins/obs-studio/:service/status", tier: "observe" },
   { method: "GET", path: "/api/plugins/obs-studio/:service/screenshot", tier: "operate" },
@@ -435,10 +437,16 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Pins a client bundle hash or grants pi-package server trust: operate AND isLocallyTrusted (a remote operate bearer is refused).
   { method: "POST", path: "/api/plugins/:id/trust", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/create", tier: "control" },
+  // update-flows-plugin: flow commands (abort / auto / dismiss / run / delete /
+  // edit mode) — replaces POST /api/session/:id/flow-control; operate + the
+  // plugin's operate-authority predicate.
+  { method: "POST", path: "/api/plugins/flows/control", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/run", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/stop", tier: "control" },
   { method: "POST", path: "/api/plugins/automation/update", tier: "control" },
   { method: "POST", path: "/api/plugins/gmail/accounts", tier: "operate" },
+  // subagent-queue-visibility (D3): per-subagent stop; the handler also requires operate authority.
+  { method: "POST", path: "/api/plugins/subagents/stop", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/record", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/scene", tier: "operate" },
   { method: "POST", path: "/api/plugins/obs-studio/:service/virtualcam", tier: "operate" },
@@ -465,7 +473,6 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/session/:id/attach-proposal", tier: "control" },
   { method: "POST", path: "/api/session/:id/detach-proposal", tier: "control" },
   { method: "POST", path: "/api/session/:id/extension-ui-response", tier: "control" },
-  { method: "POST", path: "/api/session/:id/flow-control", tier: "control" },
   { method: "POST", path: "/api/session/:id/lifecycle", tier: "control" },
   { method: "POST", path: "/api/session/:id/model", tier: "control" },
   { method: "POST", path: "/api/session/:id/prompt", tier: "control" },

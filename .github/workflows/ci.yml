@@ -56,7 +56,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -97,7 +97,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
 
       # pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml,
@@ -136,6 +136,17 @@ jobs:
       # Trusted Types policy. See change: harden-client-sinks (D4).
       - name: Client sink guard
         run: node scripts/check-client-sinks.mjs
+      # Completeness gate for the removed subagent fan-out admission gate: none
+      # of its symbols may come back. `decideAdmission` is not listed: cwd-guard
+      # owns an unrelated function of that name. The two allowlisted files are the
+      # tests that assert the absence: the leftover-key config test and the #E17
+      # bridge test. See change: subagent-queue-visibility (D6, #E17, #E21).
+      - name: Removed subagent-admission symbols stay removed
+        run: |
+          if git grep -nE "maxConcurrentSubagents|MAX_CONCURRENT_SUBAGENTS|FanoutAdmissionGate|fanoutAdmission|resolveAdmissionConfig|subagentCap|subagent-fanout-admission|subagent-saturation|subagentSaturation|SaturationSampler" -- packages docs tests qa scripts docker ':!packages/shared/src/__tests__/config-removed-admission-key.test.ts' ':!packages/extension/src/__tests__/no-subagent-admission.test.ts'; then
+            echo "::error::removed subagent-admission symbols found (see change subagent-queue-visibility)"
+            exit 1
+          fi
       # Portability gate on committed `.pi/settings.json`. `pi install <path>`
       # and `pi config` both WRITE the resolved absolute path, so the
       # machine-specific form is the tooling's default output, not a typo. The
@@ -264,7 +275,7 @@ jobs:
       - if: steps.shard.outputs.empty != 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
       # Scripts ON: packages/client's `prepare` builds dist/, which the bundle
       # budget tests need (they return early without it — see the assertion).
@@ -320,7 +331,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: vitest real-process phase
@@ -364,7 +375,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: CI-level publish scenarios (gated files, RUN_CI_SCENARIOS=1)
@@ -408,7 +419,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -503,7 +514,7 @@ jobs:
       - if: steps.gate.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 26
           cache: pnpm
 
       - if: steps.gate.outputs.run == 'true'
