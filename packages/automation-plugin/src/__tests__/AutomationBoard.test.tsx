@@ -421,6 +421,19 @@ describe("AutomationBoard run history + navigation", () => {
     expect([...items].map((b) => b.getAttribute("data-testid"))).toEqual(["delete-nightly"]);
   });
 
+  it("closing the editor returns focus to the control that opened it", async () => {
+    const { getByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("edit-nightly")).toBeTruthy());
+    const edit = getByTestId("edit-nightly");
+    edit.focus();
+    fireEvent.click(edit);
+    const dialog = await waitFor(() => screen.getByTestId("create-automation-dialog"));
+    const cancel = [...dialog.querySelectorAll("button")].find((b) => b.textContent === "Cancel")!;
+    fireEvent.click(cancel);
+    await waitFor(() => expect(screen.queryByTestId("create-automation-dialog")).toBe(null));
+    expect(document.activeElement).toBe(edit);
+  });
+
   // test-plan #E22
   it("E22: an empty folder explains automations and offers + Create Automation", async () => {
     vi.mocked(listAutomations).mockResolvedValueOnce([]);

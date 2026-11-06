@@ -114,6 +114,17 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  // The control that opened the editor; focus returns there on close (or to + Create when it is gone).
+  const editorOpener = useRef<HTMLElement | null>(null);
+  const createBtnRef = useRef<HTMLButtonElement>(null);
+  function rememberOpener(): void {
+    editorOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+  function restoreOpenerFocus(): void {
+    const el = editorOpener.current;
+    editorOpener.current = null;
+    (el?.isConnected ? el : createBtnRef.current)?.focus();
+  }
   const [selected, setSelected] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [openResult, setOpenResult] = useState<{ title: string; text: string } | null>(null);
@@ -155,6 +166,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
   }, [runs]);
 
   async function openEditor(a: DiscoveredAutomation, section: EditorSection): Promise<void> {
+    rememberOpener();
     const def = await getAutomationDefinition(a.scope, a.scope === "folder" ? cwd : undefined, a.name);
     if (!def) return;
     setEditTarget({
@@ -259,7 +271,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button type="button" data-testid="automation-create-btn" onClick={() => setCreating(true)} className={cardButtonClass("primary")}>
+          <button type="button" ref={createBtnRef} data-testid="automation-create-btn" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
             {t("createAutomation", undefined, "+ Create Automation")}
           </button>
           <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
@@ -270,12 +282,12 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
       </div>
 
       {creating && (
-        <CreateAutomationDialog cwd={cwd} onClose={() => setCreating(false)} onCreated={refresh} />
+        <CreateAutomationDialog cwd={cwd} onClose={() => { setCreating(false); restoreOpenerFocus(); }} onCreated={refresh} />
       )}
       {editTarget && (
         <CreateAutomationDialog
           cwd={cwd}
-          onClose={() => setEditTarget(null)}
+          onClose={() => { setEditTarget(null); restoreOpenerFocus(); }}
           onCreated={refresh}
           initialName={editTarget.name}
           initialScope={editTarget.scope}
@@ -298,7 +310,7 @@ export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): 
                   "An automation runs a prompt, skill or flow in its own session on a schedule. Each run keeps its result here, one click from its session.",
                 )}
               </p>
-              <button type="button" data-testid="automation-empty-create" onClick={() => setCreating(true)} className={cardButtonClass("primary")}>
+              <button type="button" data-testid="automation-empty-create" onClick={() => { rememberOpener(); setCreating(true); }} className={cardButtonClass("primary")}>
                 {t("createAutomation", undefined, "+ Create Automation")}
               </button>
             </div>
