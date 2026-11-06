@@ -158,7 +158,7 @@ describe("run()", () => {
   });
 });
 
-describe("timeouts and output cap", () => {
+describe.skipIf(process.platform === "win32")("timeouts and output cap", () => {
   const tools = createFlowTools();
 
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("E11: timeoutMs %s means no timeout", async (timeoutMs) => {
@@ -182,7 +182,7 @@ describe("timeouts and output cap", () => {
   }, 30_000);
 });
 
-describe("shell()", () => {
+describe.skipIf(process.platform === "win32")("shell()", () => {
   const tools = createFlowTools();
 
   it("E14: no login profile and no inherited BASH_ENV output", async () => {
@@ -201,6 +201,21 @@ describe("shell()", () => {
     } finally {
       if (prev === undefined) delete process.env.BASH_ENV;
       else process.env.BASH_ENV = prev;
+    }
+  });
+
+  it("E14b: inherited ENV is dropped too", async () => {
+    const noisy = path.join(tmp(), "noisy-env.sh");
+    fs.writeFileSync(noisy, "echo PROFILE >&2\n");
+    const prev = process.env.ENV;
+    process.env.ENV = noisy;
+    try {
+      const r = await tools.shell("echo hi");
+      expect(r.ok).toBe(true);
+      expect(r.stderr).not.toContain("PROFILE");
+    } finally {
+      if (prev === undefined) delete process.env.ENV;
+      else process.env.ENV = prev;
     }
   });
 
@@ -240,7 +255,7 @@ describe("shell()", () => {
   });
 });
 
-describe("runaway children and failures", () => {
+describe.skipIf(process.platform === "win32")("runaway children and failures", () => {
   const tools = createFlowTools();
 
   it("X1: timeout kills the child and its grandchild within 2 s", async () => {
