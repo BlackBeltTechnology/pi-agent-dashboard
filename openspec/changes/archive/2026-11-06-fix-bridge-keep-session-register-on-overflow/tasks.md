@@ -8,11 +8,12 @@
 
 - [x] 2.1 Write a failing test in `packages/extension/src/__tests__/connection-dropped-frames.test.ts`: a `session_register` buffered after another frame survives an overflow of later frames, and the newest frame is retained
 - [x] 2.2 In `ConnectionManager.bufferMessage` (`packages/extension/src/connection.ts`), evict the oldest non-`session_register` frame instead of `buffer.shift()`
-- [x] 2.3 Keep the dropped-frame counter and the rate-limited warning unchanged; existing tests in the same file stay green
+- [x] 2.3 Protect `session_unregister` the same way (a session switch sends it before the new register); add a test that both survive overflow in order
+- [x] 2.4 Keep the dropped-frame counter and the rate-limited warning unchanged; existing tests in the same file stay green
 
 ## 3. Spec and docs
 
-- [x] 3.1 Delta spec for `incremental-event-sync` ("Drop-site delivery instrumentation") with the register exemption scenario
+- [x] 3.1 Delta spec for `incremental-event-sync` ("Drop-site delivery instrumentation") with the lifecycle-frame exemption scenarios
 - [x] 3.2 Add the behaviour to `packages/extension/src/connection.ts.AGENTS.md` with `See change: fix-bridge-keep-session-register-on-overflow`
 - [x] 3.3 `openspec validate fix-bridge-keep-session-register-on-overflow --strict`
 

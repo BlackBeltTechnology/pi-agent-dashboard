@@ -8,18 +8,26 @@ on a large replay the register is the oldest frame and the first evicted.
 
 ## Goals / Non-Goals
 
-**Goals:** a buffered `session_register` always reaches the server.
+**Goals:** buffered `session_register` and `session_unregister` frames always
+reach the server, in order.
 
 **Non-Goals:** lossless replay (the server re-replays from the JSONL after
 register), a larger default ring, a protocol change.
 
 ## Decisions
 
-### D1: Exempt `session_register` from eviction
+### D1: Exempt session lifecycle frames from eviction
 
 On overflow, evict the oldest frame whose serialized form does not start with
-`{"type":"session_register"`. If every buffered frame is a register (not
-reachable in practice), evict the oldest.
+`{"type":"session_register"` or `{"type":"session_unregister"`. If every
+buffered frame is a lifecycle frame (not reachable in practice), evict the
+oldest.
+
+`session_unregister` is included because a session switch
+(`session-sync.ts`) sends it for the old session right before the new
+`session_register`. If only the register were protected, the unregister could
+be evicted and the gateway would register the new session while the old one
+stayed active and routable on the same socket.
 
 Alternatives considered:
 
@@ -30,12 +38,12 @@ Alternatives considered:
 - **Raise `spawnRegisterTimeoutMs`.** Does not help; the register is gone.
 
 The prefix check relies on `JSON.stringify` putting `type` first, which holds
-for every `session_register` literal in the bridge. Ordering is preserved: the
+for every `session_register` and `session_unregister` literal in the bridge. Ordering is preserved: the
 register keeps its position ahead of later frames.
 
 ## Risks / Trade-offs
 
 - The `findIndex` scan is O(n) per eviction; it stops at the first
   non-register frame, normally index 0 or 1.
-- A register sent with a different key order would not be recognised and
-  could still be evicted; the test pins the current shape.
+- A lifecycle frame sent with a different key order would not be recognised
+  and could still be evicted; the tests pin the current shape.

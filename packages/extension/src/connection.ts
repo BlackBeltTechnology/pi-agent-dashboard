@@ -718,13 +718,18 @@ export class ConnectionManager {
     this.draining = false;
   }
 
+  /** `session_register` / `session_unregister` — never evicted from the outbound ring. */
+  private static isLifecycleFrame(data: string): boolean {
+    return data.startsWith('{"type":"session_register"') || data.startsWith('{"type":"session_unregister"');
+  }
+
   private bufferMessage(data: string): void {
     this.buffer.push(data);
     if (this.buffer.length > this.maxBufferSize) {
-      // Never evict session_register: the server ignores the session until it
-      // arrives, so a large replay overflowing the ring made resume/fork time out.
-      // Evict the oldest non-register frame instead.
-      const idx = Math.max(0, this.buffer.findIndex((d) => !d.startsWith('{"type":"session_register"')));
+      // Never evict session lifecycle frames: the server ignores a session until
+      // its register arrives, and a lost unregister on a session switch leaves the
+      // old session routable. Evict the oldest non-lifecycle frame instead.
+      const idx = Math.max(0, this.buffer.findIndex((d) => !ConnectionManager.isLifecycleFrame(d)));
       const [evicted] = this.buffer.splice(idx, 1);
       this.droppedBufferedCount++;
       let droppedType = "unknown";

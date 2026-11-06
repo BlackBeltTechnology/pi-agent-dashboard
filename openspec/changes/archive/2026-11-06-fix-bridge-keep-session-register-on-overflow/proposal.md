@@ -13,8 +13,11 @@ the register never arrives.
 
 ## What Changes
 
-- On ring overflow, the bridge evicts the oldest frame that is not a
-  `session_register`; a buffered `session_register` is never evicted.
+- On ring overflow, the bridge evicts the oldest frame that is not a session
+  lifecycle frame (`session_register` or `session_unregister`); a buffered
+  lifecycle frame is never evicted. The unregister is protected too: a session
+  switch sends `session_unregister` for the old session before the new
+  `session_register`, and losing it would leave the old session routable.
 - Drop counting and the rate-limited `bridge→server` warning are unchanged.
 
 ## Capabilities
@@ -26,7 +29,8 @@ None.
 ### Modified Capabilities
 
 - `incremental-event-sync`: the bridge ring-buffer eviction rule in "Drop-site
-  delivery instrumentation" exempts `session_register`.
+  delivery instrumentation" exempts `session_register` and
+  `session_unregister`.
 
 ## Impact
 

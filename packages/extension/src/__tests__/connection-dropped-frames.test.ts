@@ -65,6 +65,19 @@ describe("ConnectionManager dropped-frame instrumentation", () => {
     expect(JSON.parse(buf[2]).event.i).toBe(9);
   });
 
+  it("never evicts session_unregister before a session switch register", () => {
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      maxBufferSize: 3,
+    });
+    cm.send({ type: "session_unregister", sessionId: "old" });
+    cm.send({ type: "session_register", sessionId: "new" });
+    for (let i = 0; i < 10; i++) cm.send({ type: "event_forward", event: { i } });
+    const types = ((cm as any).buffer as string[]).map((d) => JSON.parse(d).type);
+    expect(types).toEqual(["session_unregister", "session_register", "event_forward"]);
+  });
+
   it("starts at zero and stays zero under the cap", () => {
     const cm = new ConnectionManager({
       url: "ws://localhost:9999",
