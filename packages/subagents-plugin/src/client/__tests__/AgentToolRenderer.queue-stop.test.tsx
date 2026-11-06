@@ -5,10 +5,14 @@
  * wait vs run time), #E7 (claim stop + stopLabel), #E11 (stopped card copy),
  * #X1-#X3 (stop refused, not confirmed, terminal frame clears pending).
  *
+ * The card has no stop control of its own: the stop starts from the chat row
+ * (claim `agentStop`) and the card shows the feedback only.
+ *
  * See change: subagent-queue-visibility.
+ * See change: drop-subagent-card-stop-button.
  */
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetSubagentStopsForTests,
@@ -83,6 +87,13 @@ describe("queued card (#E1-#E3)", () => {
     expect(screen.queryByTestId("agent-slot-reading")).toBeNull();
     expect(container.querySelector(".animate-spin")).toBeNull();
     expect(screen.queryByTestId("agent-stop-button")).toBeNull(); // not stoppable
+    expect(screen.queryAllByTestId("agent-stop-row")).toHaveLength(0);
+  });
+
+  it.each(["queued", "running"])("#E1 stoppable %s card with no stop requested: no card stop button, no stop line", (status) => {
+    render(card({ status, stoppable: true, queuePosition: 1 }));
+    expect(screen.queryAllByTestId("agent-stop-button")).toHaveLength(0);
+    expect(screen.queryAllByTestId("agent-stop-row")).toHaveLength(0);
   });
 
   it.each([
@@ -178,28 +189,30 @@ describe("stopped card (#E11)", () => {
 
 describe("card stop feedback (#X1-#X3)", () => {
   const running = { status: "running", stoppable: true, durationMs: 1000 };
+  /** Start the stop the way the chat row ■ does: through the claim `stop`. */
+  async function rowStop() {
+    await act(async () => {
+      expect(agentStop({ sessionId: SID, toolCallId: "tc-1", toolDetails: { agentId: "ag-1", ...running } })).toBe(true);
+      await Promise.resolve();
+    });
+  }
 
-  it("#X1 a refused stop shows the reason and re-enables the control", async () => {
+  it("#X1 a refused row stop shows the reason on the card", async () => {
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ error: "operate authority required" }), { status: 403 }),
     ) as unknown as typeof fetch;
     render(card(running));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("agent-stop-button"));
-    });
+    await rowStop();
     expect(screen.getByTestId("agent-stop-error").textContent).toMatch(/operate authority required/);
-    expect((screen.getByTestId("agent-stop-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryAllByTestId("agent-stop-button")).toHaveLength(0);
   });
 
-  it("#X2 stopping… until 10 s, then stop not confirmed and re-enabled", async () => {
+  it("#X2 stopping… until 10 s, then stop not confirmed", async () => {
     vi.useFakeTimers();
     global.fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 200 })) as unknown as typeof fetch;
     render(card(running));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("agent-stop-button"));
-    });
+    await rowStop();
     expect(screen.getByTestId("agent-stop-pending")).toBeTruthy();
-    expect((screen.getByTestId("agent-stop-button") as HTMLButtonElement).disabled).toBe(true);
     await act(async () => {
       vi.advanceTimersByTime(STOP_CONFIRM_TIMEOUT_MS - 100);
     });
@@ -209,15 +222,12 @@ describe("card stop feedback (#X1-#X3)", () => {
     });
     expect(screen.queryByTestId("agent-stop-pending")).toBeNull();
     expect(screen.getByTestId("agent-stop-unconfirmed")).toBeTruthy();
-    expect((screen.getByTestId("agent-stop-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("#X3 a terminal frame clears a pending stop", async () => {
     global.fetch = vi.fn().mockResolvedValue(new Response("{}", { status: 200 })) as unknown as typeof fetch;
     const { rerender } = render(card(running));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("agent-stop-button"));
-    });
+    await rowStop();
     expect(screen.getByTestId("agent-stop-pending")).toBeTruthy();
     rerender(card({ status: "completed", durationMs: 2000 }, "complete"));
     expect(screen.queryByTestId("agent-stop-pending")).toBeNull();
@@ -225,5 +235,6 @@ describe("card stop feedback (#X1-#X3)", () => {
     rerender(card(running));
     expect(screen.queryByTestId("agent-stop-pending")).toBeNull();
     expect(screen.queryByTestId("agent-stop-unconfirmed")).toBeNull();
+    expect(screen.queryAllByTestId("agent-stop-row")).toHaveLength(0);
   });
 });

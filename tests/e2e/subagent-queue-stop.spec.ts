@@ -139,7 +139,7 @@ test.describe("queued subagents + per-subagent stop (L3)", () => {
     await expect(stopped).toContainText("removed from queue");
   });
 
-  test("#F4 stopping the running card frees its slot for the next one", async ({ page, request, context }) => {
+  test("#F4 stopping the running row frees its slot for the next one", async ({ page, request, context }) => {
     test.setTimeout(180_000);
     await op.arm(request, context);
     await startQueuedFanout(page);
@@ -147,7 +147,10 @@ test.describe("queued subagents + per-subagent stop (L3)", () => {
     const desc = (await running.innerText()).match(/faux queued child \d/)?.[0];
     expect(desc).toBeTruthy();
 
-    await running.getByTestId("agent-stop-button").click();
+    // The row ■ is the only per-subagent stop: the card has none of its own.
+    // See change: drop-subagent-card-stop-button.
+    await expect(page.getByTestId("agent-stop-button")).toHaveCount(0);
+    await running.getByTestId("tool-stop-button").first().click();
 
     const stopped = agentRows(page).filter({ hasText: desc! });
     await expect(stopped.getByTestId("agent-stopped-note")).toContainText("stopped by you", { timeout: 15_000 });
