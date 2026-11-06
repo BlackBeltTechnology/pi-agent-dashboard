@@ -377,10 +377,14 @@ export function CreateAutomationDialog({
   const dirtyCount = draftFields.filter((v, i) => v !== initialDraft.current![i]).length;
 
   // Open on the requested section: scroll it into view, focus its first field.
-  const sectionRefs = useRef<Partial<Record<EditorSection, HTMLElement | null>>>({});
+  const sectionRefs = useRef(new Map<EditorSection, HTMLElement>());
+  const setSectionRef = (section: EditorSection) => (el: HTMLElement | null) => {
+    if (el) sectionRefs.current.set(section, el);
+    else sectionRefs.current.delete(section);
+  };
   useEffect(() => {
     if (!initialSection) return;
-    const el = sectionRefs.current[initialSection];
+    const el = sectionRefs.current.get(initialSection);
     if (!el) return;
     el.scrollIntoView?.({ block: "nearest" });
     el.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
@@ -515,7 +519,7 @@ export function CreateAutomationDialog({
         </div>
 
         {/* ── IDENTITY ─────────────────────────────────────────── */}
-        <Group title="Identity" label={t("groupIdentity", undefined, "Identity")} sectionRef={(el) => { sectionRefs.current.identity = el; }} open={initialSection === "identity"}>
+        <Group title="Identity" label={t("groupIdentity", undefined, "Identity")} sectionRef={setSectionRef("identity")} open={initialSection === "identity"}>
           <Field label={t("fieldName", undefined, "Name")}>
             <input
               type="text"
@@ -547,7 +551,7 @@ export function CreateAutomationDialog({
         </Group>
 
         {/* ── TRIGGER ──────────────────────────────────────────── */}
-        <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")} sectionRef={(el) => { sectionRefs.current.trigger = el; }} open={initialSection === "trigger"}>
+        <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")} sectionRef={setSectionRef("trigger")} open={initialSection === "trigger"}>
           <div className="flex flex-wrap gap-1" data-testid="trigger-categories">
             {categories.map((c) => {
               const selected = c.category === category;
@@ -712,7 +716,7 @@ export function CreateAutomationDialog({
         </Group>
 
         {/* ── ACTION ───────────────────────────────────────────── */}
-        <Group title="Action" label={t("groupAction", undefined, "Action")} sectionRef={(el) => { sectionRefs.current.action = el; }} open={initialSection === "action"}>
+        <Group title="Action" label={t("groupAction", undefined, "Action")} sectionRef={setSectionRef("action")} open={initialSection === "action"}>
           <ActionPicker
             actions={
               agentId
@@ -978,7 +982,7 @@ export function CreateAutomationDialog({
             <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span> {t("advanced", undefined, "Advanced")}
           </button>
           {advancedOpen && (
-            <div className="space-y-2 pt-2" data-testid="create-advanced" ref={(el) => { sectionRefs.current.advanced = el; }}>
+            <div className="space-y-2 pt-2" data-testid="create-advanced" ref={setSectionRef("advanced")}>
               <div className="grid grid-cols-2 gap-2">
                 <Field label={t("fieldMode", undefined, "Mode")}>
                   <select
