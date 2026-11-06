@@ -381,7 +381,7 @@ export const SHOTS: Shot[] = [
     viewports: ["desktop"],
     async run(page, ctx) {
       return surfaceByText(page, ctx.folderRoute(ctx.fixtureGit, "automations"),
-        /Create Automation|Recent runs/i);
+        /Create Automation/i);
     },
   },
   {

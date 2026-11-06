@@ -165,6 +165,11 @@ export function createStopPipeline(deps: StopPipelineDeps): (req: StopRequest) =
   function stopChild(req: StopRequest, child: RunRecord): Promise<StopResult> {
     const childReq = { ...req, runId: child.runId };
     if (deps.engine.isTracked(child.runId)) {
+      // Same scope rule as a top-level tracked Stop: never live-stop another scope's run.
+      const childBase = deps.engine.trackedScopeBase(child.runId);
+      if (!childBase || realOrResolved(childBase) !== realOrResolved(req.scopeBase)) {
+        return Promise.resolve({ ok: true, outcome: "unconfirmed" as const });
+      }
       return deps.engine
         .stopRun(child.runId)
         .then((o) => (o ? { ok: true, outcome: o } : { ok: true, outcome: "not-found" as const }));

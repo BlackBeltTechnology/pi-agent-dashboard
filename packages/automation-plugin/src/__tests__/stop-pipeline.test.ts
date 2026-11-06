@@ -241,6 +241,25 @@ describe("orphan parent cascade", () => {
     }
   });
 
+  it("a tracked child owned by another scope is not live-stopped by the parent cascade", async () => {
+    const tracked = new Map<string, string>();
+    const h = harness({ tracked });
+    orphanParent(h, "p-x", ["nf"]);
+    tracked.set("p-x-c0", other);
+    await h.stop(req("p-x"));
+    expect(h.engineStop).not.toHaveBeenCalled();
+  });
+
+  it("a tracked child in the admitted scope goes through the engine's live Stop", async () => {
+    const tracked = new Map<string, string>();
+    const h = harness({ tracked });
+    orphanParent(h, "p-in", ["nf"]);
+    tracked.set("p-in-c0", base);
+    const r = await h.stop(req("p-in"));
+    expect(h.engineStop).toHaveBeenCalledWith("p-in-c0");
+    expect(r.outcome).toBe("killed");
+  });
+
   it("stopping the last running orphan child by its own id finalizes the parent", async () => {
     const h = harness();
     orphanParent(h, "p-last", ["k"], { status: "done", findings: "- x" });
