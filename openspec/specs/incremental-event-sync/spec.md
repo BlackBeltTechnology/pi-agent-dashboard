@@ -265,9 +265,12 @@ Both silent event-drop points SHALL be observable. The server fanout SHALL, when
 skips a frame because `ws.bufferedAmount > MAX_WS_BUFFER`, increment a dropped-frame
 counter and emit a rate-limited warning carrying `hop: "server→browser"`, `sessionId`,
 `seq`, and `bufferedAmount`. The bridge `ConnectionManager` SHALL, when it evicts the
-oldest buffered message on ring-buffer overflow, increment a dropped-frame counter and
+oldest buffered non-`session_register` message on ring-buffer overflow, increment a dropped-frame counter and
 emit a rate-limited warning carrying `hop: "bridge→server"` and the dropped message
-type. Counters SHALL be exposed on the diagnostics/health surface.
+type. A buffered `session_register` SHALL NOT be evicted: the server ignores a session
+until its register arrives, so losing it to a large replay leaves the spawn
+unregistered until the spawn-register watchdog kills it. Counters SHALL be exposed
+on the diagnostics/health surface.
 
 #### Scenario: Server back-pressure drop is counted and logged
 - **WHEN** the server fanout skips an event because `ws.bufferedAmount` exceeds
@@ -278,10 +281,15 @@ type. Counters SHALL be exposed on the diagnostics/health surface.
 
 #### Scenario: Bridge ring-buffer eviction is counted and logged
 - **WHEN** the bridge buffers an outgoing message while disconnected and overflow
-  forces `buffer.shift()`
+  forces an eviction
 - **THEN** the bridge dropped-frame counter SHALL increment
 - **AND** a rate-limited warning with `hop: "bridge→server"` and the dropped message
   type SHALL be emitted
+
+#### Scenario: Buffered session_register survives overflow
+- **WHEN** a `session_register` is buffered and more frames than the ring capacity follow it before the socket opens
+- **THEN** the oldest non-register frames SHALL be evicted instead
+- **AND** the `session_register` SHALL still be sent when the socket opens
 
 #### Scenario: Counters are exposed for observability
 - **WHEN** the diagnostics/health payload is requested

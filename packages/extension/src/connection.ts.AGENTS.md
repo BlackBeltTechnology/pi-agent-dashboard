@@ -9,3 +9,5 @@ WebSocket connection manager with exponential backoff reconnect, message bufferi
 `pauseAutoStart(ms)` normalizes + bounds via shared `normalizeQuiesceMs` (invalid ignored, fraction rounded up, capped `MAX_QUIESCE_MS` 120000) and returns the applied ms (0 = ignored); only extends, never shortens; suppression is inclusive (`now <= suppressUntil`). `retargetTo` refusal reason is "candidate health or identity check did not pass". See change: harden-bridge-inbound-and-discovery (D17, D19).
 
 `rejectUnauthorized: true` for remote wss dials; `certValidation` getter. See change: prove-vault-bridge-tls.
+
+Outbound ring overflow evicts the oldest non-`session_register` frame; a buffered `session_register` is never evicted (large replay before open otherwise left resume/fork unregistered until the spawn watchdog fired). See change: fix-bridge-keep-session-register-on-overflow.
