@@ -45,7 +45,13 @@ function spySpawn() {
   return vi.fn((...a: Parameters<typeof realSpawn>) => realSpawn(...a));
 }
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "flow-tools-"));
+// Every temp dir (incl. 64 MiB payloads) is removed after each test.
+const tmpDirs: string[] = [];
+const tmp = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-tools-"));
+  tmpDirs.push(dir);
+  return dir;
+};
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const isGone = (pid: number) => {
   try {
@@ -81,6 +87,7 @@ async function waitForPid(file: string): Promise<number> {
 
 afterEach(() => {
   clearFlowTools();
+  for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe("publish lifecycle", () => {
