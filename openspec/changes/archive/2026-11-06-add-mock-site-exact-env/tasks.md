@@ -99,8 +99,8 @@
 
 ## 8. Manual verification (post-merge)
 
-- [ ] F12 Manual: live-site: mock looks like the app: live board mock vs running app at same route, human compares side by side, judgment: Current indistinguishable from today's app (test-plan: manual-only)
-- [ ] F13 Manual: scripted: animation reads naturally: exported loop video, human watches, judgment: cursor/typing pace understandable (test-plan: manual-only)
+- [x] F12 Manual: live-site: mock looks like the app: live board mock vs running app at same route, human compares side by side, judgment: Current indistinguishable from today's app (test-plan: manual-only)
+- [x] F13 Manual: scripted: animation reads naturally: exported loop video, human watches, judgment: cursor/typing pace understandable (test-plan: manual-only)
 
 ## Workflow follow-up
 
