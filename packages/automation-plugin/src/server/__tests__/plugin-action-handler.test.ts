@@ -69,18 +69,21 @@ describe("automation plugin_action handler", () => {
   it("stop with an unadmitted cwd is refused and never aborts", async () => {
     const { handler, logger, ctx } = await setup();
     handler({ pluginId: "automation", action: "stop", payload: { scope: "folder", cwd: "/not/admitted", runId: "r1" } });
-    await tick();
-    await tick();
-    expect(logger.warn).toHaveBeenCalledWith("automation stop runId=r1: cwd not admitted");
+    // `admitRouteCwdParam` runs async fs probes with an internal deadline, so
+    // poll for the refusal rather than a fixed tick count (flaky under load).
+    await vi.waitFor(() =>
+      expect(logger.warn).toHaveBeenCalledWith("automation stop runId=r1: cwd not admitted"),
+    );
     expect((ctx as unknown as { abortSpawnedRun: ReturnType<typeof vi.fn> }).abortSpawnedRun).not.toHaveBeenCalled();
   });
 
   it("folder stop without a cwd is refused", async () => {
     const { handler, logger } = await setup();
     handler({ pluginId: "automation", action: "stop", payload: { scope: "folder", runId: "r1" } });
-    await tick();
-    await tick();
-    expect(logger.warn).toHaveBeenCalledWith("automation stop runId=r1: cwd not admitted");
+    // No cwd → `required` → synchronous 400; poll to stay robust under load.
+    await vi.waitFor(() =>
+      expect(logger.warn).toHaveBeenCalledWith("automation stop runId=r1: cwd not admitted"),
+    );
   });
 
   it("ignores a mismatched pluginId (defense-in-depth)", async () => {

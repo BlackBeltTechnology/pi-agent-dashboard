@@ -86,6 +86,19 @@ export function runPillStatus(r: RunRecord): RunPillStatus {
 const scopeOf = (r: RunRecord): AutomationScope => (r.scope === "global" ? "global" : "folder");
 const keyOf = (scope: AutomationScope, name: string) => `${scope}:${name}`;
 
+/**
+ * The run that carries the session for a top-level record. The engine wraps
+ * every action in a parent occurrence whose `sessionId` lives on a child, so
+ * the card's summary line + orphan notice resolve session/connectivity through
+ * the running child (or the first child). A flat/legacy record is its own
+ * bearer. See change: polish-automation-board.
+ */
+export function sessionBearer(run: RunRecord): RunRecord {
+  const kids = run.childRuns;
+  if (!kids || kids.length === 0) return run;
+  return kids.find((c) => c.status === "running") ?? kids[0] ?? run;
+}
+
 export function AutomationBoard({ params, cwd, onBack }: AutomationBoardProps): React.ReactElement {
   const t = useT();
   const [, setLocation] = useLocation();
@@ -511,7 +524,7 @@ function AutomationCard({
                 >
                   <p className="text-sm font-semibold text-[var(--text-primary)]">{t("stopConfirmTitle", undefined, "Stop this run?")}</p>
                   <p>
-                    {liveRun.sessionConnected
+                    {sessionBearer(liveRun).sessionConnected
                       ? t("stopConfirmConnected", undefined, "Its session is still connected. Stop kills it only if it is this run's own session in this folder, then marks the run stopped.")
                       : t("stopConfirmDisconnected", undefined, "Its session is not connected, so nothing can be killed. Stop marks the run stopped; the process may still be running.")}
                   </p>
@@ -556,26 +569,29 @@ function AutomationCard({
           <p className="text-xs text-[var(--severity-error-fg)]" data-testid={`automation-error-${a.name}`}>{a.error}</p>
         )}
 
-        {orphaned && liveRun && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <SettingsNotice tone="warning" testId={`automation-orphan-notice-${a.name}`}>
-              <p>
-                <b>{t("orphanTitle", undefined, "Lost track of this run.")}</b>{" "}
-                {t("orphanBody", undefined, "The server restarted while it was running, so its completion was not recorded.")}{" "}
-                {liveRun.sessionId
-                  ? liveRun.sessionConnected
-                    ? t("orphanConnected", undefined, "Its session is still connected.")
-                    : t("orphanDisconnected", undefined, "Its session is not connected.")
-                  : t("orphanNoSession", undefined, "It never registered a session.")}
-              </p>
-              {liveRun.sessionId && (
-                <button type="button" data-testid={`orphan-session-${a.name}`} onClick={() => nav.session(liveRun)} className="mt-1 text-xs font-semibold text-[var(--accent-text)] underline">
-                  {t("openSession", undefined, "Open session ↗")}
-                </button>
-              )}
-            </SettingsNotice>
-          </div>
-        )}
+        {orphaned && liveRun && (() => {
+          const bearer = sessionBearer(liveRun);
+          return (
+            <div onClick={(e) => e.stopPropagation()}>
+              <SettingsNotice tone="warning" testId={`automation-orphan-notice-${a.name}`}>
+                <p>
+                  <b>{t("orphanTitle", undefined, "Lost track of this run.")}</b>{" "}
+                  {t("orphanBody", undefined, "The server restarted while it was running, so its completion was not recorded.")}{" "}
+                  {bearer.sessionId
+                    ? bearer.sessionConnected
+                      ? t("orphanConnected", undefined, "Its session is still connected.")
+                      : t("orphanDisconnected", undefined, "Its session is not connected.")
+                    : t("orphanNoSession", undefined, "It never registered a session.")}
+                </p>
+                {bearer.sessionId && (
+                  <button type="button" data-testid={`orphan-session-${a.name}`} onClick={() => nav.session(bearer)} className="mt-1 text-xs font-semibold text-[var(--accent-text)] underline">
+                    {t("openSession", undefined, "Open session ↗")}
+                  </button>
+                )}
+              </SettingsNotice>
+            </div>
+          );
+        })()}
 
         {notice && (
           <div onClick={(e) => e.stopPropagation()}>
@@ -596,7 +612,7 @@ function AutomationCard({
             <span>{runSub(lastRun, now.getTime())}</span>
             <FindingsChip run={lastRun} testid={`last-run-findings-${a.name}`} />
             <span className="flex-1" />
-            <RunLinks run={lastRun} nav={nav} sessionTestid={`last-run-session-${a.name}`} linkTestid={`last-run-link-${a.name}`} />
+            <RunLinks run={lastRun} sessionRun={sessionBearer(lastRun)} nav={nav} sessionTestid={`last-run-session-${a.name}`} linkTestid={`last-run-link-${a.name}`} />
           </div>
         )}
 
@@ -675,16 +691,20 @@ function secondaryLink(r: RunRecord): "Monitor" | "Result" | "Log" {
 
 function RunLinks({
   run: r,
+  sessionRun,
   nav,
   sessionTestid,
   linkTestid,
 }: {
   run: RunRecord;
+  /** The run that carries the session link (defaults to `run`; a parent passes its bearer child). */
+  sessionRun?: RunRecord;
   nav: RunNav;
   sessionTestid: string;
   linkTestid: string;
 }): React.ReactElement {
   const t = useT();
+  const sr = sessionRun ?? r;
   const isParent = (r.childRuns?.length ?? 0) > 0 || (r.children?.length ?? 0) > 0;
   const link = secondaryLink(r);
   const linkLabel =
@@ -692,8 +712,8 @@ function RunLinks({
   const cls = "focus-ring rounded text-xs text-[var(--accent-text)] hover:underline";
   return (
     <span className="flex items-center gap-3">
-      {r.sessionId && (
-        <button type="button" data-testid={sessionTestid} onClick={() => nav.session(r)} className={cls}>
+      {sr.sessionId && (
+        <button type="button" data-testid={sessionTestid} onClick={() => nav.session(sr)} className={cls}>
           {t("openSession", undefined, "Open session ↗")}
         </button>
       )}

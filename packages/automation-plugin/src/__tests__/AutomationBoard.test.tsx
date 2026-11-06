@@ -529,3 +529,39 @@ describe("AutomationBoard orphaned run + honest Stop", () => {
     expect((getByTestId("stop-nightly") as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+// A single-action automation is a PARENT occurrence whose sessionId lives on
+// the child; the card summary + orphan notice must resolve through the child.
+// See change: polish-automation-board (sessionBearer).
+describe("AutomationBoard parent-occurrence session bearer", () => {
+  const now = Date.now();
+  function parentOrphan(childConnected: boolean): RunRecord {
+    const kid: RunRecord = {
+      runId: "occ-c0", name: "nightly", status: "running", dir: "/d/occ/c0", startedAt: now - 600_000,
+      parentRunId: "occ", sessionId: "s-kid", orphaned: true, sessionConnected: childConnected, tracked: false,
+    };
+    return {
+      runId: "occ", name: "nightly", status: "running", dir: "/d/occ", startedAt: now - 600_000,
+      orphaned: true, tracked: false, scope: "folder", children: ["occ-c0"], childRuns: [kid],
+    };
+  }
+
+  it("the orphan notice + session link come from the child, not the parent", async () => {
+    vi.mocked(listRunsMock).mockImplementation(async (scope: string) => (scope === "folder" ? [parentOrphan(true)] : []));
+    const { getByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-orphan-notice-nightly")).toBeTruthy());
+    // Parent has no sessionId; the notice still reads "still connected" from the child.
+    expect(getByTestId("automation-orphan-notice-nightly").textContent).toContain("still connected");
+    expect(getByTestId("orphan-session-nightly")).toBeTruthy();
+    fireEvent.click(getByTestId("orphan-session-nightly"));
+    // The child is orphaned (not tracked-running) → archived view.
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/session/s-kid?archived=1");
+  });
+
+  it("a disconnected child makes the notice say so", async () => {
+    vi.mocked(listRunsMock).mockImplementation(async (scope: string) => (scope === "folder" ? [parentOrphan(false)] : []));
+    const { getByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-orphan-notice-nightly")).toBeTruthy());
+    expect(getByTestId("automation-orphan-notice-nightly").textContent).toContain("not connected");
+  });
+});
