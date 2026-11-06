@@ -721,7 +721,11 @@ export class ConnectionManager {
   private bufferMessage(data: string): void {
     this.buffer.push(data);
     if (this.buffer.length > this.maxBufferSize) {
-      const evicted = this.buffer.shift();
+      // Never evict session_register: the server ignores the session until it
+      // arrives, so a large replay overflowing the ring made resume/fork time out.
+      // Evict the oldest non-register frame instead.
+      const idx = Math.max(0, this.buffer.findIndex((d) => !d.startsWith('{"type":"session_register"')));
+      const [evicted] = this.buffer.splice(idx, 1);
       this.droppedBufferedCount++;
       let droppedType = "unknown";
       try {

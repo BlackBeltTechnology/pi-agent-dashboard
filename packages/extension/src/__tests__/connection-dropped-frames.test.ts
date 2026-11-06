@@ -50,6 +50,21 @@ describe("ConnectionManager dropped-frame instrumentation", () => {
     expect(cm.getDroppedBufferedCount()).toBe(5);
   });
 
+  it("never evicts session_register on overflow", () => {
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      maxBufferSize: 3,
+    });
+    cm.send({ type: "bridge_diagnostic" });
+    cm.send({ type: "session_register", sessionId: "s1" });
+    for (let i = 0; i < 10; i++) cm.send({ type: "event_forward", event: { i } });
+    const buf = (cm as any).buffer as string[];
+    expect(buf.length).toBe(3);
+    expect(JSON.parse(buf[0]).type).toBe("session_register");
+    expect(JSON.parse(buf[2]).event.i).toBe(9);
+  });
+
   it("starts at zero and stays zero under the cap", () => {
     const cm = new ConnectionManager({
       url: "ws://localhost:9999",
