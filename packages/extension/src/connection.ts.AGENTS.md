@@ -10,4 +10,4 @@ WebSocket connection manager with exponential backoff reconnect, message bufferi
 
 `rejectUnauthorized: true` for remote wss dials; `certValidation` getter. See change: prove-vault-bridge-tls.
 
-Outbound ring overflow evicts the oldest non-`session_register` frame; a buffered `session_register` is never evicted (large replay before open otherwise left resume/fork unregistered until the spawn watchdog fired). See change: fix-bridge-keep-session-register-on-overflow.
+Outbound ring overflow evicts the oldest non-`session_register` frame; a buffered `session_register` is never evicted. See change: fix-bridge-keep-session-register-on-overflow.
