@@ -78,6 +78,19 @@ describe("ConnectionManager dropped-frame instrumentation", () => {
     expect(types).toEqual(["session_unregister", "session_register", "event_forward"]);
   });
 
+  it("recognises a lifecycle frame regardless of property order", () => {
+    const cm = new ConnectionManager({
+      url: "ws://localhost:9999",
+      WebSocketImpl: MockWebSocket as any,
+      maxBufferSize: 1,
+    });
+    cm.send({ sessionId: "s1", type: "session_register" });
+    cm.send({ type: "event_forward", event: { i: 0 } });
+    const types = ((cm as any).buffer as string[]).map((d) => JSON.parse(d).type);
+    expect(types).toEqual(["session_register"]);
+    expect(cm.getDroppedBufferedCount()).toBe(1);
+  });
+
   it("starts at zero and stays zero under the cap", () => {
     const cm = new ConnectionManager({
       url: "ws://localhost:9999",

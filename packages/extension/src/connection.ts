@@ -720,7 +720,14 @@ export class ConnectionManager {
 
   /** `session_register` / `session_unregister` — never evicted from the outbound ring. */
   private static isLifecycleFrame(data: string): boolean {
-    return data.startsWith('{"type":"session_register"') || data.startsWith('{"type":"session_unregister"');
+    // Cheap substring gate first; parse only candidates so key order does not matter.
+    if (!data.includes('"session_register"') && !data.includes('"session_unregister"')) return false;
+    try {
+      const type = (JSON.parse(data) as { type?: unknown } | null)?.type;
+      return type === "session_register" || type === "session_unregister";
+    } catch {
+      return false;
+    }
   }
 
   private bufferMessage(data: string): void {

@@ -18,8 +18,8 @@ register), a larger default ring, a protocol change.
 
 ### D1: Exempt session lifecycle frames from eviction
 
-On overflow, evict the oldest frame whose serialized form does not start with
-`{"type":"session_register"` or `{"type":"session_unregister"`. If every
+On overflow, evict the oldest frame whose `type` is neither `session_register`
+nor `session_unregister`. If every
 buffered frame is a lifecycle frame (not reachable in practice), evict the
 oldest.
 
@@ -37,13 +37,19 @@ Alternatives considered:
   a second flush path.
 - **Raise `spawnRegisterTimeoutMs`.** Does not help; the register is gone.
 
-The prefix check relies on `JSON.stringify` putting `type` first, which holds
-for every `session_register` and `session_unregister` literal in the bridge. Ordering is preserved: the
-register keeps its position ahead of later frames.
+Classification reads the `type` property, so key order does not matter. A
+substring gate skips `JSON.parse` for frames that cannot be lifecycle frames.
+Ordering is preserved: lifecycle frames keep their position ahead of later
+frames.
 
 ## Risks / Trade-offs
 
 - The `findIndex` scan is O(n) per eviction; it stops at the first
-  non-register frame, normally index 0 or 1.
-- A lifecycle frame sent with a different key order would not be recognised
-  and could still be evicted; the tests pin the current shape.
+  non-lifecycle frame, normally index 0 or 1. Only frames containing a
+  lifecycle type string are parsed.
+- Out of scope: superseded buffered `session_register` and replay frames
+  after a disconnected session switch. The reconnect path sends a fresh
+  register and replay before the buffer flush, so the stale buffered pair is
+  flushed after it. This ordering exists without overflow and predates this
+  change; it needs its own change (coalesce superseded register/replay frames
+  on reconnect).
