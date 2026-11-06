@@ -98,6 +98,8 @@ Delegate specialist work to the matching subagent (isolated context). Explicit `
 
 **Discipline-skill checkpoints** (invoke the `eng-disciplines` skill when the signal appears): auth/untrusted-input/secrets/PII → `security-hardening`; latency/throughput budget or large-data path → `performance-optimization`; new endpoint/job/external-call → `observability-instrumentation`; irreversible step (migration/public-API) before it stands → `doubt-driven-review`; bug mid-implementation → `systematic-debugging`; opaque runtime state (jiti/PTY/WS) → `node-inspect-debugger`; non-trivial change + tests pass before commit → `review-code`; works but feels heavy → `code-simplification`.
 
+**Mock routing**: any mock / mockup / UI-option / variant request → load the `frontend-mockup-loop-dashboard` skill (live-component mocks on the mock site; never off-loop static HTML).
+
 Context inheritance: this repo ships `pi-dashboard-subagents` (default `inheritContext: true` → child gets a compressed parent snapshot, capped by `maxChars`). Still pass exact file paths + the question in `task:`; use `Explore` first if locations are unknown.
 
 ## OpenSpec Conventions

@@ -8,11 +8,91 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export const MARKER = path.join(os.tmpdir(), "pi-mock-site-e2e.json");
 export const FIXTURE_MOCK = "2026-11-04-e2e-fixture";
 export const PILLS_MOCK = "2026-11-03-session-pills";
+export const SCRIPTED_MOCK = "2026-11-07-e2e-scripted";
+export const SOLID_MOCK = "2026-11-07-e2e-solid";
 
 export type Marker = { root: string; port: number; pid: number; url: string };
 export const readMarker = (): Marker => JSON.parse(fs.readFileSync(MARKER, "utf8")) as Marker;
 
 const pkg = (p: string) => path.join(REPO_ROOT, "packages", p);
+
+/**
+ * Scripted / fixture scenarios (add-mock-site-exact-env test-plan E11, E12, F3-F5, F7-F10).
+ * Frames: 1 late target (3000 ms, default timeout) · 2 never target · 3 target at 1500 ms with
+ * timeout 1000 · 4 unless/expect · 5 stateful fixture toggle, both panes, 3-step script ·
+ * 6 WebSocket fixture · 7 unfixtured GET · 8 typing (runs beside 5) · 9 counter (reduced motion).
+ */
+const SCRIPTED_SRC = `import { useEffect, useState } from "react";
+import type { Fixtures, Mock } from "mock-site/kit";
+function Late({ ms, id }: { ms: number; id: string }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setOn(true), ms); return () => clearTimeout(t); }, [ms]);
+  return <div>{on ? <button type="button" data-testid={id}>{id}</button> : "waiting"}</div>;
+}
+function Raw() {
+  const [clicks, setClicks] = useState(0);
+  return <div><input data-testid="raw-input" defaultValue="0 17 * * *" /><button type="button" data-testid="raw-toggle" onClick={() => setClicks((c) => c + 1)}>toggle</button><span data-testid="raw-clicks">clicks: {clicks}</span></div>;
+}
+function Flag() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [aim, setAim] = useState("");
+  const load = () => fetch("/api/flag").then((r) => r.json()).then((d) => setOn(d.on));
+  useEffect(() => { void load(); }, []);
+  const click = async (e: React.MouseEvent) => {
+    const c = document.querySelector<HTMLElement>(".mk-cursor");
+    const b = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (c) setAim(Math.abs(Number(c.dataset.x) - (b.left + b.width / 2)) <= 2 && Math.abs(Number(c.dataset.y) - (b.top + b.height / 2)) <= 2 ? "on-target" : "off-target");
+    await fetch("/api/flag", { method: "POST" });
+    await load();
+  };
+  return <div data-flag={on === null ? "loading" : on ? "on" : "off"}>flag: {on === null ? "..." : on ? "on" : "off"} <button type="button" data-testid="toggle" onClick={click}>toggle</button> <span data-testid="aim">{aim}</span></div>;
+}
+function Feed() {
+  const [msg, setMsg] = useState("connecting");
+  useEffect(() => { const ws = new WebSocket(\`ws://\${location.host}/ws/feed\`); ws.onmessage = (e) => setMsg(String(e.data)); return () => ws.close(); }, []);
+  return <div data-testid="feed">{msg}</div>;
+}
+function Unmocked() {
+  const [s, setS] = useState("loading");
+  useEffect(() => { void fetch("/api/unmocked").then((r) => setS("status " + r.status)); void fetch("/api/unmocked"); }, []);
+  return <div data-testid="unmocked">{s}</div>;
+}
+function Counter() {
+  const [n, setN] = useState(0);
+  return <div><button type="button" data-testid="inc" onClick={() => setN((x) => x + 1)}>inc</button><span data-testid="count">count: {n}</span></div>;
+}
+const flagFixtures = (): Fixtures => { let on = false; return { http: { "GET /api/flag": () => ({ on }), "POST /api/flag": () => { on = !on; return { ok: true }; } } }; };
+const mock: Mock = {
+  title: "E2E scripted",
+  category: "Fixture",
+  frames: [
+    { title: "Late target", loop: false, proposed: <Late ms={3000} id="late" />, script: [{ say: "click late", target: "late", act: "click" }] },
+    { title: "Never target", loop: false, proposed: <div>none</div>, script: [{ say: "click never", target: "never", act: "click" }] },
+    { title: "Short timeout", loop: false, proposed: <Late ms={1500} id="slow" />, script: [{ say: "click slow", target: "slow", act: "click", timeout: 1000 }] },
+    { title: "Unless and expect", loop: false, proposed: <Raw />, script: [
+      { say: "switch to raw mode", target: "raw-toggle", act: "click", unless: "raw-input" },
+      { say: "expect the impossible", target: "raw-input", act: "click", expect: "nope", timeout: 500 },
+    ] },
+    { title: "Stateful toggle", fixtures: flagFixtures, current: <Flag />, proposed: <Flag />, script: [
+      { say: "Toggle the flag", target: "toggle", act: "click", expect: "[data-flag=on]" },
+      { say: "Flag is on", act: "wait", target: "[data-flag=on]" },
+      { say: "Hover the toggle", target: "toggle", act: "hover" },
+    ] },
+    { title: "WebSocket feed", fixtures: () => ({ ws: { "/ws/feed": (s) => { setTimeout(() => s.send("hello from fixture"), 50); } } }), proposed: <Feed /> },
+    { title: "Unmocked request", fixtures: () => ({}), proposed: <Unmocked /> },
+    { title: "Typing", proposed: <input data-testid="name" />, script: [
+      { say: "Clear", target: "name", act: "clear" },
+      { say: "Type hello", target: "name", act: "type", text: "hello", expect: (d) => (d.querySelector("input") as HTMLInputElement).value === "hello" },
+    ] },
+    { title: "Counter steps", loop: false, proposed: <Counter />, script: [
+      { say: "one", target: "inc", act: "click" },
+      { say: "two", target: "inc", act: "click" },
+      { say: "three", target: "inc", act: "click" },
+    ] },
+  ],
+};
+export default mock;
+`;
 
 /**
  * Temp project for the mock-site E2E: the package example mock
@@ -34,24 +114,31 @@ export function makeE2eProject(): string {
 @source "../openspec/changes";
 `);
   w("mockups/mock-site.app.tsx", fs.readFileSync(path.join(REPO_ROOT, "mockups", "mock-site.app.tsx"), "utf8"));
-  w("mockups/mock-site.config.ts", `import path from "node:path";
+  // App build config (inherited by the mock site) + a plain options file (never a build config).
+  w("vite.config.ts", `import path from "node:path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { mockSite } from ${JSON.stringify(pkg("mockup-loop/src/mock-site/plugin.mjs"))};
 const pkg = (p: string) => path.join(${JSON.stringify(path.join(REPO_ROOT, "packages"))}, p);
 export default {
-  plugins: [react(), tailwindcss(), mockSite({
-    projectRoot: path.resolve(__dirname, ".."), appRoot: pkg("client"), title: "E2E mocks", app: "./mock-site.app.tsx",
-    themes: [
-      { id: "system", label: "System", system: { dark: "dark", light: "light" } },
-      { id: "dark", label: "Dark", attrs: { "data-theme": null } },
-      { id: "light", label: "Light", attrs: { "data-theme": "light" } },
-    ],
-    aliases: { "@app": pkg("client/src"), "@blackbelt-technology/pi-dashboard-shared": pkg("shared/src"), "@blackbelt-technology/pi-dashboard-client-utils": pkg("client-utils/src"), "@blackbelt-technology/pi-dashboard-app-kit/react": pkg("app-kit/src/react/index.ts"), "@blackbelt-technology/pi-dashboard-app-kit": pkg("app-kit/src/index.ts") },
-  })],
-  build: { target: "es2022" }, esbuild: { target: "es2022" }, optimizeDeps: { esbuildOptions: { target: "es2022" } },
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@blackbelt-technology/pi-dashboard-shared": pkg("shared/src"), "@blackbelt-technology/pi-dashboard-client-utils": pkg("client-utils/src"), "@blackbelt-technology/pi-dashboard-app-kit/react": pkg("app-kit/src/react/index.ts"), "@blackbelt-technology/pi-dashboard-app-kit": pkg("app-kit/src/index.ts") } },
+  server: { port: 3999, hmr: { clientPort: 3999 }, proxy: { "/api": "http://127.0.0.1:9" } },
+  build: { target: "es2022", outDir: "dist" }, esbuild: { target: "es2022" }, optimizeDeps: { esbuildOptions: { target: "es2022" } },
 };
 `);
+  w("mockups/mock-site.config.ts", `import path from "node:path";
+export default {
+  title: "E2E mocks", app: "./mock-site.app.tsx",
+  themes: [
+    { id: "system", label: "System", system: { dark: "dark", light: "light" } },
+    { id: "dark", label: "Dark", attrs: { "data-theme": null } },
+    { id: "light", label: "Light", attrs: { "data-theme": "light" } },
+  ],
+  aliases: { "@app": ${JSON.stringify(path.join(pkg("client"), "src"))} },
+};
+`);
+  w(`mockups/${SCRIPTED_MOCK}/mock.tsx`, SCRIPTED_SRC);
+  w(`mockups/${SOLID_MOCK}/mock.tsx`, "export default { title: 'Solid mock', category: 'Fixture', framework: 'solid', frames: [{ title: 'x', proposed: 'solid' }] };\n");
   w(`mockups/${FIXTURE_MOCK}/mock.tsx`, `import { InlineMessage } from "@app/components/primitives/InlineMessage.tsx";
 import { Fix, Issue, type Mock } from "mock-site/kit";
 const Box = ({ t }: { t: string }) => <div style={{ padding: 8 }}>{t}</div>;

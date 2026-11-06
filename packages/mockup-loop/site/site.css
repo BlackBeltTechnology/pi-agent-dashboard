@@ -25,11 +25,8 @@ html body { margin: 0; background: var(--mk-page); color: var(--mk-fg); }
 .mk-theme button[aria-pressed="true"] { color: var(--mk-fg); border-color: var(--mk-accent); }
 .mk-empty { color: var(--mk-muted); }
 
-/* page decision (whole mock) */
-.mk-actions { display: inline-flex; gap: 8px; }
+/* buttons (player Pause / script Pause). Decisions are read-only: no decision controls. */
 .mk-btn { min-height: 32px; padding: 4px 14px; border-radius: 6px; border: 1px solid var(--mk-line-2); background: var(--mk-panel); color: var(--mk-fg); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.mk-accept { border-color: var(--mk-ok); color: var(--mk-ok-text, var(--mk-ok)); }
-.mk-reject { border-color: var(--mk-bad); color: var(--mk-bad-text, var(--mk-bad)); }
 .mk-btn:hover { background: var(--mk-hover); }
 
 /* mock header */
@@ -100,6 +97,30 @@ html body { margin: 0; background: var(--mk-page); color: var(--mk-fg); }
 .mk-phone-wrap { position: relative; }
 .mk-phone-load { position: absolute; inset: 1px; display: grid; place-items: center; border-radius: 12px; background: var(--mk-panel); color: var(--mk-muted); font-size: 12.5px; pointer-events: none; }
 .mk-phone { display: block; box-sizing: content-box; border: 1px solid var(--mk-line-2); border-radius: 12px; background: var(--mk-panel); }
+/* isolated pane (fixtures / script): same-origin iframe, content-sized; placeholder until scrolled near */
+.mk-iso { display: block; box-sizing: content-box; max-width: 100%; border: 1px solid var(--mk-line-2); border-radius: 12px; background: var(--mk-panel); }
+.mk-iso-ph { border-radius: 12px; background: var(--mk-panel); }
+.mk-pane-load { padding: 16px; color: var(--mk-muted); font: 12.5px system-ui; }
+body.mk-pane-only.mk-pane-wide .mk-canvas { padding: 22px 16px 16px; }
+body.mk-pane-only.mk-scripted .mk-canvas { padding-bottom: 48px; }
+.mk-health { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--mk-muted); }
+.mk-health-err { color: var(--mk-bad-text, var(--mk-bad)); font-weight: 600; }
+.mk-missing { margin-top: 12px; padding: 8px 12px; max-width: 900px; border: 1px dashed var(--mk-bad); border-radius: 8px; font-size: 12.5px; color: var(--mk-muted); }
+.mk-missing ul { margin: 4px 0 0; padding-left: 18px; }
+.mk-missing code { color: var(--mk-fg); margin-right: 6px; }
+/* script overlay: pointer + caption inside the pane document, never interactive */
+.mk-cursor { position: fixed; left: -9px; top: -4px; z-index: 2147483646; width: 18px; height: 18px; pointer-events: none; opacity: 0;
+  transition-property: transform, opacity; transition-timing-function: ease-in-out;
+  clip-path: polygon(0 0, 0 100%, 30% 72%, 52% 100%, 66% 92%, 45% 66%, 85% 66%); background: var(--mk-fg); filter: drop-shadow(0 0 1.5px var(--mk-panel)); }
+.mk-cursor.on { opacity: 1; }
+.mk-cursor.mk-down { scale: .82; }
+.mk-cursor::after { content: ""; position: absolute; left: -6px; top: -2px; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--mk-accent); opacity: 0; }
+.mk-cursor.mk-down::after { opacity: .9; }
+.mk-caption { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 2147483646; padding: 6px 10px; border-radius: 8px; pointer-events: none; opacity: 0;
+  background: var(--mk-fg); color: var(--mk-panel); font: 600 12.5px/1.35 system-ui; }
+.mk-caption.on { opacity: .92; }
+.mk-caption.mk-cap-err { background: var(--mk-bad); color: #fff; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .mk-cursor { transition: none; } }
 html body.mk-pane-only { margin: 0; padding: 0; background: var(--mk-panel); }
 /* zero side padding keeps the content exactly 375px; top padding leaves room for a badge above a top-edge ring */
 body.mk-pane-only .mk-canvas { border: 0; padding: 22px 0 0; border-radius: 0; }

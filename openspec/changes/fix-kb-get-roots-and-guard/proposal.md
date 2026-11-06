@@ -33,3 +33,8 @@ Agents rarely read from the knowledge base, and part of the cause is our tooling
 - **Docs:** kb skill / AGENTS.md text that describes `kb_get` path and section arguments, and the README source examples.
 - **Evaluation:** guard tightening is advisory-mode only. Before calling it a success, run a before/after comparison over several days of real sessions (kb call rate, grep/cat-on-md rate, guard firings). Block mode stays opt-in.
 - **Out of scope:** capping `list_models` output size (separate ticket) and routing bash to context-mode `ctx_*` tools (third-party package).
+
+## Discipline Skills
+
+- `security-hardening`: source resolution now clones user-supplied GitHub / `ssh://` refs and rejects non-indexable `https` bodies; both handle untrusted input.
+- `review-code`: a non-trivial multi-module change (kb store, CLI, extension tool, guard) before commit.

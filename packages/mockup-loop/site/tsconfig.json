@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["*.tsx", "*.ts", "../src/mock-site/refs.mjs"]
+  "include": ["*.tsx", "*.ts", "__tests__/*.ts", "../src/mock-site/refs.mjs"]
 }

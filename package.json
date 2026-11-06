@@ -59,6 +59,10 @@
     "!packages/**/AGENTS.md",
     "!packages/**/*.AGENTS.md"
   ],
+  "mockSite": {
+    "launcher": "packages/client/scripts/vite-build.mjs",
+    "config": "packages/client/vite.config.ts"
+  },
   "scripts": {
     "postinstall": "node scripts/maybe-patch-package.cjs && node scripts/fix-pty-permissions.cjs",
     "dev": "npm run dev --workspace=@blackbelt-technology/pi-dashboard-web",
@@ -120,9 +124,10 @@
     "z-layer:lint": "node scripts/z-layer-lint.mjs",
     "knip:config": "node scripts/knip-config.mjs",
     "check:plugin-boundary": "node scripts/check-plugin-boundary.mjs",
+    "check:mockups": "node scripts/check-mockups.mjs",
     "check:advisory-triage": "node scripts/check-advisory-triage.mjs --xlsx",
     "build:canary": "node scripts/build-runtime-canary.mjs",
-    "mocks": "vite --config mockups/mock-site.config.ts --port 5299 --strictPort"
+    "mocks": "node packages/mockup-loop/src/mock-site/serve-cli.mjs --port 5299"
   },
   "engines": {
     "node": ">=26.0.0 <27"

@@ -1,18 +1,20 @@
 /**
- * L1 — serve_mock_site tool: real Vite child against a fixture project.
- * See change: add-live-component-mock-site (test-plan E18, E19, X1, X2, X3, X8, P2).
+ * L1 — serve_mock_site tool: real launcher child against a fixture project.
+ * See change: add-live-component-mock-site (test-plan E18, E19, X1, X2, X3, X8, P2) and
+ * add-mock-site-exact-env (test-plan E5, E17, P1, X1-X4, X10; task 1.6).
  *
  * @structural-pin no-vite-import: X8 scans mock-site-serve.ts + plugin.mjs for a static `vite` import; absence of text is the contract (a pi session without Vite must still load the extension)
  */
-import { afterEach, describe, expect, it } from "vitest";
+
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import frontendMockupLoop from "../extension.js";
 import { children } from "../mock-site-serve.js";
-import { makeFixture, makeServableFixture } from "./mock-site-fixture";
+import { makeServableFixture } from "./mock-site-fixture";
 
 type Tool = { name: string; execute: (id: string, p: any) => Promise<{ content: { text: string }[]; details: any }> };
 function fakePi() {
@@ -23,6 +25,11 @@ function fakePi() {
   return { tools, handlers };
 }
 const freePort = () => new Promise<number>((r) => { const s = net.createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as net.AddressInfo).port; s.close(() => r(p)); }); });
+function lanIp(): string | null {
+  for (const list of Object.values(os.networkInterfaces())) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) return a.address;
+  return null;
+}
+const reachable = (host: string, port: number) => new Promise<boolean>((r) => { const s = net.connect(port, host); s.setTimeout(1500, () => { s.destroy(); r(false); }); s.on("connect", () => { s.destroy(); r(true); }); s.on("error", () => r(false)); });
 const refused = (port: number) => new Promise<boolean>((r) => { const s = net.connect(port, "127.0.0.1"); s.on("connect", () => { s.destroy(); r(false); }); s.on("error", () => r(true)); });
 const roots: string[] = [];
 afterEach(async () => {
@@ -39,19 +46,94 @@ describe("serve_mock_site", () => {
     expect(src).not.toMatch(/from\s+["']vite["']/);
   });
 
-  it("refuses reserved ports, missing config, missing vite (E18)", async () => {
+  it("refuses reserved ports, no app config, missing vite; nothing started (E18, X2 add-mock-site-exact-env)", async () => {
     const { tools } = fakePi();
     const t = tools.get("serve_mock_site")!;
     const root = makeServableFixture(); roots.push(root);
-    expect((await t.execute("t", { dir: root, port: 8000 })).content[0].text).toMatch(/reserved/);
+    const p8000 = (await t.execute("t", { dir: root, port: 8000 })).content[0].text;
+    expect(p8000).toMatch(/port 8000 is reserved/);
+    expect(p8000).not.toMatch(/dashboard/i);
     process.env.PI_DASHBOARD_PORT = "5310";
     try { expect((await t.execute("t", { dir: root, port: 5310 })).content[0].text).toMatch(/reserved/); } finally { delete process.env.PI_DASHBOARD_PORT; }
     const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ms-bare-"))); roots.push(bare);
-    expect((await t.execute("t", { dir: bare })).content[0].text).toContain(path.join(bare, "mockups", "mock-site.config.ts"));
-    fs.mkdirSync(path.join(bare, "mockups")); fs.writeFileSync(path.join(bare, "mockups/mock-site.config.ts"), "export default {}");
+    const none = (await t.execute("t", { dir: bare })).content[0].text;
+    expect(none).toContain(`no app build config found in ${bare}`);
+    expect(none).toContain('"mockSite"');
+    fs.writeFileSync(path.join(bare, "vite.config.mjs"), "export default {}");
     expect((await t.execute("t", { dir: bare })).content[0].text).toMatch(/vite not found/);
     expect(children.size).toBe(0);
   });
+
+  it("options with build plugins, or that throw, are refused naming the file; nothing started (E5, X10)", async () => {
+    const { tools } = fakePi();
+    const t = tools.get("serve_mock_site")!;
+    const root = makeServableFixture(); roots.push(root);
+    const opts = path.join(root, "mockups/mock-site.config.ts");
+    fs.writeFileSync(opts, "export default { plugins: [] };\n");
+    const a = (await t.execute("t", { dir: root, port: await freePort() })).content[0].text;
+    expect(a).toContain(`mock options are not a build config: ${opts}`);
+    fs.writeFileSync(opts, "throw new Error('boom options');\n");
+    const b = (await t.execute("t", { dir: root, port: await freePort() })).content[0].text;
+    expect(b).toContain(opts);
+    expect(b).toContain("boom options");
+    expect(children.size).toBe(0);
+  });
+
+  it("declared launcher missing: actionable error naming it; nothing started (X3)", async () => {
+    const { tools } = fakePi();
+    const root = makeServableFixture(); roots.push(root);
+    fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ mockSite: { launcher: "scripts/missing.mjs", config: "vite.config.mjs" } }));
+    const r = (await tools.get("serve_mock_site")!.execute("t", { dir: root, port: await freePort() })).content[0].text;
+    expect(r).toContain(`declared launcher not found: ${path.join(root, "scripts/missing.mjs")}`);
+    expect(children.size).toBe(0);
+  });
+
+  it("result names launcher + config, says show the URL, decisions via CLI; binds loopback unless lan (1.6, E17, X4)", async () => {
+    const { tools } = fakePi();
+    const t = tools.get("serve_mock_site")!;
+    const root = makeServableFixture(); roots.push(root);
+    const port = await freePort();
+    const r = await t.execute("t", { dir: root, port });
+    const text = r.content[0].text;
+    expect(text).toMatch(/launcher: \S+[/\\]node_modules[/\\]vite[/\\]bin[/\\]vite\.js\n/); // detected Vite bin (real path)
+    expect(text).toContain(`app config: ${path.join(root, "vite.config.mjs")}`);
+    expect(text).toContain("Show the URL to the user");
+    expect(text).toContain("mock-decide accept|reject");
+    expect(text.split("\n").at(-1)).not.toMatch(/canvas\(|dashboard/i); // guidance line (paths may name the repo)
+    const ip = lanIp();
+    if (ip) expect(await reachable(ip, port)).toBe(false);
+    await t.execute("t", { stop: true, port });
+    if (ip) {
+      const lan = await t.execute("t", { dir: root, port, lan: true });
+      expect(lan.content[0].text).toContain(`LAN:   http://${ip}:${port}`);
+      expect(await reachable(ip, port)).toBe(true);
+      await t.execute("t", { stop: true, port });
+    }
+    const desc = (tools.get("serve_mock_site") as unknown as { description: string }).description;
+    expect(desc).toContain("Show the returned URL to the user");
+    expect(desc).not.toMatch(/canvas\(|dashboard|Accept\/Reject/i);
+  }, 90_000);
+
+  it("starts on THIS repo within the budget: p95 of 5 cold starts < 10 s (P1)", async () => {
+    const { tools } = fakePi();
+    const t = tools.get("serve_mock_site")!;
+    const repo = path.resolve(__dirname, "../../../..");
+    // The inherited client config regenerates this tracked file on start (as `npm run dev` does): put it back.
+    const generated = path.join(repo, "packages/client/src/generated/plugin-registry.tsx");
+    const before = fs.existsSync(generated) ? fs.readFileSync(generated, "utf8") : null;
+    onTestFinished(() => { if (before !== null && fs.readFileSync(generated, "utf8") !== before) fs.writeFileSync(generated, before); });
+    const times: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const port = await freePort();
+      const t0 = Date.now();
+      const r = await t.execute("t", { dir: repo, port });
+      expect(r.details.local, r.content[0].text).toBe(`http://localhost:${port}`);
+      times.push(Date.now() - t0);
+      await t.execute("t", { stop: true, port });
+    }
+    times.sort((a, b) => a - b);
+    expect(times[Math.ceil(0.95 * times.length) - 1]).toBeLessThan(10_000);
+  }, 120_000);
 
   it("starts within 30s, LAN text only with lan, stops and frees the port (E19, P2, X3)", async () => {
     const { tools, handlers } = fakePi();
@@ -92,8 +174,8 @@ describe("serve_mock_site", () => {
 
   it("child crash during start fails fast (X2)", async () => {
     const { tools } = fakePi();
-    const root = makeFixture(); roots.push(root);
-    fs.writeFileSync(path.join(root, "mockups/mock-site.config.ts"), "throw new Error('boom config');\n");
+    const root = makeServableFixture(); roots.push(root);
+    fs.writeFileSync(path.join(root, "vite.config.mjs"), "throw new Error('boom config');\n");
     const t0 = Date.now();
     const res = await tools.get("serve_mock_site")!.execute("t", { dir: root, port: await freePort() });
     expect(Date.now() - t0).toBeLessThan(30_000);

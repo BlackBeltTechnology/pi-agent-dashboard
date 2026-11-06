@@ -1,16 +1,21 @@
 // @ts-check
 // Reference grammar for the live-component mock site. Pure: shared by the node
 // plugin, the `mock-decide` CLI, and the browser shell (no node imports).
-//   <id> | <id>/<frame> | <id>/<frame>/<side> | <id>/<frame>/<side>/<ring>
-// See change: add-live-component-mock-site (design D7).
+//   <id> | <id>/<frame> | <id>/<frame>/<side> | <id>/<frame>/<side>/<ring|step-<k>>
+// See change: add-live-component-mock-site (design D7), add-mock-site-exact-env (D5).
 
 /** Mock id = directory name: `<yyyy-mm-dd>-<slug>`. */
 export const MOCK_ID_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/;
 /** Ring number segment (a ref segment, so no `/`). */
 export const RING_RE = /^[A-Za-z0-9-]+$/;
+/** Step segment: `step-<k>`, k 1-based. Reserved: a ring `n` never starts with `step-`. */
+const STEP_RE = /^step-[1-9]\d*$/;
+
+/** A valid ring `n`: ref-safe and not in the reserved `step-` space. @param {unknown} n */
+export const isRingN = (n) => RING_RE.test(String(n)) && !String(n).startsWith("step-");
 
 /**
- * @typedef {{ id: string, frame?: number, side?: "current"|"proposed", ring?: string }} Ref
+ * @typedef {{ id: string, frame?: number, side?: "current"|"proposed", ring?: string, step?: number }} Ref
  */
 
 /**
@@ -40,6 +45,11 @@ export function parseRef(input) {
   if (side !== "current" && side !== "proposed") throw new Error(`bad ref: side "${side}" must be current|proposed`);
   out.side = side;
   if (ring === undefined) return out;
+  if (ring.startsWith("step-")) {
+    if (!STEP_RE.test(ring)) throw new Error(`bad ref: step "${ring}" must be step-<k>, k 1-based`);
+    out.step = Number(ring.slice(5));
+    return out;
+  }
   if (!RING_RE.test(ring)) throw new Error(`bad ref: ring "${ring}" must match [A-Za-z0-9-]+`);
   out.ring = ring;
   return out;
