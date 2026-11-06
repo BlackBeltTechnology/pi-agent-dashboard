@@ -16,5 +16,5 @@
 ## 3. Docs + review
 
 - [x] 3.1 Update the AGENTS.md rows: `packages/subagents-plugin/src/client/AGENTS.md` (`AgentToolRenderer.tsx`: no card stop; feedback-only line) and `packages/client/src/components/chat/ToolCallStep.tsx.AGENTS.md` (claim-handled stop expands the row). See change: drop-subagent-card-stop-button.
-- [ ] 3.2 Run `review-code` on the diff before commit.
-- [ ] 3.3 Manual check in a live gap-miner fan-out, dark and light: one ■ per row, no card stop line, and the feedback line appears only after a stop (test-plan: manual-only, #V1).
+- [x] 3.2 Run `review-code` on the diff before commit.
+- [x] 3.3 Manual check in a live gap-miner fan-out, dark and light: one ■ per row, no card stop line, and the feedback line appears only after a stop (test-plan: manual-only, #V1).
