@@ -8,6 +8,7 @@ import type {
   AutomationConfig,
   AutomationScope,
   RunRecord,
+  StopOutcome,
   TriggerCategoryDescriptor,
 } from "../shared/automation-types.js";
 
@@ -204,19 +205,36 @@ export async function runAutomationNow(
 }
 
 /** Stop a running automation run (abort its session + finalize the record). */
+/** Result of a Stop request. `outcome` is set on every accepted Stop
+ *  (`killed` = process verified gone; `unconfirmed` = it may still be
+ *  running); `alreadyFinalized` = another writer finalized it first.
+ *  See change: polish-automation-board (design D3, D4). */
+export interface StopRunResult {
+  ok: boolean;
+  outcome?: StopOutcome;
+  alreadyFinalized?: boolean;
+  error?: string;
+}
+
 export async function stopAutomationRun(
   scope: AutomationScope,
   cwd: string | undefined,
   runId: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<StopRunResult> {
   try {
     const res = await fetch(`${BASE}/stop`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scope, runId, ...(cwd ? { cwd } : {}) }),
     });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-    if (res.ok && json.ok) return { ok: true };
+    const json = (await res.json().catch(() => ({}))) as StopRunResult;
+    if (res.ok && json.ok) {
+      return {
+        ok: true,
+        ...(json.outcome ? { outcome: json.outcome } : {}),
+        ...(json.alreadyFinalized ? { alreadyFinalized: true } : {}),
+      };
+    }
     return { ok: false, error: json.error ?? `HTTP ${res.status}` };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

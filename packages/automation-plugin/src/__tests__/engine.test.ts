@@ -672,7 +672,7 @@ describe("engine run lifecycle", () => {
 
   it("stopRun on an unknown/finalized run is a no-op returning false", async () => {
     const engine = makeEngine([]);
-    expect(await engine.stopRun("does-not-exist")).toBeNull();
+    expect(await engine.stopRun("does-not-exist")).toBe(null);
   });
 
   it("arms valid automations via start()", () => {

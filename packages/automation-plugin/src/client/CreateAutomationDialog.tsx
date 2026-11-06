@@ -26,7 +26,7 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ActionDescriptor,
   ActionPayloadField,
@@ -102,7 +102,15 @@ export interface CreateAutomationDialogProps {
   initialScope?: AutomationScope;
   /** Edit mode: existing prompt.md body for prompt actions. */
   initialPromptBody?: string;
+  /**
+   * Section to open on: scrolled into view with its first field focused
+   * (`advanced` also expands the collapsed group). See change:
+   * polish-automation-board (design D11).
+   */
+  initialSection?: EditorSection;
 }
+
+export type EditorSection = "identity" | "trigger" | "action" | "advanced";
 
 type VisibilityChoice = "default" | Visibility;
 
@@ -190,6 +198,7 @@ export function CreateAutomationDialog({
   initialName,
   initialScope,
   initialPromptBody,
+  initialSection,
 }: CreateAutomationDialogProps): React.ReactElement {
   const t = useT();
   const editing = !!initialConfig;
@@ -296,7 +305,7 @@ export function CreateAutomationDialog({
   const [visibility, setVisibility] = useState<VisibilityChoice>(
     initialConfig?.visibility ?? "default",
   );
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(initialSection === "advanced");
   const [gitCapable, setGitCapable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -355,6 +364,27 @@ export function CreateAutomationDialog({
   );
   const isScheduled = category === "scheduled";
   const effectiveCron = rawCronMode ? cron : buildCron(freq, time, dow);
+
+  // Unsaved-change count: one entry per user-facing field, compared with the
+  // draft as first rendered. See change: polish-automation-board (design D11).
+  const draftFields = [
+    name, scope, category, selectedEvents.join("\u0000"), effectiveCron, actionId, String(primaryCount),
+    JSON.stringify(extraEntries), JSON.stringify(actionPayload), JSON.stringify(actionInputs), filePath,
+    promptBody, skill, modelValue, modelLevel ?? "", agentId, mode, sandbox, concurrency, visibility,
+  ];
+  const initialDraft = useRef<string[] | null>(null);
+  initialDraft.current ??= draftFields;
+  const dirtyCount = draftFields.filter((v, i) => v !== initialDraft.current![i]).length;
+
+  // Open on the requested section: scroll it into view, focus its first field.
+  const sectionRefs = useRef<Partial<Record<EditorSection, HTMLElement | null>>>({});
+  useEffect(() => {
+    if (!initialSection) return;
+    const el = sectionRefs.current[initialSection];
+    if (!el) return;
+    el.scrollIntoView?.({ block: "nearest" });
+    el.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
+  }, [initialSection]);
   const nextRun = useMemo(() => {
     const next = nextFire(effectiveCron, new Date());
     return next ? relativeFuture(next) : null;
@@ -485,7 +515,7 @@ export function CreateAutomationDialog({
         </div>
 
         {/* ── IDENTITY ─────────────────────────────────────────── */}
-        <Group title="Identity" label={t("groupIdentity", undefined, "Identity")}>
+        <Group title="Identity" label={t("groupIdentity", undefined, "Identity")} sectionRef={(el) => { sectionRefs.current.identity = el; }} open={initialSection === "identity"}>
           <Field label={t("fieldName", undefined, "Name")}>
             <input
               type="text"
@@ -517,7 +547,7 @@ export function CreateAutomationDialog({
         </Group>
 
         {/* ── TRIGGER ──────────────────────────────────────────── */}
-        <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")}>
+        <Group title="Trigger" label={t("groupTrigger", undefined, "Trigger")} sectionRef={(el) => { sectionRefs.current.trigger = el; }} open={initialSection === "trigger"}>
           <div className="flex flex-wrap gap-1" data-testid="trigger-categories">
             {categories.map((c) => {
               const selected = c.category === category;
@@ -682,7 +712,7 @@ export function CreateAutomationDialog({
         </Group>
 
         {/* ── ACTION ───────────────────────────────────────────── */}
-        <Group title="Action" label={t("groupAction", undefined, "Action")}>
+        <Group title="Action" label={t("groupAction", undefined, "Action")} sectionRef={(el) => { sectionRefs.current.action = el; }} open={initialSection === "action"}>
           <ActionPicker
             actions={
               agentId
@@ -948,7 +978,7 @@ export function CreateAutomationDialog({
             <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span> {t("advanced", undefined, "Advanced")}
           </button>
           {advancedOpen && (
-            <div className="space-y-2 pt-2" data-testid="create-advanced">
+            <div className="space-y-2 pt-2" data-testid="create-advanced" ref={(el) => { sectionRefs.current.advanced = el; }}>
               <div className="grid grid-cols-2 gap-2">
                 <Field label={t("fieldMode", undefined, "Mode")}>
                   <select
@@ -1023,7 +1053,14 @@ export function CreateAutomationDialog({
           {actionId === "core.prompt" ? " + prompt.md" : ""}
         </p>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex items-center justify-end gap-2 pt-2">
+          {dirtyCount > 0 && (
+            <span className="mr-auto text-[12px] text-[var(--text-secondary)]" data-testid="editor-dirty-count" aria-live="polite">
+              {dirtyCount === 1
+                ? t("unsavedChangeOne", undefined, "1 unsaved change")
+                : t("unsavedChangeMany", { count: dirtyCount }, `${dirtyCount} unsaved changes`)}
+            </span>
+          )}
           <button type="button" onClick={onClose} className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
             {t("cancel", undefined, "Cancel")}
           </button>
@@ -1071,10 +1108,25 @@ function mapKindToCategory(kind: string): string {
   return kind === "schedule" ? "scheduled" : kind;
 }
 
-function Group({ title, label, children }: { title: string; label?: string; children: React.ReactNode }): React.ReactElement {
+function Group({
+  title,
+  label,
+  children,
+  sectionRef,
+  open,
+}: {
+  title: string;
+  label?: string;
+  children: React.ReactNode;
+  sectionRef?: (el: HTMLElement | null) => void;
+  /** The section the editor opened on (groups are always expanded; marks the target). */
+  open?: boolean;
+}): React.ReactElement {
   return (
     <section
+      ref={sectionRef}
       data-testid={`group-${title.toLowerCase()}`}
+      {...(open ? { "data-open": "true" } : {})}
       className="space-y-2 rounded-lg border border-[var(--border-secondary)] p-3"
     >
       <h3 className="text-[12px] font-semibold text-[var(--text-secondary)]">{label ?? title}</h3>

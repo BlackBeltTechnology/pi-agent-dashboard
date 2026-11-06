@@ -482,3 +482,28 @@ describe("CreateAutomationDialog agent picker (add-acp-session-driver)", () => {
     expect(config.action.kind).toBe("prompt");
   });
 });
+
+// test-plan #E21 — the editor opens on the section the user clicked and counts
+// unsaved changes in its footer. See change: polish-automation-board (design D11).
+describe("CreateAutomationDialog initialSection + dirty count", () => {
+  it("E21: opens on Trigger with its first field focused; one edit reads '1 unsaved change'", async () => {
+    const { getByTestId, queryByTestId } = render(
+      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialSection="trigger" />),
+    );
+    await waitFor(() => expect(getByTestId("group-trigger").contains(document.activeElement)).toBe(true));
+    expect(getByTestId("group-trigger").getAttribute("data-open")).toBe("true");
+    expect(document.activeElement).toBe(getByTestId("group-trigger").querySelector("button, input, select, textarea"));
+    expect(queryByTestId("editor-dirty-count")).toBe(null);
+    fireEvent.change(getByTestId("create-cron-time"), { target: { value: "17:00" } });
+    expect(getByTestId("editor-dirty-count").textContent).toBe("1 unsaved change");
+    fireEvent.change(getByTestId("create-name"), { target: { value: "x" } });
+    expect(getByTestId("editor-dirty-count").textContent).toBe("2 unsaved changes");
+  });
+
+  it("initialSection advanced expands the collapsed Advanced group", async () => {
+    const { getByTestId } = render(
+      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialSection="advanced" />),
+    );
+    await waitFor(() => expect(getByTestId("create-advanced").contains(document.activeElement)).toBe(true));
+  });
+});
