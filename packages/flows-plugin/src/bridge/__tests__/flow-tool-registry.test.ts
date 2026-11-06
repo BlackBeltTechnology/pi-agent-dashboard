@@ -55,6 +55,15 @@ const isGone = (pid: number) => {
     return (e as NodeJS.ErrnoException).code === "ESRCH";
   }
 };
+/** Gone (ESRCH) within `withinMs` — a reparented child may linger as a zombie until init reaps it. */
+async function goneWithin(pid: number, withinMs: number): Promise<boolean> {
+  const deadline = Date.now() + withinMs;
+  while (Date.now() < deadline) {
+    if (isGone(pid)) return true;
+    await sleep(25);
+  }
+  return isGone(pid);
+}
 async function waitForPid(file: string): Promise<number> {
   for (let i = 0; i < 50; i++) {
     const txt = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
@@ -173,12 +182,25 @@ describe.skipIf(process.platform === "win32")("timeouts and output cap", () => {
     expect(r.stdout.length).toBe(n);
   }, 30_000);
 
-  it("E13: output over the cap is cut off and the child killed", async () => {
+  it("E13: output over the cap is cut off and the child killed within 2 s", async () => {
+    const payload = path.join(tmp(), "payload");
+    fs.writeFileSync(payload, Buffer.alloc(MAX_OUTPUT_BYTES + 1024 * 1024, 0x61));
     const t0 = Date.now();
-    const r = await tools.shell(`head -c ${MAX_OUTPUT_BYTES + 1024 * 1024} /dev/zero | tr '\\0' a; sleep 30`);
+    const r = await tools.shell(`cat ${payload}; sleep 30`);
     expect(r.ok).toBe(false);
     expect(r.stdout.length).toBeLessThanOrEqual(MAX_OUTPUT_BYTES);
-    expect(Date.now() - t0).toBeLessThan(12_000);
+    // Streaming 65 MiB from a local file is sub-second; the remainder is the kill bound.
+    expect(Date.now() - t0).toBeLessThan(2_500);
+  }, 30_000);
+
+  it("E13b: truncation never splits a UTF-8 sequence", async () => {
+    const payload = path.join(tmp(), "payload-mb");
+    // cap-1 ASCII bytes then a 2-byte "é": the byte cap falls inside the "é".
+    fs.writeFileSync(payload, Buffer.concat([Buffer.alloc(MAX_OUTPUT_BYTES - 1, 0x61), Buffer.from("é")]));
+    const r = await tools.shell(`cat ${payload}; sleep 30`);
+    expect(r.ok).toBe(false);
+    expect(Buffer.byteLength(r.stdout, "utf8")).toBeLessThanOrEqual(MAX_OUTPUT_BYTES);
+    expect(r.stdout.includes("\uFFFD")).toBe(false);
   }, 30_000);
 });
 
@@ -227,13 +249,18 @@ describe.skipIf(process.platform === "win32")("shell()", () => {
   });
 
   it("E16: tools only in the managed bin dir are found", async () => {
+    // Never touch a real managed bin: HOME must be the ephemeral test HOME, and the
+    // tool name is unique so nothing pre-existing can be overwritten or removed.
+    expect(path.resolve(os.homedir())).not.toBe(path.resolve(os.userInfo().homedir));
     const bin = getManagedBin();
     expect(bin.startsWith(os.homedir())).toBe(true);
     fs.mkdirSync(bin, { recursive: true });
-    const tool = path.join(bin, "flow-tools-fake-tool");
+    const name = `flow-tools-fake-tool-${process.pid}-${Date.now()}`;
+    const tool = path.join(bin, name);
+    expect(fs.existsSync(tool)).toBe(false);
     fs.writeFileSync(tool, "#!/bin/sh\necho fake 1.0\n", { mode: 0o755 });
     try {
-      const r = await tools.shell("flow-tools-fake-tool");
+      const r = await tools.shell(name);
       expect(r.ok).toBe(true);
       expect(r.stdout).toContain("fake 1.0");
     } finally {
@@ -266,7 +293,7 @@ describe.skipIf(process.platform === "win32")("runaway children and failures", (
     const r = await p;
     expect(r.ok).toBe(false);
     expect(Date.now() - t0).toBeLessThan(2_500);
-    expect(isGone(grandchild)).toBe(true);
+    expect(await goneWithin(grandchild, 2_500 - (Date.now() - t0))).toBe(true);
   });
 
   it("X2: abort kills the child and its grandchild within 2 s", async () => {
@@ -280,7 +307,25 @@ describe.skipIf(process.platform === "win32")("runaway children and failures", (
     const r = await p;
     expect(r.ok).toBe(false);
     expect(Date.now() - t0).toBeLessThan(2_000);
-    expect(isGone(grandchild)).toBe(true);
+    expect(await goneWithin(grandchild, 2_000 - (Date.now() - t0))).toBe(true);
+  });
+
+  it("X6: win32 .cmd shims are routed through cmd.exe, args preserved", async () => {
+    const spawn = vi.fn((..._a: Parameters<typeof realSpawn>) => realSpawn(process.execPath, ["-e", ""]));
+    const t = createFlowTools({
+      platform: "win32",
+      spawn,
+      registry: () => ({
+        has: () => true,
+        resolve: () => ({ ok: true, path: "C:\\node\\npx.cmd" }),
+        resolveExecutor: () => ({ ok: true, argv: ["C:\\node\\npx.cmd"] }),
+      }),
+    });
+    await t.run("npx", ["--version"]);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const [cmd, args] = spawn.mock.calls[0];
+    expect(cmd).toBe("cmd.exe");
+    expect(args).toEqual(["/d", "/s", "/c", "C:\\node\\npx.cmd", "--version"]);
   });
 
   it("X3: a throwing registry never escapes the facade", async () => {

@@ -18,7 +18,7 @@
  * See change: add-flow-code-node-tools (design D1–D4, D6).
  */
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { spawn as defaultSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { buildSafeArgv, spawn as defaultSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { killProcessGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { buildSpawnEnvForArgv } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -72,6 +72,8 @@ interface RegistryLike {
 export interface FlowToolsDeps {
   registry?: () => RegistryLike;
   spawn?: typeof defaultSpawn;
+  /** Platform for spawn-argv routing (win32 `.cmd` shims); default `process.platform`. */
+  platform?: NodeJS.Platform;
 }
 
 const fail = (code: number, message: string): FlowToolResult => ({
@@ -81,6 +83,20 @@ const fail = (code: number, message: string): FlowToolResult => ({
   stderr: message,
   out: message,
 });
+
+/** Drop a trailing incomplete UTF-8 sequence left by truncating a stream at the byte cap. */
+function dropPartialUtf8Tail(buf: Buffer): Buffer {
+  let i = buf.length - 1;
+  let continuation = 0;
+  while (i >= 0 && continuation < 3 && (buf[i] & 0xc0) === 0x80) {
+    i--;
+    continuation++;
+  }
+  if (i < 0) return buf;
+  const lead = buf[i];
+  const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+  return need > 1 && continuation + 1 < need ? buf.subarray(0, i) : buf;
+}
 
 const isAbsolutePath = (p: string): boolean => p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\\\");
 
@@ -104,13 +120,16 @@ function execArgv(
   opts: FlowToolRunOptions | undefined,
   spawnFn: typeof defaultSpawn,
   dropShellInit: boolean,
+  platform: NodeJS.Platform,
 ): Promise<FlowToolResult> {
   if (opts?.signal?.aborted) return Promise.resolve(fail(130, "aborted before start"));
   const [bin, ...prefix] = argv;
   return new Promise<FlowToolResult>((resolve) => {
     let child: ReturnType<typeof defaultSpawn>;
     try {
-      child = spawnFn(bin, [...prefix, ...args], {
+      // win32 `.cmd`/`.bat` shims (e.g. npx.cmd) cannot run with shell:false; route via cmd.exe.
+      const { argv: safe } = buildSafeArgv(bin, [...prefix, ...args], platform);
+      child = spawnFn(safe[0], safe.slice(1), {
         cwd: opts?.cwd,
         env: spawnEnv(bin, opts, dropShellInit),
         detached: process.platform !== "win32", // platform-branch-ok: POSIX own process group so killProcessGroup reaches grandchildren; win32 detach would escape the job object
@@ -135,8 +154,13 @@ function execArgv(
       settled = true;
       if (timer) clearTimeout(timer);
       opts?.signal?.removeEventListener("abort", onAbort);
-      const stdout = Buffer.concat(out).toString("utf8");
-      let stderr = Buffer.concat(err).toString("utf8");
+      // Chunks are already cut at the byte cap; a cut stream may end mid-character.
+      const decode = (chunks: Buffer[], total: number) => {
+        const buf = Buffer.concat(chunks);
+        return (total > MAX_OUTPUT_BYTES ? dropPartialUtf8Tail(buf) : buf).toString("utf8");
+      };
+      const stdout = decode(out, outBytes);
+      let stderr = decode(err, errBytes);
       if (spawnError) stderr += `${stderr ? "\n" : ""}${spawnError.message}`;
       const code = spawnError
         ? (spawnError as NodeJS.ErrnoException).code === "ENOENT"
@@ -201,6 +225,7 @@ function execArgv(
 export function createFlowTools(deps: FlowToolsDeps = {}): FlowTools {
   const registry = deps.registry ?? getDefaultRegistry;
   const spawnFn = deps.spawn ?? defaultSpawn;
+  const platform = deps.platform ?? process.platform;
 
   const argvFor = (name: string): string[] => {
     try {
@@ -235,14 +260,14 @@ export function createFlowTools(deps: FlowToolsDeps = {}): FlowTools {
       if (opts?.signal?.aborted) return fail(130, "aborted before start");
       const argv = argvFor(name);
       if (!argv.length) return fail(127, `${name}: not registered or not resolved`);
-      return execArgv(argv, args, opts, spawnFn, false);
+      return execArgv(argv, args, opts, spawnFn, false, platform);
     },
     async shell(script, opts) {
       if (opts?.signal?.aborted) return fail(130, "aborted before start");
       const argv = argvFor("bash");
       if (!argv.length) return fail(127, "bash: not registered or not resolved");
       // Inherited BASH_ENV/ENV are dropped from the base; an explicit opts.env value is merged back on top.
-      return execArgv(argv, ["--noprofile", "--norc", "-c", script], opts, spawnFn, true);
+      return execArgv(argv, ["--noprofile", "--norc", "-c", script], opts, spawnFn, true, platform);
     },
   };
 }
