@@ -58,6 +58,13 @@ export interface PiSettingDef {
   def: boolean | number | string | null;
   /** Display text for a non-literal default. */
   defText?: string;
+  /**
+   * `int` only: the canonical string `"disabled"` is also valid (pi 1.5 documents
+   * the key as `number | "disabled"`). The typed PATCH accepts exactly that
+   * spelling; pi's own parser is trim/case-insensitive.
+   * See change: update-pi-core-1-5-adopt-apis (design D4).
+   */
+  disabledLiteral?: true;
   category: PiSettingCategory;
   label: string;
   hint: string;
@@ -79,7 +86,7 @@ const intKey = (
   category: PiSettingCategory,
   label: string,
   hint: string,
-  extra: Pick<PiSettingDef, "min" | "max" | "defText"> = { min: 0 },
+  extra: Pick<PiSettingDef, "min" | "max" | "defText" | "disabledLiteral"> = { min: 0 },
 ): PiSettingDef => ({ key, kind: "int", def, category, label, hint, ...extra });
 const str = (
   key: string,
@@ -133,7 +140,7 @@ export const PI_SETTINGS_SCHEMA: readonly PiSettingDef[] = [
   // Sessions and context
   str("sessionDir", null, "sessions", "Session directory", "Session storage directory", "agent session directory"),
   bool("compaction.enabled", true, "sessions", "Auto-compaction", "Compact long conversations automatically"),
-  intKey("compaction.reserveTokens", 16384, "sessions", "Compaction reserve tokens", "Tokens reserved for the model response"),
+  intKey("compaction.reserveTokens", 16384, "sessions", "Compaction reserve tokens", "Free context tokens below which automatic compaction starts"),
   intKey("compaction.keepRecentTokens", 20000, "sessions", "Compaction keep-recent tokens", "Recent tokens retained without summarization"),
   intKey("branchSummary.reserveTokens", 16384, "sessions", "Branch summary reserve tokens", "Tokens reserved when summarizing branch history"),
   bool("branchSummary.skipPrompt", false, "sessions", "Skip branch summary prompt", "Skip the branch-summary prompt and default to no summary"),
@@ -199,8 +206,14 @@ export const PI_SETTINGS_SCHEMA: readonly PiSettingDef[] = [
   // Network
   enumKey("transport", ["auto", "sse", "websocket", "websocket-cached"], "auto", "network", "Transport", "Preferred transport for providers that support several"),
   str("httpProxy", null, "network", "HTTP proxy", "Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for pi's HTTP clients", "none"),
-  intKey("httpIdleTimeoutMs", 300000, "network", "HTTP idle timeout (ms)", "HTTP header and body idle timeout; 0 disables"),
-  intKey("websocketConnectTimeoutMs", 15000, "network", "WebSocket connect timeout (ms)", "WebSocket connection timeout; 0 disables"),
+  intKey("httpIdleTimeoutMs", 300000, "network", "HTTP idle timeout (ms)", "HTTP header and body idle timeout; 0 disables", {
+    min: 0,
+    disabledLiteral: true,
+  }),
+  intKey("websocketConnectTimeoutMs", 15000, "network", "WebSocket connect timeout (ms)", "WebSocket connection timeout; 0 disables", {
+    min: 0,
+    disabledLiteral: true,
+  }),
 
   // Shell
   str("shellPath", null, "shell", "Shell path", "Custom shell executable path", "platform default"),
@@ -210,7 +223,7 @@ export const PI_SETTINGS_SCHEMA: readonly PiSettingDef[] = [
   bool("enableSkillCommands", true, "resources", "Skill commands", "Register skills as /skill:name commands"),
 
   // Updates and privacy
-  bool("collapseChangelog", false, "updates", "Condensed changelog", "Show a condensed changelog after an update"),
+  bool("collapseChangelog", false, "updates", "Condensed changelog", "Show a condensed changelog after an update; also condenses extension package changelogs"),
   bool("enableInstallTelemetry", true, "updates", "Install telemetry", "Anonymous install/update reporting and selected provider attribution headers"),
   bool("enableAnalytics", false, "updates", "Analytics", "Opt in to analytics data sharing"),
   bool("warnings.anthropicExtraUsage", true, "updates", "Anthropic extra-usage warning", "Warn when Anthropic subscription authentication may use paid extra usage"),
@@ -241,11 +254,13 @@ export function splitPiSettingKey(key: string): [string, string] | [string] {
 type KindCheck = (def: PiSettingDef, v: unknown) => string | null;
 
 const checkInt: KindCheck = (def, v) => {
+  if (def.disabledLiteral && v === "disabled") return null;
   const lo = def.min ?? 0;
   const ok = typeof v === "number" && Number.isInteger(v) && v >= lo && (def.max === undefined || v <= def.max);
   if (ok) return null;
   if (def.max !== undefined) return `must be an integer from ${lo} to ${def.max}`;
-  return lo > 0 ? `must be an integer of at least ${lo}` : "must be a non-negative integer";
+  if (lo > 0) return `must be an integer of at least ${lo}`;
+  return def.disabledLiteral ? 'must be a non-negative integer or "disabled"' : "must be a non-negative integer";
 };
 
 const checkString: KindCheck = (def, v) => {

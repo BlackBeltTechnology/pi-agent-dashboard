@@ -30,11 +30,18 @@ declare module "@earendil-works/pi-coding-agent" {
     unregisterProvider(name: string): void;
     /** Append a durable custom entry to the session record (not sent to the LLM). */
     appendEntry<T = unknown>(customType: string, data?: T): void;
-    exec(command: string, args: string[], options?: { timeout?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+    /** pi's `ExecResult` (dist/core/exec.d.ts): the exit status is `code`. */
+    exec(
+      command: string,
+      args: string[],
+      options?: { timeout?: number },
+    ): Promise<{ stdout: string; stderr: string; code: number; killed: boolean; truncated: boolean }>;
     events: EventBus;
   }
 }
 
 declare module "@earendil-works/pi-ai" {
   export function StringEnum<T extends readonly string[]>(values: T, schema?: Record<string, unknown>): any;
+  /** pi 1.5 tool-argument validation (pi-schema, coerce). Throws `Validation failed for tool "<name>":…`. */
+  export function validateToolArguments(tool: { name: string; parameters: unknown }, toolCall: { name: string; arguments: unknown }): any;
 }

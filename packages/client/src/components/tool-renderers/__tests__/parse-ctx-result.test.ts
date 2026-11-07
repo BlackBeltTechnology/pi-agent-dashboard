@@ -104,7 +104,7 @@ describe("parseCtxResult — error classification", () => {
     const r = parseCtxResult("ctx_execute", fx.err_validation, true);
     expect(r).toMatchObject({ kind: "error", variant: "validation" });
     if (r.kind === "error") {
-      expect(r.message).toContain("must have required properties code");
+      expect(r.message).toContain("- code: missing");
       expect(r.receivedArgs).toBeDefined();
       expect(r.receivedArgs).toContain("language");
     }

@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   newTrustSalt,
   TRUST_RESOURCE_MAX_BYTES,
@@ -172,6 +172,71 @@ describe("#E16 fail-closed set", () => {
     const ac = new AbortController();
     ac.abort();
     expect(await trustResourceManifest(cwd, { home, signal: ac.signal })).toBeNull();
+  });
+});
+
+/**
+ * The user's own `~/.agents/skills` is excluded with pi's `pathsEqual`
+ * (1.5.0 `trust-manager.js:167`), not `!==`.
+ * See change: update-pi-core-1-5-adopt-apis (test-plan #E32 #E33).
+ */
+describe("#E32 / #E33 user-skills exclusion", () => {
+  it("#E32 a cwd under home: the user's skills are not hashed, a project's are", async () => {
+    const proj = path.join(home, "proj");
+    write(path.join(proj, ".pi", "settings.json"), "{}", T);
+    const without = await trustResourceManifest(proj, { home });
+    write(path.join(home, ".agents", "skills", "x", "SKILL.md"), "user", T);
+    expect(await trustResourceManifest(proj, { home })).toBe(without);
+    write(path.join(proj, ".agents", "skills", "y", "SKILL.md"), "project", T);
+    expect(await trustResourceManifest(proj, { home })).not.toBe(without);
+  });
+
+  it("#E33 win32: a drive-letter casing difference still excludes the user's skills", async () => {
+    // In-memory, case-insensitive (Windows-like) tree; separators normalised.
+    const norm = (p: string) => p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+    const files = new Map<string, string>([["c:\\users\\u\\.agents\\skills\\s\\skill.md", "user skill"]]);
+    const isDir = (k: string) => [...files.keys()].some((f) => f.startsWith(`${k}\\`));
+    const enoent = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    const stat = (kind: "d" | "f", size = 0) => ({
+      isSymbolicLink: () => false,
+      isDirectory: () => kind === "d",
+      isFile: () => kind === "f",
+      size,
+    });
+    vi.resetModules();
+    vi.doMock("node:fs/promises", () => ({
+      lstat: async (p: string) => {
+        const k = norm(p);
+        if (files.has(k)) return stat("f", files.get(k)!.length);
+        if (isDir(k)) return stat("d");
+        throw enoent();
+      },
+      realpath: async () => {
+        throw enoent();
+      },
+      readFile: async (p: string) => Buffer.from(files.get(norm(p)) ?? ""),
+      opendir: async (p: string) => {
+        const k = norm(p);
+        const names = new Set<string>();
+        for (const f of files.keys()) if (f.startsWith(`${k}\\`)) names.add(f.slice(k.length + 1).split("\\")[0]);
+        return {
+          async *[Symbol.asyncIterator]() {
+            for (const name of names) yield { name };
+          },
+          close: async () => undefined,
+        };
+      },
+    }));
+    try {
+      const mod = await import("../pi-trust-resource-digest.js");
+      const opts = { home: "C:\\Users\\u", pathApi: path.win32 };
+      expect(await mod.trustResourceManifest("c:\\users\\u\\proj", opts)).toBeNull();
+      // Control: the same tree under a non-home ancestor IS hashed.
+      expect(await mod.trustResourceManifest("c:\\users\\u\\proj", { ...opts, home: "C:\\Other" })).not.toBeNull();
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    }
   });
 });
 

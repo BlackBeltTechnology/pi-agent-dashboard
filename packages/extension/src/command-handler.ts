@@ -1577,7 +1577,9 @@ async function runBashCommand(
     // Spawn the resolved absolute path directly (no shell, no PATH dep).
     const result = await pi.exec(resolved.path, argv, { timeout: BASH_TIMEOUT });
     output = (result.stdout || "") + (result.stderr || "");
-    exitCode = result.exitCode ?? 0;
+    // pi's ExecResult carries the exit status as `code` (no `exitCode`); a failed
+    // or over-cap (`truncated`) run is nonzero. See change: update-pi-core-1-5-adopt-apis.
+    exitCode = result.code ?? 0;
   } catch (err: any) {
     output = err?.message ?? "Command execution failed";
     exitCode = 1;

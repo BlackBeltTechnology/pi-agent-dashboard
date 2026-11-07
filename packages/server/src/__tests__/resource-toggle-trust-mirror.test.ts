@@ -84,3 +84,48 @@ describe("#E18 refusal and never", () => {
     expect(fs.existsSync(path.join(agentDir, "trust.json"))).toBe(false);
   });
 });
+
+/**
+ * pi 1.5 `getEntry` returns the STORED key spelling, matched with `pathsEqual`
+ * (case-insensitive on Windows). The "recorded for this folder itself" check
+ * compares with pi's `pathsEqual` too, so a Windows own-folder refusal saved
+ * with different casing still refuses. The win32 branch runs on every host via
+ * an injected `path.win32`.
+ * See change: update-pi-core-1-5-adopt-apis (test-plan #E29 #E30 #E31).
+ */
+describe("own-folder check uses pi's pathsEqual (#E29 #E30 #E31)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function stubEntry(entry: { path: string; decision: boolean } | null) {
+    const { ProjectTrustStore } = await getPiCore();
+    return vi.spyOn(ProjectTrustStore.prototype, "getEntry").mockReturnValue(entry as never);
+  }
+
+  it("#E29 win32: own refusal saved with different casing → refused, no prompt, nothing written", async () => {
+    covering = null;
+    await stubEntry({ path: "C:\\Work\\Repo", decision: false });
+    const r = await resolveToggleTrust("c:\\work\\repo", agentDir, sm("ask"), path.win32);
+    expect(r.outcome).toBe("refused");
+    expect(fs.existsSync(path.join(agentDir, "trust.json"))).toBe(false);
+  });
+
+  it("#E30 win32: an inherited ancestor refusal still prompts (trust / trust-parent / decline)", async () => {
+    covering = null;
+    await stubEntry({ path: "C:\\Work", decision: false });
+    const r = await resolveToggleTrust("c:\\work\\repo", agentDir, sm("ask"), path.win32);
+    expect(r.outcome).toBe("prompt");
+    if (r.outcome === "prompt") expect(r.options.map((o) => o.id)).toEqual(["trust", "trust-parent", "decline"]);
+    expect(fs.existsSync(path.join(agentDir, "trust.json"))).toBe(false);
+  });
+
+  it("#E31 posix: own refusal under a non-normalised key or through a symlink → refused", async () => {
+    covering = null;
+    const spy = await stubEntry({ path: `${cwd}/`, decision: false });
+    expect((await resolveToggleTrust(cwd, agentDir, sm("ask"))).outcome).toBe("refused");
+    const link = path.join(tmp, "link");
+    fs.symlinkSync(cwd, link);
+    spy.mockReturnValue({ path: cwd, decision: false } as never);
+    expect((await resolveToggleTrust(link, agentDir, sm("ask"))).outcome).toBe("refused");
+    expect(fs.existsSync(path.join(agentDir, "trust.json"))).toBe(false);
+  });
+});

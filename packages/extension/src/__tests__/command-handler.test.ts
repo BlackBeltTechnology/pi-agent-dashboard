@@ -626,7 +626,7 @@ describe("CommandHandler", () => {
   describe("command routing", () => {
     it("should route !!command as silent bash execution", async () => {
       const pi = createMockPi();
-      const exec = vi.fn().mockResolvedValue({ stdout: "output", stderr: "", exitCode: 0 });
+      const exec = vi.fn().mockResolvedValue({ stdout: "output", stderr: "", code: 0, killed: false, truncated: false });
       (pi as any).exec = exec;
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
@@ -648,7 +648,7 @@ describe("CommandHandler", () => {
 
     it("should route !command as bash execution + LLM send", async () => {
       const pi = createMockPi();
-      const exec = vi.fn().mockResolvedValue({ stdout: "file.txt", stderr: "", exitCode: 0 });
+      const exec = vi.fn().mockResolvedValue({ stdout: "file.txt", stderr: "", code: 0, killed: false, truncated: false });
       (pi as any).exec = exec;
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
@@ -671,7 +671,7 @@ describe("CommandHandler", () => {
     // See change: update-pi-core-1-3-adopt-apis (design D3).
     it("E10: !git status sends `$ git status…` once with exactly { deliverAs: \"followUp\" }", async () => {
       const pi = createMockPi();
-      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", exitCode: 0 });
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", code: 0, killed: false, truncated: false });
       const handler = createCommandHandler(pi as any, "s1", { eventSink: vi.fn() });
 
       registryMock.bash = { ok: true, path: "/usr/bin/bash" };
@@ -687,7 +687,7 @@ describe("CommandHandler", () => {
     // busy session without `streamingBehavior` is rejected.
     it("E11: !ls on a streaming session is never sent without deliverAs", async () => {
       const pi = createMockPi();
-      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", exitCode: 0 });
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", code: 0, killed: false, truncated: false });
       const rejected: unknown[] = [];
       pi.sendUserMessage.mockImplementation((_content: unknown, options?: { deliverAs?: string }) => {
         if (!options?.deliverAs) rejected.push(_content);
@@ -708,7 +708,7 @@ describe("CommandHandler", () => {
     // test-plan #E12: the silent paths still never reach the LLM.
     it("E12: !!ls stays silent (bash_output only, no sendUserMessage)", async () => {
       const pi = createMockPi();
-      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "out", stderr: "", exitCode: 0 });
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "out", stderr: "", code: 0, killed: false, truncated: false });
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
 
@@ -725,7 +725,7 @@ describe("CommandHandler", () => {
     // still render and the handler must settle.
     it("X1: a sendUserMessage that throws (compaction) still emits bash_output and resolves", async () => {
       const pi = createMockPi();
-      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "out", stderr: "", exitCode: 0 });
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "out", stderr: "", code: 0, killed: false, truncated: false });
       pi.sendUserMessage.mockImplementation(() => {
         throw new Error("Cannot submit a prompt while compaction is in progress");
       });
@@ -1062,7 +1062,7 @@ describe("CommandHandler", () => {
 
     it("should handle bash execution with non-zero exit code", async () => {
       const pi = createMockPi();
-      const exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "not found", exitCode: 127 });
+      const exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "not found", code: 127, killed: false, truncated: false });
       (pi as any).exec = exec;
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
@@ -1074,6 +1074,60 @@ describe("CommandHandler", () => {
         event: expect.objectContaining({
           eventType: "bash_output",
           data: expect.objectContaining({ exitCode: 127, output: "not found" }),
+        }),
+      }));
+    });
+
+    // pi's ExecResult is { stdout, stderr, code, killed, truncated } (no `exitCode`);
+    // bash_output.exitCode is its `code`, so a failed or over-cap run is never `0`.
+    // See change: update-pi-core-1-5-adopt-apis (test-plan #E65 #E66).
+    it.each([
+      [{ code: 0, killed: false, truncated: false }, 0],
+      [{ code: 2, killed: false, truncated: false }, 2],
+      [{ code: 1, killed: true, truncated: true }, 1],
+      [{ code: 143, killed: true, truncated: false }, 143],
+      [{ code: 0, killed: true, truncated: false }, 0],
+    ])("E65: !ls forwards ExecResult.code %j as exitCode %i", async (res, exitCode) => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "x", stderr: "", ...res });
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
+      expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: "bash_output",
+          data: expect.objectContaining({ exitCode, output: "x" }),
+        }),
+      }));
+    });
+
+    it("E65: a rejected exec forwards exitCode 1 with the error text", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockRejectedValue(new Error("spawn failed"));
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
+      expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: "bash_output",
+          data: expect.objectContaining({ exitCode: 1, output: "spawn failed" }),
+        }),
+      }));
+    });
+
+    it("E66: !! forwards ExecResult.code with excludeFromContext", async () => {
+      const pi = createMockPi();
+      (pi as any).exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "err", code: 2, killed: false, truncated: false });
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!!docker ps" });
+      expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+        event: expect.objectContaining({
+          eventType: "bash_output",
+          data: expect.objectContaining({ exitCode: 2, excludeFromContext: true }),
         }),
       }));
     });
@@ -1350,7 +1404,7 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
 
   it("bash commands bypass delivery routing entirely (no clearFollowUpQueue call)", async () => {
     const pi = createMockPi();
-    pi.exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", exitCode: 0 });
+    pi.exec = vi.fn().mockResolvedValue({ stdout: "hi", stderr: "", code: 0, killed: false, truncated: false });
     const handler = createCommandHandler(pi as any, "s1");
 
     await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
@@ -1436,7 +1490,7 @@ describe("tryExecSlashTemplate (executable: bash slash pipeline)", () => {
     return {
       sendUserMessage: vi.fn(),
       getCommands: vi.fn().mockReturnValue([]),
-      exec: vi.fn().mockResolvedValue({ stdout: "OK", stderr: "", exitCode: 0 }),
+      exec: vi.fn().mockResolvedValue({ stdout: "OK", stderr: "", code: 0, killed: false, truncated: false }),
     };
   }
 
@@ -1460,6 +1514,21 @@ describe("tryExecSlashTemplate (executable: bash slash pipeline)", () => {
       event: expect.objectContaining({
         eventType: "bash_output",
         data: expect.objectContaining({ source: "slash-exec", excludeFromContext: true }),
+      }),
+    }));
+  });
+
+  // See change: update-pi-core-1-5-adopt-apis (test-plan #E66).
+  it("E66: an exec template forwards ExecResult.code as exitCode", async () => {
+    writeFileSync(join(promptsDir, "dash-fail.md"), "---\nexecutable: bash\n---\nnope");
+    const pi = mockPi();
+    pi.exec.mockResolvedValue({ stdout: "", stderr: "nope: not found", code: 127, killed: false, truncated: false });
+    const eventSink = vi.fn();
+    expect(await tryExecSlashTemplate(pi as any, "/dash-fail", tmpDir, "s1", eventSink)).toBe(true);
+    expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({
+        eventType: "bash_output",
+        data: expect.objectContaining({ exitCode: 127, source: "slash-exec" }),
       }),
     }));
   });

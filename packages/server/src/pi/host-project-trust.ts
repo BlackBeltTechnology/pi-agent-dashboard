@@ -1,9 +1,10 @@
 /**
  * `host.isProjectTrusted(cwd)` — the plugin host service mirroring how a pi
  * SESSION decides project trust (`ctx.isProjectTrusted()`), through the ONE shared
- * folder decision (`decidePiTrust`): implicit trust (no trust-requiring project
- * resources, pi's own function) → pi's nearest recorded entry (true or false, read
- * from the trust store of the agent dir IN USE) → durable dashboard trust from the
+ * folder decision (`decidePiTrust`), in pi 1.5's order: pi's nearest recorded entry
+ * (true or false, read from the trust store of the agent dir IN USE, for EVERY
+ * folder) → implicit trust (no trust-requiring project resources, pi's own
+ * function) → durable dashboard trust from the
  * snapshot (same bytes + rules as the bridge; overrides `defaultProjectTrust`,
  * including `never`) → `defaultProjectTrust` (`always` trusts; `ask`/`never` do not).
  * NOT the dashboard's toggle-trust policy (`resource-toggle-trust.ts`), which gates
@@ -14,7 +15,8 @@
  * once at boot (`loadHostProjectTrust`). A pi that cannot be resolved reads every
  * project as untrusted (the safe answer) — and says so, once, in the log.
  *
- * See change: migrate-mcp-to-pi-builtin (D3 "Trust"), mirror-dashboard-trust-to-pi.
+ * See change: migrate-mcp-to-pi-builtin (D3 "Trust"), mirror-dashboard-trust-to-pi,
+ * update-pi-core-1-5-adopt-apis (recorded entry read unconditionally).
  */
 
 import os from "node:os";
@@ -63,16 +65,20 @@ export function createHostProjectTrustService(deps: HostProjectTrustDeps): HostP
   const decide = (cwd: string): PiTrustDecision | undefined => {
     try {
       const hasTrustRequiringResources = deps.hasTrustRequiringResources(cwd);
-      // An unreadable store (lock held, corrupt file) must not fall through to
-      // `defaultProjectTrust: always` over an explicit "do not trust".
-      const recordedEntry = hasTrustRequiringResources ? deps.recordedEntry(cwd) : null;
+      // pi 1.5: the recorded entry decides first, for every folder. An unreadable
+      // store (lock held, corrupt file) throws → undecided (untrusted); it must
+      // never fall through to implicit trust or `defaultProjectTrust: always`
+      // over an explicit "do not trust".
+      const recordedEntry = deps.recordedEntry(cwd) ?? null;
+      // Dashboard trust and the default are read only when they can decide.
+      const canDecide = !recordedEntry && hasTrustRequiringResources;
       const mirrorEnabled = deps.mirror?.enabled() === true;
       return decidePiTrust({
         hasTrustRequiringResources,
         recordedEntry,
         mirrorEnabled,
-        mirrorEntry: mirrorEnabled && !recordedEntry ? (deps.mirror?.covering(cwd) ?? null) : null,
-        piDefault: recordedEntry || !hasTrustRequiringResources ? "ask" : deps.defaultProjectTrust(),
+        mirrorEntry: canDecide && mirrorEnabled ? (deps.mirror?.covering(cwd) ?? null) : null,
+        piDefault: canDecide ? deps.defaultProjectTrust() : "ask",
       });
     } catch {
       return undefined;

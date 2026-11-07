@@ -201,7 +201,7 @@ One row per file.
 | `security-pair-link.spec.ts` | → `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | → `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
 | `paging-exhausted-reconnect-rearm.spec.ts` | → `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
-| `pi-1-3-floor-smoke.spec.ts` | → `pi-1-3-floor-smoke.spec.ts.AGENTS.md` |
+| `pi-1-5-floor-smoke.spec.ts` | → `pi-1-5-floor-smoke.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | → `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | → `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | → `plugin-hash-parity.spec.ts.AGENTS.md` |

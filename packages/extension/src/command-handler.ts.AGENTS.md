@@ -19,3 +19,4 @@ Team-confined `/skill:` route (design D12, add-team-skill-access). In `send_prom
 Inbound bounds: option `limits?: InboundLimits` (default built from env). `handleBashCommand` takes one per-session slot (`limits.tryAcquireBash`) shared by `!`, `!!` and exec slash templates (`tryExecSlashTemplate(..., limits?)`); at the limit it emits `command_feedback {command:"bash",status:"error"}` ("bash concurrency limit reached (N …)") and never spawns; the slot is released in `finally` on every exit path. See change: harden-bridge-inbound-and-discovery (D17).
 
 `request_commands` no longer probes/sends a flow list; `request_flows_refresh` case removed. See change: flows-dock-chip-and-panel-actions.
+`!`/`!!`/slash-exec `bash_output.exitCode` = pi `ExecResult.code` (was `result.exitCode`, always 0 → every failure reported as success). See change: update-pi-core-1-5-adopt-apis.

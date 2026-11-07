@@ -963,11 +963,13 @@ Two trust sources. Separate stores.
 - pi trust: `~/.pi/agent/trust.json`. Written by pi's own trust prompt.
 - Dashboard trust: durable dashboard sources. Mirrored into pi's decision at `project_trust` time. Never writes `trust.json`.
 
-Decision order (`decidePiTrust`):
-1. No trust-requiring resources in folder → trusted (implicit).
-2. Recorded pi entry (`trust.json`, true or false, nearest ancestor) → wins. Recorded refusal beats dashboard trust.
+Decision order (`decidePiTrust`) (pi 1.5 order; See change: update-pi-core-1-5-adopt-apis):
+1. Recorded pi entry (`trust.json`, true or false, nearest ancestor) → wins, also for a folder with no trust-requiring resources. Recorded refusal beats dashboard trust.
+2. Nothing recorded + no trust-requiring resources in folder → trusted (implicit).
 3. Dashboard trust covers folder (subtree) → trusted.
 4. `defaultProjectTrust`. Dashboard trust overrides it, including `never`.
+
+Trust-file keys matched like pi `pathsEqual` (`packages/shared/src/pi-path-compare.ts`; win32 case-insensitive).
 
 See who trusts a folder:
 - Settings → Access → "Pi trust from the dashboard": effective list, per-entry choice, ignored rows with reason code.
@@ -2013,11 +2015,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.3.0 lockstep floor). No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.5.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.3.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.5.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
@@ -4328,6 +4330,8 @@ Source: `docs/architecture.md` → Auth model → Local credential proof. Change
 ## Claude subscription requests billed as extra usage?
 
 Anthropic bills subscription requests as extra usage when pi's built-in `docs` system-prompt section contains "pi itself" / "pi packages". Tool names do not matter.
+
+pi 1.5 `docs` section has neither phrase → claude-compat rewrite no-op (`state=no-match`). Pinned by canary `packages/extension/src/__tests__/claude-compat-pi-docs-canary.test.ts`.
 
 Fix: Settings ▸ Providers ▸ `anthropic` row ▸ **Claude subscription compat** → on. Or Landing step ① → **Turn on**. Or the prompt after sign-in: "Keep Claude requests on your subscription?" → **Turn on**.
 

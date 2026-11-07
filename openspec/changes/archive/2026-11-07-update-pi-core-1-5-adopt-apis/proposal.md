@@ -62,6 +62,8 @@ The 1.5 audit also surfaced a pre-existing bridge defect. pi's `ExecResult` (1.3
   - `pi install`/`remove` symlink handling and npm audit output;
   - the pi-ai OAuth provider modules (`github-copilot`, `kimi-coding`, `meta`, `radius`), whose URL checks moved to a shared `trustedHttpUrl` helper inside pi.
 - **TUI only:** keybinding hints, Apple Terminal Shift+Enter, Rex OSC sequences.
+- **Claude subscription compat rewrite is a no-op on 1.5 (found during apply).** pi 1.5.0 "Tightened system prompt": the default `docs` section now reads "…about the harness itself, its SDK, …" and no longer contains `pi itself` / `pi packages`, the phrases `claudeCompatExtension` and `rewritePayloadSystem` rewrite. The rewrite code stays (a pi that renders a flagged phrase again is still covered); `claude-compat-pi-docs-canary.test.ts` now pins the 1.5 wording (anchored block, no flagged phrase, both rewrites no-ops), and `claude-subscription-compat` "Docs-section rewrite on Anthropic sessions" is restated. Whether the new wording affects Anthropic subscription billing is not verifiable offline.
+
 - **Not used by the dashboard:** the removed `examples/extensions/sandbox/` (referenced only by research prose).
 - **Mirror needs no change:** pi's MCP entry-rule change (`oauth.clientRegistration` accepts `"auto"`). `packages/mcp-core/src/pi-rules.ts` never validated `clientRegistration`, and the writer never writes `oauth`.
 
@@ -85,6 +87,7 @@ The 1.5 audit also surfaced a pre-existing bridge defect. pi's `ExecResult` (1.3
 - `mcp-client-config`: layer reads strip a leading BOM.
 - `bash-execution`: `bash_output.exitCode` is the `code` of pi's `pi.exec` result, so a nonzero or over-cap run is never forwarded as `0` (pre-existing defect).
 - `pi-api-feature-detection`: records the 1.4.0–1.5.0 audit (adopted, not consumed, no-ops).
+- `claude-subscription-compat`: "Docs-section rewrite on Anthropic sessions" is restated for pi 1.5's default prompt, which carries no flagged phrase (the rewrite is a no-op on the floor; found during apply).
 - `provider-auth-server`: "OAuth implementation is resolved from the pi runtime dependency" carries a stale `^1.0.0` server pin. It is restated as `^<piCompatibility.minimum>`, which corrects pre-existing drift in the same governed pin set (found by the spec-collateral scan).
 
 ## Impact

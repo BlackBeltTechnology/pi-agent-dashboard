@@ -630,7 +630,7 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - Final negative or non-finite → 0 (elapsed-only).
 - Parity test `packages/extension/src/__tests__/retry-delay-parity.test.ts` asserts mirror == pi-ai across grid.
 - pi 0.83 exposes retry lifecycle events to RPC/SDK consumers ONLY. ExtensionAPI has no `auto_retry_*` and nothing on EventBus. `willRetry` in 0.83 is compaction-only (`session_before_compact`/`session_compact`). Bridge is extension → must observe-synthesize.
-- Native `agent_settled` guaranteed at the 1.3.0 lockstep floor (`piCompatibility.minimum == recommended == 1.3.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
+- Native `agent_settled` guaranteed at the 1.5.0 lockstep floor (`piCompatibility.minimum == recommended == 1.5.0`). Bridge consumes the native settle unconditionally — no version gate, no floor-pi synthesis. Floor-pi synthesis module `packages/extension/src/agent-settled.ts` DELETED. `agent_settled` remains the SOLE terminal retry signal. See change: update-pi-core-0-85-adopt-apis.
 - Bridge follow-up drain (`bridgeFollowUp`) triggers on `agent_settled`, not `agent_end`. Forwarder schedules `drainFollowupQueue()` via `setTimeout(0)`; pi clears run-active before `agent_settled`, so `isIdle()` is true. No retry loop: a false `isIdle()` returns, the next `agent_settled` drains. Gate sequence: `packages/extension/src/followup-drain.ts`. See change: update-pi-core-1-3-adopt-apis.
 
 **3. Settings write + reload-on-save** (`packages/server/src/pi-agent-settings.ts`).
@@ -1936,15 +1936,17 @@ pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashbo
 
 `launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.3.0"`, `recommended: "1.3.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "1.5.0"`, `recommended: "1.5.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths on that artifact). `piCompatibility` unchanged: a `@earendil-works/pi-coding-agent` range, a DIFFERENT artifact from the pi-ai pin below.
 
 1.1.0 adds: `tool_execution_end.durationMs` preferred for tool row duration; `samplingParamsByThinkingLevel` passthrough; `GET /api/provider-auth/legacy-provider-ids` (`azure-openai-responses` -> `azure` rename scan). See change: update-pi-core-1-1-adopt-apis.
 
 1.3.0 adds: follow-up drain on `agent_settled` (see `### Retry Lifecycle`). Single-bang `!cmd` output sent via `pi.sendUserMessage(msg, {deliverAs: "followUp"})`. Retry turn `before_agent_start` `messageType: "custom"` (pi ≥ 1.2.0) → gets session-context fragment, kb doctrine, role guidelines, untrusted-content guideline, team skill filter; also runs compaction check + `nextTurn` prelude. Typed setting `sessionShareDestination` (`auto`|`gist`|`radius`, default `auto`). Lockstep floor → 1.3.0. Dropped `@earendil-works/chord`. See change: update-pi-core-1-3-adopt-apis.
 
+1.5.0 adds: `decidePiTrust` order = recorded pi entry → implicit (no trust-requiring resources) → dashboard trust (over `never`) → `defaultProjectTrust`. Trust-file keys matched like pi `pathsEqual` (`packages/shared/src/pi-path-compare.ts`). Tool-argument validation = `@earendil-works/pi-schema`. Typed PATCH accepts exactly `"disabled"` for `httpIdleTimeoutMs` / `websocketConnectTimeoutMs`; form shows stored `"disabled"` as `0`. `extensionChangelogVersions` read-only managed key. Windows shell replica names pi 1.5.0 (see Windows section). `mcp.json` reads strip one leading UTF-8 BOM. `!`/`!!`/slash-exec `bash_output.exitCode` = pi `ExecResult.code` (was always 0). Lockstep floor → 1.5.0. See change: update-pi-core-1-5-adopt-apis.
+
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.3.0). Supported range `>=1.3.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.3.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.5.0). Supported range `>=1.5.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.5.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
 
@@ -2321,7 +2323,7 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.3.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). No pi version gate (`update-pi-core-1-0-adopt-apis`): `supportsInProcessCommandDispatch` and `NO_RELOAD_PATH_REASON` retired — the check could never fail on a supported pi (1.5.0 floor). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
 
 **Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
 
@@ -3812,20 +3814,22 @@ NOT counted in snapshot: server-lifetime trust (session worktree trust, session 
 
 ```mermaid
 flowchart TD
-  A["project_trust / host.isProjectTrusted(cwd)"] --> B{"trust-requiring resources?"}
-  B -- no --> R0["trusted: implicit"]
-  B -- yes --> C{"pi recorded entry?"}
+  A["project_trust / host.isProjectTrusted(cwd)"] --> C{"pi recorded entry?"}
   C -- "true / false" --> R1["pi decision wins"]
-  C -- none --> D{"mirror on AND covering entry?"}
+  C -- none --> B{"trust-requiring resources?"}
+  B -- no --> R0["trusted: implicit"]
+  B -- yes --> D{"mirror on AND covering entry?"}
   D -- yes --> R2["trusted: dashboard source"]
   D -- no --> R3["defaultProjectTrust"]
 ```
 
+- Order = pi 1.5 (`project-trust.js:22-23`). See change: update-pi-core-1-5-adopt-apis.
 - `--approve` / `--no-approve` applied by pi first.
 - `--no-extensions`: bridge never decides.
 - `pi mcp list` reads only `trust.json`.
 - Dashboard trust overrides `defaultProjectTrust`, INCLUDING `never`.
 - Recorded pi entry (true or false, nearest ancestor) beats dashboard trust.
+- Trust-file keys compared like pi `pathsEqual` (`packages/shared/src/pi-path-compare.ts`: `piPathComparisonKey`, `piPathsEqual`, `nativePathApi`). Resolved; lower-cased on win32.
 
 **Bridge** `decideBridgeProjectTrust` (`packages/extension/src/project-trust.ts`).
 - No server round trip on snapshot step. Live query only on snapshot miss (see Live trust query).
@@ -3833,6 +3837,7 @@ flowchart TD
 - Returns `{trusted:"yes", remember:false}` or undecided.
 - Dashboard-spawned headless sessions consult mirror always. Other sessions only if `coverInteractive`.
 - Reason codes logged when withheld: `forbidden-folder`, `recorded-entry`, `identity-mismatch`, `hook-changed`, `not-project-root`, `source-off`, `source-not-installed`, `choice-unreadable`, `store-unreadable`, `not-covered-session`, `identity-weak` + 7 `live-*` (see Live trust query).
+- Recorded-entry lookup `nearestRecordedEntry` (`packages/shared/src/pi-trust-mirror-snapshot.ts`) matches keys via `piPathsEqual`. Withholds yes for `/r/` or Windows case-different refusal.
 - p95 < 20 ms (1,000 entries, 20-deep cwd).
 - Spawn token: `PI_DASHBOARD_SPAWN_TOKEN` read + removed from env at bridge activation (`packages/extension/src/spawn-token.ts`). Process-global until first `session_register`. Agent-started nested pi never counts as dashboard-spawned.
 
@@ -3931,6 +3936,8 @@ Bridge `decideBridgeProjectTrust` now async. Snapshot step stays sync (p95 < 20 
 - Snapshot field `liveCount` only. Never paths or identities. Boot writes `0`. Rewritten only when count changes, synchronously in the changing action. Failed rewrite logged, action succeeds. Reader treats missing/invalid as 0. Snapshot `version` stays 1.
 - Stale count = extra or missed query, never wrong yes.
 - Server consumers (`host.isProjectTrusted`, `projectTrustSource`, MCP view) run `decidePiTrust` over durable + live entries, no folder proof.
+- Server host predicate (`packages/server/src/pi/host-project-trust.ts`) reads recorded pi entry for EVERY folder. Dashboard trust + `defaultProjectTrust` read only when folder has trust-requiring resources and nothing recorded. Unreadable store / lock held → undecided (untrusted).
+- Toggle gate own-folder check (`packages/server/src/pi/resource-toggle-trust.ts`) uses `piPathsEqual`. Digest user-skills exclusion (`packages/shared/src/pi-trust-resource-digest.ts`) uses it too.
 
 **Proofs.**
 - Local: recorded `dev`+`ino`[+`birthtimeMs`]. Bridge compares via `identityMatches`. Re-created folder → `identity-mismatch`.
@@ -6054,7 +6061,9 @@ Electron-bound presentation concerns (tray icons, menu template, dock behavior, 
 
 ### Windows runtime dependencies (git + bash)
 
-On Windows agent needs `git.exe` + bash. git backs repo ops. bash backs agent `bash` tool, `!`/`!!` bang commands, `!cmd` config values. Pi resolves bash itself (`getShellConfig()`, pi-coding-agent 1.3.0). Dashboard never calls `pi.exec("sh")`. macOS/Linux ship both system-wide; Windows-only problem.
+On Windows agent needs `git.exe` + bash. git backs repo ops. bash backs agent `bash` tool, `!`/`!!` bang commands, `!cmd` config values. Pi resolves bash itself (`getShellConfig()`, pi-coding-agent 1.5.0). Dashboard never calls `pi.exec("sh")`. macOS/Linux ship both system-wide; Windows-only problem.
+
+Shell replica `packages/shared/src/platform/resolve-pi-shell.ts` (names pi 1.5.0). `isWslLauncherBash(p, env)` SystemRoot-aware: launcher = `<SystemRoot>\System32|Sysnative\bash.exe`. Non-drive-absolute SystemRoot → not launcher. Fixed `<drive>:\Windows\…` regex used only when SystemRoot unset. Existence check = `accessSync(F_OK)`.
 
 Installers embed dugite-native (git 2.53.0.windows.4). Bundle ships GNU bash only as `usr/bin/sh.exe`. Config key `windowsGitSource`: `"auto"`\|`"host"`\|`"bundled"`, default `"auto"`.
 
@@ -6573,7 +6582,7 @@ See change: add-radius-provider-login (D5, D6).
 
 **Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
-**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.3.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.3.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.3.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.3.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis, to 1.3.0 in update-pi-core-1-3-adopt-apis.
+**Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.5.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.5.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.5.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.5.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See changes: update-pi-core-1-0-adopt-apis, update-pi-core-1-1-adopt-apis, update-pi-core-1-3-adopt-apis; floor moved to 1.1.0 in update-pi-core-1-1-adopt-apis, to 1.3.0 in update-pi-core-1-3-adopt-apis, to 1.5.0 in update-pi-core-1-5-adopt-apis.
 
 **Routes** (`packages/server/src/routes/provider-auth-routes.ts`):
 
