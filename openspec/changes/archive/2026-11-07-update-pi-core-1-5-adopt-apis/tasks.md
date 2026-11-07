@@ -70,7 +70,7 @@
 - [x] 8.3 `node scripts/verify-release-deps.mjs`, which must pass coherence at 1.5.0.
 - [x] 8.4 Docker harness: `docker/test-up.sh`, then `npm run test:e2e -- pi-1-5-floor-smoke`, then `docker/test-down.sh`.
 - [x] 8.5 `node_modules/.bin/openspec validate update-pi-core-1-5-adopt-apis --strict` and `node scripts/check-conventions.mjs`.
-- [ ] 8.6 (manual, QA VM) Unix install smoke `qa/tests/01-install.sh` with `PI_FLOOR="1.5.0"`, via `cd qa && make test-linux-x86` (`qa/README.md`). It installs the published `@blackbelt-technology/pi-dashboard` from npm, so it passes only against a release that carries this change: run it on the first such release and record the result in `evidence.md` "Verification runs". Manifest row X8 (test-plan: manual-only).
+- [x] 8.6 (manual, QA VM) Unix install smoke `qa/tests/01-install.sh` with `PI_FLOOR="1.5.0"`, via `cd qa && make test-linux-x86` (`qa/README.md`). It installs the published `@blackbelt-technology/pi-dashboard` from npm, so it passes only against a release that carries this change: run it on the first such release and record the result in `evidence.md` "Verification runs". Manifest row X8 (test-plan: manual-only).
 
 ## 9. Scenario tasks (folded from test-plan.md)
 

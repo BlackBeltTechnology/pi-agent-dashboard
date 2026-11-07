@@ -149,6 +149,14 @@ Diagnostics. The reported shell path SHALL be the shell pi-coding-agent
 would resolve for a child spawned now: `%ProgramFiles%\Git\bin\bash.exe`,
 then `%ProgramFiles(x86)%\Git\bin\bash.exe`, then the first existing
 `bash.exe` along the spawn env's PATH (after bundled-git augmentation).
+Existence SHALL be judged as pi ≥ 1.5.0 judges it (`access(F_OK)`, so a
+runnable Store alias counts). The resolved shell SHALL be classified as
+the WSL launcher as pi (since 1.4.0) classifies it: when the spawn env sets
+`SystemRoot`, exactly `<SystemRoot>\System32\bash.exe` or
+`<SystemRoot>\Sysnative\bash.exe` (case-insensitive, after Windows path
+normalization), and never when `SystemRoot` is not drive-absolute; only
+when `SystemRoot` is unset, `<drive>:\Windows\System32\bash.exe` or
+`<drive>:\Windows\Sysnative\bash.exe`.
 A file named `sh.exe`, or a bundled path that does not exist, SHALL NOT
 be reported as the shell.
 
@@ -188,9 +196,10 @@ be reported as the shell.
 
 #### Scenario: Doctor warns when pi would pick the WSL launcher unasked
 
-- **WHEN** the resolved shell is `<drive>:\Windows\System32\bash.exe`
-  or `<drive>:\Windows\Sysnative\bash.exe` AND `windowsBashSource` is
-  not `"host"`
+- **WHEN** the resolved shell is classified as the WSL launcher
+  (`<SystemRoot>\System32\bash.exe` or `<SystemRoot>\Sysnative\bash.exe`,
+  or `<drive>:\Windows\…` when `SystemRoot` is unset) AND
+  `windowsBashSource` is not `"host"`
 - **THEN** the Doctor bash row SHALL be a `warning` stating that pi
   would run commands through the WSL launcher
 - **AND** when the source is `"bundled"` and the bundle lacks
@@ -226,6 +235,16 @@ be reported as the shell.
 - **THEN** the "Currently active" readout SHALL display the active
   source name, the resolved git path and version, and the resolved
   shell path
+
+#### Scenario: WSL-launcher classification follows SystemRoot
+
+- **WHEN** the spawn env has `SystemRoot=D:\WINNT` and the resolved
+  shell is `D:\WINNT\System32\bash.exe`
+- **THEN** `shellIsWslLauncher` SHALL be `true`
+- **AND** with the same `SystemRoot`, a resolved
+  `C:\Windows\System32\bash.exe` SHALL report `shellIsWslLauncher: false`
+- **AND** with `SystemRoot` unset, `C:\Windows\System32\bash.exe` SHALL
+  report `shellIsWslLauncher: true`
 
 ### Requirement: windowsBashSource setting chooses bundled or host bash
 
