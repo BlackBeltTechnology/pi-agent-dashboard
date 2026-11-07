@@ -1,14 +1,19 @@
 // GENERIC mock kit — English only, no app names.
 // A mock = one PAGE (or flow); a frame = Current | Proposed panes of REAL app components.
 // The kit adds only the review layer: numbered rings around any element + reference links.
-// Import in a mock as `mock-site/kit` (plugin alias). See change: add-live-component-mock-site.
-import { createContext, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+// Import in a mock as `mock-site/kit` (plugin alias). See change: add-live-component-mock-site,
+// add-mock-site-exact-env (fixtures, script, surroundings, framework).
+import { createContext, type ReactElement, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { RING_RE, refId } from "../src/mock-site/refs.mjs";
+import { isRingN, refId } from "../src/mock-site/refs.mjs";
+import type { Fixtures } from "./fixtures.ts";
+import type { ScriptStep } from "./script.ts";
 
+export type { FixtureReply, FixtureRequest, FixtureSocket, Fixtures, HarFixtures } from "./fixtures.ts";
+export type { ScriptStep } from "./script.ts";
 export { refId };
 export type Status = "open" | "accepted" | "rejected";
-/** One decision per mock page. `by` = who decided (user on the site, agent via `mock-decide`). */
+/** One decision per mock page, written by the `mock-decide` CLI (`by: "user"` = legacy site button). */
 export interface Decision { status: Exclude<Status, "open">; by: "user" | "agent"; note?: string; at: string }
 
 interface FrameBase {
@@ -24,6 +29,18 @@ interface FrameBase {
   current?: ReactNode;
   /** Animate `steps` in one pane (reduced motion: side by side). */
   play?: boolean;
+  /** Real interactions on the real components (click / type / …), looped with a visible pointer. Wins over `steps`. */
+  script?: ScriptStep[];
+  /** Side the script drives (default "proposed"). */
+  side?: "proposed" | "current" | "both";
+  /** ISO-8601 instant the pane clock starts at on every loop (default: page load). */
+  clockAt?: string;
+  /** false = run the script once and stop (default: loop). */
+  loop?: boolean;
+  /** Network fixtures for this frame's panes (overrides the mock's). */
+  fixtures?: () => Fixtures;
+  /** Shared app shell / route around the content: identical in both panes, only the slot differs. */
+  surroundings?: (slot: ReactNode) => ReactNode;
 }
 /** A frame shows `proposed` (with optional `current`) or a `steps` flow; it must have one of them. */
 export type Frame = FrameBase & (
@@ -42,7 +59,19 @@ export interface Mock {
   category: string;
   /** The change / ticket it belongs to (optional). */
   change?: string;
+  /** Component framework of the panes (default "react"; others need an adapter). */
+  framework?: string;
+  /** Network fixtures: called once per pane and per script loop (fresh state each time). */
+  fixtures?: () => Fixtures;
   frames: Frame[];
+}
+
+/** The content slot inside `surroundings` (no box of its own). */
+export const Slot = ({ children }: { children: ReactNode }): ReactElement => <div data-mk-slot="" style={{ display: "contents" }}>{children}</div>;
+
+/** A pane's node: `content` inside the frame's surroundings when declared (present in both panes or neither). */
+export function paneContent(f: Pick<Frame, "surroundings">, content: ReactNode): ReactNode {
+  return f.surroundings ? f.surroundings(<Slot>{content}</Slot>) : content;
 }
 
 const MAX_TIP = 40;
@@ -80,10 +109,10 @@ function Ring({ n, tip, kind, block, children }: { n: number | string; tip: stri
     addEventListener("scroll", hide, true);
     return () => removeEventListener("scroll", hide, true);
   }, [box]);
-  const show = () => { if (el.current) setBox(el.current.getBoundingClientRect()); };
+  const show = () => { if (el.current && !document.documentElement.classList.contains("mk-no-rings")) setBox(el.current.getBoundingClientRect()); };
   const below = !!box && box.top < 56;
   const base = useContext(RefBase);
-  const okN = RING_RE.test(String(n));
+  const okN = isRingN(n);
   const ref = base && okN ? `${base}/${n}` : null;
   return (
     <span ref={el} id={ref ? refId(ref) : undefined} className={`mk-ring mk-${kind}${block ? " mk-block" : ""}`} tabIndex={0} aria-label={tip}

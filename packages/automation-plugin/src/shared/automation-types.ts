@@ -199,4 +199,21 @@ export interface RunRecord {
   /** Client-facing: child records attached by the `/runs` route for a parent
    *  occurrence (not persisted on disk). */
   childRuns?: RunRecord[];
+  /**
+   * Client-facing, computed by the `/runs` listing and NEVER persisted: the
+   * listing always overwrites these, so values in a crafted `run.json` never
+   * reach the UI. `orphaned` = running ∧ untracked ∧ started before this
+   * server process; `tracked` = the engine holds live state for it;
+   * `sessionConnected` = its session's bridge socket is open; `scope` = the
+   * listing it came from. See change: polish-automation-board (design D5).
+   */
+  orphaned?: boolean;
+  tracked?: boolean;
+  sessionConnected?: boolean;
+  scope?: AutomationScope;
 }
+
+/** Honest Stop outcome (design D4): `killed` = process verified gone;
+ *  `not-found` = nothing addressable; `unconfirmed` = anything else.
+ *  See change: polish-automation-board. */
+export type StopOutcome = "killed" | "not-found" | "unconfirmed";

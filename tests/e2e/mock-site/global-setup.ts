@@ -2,13 +2,15 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
-import path from "node:path";
-import { MARKER, REPO_ROOT, makeE2eProject } from "./fixture.js";
+import { prepareMockSite } from "../../../packages/mockup-loop/src/mock-site/env.mjs";
+import { MARKER, makeE2eProject } from "./fixture.js";
 
 /**
  * Start the live-component mock site for `playwright.mock-site.config.ts`: a temp fixture
- * project (dashboard example mock + e2e mock) served by the repo's Vite on a free port.
- * No docker harness. See change: add-live-component-mock-site (test-plan, New infra).
+ * project (dashboard example mock + e2e mocks) started like `serve_mock_site` does —
+ * detected Vite launcher on the generated config that inherits the fixture's app config —
+ * on a free port. No docker harness. See change: add-live-component-mock-site
+ * (test-plan, New infra), add-mock-site-exact-env.
  */
 const freePort = () => new Promise<number>((resolve, reject) => {
   const s = net.createServer(); s.once("error", reject);
@@ -22,7 +24,9 @@ const ready = (port: number) => new Promise<boolean>((resolve) => {
 export default async function mockSiteGlobalSetup(): Promise<void> {
   const root = makeE2eProject();
   const port = await freePort();
-  const child = spawn(process.execPath, [path.join(REPO_ROOT, "node_modules/vite/bin/vite.js"), "--config", path.join(root, "mockups/mock-site.config.ts"), "--port", String(port), "--strictPort"], { cwd: root, stdio: "ignore", detached: false });
+  const prep = await prepareMockSite(root);
+  if (!prep.ok) throw new Error(`mock site: ${prep.error}`);
+  const child = spawn(process.execPath, [prep.launcher, "--config", prep.generated, "--port", String(port), "--strictPort"], { cwd: root, stdio: "ignore", detached: false });
   const t0 = Date.now();
   while (!(await ready(port))) {
     if (child.exitCode !== null) throw new Error("mock site exited during start");

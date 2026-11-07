@@ -1,13 +1,13 @@
 // @ts-check
 // Page-level decisions: `<mockDir>/decision.json` = { status, by, note?, at };
 // open = file absent. Atomic writes, never through a symlink, malformed = open.
-// See change: add-live-component-mock-site (design D4, D5).
+// Written only by the `mock-decide` CLI; legacy `by: "user"` files (removed site
+// buttons) are still read. See change: add-live-component-mock-site (design D4,
+// D5), add-mock-site-exact-env (D6).
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { MOCK_ID_RE } from "./refs.mjs";
-
-const STATUSES = /** @type {const} */ (["accepted", "rejected", "open"]);
-const NOTE_MAX = 500;
+/** Max note length in code points. */
+export const NOTE_MAX = 500;
 
 /** @typedef {{ status: "accepted"|"rejected", by: "user"|"agent", note?: string, at: string }} Decision */
 
@@ -68,18 +68,4 @@ export function writeDecision(mock, d) {
   } finally {
     fs.rmSync(tmp, { force: true });
   }
-}
-
-/**
- * Validate a decide request body against the discovered id allow-list.
- * @param {any} body @param {Set<string>} knownIds
- * @returns {{ ok: true, id: string, status: "accepted"|"rejected"|"open", note?: string } | { ok: false, error: string }}
- */
-export function validateDecideBody(body, knownIds) {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "body must be a JSON object" };
-  const { id, status, note } = body;
-  if (typeof id !== "string" || !MOCK_ID_RE.test(id) || !knownIds.has(id)) return { ok: false, error: "unknown mock id" };
-  if (!STATUSES.includes(status)) return { ok: false, error: "status must be accepted|rejected|open" };
-  if (note !== undefined && (typeof note !== "string" || [...note].length > NOTE_MAX)) return { ok: false, error: `note must be a string of at most ${NOTE_MAX} characters` };
-  return { ok: true, id, status, ...(note ? { note } : {}) };
 }

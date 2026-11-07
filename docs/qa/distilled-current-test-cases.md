@@ -265,7 +265,7 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 - [ ] **NEW** [goal-form] goal-form exposes goal-form-criterion, goal-form-max-turns, goal-form-max-spend, and goal-form-judge inputs whose values render on the goal board.
 - [ ] **NEW** [goal-card-verdict] The goal detail renders per-turn judge verdict history entries (goal-card-verdict).
 - [ ] **NEW** [automation-run-r.runId] A running automation card shows the barber-pole stripe overlay and a "⏹ Stop" control.
-- [ ] **NEW** [automation-triage] The runs table (automation-run-r.runId) shows a findings count and a status-specific run-result-r.runId link.
+- [ ] **NEW** [automation-run-r.runId] Each automation card's run-history row shows a findings chip only when findings > 0, a human start label (full run id in tooltip), and a status-specific link: Monitor (running/orphaned), Result (done/stopped), Log (error) via run-result-r.runId.
 - [ ] **NEW** [create-action-picker] The action control renders a grouped accordion listing core.prompt and core.skill, filterable via create-action-search.
 - [ ] **NEW** [automation-board-back] Clicking automation-board-back on the Automations board navigates to "/".
 - [ ] **NEW** [run-result-empty] On the automation run monitor, run-result-empty renders when a run yields no findings.

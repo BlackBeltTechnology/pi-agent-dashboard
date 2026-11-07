@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filter funnel popover — options</title>
+<style>
+  :root{
+    --bg-primary:#ffffff; --bg-surface:#ffffff; --bg-tertiary:#f1f3f6; --bg-hover:#eef1f5;
+    --border-subtle:#e3e6ea; --border-secondary:#cfd4da; --border-strong:#b9c0c8;
+    --text-primary:#1d232b; --text-secondary:#4a5563; --text-muted:#6b7684; --text-faint:#8a94a1;
+    --accent:#4c7bd9; --accent-soft:#dfe8fa; --accent-solid:#3767c9;
+  }
+  *{box-sizing:border-box} body{margin:0;font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text-primary);background:#f6f7f9;padding:24px}
+  h1{font-size:16px;margin:0 0 4px} p.lead{margin:0 0 20px;color:var(--text-secondary);max-width:760px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:20px}
+  .card{background:#fff;border:1px solid var(--border-subtle);border-radius:10px;padding:14px}
+  .card h2{font-size:13px;margin:0 0 2px} .card .why{color:var(--text-muted);font-size:12px;margin:0 0 12px}
+  .stage{position:relative;height:200px;background:var(--bg-primary);border:1px dashed var(--border-subtle);border-radius:8px;padding:8px}
+  .bar{display:flex;gap:6px;align-items:center}
+  .input{flex:1;min-width:0;border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:12px;color:var(--text-muted)}
+  .tb{font-size:12px;padding:2px 6px;border-radius:4px;border:1px solid var(--border-secondary);color:var(--text-secondary);background:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+  .tb[aria-pressed=true]{border-color:var(--accent);color:var(--text-primary);background:var(--accent-soft)}
+  .funnel{position:relative;width:26px;height:24px;border-radius:5px;border:0;background:var(--bg-tertiary);display:grid;place-items:center;cursor:pointer}
+  .badge{position:absolute;right:-4px;top:-4px;min-width:14px;border-radius:99px;background:var(--accent-solid);color:#fff;font-size:9px;font-weight:700;line-height:14px;text-align:center;padding:0 3px}
+  .pop{position:absolute;right:8px;top:40px;background:var(--bg-surface);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px}
+  svg{width:14px;height:14px;fill:currentColor;flex-shrink:0}
+  /* A */
+  .popA{display:flex;flex-direction:column;gap:4px;width:150px}
+  .popA .tb{justify-content:flex-start;width:100%;padding:4px 8px}
+  .popA .check{margin-left:auto;opacity:0} .popA .tb[aria-pressed=true] .check{opacity:1;color:var(--accent-solid)}
+  /* B */
+  .popB{width:230px;padding:4px}
+  .popB .hd{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint);padding:4px 8px 2px}
+  .row{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:5px;cursor:pointer}
+  .row:hover{background:var(--bg-hover)}
+  .row input{margin:2px 0 0;accent-color:var(--accent-solid)}
+  .row .t{font-size:12px;color:var(--text-primary);display:flex;align-items:center;gap:4px}
+  .row .d{font-size:11px;color:var(--text-muted)}
+  /* C */
+  .inline{display:flex;gap:4px;margin-top:6px}
+  .note{font-size:11px;color:var(--text-muted);margin-top:8px}
+  .cur .pop{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;background:#e9ecef}
+  .cur .a{font-size:12px;display:inline-flex;gap:2px;align-items:center;padding:2px 6px;border:1px solid var(--border-secondary);border-radius:4px;color:var(--text-secondary)}
+</style></head>
+<body>
+<h1>Filter funnel popover: options</h1>
+<p class="lead">Today the two toggles in the popover don't match. One is <b>lowercase "archive" with an icon</b> and a hand-rolled class, the other is <b>"Hidden" with no icon</b> using <code>ToggleButton</code>. They sit at different widths and have no label saying what they filter. Click the toggles to see each option's on state.</p>
+
+<div class="grid">
+
+<div class="card cur">
+  <h2>Current (for reference)</h2>
+  <p class="why">Different case, icon on one only, different widths, no heading.</p>
+  <div class="stage">
+    <div class="bar"><div class="input">Session...</div><span class="tb" aria-pressed="true">Sessions</span><span class="tb">Folders</span>
+      <button class="funnel"><svg viewBox="0 0 24 24"><path d="M6 13h12v-2H6M3 6v2h18V6M10 18h4v-2h-4v2z"/></svg></button></div>
+    <div class="pop">
+      <span class="a"><svg viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m6.5 8h5c.28 0 .5.22.5.5V13H9v-1.5c0-.28.22-.5.5-.5M5 5v2h14V5H5z"/></svg>archive</span>
+      <span class="a">Hidden</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>A: Matched chips, full-width</h2>
+  <p class="why">Smallest change. Both use <code>ToggleButton</code>, both get an icon, Title Case, the same width, and a check when on.</p>
+  <div class="stage" id="A">
+    <div class="bar"><div class="input">Session...</div><span class="tb" aria-pressed="true">Sessions</span><span class="tb">Folders</span>
+      <button class="funnel"><svg viewBox="0 0 24 24"><path d="M6 13h12v-2H6M3 6v2h18V6M10 18h4v-2h-4v2z"/></svg><span class="badge">1</span></button></div>
+    <div class="pop popA">
+      <button class="tb" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m6.5 8h5c.28 0 .5.22.5.5V13H9v-1.5c0-.28.22-.5.5-.5M5 5v2h14V5H5z"/></svg>Archived<svg class="check" viewBox="0 0 24 24"><path d="M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7z"/></svg></button>
+      <button class="tb" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M11.83 9 15 12.16V12a3 3 0 0 0-3-3h-.17m-4.3.8 1.55 1.55c-.05.21-.08.42-.08.65a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53a5 5 0 0 1-5-5c0-.79.2-1.53.53-2.2M2 4.27l2.28 2.28.45.45C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.43.42L19.73 22 21 20.73 3.27 3M12 7a5 5 0 0 1 5 5c0 .64-.13 1.26-.36 1.82l2.93 2.93c1.5-1.25 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-4 .7l2.17 2.15C10.74 7.13 11.35 7 12 7z"/></svg>Hidden<svg class="check" viewBox="0 0 24 24"><path d="M21 7 9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7z"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>B: Labelled checkbox list (recommended)</h2>
+  <p class="why">A "Show" heading and a one-line hint per row. It explains that Archived only searches when the query is 3+ characters, which is why it seems to do nothing today.</p>
+  <div class="stage" id="B">
+    <div class="bar"><div class="input">Session...</div><span class="tb" aria-pressed="true">Sessions</span><span class="tb">Folders</span>
+      <button class="funnel"><svg viewBox="0 0 24 24"><path d="M6 13h12v-2H6M3 6v2h18V6M10 18h4v-2h-4v2z"/></svg><span class="badge">1</span></button></div>
+    <div class="pop popB">
+      <div class="hd">Show in results</div>
+      <label class="row"><input type="checkbox" checked><span><span class="t"><svg viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m6.5 8h5c.28 0 .5.22.5.5V13H9v-1.5c0-.28.22-.5.5-.5M5 5v2h14V5H5z"/></svg>Archived sessions</span><span class="d">Searched when query has 3+ chars</span></span></label>
+      <label class="row"><input type="checkbox"><span><span class="t"><svg viewBox="0 0 24 24"><path d="M11.83 9 15 12.16V12a3 3 0 0 0-3-3h-.17m-4.3.8 1.55 1.55c-.05.21-.08.42-.08.65a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53a5 5 0 0 1-5-5c0-.79.2-1.53.53-2.2M2 4.27l2.28 2.28.45.45C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.43.42L19.73 22 21 20.73 3.27 3M12 7a5 5 0 0 1 5 5c0 .64-.13 1.26-.36 1.82l2.93 2.93c1.5-1.25 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-4 .7l2.17 2.15C10.74 7.13 11.35 7 12 7z"/></svg>Hidden folders</span><span class="d">Folders you hid from the sidebar</span></span></label>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>C: No popover, inline chips</h2>
+  <p class="why">Drops the funnel. The chips sit on a second row only when the search box is focused or one is on. Saves a click, costs vertical space.</p>
+  <div class="stage" id="C">
+    <div class="bar"><div class="input">Session...</div><span class="tb" aria-pressed="true">Sessions</span><span class="tb">Folders</span></div>
+    <div class="inline">
+      <button class="tb" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M20 21H4V10h2v9h12v-9h2v11M3 3h18v6H3V3m6.5 8h5c.28 0 .5.22.5.5V13H9v-1.5c0-.28.22-.5.5-.5M5 5v2h14V5H5z"/></svg>Archived</button>
+      <button class="tb" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M11.83 9 15 12.16V12a3 3 0 0 0-3-3h-.17m-4.3.8 1.55 1.55c-.05.21-.08.42-.08.65a3 3 0 0 0 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53a5 5 0 0 1-5-5c0-.79.2-1.53.53-2.2M2 4.27l2.28 2.28.45.45C3.08 8.3 1.78 10 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.43.42L19.73 22 21 20.73 3.27 3M12 7a5 5 0 0 1 5 5c0 .64-.13 1.26-.36 1.82l2.93 2.93c1.5-1.25 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-4 .7l2.17 2.15C10.74 7.13 11.35 7 12 7z"/></svg>Hidden</button>
+    </div>
+  </div>
+</div>
+
+</div>
+<script>
+document.querySelectorAll('#A .popA .tb, #C .inline .tb').forEach(b=>b.addEventListener('click',()=>{b.setAttribute('aria-pressed',b.getAttribute('aria-pressed')!=='true');sync(b.closest('.stage'))}));
+document.querySelectorAll('#B input').forEach(i=>i.addEventListener('change',()=>sync(i.closest('.stage'))));
+function sync(st){const n=st.querySelectorAll('[aria-pressed=true]:not(.bar .tb), input:checked').length;const b=st.querySelector('.badge');if(!b)return;b.textContent=n;b.style.display=n?'':'none'}
+</script>
+</body></html>

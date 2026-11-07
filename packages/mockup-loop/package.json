@@ -4,7 +4,10 @@
   "description": "Pi extension + skill for a ground→contract→mockup→test→fix→learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
   "type": "module",
   "bin": {
-    "mock-decide": "src/mock-site/cli.mjs"
+    "mock-decide": "src/mock-site/cli.mjs",
+    "mock-capture": "src/mock-site/capture.mjs",
+    "mock-check": "src/mock-site/check.mjs",
+    "mock-video": "src/mock-site/video.mjs"
   },
   "repository": {
     "type": "git",
@@ -46,6 +49,7 @@
     "src/",
     "site/",
     "!src/__tests__",
+    "!site/__tests__",
     "presets-data/",
     ".pi/skills/",
     "references/",
@@ -59,11 +63,14 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=1.5.0",
-    "typebox": ">=1.3.6",
-    "vite": ">=5.4.21 <6.0.0 || >=6.4.1 <6.4.4 || >=6.4.5 <7.0.0 || >=7.0.8 <7.1.0 || >=7.1.11",
+    "@mswjs/interceptors": ">=0.37.0",
+    "@testing-library/dom": ">=10.0.0",
+    "@testing-library/user-event": ">=14.5.0",
     "@vitejs/plugin-react": ">=4.0.0",
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "typebox": ">=1.3.6",
+    "vite": ">=5.4.21 <6.0.0 || >=6.4.1 <6.4.4 || >=6.4.5 <7.0.0 || >=7.0.8 <7.1.0 || >=7.1.11"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -80,10 +87,22 @@
     },
     "react-dom": {
       "optional": true
+    },
+    "@mswjs/interceptors": {
+      "optional": true
+    },
+    "@testing-library/user-event": {
+      "optional": true
+    },
+    "@testing-library/dom": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@mswjs/interceptors": "^0.45.11",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/user-event": "^14.6.8",
     "typebox": ">=1.3.6"
   }
 }

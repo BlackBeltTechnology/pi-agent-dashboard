@@ -8,3 +8,5 @@ See issue #972 — `sanitizeConfigValue` drops empty-string elements from `exten
 Optional `readFileGuarded?(absPath): Promise<string|null>` (`ReadFileGuardedFn`): host guarded UTF-8 read, `null` = refused by state/credential guard; absent on older host → plugin route must fail closed, never plain `fs`. Not trust-gated. See change: close-security-map-high-findings (D1).
 
 See change: add-spawn-model-choice. `PluginSpawnOptions.thinkingLevel?` (canonical level → `thinking`); `model` may be `@role` (host resolves once); `PluginSpawnResult.warning?` on a dropped choice.
+
+See change: polish-automation-board. `PluginSessionManager.isConnected?(id): boolean` — open bridge socket only, trusted plugins (wired to `piGateway.isSessionConnected`), untrusted always false; new `createPluginSessionManager({listActive,listAll,getSession,isSessionConnected,trusted})` factory. `AbortSpawnedRunFn` args gain `onResult?({outcome,pid})` (called once on every path; untrusted no-op never calls it → callers treat absent call as unconfirmed).

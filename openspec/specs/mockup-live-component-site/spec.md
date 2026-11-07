@@ -1,19 +1,22 @@
 # mockup-live-component-site Specification
 
 ## Purpose
-A generic, English-only mock site that renders a project's real React components
-in Current / Proposed frames, marks changed elements with numbered rings, records
-page-level accept/reject decisions in git, and makes every part addressable by a
-stable reference link.
+A generic, English-only mock site that renders a project's real components in
+Current / Proposed frames, marks changed elements with numbered rings, shows the
+page-level decisions the agent records in git with the decide CLI (read-only in the
+site), and makes every part addressable by a stable reference link.
 
 ## Requirements
 
 ### Requirement: Mock directory layout and discovery
 Each directory `<root>/<id>/` holding `mock.tsx` SHALL be one mock, `<root>` being
 `mockups/` or `openspec/changes/<change>/mockups/` (never under
-`openspec/changes/archive/`). `<id>` SHALL equal the directory name and match
+`openspec/changes/archive/`, and never under a dependency directory such as
+`node_modules/`). `<id>` SHALL equal the directory name and match
 `^\d{4}-\d{2}-\d{2}-[a-z0-9-]+$`. Mocks SHALL list newest first; adding or
-removing a mock directory SHALL reload the site. Invalid or duplicate ids SHALL be reported, not listed.
+removing a mock directory SHALL reload the site, and editing a mock file SHALL
+update the open page without a restart. Invalid or duplicate ids SHALL be reported,
+not listed.
 
 #### Scenario: Mock in root mockups
 - **WHEN** `mockups/2026-11-03-session-pills/mock.tsx` exists
@@ -31,16 +34,20 @@ removing a mock directory SHALL reload the site. Invalid or duplicate ids SHALL 
 - **WHEN** a directory name does not match the id pattern, or two roots hold the same id
 - **THEN** the site shows an error naming the offending path(s) and does not list the invalid/duplicate entry
 
+#### Scenario: Dependency directory excluded
+- **WHEN** a directory matching the mock layout exists under `node_modules/`
+- **THEN** the site does not list it
+
 ### Requirement: Frames render real components
-Each frame SHALL render its `current` and `proposed` React nodes inside the
-project's real CSS and `Providers`. A frame without `current` SHALL label its only
-pane `New`. A frame with `phone: true` SHALL render each side in an iframe whose
-content viewport is exactly 375px wide and renders only that pane, so the app's
-`@media` rules apply; the iframe height SHALL follow its content. Until the
-iframe reports its first height, it SHALL show a loading line at the last height
-seen for that pane in this browser session, else 240px. A frame MAY carry a
-one-line `why`; it SHALL render under the frame title, and a `why` over 120
-characters SHALL show a `WHY > 120` badge.
+Each frame SHALL render its `current` and `proposed` nodes, mounted through the
+project's component-framework adapter, inside the project's real CSS and `Providers`.
+A frame without `current` SHALL label its only pane `New`. A frame with `phone: true`
+SHALL render each side in an iframe whose content viewport is exactly 375px wide and
+renders only that pane, so the app's `@media` rules apply; the iframe height SHALL
+follow its content. Until the iframe reports its first height, it SHALL show a loading
+line at the last height seen for that pane in this browser session, else 240px. A
+frame MAY carry a one-line `why`; it SHALL render under the frame title, and a `why`
+over 120 characters SHALL show a `WHY > 120` badge.
 
 #### Scenario: Desktop frame
 - **WHEN** a frame has `current`, `proposed`, `width: 1040`
@@ -83,6 +90,10 @@ top bar. The tip SHALL show on hover or focus above all content and close on
 scroll. A tip over 40 characters SHALL show a `TIP > 40` badge. A ring SHALL NOT
 wrap the items it encloses onto new lines, and in a phone pane the badge SHALL sit
 above the ring rather than over the ringed content.
+The top bar SHALL carry a `Highlights` switch (default on, persisted in
+`localStorage` key `mk-rings`) that hides every ring's outline, badge and tip in the
+shell and in every isolated pane without a reload; rings keep their layout and DOM
+ids so references still resolve.
 
 #### Scenario: Scroll
 - **WHEN** the page scrolls
@@ -104,25 +115,34 @@ above the ring rather than over the ringed content.
 - **WHEN** a ring's tip has 41 characters
 - **THEN** the ring shows a `TIP > 40` badge
 
-### Requirement: Page-level accept and reject
-Decisions SHALL apply to a whole mock page, never one frame. The sticky bar SHALL
-offer `Accept page` / `Reject page` on an open mock and `Reopen` on a decided one.
-A decision SHALL be stored in `<mockDir>/decision.json` as
-`{ status, by, note?, at }`; reopen SHALL delete it. Only open mocks SHALL list
-unless `Show accepted / rejected` is checked. Open tabs SHALL reflect any
-`decision.json` change without reload.
+#### Scenario: Highlights switched off
+- **WHEN** the user unchecks `Highlights` in the top bar
+- **THEN** no ring outline, badge or tip is visible in the shell or in any phone iframe, no pane reloads, and the choice survives a page reload
 
-#### Scenario: Accept from the UI
-- **WHEN** the user clicks `Accept page`
-- **THEN** `decision.json` holds `status: "accepted"`, `by: "user"`, an ISO `at`; the page stays shown with its new status and `Reopen` until the user navigates, and the mock is no longer in the default sidebar list
+### Requirement: Page-level accept and reject
+Decisions SHALL apply to a whole mock page, never one frame. The site SHALL show a
+page's decision status read-only (open, `accepted by <by>`, `rejected by <by>` with the
+note) and SHALL offer no control that writes a decision. A decision SHALL be stored in
+`<mockDir>/decision.json` as `{ status, by, note?, at }` and written only by the
+agent decision CLI; reopen SHALL delete it. Only open mocks SHALL list unless
+`Show accepted / rejected` is checked. Open tabs SHALL reflect any `decision.json`
+change without reload.
+
+#### Scenario: Agent records the user's approval
+- **WHEN** the user approves a mock page in conversation
+- **THEN** the agent records it with `mock-decide accept`; the page shows `accepted by agent` read-only and the mock is no longer in the default sidebar list
+
+#### Scenario: Reopen
+- **WHEN** the agent runs `mock-decide reopen` on a decided mock
+- **THEN** `decision.json` is deleted and the mock is listed as open
+
+#### Scenario: No decision controls in the site
+- **WHEN** any mock page is shown, open or decided, on loopback or LAN
+- **THEN** the page offers no Accept, Reject or Reopen control and sends no decision write
 
 #### Scenario: Malformed decision file
 - **WHEN** a mock's `decision.json` is not valid JSON or has an unknown `status`
 - **THEN** the mock is treated as open and the site shows a warning naming the file
-
-#### Scenario: Reopen
-- **WHEN** the user clicks `Reopen` on a decided mock
-- **THEN** `decision.json` is deleted and the mock is listed as open
 
 #### Scenario: Agent decision reaches open tabs
 - **WHEN** the agent CLI rejects a mock (creating its `decision.json`) while a tab shows it
@@ -132,13 +152,24 @@ unless `Show accepted / rejected` is checked. Open tabs SHALL reflect any
 - **WHEN** the agent CLI reopens a decided mock (deleting its `decision.json`)
 - **THEN** every open tab shows the mock as open without reload
 
+#### Scenario: Legacy user decision still read
+- **WHEN** a mock's `decision.json` was written earlier by the removed UI with `by: "user"`
+- **THEN** the site shows `accepted by user` (or rejected) read-only and adoption honours it
+
 ### Requirement: Agent decision CLI
 The package SHALL ship a `mock-decide` CLI with `list`, `accept <ref> [note]`,
-`reject <ref> <note>`, and `reopen <ref>`, writing the same `decision.json` the
-UI writes with `by: "agent"`. `<ref>` SHALL accept a mock id, any reference from
-the reference grammar, or a full site URL, reduced to its mock id. `reject`
-without a note and an unknown id SHALL exit non-zero with a message and write
-nothing. The CLI SHALL work without the site running.
+`reject <ref> <note>`, and `reopen <ref>`, the only writers of `decision.json`, writing
+`by: "agent"`. Its adoption helpers SHALL never write `decision.json`. It SHALL write
+only `decision.json` inside a discovered mock directory looked up by id, and SHALL
+never follow a symlink. `<ref>` SHALL accept a mock id, any reference from the
+reference grammar, or a full site URL, reduced to its mock id. Each of these SHALL
+exit non-zero with a one-line message and write nothing:
+- `reject` without a note
+- a note over 500 characters
+- an unknown id
+- a refused write
+
+The CLI SHALL work without the site running.
 
 #### Scenario: Reject needs a reason
 - **WHEN** the agent runs `mock-decide reject 2026-11-03-session-pills`
@@ -152,43 +183,33 @@ nothing. The CLI SHALL work without the site running.
 - **WHEN** the ref names no discovered mock
 - **THEN** the CLI exits non-zero naming the id and writes nothing
 
-### Requirement: Decide endpoint safety
-The decide endpoint SHALL write only `decision.json` inside a discovered mock
-directory looked up by id, never following a symlink. It SHALL accept writes only
-from a loopback client, only via POST with `application/json`, a body of at most
-4 KiB, `status` in `accepted|rejected|open`, and a `note` of at most 500
-characters. A present `Origin` that is not the site's own SHALL be refused. The
-site SHALL bind to `127.0.0.1` unless LAN access is requested.
-
-#### Scenario: Path traversal attempt
-- **WHEN** a POST sends `id: "../../etc"`
-- **THEN** the response is 400 and no file is written
-
-#### Scenario: Cross-origin post
-- **WHEN** a POST carries `Origin: http://evil.example`
-- **THEN** the response is 403 and no file is written
-
-#### Scenario: LAN client cannot decide
-- **WHEN** the site runs with LAN access and a phone on the LAN posts a decision
-- **THEN** the response is 403, no file is written, and the phone's UI shows no Accept/Reject buttons
-
-#### Scenario: Wrong method, type, or size
-- **WHEN** a request uses GET, or a non-JSON content type, or a body over 4 KiB
-- **THEN** the response is 405, 415, or 413 respectively and no file is written
-
 #### Scenario: Symlinked decision file
 - **WHEN** a mock's `decision.json` is a symlink
-- **THEN** the write is refused with 400 and the link target is untouched
+- **THEN** the CLI exits non-zero with a one-line message and the link target is untouched
+
+#### Scenario: Note too long
+- **WHEN** the agent runs `mock-decide accept <ref>` with a 501-character note
+- **THEN** it exits non-zero and no file is written
 
 ### Requirement: Reference grammar
-Every page, frame, side, and ring SHALL be addressable as `#<id>`,
-`#<id>/<frame>`, `#<id>/<frame>/<side>`, `#<id>/<frame>/<side>/<ring>` (`<frame>`
-1-based, `<side>` `current|proposed`, `<ring>` the ring's `n`), and each part SHALL
-carry DOM id `r-<ref>`.
+Every page, frame, side, ring and step SHALL be addressable as `#<id>`,
+`#<id>/<frame>`, `#<id>/<frame>/<side>`, `#<id>/<frame>/<side>/<ring>`, and
+`#<id>/<frame>/<side>/step-<k>`. Here `<frame>` is 1-based, `<side>` is
+`current|proposed`, `<ring>` is the ring's `n`, and `<k>` is a 1-based step. Each part
+SHALL carry DOM id `r-<ref>`. A ring `n` starting with `step-` SHALL be reported like an
+invalid `n`, so ring and step references never collide.
 
 #### Scenario: Every part has an id
 - **WHEN** a mock with one desktop frame and two rings per side renders
 - **THEN** the DOM holds `r-<id>/1`, `r-<id>/1/current`, `r-<id>/1/proposed`, and `r-<id>/1/<side>/<n>` for each ring
+
+#### Scenario: Step reference parses as a step
+- **WHEN** `#<id>/1/proposed/step-3` is parsed
+- **THEN** it resolves to step 3 of the proposed side of frame 1, not to a ring
+
+#### Scenario: Ring named like a step
+- **WHEN** a mock declares a ring with `n="step-1"`
+- **THEN** the ring shows the invalid-`n` badge
 
 ### Requirement: Reference links and deep-link navigation
 Page title, frame number and title, side label, and ring badge SHALL be links to
@@ -233,27 +254,31 @@ top bar SHALL use the same background colour as the page body under every theme.
 - **THEN** the computed background of `body` and of the sticky bar are equal
 
 ### Requirement: Serve tool
-The extension SHALL register `serve_mock_site` taking optional `dir` (project
-root, default cwd), `port` (default 5299), `lan`, and `stop`. It SHALL start the
-host project's Vite with `<dir>/mockups/mock-site.config.ts`, refuse port 8000,
-fail with an actionable message when the config or Vite is missing or the port
-is busy, return the local URL (and LAN URL only when `lan` is true), and stop the
-server it started when called with `stop: true` and its port.
+The extension SHALL register `serve_mock_site` taking optional `dir` (project root,
+default cwd), `port` (default 5299), `lan`, and `stop`. It SHALL start the mock site
+through the project's own launcher with the inherited build shape (see
+`mockup-site-environment`), applying the project's mock options when present. It
+SHALL refuse port 8000. It SHALL fail with an
+actionable message when the build tool or framework has no adapter, the build tool is
+missing, or the port is busy. It SHALL return the local URL (and the LAN URL only when
+`lan` is true) and stop the server it started when called with `stop: true` and its
+port. Its description and result text SHALL tell the agent to show the URL to the user
+and to record decisions with the decide CLI.
 
 #### Scenario: Start
-- **WHEN** `serve_mock_site{}` runs in a project with `mockups/mock-site.config.ts`
+- **WHEN** `serve_mock_site{}` runs in a project with a supported build tool
 - **THEN** the result contains `http://localhost:5299` and the URL serves the site
 
 #### Scenario: Missing config
-- **WHEN** the project has no `mockups/mock-site.config.ts`
-- **THEN** the tool returns an error naming the expected path and starts nothing
+- **WHEN** the project has no mock options file
+- **THEN** the site starts with the inherited build shape and default themes
 
 #### Scenario: Port busy
 - **WHEN** port 5299 is already in use by another HTTP server
 - **THEN** the tool returns an error naming the port, does not report the other server as the mock site, and leaves it alone
 
 #### Scenario: Installed from a tarball
-- **WHEN** the package is installed from its packed tarball into a fresh React + Vite project with one mock
+- **WHEN** the package is installed from its packed tarball into a fresh project with a supported build tool and framework and one mock
 - **THEN** `serve_mock_site` starts and the mock renders with its rings
 
 #### Scenario: Forbidden port
@@ -262,11 +287,11 @@ server it started when called with `stop: true` and its port.
 
 #### Scenario: Stop
 - **WHEN** `serve_mock_site{stop:true, port:5299}` runs after a start
-- **THEN** the Vite child exits and the port is free
+- **THEN** the server child exits and the port is free
 
 #### Scenario: Session ends
 - **WHEN** the pi session shuts down with a mock site running
-- **THEN** the Vite child is terminated
+- **THEN** the server child is terminated
 
 ### Requirement: Frame steps show state changes without interaction
 A frame MAY declare `steps` (each with a `label` and a `proposed` node) instead of

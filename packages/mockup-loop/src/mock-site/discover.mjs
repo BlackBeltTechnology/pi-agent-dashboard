@@ -1,7 +1,8 @@
 // @ts-check
 // Mock discovery + adoption helpers. One mock = `<root>/<id>/mock.tsx` (+ optional
 // `decision.json`), roots = `mockups/` and `openspec/changes/*/mockups/`
-// (archive excluded). See change: add-live-component-mock-site (design D3, D12).
+// (archive and node_modules excluded). See change: add-live-component-mock-site
+// (design D3, D12), add-mock-site-exact-env (D2).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -20,7 +21,8 @@ export function mockRoots(projectRoot) {
       roots.push(path.join(changes, d.name, "mockups"));
     }
   }
-  return roots.filter((r) => fs.existsSync(r));
+  // Never a dependency dir (Vite does not watch it, and it is not the project's).
+  return roots.filter((r) => fs.existsSync(r) && !path.resolve(r).split(path.sep).includes("node_modules"));
 }
 
 /**

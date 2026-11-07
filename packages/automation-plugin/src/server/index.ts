@@ -30,6 +30,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { AdmitCwdOptions } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import { admitRouteCwdParam } from "@blackbelt-technology/pi-dashboard-shared/plugin-route-cwd.js";
 import type { AutomationScope, Visibility } from "../shared/automation-types.js";
 import {
   ACTION_CONTRIBUTION_PREFIX,
@@ -43,6 +44,7 @@ import { settingsDefaultBound } from "./resolve-children.js";
 import { automationRoleUsage } from "./role-usage.js";
 import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
 import { scanAutomations } from "./scanner.js";
+import { createStopPipeline, type StopResult } from "./stop-run.js";
 
 const PLUGIN_ID = "automation";
 
@@ -151,7 +153,15 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     knownCwds: () => [...hostKnownFolders(), ...contributedFolders()],
     ...(admitOnIndeterminate ? { admitOptions: { onIndeterminate: admitOnIndeterminate } } : {}),
     runNow: ({ scope, cwd, name }) => runNowViaEngine(scope, cwd, name),
-    stopRun: ({ runId }) => stopRunViaEngine(runId),
+    // The route admitted `cwd` (required for folder scope). See change:
+    // polish-automation-board (design D3).
+    stopRun: ({ scope, cwd, runId }) => stopViaPipeline(scope, cwd, runId),
+    runFacts: (rec) => {
+      const eng = engineRef;
+      const sessionConnected = !!rec.sessionId && (ctx.sessionManager.isConnected?.(rec.sessionId) ?? false);
+      if (!eng) return { orphaned: false, tracked: false, sessionConnected };
+      return { orphaned: eng.isOrphaned(rec), tracked: eng.isTracked(rec.runId), sessionConnected };
+    },
     listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
     actionIds: () => collectRegistry!().ids(),
     // Live registries, so /list + /definition agree with what the scheduler will
@@ -184,8 +194,23 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
           case "stop": {
             const runId = typeof p.runId === "string" ? p.runId : "";
             if (!runId) return ctx.logger.warn("automation stop: runId required");
-            const r = await stopRunViaEngine(runId);
-            ctx.logger.info(`automation stop runId=${runId} ok=${r.ok}${r.error ? ` error=${r.error}` : ""}`);
+            // Same admission as the REST route: a folder Stop needs an
+            // admitted cwd; an unadmitted one is refused before any lookup.
+            // See change: polish-automation-board (design D3).
+            const adm = await admitRouteCwdParam(p.cwd, {
+              required: scope !== "global",
+              knownCwds: () => [...hostKnownFolders(), ...contributedFolders()],
+              ...(admitOnIndeterminate ? { admitOptions: { onIndeterminate: admitOnIndeterminate } } : {}),
+            });
+            if (!adm.ok) return ctx.logger.warn(`automation stop runId=${runId}: cwd not admitted`);
+            try {
+              const r = await stopViaPipeline(scope, adm.cwd, runId);
+              ctx.logger.info(
+                `automation stop runId=${runId} ok=${r.ok}${r.outcome ? ` outcome=${r.outcome}` : ""}${r.error ? ` error=${r.error}` : ""}`,
+              );
+            } finally {
+              adm.release();
+            }
             break;
           }
           case "create": {
@@ -376,6 +401,8 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     warn: (m) => logger.warn(m),
   });
   engineRef = engine;
+  stopCtx = ctx;
+  stopPipeline = null;
 
   // Cross-plugin service: start ONE run for a SINGLE work item, addressed by
   // its idempotency key, through the same child path a batch fire uses. The
@@ -683,13 +710,28 @@ async function runWorkItemViaEngine(
   return eng.runWorkItem(batch[0]!, key);
 }
 
-/** Stop a running run via the engine (terminate process + finalize idempotently). */
-async function stopRunViaEngine(runId: string): Promise<{ ok: boolean; error?: string }> {
+/**
+ * The ONE Stop pipeline behind REST `/stop` and `plugin_action stop` (built
+ * on the first Stop after the engine is up). `cwd` is already admitted.
+ * See change: polish-automation-board (design D2, D3).
+ */
+let stopPipeline: ((req: { scope: AutomationScope; scopeBase: string; runId: string }) => Promise<StopResult>) | null = null;
+let stopCtx: ServerPluginContext | null = null;
+
+async function stopViaPipeline(scope: AutomationScope, cwd: string | undefined, runId: string): Promise<StopResult> {
   const eng = engineRef;
-  if (!eng) return { ok: false, error: "engine not ready" };
-  return (await eng.stopRun(runId))
-    ? { ok: true }
-    : { ok: false, error: `run "${runId}" not running or already finished` };
+  if (!eng || !stopCtx) return { ok: false, error: "engine not ready" };
+  if (scope !== "global" && !cwd) return { ok: false, error: "cwd required for a folder-scope stop" };
+  const c = stopCtx;
+  stopPipeline ??= createStopPipeline({
+    engine: eng,
+    getSession: (id) => c.sessionManager.getSession(id),
+    isConnected: (id) => c.sessionManager.isConnected?.(id) ?? false,
+    abortSpawnedRun: (args) => c.abortSpawnedRun(args),
+    warn: (m) => c.logger.warn(m),
+  });
+  const scopeBase = scope === "global" ? os.homedir() : path.resolve(cwd!);
+  return stopPipeline({ scope, scopeBase, runId });
 }
 
 export default registerPlugin;

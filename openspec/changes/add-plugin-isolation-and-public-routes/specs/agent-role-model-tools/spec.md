@@ -2,7 +2,7 @@
 
 ### Requirement: The dashboard SHALL register a `list_models` agent tool decoupled from roles
 
-The dashboard extension SHALL register a `list_models` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the assignable model catalogue from the IN-PROCESS session registry via the EXACT SAME source the human Model Selector uses: `cachedModelRegistry.getAvailable().map(toModelInfo)` (the path feeding the `models_list` push and `flow:get-available-models`), NOT the dashboard server's `registry-singleton`. This guarantees the tool lists the same models the picker shows — including custom providers registered via `pi.registerProvider()` (which register into the same registry; `getAvailable()` surfaces pi-ai's catalog PLUS custom models) — and that returned `ref`s match what `update_roles` `set_role` persists and `model:resolve` resolves. In an isolated session (bridge isolated mode: `PI_DASHBOARD_ISOLATED=1` together with `PI_DASHBOARD_SPAWN_TOKEN`, see `plugin-spawn-scope`) the tool SHALL NOT be registered.
+The dashboard extension SHALL register a `list_models` tool via `pi.registerTool` at activation. The tool SHALL NOT write any config file (it is read-only with respect to `providers.json`, `auth.json`, `models.json`, `settings.json`); it MAY re-sync the in-process session registry before reading (see the resync requirement). It returns the assignable model catalogue from the IN-PROCESS session registry via the EXACT SAME source the human Model Selector uses: `cachedModelRegistry.getAvailable().map(toModelInfo)` (the path feeding the `models_list` push and `flow:get-available-models`), NOT the dashboard server's `registry-singleton`. This guarantees the tool lists the same models the picker shows — including custom providers registered via `pi.registerProvider()` (which register into the same registry; `getAvailable()` surfaces pi-ai's catalog PLUS custom models) — and that returned `ref`s match what `update_roles` `set_role` persists and `model:resolve` resolves. In an isolated session (bridge isolated mode: `PI_DASHBOARD_ISOLATED=1` together with `PI_DASHBOARD_SPAWN_TOKEN`, see `plugin-spawn-scope`) the tool SHALL NOT be registered.
 
 Each row SHALL carry the `toModelInfo` projection including the `custom?: boolean` flag (true for models from a `pi.registerProvider()` custom provider), so an agent can distinguish custom-provider models. Because `getAvailable()` is reachability-filtered, a custom provider without resolved credentials is excluded from the default result; the tool MAY accept an `annotated` flag surfacing every known model with `excludedReason` (`no-credential` / `oauth-incompatible`), derived in-process from the registry's `getAll()` minus `getAvailable()` (pi's session `ModelRegistry` exposes no `getAllAnnotated()` — that method exists only on the server's `InternalRegistry`).
 
@@ -74,26 +74,43 @@ The tool result SHALL additionally carry a `registryReady: boolean` discriminato
 
 ### Requirement: The dashboard SHALL register a `list_roles` agent tool
 
-The dashboard extension SHALL register a `list_roles` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the role configuration only — NO models slice (model listing is the separate `list_models` tool). In an isolated session (bridge isolated mode: `PI_DASHBOARD_ISOLATED=1` together with `PI_DASHBOARD_SPAWN_TOKEN`, see `plugin-spawn-scope`) the tool SHALL NOT be registered.
+The dashboard extension SHALL register a `list_roles` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the role configuration only — NO models slice (model listing is the separate `list_models` tool). In an isolated session (bridge isolated mode: `PI_DASHBOARD_ISOLATED=1` together with `PI_DASHBOARD_SPAWN_TOKEN`, see `plugin-spawn-scope`) the tool SHALL NOT be registered. It is the discovery surface the role guideline points agents at, so it SHALL report only roles an agent can actually use.
 
 The returned object SHALL contain:
 
-- `roles`: an object mapping role name to its bound model ref, containing ONLY roles with a non-empty assigned model. Unset/empty role slots SHALL be omitted from the tool output (the human Settings UI keeps its empty-slot overlay; the tool does not).
+- `roles`: an object mapping role name to its bound model ref, containing ONLY roles that (a) are on the effective role schema (`overlayRoles`: a name in `removedRoles` is excluded even when still assigned), (b) have a non-empty assigned model, and (c) when the session registry is hydrated, whose model (ref without thinking level, as `provider/id`) is in `getRegistry().getAvailable()`.
+- `unavailable`: an object mapping role name to `{ ref, reason }` for roles meeting (a) and (b) but failing (c); `reason` SHALL be `"model-not-available"`. Empty object when none.
+- `registryReady`: `true` when the registry is hydrated; `false` otherwise, in which case check (c) is skipped (every role meeting (a)+(b) is in `roles`) and a `reason` string is included.
 - `presets`: an array of preset names.
 - `activePreset`: the active preset name, or `null`.
 
-The tool SHALL read the role slice through the shared role-config reader in `role-manager.ts` (`loadRoleConfig`, the same accessor family as `lookupRole`; no independent file reader), and SHALL tolerate a missing/malformed role slice by returning `{ roles: {}, presets: [], activePreset: null }`.
+The tool SHALL read the role slice through the shared role-config reader in `role-manager.ts` (`loadRoleConfig`; no independent file reader), and SHALL tolerate a missing/malformed role slice by returning `{ roles: {}, unavailable: {}, presets: [], activePreset: null }` plus `registryReady`.
 
 #### Scenario: list_roles returns bound roles only
-
-- **GIVEN** `providers.json#roles` contains `{ planning: "anthropic/claude-x", coding: "openai/gpt-5", vision: "" }`
+- **GIVEN** `providers.json#roles` contains `{ planning: "anthropic/claude-x", coding: "openai/gpt-5", vision: "" }` and both models are available
 - **WHEN** an agent invokes `list_roles`
 - **THEN** the result `roles` SHALL deep-equal `{ planning: "anthropic/claude-x", coding: "openai/gpt-5" }`
-- **AND** `vision` SHALL be absent from `roles` (empty slot omitted)
+- **AND** `vision` SHALL be absent from `roles` and from `unavailable`
 - **AND** the result SHALL NOT contain a `models` key
 
-#### Scenario: list_roles returns presets and activePreset
+#### Scenario: Removed role is not listed even if still assigned
+- **GIVEN** `roles` contains `vision: "anthropic/claude-x"` and `removedRoles` contains `"vision"`
+- **WHEN** an agent invokes `list_roles`
+- **THEN** `vision` SHALL be absent from `roles` and from `unavailable`
 
+#### Scenario: Role bound to an unavailable model
+- **GIVEN** `roles` contains `fast: "anthropic/claude-x:low"` and `review: "local/missing-model"`, and the registry's available models include `anthropic/claude-x` but not `local/missing-model`
+- **WHEN** an agent invokes `list_roles`
+- **THEN** `roles` SHALL deep-equal `{ fast: "anthropic/claude-x:low" }`
+- **AND** `unavailable.review` SHALL deep-equal `{ ref: "local/missing-model", reason: "model-not-available" }`
+- **AND** `registryReady` SHALL be `true`
+
+#### Scenario: Registry not hydrated
+- **GIVEN** `getRegistry()` returns a falsy value and `roles` contains `fast: "anthropic/claude-x"`
+- **WHEN** an agent invokes `list_roles`
+- **THEN** `roles` SHALL contain `fast`, `registryReady` SHALL be `false`, and a `reason` SHALL be present
+
+#### Scenario: list_roles returns presets and activePreset
 - **GIVEN** `rolePresets` contains `cheap` and `premium` and `activePreset` is `cheap`
 - **WHEN** an agent invokes `list_roles`
 - **THEN** `presets` SHALL contain `"cheap"` and `"premium"`
@@ -155,4 +172,3 @@ Each invocation SHALL return a result object carrying at least `{ success: boole
 #### Scenario: `update_roles` absent in an isolated session
 - **WHEN** the bridge loads in a process whose environment carries `PI_DASHBOARD_ISOLATED=1` and `PI_DASHBOARD_SPAWN_TOKEN`
 - **THEN** no `update_roles` tool SHALL be registered
-
