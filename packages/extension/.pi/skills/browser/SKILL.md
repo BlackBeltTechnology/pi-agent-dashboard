@@ -1,6 +1,6 @@
 ---
 name: browser
-description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron apps — navigating, forms, clicks, screenshots, data extraction, testing web apps, UI checks, the dashboard Electron shell, or the user''s own logged-in Chrome via the browser relay or Panerelay (SSO/2FA). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser".'
+description: 'Browser automation via the `agent-browser` CLI. Use when the user needs to drive websites or Electron apps — navigating, forms, clicks, screenshots, data extraction, testing web apps, UI checks, the dashboard Electron shell, or the user''s own logged-in Chrome via the browser relay or Panerelay (SSO/2FA); native desktop apps route to agent-desktop (macOS Accessibility setup). Triggers: "open a website", "take a screenshot", "test this web app", "use my own browser", "control my desktop".'
 license: Apache-2.0
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*), Bash(curl:*), Bash(pi-dashboard:*)
 metadata:
@@ -33,6 +33,12 @@ Three recipes:
   - **Panerelay extension bridge** (legacy) — a native-messaging host for when
     there is no loopback dashboard. Reference:
     [`references/own-browser.md`](references/own-browser.md).
+
+**Native desktop apps** (Finder, Calculator, any non-web UI — "control my
+desktop") are out of scope for `agent-browser`: use `agent-desktop` and read
+[`references/desktop.md`](references/desktop.md) first — install, and the
+macOS Accessibility/Screen Recording trap (permission belongs to
+`pi-dashboard.app`, which must be code-signed).
 
 ## Step 0a — Preflight: `agent-browser` CLI must be installed
 
@@ -144,8 +150,8 @@ switch `--session`, `--profile`, or provider, and do not run `close --all`.
   `derive-client`, `slack`, `webmcp-gen`, …) are not vendored — load on
   demand with `agent-browser skills list` / `agent-browser skills get <name>`. See [`UPSTREAM.md`](UPSTREAM.md) for
   refresh procedure and [`LICENSE`](LICENSE) for upstream attribution.
-  `references/own-browser.md`, `references/dashboard-relay.md`, and
-  `references/challenge.md` are **authored, not vendored** — an upstream
+  `references/own-browser.md`, `references/dashboard-relay.md`,
+  `references/challenge.md`, and `references/desktop.md` are **authored, not vendored** — an upstream
   refresh must not overwrite them.
 - **Login-state recipes**: `references/dashboard-relay.md` is the preferred
   path (Pi Dashboard browser relay); `references/own-browser.md` is the legacy

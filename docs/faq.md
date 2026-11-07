@@ -3830,6 +3830,29 @@ jsdom cannot render mermaid 11.16 — CSSStyleSheet not defined.
 Cross-refs:
 - ~/.pi/agent/pi-hermes-memory/failures.md
 
+## Desktop control (agent-desktop) says Accessibility denied on macOS — why?
+
+`agent-desktop status` → `accessibility: denied` / `screen_recording: denied`, even after toggling both permissions on.
+
+- macOS TCC charges calls to the **responsible process** = `pi-dashboard.app` (`com.blackbelt-technology.pi-dashboard`). Not Terminal, not bundled node, not nvm node, not `agent-desktop` binary.
+- Granting any of those four does nothing for dashboard sessions.
+- Root cause: released `pi-dashboard.app` unsigned. `codesign -dv` → "code object is not signed at all". tccd `SecStaticCodeCheckValidity` status `-67050` → stored grant never verifies → always denied. App restart alone does not fix.
+
+Fix — ad-hoc sign locally, then re-grant:
+
+```bash
+codesign --force --deep --sign - /Applications/pi-dashboard.app
+tccutil reset Accessibility com.blackbelt-technology.pi-dashboard
+tccutil reset ScreenCapture com.blackbelt-technology.pi-dashboard
+```
+
+Then quit + reopen pi-dashboard. Enable it in Accessibility AND Screen Recording.
+
+- Confirm toggle really on: TCC.db row `auth_value` `2` = allowed, `0` = off.
+- Redo after every app update — bundle replaced → unsigned again. Permanent fix: OpenSpec change `macos-notarization`.
+
+Full recipe: `packages/extension/.pi/skills/browser/references/desktop.md`.
+
 ## Why does a pi session show "stuck in thinking" / only "memory savings"?
 
 NOT a pi-agent-dashboard bug. External pkg pi-hermes-memory spawns child `pi -p` helpers (background-review/session-flush/consolidation) that re-inherit the full parent extension stack. context-mode loads in the child and prints its ctx_stats banner ("tokens saved · N% savings") — that line is context-mode, not hermes.

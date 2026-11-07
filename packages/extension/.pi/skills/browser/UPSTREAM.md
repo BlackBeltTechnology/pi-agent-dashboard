@@ -9,8 +9,9 @@ section in `electron.md` are project-specific and not from upstream.
 `references/own-browser.md` and `scripts/check-panerelay.sh` are authored
 for this repo (the Panerelay / own-logged-in-browser recipe).
 `references/challenge.md` is authored for this repo too — the pause / resume
-discipline for interactive anti-bot challenges. None of them has an upstream
-counterpart.
+discipline for interactive anti-bot challenges. `references/desktop.md` is
+authored too — agent-desktop install + macOS TCC permission recipe. None of
+them has an upstream counterpart.
 
 | Field                  | Value                                                              |
 |------------------------|--------------------------------------------------------------------|
