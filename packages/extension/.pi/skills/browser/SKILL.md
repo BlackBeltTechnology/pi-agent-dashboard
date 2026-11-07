@@ -5,10 +5,10 @@ license: Apache-2.0
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(npx @panerelay/setup:*), Bash(curl:*), Bash(pi-dashboard:*)
 metadata:
   author: pi-dashboard
-  version: "1.2"
+  version: "1.3"
   vendoredFrom: agent-browser
-  vendoredVersion: "0.27.0"
-  verifiedAgainstCli: "0.33.2"
+  vendoredVersion: "0.41.2"
+  verifiedAgainstCli: "0.41.2"
 ---
 
 # browser
@@ -140,7 +140,9 @@ switch `--session`, `--profile`, or provider, and do not run `close --all`.
 
 - **Vendoring**: `references/web.md` and `references/electron.md` are
   snapshots of upstream `agent-browser` skill content (`core` and
-  `electron`) at CLI version 0.27.0. See [`UPSTREAM.md`](UPSTREAM.md) for
+  `electron`) at CLI version 0.41.2. Other upstream skills (`dogfood`,
+  `derive-client`, `slack`, `webmcp-gen`, …) are not vendored — load on
+  demand with `agent-browser skills list` / `agent-browser skills get <name>`. See [`UPSTREAM.md`](UPSTREAM.md) for
   refresh procedure and [`LICENSE`](LICENSE) for upstream attribution.
   `references/own-browser.md`, `references/dashboard-relay.md`, and
   `references/challenge.md` are **authored, not vendored** — an upstream
@@ -149,15 +151,25 @@ switch `--session`, `--profile`, or provider, and do not run `close --all`.
   path (Pi Dashboard browser relay); `references/own-browser.md` is the legacy
   Panerelay/native-messaging path for remote sessions with no loopback
   dashboard.
-- **Surfaces share one browser**: the `browser` MCP tool and
-  `Bash: agent-browser …` drive the *same* daemon and *same* Chrome, with a
-  shared active page. Probing with one mid-task can silently move the page
-  out from under the other. Pick one surface per task; use
-  `--session <name>` for genuinely isolated browsers.
-- **Known wrapper bug**: the MCP tool's `eval` echoes the JS source instead
-  of executing it (and mangles regex escapes) — still present with CLI
-  0.33.2, so it is a `pi-agent-browser` wrapper defect, not a CLI one. Use
-  `Bash: agent-browser eval …` instead.
+- **Three surfaces, one browser**: the `browser` tool (`pi-agent-browser`
+  extension), the native MCP server (`agent-browser mcp`, see below) and
+  `Bash: agent-browser …` all drive the *same* daemon and *same* Chrome per
+  session name, with a shared active page. Probing with one mid-task can
+  silently move the page out from under another. Pick one surface per task;
+  use `--session <name>` (MCP: `"session"` arg) for isolated browsers.
+- **Known wrapper bug**: the `browser` tool's `eval` echoes the JS source
+  instead of executing it (and mangles regex escapes) — still present with
+  CLI 0.41.2 / `pi-agent-browser` 0.1.0, a wrapper defect. Use the native MCP
+  `agent_browser_eval` or `Bash: agent-browser eval …` instead.
+- **Native MCP server (optional)**: `agent-browser mcp [--tools <profiles>]`
+  exposes typed `agent_browser_*` tools over stdio. Profiles: `core`
+  (default, small), `network`, `state`, `debug`, `tabs`, `react`, `mobile`,
+  `all` (~156 tools). Register in `~/.pi/agent/mcp.json`:
+  `{"mcpServers":{"agent-browser":{"type":"stdio","command":"agent-browser","args":["mcp","--tools","core"]}}}`
+  (use an absolute `command` path under nvm). Call via
+  `mcp({tool:"agent_browser_open", args:{url, session}})`. Each response
+  carries ~1 KB `structuredContent` lifecycle JSON — prefer the CLI for long
+  loops. One-shot without a stdio session: `agent-browser mcp call <tool> '<json>'`.
 - **No CLI bundled**: agents installing the bridge extension get the
   skill text but not the CLI; install on demand per Step 0a.
 - **User-local override**: if the user's project has its own

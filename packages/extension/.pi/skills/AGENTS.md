@@ -11,7 +11,7 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 | `browser/references/dashboard-relay.md` | AUTHORED. Drive user's real logged-in Chrome via Pi Dashboard browser relay (same host): Playwright Chrome Extension pairs with dashboard, returns loopback CDP URL for `agent-browser connect`. |
 | `browser/references/electron.md` | Vendored agent-browser Electron-app automation reference. → see `browser/references/electron.md.AGENTS.md` |
 | `browser/references/own-browser.md` | AUTHORED. Drive the user's own logged-in browser via Panerelay… → see `browser/references/own-browser.md.AGENTS.md` |
-| `browser/references/web.md` | Vendored agent-browser core reference. Core loop: `snapshot -i` → @eN refs; waits, semantic `find`, tabs,… → see `browser/references/web.md.AGENTS.md` |
+| `browser/references/web.md` | Vendored agent-browser core reference (CLI 0.41.2). Core loop: `snapshot -i` → @eN refs; waits, semantic `find`, tabs,… → see `browser/references/web.md.AGENTS.md` |
 | `browser/scripts/check-panerelay.sh` | AUTHORED. Panerelay diagnostic; key=value + `NEXT=`… → see `browser/scripts/check-panerelay.sh.AGENTS.md` |
 | `browser/UPSTREAM.md` | Vendoring provenance + refresh procedure. Records upstream tag/SHA/CLI version; marks `own-browser.md`, `challenge.md` + `check-panerelay.sh` authored, exempt from refresh. |
 | `canvas-webapp/SKILL.md` | Bundled skill: render a web app on the dashboard canvas. Canvas loopback `kind:"url"` loads under… → see `canvas-webapp/SKILL.md.AGENTS.md` |
