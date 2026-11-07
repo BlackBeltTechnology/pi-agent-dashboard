@@ -124,7 +124,7 @@ The guard SHALL taint the run in two cases:
 - when an assistant message contains a call to a tool that is untrusted by pattern or declaration, before any tool of that message executes;
 - when an untrusted result is delivered.
 
-While tainted, the guard SHALL require confirmation before any tool matching the sensitive-tool patterns executes, **except** tools an extension declared self-confirming. A dismissed or timed-out confirmation SHALL count as a denial. When no interactive UI is available, the call SHALL be blocked with the reason `untrusted_taint`. In the default run scope, taint SHALL reset on the next input event of any source, and SHALL NOT reset on agent restarts, retries or compaction. In session scope, taint SHALL NOT reset automatically. A manual clear command SHALL reset taint in both scopes.
+While tainted, the guard SHALL require confirmation before any tool matching the sensitive-tool patterns executes, **except** tools an extension declared self-confirming and tools the user chose to always allow for the session. A dismissed or timed-out confirmation SHALL count as a denial. When no interactive UI is available, the call SHALL be blocked with the reason `untrusted_taint`. In the default run scope, taint SHALL reset on the next input event of any source, and SHALL NOT reset on agent restarts, retries or compaction. In session scope, taint SHALL NOT reset automatically. A manual clear command SHALL reset taint in both scopes.
 
 #### Scenario: Confirmation required after reading mail
 - **WHEN** the agent reads untrusted content and then calls a sensitive tool in the same run
@@ -149,6 +149,22 @@ While tainted, the guard SHALL require confirmation before any tool matching the
 #### Scenario: Fresh user input clears taint in run scope
 - **WHEN** the user sends a new prompt (from the TUI or the dashboard) after a tainted run
 - **THEN** a sensitive tool call without any new untrusted read executes without a guard confirmation
+
+### Requirement: Session always-allow
+When the UI supports a choice list, the taint confirmation SHALL offer `Allow once`, `Always allow <tool> this session` and `Deny`; otherwise it SHALL be a yes/no confirmation. `Always allow` SHALL apply to that exact tool name only, SHALL be held in memory only (never written to settings), SHALL survive taint resets, and SHALL be forgotten at the next session start.
+
+#### Scenario: Allow once prompts again
+- **WHEN** the user picks `Allow once` for a sensitive call while tainted
+- **THEN** that call executes, and the next sensitive call of the same tool asks again
+
+#### Scenario: Always allow skips prompts for the session
+- **WHEN** the user picks `Always allow bash this session`
+- **THEN** later `bash` calls in the session execute without a guard confirmation, including after the taint resets and in headless turns
+- **AND** other sensitive tools still require confirmation
+
+#### Scenario: Always allow is forgotten on session start
+- **WHEN** a new session starts after the user chose `Always allow` for a tool
+- **THEN** that tool requires confirmation again while tainted
 
 ### Requirement: Extension declaration registry
 The guard SHALL read tool declarations from a shared process-wide registry that any extension can create or append to, whichever loads first. Tools declared untrusted SHALL be treated as untrusted by name. Tools declared self-confirming SHALL be exempt from the guard's own confirmation. Declarations SHALL take effect regardless of whether they were made before or after the guard loaded. Declarations SHALL only be settable by extension code, never through tool inputs.

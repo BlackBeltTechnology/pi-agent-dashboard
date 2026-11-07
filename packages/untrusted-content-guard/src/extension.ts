@@ -8,6 +8,7 @@
  *   message_end        → taint on untrusted-by-name tool calls (parallel-safe)
  *   tool_result        → scan + mode + spotlight untrusted results, taint
  *   tool_call          → confirm / block sensitive tools while tainted
+ *                        (select: Allow once / Always allow <tool> this session / Deny)
  *   /guard-clear       → manual taint reset
  *
  * Settings are re-read at each session start (see settings.ts). No dashboard
@@ -31,6 +32,7 @@ export default function untrustedContentGuard(pi: ExtensionAPI): void {
       trusted = false;
     }
     settings = loadSettings(ctx.cwd, trusted);
+    guard.onSessionStart();
   });
 
   pi.on("before_agent_start", async (event) => {

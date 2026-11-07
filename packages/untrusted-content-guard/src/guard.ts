@@ -42,7 +42,10 @@ export interface ToolCallLike {
 
 export interface UiLike {
   hasUI: boolean;
-  ui?: { confirm(title: string, message: string): Promise<boolean> };
+  ui?: {
+    confirm(title: string, message: string): Promise<boolean>;
+    select?(title: string, options: string[]): Promise<string | undefined>;
+  };
 }
 
 export interface GuardDeps {
@@ -88,6 +91,8 @@ export class UntrustedContentGuard {
   private runMarker: string;
   private readonly makeMarker: () => string;
   private readonly deps: GuardDeps;
+  /** Tool names the user chose "Always allow" for; in-memory, cleared on session start. */
+  private readonly sessionAllowed = new Set<string>();
 
   constructor(deps: GuardDeps) {
     this.deps = deps;
@@ -115,6 +120,11 @@ export class UntrustedContentGuard {
   /** input (any source — dashboard prompts arrive as `extension`): reset in run scope. */
   onInput(): void {
     if (this.deps.settings().taintScope === "run") this.clearTaint();
+  }
+
+  /** session_start: forget "Always allow" choices from a previous session. */
+  onSessionStart(): void {
+    this.sessionAllowed.clear();
   }
 
   clearTaint(): void {
@@ -203,6 +213,7 @@ export class UntrustedContentGuard {
       if (settings.mode === "off" || !this.tainted) return undefined;
       if (!matchesAny(event.toolName, settings.sensitiveTools)) return undefined;
       if (isDeclared(this.deps.registry, "selfConfirming", event.toolName)) return undefined;
+      if (this.sessionAllowed.has(event.toolName)) return undefined;
 
       const call = `${event.toolName}(${argsSummary(event.input ?? {})})`;
       if (!ctx.hasUI || !ctx.ui) {
@@ -211,13 +222,18 @@ export class UntrustedContentGuard {
           reason: `${TAINT_REASON}: untrusted content (${this.taintSource}) was read this run; ${call} needs confirmation but no UI is available`,
         };
       }
+      const message = `Untrusted content was read this run (from ${this.taintSource}). It may contain instructions aimed at the agent. Allow ${call}?`;
       let allowed = false;
       try {
-        allowed =
-          (await ctx.ui.confirm(
-            "Untrusted content guard",
-            `Untrusted content was read this run (from ${this.taintSource}). It may contain instructions aimed at the agent. Allow ${call}?`,
-          )) === true;
+        if (ctx.ui.select) {
+          const once = "Allow once";
+          const always = `Always allow ${event.toolName} this session`;
+          const choice = await ctx.ui.select(`Untrusted content guard: ${message}`, [once, always, "Deny"]);
+          if (choice === always) this.sessionAllowed.add(event.toolName);
+          allowed = choice === once || choice === always;
+        } else {
+          allowed = (await ctx.ui.confirm("Untrusted content guard", message)) === true;
+        }
       } catch {
         allowed = false; // dismissed / timed out / transport error → deny
       }
