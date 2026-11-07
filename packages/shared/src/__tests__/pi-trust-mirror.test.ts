@@ -7,7 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { forbiddenGrantSubjects } from "../forbidden-subjects.js";
+import { nativePathApi, piPathComparisonKey, piPathsEqual } from "../pi-path-compare.js";
+import { nearestRecordedEntry } from "../pi-trust-mirror-snapshot.js";
 import {
+  ancestorKeys,
   decidePiTrust,
   filterMirrorEntries,
   isMirrorDenied,
@@ -162,8 +165,85 @@ describe("#E9 decidePiTrust table", () => {
     expect(decidePiTrust({ ...base, mirrorEnabled: false, mirrorEntry: pinned })).toEqual({ trusted: false, source: { kind: "default", value: "ask" } });
     expect(decidePiTrust({ ...base, mirrorEnabled: false, mirrorEntry: pinned, piDefault: "always" }).trusted).toBe(true);
   });
-  it("no trust-requiring resources is implicitly trusted", () => {
-    expect(decidePiTrust({ ...base, hasTrustRequiringResources: false, recordedEntry: { path: "/r", decision: false } })).toEqual({ trusted: true, source: { kind: "implicit" } });
+  // pi 1.5 order (project-trust.js:22-23): the nearest recorded entry decides
+  // before implicit trust. See change: update-pi-core-1-5-adopt-apis (test-plan #E13).
+  it("a recorded refusal decides a folder with no trust-requiring resources", () => {
+    expect(
+      decidePiTrust({ ...base, hasTrustRequiringResources: false, recordedEntry: { path: "/r", decision: false }, mirrorEntry: pinned }),
+    ).toEqual({ trusted: false, source: { kind: "recorded", path: "/r" } });
+  });
+  // test-plan #E14
+  it("nothing recorded + no trust-requiring resources is implicitly trusted (dashboard and default not consulted)", () => {
+    expect(
+      decidePiTrust({ ...base, hasTrustRequiringResources: false, mirrorEntry: pinned, piDefault: "never" }),
+    ).toEqual({ trusted: true, source: { kind: "implicit" } });
+  });
+  // test-plan #E15
+  it("a recorded `true` on an ancestor decides a no-resources folder", () => {
+    expect(
+      decidePiTrust({ ...base, hasTrustRequiringResources: false, recordedEntry: { path: "/a", decision: true } }),
+    ).toEqual({ trusted: true, source: { kind: "recorded", path: "/a" } });
+  });
+});
+
+/**
+ * pi's `pathsEqual` (1.5.0 `utils/paths.js:31-35`, `trust-manager.js:22-35`):
+ * both paths resolved, case-insensitive on win32. The win32 branch runs on every
+ * host through an injected `path.win32`.
+ * See change: update-pi-core-1-5-adopt-apis (test-plan #E19-#E26).
+ */
+describe("#E19-#E21 piPathsEqual / piPathComparisonKey", () => {
+  it("win32: case, trailing separator and dot-segments compare equal; drives differ", () => {
+    expect(piPathsEqual("C:\\Work\\Repo", "c:\\work\\repo", path.win32)).toBe(true);
+    expect(piPathsEqual("C:\\Work\\Repo\\", "c:\\work\\repo", path.win32)).toBe(true);
+    expect(piPathsEqual("C:\\Work\\..\\Work\\Repo", "c:\\work\\repo", path.win32)).toBe(true);
+    expect(piPathsEqual("C:\\Work\\Repo", "D:\\Work\\Repo", path.win32)).toBe(false);
+    expect(piPathComparisonKey("C:\\Work\\Repo", path.win32)).toBe("c:\\work\\repo");
+  });
+  it("posix: resolved but case-sensitive", () => {
+    expect(piPathsEqual("/r/", "/r", path.posix)).toBe(true);
+    expect(piPathsEqual("/a//r", "/a/r", path.posix)).toBe(true);
+    expect(piPathsEqual("/a/./r", "/a/r", path.posix)).toBe(true);
+    expect(piPathsEqual("/R", "/r", path.posix)).toBe(false);
+    expect(piPathsEqual("/r", "/r2", path.posix)).toBe(false);
+  });
+  it("nativePathApi is read at call time", () => {
+    const desc = Object.getOwnPropertyDescriptor(process, "platform")!;
+    try {
+      Object.defineProperty(process, "platform", { ...desc, value: "win32" });
+      expect(nativePathApi()).toBe(path.win32);
+      expect(piPathComparisonKey("C:\\X")).toBe("c:\\x");
+    } finally {
+      Object.defineProperty(process, "platform", desc);
+    }
+    expect(nativePathApi()).toBe(process.platform === "win32" ? path.win32 : path.posix);
+    if (process.platform !== "win32") expect(piPathComparisonKey("/X")).toBe("/X");
+  });
+});
+
+describe("#E22-#E25 nearestRecordedEntry matches keys with piPathsEqual", () => {
+  it("win32: own refusal saved with different casing returns the stored spelling", () => {
+    expect(nearestRecordedEntry({ "C:\\Work\\Repo": false }, "c:\\work\\repo", path.win32)).toEqual({ path: "C:\\Work\\Repo", decision: false });
+  });
+  it("win32: a case-different drive-letter ancestor", () => {
+    expect(nearestRecordedEntry({ "C:\\Work": false }, "c:\\work\\repo", path.win32)).toEqual({ path: "C:\\Work", decision: false });
+  });
+  it("posix: a non-normalised key matches, lookup stays case-sensitive", () => {
+    expect(nearestRecordedEntry({ "/r/": false }, "/r", path.posix)).toEqual({ path: "/r/", decision: false });
+    expect(nearestRecordedEntry({ "/R": false }, "/r", path.posix)).toBe(null);
+  });
+  it("object order, boolean filter and nearer ancestor", () => {
+    const loose = (o: Record<string, unknown>) => o as Record<string, boolean>;
+    expect(nearestRecordedEntry(loose({ "/r/": "yes", "/r": false }), "/r", path.posix)).toEqual({ path: "/r", decision: false });
+    expect(nearestRecordedEntry({ "/r/": true, "/r": false }, "/r", path.posix)).toEqual({ path: "/r/", decision: true });
+    expect(nearestRecordedEntry({ "/a": false, "/a/b/": true }, "/a/b/c", path.posix)).toEqual({ path: "/a/b/", decision: true });
+  });
+});
+
+describe("#E26 ancestorKeys with an injected path module", () => {
+  it("win32 and the default", () => {
+    expect(ancestorKeys("c:\\work\\repo", path.win32)).toEqual(["c:\\work\\repo", "c:\\work", "c:\\"]);
+    if (process.platform !== "win32") expect(ancestorKeys("/a/b")).toEqual(["/a/b", "/a", "/"]);
   });
 });
 

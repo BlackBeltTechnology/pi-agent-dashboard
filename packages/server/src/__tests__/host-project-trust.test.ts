@@ -169,3 +169,95 @@ describe("#E24 / #X10 / #E27 host predicate", () => {
     expect(fs.statSync(file).mtimeMs).toBe(mtime);
   });
 });
+
+// ── update-pi-core-1-5-adopt-apis: pi 1.5 order (recorded entry first) ─────
+
+describe("pi 1.5 order: the recorded entry is read for every folder (#E17 #E18 #X1)", () => {
+  const noResources = { hasTrustRequiringResources: () => false };
+
+  it("#E17 a recorded refusal decides a no-resources folder", () => {
+    const recordedEntry = vi.fn(() => ({ path: "/r", decision: false }));
+    const svc = createHostProjectTrustService({ ...noResources, recordedEntry, defaultProjectTrust: () => "always" });
+    expect(svc.isProjectTrusted("/r")).toBe(false);
+    expect(svc.projectTrustSource("/r")).toEqual({ kind: "recorded", path: "/r" });
+    expect(recordedEntry).toHaveBeenCalledTimes(2); // once per decide
+  });
+
+  it("#E18 nothing recorded + no resources is implicit; dashboard trust and the default are not read", () => {
+    const defaultProjectTrust = vi.fn(() => "never" as const);
+    const covering = vi.fn(() => ({ sourceKind: "pinned" as const, key: "/r" }));
+    const svc = createHostProjectTrustService({
+      ...noResources,
+      recordedEntry: () => undefined as never,
+      defaultProjectTrust,
+      mirror: { enabled: () => true, covering },
+    });
+    expect(svc.isProjectTrusted("/r")).toBe(true);
+    expect(svc.projectTrustSource("/r")).toEqual({ kind: "implicit" });
+    expect(defaultProjectTrust).not.toHaveBeenCalled();
+    expect(covering).not.toHaveBeenCalled();
+
+    const withResources = createHostProjectTrustService({
+      hasTrustRequiringResources: () => true,
+      recordedEntry: () => null,
+      defaultProjectTrust,
+    });
+    expect(withResources.isProjectTrusted("/r")).toBe(false);
+    expect(defaultProjectTrust).toHaveBeenCalledTimes(1);
+  });
+
+  it("#X1 an unreadable store (EACCES) on the no-resources path fails closed", () => {
+    const svc = createHostProjectTrustService({
+      ...noResources,
+      recordedEntry: () => {
+        throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+      },
+      defaultProjectTrust: () => "always",
+    });
+    expect(() => svc.isProjectTrusted("/r")).not.toThrow();
+    expect(svc.isProjectTrusted("/r")).toBe(false);
+    expect(svc.projectTrustSource("/r")).toBeUndefined();
+  });
+});
+
+describe("pi 1.5 order against the real installed pi (#X2 #P2)", () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-host-trust15-")));
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  it("a recorded refusal decides a no-resources folder through pi's own store", async () => {
+    const agent = path.join(tmp, "agent");
+    const proj = path.join(tmp, "plain");
+    fs.mkdirSync(agent);
+    fs.mkdirSync(proj);
+    fs.writeFileSync(path.join(agent, "trust.json"), JSON.stringify({ [proj]: false }));
+    const svc = await loadHostProjectTrustService(agent);
+    expect(svc.decide(proj)).toEqual({ trusted: false, source: { kind: "recorded", path: proj } });
+  });
+
+  it("#X2/#P2 trust lock held: a no-resources folder is undecided, each decide ≤ 250 ms", async () => {
+    const agent = path.join(tmp, "agent");
+    const proj = path.join(tmp, "plain");
+    fs.mkdirSync(agent);
+    fs.mkdirSync(proj);
+    fs.writeFileSync(path.join(agent, "trust.json"), "{}");
+    // proper-lockfile's lock is a directory at `<trust.json>.lock` (fresh mtime = held).
+    fs.mkdirSync(path.join(agent, "trust.json.lock"));
+    const svc = await loadHostProjectTrustService(agent);
+    let max = 0;
+    for (let i = 0; i < 20; i++) {
+      const t0 = performance.now();
+      let out: unknown = "unset";
+      expect(() => {
+        out = svc.decide(proj);
+      }).not.toThrow();
+      max = Math.max(max, performance.now() - t0);
+      expect(out).toBeUndefined();
+    }
+    expect(svc.isProjectTrusted(proj)).toBe(false);
+    expect(svc.projectTrustSource(proj)).toBeUndefined();
+    expect(max).toBeLessThanOrEqual(250);
+  }, 20_000);
+});

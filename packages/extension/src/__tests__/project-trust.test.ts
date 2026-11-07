@@ -137,6 +137,34 @@ describe("activation rule (#E12 #E13 #E14)", () => {
   });
 });
 
+/**
+ * pi 1.5 matches trust-file keys with `pathsEqual` (resolved; case-insensitive on
+ * Windows), so the bridge withholds its yes for a refusal pi would find.
+ * See change: update-pi-core-1-5-adopt-apis (test-plan #E27 #E28).
+ */
+describe("recorded refusal matched as pi's pathsEqual (#E27 #E28)", () => {
+  it("#E27 a non-normalised recorded refusal (`/r/`) → undecided recorded-entry", async () => {
+    const r = mkdir("r");
+    mkdir("r", ".pi");
+    fs.writeFileSync(path.join(r, ".pi", "settings.json"), "{}");
+    fs.writeFileSync(path.join(agentDir, "trust.json"), JSON.stringify({ [`${r}/`]: false }));
+    const out = await decide({ eventCwd: r }, { readSnapshot: () => snap(entryFor(r)) });
+    expect(out).toMatchObject({ trusted: "undecided", reason: "recorded-entry" });
+    expect(logs.join("\n")).toContain("recorded-entry");
+  });
+
+  // The bridge forms the cwd key with the native `piTrustKey`, so the casing
+  // variant is only meaningful on Windows (CI proof on posix: #E19 / #E22).
+  it.runIf(process.platform === "win32")("#E28 a Windows refusal saved with different casing → undecided recorded-entry", async () => {
+    const r = mkdir("Repo");
+    mkdir("Repo", ".pi");
+    fs.writeFileSync(path.join(r, ".pi", "settings.json"), "{}");
+    fs.writeFileSync(path.join(agentDir, "trust.json"), JSON.stringify({ [r.toUpperCase()]: false }));
+    const out = await decide({ eventCwd: r }, { readSnapshot: () => snap(entryFor(r)) });
+    expect(out).toMatchObject({ trusted: "undecided", reason: "recorded-entry" });
+  });
+});
+
 describe("#E15 lockless trust.json rules", () => {
   const cases: Array<[string, string | null, "yes" | "undecided", string | undefined]> = [
     ["BOM + recorded true", "\ufeff{\"@\":true}", "undecided", "recorded-entry"],

@@ -210,7 +210,7 @@ describe("CtxToolRenderer — error variants", () => {
     });
     expect(container.textContent).toMatch(/validation error/i);
     expect(container.textContent).toContain("Received arguments");
-    expect(container.textContent).toContain("must have required properties code");
+    expect(container.textContent).toContain("- code: missing");
   });
 
   it("timeout error renders error card", () => {
@@ -283,7 +283,7 @@ describe("CtxToolRenderer — error variants", () => {
     // Two vacuity traps are deliberately avoided here: picking the last <pre>
     // of the card lands on the message body (same two classes — always green),
     // and matching on the text "language" ALSO hits the message, whose text is
-    // `- language: must be equal to one of the allowed values`.
+    // `- language: expected one of [...]` (pi-schema wording, pi 1.5).
     const toggle = getByText("Received arguments").closest("button") as HTMLElement;
     const block = toggle.parentElement as HTMLElement;
     expect(block.querySelector("pre"), "receivedArgs <pre> is mounted while collapsed").toBeNull();

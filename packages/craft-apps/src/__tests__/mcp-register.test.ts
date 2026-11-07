@@ -83,3 +83,30 @@ describe("mcp --register", () => {
     expect(run(project()).err).not.toMatch(/does not look like a project root/);
   });
 });
+
+// pi 1.4.0 strips one leading UTF-8 BOM from mcp.json (#11191); the registrar does too.
+// See change: update-pi-core-1-5-adopt-apis (test-plan #X6).
+describe("BOM-prefixed mcp.json", () => {
+  it("one BOM: merged (exit 0), other servers kept, written without a BOM", () => {
+    const cwd = project();
+    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    fs.writeFileSync(mcpFile(cwd), `\uFEFF${JSON.stringify({ mcpServers: { other: { command: "o" } } })}`);
+    expect(run(cwd).code).toBe(0);
+    const raw = fs.readFileSync(mcpFile(cwd), "utf8");
+    expect(raw.charCodeAt(0)).toBe(0x7b);
+    const cfg = JSON.parse(raw);
+    expect(cfg.mcpServers.other).toEqual({ command: "o" });
+    expect(cfg.mcpServers["photocraft"]).toBeTruthy();
+  });
+
+  it("two BOMs: reported invalid JSON, exit 1, file byte-identical", () => {
+    const cwd = project();
+    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    const content = `\uFEFF\uFEFF${JSON.stringify({ mcpServers: { other: { command: "o" } } })}`;
+    fs.writeFileSync(mcpFile(cwd), content);
+    const { code, err } = run(cwd);
+    expect(code).toBe(1);
+    expect(err).toMatch(/not valid JSON/);
+    expect(fs.readFileSync(mcpFile(cwd), "utf8")).toBe(content);
+  });
+});

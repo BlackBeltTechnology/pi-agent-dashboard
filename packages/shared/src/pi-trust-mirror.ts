@@ -61,13 +61,16 @@ export function isCanonicalAbsolutePath(p: unknown): p is string {
   );
 }
 
-/** `key` itself, then each ancestor, up to the root. */
-export function ancestorKeys(key: string): string[] {
+/**
+ * `key` itself, then each ancestor, up to the root. `pathApi` (default: the
+ * native `node:path`) lets callers walk win32 keys on any host.
+ */
+export function ancestorKeys(key: string, pathApi: typeof path.posix = path): string[] {
   const out: string[] = [];
   let cur = key;
   for (;;) {
     out.push(cur);
-    const parent = path.dirname(cur);
+    const parent = pathApi.dirname(cur);
     if (parent === cur) return out;
     cur = parent;
   }
@@ -240,7 +243,10 @@ export interface PiTrustDecision {
 }
 
 export interface DecidePiTrustInput {
-  /** pi's own `hasTrustRequiringProjectResources(cwd)`; `false` ⇒ implicitly trusted. */
+  /**
+   * pi's own `hasTrustRequiringProjectResources(cwd)`. `false` ⇒ implicitly
+   * trusted only when nothing is recorded (pi 1.5 order).
+   */
   hasTrustRequiringResources: boolean;
   /** pi's nearest recorded entry (true OR false), or null. */
   recordedEntry: { path: string; decision: boolean } | null;
@@ -252,15 +258,19 @@ export interface DecidePiTrustInput {
 }
 
 /**
- * implicit → pi's recorded entry → dashboard trust (even over `never`) →
- * `defaultProjectTrust`. Never writes anything. CLI `--approve/--no-approve`
- * is pi's and outside this core.
+ * pi's recorded entry (true or false) → implicit (no trust-requiring project
+ * resources) → dashboard trust (even over `never`) → `defaultProjectTrust`.
+ * This is pi 1.5's order (`project-trust.js:22-23`): the recorded entry decides
+ * first, even for a folder with no trust-requiring resources; dashboard trust
+ * and the default apply only to folders that have such resources. Never writes
+ * anything. CLI `--approve/--no-approve` is pi's and outside this core.
+ * See change: update-pi-core-1-5-adopt-apis (design D2).
  */
 export function decidePiTrust(input: DecidePiTrustInput): PiTrustDecision {
-  if (!input.hasTrustRequiringResources) return { trusted: true, source: { kind: "implicit" } };
   if (input.recordedEntry) {
     return { trusted: input.recordedEntry.decision, source: { kind: "recorded", path: input.recordedEntry.path } };
   }
+  if (!input.hasTrustRequiringResources) return { trusted: true, source: { kind: "implicit" } };
   if (input.mirrorEnabled && input.mirrorEntry) {
     return {
       trusted: true,

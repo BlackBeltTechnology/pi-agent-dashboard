@@ -233,6 +233,40 @@ describe("prompt handling", () => {
   });
 });
 
+// pi 1.5 adds optional `openBrowserOnConfirm` / `copyCodeOnConfirm` to the
+// device_code event; clients may ignore them, and the adapter copies only the
+// four fields it renders. See change: update-pi-core-1-5-adopt-apis (test-plan #E68).
+describe("device_code event with pi 1.5's optional fields (E68)", () => {
+  it("the pending state carries exactly the four copied fields", async () => {
+    const fake = createFakeOAuthFlow([
+      {
+        kind: "notify",
+        event: {
+          type: "device_code",
+          userCode: "U-1",
+          verificationUri: "https://v.example",
+          intervalSeconds: 5,
+          expiresInSeconds: 600,
+          openBrowserOnConfirm: true,
+          copyCodeOnConfirm: true,
+        } as never,
+      },
+      { kind: "hang" },
+    ]);
+    const { started } = start(fake, { provider: "xai" });
+    await flush();
+    expect(toFlowStatus(started.flow).pending).toEqual({
+      kind: "device_code",
+      userCode: "U-1",
+      verificationUri: "https://v.example",
+      intervalSeconds: 5,
+      expiresInSeconds: 600,
+    });
+    cancelFlow(started.flow);
+    await started.settled;
+  });
+});
+
 describe("cancellation", () => {
   it("X5: a mid-poll abort stores 'Cancelled', never pi-ai's own string", async () => {
     const fake = deviceCodeFlow({ expiresInSeconds: 900 });

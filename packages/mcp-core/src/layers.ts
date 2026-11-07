@@ -3,12 +3,12 @@
  *
  * pi's built-in MCP reads exactly two files: `<agentDir>/mcp.json`
  * (`PI_CODING_AGENT_DIR`, else `~/.pi/agent`) and, for a trusted project,
- * `<cwd>/.pi/mcp.json`. Both are parsed with strict `JSON.parse`; a file with
- * comments or trailing commas is reported and skipped whole. This module reads
- * them the same way, so the dashboard never shows (or writes over) a file pi
- * would skip.
+ * `<cwd>/.pi/mcp.json`. Both are parsed with strict `JSON.parse` after one
+ * leading UTF-8 BOM is stripped (pi 1.4.0, #11191); a file with comments or
+ * trailing commas is reported and skipped whole. This module reads them the
+ * same way, so the dashboard never shows (or writes over) a file pi would skip.
  *
- * See change: migrate-mcp-to-pi-builtin (D3 "Reads").
+ * See change: migrate-mcp-to-pi-builtin (D3 "Reads"), update-pi-core-1-5-adopt-apis.
  */
 
 import { homedir } from "node:os";
@@ -43,13 +43,16 @@ export type LayerRead =
   | { ok: true; path: string; exists: boolean; config: Record<string, unknown>; servers: Record<string, unknown> }
   | { ok: false; path: string; exists: true; message: string };
 
-/** Read + strictly parse one layer. A missing file reads as an empty config. */
+/**
+ * Read + strictly parse one layer. A missing file reads as an empty config. One
+ * leading U+FEFF is stripped before parsing, as pi does; the file is not rewritten.
+ */
 export function readLayer(io: ConfigIO, path: string): LayerRead {
   const raw = io.readFile(path);
   if (raw === null) return { ok: true, path, exists: false, config: nullProto({}), servers: nullProto({}) };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(raw.startsWith("\uFEFF") ? raw.slice(1) : raw);
   } catch (e) {
     return { ok: false, path, exists: true, message: `${path}: ${(e as Error).message}` };
   }

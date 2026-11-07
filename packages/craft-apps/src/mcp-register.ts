@@ -79,7 +79,9 @@ export function registerMcp(app: CraftApp, partial: Partial<RegisterDeps> = {}):
   let config: Record<string, unknown> = {};
   if (fs.existsSync(file)) {
     try {
-      const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+      // Strip one leading UTF-8 BOM, as pi 1.4.0+ does (#11191). See change: update-pi-core-1-5-adopt-apis.
+      const text = fs.readFileSync(file, "utf8");
+      const parsed: unknown = JSON.parse(text.startsWith("\uFEFF") ? text.slice(1) : text);
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not a JSON object");
       config = parsed as Record<string, unknown>;
     } catch (e) {

@@ -158,14 +158,30 @@ pi-coding-agent 1.5.0 depends on `minimatch` `11.0.3` and imports the named expo
 
 ## Verification runs
 
-Filled in during apply:
-- fixtures red → green;
-- `pnpm install` plus the lockfile-derived `minimumReleaseAgeExclude`;
-- `npm test`;
-- `npm run build`;
-- the docker-harness floor smoke (`pi-1-5-floor-smoke.spec.ts`);
-- `qa/tests/01-install.sh`;
-- the `rg '\b1\.3\.0\b'` sweep, with each surviving hit justified.
+Recorded during apply (ship-it, 2026-11-06/07, worktree `os/update-pi-core-1-5-adopt-apis`, merged with `origin/develop`):
+
+- **Fixtures red → green (task 1.1).** With the 1.3.0 pins, `pi-version-skew.test.ts` (E1/E2/E3/X13), `pi-version-update-handling.test.ts` (X3) and the new E7 typebox row failed (6 + 1 red); after the pin move and `pnpm install` all pin suites are green (119/119 incl. `verify-release-deps-pi-coherence.test.mjs`).
+- **`pnpm install` / release-age gate (task 1.4).** `pnpm config list` shows no `minimumReleaseAge` (only the exclude list), so the gate is not active on this host. Lockfile delta: added `@earendil-works/{pi-agent-core,pi-ai,pi-codemode,pi-coding-agent,pi-mcp,pi-schema,pi-telemetry,pi-tui}@1.5.0`, `marked-cjk-friendly@0.1.2` (2026-09-19), `minimatch@11.0.3` (2026-10-28), `undici@8.12.3` (2026-10-19), `@isaacs/nonrecursive-glob-match@1.1.0` (2026-11-05, a dependency of minimatch 11.0.3 `^1.0.3`); removed the `@1.3.0` set, `undici@8.10.2`, `brace-expansion@5.0.9`. The repo's `^11.0.3` ranges first resolved `minimatch@11.0.5` (published 2026-11-05, < 1 day old); the two importers were pinned in the lockfile to `11.0.3`, pi's own version, so one minimatch copy is shared with pi. `minimumReleaseAgeExclude` regenerated: every `@earendil-works/*@1.3.0` → `@1.5.0`, plus `@earendil-works/pi-schema@1.5.0`. Installed: engines `>=22.19.0`, pi-coding-agent `typebox` `1.3.27`; the extension `typebox` devDependency moves `^1.3.7` → `^1.3.27` so the test-fidelity pin equals pi's (E7; the hoisted copy stays `1.3.20` for other packages, the extension resolves `1.3.27`).
+- **Type-check.** `npm run lint` and `npm run lint:e2e` exit 0. The extension's ambient `pi-env.d.ts` shadows `@earendil-works/pi-ai` types, so it gains a `validateToolArguments` declaration for the E35 test.
+- **`npm run build`** exit 0.
+- **`node scripts/verify-release-deps.mjs`**: `OK — 13 rules passed` at 1.5.0.
+- **`openspec validate update-pi-core-1-5-adopt-apis --strict`**: valid. Step-4.4 enforcers (conventions, plugin boundary, client sinks, dox byte gate, i18n lint/parity, knip config/ratchet/baseline diff, CodeQL baseline diff): all exit 0.
+- **`npm test`**: see the ship-it report. Host-only failures not caused by this change: `cli-start-call-shape.test.ts` (the shell's Node 24 is below `engines.node >=26`), `auth.test.ts` / `localhost-guard.test.ts` / `host-gate-upgrade.test.ts` (a foreign `index.html` served on this host), `hermes-config.test.ts` (local `pi-hermes-memory` is 0.10.0).
+- **Found during apply:** `claude-compat-pi-docs-canary.test.ts` failed against pi 1.5.0: the default `docs` section now reads "…about the harness itself, its SDK, …" (1.5.0 changelog "Tightened system prompt") and contains neither `pi itself` nor `pi packages`. Decision (operator, during ship-it): pin the 1.5 wording in the canary (rewrites are no-ops), restate `claude-subscription-compat`, record it in the proposal's documented no-ops (task 3.4).
+- **Docker floor smoke (`pi-1-5-floor-smoke.spec.ts`)** and **`qa/tests/01-install.sh`**: see the ship-it report / task 8.6 (manual, first release).
+
+### `rg '\b1\.3\.0\b'` sweep (task 1.6), surviving hits
+
+- `PLUGIN_HOST_API_VERSION` tests (`packages/shared/src/dashboard-plugin/__tests__/host-api.test.ts`): the dashboard's own plugin host API version, not pi.
+- `bonjour-service` `^1.3.0` (`packages/shared/package.json`, `packages/server/package.json`): unrelated package.
+- `PackageRow.override.test.tsx:27`, `manifest-validator.test.ts:614`, `provider-auth-catalogue-ready.test.ts:104` (`ModelRuntimeUnavailableError("boom", "1.3.0")`): arbitrary version fixtures.
+- Test fixtures that name 1.3.0 on purpose as the previous floor: `pi-version-skew.test.ts`, `pi-version-update-handling.test.ts`, `verify-release-deps-pi-coherence.test.mjs`, `e2e-browser-workflow-contract.test.ts`, the `"1.3.0"` row of `bundled-node-meets-pi-floor.test.ts` (history table), and the `update-pi-core-1-3-adopt-apis` comments in `pi-settings-routes.test.ts` / `PiSettingsPage.test.tsx`.
+- History in prose: `scripts/verify-release-deps.mjs:93` (rationale chain), `scripts/verify-release-deps.mjs.AGENTS.md` and `docker/Dockerfile.AGENTS.md` (floor history), `docs/architecture.md` ("Present since pi-ai 1.3.0", "1.3.0 adds:", floor history), `docs/research/pi-bolt-aot-runtime-spike.md` (research record), `scripts/ab-context/runs-plain-language/*.jsonl` (recorded session data).
+- `openspec/specs` and in-flight changes: justified only, not edited (proposal "Out of scope").
+
+### Trust: toggle gate order (task 2.4)
+
+`packages/server/src/pi/resource-toggle-trust.ts` reads `ProjectTrustStore.getEntry(cwd)` before anything else and never applies the "no trust-requiring resources → trusted" shortcut (writing `.pi/settings.json` makes the folder trust-requiring), so pi 1.5's order needs no change there. Only its own-folder comparison changes (`piPathsEqual`, design D2).
 
 ## `pi.exec` result field (pre-existing defect, D9)
 

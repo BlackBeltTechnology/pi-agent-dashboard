@@ -163,6 +163,77 @@ describe("pi-agent-settings typed keys", () => {
     expect(r).toMatchObject({ ok: false, error: "invalid" });
   });
 
+  // pi 1.5 documents `httpIdleTimeoutMs` / `websocketConnectTimeoutMs` as
+  // `number | "disabled"`. The typed PATCH accepts exactly the canonical
+  // `"disabled"` for those two keys only.
+  // See change: update-pi-core-1-5-adopt-apis (test-plan #E39-#E44).
+  it("E39 the disabled literal is written verbatim on both timeout keys", async () => {
+    seed({ theme: "dark", compaction: { enabled: true } });
+    expect(await patch({ httpIdleTimeoutMs: "disabled", websocketConnectTimeoutMs: 0 })).toMatchObject({ ok: true });
+    expect(onDisk()).toContain('"httpIdleTimeoutMs": "disabled"');
+    expect(onDisk()).toContain('"websocketConnectTimeoutMs": 0');
+    expect(json()).toEqual({ theme: "dark", compaction: { enabled: true }, httpIdleTimeoutMs: "disabled", websocketConnectTimeoutMs: 0 });
+  });
+
+  it("E40 other spellings are rejected naming the key", async () => {
+    for (const v of ["Disabled", " disabled", "disabled ", "DISABLED", "off", ""]) {
+      seed({ keep: 1 });
+      const before = onDisk();
+      const r = await patch({ httpIdleTimeoutMs: v });
+      expect(r, JSON.stringify(v)).toMatchObject({ ok: false, error: "invalid" });
+      expect(errorsOf(r)).toContain("httpIdleTimeoutMs");
+      expect(errorsOf(r)).toContain('must be a non-negative integer or \\"disabled\\"');
+      expect(onDisk()).toBe(before);
+    }
+  });
+
+  it("E41 the literal is rejected on non-flagged int keys, without mentioning it", async () => {
+    for (const p of [
+      { compaction: { reserveTokens: "disabled" } },
+      { autocompleteMaxVisible: "disabled" },
+      { thinkingBudgets: { low: "disabled" } },
+    ]) {
+      seed({ keep: 1 });
+      const before = onDisk();
+      const r = await patch(p);
+      expect(r, JSON.stringify(p)).toMatchObject({ ok: false, error: "invalid" });
+      expect(errorsOf(r)).not.toContain("disabled");
+      expect(onDisk()).toBe(before);
+    }
+    const keyOf = async (p: object) => errorsOf(await patch(p));
+    seed({});
+    expect(await keyOf({ compaction: { reserveTokens: "disabled" } })).toContain("compaction.reserveTokens");
+    expect(await keyOf({ autocompleteMaxVisible: "disabled" })).toContain("autocompleteMaxVisible");
+    expect(await keyOf({ thinkingBudgets: { low: "disabled" } })).toContain("thinkingBudgets.low");
+  });
+
+  it("E42 numeric boundaries on a flagged key", async () => {
+    for (const v of [0, 1]) {
+      seed({});
+      expect(await patch({ websocketConnectTimeoutMs: v }), String(v)).toMatchObject({ ok: true });
+      expect(json().websocketConnectTimeoutMs).toBe(v);
+    }
+    for (const v of [-1, 1.5, "5000"]) {
+      seed({});
+      const r = await patch({ websocketConnectTimeoutMs: v });
+      expect(r, String(v)).toMatchObject({ ok: false, error: "invalid" });
+      expect(errorsOf(r)).toContain("websocketConnectTimeoutMs");
+    }
+  });
+
+  it("E43 null deletes a stored literal", async () => {
+    seed({ httpIdleTimeoutMs: "disabled" });
+    expect(await patch({ httpIdleTimeoutMs: null })).toMatchObject({ ok: true });
+    expect(json()).not.toHaveProperty("httpIdleTimeoutMs");
+  });
+
+  it("E44 raw mode accepts any string on the timeout keys unchanged", async () => {
+    seed({});
+    const r = await writePiSettingsRaw('{"httpIdleTimeoutMs":"disabled","websocketConnectTimeoutMs":"soon"}', token(), deps);
+    expect(r).toMatchObject({ ok: true });
+    expect(json()).toEqual({ httpIdleTimeoutMs: "disabled", websocketConnectTimeoutMs: "soon" });
+  });
+
   describe("E21 parse errors never quote file content", () => {
     const TRUNCATED = '{"anthropicApiKey": "sk-ant-secret-value';
     const BARE = '{"k": sk-ant-SEC}';

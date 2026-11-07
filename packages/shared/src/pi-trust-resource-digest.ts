@@ -22,6 +22,7 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import path from "node:path";
+import { nativePathApi, type PathApi, piPathsEqual } from "./pi-path-compare.js";
 
 /**
  * pi does not export its own list (`TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES`),
@@ -184,11 +185,11 @@ function compareCodePoints(a: string, b: string): number {
   return ai.length - bi.length;
 }
 
-async function realOrSelf(p: string): Promise<string> {
+async function realOrSelf(p: string, pathApi: PathApi): Promise<string> {
   try {
     return await fsp.realpath(p);
   } catch {
-    return path.resolve(p);
+    return pathApi.resolve(p);
   }
 }
 
@@ -205,15 +206,18 @@ async function collectPiResources(w: Walk, cwd: string): Promise<void> {
   }
 }
 
-/** `<d>/.agents/skills` for the cwd and every ancestor, except the user's own. */
-async function collectAgentSkills(w: Walk, cwd: string, userSkills: string): Promise<void> {
+/**
+ * `<d>/.agents/skills` for the cwd and every ancestor, except the user's own —
+ * excluded with pi's `pathsEqual` (1.5.0 `trust-manager.js:167`).
+ */
+async function collectAgentSkills(w: Walk, cwd: string, userSkills: string, pathApi: PathApi): Promise<void> {
   for (let dir = cwd, k = 0; ; k += 1) {
-    const agents = path.join(dir, ".agents");
+    const agents = pathApi.join(dir, ".agents");
     const agentsStat = await lstatOrNull(agents, w);
     if (agentsStat?.isSymbolicLink()) throw new FailClosed("symlink");
-    const skills = path.join(agents, "skills");
-    if (skills !== userSkills && agentsStat) await addTree(w, skills, `a${k}`);
-    const parent = path.dirname(dir);
+    const skills = pathApi.join(agents, "skills");
+    if (!piPathsEqual(skills, userSkills, pathApi) && agentsStat) await addTree(w, skills, `a${k}`);
+    const parent = pathApi.dirname(dir);
     if (parent === dir) return;
     dir = parent;
   }
@@ -222,19 +226,21 @@ async function collectAgentSkills(w: Walk, cwd: string, userSkills: string): Pro
 /**
  * The manifest of pi's trust-requiring resources for `cwd` (a canonical key), or
  * `null` when the set is empty or cannot be bound. `home` is this side's own home
- * (its `.agents/skills` is the user's, excluded).
+ * (its `.agents/skills` is the user's, excluded). `pathApi` (default native) is
+ * the path module for the skills walk and that exclusion (win32 testable anywhere).
  */
 export async function trustResourceManifest(
   cwd: string,
-  opts: { home: string; signal?: AbortSignal },
+  opts: { home: string; signal?: AbortSignal; pathApi?: PathApi },
 ): Promise<string | null> {
   const w: Walk = { entries: [], bytes: 0, signal: opts.signal };
   try {
     checkAbort(w);
-    const userSkills = path.join(await realOrSelf(opts.home), ".agents", "skills");
+    const pathApi = opts.pathApi ?? nativePathApi();
+    const userSkills = pathApi.join(await realOrSelf(opts.home, pathApi), ".agents", "skills");
     checkAbort(w);
     await collectPiResources(w, cwd);
-    await collectAgentSkills(w, cwd, userSkills);
+    await collectAgentSkills(w, cwd, userSkills, pathApi);
     if (w.entries.length === 0) return null;
     w.entries.sort((a, b) => compareCodePoints(a.label, b.label));
     return w.entries.map((e) => e.line).join("\n");

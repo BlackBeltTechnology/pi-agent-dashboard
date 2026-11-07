@@ -255,6 +255,79 @@ describe("PiSettingsPage", () => {
     });
   });
 
+  // pi 1.5: `"disabled"` timeouts, pi-written `extensionChangelogVersions`, new hints.
+  // See change: update-pi-core-1-5-adopt-apis (test-plan #E45-#E49, #E52, #E53).
+  describe("pi 1.5 settings", () => {
+    const field = (r: R, key: string) => r.getByTestId(`pi-settings-field-${key}`) as HTMLInputElement;
+
+    it("E45 a stored disabled value shows 0 with the Changed marker and is not patched by an unrelated save", async () => {
+      for (const stored of ["disabled", " Disabled "]) {
+        const r = await mount({ httpIdleTimeoutMs: stored });
+        expect(field(r, "httpIdleTimeoutMs").value).toBe("0");
+        expect(r.getByTestId("pi-settings-changed-httpIdleTimeoutMs").textContent).toMatch(/Changed/);
+        pick(r, "steeringMode", "all");
+        await commit(r);
+        expect(r.save).toHaveBeenCalledWith({ mode: "form", patch: { steeringMode: "all" }, baseEtag: "etag-1" });
+        r.unmount();
+      }
+    });
+
+    it("E46 another stored string shows an empty input, no error, and does not block Save", async () => {
+      const r = await mount({ websocketConnectTimeoutMs: "soon" });
+      expect(field(r, "websocketConnectTimeoutMs").value).toBe("");
+      expect(r.getByTestId("pi-settings-changed-websocketConnectTimeoutMs").textContent).toMatch(/Changed/);
+      expect(r.queryByTestId("pi-settings-error-websocketConnectTimeoutMs")).toBeNull();
+      pick(r, "steeringMode", "all");
+      await commit(r);
+      expect(r.save).toHaveBeenCalledWith({ mode: "form", patch: { steeringMode: "all" }, baseEtag: "etag-1" });
+    });
+
+    it("E47 editing a disabled row writes the number", async () => {
+      const r = await mount({ httpIdleTimeoutMs: "disabled" });
+      setText(r, "httpIdleTimeoutMs", "5000");
+      await commit(r);
+      expect(r.save).toHaveBeenCalledWith({ mode: "form", patch: { httpIdleTimeoutMs: 5000 }, baseEtag: "etag-1" });
+    });
+
+    it("E48 an unset timeout shows pi's default, not 0, and no Changed marker", async () => {
+      const r = await mount();
+      expect(field(r, "httpIdleTimeoutMs").value).toBe("");
+      expect(r.getByTestId("pi-settings-row-httpIdleTimeoutMs").textContent).toContain("300,000");
+      expect(r.queryByTestId("pi-settings-changed-httpIdleTimeoutMs")).toBeNull();
+    });
+
+    it("E49 extensionChangelogVersions is in the read-only managed list, without a control", async () => {
+      const r = await mount({ extensionChangelogVersions: { "pkg-a": "1.0.0" }, lastChangelogVersion: "1.5.0" });
+      const list = r.getByTestId("pi-settings-managed-list") as HTMLDetailsElement;
+      expect(list.open).toBe(false);
+      const item = r.getByTestId("pi-settings-managed-extensionChangelogVersions");
+      expect(list.contains(item)).toBe(true);
+      expect(list.contains(r.getByTestId("pi-settings-managed-lastChangelogVersion"))).toBe(true);
+      expect(item.querySelector("input, select, textarea")).toBeNull();
+      expect(r.queryByTestId("pi-settings-field-extensionChangelogVersions")).toBeNull();
+    });
+
+    it("E52 selfUpdateCommand has no Form row and shows in JSON mode", async () => {
+      const r = await mount({ selfUpdateCommand: ["npm", "i", "-g", "{installSpec}"] });
+      expect(r.queryByTestId("pi-settings-row-selfUpdateCommand")).toBeNull();
+      expect(r.queryByTestId("pi-settings-field-selfUpdateCommand")).toBeNull();
+      expect(r.queryByTestId("pi-settings-json-selfUpdateCommand")).toBeNull();
+      expect(r.queryByTestId("pi-settings-managed-selfUpdateCommand")).toBeNull();
+      fireEvent.click(r.getByTestId("pi-settings-mode-json"));
+      expect((r.getByTestId("json-editor") as HTMLTextAreaElement).value).toContain("selfUpdateCommand");
+    });
+
+    it("E53 hints follow pi 1.5 descriptions", async () => {
+      const r = await mount();
+      expect(r.getByTestId("pi-settings-row-compaction.reserveTokens").textContent).toContain(
+        "Free context tokens below which automatic compaction starts",
+      );
+      expect(r.getByTestId("pi-settings-row-collapseChangelog").textContent).toContain(
+        "Show a condensed changelog after an update; also condenses extension package changelogs",
+      );
+    });
+  });
+
   describe("Filtering", () => {
     it("F5 filter by key shows only that row, under its category", async () => {
       const r = await mount();

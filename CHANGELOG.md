@@ -23,6 +23,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING: pi 1.5.0 is the new floor** (`piCompatibility.minimum` = `recommended` = `1.5.0`; every `@earendil-works` pi peer `>=1.5.0`, optional). A session on an older pi shows the below-floor warning: update with `npm install -g @earendil-works/pi-coding-agent@1.5.0`. The Docker image installs pi 1.5.0.
+- **Project trust follows pi 1.5's order.** A recorded `trust.json` entry (yes or no) now decides before implicit trust, also for a folder with no trust-requiring project resources; dashboard trust and `defaultProjectTrust` apply only to folders that have such resources. Recorded entries match as pi's `pathsEqual` does (resolved; case-insensitive on Windows) in the bridge's recorded-entry check, the resource toggle's own-folder check and the remote-trust digest's user-skills exclusion, so a refusal saved under different casing or a non-normalised key is no longer overridden.
+- **Settings form accepts `"disabled"` for `httpIdleTimeoutMs` and `websocketConnectTimeoutMs`.** A stored `"disabled"` (any casing, as pi parses it) shows as `0` and is kept unless you edit the row. `extensionChangelogVersions` (written by pi) joins the read-only managed list.
+- **`mcp.json` with a UTF-8 BOM is read like pi 1.4+ reads it**: the MCP page, the config writer, the Radius MCP offer and the blender / craft-apps `mcp --register` no longer report such a file as invalid JSON.
+- The Windows shell diagnostic follows pi 1.4+: the WSL launcher is `<SystemRoot>\System32\bash.exe` (or `Sysnative`) rather than a fixed `C:\Windows` path.
+- pi 1.5 no longer renders "pi itself" / "pi packages" in its built-in docs prompt, so the Claude subscription compat rewrite finds nothing to change on pi 1.5 sessions.
 - **BREAKING:** flow commands moved into the flows plugin. Removed: the `flow_control` / `flow_management` WebSocket messages, `POST /api/session/:id/flow-control`, the MCP tool `flow_control`, and the bus-client verbs `flow_control` / `flow_management`. Use `POST /api/plugins/flows/control` (or the `plugin_action` message with `pluginId: "flows"` and the actions above). The `/dashboard:flow-abort` and `/dashboard:flow-auto` commands keep their names. Reload open dashboard tabs after upgrading: an old tab's Abort / Auto buttons do nothing.
 - Flow run events are now forwarded by the flows plugin, not by the dashboard core. With the flows plugin disabled, flow runs are not shown and persisted runs stay hidden.
 - The EventBus probe `flow:get-available-models` is renamed `models:get-available`.
@@ -42,6 +48,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **`!`, `!!` and slash-exec commands report their real exit status.** The bridge read a field pi's `exec` result does not have, so every failed command (and, on pi 1.5, a run cut off at the output cap) was reported with exit code `0`.
 - **pi-flows agent steps on Anthropic models no longer bill as extra usage with the Claude subscription compat switch on.** pi-flows builds agents without loading your installed packages, so the flows plugin again hands the compat rewrite to every flow agent through pi-flows' agent-extension hook.
 - **Claude subscription compat now covers sessions that were already open.** pi 1.4 sends a session's first system prompt as Anthropic's `system` field for the whole session, so turning the switch on did not fix sessions started before it, and their requests kept failing with "You're out of extra usage". The rewrite now also applies to each outgoing Anthropic request.
 - **Upgrades keep Claude subscription billing working.** On the first start after upgrading, the compat switch turns on by itself when `~/.pi/agent/auth.json` already holds an `anthropic` credential, and off when it doesn't. The choice is saved once and never overrides a later change. New installs stay off and are asked at their first Anthropic sign-in.

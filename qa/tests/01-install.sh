@@ -32,7 +32,7 @@ fi
 # Every resolved copy of the governed pi packages must sit at or above the 1.1.0
 # floor; a copy left on an older pin means the lockstep (peers, overrides,
 # server dependency) did not publish coherently.
-PI_FLOOR="1.3.0"
+PI_FLOOR="1.5.0"
 BELOW=$(GLOBAL_DIR="$GLOBAL_DIR" PI_FLOOR="$PI_FLOOR" node -e '
 const fs = require("fs"), path = require("path");
 const floor = process.env.PI_FLOOR.split(".").map(Number);

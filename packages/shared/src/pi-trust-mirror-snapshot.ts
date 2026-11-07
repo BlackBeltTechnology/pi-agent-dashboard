@@ -12,6 +12,7 @@
 import * as fs from "node:fs";
 import path from "node:path";
 import { getDashboardConfigDir } from "./dashboard-paths.js";
+import { nativePathApi, type PathApi, piPathsEqual } from "./pi-path-compare.js";
 import {
   ancestorKeys,
   identityMatches,
@@ -100,14 +101,25 @@ export function readPiTrustFileLockless(agentDir: string): PiTrustFileRead {
   }
 }
 
-/** pi's nearest recorded entry for `cwdKey` (walks `cwdKey` then its ancestors). */
+/**
+ * pi's nearest recorded entry for `cwdKey` (walks `cwdKey` then its ancestors).
+ * Mirrors pi 1.5 `findNearestTrustEntry`: at each level every trust-file key is
+ * matched with pi's `pathsEqual` (resolved; case-insensitive on win32), the first
+ * key in object order with a boolean value wins, and the STORED key spelling is
+ * returned. `pathApi` defaults to the native `node:path`.
+ * See change: update-pi-core-1-5-adopt-apis (design D2).
+ */
 export function nearestRecordedEntry(
   data: Record<string, boolean>,
   cwdKey: string,
+  pathApi: PathApi = nativePathApi(),
 ): { path: string; decision: boolean } | null {
-  for (const k of ancestorKeys(cwdKey)) {
-    const v = data[k];
-    if (v === true || v === false) return { path: k, decision: v };
+  const keys = Object.keys(data);
+  for (const dir of ancestorKeys(cwdKey, pathApi)) {
+    for (const k of keys) {
+      const v = data[k];
+      if ((v === true || v === false) && piPathsEqual(k, dir, pathApi)) return { path: k, decision: v };
+    }
   }
   return null;
 }
