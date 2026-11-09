@@ -25,7 +25,7 @@ Test tasks are folded from `test-plan.md` (the manifest). Each names its harness
 - [x] 3.7 Theme-token guard stays clean (test-plan #E7), a check run with `node scripts/theme-token-guard.mjs` (not wired into a workflow; same row as polish-automation-board test-plan E23): plugin client sources · run guard · no new violation for `packages/automation-plugin/src/client`
 - [x] 3.8 Selected running card keeps its stripe (test-plan #F1) in `AutomationBoard.test.tsx` (see its F7 stripe test): a with a running run · click `automation-def-a` · `automation-rail-stripe-a` and `automation-pill-stripe-a` present, `aria-current="true"`, no FX layer
 - [x] 3.9 Card actions do not move selection (test-plan #F2) in `AutomationBoard.test.tsx` (see its E20 name-opens-editor test): a selected · click `automation-name-b` · a keeps `aria-current="true"`, b has none
-- [ ] 3.10 Visual check of the board against the adopted mockup in Base dark, Base light and one non-base palette at 375 and 1440 px (test-plan: manual-only, #F3)
+- [x] 3.10 Visual check of the board against the adopted mockup in Base dark, Base light and one non-base palette at 375 and 1440 px (test-plan: manual-only, #F3)
 
 ## 4. Docs
 
