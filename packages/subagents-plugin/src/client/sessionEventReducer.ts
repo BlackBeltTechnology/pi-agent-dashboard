@@ -48,6 +48,25 @@ type Reduce = (state: SubagentSessionSlice, data: Data, timestamp: number) => Su
 const detailsOf = (data: Data): Record<string, unknown> | undefined =>
   (data.details as Record<string, unknown> | undefined) ?? undefined;
 
+/**
+ * Plugin-local subagent state: the shared `SubagentState` plus the producer's
+ * background mark (≥ 0.7.0). The shared `readSubagentDetails` whitelist drops
+ * `details.background`, so this slice keeps it itself. Stored in the same map.
+ * See change: show-background-subagents-in-dock (D1).
+ */
+export type PluginSubagentState = SubagentState & { background?: true };
+
+/** True when the subagent was started with `run_in_background`. */
+export const isBackgroundSubagent = (sub: SubagentState | undefined): boolean =>
+  (sub as PluginSubagentState | undefined)?.background === true;
+
+/**
+ * Sticky background reader: `{ background: true }` only when the frame says so,
+ * otherwise nothing — a frame without (or with a false) flag never clears it.
+ */
+const readBackground = (details: Record<string, unknown> | undefined): { background?: true } =>
+  details?.background === true ? { background: true } : {};
+
 const created: Reduce = (state, data) => {
   const id = data.id as string;
   return withSubagents(state, (subagents) => {
@@ -57,7 +76,8 @@ const created: Reduce = (state, data) => {
       description: (data.description as string) ?? "",
       status: "created",
       ...readSubagentDetails(detailsOf(data)),
-    });
+      ...readBackground(detailsOf(data)),
+    } as PluginSubagentState);
   });
 };
 
@@ -71,7 +91,8 @@ const started: Reduce = (state, data, timestamp) => {
       healedBy: undefined,
       startedAt: existing?.startedAt ?? (typeof timestamp === "number" ? timestamp : Date.now()),
       ...readSubagentDetails(detailsOf(data)),
-    });
+      ...readBackground(detailsOf(data)),
+    } as PluginSubagentState);
   });
 };
 

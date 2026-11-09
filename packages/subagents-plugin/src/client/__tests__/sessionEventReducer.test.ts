@@ -55,3 +55,40 @@ describe("subagents sessionEventReducer", () => {
     expect(sessionEventReducer.reduce(s1, ev("subagent_entry", { agentId: "a", index: 0, entry }))).toBe(s1);
   });
 });
+
+// See change: show-background-subagents-in-dock (task 1.1, test-plan #E1).
+describe("background flag on the subagent state (D1)", () => {
+  const reduceAll = (events: DashboardEvent[]) => events.reduce((s, e) => sessionEventReducer.reduce(s, e), empty());
+  const bg = (s: SubagentSessionSlice, id = "a") => (s.subagents.get(id) as { background?: true } | undefined)?.background;
+
+  it("(a) created{background:true} marks the subagent; later frames without the field keep it", () => {
+    const s1 = reduceAll([ev("subagent_created", { id: "a", type: "t", description: "d", details: { background: true } })]);
+    expect(bg(s1)).toBe(true);
+    const s2 = sessionEventReducer.reduce(s1, ev("subagent_started", { id: "a", type: "t", description: "d", details: {} }));
+    expect(bg(s2)).toBe(true);
+    const s3 = sessionEventReducer.reduce(s2, ev("subagent_entry", { agentId: "a", index: 0, entry: { kind: "text", text: "x", ts: 1 } }));
+    expect(bg(s3)).toBe(true);
+    const s4 = sessionEventReducer.reduce(s3, ev("subagent_delta", { agentId: "a", blockId: 1, offset: 0, kind: "text", text: "y" }));
+    expect(bg(s4)).toBe(true);
+  });
+
+  it("(b) started{background:true} alone marks the subagent", () => {
+    expect(bg(reduceAll([ev("subagent_started", { id: "a", details: { background: true } })]))).toBe(true);
+  });
+
+  it("(c) no frame with the field → no background key", () => {
+    const s = reduceAll([
+      ev("subagent_created", { id: "a", details: { background: false } }),
+      ev("subagent_started", { id: "a", details: {} }),
+    ]);
+    expect(Object.hasOwn(s.subagents.get("a")!, "background")).toBe(false);
+  });
+
+  it("a later frame with background:false never clears the mark", () => {
+    const s = reduceAll([
+      ev("subagent_created", { id: "a", details: { background: true } }),
+      ev("subagent_started", { id: "a", details: { background: false } }),
+    ]);
+    expect(bg(s)).toBe(true);
+  });
+});

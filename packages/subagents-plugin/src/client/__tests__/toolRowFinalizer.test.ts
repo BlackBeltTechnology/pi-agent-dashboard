@@ -202,3 +202,21 @@ describe("Agent finalizer vs an elided-row revive (test-plan #F8, #F9)", () => {
     expect(out.subagents.get("ag-2")?.status).toBe("running");
   });
 });
+
+// See change: show-background-subagents-in-dock (task 1.1(a) terminal write, 1.2, test-plan #E1, #X2).
+describe("background mark survives terminal writes (D1, D6)", () => {
+  const bgRunning = { id: "docs-writer", type: "t", description: "d", status: "running" as const, background: true as const };
+
+  it("a real subagent_completed keeps the mark", () => {
+    const out = finalizer.onSessionEvent!(state({ subagents: new Map([["docs-writer", bgRunning]]) }), ev("subagent_completed", { id: "docs-writer", result: "ok" }))!;
+    expect(out.subagents.get("docs-writer")).toMatchObject({ status: "completed", background: true });
+  });
+
+  it("the synthesized session_ended heal fails it and keeps the mark (#X2)", () => {
+    const out = finalizer.onSessionEvent!(
+      state({ subagents: new Map([["docs-writer", bgRunning]]) }),
+      ev("subagent_failed", { id: "docs-writer", error: "parent session ended", healedBy: "session_ended" }),
+    )!;
+    expect(out.subagents.get("docs-writer")).toMatchObject({ status: "failed", error: "parent session ended", background: true });
+  });
+});

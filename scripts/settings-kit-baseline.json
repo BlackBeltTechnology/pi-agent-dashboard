@@ -90,6 +90,7 @@
     "packages/subagents-plugin/src/client/SubagentDetailView.tsx::muted-text": 3,
     "packages/subagents-plugin/src/client/SubagentDetailView.tsx::palette": 1,
     "packages/subagents-plugin/src/client/SubagentDetailView.tsx::small-text": 1,
+    "packages/subagents-plugin/src/client/SubagentDockGroup.tsx::muted-text": 1,
     "packages/subagents-plugin/src/client/SubagentPopoutPage.tsx::muted-text": 3,
     "packages/subagents-plugin/src/client/SubagentPopoutPage.tsx::small-text": 1
   }

@@ -585,6 +585,11 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "module": "./src/client/SubagentDockGroup.tsx"
             },
             {
+                "slot": "composer-dock-process-group",
+                "component": "BackgroundSubagentDockGroup",
+                "module": "./src/client/SubagentDockGroup.tsx"
+            },
+            {
                 "slot": "shell-overlay-route",
                 "component": "SubagentPopoutClaim",
                 "module": "./src/client/SubagentPopoutClaim.tsx",
@@ -625,6 +630,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     claims: [
       { pluginId: "subagents", priority: 100, slot: "settings-section", tab: "general", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentsSettings"), "SubagentsSettings") },
       { pluginId: "subagents", priority: 100, slot: "composer-dock-process-group", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentDockGroup"), "SubagentDockGroup") },
+      { pluginId: "subagents", priority: 100, slot: "composer-dock-process-group", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentDockGroup"), "BackgroundSubagentDockGroup") },
       { pluginId: "subagents", priority: 100, slot: "shell-overlay-route", path: "/session/:sessionId/subagent/:agentId", sessionParam: "sessionId", depth: 2, parentPath: "/session/:sessionId", Component: lazyClaim(() => import("../../../subagents-plugin/src/client/SubagentPopoutClaim"), "SubagentPopoutClaim") },
       { pluginId: "subagents", priority: 100, slot: "tool-renderer", toolName: "Agent", expandWhileRunning: true, Component: lazyClaim(() => import("../../../subagents-plugin/src/client/AgentToolRenderer"), "AgentToolRenderer"), resultPending: isAgentResultNotReceived, rowStatus: agentRowStatus, stop: agentStop, stopLabel: agentStopLabel },
     ],
@@ -1192,4 +1198,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "10bac734e861e1bab0b53f01611a80ec82947bc5a8f3b12bcfae32f14e37997d";
+export const PLUGIN_REGISTRY_HASH = "dcdcaae1ab3be585ddc69f921e7377d1663e21cbd357116c9c7686467e253900";
