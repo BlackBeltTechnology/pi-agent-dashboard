@@ -52,7 +52,7 @@ function CurrentPage() {
         </div>
       </Issue>
       <div className="flex gap-4 text-sm border-b border-[var(--border-primary)]">
-        <span className="pb-1 border-b-2 border-[var(--accent)]">Installed (45)</span><span>Updates (0)</span><span>Discover</span><span>Issues (1)</span>
+        <span className="pb-1 border-b-2 border-[var(--accent)]">Installed (45)</span><span>Updates (1)</span><span>Discover</span><span>Issues (1)</span>
       </div>
       <Issue n={2} tip="Banner doesn't say which add-on" block>
         <div className="flex justify-between rounded border border-[var(--border-secondary)] px-3 py-2 text-xs">1 add-ons run from local source instead of a published version. <a className="text-[var(--link)]">Show</a></div>
@@ -170,7 +170,7 @@ function ProposedPage() {
       </Fix>
       <div className="flex gap-1 px-4 mt-3 text-sm border-b border-[var(--border-primary)]">
         <span className="px-2.5 py-2 border-b-2 border-[var(--accent)] font-medium">Installed (45)</span>
-        <span className="px-2.5 py-2 text-[var(--text-tertiary)]">Updates (0)</span>
+        <span className="px-2.5 py-2 text-[var(--text-tertiary)]">Updates (1)</span>
         <span className="px-2.5 py-2 text-[var(--text-tertiary)]">Discover</span>
         <span className="px-2.5 py-2 text-[var(--text-tertiary)]">Issues (1)</span>
       </div>
