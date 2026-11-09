@@ -114,14 +114,30 @@ gh pr create --base develop --head os/<change> \
 pr=$(gh pr list --head os/<change> --state open --json number --jq '.[0].number')
 ```
 
-### 6. Watch CI (round 1)
+### 6. Watch CI (round 1) — fail fast, never block on the slowest job
+
+Do **not** `gh pr checks --watch` until every job finishes: it blocks the session
+for the slowest job (unit shards, scenarios) while an early failure sits unread.
+Poll in short, bounded calls and act on the **first** failure while the other
+jobs keep running on GitHub:
 
 ```bash
-gh pr checks "$pr" --watch --interval 30
+# one bounded poll (keep each tool call well under its timeout; re-issue as needed)
+out=$(gh pr checks "$pr" 2>&1)
+printf '%s\n' "$out" | awk -F'\t' '{print $2}' | sort | uniq -c     # pass/fail/pending/skipping
+printf '%s\n' "$out" | awk -F'\t' '$2=="fail"{print $1"\t"$4}'      # failed job + run URL
 ```
 
-On failure: `npx tsx ./scripts/show-failed-run.ts` → diagnose (see `ci-troubleshoot`
-skill) → fix → commit → `git push` → re-watch. Loop until **all checks green**.
+- **Any `fail`** → stop polling and diagnose it **now**:
+  `npx tsx ./scripts/show-failed-run.ts <run-id>` (see `ci-troubleshoot`). Start the
+  fix while the pending jobs finish; collect any further failures from the same
+  round before pushing, so one push answers all of them.
+- **Only `pending` left, no `fail`** → poll again after ~20–30 s (or do other
+  useful work, e.g. step 7's CodeRabbit check, in between).
+- **No `pending`, no `fail`** → round green.
+
+macOS has no `timeout(1)` and BSD `grep` has no `-P`; use the `awk -F'\t'` form above.
+After a fix: commit → `git push` → poll again. Loop until **all checks green**.
 
 ### 7. Wait for CodeRabbit, auto-apply safe fixes, re-push
 
