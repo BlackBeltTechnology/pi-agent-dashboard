@@ -32,6 +32,17 @@ export const STATUS_KEY = "pi-image-fit";
 /** Upper bound on load-time messages held before the first ctx. */
 export const MAX_HELD = 50;
 
+/**
+ * How long a resize report stays in the footer before the sink takes it down.
+ *
+ * pi keeps a status until its owner clears it, and this one reports an event
+ * that is already over by the time it renders. Left pinned, it reads as "the
+ * extension is working right now" for the rest of the session. Ten seconds is
+ * long enough to read a one-line report and short enough that the footer
+ * describes the present.
+ */
+export const STATUS_TTL_MS = 10_000;
+
 interface UiChannel {
   ui: object;
   notify: (msg: string, level?: Level) => void;
@@ -40,6 +51,7 @@ interface UiChannel {
 
 let channel: UiChannel | null = null;
 let held: Array<{ msg: string; level: Level }> | null = null;
+let expiry: ReturnType<typeof setTimeout> | null = null;
 
 function quiet(): boolean {
   return parseBool(process.env.PI_IMAGE_FIT_QUIET);
@@ -94,13 +106,44 @@ export function deferUntilContext(): void {
 
 /** Test seam: forget the UI channel and any held messages. */
 export function resetUiSink(): void {
+  cancelExpiry();
   channel = null;
   held = null;
 }
 
+function cancelExpiry(): void {
+  if (expiry) {
+    clearTimeout(expiry);
+    expiry = null;
+  }
+}
+
+/**
+ * Arm the takedown for the status just written. Re-arming on every report keeps
+ * the newest one visible for a full window instead of inheriting its
+ * predecessor's deadline. The timer is unref'd: a print-mode run that resizes
+ * one image must still exit when its work is done, not linger for the TTL.
+ */
+function scheduleStatusClear(c: UiChannel): void {
+  cancelExpiry();
+  const timer = setTimeout(() => {
+    expiry = null;
+    try {
+      c.setStatus?.call(c.ui, STATUS_KEY, undefined);
+    } catch {
+      // The ctx can go stale between the report and its expiry; a footer line
+      // that outlives its session is not worth throwing over.
+    }
+  }, STATUS_TTL_MS);
+  timer.unref?.();
+  expiry = timer;
+}
+
 function toUi(c: UiChannel, msg: string, level: Level): void {
-  if (level === "info" && c.setStatus) c.setStatus.call(c.ui, STATUS_KEY, msg);
-  else c.notify.call(c.ui, msg, level);
+  if (level === "info" && c.setStatus) {
+    c.setStatus.call(c.ui, STATUS_KEY, msg);
+    scheduleStatusClear(c);
+  } else c.notify.call(c.ui, msg, level);
 }
 
 function emit(msg: string, level: Level): void {
