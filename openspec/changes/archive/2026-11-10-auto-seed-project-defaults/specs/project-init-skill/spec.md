@@ -97,6 +97,33 @@ block is appended only to an `AGENTS.md` the call created. The interactive
 skill's all-or-nothing behaviour (preview conflicts, then overwrite on explicit
 confirmation) SHALL be unchanged.
 
+#### Scenario: Scaffold writes AGENTS.md, settings, and prompts
+
+- **WHEN** the user confirms profile `coding`
+- **THEN** the skill SHALL write `AGENTS.md`, `.pi/settings.json` (with a `worktreeInit` hook + toolset), and the profile's prompt files
+
+#### Scenario: Scaffold flips the directory to configured
+
+- **WHEN** the scaffold completes
+- **THEN** the directory's `worktreeInit` hook SHALL be present
+- **AND** worktree-init-status SHALL report `hasHook: true`
+
+#### Scenario: Existing files are not clobbered silently
+
+- **WHEN** the target directory already contains `AGENTS.md` or `.pi/settings.json`
+- **THEN** the skill SHALL ask before overwriting
+
+#### Scenario: DOX step seeds a pointer, not the doctrine
+
+- **WHEN** the DOX step runs
+- **THEN** `AGENTS.md` gains the `<!-- dox-doctrine -->` marker and a pointer block
+- **AND** it does not gain the doctrine section text
+
+#### Scenario: Describe offered after tree scaffold
+
+- **WHEN** the directory `AGENTS.md` tree has been scaffolded
+- **THEN** the skill asks whether to run `dox-describe` now
+
 #### Scenario: Gap-fill mode writes only what is missing
 
 - **GIVEN** a target directory where `AGENTS.md` already exists
