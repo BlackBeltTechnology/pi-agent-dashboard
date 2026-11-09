@@ -445,7 +445,8 @@ function AutomationCard({
       <div className="flex-1 min-w-0 p-3 flex flex-col gap-1.5">
         {/* Header row stays the column's first child: when selected it bleeds
             out of the column padding so the accent-soft band spans rail → right
-            edge. The body (with --accent-text links) keeps --bg-secondary. */}
+            edge. The body (with --accent-text links) keeps --bg-secondary.
+            The -mx-3/-mt-3/px-3/pt-3 bleed mirrors the column's p-3; change both together. */}
         <div
           data-testid={`automation-header-${a.name}`}
           className={`flex flex-wrap items-center gap-2 ${selected ? "-mx-3 -mt-3 px-3 pt-3 pb-1.5 bg-[var(--accent-soft)]" : ""}`}
@@ -507,8 +508,8 @@ function AutomationCard({
             </button>
             {menuOpen && overflowRef.current && (
               // Body portal so the card's `overflow-hidden` (which clips the
-              // header fill to the rounded corners) does not clip the menu. See change:
-              // fix-automation-overflow-menu-clip.
+              // header fill to the rounded corners) does not clip the menu.
+              // See change: fix-automation-overflow-menu-clip.
               <Popover anchorEl={overflowRef.current} onDismiss={() => setMenuOpen(false)}>
                 <div
                   data-testid={`overflow-menu-${a.name}`}
