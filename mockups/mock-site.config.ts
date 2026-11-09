@@ -24,5 +24,6 @@ export default defineMockSite({
     "@app": pkg("client/src"),
     // Plugin sources for plugin-surface mocks (package `exports` block deep imports).
     "@flows": pkg("flows-plugin/src"),
+    "@automation": pkg("automation-plugin/src"),
   },
 });
