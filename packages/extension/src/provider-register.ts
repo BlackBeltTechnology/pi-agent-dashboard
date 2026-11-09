@@ -35,6 +35,7 @@ import {
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadRoleConfig, lookupRole } from "./role-manager.js";
+import { readProviderModelCache, recordProviderModelCache } from "./provider-model-cache.js";
 
 // -- Types ----------------------------------------------------------------
 
@@ -590,19 +591,26 @@ async function discoverModels(baseUrl: string, apiKey: string): Promise<Discover
  * registration instead of replacing it with an empty model set.
  * See change: add-provider-models-refresh (CodeRabbit #894).
  */
-async function tryDiscoverModels(baseUrl: string, apiKey: string): Promise<DiscoveredModel[] | null> {
+async function tryDiscoverModels(
+  baseUrl: string,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<DiscoveredModel[] | null> {
   const resolved = resolveApiKey(apiKey);
   if (!resolved) return null;
+  if (signal?.aborted) return null;
 
   const url = baseUrl.endsWith("/") ? `${baseUrl}models` : `${baseUrl}/models`;
 
   try {
+    const own = AbortSignal.timeout(10_000);
     const response = await fetch(url, {
       headers: {
         "Authorization": `Bearer ${resolved}`,
         "Content-Type": "application/json",
       },
-      signal: AbortSignal.timeout(10_000),
+      // Caller signal (startup bound, design D2) joined to the 10 s ceiling.
+      signal: signal ? AbortSignal.any([own, signal]) : own,
     });
 
     if (!response.ok) {
@@ -888,7 +896,19 @@ async function registerEntry(
     api: entry.api ?? "openai-completions",
   });
 
-  const discovered = prediscovered ?? (await discoverModels(entry.baseUrl, entry.apiKey));
+  // `prediscovered` (cache, startup or forced discovery) → NO `await` before
+  // `pi.registerProvider` below, so a cache hit registers synchronously inside
+  // `activate()`. A live discovery here records to the cache on success only;
+  // a failure keeps today's `[]` ∪ native fallback and leaves the cache alone.
+  // See change: register-custom-provider-models-at-activation (D2, D3).
+  let discovered: DiscoveredModel[];
+  if (prediscovered) {
+    discovered = prediscovered;
+  } else {
+    const found = await tryDiscoverModels(entry.baseUrl, entry.apiKey);
+    recordProviderModelCache(name, entry, found);
+    discovered = found ?? [];
+  }
 
   // Native user-authored `~/.pi/agent/models.json` entries for THIS provider
   // (read-only). These are the capability AUTHORITY — native metadata wins over
@@ -1007,6 +1027,7 @@ async function reloadProvidersNow(
     const next = current[name];
     if (!prev || !next || !entriesEqual(prev, next)) continue;
     const found = await tryDiscoverModels(next.baseUrl, next.apiKey);
+    recordProviderModelCache(name, next, found);
     if (found) forcedModels.set(name, found);
     else console.warn(`[dashboard] refresh of "${name}" skipped: model discovery failed; keeping current models`);
   }
@@ -1141,9 +1162,70 @@ async function resolveModelProbe(probe: any, ref: string): Promise<void> {
   }
 }
 
+// -- Startup registration (pi resolves --model after factories settle) ----
+//
+// pi awaits every extension factory and flushes queued `registerProvider`
+// calls before resolving `--model`. A cached list is registered synchronously;
+// the provider pi itself will resolve, when custom and uncached, gets ONE live
+// discovery bounded by STARTUP_DISCOVERY_TIMEOUT_MS that the bridge factory
+// awaits. See change: register-custom-provider-models-at-activation (D1, D2).
+
+export const STARTUP_DISCOVERY_TIMEOUT_MS = 5_000;
+
+let startupPromise: Promise<void> = Promise.resolve();
+
+/** The startup registration promise of the last `activate()`. Never rejects. */
+export function awaitStartupProviderModels(): Promise<void> {
+  return startupPromise;
+}
+
+/**
+ * The custom provider pi will resolve at startup, parsed from argv as pi does:
+ * `--provider <p>` wins; else `--model <p>/<id>` (text before the FIRST `/`);
+ * a bare id (fuzzy match) or a non-custom provider → `undefined`. Compared
+ * case-insensitively; returns the providers.json spelling.
+ */
+export function startupTargetProvider(
+  argv: readonly string[],
+  customNames: Iterable<string>,
+): string | undefined {
+  let provider: string | undefined;
+  let model: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--") break;
+    if (a === "--provider" && i + 1 < argv.length) provider = argv[++i];
+    else if (a === "--model" && i + 1 < argv.length) model = argv[++i];
+  }
+  let wanted = provider;
+  if (!wanted && model) {
+    const slash = model.indexOf("/");
+    if (slash > 0) wanted = model.slice(0, slash);
+  }
+  if (!wanted) return undefined;
+  const lower = wanted.toLowerCase();
+  for (const n of customNames) if (n.toLowerCase() === lower) return n;
+  return undefined;
+}
+
+/** Live discovery under a hard wall-clock bound; `null` on failure/timeout. */
+function boundedDiscovery(entry: ProviderEntry, ms: number): Promise<DiscoveredModel[] | null> {
+  const ctrl = new AbortController();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ctrl.abort();
+      resolve(null);
+    }, ms);
+    tryDiscoverModels(entry.baseUrl, entry.apiKey, ctrl.signal).then(
+      (found) => { clearTimeout(timer); resolve(found); },
+      () => { clearTimeout(timer); resolve(null); },
+    );
+  });
+}
+
 // -- Extension entry point ------------------------------------------------
 
-export function activate(pi: ExtensionAPI) {
+export function activate(pi: ExtensionAPI, argv: readonly string[] = process.argv) {
   piRef = pi;
   // Unreadable is treated like absent here: nothing is registered yet, so
   // nothing is lost. See change: list-models-auto-resync (design D5).
@@ -1169,12 +1251,52 @@ export function activate(pi: ExtensionAPI) {
     // models.length > 0). registerEntry() below then adds the discovered
     // models via a full re-registration. See change: fix-flow-agent-model-resolution.
     preRegisterProviderAuth(pi, name, entry);
-    startup.push(registerEntry(pi, name, entry).catch((err: any) => {
-      console.error(
-        `[dashboard] registerEntry("${name}") failed during activate(): ${err?.message ?? String(err)}`,
-      );
-    }));
+
+    // Usable cache entry → register its models now, synchronously (no await
+    // precedes `pi.registerProvider` on the prediscovered path).
+    const cached = readProviderModelCache(name, entry);
+    if (cached) {
+      registerEntry(pi, name, entry, cached).catch((err: any) => {
+        console.error(
+          `[dashboard] cached registration of "${name}" failed during activate(): ${err?.message ?? String(err)}`,
+        );
+      });
+    }
   }
+
+  const target = startupTargetProvider(argv, Object.keys(providers));
+  const targetCached = target !== undefined && readProviderModelCache(target, providers[target]) !== null;
+  let awaited: Promise<void> = Promise.resolve();
+
+  for (const [name, entry] of Object.entries(providers)) {
+    const background = () =>
+      registerEntry(pi, name, entry).catch((err: any) => {
+        console.error(
+          `[dashboard] registerEntry("${name}") failed during activate(): ${err?.message ?? String(err)}`,
+        );
+      });
+    if (name === target && !targetCached) {
+      // The startup discovery IS this provider's discovery: success registers
+      // + records; failure falls back to the unchanged background path.
+      const startupDiscovery = boundedDiscovery(entry, STARTUP_DISCOVERY_TIMEOUT_MS).then(async (found) => {
+        if (found && found.length > 0) {
+          recordProviderModelCache(name, entry, found);
+          await registerEntry(pi, name, entry, found);
+          return null;
+        }
+        console.warn(`[dashboard] startup discovery for "${name}" failed; falling back to background discovery`);
+        return background;
+      }).catch((err: any) => {
+        console.warn(`[dashboard] startup discovery for "${name}" failed: ${err?.message ?? String(err)}`);
+        return background;
+      });
+      awaited = startupDiscovery.then(() => undefined);
+      startup.push(startupDiscovery.then((fallback) => fallback?.()));
+    } else {
+      startup.push(background());
+    }
+  }
+  startupPromise = awaited.catch(() => undefined);
   reloadChain = reloadChain.then(() => Promise.all(startup));
 
   // ── Event API: Model Resolution ─────────────────────────────────────

@@ -45,6 +45,7 @@ TESTS=(
   "49-plugin-global-install-dist-only.sh" # global install via /api/packages/install appears live, server-untrusted until a local grant, pid unchanged (#E101). See change: decouple-plugins-from-core.
   "50-plugin-local-uninstall-dist-only.sh" # local-scope install only detected; uninstall of an unloaded plugin drops its row (#E102). Skips when pi absent. See change: decouple-plugins-from-core.
   "51-plugin-failing-server-entry-dist-only.sh" # a throwing server entry: row loaded:false + error, /api/health 200 before and after (#X15). See change: decouple-plugins-from-core.
+  "56-custom-provider-startup-model.sh" # a custom-provider --model resolves at pi startup: reachable writes the cache, unreachable is bounded then 'not found' (#X3, #X4). Hermetic: own $HOME + /v1/models stub. Skips when pi/node absent. See change: register-custom-provider-models-at-activation.
   "55-keychain-linux.sh"        # real @napi-rs/keyring: Secret Service round trip + vault migrated + decodes after restart (#E91); no session bus -> keychain_unavailable, no keyutils entry, plaintext vault readable, write refused (#X13). Skips off Linux / without dbus-run-session, gnome-keyring-daemon, secret-tool. See change: encrypt-credentials-at-rest.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
   # 56-mock-site-tarball.sh is OPT-IN too (network npm install; installed-tarball mock site, #X9). See change: add-live-component-mock-site.
