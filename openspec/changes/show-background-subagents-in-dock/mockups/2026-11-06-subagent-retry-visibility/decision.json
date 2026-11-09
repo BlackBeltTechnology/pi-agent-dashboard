@@ -1,6 +1,0 @@
-{
-  "status": "rejected",
-  "by": "agent",
-  "note": "superseded by 2026-11-06-subagent-retry-plugin-only (user: 'do plugin only'); premise stale: producer 0.7.0 emits retry timeline entries",
-  "at": "2026-11-09T08:31:05.925Z"
-}

@@ -1,6 +1,0 @@
-{
-  "status": "accepted",
-  "by": "agent",
-  "note": "user approved: chat background Agent = started card only; dock splits foreground/background via two composer-dock-process-group claims; Stop + Open on every subagent row; no stream in dock; Open = full-screen watch",
-  "at": "2026-11-06T22:18:27.147Z"
-}

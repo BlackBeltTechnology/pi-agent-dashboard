@@ -1,6 +1,0 @@
-{
-  "status": "accepted",
-  "by": "agent",
-  "note": "user approved: plugin-only; retry entry -> existing error step 'Retry N/M in Ns: <error>'; producer activity text shows as-is",
-  "at": "2026-11-06T23:15:46.532Z"
-}
