@@ -123,16 +123,24 @@ function cancelExpiry(): void {
  * the newest one visible for a full window instead of inheriting its
  * predecessor's deadline. The timer is unref'd: a print-mode run that resizes
  * one image must still exit when its work is done, not linger for the TTL.
+ *
+ * The takedown goes through whichever channel is current when it fires, not the
+ * one captured when it was armed. pi replaces ctx on reload / newSession /
+ * fork, and a stale ctx throws from its getters — clearing through the captured
+ * channel would therefore throw into the catch below and leave the status
+ * pinned in the very footer it was meant to free. The captured channel stays as
+ * the fallback for when the sink has since gone console-only.
  */
-function scheduleStatusClear(c: UiChannel): void {
+function scheduleStatusClear(armed: UiChannel): void {
   cancelExpiry();
   const timer = setTimeout(() => {
     expiry = null;
+    const live = channel ?? armed;
     try {
-      c.setStatus?.call(c.ui, STATUS_KEY, undefined);
+      live.setStatus?.call(live.ui, STATUS_KEY, undefined);
     } catch {
-      // The ctx can go stale between the report and its expiry; a footer line
-      // that outlives its session is not worth throwing over.
+      // Nothing left to clear through: a footer line that outlives its session
+      // is not worth throwing over.
     }
   }, STATUS_TTL_MS);
   timer.unref?.();

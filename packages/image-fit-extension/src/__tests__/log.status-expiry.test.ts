@@ -83,6 +83,24 @@ describe("log sink — footer status expiry", () => {
     expect(setStatus).not.toHaveBeenCalled();
   });
 
+  it("#6 clears through the channel current at expiry, not the one captured at arm time", () => {
+    // pi swaps ctx on reload / newSession / fork, and a stale ctx throws from
+    // its getters. Clearing through the captured channel would throw and leave
+    // the status pinned in the footer that is actually on screen.
+    const before = makeUiCtx();
+    log.useUiSink(before.ctx);
+    log.info("armed under the old ctx");
+
+    const after = makeUiCtx();
+    before.setStatus.mockImplementation(() => {
+      throw new Error("stale extension context");
+    });
+    log.useUiSink(after.ctx);
+
+    vi.advanceTimersByTime(log.STATUS_TTL_MS);
+    expect(after.setStatus).toHaveBeenCalledWith(log.STATUS_KEY, undefined);
+  });
+
   it("#5 resetUiSink cancels a pending expiry instead of firing at a dead channel", () => {
     const { ctx, setStatus } = makeUiCtx();
     log.useUiSink(ctx);
