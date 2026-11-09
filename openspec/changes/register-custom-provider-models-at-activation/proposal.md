@@ -55,3 +55,12 @@ _None._
   on a cold cache for an unreachable provider.
 - Unblocks the follow-up change `fail-automation-run-on-spawn-failure` (fast
   failure for any other pre-register crash).
+
+## Discipline Skills
+
+- `security-hardening` — the discovery cache stores a one-way key fingerprint
+  and must contain no API key, token or header value (test-plan E8); `/v1/models`
+  is fetched with a user-configured URL + credential.
+- `performance-optimization` — startup latency is a hard budget: a warm cache
+  adds none, an uncached `--model` provider is bounded at 5 s, and an unrelated
+  slow provider must not delay activation (test-plan P1–P3).
