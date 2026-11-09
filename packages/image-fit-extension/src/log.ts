@@ -53,6 +53,7 @@ let channel: UiChannel | null = null;
 let held: Array<{ msg: string; level: Level }> | null = null;
 let expiry: ReturnType<typeof setTimeout> | null = null;
 
+/** Whether `PI_IMAGE_FIT_QUIET` is set: drops every message, info and warning alike. */
 function quiet(): boolean {
   return parseBool(process.env.PI_IMAGE_FIT_QUIET);
 }
@@ -152,6 +153,11 @@ function scheduleStatusClear(armed: UiChannel): void {
   expiry = timer;
 }
 
+/**
+ * Route one message to the channel that fits its level: `info` takes the footer
+ * status slot (and arms its own takedown), `warning` goes to a transient
+ * notification, which needs no expiry because the host drops it on its own.
+ */
 function toUi(c: UiChannel, msg: string, level: Level): void {
   if (level === "info" && c.setStatus) {
     c.setStatus.call(c.ui, STATUS_KEY, msg);
@@ -159,6 +165,11 @@ function toUi(c: UiChannel, msg: string, level: Level): void {
   } else c.notify.call(c.ui, msg, level);
 }
 
+/**
+ * The single funnel every message passes through, in order: the quiet switch,
+ * the load-time hold buffer, the host UI, and finally the console for hosts
+ * that have none (print/JSON mode, unit tests).
+ */
 function emit(msg: string, level: Level): void {
   if (quiet()) return;
   if (held) {

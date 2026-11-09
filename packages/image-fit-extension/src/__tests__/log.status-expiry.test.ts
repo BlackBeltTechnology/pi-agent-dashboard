@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as log from "../log.js";
 
+/** A pi ctx with a real UI: both channels are spies, so the test reads what the footer and the notifications were told. */
 function makeUiCtx() {
   const setStatus = vi.fn();
   const notify = vi.fn();
