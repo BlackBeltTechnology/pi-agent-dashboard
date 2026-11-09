@@ -3,10 +3,11 @@
  * per-row actions by validity, recent-runs table + archived filter, and
  * delete-with-confirmation wired to the DELETE route. api mocked.
  *
- * See change: add-automation-plugin, redesign-automation-editor-and-board.
+ * See change: add-automation-plugin, redesign-automation-editor-and-board,
+ * use-selector-style-for-automation-selection.
  */
 
-import { encodeFolderPath } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
+import { encodeFolderPath, HOST_FX_CLASSES } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
@@ -576,5 +577,96 @@ describe("AutomationBoard parent-occurrence session bearer", () => {
     const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("automation-orphan-notice-nightly")).toBeTruthy());
     expect(getByTestId("automation-orphan-notice-nightly").textContent).toContain("not connected");
+  });
+});
+
+// Selection uses the selected-chip recipe (accent border + accent-soft header
+// row + bold name + aria-current), never the session card's neon FX.
+// See change: use-selector-style-for-automation-selection.
+describe("AutomationBoard selection style", () => {
+  const def = (name: string): DiscoveredAutomation => ({
+    name, scope: "folder", dir: `/r/.pi/automation/${name}`, valid: true, config: nightlyConfig,
+  });
+  const FX = `.${HOST_FX_CLASSES.glow}, .${HOST_FX_CLASSES.glowOuter}, .${HOST_FX_CLASSES.ring}`;
+  const SOFT = '[class*="bg-[var(--accent-soft)]"]';
+
+  async function mountBoard(list: DiscoveredAutomation[], runRows: RunRecord[] = []) {
+    vi.mocked(listAutomations).mockResolvedValueOnce(list);
+    vi.mocked(listRunsMock).mockImplementation(async (scope: string) => (scope === "folder" ? runRows : []));
+    const view = renderBoard({ params });
+    await waitFor(() => expect(view.getByTestId(`automation-def-${list[0]!.name}`)).toBeTruthy());
+    return view;
+  }
+
+  // test-plan #E1
+  it("E1: the selected card uses the selector style, not the neon FX", async () => {
+    const { getByTestId } = await mountBoard([def("a"), def("b")]);
+    fireEvent.click(getByTestId("automation-def-a"));
+    const a = getByTestId("automation-def-a");
+    expect(a.getAttribute("aria-current")).toBe("true");
+    expect(a.className).toContain("border-[var(--accent)]");
+    expect(getByTestId("automation-header-a").className).toContain("bg-[var(--accent-soft)]");
+    expect(getByTestId("automation-name-a").className).toContain("font-bold");
+    expect(a.querySelectorAll(FX)).toHaveLength(0);
+  });
+
+  // test-plan #E2
+  it("E2: selection moves between cards", async () => {
+    const { getByTestId, container } = await mountBoard([def("a"), def("b")]);
+    fireEvent.click(getByTestId("automation-def-a"));
+    fireEvent.click(getByTestId("automation-def-b"));
+    const current = container.querySelectorAll("[aria-current]");
+    expect(current).toHaveLength(1);
+    expect(current[0]).toBe(getByTestId("automation-def-b"));
+    const a = getByTestId("automation-def-a");
+    expect(a.className).toContain("border-[var(--border-secondary)]");
+    expect(a.hasAttribute("aria-current")).toBe(false);
+    expect(a.querySelectorAll(SOFT)).toHaveLength(0);
+    const name = getByTestId("automation-name-a").className;
+    expect(name).toContain("font-semibold");
+    expect(name).not.toContain("font-bold");
+  });
+
+  // test-plan #E3
+  it("E3: a fresh board carries no selection marker", async () => {
+    const { container } = await mountBoard([def("a"), def("b"), def("c")]);
+    expect(container.querySelectorAll("[aria-current]")).toHaveLength(0);
+    expect(container.querySelectorAll(SOFT)).toHaveLength(0);
+    expect(container.querySelectorAll(FX)).toHaveLength(0);
+  });
+
+  // test-plan #E4
+  it("E4: the selected card body keeps its surface; the run link sits outside the soft fill", async () => {
+    const done: RunRecord = { runId: "a-done", name: "a", status: "done", dir: "/d/a", startedAt: 1, endedAt: 2 };
+    const { getByTestId } = await mountBoard([def("a")], [done]);
+    await waitFor(() => expect(getByTestId("run-result-a-done")).toBeTruthy());
+    fireEvent.click(getByTestId("automation-def-a"));
+    const a = getByTestId("automation-def-a");
+    expect(a.className).toContain("bg-[var(--bg-secondary)]");
+    const soft = a.querySelectorAll(SOFT);
+    expect(soft).toHaveLength(1);
+    expect(soft[0]!.contains(getByTestId("run-result-a-done"))).toBe(false);
+  });
+
+  // test-plan #F1
+  it("F1: a selected running card keeps its stripe and gains no FX layer", async () => {
+    const live: RunRecord = { runId: "a-live", name: "a", status: "running", dir: "/d/a", startedAt: 1, tracked: true };
+    const { getByTestId } = await mountBoard([def("a")], [live]);
+    await waitFor(() => expect(getByTestId("stop-a")).toBeTruthy());
+    fireEvent.click(getByTestId("automation-def-a"));
+    const a = getByTestId("automation-def-a");
+    expect(getByTestId("automation-rail-stripe-a")).toBeTruthy();
+    expect(getByTestId("automation-pill-stripe-a")).toBeTruthy();
+    expect(a.getAttribute("aria-current")).toBe("true");
+    expect(a.querySelectorAll(FX)).toHaveLength(0);
+  });
+
+  // test-plan #F2
+  it("F2: clicking another card's name opens the editor without moving selection", async () => {
+    const { getByTestId } = await mountBoard([def("a"), def("b")]);
+    fireEvent.click(getByTestId("automation-def-a"));
+    fireEvent.click(getByTestId("automation-name-b"));
+    expect(getByTestId("automation-def-a").getAttribute("aria-current")).toBe("true");
+    expect(getByTestId("automation-def-b").hasAttribute("aria-current")).toBe(false);
   });
 });
