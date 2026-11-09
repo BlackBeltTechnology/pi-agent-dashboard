@@ -109,6 +109,19 @@ describe("seedProjectDefaults", () => {
     expect(read("AGENTS.md")).toBe(agents);
   });
 
+  it("fills missing prompt files even when .pi/prompts exists and the other artifacts are present", () => {
+    seedProjectDefaults(tmp);
+    const promptsDir = path.join(tmp, ".pi", "prompts");
+    const prompts = fs.readdirSync(promptsDir);
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const f of prompts) fs.rmSync(path.join(promptsDir, f));
+
+    const again = seedProjectDefaults(tmp, { force: true });
+
+    expect(again.seeded).toBe(true);
+    expect(fs.readdirSync(promptsDir).sort()).toEqual([...prompts].sort());
+  });
+
   it("refuses $HOME", () => {
     const outcome = seedProjectDefaults(tmp, { homeDir: tmp });
 

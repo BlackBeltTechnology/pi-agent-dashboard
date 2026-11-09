@@ -41,7 +41,10 @@ import {
   type Profile,
   resolveProfiles,
 } from "@blackbelt-technology/pi-dashboard-extension/project-init/profiles.js";
-import { scaffoldProfile } from "@blackbelt-technology/pi-dashboard-extension/project-init/scaffold.js";
+import {
+  planScaffold,
+  scaffoldProfile,
+} from "@blackbelt-technology/pi-dashboard-extension/project-init/scaffold.js";
 import { resolveConfigRoot } from "./git-worktree/git-operations.js";
 
 /** Profile seeded for every project. User-shadowable via `~/.pi/project-profiles/coding`. */
@@ -162,16 +165,16 @@ export function seedProjectDefaults(
 
     if (!opts.force && seededRoots.has(root)) return skip(root, "already seeded");
 
-    // Short-circuit a fully-configured project without touching the profile
-    // machinery — the overwhelmingly common case on every trigger.
-    if (isFullySeeded(root)) {
-      seededRoots.add(root);
-      return skip(root, "already configured");
-    }
-
     const profiles = opts.profiles ?? resolveProfiles();
     const profile = profiles.find((p) => p.name === SEED_PROFILE_NAME);
     if (!profile) return skip(root, `profile "${SEED_PROFILE_NAME}" unavailable`);
+
+    // Short-circuit a fully-configured project before stack detection — the
+    // overwhelmingly common case on every trigger.
+    if (isFullySeeded(profile, root)) {
+      seededRoots.add(root);
+      return skip(root, "already configured");
+    }
 
     const stack = detectStack(root);
     const substitutions = stack ? stackSubstitutions(stack) : NO_STACK_SUBSTITUTIONS;
@@ -193,13 +196,14 @@ export function seedProjectDefaults(
 }
 
 /** True when every artifact the seed would write is already present. */
-function isFullySeeded(root: string): boolean {
-  return (
-    fs.existsSync(path.join(root, "AGENTS.md")) &&
-    fs.existsSync(path.join(root, ".pi", "settings.json")) &&
-    fs.existsSync(path.join(root, ".pi", "prompts")) &&
-    fs.existsSync(path.join(root, ".pi", "dashboard", "knowledge_base.json"))
-  );
+/**
+ * True when every file the profile would write already exists — checked per
+ * planned file (each prompt individually), so a partial `.pi/prompts/` or a
+ * user-shadowed profile with different prompts is still gap-filled.
+ */
+function isFullySeeded(profile: Profile, root: string): boolean {
+  const plan = planScaffold({ profile, targetDir: root });
+  return plan.conflicts.length === plan.writes.length;
 }
 
 /**

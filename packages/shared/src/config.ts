@@ -2713,7 +2713,8 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
-      autoSeedProjects: parsed.autoSeedProjects ?? defaults.autoSeedProjects,
+      autoSeedProjects:
+        typeof parsed.autoSeedProjects === "boolean" ? parsed.autoSeedProjects : defaults.autoSeedProjects,
       readinessTimeoutMs:
         typeof parsed.readinessTimeoutMs === "number" &&
         Number.isFinite(parsed.readinessTimeoutMs) &&
