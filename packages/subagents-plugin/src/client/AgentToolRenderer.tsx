@@ -27,7 +27,16 @@ import {
   type SubagentLiveTail,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { mdiChevronDown, mdiChevronUp, mdiClockOutline, mdiHeadLightbulb, mdiOpenInNew, mdiPencil } from "@mdi/js";
+import {
+  mdiArrowDown,
+  mdiChevronDown,
+  mdiChevronUp,
+  mdiClockOutline,
+  mdiHeadLightbulb,
+  mdiOpenInNew,
+  mdiPencil,
+  mdiTrayArrowDown,
+} from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -83,6 +92,43 @@ interface AgentDetails {
   maxConcurrent?: number;
   /** Epoch ms the spawn slot was granted; `durationMs` still counts from call creation. */
   slotGrantedAt?: number;
+  /** `run_in_background: true` call (producer ≥ 0.7.0). See change: show-background-subagents-in-dock (D2). */
+  background?: boolean;
+  /** Background run id (`bg-…`) on the call's early result; the run frames do not carry it. */
+  id?: string;
+}
+
+/**
+ * Started card for a background `Agent` call (D2): neutral, not running, and
+ * frozen — it reads only the row's own early details, never the session map, so
+ * it does not change when the detached run progresses or ends. No spinner,
+ * activity, stats, stop feedback or detail affordance: the row has no `agentId`,
+ * and the dock row (Stop / Open) is where the run is watched.
+ */
+function BackgroundStartedCard({ name, description, bgId }: { name: string; description: string; bgId: string }) {
+  const t = useT();
+  const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
+  const StatusPill = useUiPrimitive(UI_PRIMITIVE_KEYS.statusPill);
+  return (
+    <AgentCardShell name={name} status="pending">
+      {description && (
+        <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+      )}
+      <div data-testid="agent-bg-started" className="mt-1.5 flex items-center gap-2 flex-wrap text-[11px] text-[var(--text-tertiary)]">
+        <StatusPill
+          state="muted"
+          text={t("agentBgStarted", undefined, "Started in background")}
+          icon={mdiTrayArrowDown}
+          tooltip={t("agentBgStartedTooltip", undefined, "Runs detached; the result is stored, not sent back to this chat")}
+        />
+        <span data-testid="agent-bg-id" className="font-mono text-[var(--text-secondary)]">{bgId}</span>
+        <span className="inline-flex items-center gap-0.5">
+          <Icon path={mdiArrowDown} size={0.45} aria-hidden="true" />
+          {t("agentBgInProcesses", undefined, "In Processes")}
+        </span>
+      </div>
+    </AgentCardShell>
+  );
 }
 
 /**
@@ -510,6 +556,14 @@ export function AgentToolRenderer({ toolInput: args, status = "running", result,
    * `details` only describes what the subagent was doing when the stream was
    * cut. See change: fix-lazy-history-backfill-ux (D5).
    */
+  // --- Background call: the started card outranks every other branch (D2). ---
+  // Only a call that actually started (it carries its `bg-` id): a rejected
+  // (background limit reached) or vetoed call also says `background: true`
+  // but has no id, and keeps today's card. See change: show-background-subagents-in-dock.
+  if (details?.background === true && typeof details.id === "string" && details.id) {
+    return <BackgroundStartedCard name={displayName} description={description} bgId={details.id} />;
+  }
+
   // --- Fallback: no toolDetails (replayed/older sessions), or an elided row ---
   if (!details || cardStatus === "elided") {
     return (

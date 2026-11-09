@@ -289,3 +289,91 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+// See change: show-background-subagents-in-dock (tasks 2.1–2.3, test-plan #E2, #E3, #F5).
+describe("AgentToolRenderer — background started card (D2)", () => {
+  afterEach(() => cleanup());
+
+  const bgArgs = { subagent_type: "docs-writer", description: "write the docs", prompt: "p" };
+  const renderBg = (toolStatus: "running" | "complete", detailsStatus: string | undefined, session?: SessionState) =>
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={bgArgs}
+        status={toolStatus}
+        result="Started background subagent bg-7a3f (running)"
+        context={makeContext(session, "s1")}
+        toolDetails={{ background: true, id: "bg-7a3f", ...(detailsStatus ? { status: detailsStatus } : {}) }}
+      />,
+    ));
+
+  const cells: Array<["running" | "complete", string | undefined]> = [];
+  for (const ts of ["running", "complete"] as const) {
+    for (const ds of ["running", "completed", "error", "aborted", "stopped", undefined]) cells.push([ts, ds]);
+  }
+
+  it.each(cells)("tool %s × details.status %s → started card only (#E2)", (ts, ds) => {
+    const { container } = renderBg(ts, ds);
+    expect(screen.getByText("Started in background")).toBeTruthy();
+    expect(screen.getByText("bg-7a3f")).toBeTruthy();
+    expect(screen.getByText(/In Processes/)).toBeTruthy();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(screen.queryByTestId("elapsed-badge")).toBeNull();
+    expect(screen.queryByTestId("agent-run-time")).toBeNull();
+    expect(screen.queryByTestId("agent-activity-row")).toBeNull();
+    expect(screen.queryByTestId("agent-stop-row")).toBeNull();
+    expect(screen.queryByText("Details")).toBeNull();
+    expect(screen.queryByText("Popout")).toBeNull();
+    // No result block either: the card only says "started".
+    expect(screen.queryByText(/Started background subagent bg-7a3f/)).toBeNull();
+  });
+
+  it("a rejected background call (limit reached, no bg- id) is not shown as started", () => {
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={bgArgs}
+        status="error"
+        result="Background limit reached"
+        context={makeContext(undefined, "s1")}
+        toolDetails={{ background: true, status: "rejected", outstanding: ["bg-1"] }}
+      />,
+    ));
+    expect(screen.queryByText("Started in background")).toBeNull();
+  });
+
+  it("a foreground running card is unchanged (#E3)", () => {
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore" }}
+        status="running"
+        context={makeContext(undefined, "s1")}
+        toolDetails={{ status: "running", agentId: "ag-1", durationMs: 1000 }}
+      />,
+    ));
+    expect(screen.getByTestId("agent-run-time")).toBeTruthy();
+    expect(screen.getByTestId("agent-activity-row")).toBeTruthy();
+    expect(screen.queryByText("Started in background")).toBeNull();
+  });
+
+  it("the card markup never changes while the background run progresses or ends (#F5)", () => {
+    const sub = (status: SubagentState["status"]) =>
+      ({ subagents: new Map([["sub-1", { id: "sub-1", type: "docs-writer", description: "write the docs", status, background: true } as SubagentState]]) });
+    const { container, rerender } = renderBg("complete", "running", sub("running"));
+    const first = container.innerHTML;
+    for (const status of ["completed", "failed", "stopped"] as const) {
+      rerender(wrapInProviders(
+        <AgentToolRenderer
+          toolName="Agent"
+          args={bgArgs}
+          status="complete"
+          result="Started background subagent bg-7a3f (running)"
+          context={makeContext(sub(status), "s1")}
+          toolDetails={{ background: true, id: "bg-7a3f", status: "running" }}
+        />,
+      ));
+      expect(container.innerHTML).toBe(first);
+    }
+  });
+});

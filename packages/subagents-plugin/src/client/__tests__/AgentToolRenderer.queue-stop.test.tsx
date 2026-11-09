@@ -238,3 +238,74 @@ describe("card stop feedback (#X1-#X3)", () => {
     expect(screen.queryAllByTestId("agent-stop-row")).toHaveLength(0);
   });
 });
+
+// See change: show-background-subagents-in-dock (tasks 4.3, 4.5; test-plan #F1, #F3).
+describe("dock row Stop shares the card's stop state", () => {
+  it("#F1 dock Stop then chat-row stop: one POST, card shows stopping…, no abort", async () => {
+    const { SubagentDockRow } = await import("../SubagentDockGroup.js");
+    const fetchMock = vi.fn().mockReturnValue(new Promise(() => {}));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const running = { status: "running", stoppable: true, durationMs: 1000 };
+    render(
+      withHostPrimitives(
+        <>
+          <AgentToolRenderer
+            toolName="Agent"
+            status="running"
+            args={{ description: "probe", subagent_type: "Explore" }}
+            toolDetails={{ agentId: "C094", displayName: "Explore", ...running }}
+            context={{ sessionId: SID, session }}
+          />
+          <SubagentDockRow
+            sessionId={SID}
+            sub={{ id: "C094", type: "Explore", description: "probe", status: "running", stoppable: true }}
+          />
+        </>,
+      ),
+    );
+    await act(async () => {
+      screen.getByRole("button", { name: "Stop subagent Explore" }).click();
+    });
+    await act(async () => {
+      expect(agentStop({ sessionId: SID, toolCallId: "tc-1", toolDetails: { agentId: "C094", ...running } })).toBe(true);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/plugins/subagents/stop");
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({ sessionId: SID, agentId: "C094" });
+    expect(screen.getByTestId("agent-stop-pending").textContent).toBe("stopping…");
+  });
+
+  it("#F3 a pending background stop shows on the dock row, never on the started card", async () => {
+    const { SubagentDockRow } = await import("../SubagentDockGroup.js");
+    const { requestSubagentStop } = await import("../subagentStop.js");
+    global.fetch = vi.fn().mockReturnValue(new Promise(() => {})) as unknown as typeof fetch;
+    void requestSubagentStop(SID, "dw");
+    const cardUi = (
+      <AgentToolRenderer
+        toolName="Agent"
+        status="complete"
+        args={{ description: "write docs", subagent_type: "docs-writer" }}
+        toolDetails={{ background: true, id: "bg-7a3f", status: "running" }}
+        context={{ sessionId: SID, session }}
+      />
+    );
+    const before = render(withHostPrimitives(cardUi)).container.innerHTML;
+    cleanup();
+    const { container } = render(
+      withHostPrimitives(
+        <>
+          {cardUi}
+          <SubagentDockRow
+            sessionId={SID}
+            sub={{ id: "dw", type: "docs-writer", description: "write docs", status: "running", stoppable: true, background: true } as SubagentState}
+          />
+        </>,
+      ),
+    );
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Stopping…");
+    expect(screen.queryByTestId("agent-stop-row")).toBeNull();
+    expect(container.querySelector("[data-testid=agent-bg-started]")!.closest(".rounded-lg")!.outerHTML).toBe(
+      before.trim(),
+    );
+  });
+});

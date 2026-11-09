@@ -552,6 +552,12 @@ export function fanoutWidth(context: FauxContext): number {
 /** Final parent text of `subagent-fanout-queued`. See change: subagent-queue-visibility. */
 export const SUBAGENT_FANOUT_QUEUED_TAIL = "fanout queued scenario complete";
 
+/** Final parent text of `subagent-background`. See change: show-background-subagents-in-dock. */
+export const SUBAGENT_BACKGROUND_TAIL = "background subagent started";
+
+/** Final parent text of `subagent-background-mixed`. See change: show-background-subagents-in-dock. */
+export const SUBAGENT_BACKGROUND_MIXED_TAIL = "mixed subagents complete";
+
 /** Tail marker for the `fanout-width` measurement scenario. */
 export const FANOUT_WIDTH_TAIL = "fanout width complete";
 
@@ -1672,6 +1678,54 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText(SUBAGENT_FANOUT_QUEUED_TAIL)]),
     ],
     expect: { text: SUBAGENT_FANOUT_QUEUED_TAIL },
+  },
+
+  // Parent that starts ONE background subagent (`run_in_background: true`,
+  // producer >= 0.7.0) running `subagent-slow-inner` (~6 s). The call returns at
+  // once with a `bg-` id; the parent turn ends while the child runs on.
+  // See change: show-background-subagents-in-dock (test-plan #F6, #F8, #F9, #X1, #X3).
+  "subagent-background": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux background child",
+            prompt: "[[faux:subagent-slow-inner]] run the background child",
+            run_in_background: true,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(SUBAGENT_BACKGROUND_TAIL)]),
+    ],
+    expect: { text: SUBAGENT_BACKGROUND_TAIL },
+  },
+
+  // Parent that starts one FOREGROUND and one BACKGROUND subagent in ONE
+  // message, both running `subagent-slow-inner` (~6 s): the dock shows both
+  // groups at once. See change: show-background-subagents-in-dock (test-plan #F7).
+  "subagent-background-mixed": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux foreground child",
+            prompt: "[[faux:subagent-slow-inner]] run the foreground child",
+          }),
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux background child",
+            prompt: "[[faux:subagent-slow-inner]] run the background child",
+            run_in_background: true,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(SUBAGENT_BACKGROUND_MIXED_TAIL)]),
+    ],
+    expect: { text: SUBAGENT_BACKGROUND_MIXED_TAIL },
   },
 
   // Measurement fixture (P1/P4): emits `[[fanout:N]]` `Agent` calls in one
