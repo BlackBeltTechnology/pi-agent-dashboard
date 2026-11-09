@@ -28,6 +28,10 @@ Making the automation selection match the selector style lets the board read as 
 - Status rail, dot, pill, stripe and button recipes are unchanged.
 - The add-ons hub declutter and the flows folder edit-mode mocks are only stored with this change. Their UI is not built here.
 
+## Discipline Skills
+
+- `review-code`: before commit. The change is presentational (classes, one ARIA attribute, three removed exports), so no other discipline applies: no auth, I/O or trust decision is touched (`security-hardening` not triggered) and there is no defect to root-cause (`systematic-debugging` not triggered).
+
 ## Capabilities
 
 ### New Capabilities

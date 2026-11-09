@@ -2,9 +2,11 @@
  * Automation board (shell-overlay-route `/folder/:encodedCwd/automations`).
  *
  * Per-automation definition cards reuse the dashboard's session-status visual
- * language (status rail + dot, headless source icon, status pill, neon glow +
- * rim on the selected card) via the local `automation-card-visuals` replica;
- * the running stripe sits on the rail and running pill only. Each card owns:
+ * language (status rail + dot, headless source icon, status pill) via the
+ * local `automation-card-visuals` replica; the running stripe sits on the rail
+ * and running pill only. Selection uses the selected-chip recipe (accent
+ * border, accent-soft header row, bold name, `aria-current`), not the session
+ * card's neon. Each card owns:
  *
  *  - a humanised schedule (cron on hover), relative next fire, action summary;
  *  - a visible Edit button (the name opens the editor too); only Delete stays
@@ -20,7 +22,7 @@
  *
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
  * redesign-automation-editor-and-board, automation-ui-mockup-parity,
- * polish-automation-board.
+ * polish-automation-board, use-selector-style-for-automation-selection.
  */
 
 import { SettingsNotice, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -47,12 +49,9 @@ import {
   cardButtonClass,
   deriveCardState,
   dotClass,
-  GLOW_FX_CLASS,
-  GLOW_FX_OUTER_CLASS,
   headlessSourceIcon,
   pillClass,
   pillLabel,
-  RING_FX_CLASS,
   type RunPillStatus,
   railBgClass,
   runPillClass,
@@ -434,20 +433,23 @@ function AutomationCard({
     <li
       data-testid={`automation-def-${a.name}`}
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
       className={`relative isolate flex overflow-hidden rounded-xl border bg-[var(--bg-secondary)] ${
         selected ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
       }`}
     >
-      {selected && <div className={`${GLOW_FX_CLASS} ${GLOW_FX_OUTER_CLASS}`} aria-hidden="true" />}
-      {selected && <div className={GLOW_FX_CLASS} aria-hidden="true" />}
-      {selected && <div className={RING_FX_CLASS} aria-hidden="true" />}
-
       <div className={`relative isolate w-1 self-stretch overflow-hidden ${railBgClass(state)}`} data-testid={`automation-rail-${a.name}`} aria-hidden="true">
         {stripeFx && <div className={stripeFx} data-testid={`automation-rail-stripe-${a.name}`} />}
       </div>
 
       <div className="flex-1 min-w-0 p-3 flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Header row stays the column's first child: when selected it bleeds
+            out of the column padding so the accent-soft band spans rail → right
+            edge. The body (with --accent-text links) keeps --bg-secondary. */}
+        <div
+          data-testid={`automation-header-${a.name}`}
+          className={`flex flex-wrap items-center gap-2 ${selected ? "-mx-3 -mt-3 px-3 pt-3 pb-1.5 bg-[var(--accent-soft)]" : ""}`}
+        >
           <Icon path={headlessSourceIcon} size={0.5} className="text-[var(--text-secondary)]" data-testid={`automation-source-icon-${a.name}`} />
           <span className={`inline-block w-2 h-2 rounded-full ${dotClass(state)}`} data-testid={`automation-dot-${a.name}`} />
           <button
@@ -457,7 +459,7 @@ function AutomationCard({
               e.stopPropagation();
               onEdit("identity");
             }}
-            className="focus-ring rounded font-mono text-[13px] font-semibold text-[var(--text-primary)] hover:underline"
+            className={`focus-ring rounded font-mono text-[13px] ${selected ? "font-bold" : "font-semibold"} text-[var(--text-primary)] hover:underline`}
             title={t("editName", { name: a.name }, `Edit ${a.name}`)}
           >
             {a.name}
@@ -505,7 +507,7 @@ function AutomationCard({
             </button>
             {menuOpen && overflowRef.current && (
               // Body portal so the card's `overflow-hidden` (which clips the
-              // decorative FX layers) does not clip the menu. See change:
+              // header fill to the rounded corners) does not clip the menu. See change:
               // fix-automation-overflow-menu-clip.
               <Popover anchorEl={overflowRef.current} onDismiss={() => setMenuOpen(false)}>
                 <div

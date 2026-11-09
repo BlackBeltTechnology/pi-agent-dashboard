@@ -11,18 +11,22 @@ import {
   cardButtonClass,
   deriveCardState,
   dotClass,
-  GLOW_FX_CLASS,
-  GLOW_FX_OUTER_CLASS,
   headlessSourceIcon,
   pillClass,
   pillLabel,
-  RING_FX_CLASS,
   railBgClass,
   stripeFxClass,
 } from "@automation/client/automation-card-visuals.ts";
+import { HOST_FX_CLASSES } from "@blackbelt-technology/dashboard-plugin-runtime/sdk";
 import { Icon } from "@mdi/react";
 import { Fix, Issue, type Mock } from "mock-site/kit";
 import type { ReactNode } from "react";
+
+// "Current" frame only: the host neon FX the board used before this change
+// (the plugin's GLOW/RING constants are removed by it).
+const GLOW_FX_CLASS = HOST_FX_CLASSES.glow;
+const GLOW_FX_OUTER_CLASS = HOST_FX_CLASSES.glowOuter;
+const RING_FX_CLASS = HOST_FX_CLASSES.ring;
 
 type Variant = "current" | "proposed";
 interface Def { name: string; scope: string; schedule: string; next: string; last: string; running?: boolean; disabled?: boolean }

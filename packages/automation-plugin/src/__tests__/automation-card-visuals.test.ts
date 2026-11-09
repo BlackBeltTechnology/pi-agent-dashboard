@@ -1,6 +1,7 @@
 /**
  * automation-card-visuals: state derivation + status→class mapping.
- * See change: automation-ui-mockup-parity.
+ * See change: automation-ui-mockup-parity,
+ * use-selector-style-for-automation-selection.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -13,6 +14,7 @@ import {
   pillLabel,
   stripeFxClass,
 } from "../client/automation-card-visuals.js";
+import * as visuals from "../client/automation-card-visuals.js";
 
 describe("deriveCardState", () => {
   it("running takes precedence over everything", () => {
@@ -89,5 +91,17 @@ describe("orphaned state + theme tokens", () => {
     expect(cardButtonClass()).toContain("min-h-[44px]");
     expect(cardButtonClass()).toContain("sm:min-h-[36px]");
     expect(cardButtonClass("danger")).toContain("bg-[var(--tint-red-bg)]");
+  });
+});
+
+// test-plan #E5 — selection uses the selected-chip recipe; the neon constants
+// are gone. See change: use-selector-style-for-automation-selection.
+describe("selection FX constants", () => {
+  it("E5: the module no longer ships the neon glow / rim constants", () => {
+    const keys = visuals as Record<string, unknown>;
+    expect(keys.GLOW_FX_CLASS).toBeUndefined();
+    expect(keys.GLOW_FX_OUTER_CLASS).toBeUndefined();
+    expect(keys.RING_FX_CLASS).toBeUndefined();
+    expect(stripeFxClass("running")).toBe("card-stripes-fx card-stripes-running");
   });
 });

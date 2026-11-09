@@ -10,6 +10,9 @@
  * palette class or literal, so the board follows every palette in light and
  * dark. The running stripe sits on the rail and the running pill only — the
  * card body stays calm. See change: polish-automation-board (design D10).
+ * Selection no longer uses the host neon glow/rim; it follows the
+ * selected-chip recipe in `AutomationBoard`. See change:
+ * use-selector-style-for-automation-selection.
  *
  * See change: automation-ui-mockup-parity, decouple-plugins-from-core.
  */
@@ -144,8 +147,3 @@ export function cardButtonClass(variant: "secondary" | "primary" | "danger" = "s
 
 /** Headless source icon (spawned automation runs). */
 export const headlessSourceIcon = mdiRobotOutline;
-
-/** Static neon glow + rim overlay classes for the selected card. */
-export const GLOW_FX_CLASS = HOST_FX_CLASSES.glow;
-export const GLOW_FX_OUTER_CLASS = HOST_FX_CLASSES.glowOuter;
-export const RING_FX_CLASS = HOST_FX_CLASSES.ring;
