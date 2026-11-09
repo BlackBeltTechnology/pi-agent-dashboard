@@ -111,6 +111,11 @@ export function resetUiSink(): void {
   held = null;
 }
 
+/**
+ * Disarm a pending status takedown, if any. Called before arming a new one and
+ * from `resetUiSink()`, so a timer can never fire at a channel that has been
+ * replaced or torn down in the meantime.
+ */
 function cancelExpiry(): void {
   if (expiry) {
     clearTimeout(expiry);
