@@ -24,7 +24,7 @@ When a `subagent_created` or `subagent_started` frame carries `details.backgroun
 
 ### Requirement: A background Agent call SHALL render as a started card
 
-When an `Agent` tool row's details carry `background: true`, its card SHALL render in a neutral, not-running state: the subagent name, the description, a "Started in background" label, the `bg-` id from the details, and a pointer to the Processes lane. The card SHALL show no spinner, no live activity, no live stats, no stop control and no detail affordance, and SHALL NOT change while the background run progresses, stops or ends.
+When an `Agent` tool row's details carry `background: true` and a non-empty string `id`, its card SHALL render in a neutral, not-running state: the subagent name, the description, a "Started in background" label, the `bg-` id from the details, and a pointer to the Processes lane. The card SHALL show no spinner, no live activity, no live stats, no stop control and no detail affordance, and SHALL NOT change while the background run progresses, stops or ends.
 
 #### Scenario: Started card after the call returns
 - **WHEN** an `Agent` call returns details `{ background: true, id: "bg-7a3f", status: "running" }` without an `agentId`
@@ -39,6 +39,10 @@ When an `Agent` tool row's details carry `background: true`, its card SHALL rend
 #### Scenario: Foreground Agent card unchanged
 - **WHEN** an `Agent` row's details do not carry `background: true`
 - **THEN** its card SHALL render as today (queued, running, completed, failed or stopped)
+
+#### Scenario: Background call without an id keeps the existing card
+- **WHEN** an `Agent` row's details carry `background: true` but no non-empty string `id` (the call was rejected or vetoed)
+- **THEN** its card SHALL render as today (it SHALL NOT render the started card)
 
 ### Requirement: Background subagents SHALL be listed in their own Processes group
 

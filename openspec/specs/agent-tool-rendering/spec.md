@@ -35,7 +35,7 @@ The `Agent` tool renderer SHALL display a card showing the agent's current state
 - **THEN** the card SHALL show: display name, description, duration, token stats, tool use count, turn count, prompt text, and result rendered as markdown (always visible, not collapsible)
 
 #### Scenario: Background agent launched
-- **WHEN** `toolDetails.background` is `true`, whatever the Agent tool status and `toolDetails.status` say (this scenario takes precedence over every other scenario of this requirement)
+- **WHEN** `toolDetails.background` is `true` and `toolDetails.id` is a non-empty string, whatever the Agent tool status and `toolDetails.status` say (this scenario takes precedence over every other scenario of this requirement)
 - **THEN** the card SHALL show the started card defined by `background-subagent-display`: display name, description, "Started in background", the `bg-` id from `toolDetails.id`, and a pointer to the Processes lane
 - **AND** it SHALL NOT show a running spinner, elapsed time, activity or stats
 
@@ -167,7 +167,7 @@ The `AgentToolRenderer` detail affordance SHALL open the subagent timeline in th
 
 #### Scenario: Background started card has no detail affordance
 
-- **WHEN** the card is a background started card (`toolDetails.background: true`)
+- **WHEN** the card is a background started card (`toolDetails.background: true` with a non-empty string `toolDetails.id`)
 - **THEN** it SHALL render no Details or Popout control
 - **AND** the background run SHALL be openable from its Processes-lane row
 
