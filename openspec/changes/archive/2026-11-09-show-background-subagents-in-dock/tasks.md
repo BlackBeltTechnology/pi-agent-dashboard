@@ -54,7 +54,7 @@ Exemplars: `subagent-queue-stop.spec.ts` (faux prompt, `OperatorSession` for sto
 - [x] 7.4 Mark survives reload (test-plan #F9). Input: 7.1's run, still going. Trigger: reload mid-run. Observable: the row is under the background group (header `1 background subagent`) and the card still shows the started state. Verify green.
 - [x] 7.5 Stop from the dock (test-plan #X1). Input: 7.1's run with an `OperatorSession`. Trigger: click Stop on the background row. Observable: the row reads `Stopping…` and then leaves; no session abort request is sent (assert on the network log); the full-screen view shows the neutral stopped state; the card still shows the started state. Verify green.
 - [x] 7.6 Session ends mid-run (test-plan #X3). Input: 7.1's run, still going. Trigger: end the session as `session-ended-orphan-heal.spec.ts` does. Observable: the background row leaves the lane; the full-screen view shows "parent session ended". Verify green.
-- [ ] 7.7 (deferred: manual-only, post-merge) Compare the started card and both dock groups, light and dark, against the accepted mocks `mockups/2026-11-06-background-subagent-chat` and `mockups/2026-11-06-subagent-retry-plugin-only` (test-plan: manual-only, #F10).
+- [x] 7.7 (deferred: manual-only, post-merge) Compare the started card and both dock groups, light and dark, against the accepted mocks `mockups/2026-11-06-background-subagent-chat` and `mockups/2026-11-06-subagent-retry-plugin-only` (test-plan: manual-only, #F10).
 
 ## 8. Docs and integration
 
