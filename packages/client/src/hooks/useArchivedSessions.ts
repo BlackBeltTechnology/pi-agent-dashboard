@@ -118,12 +118,12 @@ export function useArchivedSessions() {
 
   const invalidate = useCallback((key: string) => {
     genRef.current[key] = (genRef.current[key] ?? 0) + 1;
-    if (!(key in cacheRef.current)) return;
     // Update the ref SYNCHRONOUSLY so an immediate loadFirst(key) in the
     // same tick (open fold refetch on count change) sees `loaded:false`.
-    const next = { ...cacheRef.current, [key]: EMPTY_STATE };
-    cacheRef.current = next;
-    setCache(next);
+    if (key in cacheRef.current) cacheRef.current = { ...cacheRef.current, [key]: EMPTY_STATE };
+    // Functional update also resets an entry queued but not yet rendered (a
+    // `loading:true` patch from a now-stale request), so it cannot stick.
+    setCache((prev) => (key in prev ? { ...prev, [key]: EMPTY_STATE } : prev));
   }, []);
 
   const get = useCallback((key: string): ArchivedKeyState => cache[key] ?? EMPTY_STATE, [cache]);

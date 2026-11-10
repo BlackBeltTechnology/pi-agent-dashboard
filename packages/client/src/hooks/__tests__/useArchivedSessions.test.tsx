@@ -162,4 +162,21 @@ describe("useArchivedSessions", () => {
     expect(result.current.get("/a").items.map((i) => i.id)).toEqual(["new"]);
     expect(result.current.get("/a").loading).toBe(false);
   });
+
+  it("invalidate in the same tick as loadFirst leaves no stuck loading state", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise((r) => { resolvers.push(r); })));
+
+    const { result } = renderHook(() => useArchivedSessions());
+    act(() => {
+      result.current.loadFirst("/a");
+      result.current.invalidate("/a");
+    });
+    await act(async () => { resolvers[0](okResponse([makeItem("old")])); });
+
+    expect(result.current.get("/a").loading).toBe(false);
+    expect(result.current.get("/a").loaded).toBe(false);
+    act(() => { result.current.loadFirst("/a"); });
+    expect(resolvers).toHaveLength(2);
+  });
 });
