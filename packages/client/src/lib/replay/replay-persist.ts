@@ -102,7 +102,8 @@ export function createReplayPersister(
       // bounded projection (no timeline, cut result): never cache it. The seq
       // hole it leaves contaminates the buffer at the next live frame, so the
       // next load fully replays the real end from the server store.
-      // See change: fix-background-subagent-ghost-rows (D6).
+      // Live only: a replay batch comes from the server store, which holds the
+      // full end. See change: fix-background-subagent-ghost-rows (D6).
       if (origin === "live" && (e.event?.data as { deferredProjection?: unknown } | undefined)?.deferredProjection === true) {
         continue;
       }

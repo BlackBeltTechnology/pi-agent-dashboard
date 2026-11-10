@@ -195,7 +195,8 @@ describe("registry snapshot (#E4–#E7, #X5)", () => {
     activate(none);
     none.events.emit(BRIDGE_READY_CHANNEL, {});
     expect(ofChannel(none, REGISTRY_SNAPSHOT_CHANNEL)).toHaveLength(0);
-    // one producer with 0 entries
+    // one producer with 0 entries: still a snapshot (D4) — "this session runs no
+    // subagents", which ends every live one as untracked on the client.
     const one = fakePi();
     activate(one);
     one.events.on(REGISTRY_QUERY_CHANNEL, registryStub([]));

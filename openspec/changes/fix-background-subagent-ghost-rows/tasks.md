@@ -64,7 +64,7 @@
 ## 6. Integration
 
 - [x] 6.1 Run `npm test` and the touched e2e specs on the docker harness; rebuild and restart (`npm run build && npx tsx .pi/skills/implement/scripts/restart-server.ts`).
-- [ ] 6.2 Run `review-code` on the diff before commit.
+- [x] 6.2 Run `review-code` on the diff before commit.
 
 ## Workflow follow-up
 
