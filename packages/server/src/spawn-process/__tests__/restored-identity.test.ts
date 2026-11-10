@@ -92,7 +92,7 @@ describe("verifyRestored", () => {
     const p = verifyRestored(1, A, { probe: () => new Promise<number>(() => {}), isGone: alive, now, log: () => {} });
     await vi.advanceTimersByTimeAsync(1999);
     let settled = false;
-    void p.then(() => { settled = true; });
+    void p.then(() => { settled = true; }).catch(() => undefined);
     await Promise.resolve();
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);

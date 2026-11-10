@@ -478,17 +478,18 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         const restored = entry.restored === true;
         const spawnedAt = entry.spawnedAt;
         const sessionId = entry.sessionId;
-        setTimeout(() => {
-          void (async () => {
-            if (restored) {
-              const v = await verify(keeperPid, spawnedAt);
-              if (v === "mismatch" || (v === "unverifiable" && verifyIdentity)) {
-                console.warn(identityLogLine(`${v} (group kill skipped)`, keeperPid, "keeper", sessionId));
-                return;
-              }
+        const reapKeeperGroup = async (): Promise<void> => {
+          if (restored) {
+            const v = await verify(keeperPid, spawnedAt);
+            if (v === "mismatch" || (v === "unverifiable" && verifyIdentity)) {
+              console.warn(identityLogLine(`${v} (group kill skipped)`, keeperPid, "keeper", sessionId));
+              return;
             }
-            await killProcessGroup(keeperPid, { timeoutMs: 2000 });
-          })().catch(() => undefined);
+          }
+          await killProcessGroup(keeperPid, { timeoutMs: 2000 });
+        };
+        setTimeout(() => {
+          void reapKeeperGroup().catch(() => undefined);
         }, 200).unref?.();
       }
       return finish(killedSomething, anySignal || !entry.restored || refusedPids.length === 0);
