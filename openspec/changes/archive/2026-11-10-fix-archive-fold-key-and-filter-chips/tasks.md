@@ -48,5 +48,5 @@
 
 ## 6. Manual verification
 
-- [ ] 6.1 Manual (test-plan: manual-only, #F6): on macOS, open the filter funnel in each theme and compare it with `mockups/filter-funnel-chips` option A; verify the chips look like one family and the check is legible
-- [ ] 6.2 Manual (test-plan: manual-only, #F7): on a real macOS host with mixed-case archived sessions, restart the server and open the dashboard; verify every folder with archived sessions shows `Archive (N)` and expands
+- [x] 6.1 Manual (test-plan: manual-only, #F6): on macOS, open the filter funnel in each theme and compare it with `mockups/filter-funnel-chips` option A; verify the chips look like one family and the check is legible
+- [x] 6.2 Manual (test-plan: manual-only, #F7): on a real macOS host with mixed-case archived sessions, restart the server and open the dashboard; verify every folder with archived sessions shows `Archive (N)` and expands
