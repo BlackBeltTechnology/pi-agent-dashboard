@@ -64,11 +64,16 @@ import { getStoredSpawnedPid, loadMinimalConfig, makeServerWatchdog, setSpawnedP
 
 type SpawnableSource = Exclude<LaunchSource, { kind: "attach" }>;
 
-let cachedNode: { version: string; abi: number } | null = null;
+let bundledNodeProbe: { version: string; abi: number } | null | undefined;
 
-/** Version + ABI of the Node the shell runs the server with (bundled, else Electron's). */
-function shellNode(): { version: string; abi: number } {
-  if (cachedNode) return cachedNode;
+/**
+ * Version + ABI of the bundled Node; null when absent or unprobeable. Without
+ * a bundled Node, `spawnFromSource` runs a system Node resolved at spawn time,
+ * so no ABI is known here.
+ */
+function bundledNode(): { version: string; abi: number } | null {
+  if (bundledNodeProbe !== undefined) return bundledNodeProbe;
+  bundledNodeProbe = null;
   const bundled = getBundledNodePath();
   try {
     if (bundled) {
@@ -78,17 +83,17 @@ function shellNode(): { version: string; abi: number } {
       })
         .trim()
         .split(" ");
-      if (version && Number(abi) > 0) cachedNode = { version, abi: Number(abi) };
+      if (version && Number(abi) > 0) bundledNodeProbe = { version, abi: Number(abi) };
     }
   } catch {
     /* fall through */
   }
-  cachedNode ??= { version: process.version, abi: Number(process.versions.modules) };
-  return cachedNode;
+  return bundledNodeProbe;
 }
 
+/** Version of the Node the shell runs the server with (bundled, else Electron's). */
 function shellNodeVersion(): string {
-  return shellNode().version;
+  return bundledNode()?.version ?? process.versions.node;
 }
 
 function readEnginesNode(checkoutRoot: string): string | undefined {
@@ -115,7 +120,7 @@ function gateRuntimeRoot(
   if (!files.ok) return files;
   // The checkout runs under the shell's Node: refused when that Node is
   // outside its engines range, or a from-source native addon targets another
-  // ABI. See change: electron-local-link-node-compat.
+  // ABI than the bundled Node. See change: electron-local-link-node-compat.
   const engines = readEnginesNode(root);
   if (engines) {
     const compat = evaluateRuntimeCandidate({
@@ -125,7 +130,9 @@ function gateRuntimeRoot(
     });
     if (!compat.ok) return compat;
   }
-  return preflightLocalNativeAbi(root, shellNode());
+  // ABI known only for the bundled Node; otherwise skip (refuse on proof only).
+  const node = bundledNode();
+  return node ? preflightLocalNativeAbi(root, node) : { ok: true };
 }
 
 /** Resolver inputs for a cold launch; gate failures are recorded as `lastFailure`. */

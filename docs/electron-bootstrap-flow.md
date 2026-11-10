@@ -57,7 +57,7 @@ localLink gate order in `gateRuntimeRoot` (`packages/electron/src/lib/runtime-ov
 
 1. `preflightLocal` — required files present.
 2. `engines.node` — checkout `package.json#engines.node` must admit shell's bundled Node; else `node_engines <range>`.
-3. `preflightLocalNativeAbi` (`packages/shared/src/runtime-overlay/compat.ts`) — scans `node_modules/[@scope/]<pkg>/build/Release/*.node`, reads `node_register_module_v<N>`; refuses on N ≠ bundled Node `process.versions.modules` with `node_abi <path> built for ABI <N>, app Node <v> needs ABI <M> — run \`pnpm rebuild\` in the checkout under Node <v>`. N-API + `prebuilds/` exempt (node-pty 1.x, sharp, `@napi-rs/*`). Nested `node_modules` + pnpm `.pnpm/` store unscanned.
+3. `preflightLocalNativeAbi` (`packages/shared/src/runtime-overlay/compat.ts`) — scans `node_modules/[@scope/]<pkg>/build/Release/*.node`, reads `node_register_module_v<N>`; refuses on N ≠ bundled Node `process.versions.modules` with ``node_abi <path> built for ABI <N>, app Node <v> needs ABI <M> — run `pnpm rebuild` in the checkout under Node <v>``. N-API + `prebuilds/` exempt (node-pty 1.x, sharp, `@napi-rs/*`). Nested `node_modules` + pnpm `.pnpm/` store unscanned. Check runs only when bundled Node present + probed (packaged app). No bundled Node (dev/unbundled build) → `spawnFromSource` resolves system Node at spawn time → ABI check skipped (refuse on proof only).
 
 See change: electron-local-link-node-compat.
 
