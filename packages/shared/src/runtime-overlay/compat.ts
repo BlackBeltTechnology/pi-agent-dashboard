@@ -119,7 +119,9 @@ function fromSourceAddons(root: string): string[] {
 /**
  * Refuse a linked checkout whose from-source native addon targets another
  * Node ABI than the Node that would run it. Prebuild dirs are not scanned:
- * their loaders select a matching ABI or the addon is N-API.
+ * their loaders select a matching ABI or the addon is N-API. Unreadable or
+ * symbol-less files are skipped — refuse on proof only; those fail late at
+ * load, as before.
  */
 export function preflightLocalNativeAbi(root: string, node: { version: string; abi: number }): RuntimeGateResult {
   for (const p of fromSourceAddons(root)) {

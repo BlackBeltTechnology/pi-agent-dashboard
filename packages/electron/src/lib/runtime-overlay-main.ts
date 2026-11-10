@@ -83,7 +83,7 @@ function shellNode(): { version: string; abi: number } {
   } catch {
     /* fall through */
   }
-  cachedNode ??= { version: process.versions.node, abi: Number(process.versions.modules) };
+  cachedNode ??= { version: process.version, abi: Number(process.versions.modules) };
   return cachedNode;
 }
 
