@@ -328,3 +328,121 @@ describe("KeeperManager pi-PID sidecar discovery", () => {
     }
   });
 });
+
+// See change: guard-restored-headless-identity — discovery verifies the keeper
+// pid against its pid-sidecar mtime before any signal or registration, and
+// surfaces the pi-PID sidecar mtime as the pi pid's anchor.
+import { utimesSync } from "node:fs";
+
+describe("KeeperManager discovery — keeper pid identity (E36, E37, E39, E43)", () => {
+  const isWin = process.platform === "win32"; // platform-branch-ok
+  function seed(sid: string, opts: { piPid?: string } = {}) {
+    mkdirSync(sessionsDir, { recursive: true });
+    const pidFile = pidPathFor(sessionsDir, sid);
+    writeFileSync(pidFile, String(process.pid));
+    const M = Math.floor(Date.now() / 1000) * 1000 - 60_000;
+    utimesSync(pidFile, M / 1000, M / 1000);
+    const sock = sockPathFor(sessionsDir, sid);
+    if (!isWin) writeFileSync(sock, "");
+    const piFile = piPidPathFor(sessionsDir, sid);
+    if (opts.piPid !== undefined) writeFileSync(piFile, opts.piPid);
+    return { pidFile, sock, piFile, M };
+  }
+  const sigterms = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls.filter((c) => c[1] === "SIGTERM");
+
+  for (const [label, delta, killed] of [
+    ["M+1 999 ⇒ match, killed", 1999, true],
+    ["M+2 000 ⇒ match, killed", 2000, true],
+    ["M+2 001 ⇒ mismatch, untouched", 2001, false],
+    ["null ⇒ unverifiable, untouched", null, false],
+  ] as const) {
+    it(`E36 orphan keeper (pi dead): ${label}`, async () => {
+      const { pidFile, sock, piFile, M } = seed(`sess-e36-${delta}`, { piPid: "999999" });
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const km = createKeeperManager(baseOpts({
+          isPiAliveForSession: () => false,
+          probeStartedAt: () => (delta === null ? null : M + delta),
+        }));
+        expect(await km.discoverExistingKeepers()).toEqual([]);
+        expect(sigterms(killSpy).length > 0).toBe(killed);
+        expect(existsSync(pidFile)).toBe(!killed);
+        expect(existsSync(piFile)).toBe(!killed);
+        if (!isWin) expect(existsSync(sock)).toBe(!killed);
+        if (!killed) {
+          const kind = delta === null ? "unverifiable" : "mismatch";
+          expect(warn.mock.calls.some((c) => String(c[0]).includes(`identity ${kind} pid=${process.pid} kind=keeper`))).toBe(true);
+        }
+      } finally {
+        killSpy.mockRestore();
+        warn.mockRestore();
+      }
+    });
+  }
+
+  it("E37: a dead keeper is cleaned up with no probe and no signal", async () => {
+    mkdirSync(sessionsDir, { recursive: true });
+    const pidFile = pidPathFor(sessionsDir, "sess-dead");
+    writeFileSync(pidFile, "999999");
+    const probe = vi.fn(() => 0);
+    const km = createKeeperManager(baseOpts({ isPiAliveForSession: () => false, probeStartedAt: probe }));
+    expect(await km.discoverExistingKeepers()).toEqual([]);
+    expect(probe).not.toHaveBeenCalled();
+    expect(existsSync(pidFile)).toBe(false);
+  });
+
+  for (const [label, start, registered] of [
+    ["mismatch ⇒ not registered, untouched", 10_000, false],
+    ["unverifiable ⇒ registered (liveness only)", null, true],
+    ["match ⇒ registered", -5000, true],
+  ] as const) {
+    it(`E43 live keeper + live pi: ${label}`, async () => {
+      const sid = `sess-e43-${String(start)}`;
+      const { pidFile, piFile, M } = seed(sid, { piPid: String(process.pid) });
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const km = createKeeperManager(baseOpts({
+          isPiAliveForSession: () => true,
+          probeStartedAt: (pid) => (start === null ? null : pid === process.pid ? M + start : null),
+        }));
+        const r = await km.discoverExistingKeepers();
+        expect(r.some((e) => e.sessionId === sid)).toBe(registered);
+        expect(sigterms(killSpy)).toHaveLength(0);
+        expect(existsSync(pidFile)).toBe(true);
+        expect(existsSync(piFile)).toBe(true);
+        if (registered) {
+          const e = r.find((x) => x.sessionId === sid);
+          expect(e?.piPid).toBe(process.pid);
+          expect(typeof e?.piPidAnchorMs).toBe("number");
+        } else {
+          expect(warn.mock.calls.some((c) => String(c[0]).includes("kind=keeper"))).toBe(true);
+        }
+      } finally {
+        killSpy.mockRestore();
+        warn.mockRestore();
+      }
+    });
+  }
+
+  for (const content of [undefined, "garbage"]) {
+    it(`E39: pi-PID sidecar ${content ?? "missing"} ⇒ keeper not signalled, files stay, no piPid`, async () => {
+      const sid = `sess-e39-${content ?? "none"}`;
+      const { pidFile, M } = seed(sid, content === undefined ? {} : { piPid: content });
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      try {
+        const km = createKeeperManager(baseOpts({ probeStartedAt: () => M - 1000 }));
+        const r = await km.discoverExistingKeepers();
+        const e = r.find((x) => x.sessionId === sid);
+        expect(e).toBeDefined();
+        expect(e?.piPid).toBeUndefined();
+        expect(e?.piPidAnchorMs).toBeUndefined();
+        expect(sigterms(killSpy)).toHaveLength(0);
+        expect(existsSync(pidFile)).toBe(true);
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
+  }
+});

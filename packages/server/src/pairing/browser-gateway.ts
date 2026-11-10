@@ -8,6 +8,7 @@ import type {
   BrowserToServerMessage,
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
@@ -504,8 +505,12 @@ export interface BrowserGateway {
   clearPendingRequestsForSession(sessionId: string): void;
   /** Tell browser subscribers to reset accumulated state for a session (bridge reconnected) */
   broadcastSessionStateReset(sessionId: string): void;
-  /** Shut down all tracked headless child processes */
-  shutdownHeadlessProcesses(): void;
+  /**
+   * Shut down all tracked headless child processes. Awaits the registry's
+   * async `killAll`; an omitted intent is forwarded as null (unattended).
+   * See change: guard-restored-headless-identity (D7, G1).
+   */
+  shutdownHeadlessProcesses(opts?: { exitIntent?: ExitIntent | null }): Promise<void>;
   /** Registry for linking headless PIDs to session IDs */
   headlessPidRegistry: HeadlessPidRegistry;
   /** Registry for pending auto-resume prompts */
@@ -3004,8 +3009,8 @@ export function createBrowserGateway(
       // See change: split-notify-from-prompt-request.
     },
 
-    shutdownHeadlessProcesses() {
-      headlessPidRegistry.killAll();
+    async shutdownHeadlessProcesses(opts?: { exitIntent?: ExitIntent | null }) {
+      await headlessPidRegistry.killAll({ exitIntent: opts?.exitIntent ?? null });
     },
 
     headlessPidRegistry,

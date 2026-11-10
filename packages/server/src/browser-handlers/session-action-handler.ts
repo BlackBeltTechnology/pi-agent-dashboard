@@ -1329,6 +1329,9 @@ export type ForceKillDeps = Pick<
 /** Refusal text for a force-kill of a pid outside this host's namespace. */
 const FORCE_KILL_NOT_LOCAL_MESSAGE = "Process not on this host — use Shutdown";
 
+/** Refusal text for a force-kill of a restored pid reused by another process. */
+const FORCE_KILL_IDENTITY_REUSE_MESSAGE = "Process identity reuse: the recorded pid now belongs to another process — not signalled";
+
 /**
  * The force-kill ladder, shared by the browser `force_kill` message and
  * `POST /api/session/:id/lifecycle { action: "force_kill" }` (change:
@@ -1384,6 +1387,16 @@ export async function forceKillSession(
   if (!operatorMaySignal(target, ctxPid)) {
     console.warn(`[dashboard] force_kill(${sessionId}): refused — pid ${pid} target ${target.kind} is not on this host`);
     return { success: false, message: FORCE_KILL_NOT_LOCAL_MESSAGE };
+  }
+
+  // A pid of a RESTORED registry entry that fails start-time verification
+  // belongs to an unrelated process: never signal it, even for an operator
+  // (G2). An unverifiable pid is still signalled here (operator path, D5); the
+  // registry logs it. See change: guard-restored-headless-identity.
+  const identity = await headlessPidRegistry.verifySessionPid?.(sessionId, pid);
+  if (identity === "mismatch") {
+    console.warn(`[dashboard] force_kill(${sessionId}): refused — pid ${pid} identity reuse (restored entry)`);
+    return { success: false, message: FORCE_KILL_IDENTITY_REUSE_MESSAGE };
   }
 
   markIntentionalClose();

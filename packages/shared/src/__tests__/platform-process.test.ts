@@ -374,3 +374,29 @@ describe("killProcessGroup — win32 delegates to killProcess (E57)", () => {
     expect(exec.mock.calls.map((c) => c[0])).toEqual(groupCalls);
   });
 });
+
+// See change: guard-restored-headless-identity (test-plan E45, E46).
+describe("processStartedAt — restored-identity probe contract", () => {
+  it("E45: darwin runs `LC_ALL=C ps -o lstart= -p <pid>` exactly once per call", () => {
+    const exec = vi.fn(() => "Thu Oct  1 00:49:08 2026\n");
+    processStartedAt(4242, { platform: "darwin", exec });
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(exec.mock.calls[0][0]).toBe("LC_ALL=C ps -o lstart= -p 4242");
+  });
+
+  it("E46: an ambiguous DST hour parses identically on both sides (documents ≤ 1 h skew, fail-closed if later)", () => {
+    const prev = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const line = "Sun Nov  1 01:30:00 2026";
+      const a = processStartedAt(7, { platform: "darwin", exec: () => line });
+      const b = processStartedAt(7, { platform: "darwin", exec: () => line });
+      expect(a).not.toBeNull();
+      expect(a).toBe(b);
+      expect(a).toBe(Date.parse(line));
+    } finally {
+      if (prev === undefined) delete process.env.TZ;
+      else process.env.TZ = prev;
+    }
+  });
+});

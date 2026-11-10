@@ -99,6 +99,7 @@ export const PID_TARGET_ALLOWLIST: Allowlist = {
     reason: "classifyCarrierLoss(session, target) probes only a `host` target; the gateway resolves it",
   },
   "spawn-process/headless-pid-registry.ts": OWN("headless spawn registry: pids/keepers the server spawned"),
+  "spawn-process/restored-identity.ts": OWN("start-time verifier for restored registry / keeper-sidecar pids the server spawned"),
   "spawn-process/spawn-register-watchdog.ts": OWN("watchdog reclaims the pid of a spawn the server armed"),
   "spawn-process/server-pid.ts": OWN("the dashboard server's own pid file"),
   "rpc-keeper/keeper-manager.ts": OWN("rpc keeper sidecars the server spawned"),

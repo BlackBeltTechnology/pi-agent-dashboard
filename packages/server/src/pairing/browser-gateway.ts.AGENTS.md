@@ -46,3 +46,5 @@ Operator-socket set (design D2/D3). `holdsLiveCapability(ws)`: `capabilitySocket
 `create_terminal` dispatch is async (`handleCreateTerminal(...).catch(log)` backstop); ctx carries `terminalAdmission.knownCwds` (`listKnownFolderCwds`: session cwds ∪ pinned ∪ workspace folders) for terminal cwd admission. See change: harden-git-terminal-plugin-boundaries.
 
 `onRegistryFrame(listener)`: tap at the top of `broadcast()` for `session_added` / `session_updated` / `session_removed`, before owner scoping, coalescing or shedding (every registry frame passes `broadcast`; `broadcastSession*` + `broadcastToAll` delegate to it). Listener errors logged, never block fan-out. Feeds `agent-events/agent-event-hub.ts`. See change: add-agent-event-stream.
+
+`shutdownHeadlessProcesses({exitIntent})` async: awaits `headlessPidRegistry.killAll({exitIntent ?? null})`; `server.ts` `stop()` awaits it with `opts.exitIntent ?? "idle"`. See change: guard-restored-headless-identity.

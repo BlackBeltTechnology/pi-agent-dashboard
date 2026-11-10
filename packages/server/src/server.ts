@@ -5598,7 +5598,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await new Promise<void>((resolve) => setImmediate(resolve));
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.
-      browserGateway.shutdownHeadlessProcesses();
+      // Awaited: restored entries are verified first (bounded 5 s). The stop's
+      // intent decides whether an unverifiable restored pid may be signalled.
+      // See change: guard-restored-headless-identity (D7).
+      await browserGateway.shutdownHeadlessProcesses({ exitIntent: opts.exitIntent ?? "idle" });
       // Record `exitIntent` (default "idle") instead of erasing the evidence.
       // `stop()` reaches here from the idle timer — the server chose to stop,
       // the user closed nothing — so the sessions it just killed stay

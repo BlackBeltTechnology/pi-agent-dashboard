@@ -35,10 +35,11 @@ import {
   type ServerPidContext,
 } from "../session/pid-target.js";
 import { getServerPidContext } from "../session/server-pid-context.js";
-import type { HeadlessPidRegistry } from "./headless-pid-registry.js";
+import type { CheckedKillResult, HeadlessPidRegistry } from "./headless-pid-registry.js";
+import { IDENTITY_TOLERANCE_MS } from "./restored-identity.js";
 
 /** Tolerance between a pi's start time and the server stamping its pid (ms). */
-export const IDENTITY_TOLERANCE_MS = 2000;
+export { IDENTITY_TOLERANCE_MS };
 const GRACE_POLL_MS = 100;
 
 /**
@@ -101,7 +102,7 @@ interface TerminatorPrimitives {
 export interface SessionTerminatorDeps extends TerminatorPrimitives {
   sessionManager: TerminatorSessionManager;
   headlessPidRegistry: Pick<HeadlessPidRegistry, "getPid" | "killBySessionId"> &
-    Partial<Pick<HeadlessPidRegistry, "killByToken">>;
+    Partial<Pick<HeadlessPidRegistry, "killByToken" | "killBySessionIdChecked">>;
 }
 
 export function createSessionTerminator(deps: SessionTerminatorDeps): { terminate: Terminate } {
@@ -143,14 +144,23 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     return survivor === undefined ? done("confirmed-dead", pids[0]) : done("unconfirmed", survivor);
   }
 
-  /** Step 1: registry attempt (an attempt flag only; liveness decides). */
-  async function registryRung(sessionId: string): Promise<void> {
-    if (sessionId === "") return;
+  /**
+   * Step 1: registry attempt (an attempt flag only; liveness decides) — EXCEPT
+   * a registry identity refusal, which the ladder honours: a restored entry's
+   * pid that failed verification is never re-signalled here.
+   * See change: guard-restored-headless-identity (D1).
+   */
+  async function registryRung(sessionId: string, verifyIdentity: boolean): Promise<CheckedKillResult | undefined> {
+    if (sessionId === "") return undefined;
     try {
+      if (headlessPidRegistry.killBySessionIdChecked) {
+        return await headlessPidRegistry.killBySessionIdChecked(sessionId, { verifyIdentity });
+      }
       await headlessPidRegistry.killBySessionId(sessionId);
     } catch {
       /* an attempt flag only; liveness decides */
     }
+    return undefined;
   }
 
   /**
@@ -215,7 +225,13 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
 
     // 1. Registry rung — runs whatever the target: a registry entry is the
     // server's own spawn, local by construction (S8).
-    await registryRung(sessionId);
+    const reg = await registryRung(sessionId, opts.verifyIdentity === true);
+    if (reg?.outcome === "refused-identity") {
+      warn(
+        `[session-terminator] registry refused to signal pid ${reg.refusedPids.join(",")} for session ${sessionId}: ${reg.diagnostic ?? "identity refused"}`,
+      );
+      return done("refused-identity", reg.refusedPids[0] ?? registryPid);
+    }
 
     // 1b. A non-local recorded pid is never probed or signalled.
     if (target && sessionPid !== undefined) {
@@ -239,6 +255,13 @@ export function createSessionTerminator(deps: SessionTerminatorDeps): { terminat
     // identity-"refused"; the target refusal above precedes any probe), or
     // gone within the grace window.
     if (isGone(pid) || (await exitedWithin(pid, opts.graceMs))) return done("confirmed-dead", pid);
+
+    // A pid the registry refused (partial outcome: another rung signalled) is
+    // never signalled by the ladder either.
+    if (reg?.refusedPids.includes(pid)) {
+      warn(`[session-terminator] refusing to signal pid ${pid} for session ${sessionId}: ${reg.diagnostic ?? "identity refused"}`);
+      return done("refused-identity", pid);
+    }
 
     // 5–7. The guard applies only to a `session.pid` the registry does not own.
     return escalate(sessionId, pid, opts.verifyIdentity === true && pid === sessionPid && pid !== registryPid);
