@@ -30,7 +30,7 @@ Files in this directory. One row per source file.
 | `remote-probe.ts` | Main-process remote-dashboard reachability probe, extracted from `remote-connect-window.ts` so `main.ts` can… → see `remote-probe.ts.AGENTS.md` |
 | `renderer-paths.ts` | `getWizardPreloadPath()`, `getRendererHtmlPath(name)`: resolve bundled wizard preload + `renderer/*.html`… → see `renderer-paths.ts.AGENTS.md` |
 | `resolve-cdp-activation.ts` | Pure `resolveCdpActivation(argv, env): {enabled, port?}`. → see `resolve-cdp-activation.ts.AGENTS.md` |
-| `runtime-overlay-main.ts` | Real-I/O wiring. `gateRuntimeRoot` (manifest compat + preflight; local: checkout `engines.node` vs shell Node… → see `runtime-overlay-main.ts.AGENTS.md` |
+| `runtime-overlay-main.ts` | Real-I/O wiring. `gateRuntimeRoot` (manifest compat + preflight; local: `engines.node` + native ABI vs shell Node… → see `runtime-overlay-main.ts.AGENTS.md` |
 | `runtime-overlay.ts` | Runtime-overlay state machine, pure over `~/.pi/dashboard/runtime/` (writes `state.json` only). → see `runtime-overlay.ts.AGENTS.md` |
 | `runtime-switch-ownership.ts` | Leaf module: PID-scoped exit ownership during a switch. `expectExit`, `claimCandidate`,… → see `runtime-switch-ownership.ts.AGENTS.md` |
 | `server-discovery.ts` | Pure helpers: `shortFingerprint` (`sha256:` + 16 chars), `isFingerprint`, `serverOrigin` (brackets IPv6),… → see `server-discovery.ts.AGENTS.md` |

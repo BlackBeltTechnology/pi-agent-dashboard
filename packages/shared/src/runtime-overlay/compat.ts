@@ -6,20 +6,24 @@
  *     a range check, not equality).
  *   - `preflightOverlay` / `preflightLocal` — the required files exist.
  *
- * Local link Node rule (spike 1.2 deferred, conservative choice): a linked
- * checkout ALWAYS runs under the shell's bundled Node — never system Node —
- * and is refused when that Node falls outside the checkout's root
- * `package.json#engines.node` (the caller passes that range as `nodeEngines`).
+ * Local link Node rule: a linked checkout ALWAYS runs under the shell's
+ * bundled Node — never system Node — and is refused when that Node falls
+ * outside the checkout's root `package.json#engines.node` (the caller passes
+ * that range as `nodeEngines`) OR when a from-source native addon
+ * (`node_modules/[@scope/]<pkg>/build/Release/*.node`) was built for another
+ * Node ABI (`preflightLocalNativeAbi`). N-API addons and prebuilds load under
+ * any Node major and are never refused.
  *
- * See change: electron-runtime-overlay-updates (D6).
+ * See change: electron-runtime-overlay-updates (D6), electron-local-link-node-compat.
  */
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import semver from "semver";
 import type { RuntimeManifest } from "./manifest.mjs";
 
 export type RuntimeGateResult =
   | { ok: true }
-  | { ok: false; code: "requires_app" | "node_engines" | "invalid_manifest" | "missing_file"; message: string; path?: string };
+  | { ok: false; code: "requires_app" | "node_engines" | "node_abi" | "invalid_manifest" | "missing_file"; message: string; path?: string };
 
 export function evaluateRuntimeCandidate(input: {
   manifest: RuntimeManifest | null;
@@ -77,6 +81,64 @@ function firstMissing(paths: string[], exists: (p: string) => boolean, hint: (p:
 
 export function preflightOverlay(root: string, exists: (p: string) => boolean): RuntimeGateResult {
   return firstMissing(overlayRequiredPaths(root), exists, () => "");
+}
+
+const ABI_SYMBOL = /node_register_module_v(\d+)/;
+
+/**
+ * Node ABI (`NODE_MODULE_VERSION`) a native addon is bound to, read from its
+ * exported `node_register_module_v<N>` symbol; null for N-API / unknown.
+ */
+export function nativeAddonAbi(bytes: Buffer): number | null {
+  const m = ABI_SYMBOL.exec(bytes.toString("latin1"));
+  return m ? Number(m[1]) : null;
+}
+
+function safeReaddir(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/** `build/Release/*.node` of every top-level (incl. scoped) package under `<root>/node_modules`. */
+function fromSourceAddons(root: string): string[] {
+  const nm = path.join(root, "node_modules");
+  const pkgDirs = safeReaddir(nm).flatMap((name) =>
+    name.startsWith("@") ? safeReaddir(path.join(nm, name)).map((n) => path.join(nm, name, n)) : [path.join(nm, name)],
+  );
+  return pkgDirs.flatMap((dir) => {
+    const rel = path.join(dir, "build", "Release");
+    return safeReaddir(rel)
+      .filter((f) => f.endsWith(".node"))
+      .map((f) => path.join(rel, f));
+  });
+}
+
+/**
+ * Refuse a linked checkout whose from-source native addon targets another
+ * Node ABI than the Node that would run it. Prebuild dirs are not scanned:
+ * their loaders select a matching ABI or the addon is N-API.
+ */
+export function preflightLocalNativeAbi(root: string, node: { version: string; abi: number }): RuntimeGateResult {
+  for (const p of fromSourceAddons(root)) {
+    let abi: number | null;
+    try {
+      abi = nativeAddonAbi(readFileSync(p));
+    } catch {
+      continue;
+    }
+    if (abi !== null && abi !== node.abi) {
+      return {
+        ok: false,
+        code: "node_abi",
+        path: p,
+        message: `node_abi ${p} built for ABI ${abi}, app Node ${node.version} needs ABI ${node.abi} — run \`pnpm rebuild\` in the checkout under Node ${node.version}`,
+      };
+    }
+  }
+  return { ok: true };
 }
 
 export function preflightLocal(root: string, exists: (p: string) => boolean): RuntimeGateResult {

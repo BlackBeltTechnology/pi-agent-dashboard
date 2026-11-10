@@ -53,6 +53,14 @@ flowchart TD
 
 `localLink` / `overlay` candidate failing its gate (compat + preflight) falls through to the next kind. Failure recorded via `onFallThrough` → `state.lastFailure`.
 
+localLink gate order in `gateRuntimeRoot` (`packages/electron/src/lib/runtime-overlay-main.ts`):
+
+1. `preflightLocal` — required files present.
+2. `engines.node` — checkout `package.json#engines.node` must admit shell's bundled Node; else `node_engines <range>`.
+3. `preflightLocalNativeAbi` (`packages/shared/src/runtime-overlay/compat.ts`) — scans `node_modules/[@scope/]<pkg>/build/Release/*.node`, reads `node_register_module_v<N>`; refuses on N ≠ bundled Node `process.versions.modules` with `node_abi <path> built for ABI <N>, app Node <v> needs ABI <M> — run \`pnpm rebuild\` in the checkout under Node <v>`. N-API + `prebuilds/` exempt (node-pty 1.x, sharp, `@napi-rs/*`). Nested `node_modules` + pnpm `.pnpm/` store unscanned.
+
+See change: electron-local-link-node-compat.
+
 Override: `DASHBOARD_PREFER_SOURCE=attach|devMonorepo|localLink|overlay|bundled`. `PinnedSourceUnavailableError` when a pinned kind cannot resolve. Pre-R3 kinds (`piExtension`, `npmGlobal`, `extracted`) rejected with warning.
 
 ## Server readiness deadlines
