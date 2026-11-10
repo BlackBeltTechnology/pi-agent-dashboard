@@ -436,6 +436,15 @@ describe("SettingsPanel", () => {
             }),
         });
       }
+      // Operator viewer: the operator-only revoked list answers (device-key-mutual-check).
+      if (url === "/api/paired-devices/revoked") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => "application/json" },
+          json: () => Promise.resolve({ success: true, data: [] }),
+        });
+      }
       if (url === "/api/config" && !options?.method) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
       }
