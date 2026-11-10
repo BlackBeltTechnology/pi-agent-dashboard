@@ -40,3 +40,8 @@ The result is a dock that shows false state and gives the user no way to correct
 - Tests: plugin client unit tests, gateway unit tests, `tests/e2e/background-subagents.spec.ts` / `subagent-queue-stop.spec.ts`. The e2e harness pin moves to the producer release that carries the two channels.
 - `packages/client/src/lib/replay/replay-persist.ts`: never caches a deferred, projected end frame.
 - Dependency: producer `@blackbelt-technology/pi-dashboard-subagents` next minor (sibling change `emit-subagent-stop-verdicts-and-registry` in that repo). The dashboard ships first and stays compatible with 0.7.0.
+
+## Discipline Skills
+
+- `test-driven-development`: every task is test-first (gateway defer key + projection, replay persister skip, bridge verdict combine, client reconcile and freshness guard), with the unit tests written before the code.
+- `doubt-driven-review`: the stop-answer and snapshot reconcile decide that a session no longer runs a subagent; a wrong `unknown` ends a live subagent, so the freshness guard and the producer contract were stress-tested in planning.

@@ -235,16 +235,24 @@ export function SubagentDetailView({
   let emptyMessage: string | undefined;
   let footer: React.ReactNode = undefined;
 
+  // Ended because its session no longer tracks it: a neutral, localized line
+  // instead of the synthetic error text. See change: fix-background-subagent-ghost-rows (D5 Copy).
+  const untracked = sub.status === "failed" && sub.healedBy === "untracked";
+  const errorText = untracked
+    ? t("subagentUntracked", undefined, "Ended — its session no longer tracks it")
+    : sub.error;
+
   if (hasEntries) {
     // Tier 1
     entries = mapSubagentEntries(sub.entries, t);
     // A failed run keeps its error visible under the timeline (e.g. the
     // session-end heal's "parent session ended" for a background run).
     // See change: show-background-subagents-in-dock (D6).
-    const errorNote =
-      sub.status === "failed" && sub.error ? (
-        <div data-testid="subagent-error-note" className="mt-3 text-sm text-[var(--accent-red-text)]">{sub.error}</div>
-      ) : null;
+    const errorNote = untracked ? (
+      <div data-testid="subagent-untracked-note" className="mt-3 text-sm text-[var(--text-tertiary)]">{errorText}</div>
+    ) : sub.status === "failed" && sub.error ? (
+      <div data-testid="subagent-error-note" className="mt-3 text-sm text-[var(--accent-red-text)]">{sub.error}</div>
+    ) : null;
     if (isComplete && sub.result) {
       footer = (
         <>
@@ -266,7 +274,11 @@ export function SubagentDetailView({
         {sub.description && (
           <div className="text-[11px] text-[var(--text-secondary)]">"{sub.description}"</div>
         )}
-        {sub.error && <div className="text-sm text-red-400">{sub.error}</div>}
+        {untracked ? (
+          <div data-testid="subagent-untracked-note" className="text-sm text-[var(--text-tertiary)]">{errorText}</div>
+        ) : (
+          sub.error && <div className="text-sm text-red-400">{sub.error}</div>
+        )}
         {sub.result && (
           <div>
             <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">

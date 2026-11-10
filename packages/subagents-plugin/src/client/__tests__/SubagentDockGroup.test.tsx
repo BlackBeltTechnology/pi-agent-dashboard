@@ -406,3 +406,83 @@ describe("Stop button classes match the shell's Kill button (4.8)", () => {
     expect(screen.getByRole("button", { name: "Stop subagent docs-writer" }).className).toBe(DOCK_STOP_BUTTON_CLASS);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ghost rows cleared by the session's stop answer (test-plan #F1, #F2, #X1 client half).
+// See change: fix-background-subagent-ghost-rows.
+// ---------------------------------------------------------------------------
+const { toolRowFinalizers } = await import("../toolRowFinalizer.js");
+
+describe("ghost row cleared by the stop answer (#F1, #F2, #X1)", () => {
+  const dw = () => bgSub({ id: "dw", displayName: "docs-writer", stoppable: true, startedAt: NOW });
+  /** Reduce `subagent_stop_result {phase:"unknown"}` through the real finalizer into the mocked map. */
+  const reduceUnknownAnswer = () => {
+    const state = { subagents: new Map(subagents), messages: [], toolCalls: new Map() };
+    const next = toolRowFinalizers[0].onSessionEvent!(state, {
+      eventType: "subagent_stop_result",
+      timestamp: NOW + 1,
+      data: { agentId: "dw", outcome: "ignored", phase: "unknown", answeredAt: NOW },
+    })!;
+    subagents = next.subagents;
+  };
+  const both = () => (
+    <>
+      <BackgroundSubagentDockGroup session={session} pluginContext={{}} mode="summary" reportSummary={vi.fn()} />
+      <BackgroundSubagentDockGroup session={session} pluginContext={{}} mode="rows" reportSummary={vi.fn()} />
+    </>
+  );
+  const stopPhase = () => {
+    let phase: string | undefined;
+    function Probe() {
+      phase = stopStore.useSubagentStopState("s1", "dw")?.phase;
+      return null;
+    }
+    render(<Probe />).unmount();
+    return phase;
+  };
+  beforeEach(() => {
+    stopStore.__resetSubagentStopsForTests();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("#F1 a pending stop: the unknown answer removes the row and clears the stop", async () => {
+    subagents = mapOf(dw());
+    const { rerender } = render(both());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop subagent docs-writer" }));
+    });
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Stopping…");
+    reduceUnknownAnswer();
+    rerender(both());
+    expect(screen.queryByTestId("composer-dock-row")).toBeNull();
+    expect(screen.queryByText("Stopping…")).toBeNull();
+    expect(screen.queryByText("Still running")).toBeNull();
+    expect(stopPhase()).toBeUndefined();
+  });
+
+  it("#F2 after Still running, a late unknown answer still removes the row", async () => {
+    subagents = mapOf(dw());
+    const { rerender } = render(both());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop subagent docs-writer" }));
+    });
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Still running");
+    reduceUnknownAnswer();
+    rerender(both());
+    expect(screen.queryByTestId("composer-dock-row")).toBeNull();
+  });
+
+  it("#X1 no answer (producer 0.7.0): Stopping… then Still running, exactly as today", async () => {
+    subagents = mapOf(dw());
+    render(both());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop subagent docs-writer" }));
+    });
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Stopping…");
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByTestId("composer-dock-row-meta").textContent).toBe("Still running");
+    expect(screen.getByTestId("composer-dock-row")).toBeTruthy();
+  });
+});
