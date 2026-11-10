@@ -15,6 +15,7 @@ import {
   killProcessGroup,
   parseNetstatListeners,
   processStartedAt,
+  processStartedAtAsync,
 } from "../platform/process.js";
 
 describe("parseNetstatListeners", () => {
@@ -398,5 +399,51 @@ describe("processStartedAt — restored-identity probe contract", () => {
       if (prev === undefined) delete process.env.TZ;
       else process.env.TZ = prev;
     }
+  });
+});
+
+// See change: guard-restored-headless-identity (CodeRabbit: a hung `ps` must
+// not block the event loop the identity probe's timeout runs on).
+describe("processStartedAtAsync", () => {
+  type Cb = (err: Error | null, stdout: string) => void;
+  it("darwin: runs `ps -o lstart= -p <pid>` via async execFile with LC_ALL=C and a timeout", async () => {
+    const calls: Array<{ file: string; args: string[]; opts: { env?: NodeJS.ProcessEnv; timeout?: number } }> = [];
+    const execFile = (file: string, args: string[], opts: { env?: NodeJS.ProcessEnv; timeout?: number }, cb: Cb) => {
+      calls.push({ file, args, opts });
+      setImmediate(() => cb(null, "Thu Oct  1 00:49:08 2026\n"));
+    };
+    expect(await processStartedAtAsync(4242, { platform: "darwin", execFile })).toBe(Date.parse("Thu Oct  1 00:49:08 2026"));
+    expect(calls).toHaveLength(1);
+    expect(calls[0].file).toBe("ps");
+    expect(calls[0].args).toEqual(["-o", "lstart=", "-p", "4242"]);
+    expect(calls[0].opts.env?.LC_ALL).toBe("C");
+    expect(calls[0].opts.timeout).toBeGreaterThan(0);
+  });
+
+  it("darwin: a slow ps never blocks the event loop; an error or garbage is null", async () => {
+    let fire!: () => void;
+    const slow = (_f: string, _a: string[], _o: unknown, cb: Cb) => { fire = () => cb(null, "Thu Oct  1 00:49:08 2026"); };
+    let ticked = false;
+    const p = processStartedAtAsync(7, { platform: "darwin", execFile: slow });
+    await new Promise<void>((r) => setImmediate(() => { ticked = true; r(); }));
+    expect(ticked).toBe(true); // the loop kept running while ps was pending
+    fire();
+    expect(await p).toBe(Date.parse("Thu Oct  1 00:49:08 2026"));
+    const failing = (_f: string, _a: string[], _o: unknown, cb: Cb) => cb(new Error("ETIMEDOUT"), "");
+    expect(await processStartedAtAsync(7, { platform: "darwin", execFile: failing })).toBeNull();
+    const garbage = (_f: string, _a: string[], _o: unknown, cb: Cb) => cb(null, "nope");
+    expect(await processStartedAtAsync(7, { platform: "darwin", execFile: garbage })).toBeNull();
+  });
+
+  it("linux keeps the /proc read; win32 and invalid pids are null without exec", async () => {
+    const execFile = vi.fn();
+    const files: Record<string, string> = {
+      "/proc/42/stat": "42 (pi) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 12345 20",
+      "/proc/stat": "cpu 1 2 3\nbtime 1700000000\n",
+    };
+    expect(await processStartedAtAsync(42, { platform: "linux", readFile: (p) => files[p], execFile })).toBe(1700000000 * 1000 + 123450);
+    expect(await processStartedAtAsync(42, { platform: "win32", execFile })).toBeNull();
+    expect(await processStartedAtAsync(0, { platform: "darwin", execFile })).toBeNull();
+    expect(execFile).not.toHaveBeenCalled();
   });
 });

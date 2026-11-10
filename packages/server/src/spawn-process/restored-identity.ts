@@ -13,7 +13,7 @@
  * See change: guard-restored-headless-identity (design D2).
  */
 import {
-  processStartedAt,
+  processStartedAtAsync,
   signalZero,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
@@ -32,8 +32,11 @@ export type IdentityKind = "spawn" | "pi" | "keeper";
 /** Start time of `pid` in epoch ms, or `null` when it cannot be determined. */
 export type StartProbe = (pid: number) => Promise<number | null> | number | null;
 
-/** Default probe: the shared platform helper (null on win32). */
-export const defaultStartProbe: StartProbe = async (pid) => processStartedAt(pid);
+/**
+ * Default probe: the shared async platform helper (null on win32). Async so a
+ * hung `ps` (macOS) cannot block the event loop the probe timeout runs on.
+ */
+export const defaultStartProbe: StartProbe = (pid) => processStartedAtAsync(pid, { timeoutMs: PROBE_TIMEOUT_MS });
 
 /** Default gone check: only ESRCH proves a pid gone (EPERM reads as alive). */
 const defaultIsGone = (pid: number): boolean => signalZero(pid) === "esrch";
