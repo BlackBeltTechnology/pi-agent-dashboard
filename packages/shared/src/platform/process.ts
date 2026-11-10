@@ -8,7 +8,7 @@
  */
 
 import fs from "node:fs";
-import { execSync } from "./exec.js";
+import { execFile as defaultExecFile, execSync } from "./exec.js";
 
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8" }) => string;
 export type KillFn = (pid: number, signal: NodeJS.Signals | number) => void;
@@ -153,6 +153,47 @@ export function processStartedAt(pid: number, opts: ProcessStartedAtOpts = {}): 
   } catch {
     return null;
   }
+}
+
+/** Callback-form `execFile` seam for {@link processStartedAtAsync}. */
+export type ExecFileCbFn = (
+  file: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; timeout?: number; windowsHide?: boolean },
+  cb: (err: Error | null, stdout: string) => void,
+) => void;
+
+/**
+ * Async {@link processStartedAt}: same result, but `ps` runs through an async
+ * `execFile` (argv, no shell, `LC_ALL=C`, bounded by `timeoutMs`) so a slow or
+ * hung `ps` never blocks the event loop — a caller's own timeout can then fire.
+ * Linux keeps the synchronous `/proc` read (no subprocess); Windows is null.
+ * Never rejects. See change: guard-restored-headless-identity.
+ */
+export function processStartedAtAsync(
+  pid: number,
+  opts: { platform?: NodeJS.Platform; readFile?: (path: string) => string; execFile?: ExecFileCbFn; timeoutMs?: number } = {},
+): Promise<number | null> {
+  const platform = opts.platform ?? process.platform;
+  if (!Number.isInteger(pid) || pid <= 0 || platform === "win32") return Promise.resolve(null);
+  if (platform === "linux") return Promise.resolve(processStartedAt(pid, { platform, readFile: opts.readFile }));
+  const run = opts.execFile ?? (defaultExecFile as unknown as ExecFileCbFn);
+  return new Promise((resolve) => {
+    try {
+      run(
+        "ps",
+        ["-o", "lstart=", "-p", String(pid)],
+        { env: { ...process.env, LC_ALL: "C" }, timeout: opts.timeoutMs ?? 2000, windowsHide: true },
+        (err, stdout) => {
+          if (err) return resolve(null);
+          const ms = Date.parse(String(stdout).trim());
+          resolve(Number.isFinite(ms) ? ms : null);
+        },
+      );
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 /** Outcome of a signal-0 probe, distinguishing PROOF of absence from denial. */

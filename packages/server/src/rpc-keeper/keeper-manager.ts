@@ -36,6 +36,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import { isUnsafeTestHomeScan as defaultIsUnsafeTestHomeScan } from "../auth/test-env-guard.js";
+import { identityLogLine, type StartProbe, verifyRestored } from "../spawn-process/restored-identity.js";
 
 // ── Path conventions ─────────────────────────────────────────────────────────
 
@@ -175,6 +176,12 @@ export interface KeeperEntry {
    * (requiring it would break them). See change: fix-keeper-session-identity-and-reattach.
    */
   piPid?: number;
+  /**
+   * mtime (epoch ms) of the pi-PID sidecar — the identity anchor the registry
+   * verifies `piPid` against before recording it. Absent when `stat` failed
+   * (⇒ unverifiable). See change: guard-restored-headless-identity.
+   */
+  piPidAnchorMs?: number;
 }
 
 export interface KeeperManager {
@@ -265,6 +272,12 @@ export interface KeeperManagerOptions {
   statsTtlMs?: number;
   /** Test seam — override the unsafe-test-home guard that gates ALL directory scans. */
   isUnsafeTestHomeScan?: () => boolean;
+  /**
+   * Start-time probe for discovered keeper pids (default `processStartedAt`).
+   * A keeper pid is signalled or registered only after verifying against its
+   * pid sidecar's mtime. See change: guard-restored-headless-identity.
+   */
+  probeStartedAt?: StartProbe;
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
@@ -295,6 +308,7 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
   const sweepMinAgeMs = opts.sweepMinAgeMs ?? DEFAULT_SWEEP_MIN_AGE_MS;
   const statsTtlMs = opts.statsTtlMs ?? DEFAULT_KEEPER_LOG_STATS_TTL_MS;
   const isUnsafeScan = opts.isUnsafeTestHomeScan ?? defaultIsUnsafeTestHomeScan;
+  const probeStartedAt = opts.probeStartedAt;
 
   // sessionId → keeperPid for fast killKeeper without rescanning the dir.
   // (Discovery rebuilds this from the filesystem on startup.)
@@ -411,6 +425,11 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     }
   }
 
+  /** Sidecar mtime in epoch ms; `undefined` when `stat` fails (⇒ unverifiable, G5). */
+  function mtimeMs(p: string): number | undefined {
+    try { return statSync(p).mtimeMs; } catch { return undefined; }
+  }
+
   function unlinkQuiet(p: string): void {
     try { unlinkSync(p); } catch { /* ignore */ }
   }
@@ -456,12 +475,37 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
         continue;
       }
 
+      // The keeper writes its pid sidecar right after it starts, so a live
+      // keeper pid that started later than that mtime (+2 s) is a recycled pid.
+      // See change: guard-restored-headless-identity (D4).
+      const keeperVerdict = await verifyRestored(keeperPid, mtimeMs(pidFile), { probe: probeStartedAt });
+
       if (!isPiAlive(sessionId, keeperPid)) {
-        // Keeper alive but pi dead → kill keeper, clean up.
-        try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
+        // Keeper alive but pi dead → kill keeper, clean up — only a VERIFIED
+        // keeper pid; otherwise log and leave every sidecar in place.
+        if (keeperVerdict === "match") {
+          try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
+        } else if (keeperVerdict !== "gone") {
+          console.warn(identityLogLine(keeperVerdict, keeperPid, "keeper", sessionId));
+          continue;
+        }
         unlinkQuiet(pidFile);
         if (!isWin) unlinkQuiet(sockPath);
         unlinkQuiet(piPidFile);
+        continue;
+      }
+
+      if (keeperVerdict === "gone") {
+        // Raced to exit since the liveness check: stale, like a dead keeper.
+        unlinkQuiet(pidFile);
+        if (!isWin) unlinkQuiet(sockPath);
+        unlinkQuiet(piPidFile);
+        continue;
+      }
+      if (keeperVerdict === "mismatch") {
+        // A recycled keeper pid is treated as dead for registration (G4), but
+        // never signalled; the sidecars stay for a human to inspect.
+        console.warn(identityLogLine("mismatch", keeperPid, "keeper", sessionId));
         continue;
       }
 
@@ -471,8 +515,16 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
       const sidecarPiPid = readPidSidecar(piPidFile);
       const piPid = sidecarPiPid !== null && isProcessAlive(sidecarPiPid) ? sidecarPiPid : undefined;
 
+      const piPidAnchorMs = piPid !== undefined ? mtimeMs(piPidFile) : undefined;
+
       tracked.set(sessionId, keeperPid);
-      result.push({ sessionId, keeperPid, sockPath, piPid });
+      result.push({
+        sessionId,
+        keeperPid,
+        sockPath,
+        piPid,
+        ...(piPidAnchorMs !== undefined ? { piPidAnchorMs } : {}),
+      });
     }
     return result;
   }
