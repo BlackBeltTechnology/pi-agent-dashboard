@@ -2009,6 +2009,9 @@ export function createBrowserGateway(
         // Archived counts come from the index, not the (non-resident) sessions.
         // See change: archive-sessions-lazy-load.
         archivedCountByCwd: sessionArchive?.countsByKey() ?? {},
+        // The client keys archive state with the server's own path-key
+        // platform. See change: fix-archive-fold-key-and-filter-chips.
+        ...(sessionArchive ? { pathKeyPlatform: sessionArchive.pathKeyPlatform } : {}),
       });
     }
 

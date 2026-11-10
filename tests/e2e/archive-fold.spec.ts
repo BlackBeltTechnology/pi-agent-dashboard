@@ -29,6 +29,7 @@ import crypto from "node:crypto";
 import { WebSocket } from "ws";
 import { expect, type Page, test } from "./fixtures.js";
 import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { pinViaBus, unpinViaBus } from "./helpers/folder-collapse.js";
 import { DASHBOARD_PORT, harnessProject } from "./lifecycle.js";
 
 /** Fixed prefix every seeded session name carries (cleanup selector). */
@@ -89,6 +90,13 @@ const SESSIONS_REL = `.pi/agent/sessions/${encodeCwd(FIXTURE_GIT)}`;
 /** Worktree path used by F15 — folds under its parent repo (`FIXTURE_GIT`). */
 const WT_CWD = `${FIXTURE_GIT}/.worktrees/e2e-archfold`;
 const WT_SESSIONS_REL = `.pi/agent/sessions/${encodeCwd(WT_CWD)}`;
+/**
+ * Mixed-case folder (fix-archive-fold-key-and-filter-chips #F4): on the Linux
+ * harness the server keys it case-preserving, and the client must look it up
+ * with the same key the snapshot's `pathKeyPlatform` names.
+ */
+const MIXED_CWD = "/root/ws/MixedCase";
+const MIXED_SESSIONS_REL = `.pi/agent/sessions/${encodeCwd(MIXED_CWD)}`;
 
 /** Write `content` to a path expressed relative to the container's `$HOME`. */
 function writeHomeFile(relPath: string, content: string): void {
@@ -182,7 +190,7 @@ function seedSession(opts: {
  * what makes a re-run self-healing.
  */
 function cleanupSeeded(): void {
-  for (const rel of [SESSIONS_REL, WT_SESSIONS_REL]) {
+  for (const rel of [SESSIONS_REL, WT_SESSIONS_REL, MIXED_SESSIONS_REL]) {
     runNode(
       `const fs=require("fs"),p=require("path");` +
         `const d=p.join(process.env.HOME,${JSON.stringify(rel)});` +
@@ -271,16 +279,16 @@ const archivedRow = (page: Page, id: string) =>
 
 /** The fixture folder renders expanded by default (fresh context, empty
  *  `collapsedGroups`); guard against a hidden initial collapse. */
-async function ensureFolderExpanded(page: Page): Promise<void> {
-  await page.getByTestId(`folder-home-row-${FIXTURE_GIT}`).waitFor({ state: "visible", timeout: 30_000 });
-  const body = page.getByTestId(`folder-body-${FIXTURE_GIT}`);
+async function ensureFolderExpanded(page: Page, cwd: string = FIXTURE_GIT): Promise<void> {
+  await page.getByTestId(`folder-home-row-${cwd}`).waitFor({ state: "visible", timeout: 30_000 });
+  const body = page.getByTestId(`folder-body-${cwd}`);
   for (let attempt = 0; attempt < 4; attempt++) {
     if ((await body.count()) > 0) return;
     // The card root is the innermost DOM node holding BOTH the home row and the
     // toggle — `.last()` picks that innermost match in document order.
     const card = page
       .locator("div")
-      .filter({ has: page.getByTestId(`folder-home-row-${FIXTURE_GIT}`) })
+      .filter({ has: page.getByTestId(`folder-home-row-${cwd}`) })
       .filter({ has: page.getByTestId("folder-toggle-btn") })
       .last();
     await card.getByTestId("folder-toggle-btn").click();
@@ -291,7 +299,7 @@ async function ensureFolderExpanded(page: Page): Promise<void> {
       .catch(() => false);
     if (ok) return;
   }
-  throw new Error(`folder ${FIXTURE_GIT} never expanded`);
+  throw new Error(`folder ${cwd} never expanded`);
 }
 
 // ── P3 helpers (snapshot size) ────────────────────────────────────────────
@@ -693,5 +701,69 @@ test.describe("archive fold (archive-sessions-lazy-load)", () => {
       seeded.filter((id) => indexed.has(id)).length,
       "aged sessions were not served from the archive index",
     ).toBeGreaterThan(0);
+  });
+
+  // ── fix-archive-fold-key-and-filter-chips ──────────────────────────────
+  test("F4 (fold-key): a mixed-case pinned folder shows, expands and decrements its fold", async ({ page }) => {
+    cleanupSeeded();
+    inContainer(`mkdir -p ${MIXED_CWD}`);
+    const now = Date.now();
+    seedSession({ name: `${ARCHFOLD_PREFIX}-mixed-resident`, startedAt: now - 6 * HOUR, endedAt: now - 5 * HOUR, archived: false, cwd: MIXED_CWD });
+    const archived = [1, 2, 3].map((i) =>
+      seedSession({
+        name: `${ARCHFOLD_PREFIX}-mixed-${i}`,
+        startedAt: now - (i + 1) * HOUR,
+        endedAt: now - i * HOUR,
+        archived: true,
+        cwd: MIXED_CWD,
+      }).id,
+    );
+    try {
+      await restartDashboard();
+      // Pin AFTER the restart: a pin sent just before `POST /api/restart` can
+      // be lost before it is persisted. The pin re-keys the archive index and
+      // keeps this ended-only folder visible.
+      await pinViaBus(MIXED_CWD);
+      await gotoDashboard(page);
+      await ensureFolderExpanded(page, MIXED_CWD);
+      const toggle = page.getByTestId(`folder-archive-toggle-${MIXED_CWD}`);
+      await expect(toggle).toBeVisible({ timeout: 30_000 });
+      await expect(toggle).toContainText("Archive (3)");
+      await toggle.click();
+      await expect(archiveRows(page)).toHaveCount(3, { timeout: 30_000 });
+
+      await archivedRow(page, archived[0]).getByTestId("session-unarchive-btn").click();
+      await expect(toggle).toContainText("Archive (2)", { timeout: 20_000 });
+      await expect(archiveRows(page)).toHaveCount(2, { timeout: 20_000 });
+    } finally {
+      await unpinViaBus(MIXED_CWD).catch(() => undefined);
+    }
+  });
+
+  test("F5 (fold-key): funnel toggles render as one family and the Archived toggle persists", async ({ page }) => {
+    await gotoDashboard(page);
+    await page.getByTestId("filter-funnel-btn").click();
+    const archive = page.getByTestId("search-include-archive");
+    const hidden = page.getByTestId("show-hidden-toggle");
+    await expect(archive).toBeVisible({ timeout: 10_000 });
+    // Normalise: the persisted chip may be on from an earlier run in this context.
+    if ((await archive.getAttribute("aria-pressed")) === "true") await archive.click();
+
+    const [a, h] = [await archive.boundingBox(), await hidden.boundingBox()];
+    expect(a && h, "both funnel toggles have a box").toBeTruthy();
+    expect(Math.abs((a?.width ?? 0) - (h?.width ?? 0))).toBeLessThanOrEqual(1);
+    await expect(archive).toHaveText("Archived");
+
+    await archive.click();
+    await expect(archive).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("search-include-archive-check")).toBeVisible();
+    await expect(page.getByTestId("filter-funnel-badge")).toHaveText("1");
+
+    await page.reload();
+    await page.getByTestId("filter-funnel-btn").click();
+    await expect(page.getByTestId("search-include-archive")).toHaveAttribute("aria-pressed", "true", { timeout: 20_000 });
+    await expect(page.getByTestId("search-include-archive-check")).toBeVisible();
+    // Leave the persisted preference off for later specs in this context.
+    await page.getByTestId("search-include-archive").click();
   });
 });

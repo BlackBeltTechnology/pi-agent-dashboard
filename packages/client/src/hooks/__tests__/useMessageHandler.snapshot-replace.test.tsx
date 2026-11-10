@@ -29,7 +29,11 @@ function makeSession(id: string, overrides: Partial<DashboardSession> = {}): Das
   } as DashboardSession;
 }
 
-function setup(initialSessions?: DashboardSession[], initialOrders?: Record<string, string[]>) {
+function setup(
+  initialSessions?: DashboardSession[],
+  initialOrders?: Record<string, string[]>,
+  extraSetters: Partial<MessageHandlerSetters> = {},
+) {
   const sessionsRef = {
     current: new Map<string, DashboardSession>(
       (initialSessions ?? []).map((s) => [s.id, s] as const),
@@ -64,6 +68,7 @@ function setup(initialSessions?: DashboardSession[], initialOrders?: Record<stri
     setDiscoveredServers: vi.fn(),
     setSpawnErrors: vi.fn(),
     setResumeErrors: vi.fn(),
+    ...extraSetters,
   };
   const deps: any = {
     send: vi.fn(),
@@ -143,6 +148,33 @@ describe("useMessageHandler sessions_snapshot REPLACE semantics", () => {
     dispatch(SNAPSHOT([live], { "/tmp/repo": ["s1"] }));
 
     expect(setSessionStates).not.toHaveBeenCalled();
+  });
+});
+
+// ── fix-archive-fold-key-and-filter-chips: snapshot replaces the platform ──
+// The archive key platform is replaced UNCONDITIONALLY by every snapshot, so a
+// reconnect to an older server (no field) clears a stale darwin/win32 value.
+describe("useMessageHandler sessions_snapshot replaces the archive key platform", () => {
+  it("E10: a snapshot without pathKeyPlatform calls the setter with undefined", () => {
+    const setPathKeyPlatform = vi.fn();
+    const { dispatch } = setup([], {}, { setPathKeyPlatform });
+
+    dispatch({ type: "sessions_snapshot", sessions: [], orders: {}, archivedCountByCwd: {} } as unknown as ServerToBrowserMessage);
+
+    expect(setPathKeyPlatform).toHaveBeenCalledTimes(1);
+    expect(setPathKeyPlatform).toHaveBeenCalledWith(undefined);
+  });
+
+  it("E11: a snapshot with pathKeyPlatform=win32 calls the setter with win32", () => {
+    const setPathKeyPlatform = vi.fn();
+    const { dispatch } = setup([], {}, { setPathKeyPlatform });
+
+    dispatch({
+      type: "sessions_snapshot", sessions: [], orders: {}, archivedCountByCwd: {}, pathKeyPlatform: "win32",
+    } as unknown as ServerToBrowserMessage);
+
+    expect(setPathKeyPlatform).toHaveBeenCalledTimes(1);
+    expect(setPathKeyPlatform).toHaveBeenCalledWith("win32");
   });
 });
 

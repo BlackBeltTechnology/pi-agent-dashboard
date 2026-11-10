@@ -10,7 +10,7 @@ import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useDndContext, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiBroom, mdiCheck, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiEyeOffOutline, mdiFileDocumentOutline, mdiFilterVariant, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -190,6 +190,13 @@ interface Props {
    * See change: archive-sessions-lazy-load.
    */
   archivedCountMap?: Map<string, number>;
+  /**
+   * Platform the server folds `archivedCountMap` keys with
+   * (`sessions_snapshot.pathKeyPlatform`). Undefined (older server) falls back
+   * to the inferred `collapsePlatform`. See change:
+   * fix-archive-fold-key-and-filter-chips.
+   */
+  archiveKeyPlatform?: NodeJS.Platform;
   onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string; agent?: string; model?: string; thinkingLevel?: string }) => void;
   spawningCwds?: Set<string>;
   /**
@@ -379,13 +386,41 @@ function ToggleButton({
   active,
   onClick,
   testId,
+  icon,
   children,
 }: {
   active: boolean;
   onClick: () => void;
   testId?: string;
+  /**
+   * Optional mdi path. Set → full-width row: leading icon, label, trailing
+   * check while active (filter-funnel toggles). Unset → markup unchanged
+   * (Sessions/Folders scope toggles). See change: fix-archive-fold-key-and-filter-chips.
+   */
+  icon?: string;
   children: React.ReactNode;
 }) {
+  if (icon) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        data-testid={testId}
+        className={`w-full inline-flex items-center justify-start gap-1 text-[12px] px-1.5 py-0.5 rounded border ${
+          active
+            ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
+            : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        }`}
+      >
+        <Icon path={icon} size={0.45} className="flex-shrink-0" />
+        <span className="flex-1 text-left">{children}</span>
+        {active && (
+          <Icon path={mdiCheck} size={0.45} className="flex-shrink-0" aria-hidden="true" data-testid={testId ? `${testId}-check` : undefined} />
+        )}
+      </button>
+    );
+  }
   return (
     <button
       type="button"
@@ -403,7 +438,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, lookupOnlyIds, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect: onSelectProp, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, archiveKeyPlatform, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, expandedGroups, onSetFolderExpanded, folderListMode: configuredFolderListMode, folderAttentionPeek = true, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, lookupOnlyIds, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -591,16 +626,24 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
   useEffect(() => {
     const prev = prevArchivedCountsRef.current;
     prevArchivedCountsRef.current = archivedCountMap;
+    // Keys refetched by the invalidation pass: `loadFirst` marks them loading
+    // only on the next render, so the expanded pass below must skip them or it
+    // issues a duplicate request. See change: fix-archive-fold-key-and-filter-chips.
+    const refetched = new Set<string>();
     if (prev !== undefined && archivedCountMap && prev !== archivedCountMap) {
       for (const [cwd, count] of archivedCountMap) {
         if (count !== (prev.get(cwd) ?? 0)) {
           invalidateArchived(cwd);
-          if (archiveExpanded.has(cwd)) loadArchivedFirst(cwd);
+          if (archiveExpanded.has(cwd)) {
+            loadArchivedFirst(cwd);
+            refetched.add(cwd);
+          }
         }
       }
     }
     if (archiveExpanded.size === 0) return;
     for (const cwd of archiveExpanded) {
+      if (refetched.has(cwd)) continue;
       if ((archivedCountMap?.get(cwd) ?? 0) > 0) loadArchivedFirst(cwd);
     }
   }, [archiveExpanded, archivedCountMap, loadArchivedFirst, invalidateArchived]);
@@ -612,20 +655,6 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     const timer = setTimeout(() => loadArchivedFirst(archiveSearchKey), 300);
     return () => clearTimeout(timer);
   }, [archiveSearchKey, loadArchivedFirst]);
-  // Search results grouped by each item's `groupPath` (server resolved the
-  // pin > worktree-main > cwd precedence). None → no section rendered.
-  const archivedMatchesByGroup = useMemo(() => {
-    if (archiveSearchKey === null) return null;
-    const page = getArchivedPage(archiveSearchKey);
-    if (!page.loaded || page.items.length === 0) return null;
-    const m = new Map<string, ArchivedSessionSummary[]>();
-    for (const item of page.items) {
-      const arr = m.get(item.groupPath);
-      if (arr) arr.push(item);
-      else m.set(item.groupPath, [item]);
-    }
-    return m;
-  }, [archiveSearchKey, getArchivedPage]);
 
   // ── Ended paging + stub groups (fix-connect-snapshot-frame-loss D9) ─────
   // Held ended count per GROUP key (the same key space `endedTotals` uses):
@@ -652,6 +681,30 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     () => new Set((pinnedDirectories ?? []).map((d) => pathKey(d, collapsePlatform))),
     [pinnedDirectories, collapsePlatform],
   );
+  // One archive key for every folder-archive lookup (count, page cache,
+  // expanded set, search grouping): the server's own `pathKey` with the
+  // server's platform, so case / trailing-separator / pin spellings all hit the
+  // server's bucket. See change: fix-archive-fold-key-and-filter-chips.
+  const archiveKey = useCallback(
+    (p: string) => pathKey(p, archiveKeyPlatform ?? collapsePlatform),
+    [archiveKeyPlatform, collapsePlatform],
+  );
+  // Search results grouped by each item's `groupPath` (server resolved the
+  // pin > worktree-main > cwd precedence), keyed by `archiveKey`. None → no
+  // section rendered.
+  const archivedMatchesByGroup = useMemo(() => {
+    if (archiveSearchKey === null) return null;
+    const page = getArchivedPage(archiveSearchKey);
+    if (!page.loaded || page.items.length === 0) return null;
+    const m = new Map<string, ArchivedSessionSummary[]>();
+    for (const item of page.items) {
+      const key = archiveKey(item.groupPath);
+      const arr = m.get(key);
+      if (arr) arr.push(item);
+      else m.set(key, [item]);
+    }
+    return m;
+  }, [archiveSearchKey, getArchivedPage, archiveKey]);
   // Directory-card block visibility (add-focus-mode-and-card-block-toggles D4).
   const cardSectionPrefs = useCardSectionPrefs();
   const folderBlockVisible = useCallback(
@@ -1414,7 +1467,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
         if (workspaceFilter.length > 0) {
           // An archive match keeps a path-matching folder reachable even when
           // no resident session matches the Session query.
-          const hasArchiveMatch = (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0;
+          const hasArchiveMatch = (archivedMatchesByGroup?.get(archiveKey(g.cwd))?.length ?? 0) > 0;
           return folderMatchesFilters(g) || (hasArchiveMatch && g.cwd.toLowerCase().includes(workspaceFilter.trim().toLowerCase()));
         }
         return (
@@ -1422,10 +1475,10 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
           (sessionSearch.length === 0 && g.sessions.some((s) => s.id === selectedId)) ||
           // Archive-search matches keep an otherwise-ended folder
           // visible so their `Archive matches` section is reachable.
-          (archivedMatchesByGroup?.get(g.cwd)?.length ?? 0) > 0
+          (archivedMatchesByGroup?.get(archiveKey(g.cwd))?.length ?? 0) > 0
         );
       }),
-    [visibleTopUnpinned, anyTagFilterActive, workspaceFilter, sessionSearch, selectedId, archivedMatchesByGroup, folderMatchesFilters],
+    [visibleTopUnpinned, anyTagFilterActive, workspaceFilter, sessionSearch, selectedId, archivedMatchesByGroup, archiveKey, folderMatchesFilters],
   );
 
   /**
@@ -2040,7 +2093,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
     // Include-archive search matches, shared by the full body and a stub body
     // (an archive match can reveal a stub). See change: fix-sidebar-folder-visibility.
     const renderArchiveMatches = () => {
-      const matches = archivedMatchesByGroup?.get(group.cwd);
+      const matches = archivedMatchesByGroup?.get(archiveKey(group.cwd));
       if (!matches || matches.length === 0) return null;
       return (
         <div className="mt-1 flex flex-col gap-1" data-testid={`archive-matches-${group.cwd}`}>
@@ -2799,10 +2852,11 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
               `Load M more` (M = min(page size, remaining)); inline retry on
               error. Hidden when the folder count is 0/absent (#F5). */}
           {(() => {
-            const archiveCount = archivedCountMap?.get(group.cwd) ?? 0;
+            const aKey = archiveKey(group.cwd);
+            const archiveCount = archivedCountMap?.get(aKey) ?? 0;
             if (archiveCount <= 0) return null;
-            const expanded = archiveExpanded.has(group.cwd);
-            const page = getArchivedPage(group.cwd);
+            const expanded = archiveExpanded.has(aKey);
+            const page = getArchivedPage(aKey);
             const shown = page.items.length;
             const remaining = Math.max(archiveCount - shown, 0);
             const moreCount = Math.min(ARCHIVE_PAGE_SIZE, remaining);
@@ -2812,7 +2866,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    toggleArchiveExpanded(group.cwd);
+                    toggleArchiveExpanded(aKey);
                   }}
                   className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center gap-1 text-left"
                   data-testid={`folder-archive-toggle-${group.cwd}`}
@@ -2840,7 +2894,7 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
                       <div className="flex items-center gap-2 px-2 py-1">
                         <span className="text-[10px] text-red-400 truncate">{page.error}</span>
                         <button
-                          onClick={(e) => { e.stopPropagation(); retryArchived(group.cwd); }}
+                          onClick={(e) => { e.stopPropagation(); retryArchived(aKey); }}
                           className="text-[10px] text-blue-400 hover:text-blue-300 underline flex-shrink-0"
                           data-testid={`folder-archive-retry-${group.cwd}`}
                         >
@@ -2854,15 +2908,15 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
                         item={item}
                         onRestore={(id) => {
                           handleUnarchive(id);
-                          retryArchived(group.cwd);
+                          retryArchived(aKey);
                         }}
-                        onDeleted={() => retryArchived(group.cwd)}
+                        onDeleted={() => retryArchived(aKey)}
                         onOpen={openArchivedSession}
                       />
                     ))}
                     {showMore && !page.loading && !page.error && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); loadArchivedMore(group.cwd); }}
+                        onClick={(e) => { e.stopPropagation(); loadArchivedMore(aKey); }}
                         className="w-full text-[10px] text-blue-400 hover:text-blue-300 py-0.5 px-2 select-none text-left"
                         data-testid={`folder-archive-more-${group.cwd}`}
                       >
@@ -3001,26 +3055,16 @@ export function SessionList({ sessions, selectedId, onSelect: onSelectProp, reve
                 className="flex flex-col gap-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] p-2 shadow-xl"
                 data-testid="filter-funnel-panel"
               >
-                {/* Include-archive chip (archive-sessions-lazy-load): opt-in,
+                {/* Include-archive toggle (archive-sessions-lazy-load): opt-in,
                     persisted, off by default. ON + query ≥ 3 chars → debounced
                     server-side archive search rendered as `Archive matches`
-                    sections. Chip off → search behaves exactly as before. */}
-                <button
-                  type="button"
-                  onClick={toggleIncludeArchive}
-                  aria-pressed={includeArchive}
-                  data-testid="search-include-archive"
-                  className={`flex-shrink-0 inline-flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 rounded border ${
-                    includeArchive
-                      ? "border-[var(--accent)] text-[var(--text-primary)] bg-[var(--accent-soft)]"
-                      : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  }`}
-                  title={t("sessionList.includeArchive", undefined, "archive")}
-                >
-                  <Icon path={mdiArchiveOutline} size={0.45} />
-                  <span>{t("sessionList.includeArchive", undefined, "archive")}</span>
-                </button>
-                <ToggleButton active={showHidden} testId="show-hidden-toggle" onClick={() => setShowHidden((p) => !p)}>
+                    sections. Off → search behaves exactly as before. Both funnel
+                    toggles share one ToggleButton style (option A). See change:
+                    fix-archive-fold-key-and-filter-chips. */}
+                <ToggleButton active={includeArchive} testId="search-include-archive" icon={mdiArchiveOutline} onClick={toggleIncludeArchive}>
+                  {t("sessionList.includeArchive", undefined, "Archived")}
+                </ToggleButton>
+                <ToggleButton active={showHidden} testId="show-hidden-toggle" icon={mdiEyeOffOutline} onClick={() => setShowHidden((p) => !p)}>
                   {t("common.hidden", undefined, "Hidden")}
                 </ToggleButton>
               </div>
