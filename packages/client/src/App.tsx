@@ -814,6 +814,9 @@ export default function App() {
   // by `sessions_snapshot`, maintained by `session_archived` /
   // `archived_count_updated`. Drives the per-folder `Archive (N)` fold.
   const [archivedCountMap, setArchivedCountMap] = useState<Map<string, number>>(new Map());
+  // Platform the server keys `archivedCountMap` with; SessionList folds folder
+  // paths with it. See change: fix-archive-fold-key-and-filter-chips.
+  const [pathKeyPlatform, setPathKeyPlatform] = useState<NodeJS.Platform | undefined>(undefined);
   // Read-only archived deep link (`/session/:id?archived=1`): summary row
   // fetched from `/api/sessions/archived/:id` to seed the header when the
   // session is not (and must not be) in the live `sessions` Map.
@@ -1034,6 +1037,7 @@ export default function App() {
           // against server B. See change: fix-connect-snapshot-frame-loss.
           setEndedTotalsMap(new Map());
           setArchivedCountMap(new Map());
+          setPathKeyPlatform(undefined);
           setPagedCount(new Map());
           // Per-session refresh failures are scoped to one server's bridges;
           // a stale notice from server A must not render against server B.
@@ -1225,7 +1229,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration, setLookupOnlyIds },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setExpandedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPathKeyPlatform, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration, setLookupOnlyIds },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, onSpawnFailed, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
@@ -2268,6 +2272,7 @@ export default function App() {
       onArchiveSession={handleArchiveSession}
       onUnarchiveSession={handleUnarchiveSession}
       archivedCountMap={archivedCountMap}
+      archiveKeyPlatform={pathKeyPlatform}
       onSpawnSession={handleSpawnSession}
       spawningCwds={spawningCwds}
       addSpawningCwd={addSpawningCwd}
