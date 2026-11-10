@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { auditDeviceEvent, auditKeyEvent } from "../auth/audit-log.js";
 import { registerBearerAuth } from "../auth/bearer-auth.js";
 import { createNetworkGuard } from "../auth/localhost-guard.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
@@ -56,6 +57,8 @@ const sha = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 function seedRegistry(
   rows: { id: string; token: string; tier?: string; pairedAt?: number; expiresAt?: number }[],
 ): PairedDeviceRegistry {
+  // A re-seed starts from a clean slate: a stale held record would win over the seeded active row.
+  fs.rmSync(path.join(tmpDir, "revoked-devices.json"), { force: true });
   fs.writeFileSync(
     regPath,
     JSON.stringify(
@@ -405,5 +408,94 @@ describe("AE66 — refused rotations are audited", () => {
     for (const secret of ["bearer-A", "bearer-E", newToken, sha("bearer-A"), sha("bearer-E"), sha(newToken)]) {
       expect(seen.join("\n")).not.toContain(secret);
     }
+  });
+});
+
+describe("E23 — revoke / restore / delete-now / purge share one audit shape", () => {
+  const fakeReq = { authVia: "session", sessionPayload: { sub: "alice@example.com" }, ip: "203.0.113.9" } as never;
+  const SHAPE = /^\[pairing\] (revoked|restored|deleted) id=d0123456 actor=session:\S{1,8} ip=203\.0\.113\.9$/;
+
+  it("revoke route: held record, one line with a bearer-less shape; stored revokedBy is the actor", async () => {
+    const token = "bearer-E23-canary";
+    const reg = seedRegistry([{ id: "d0123456789abcdef", token }]);
+    const app = await mkApp(reg);
+    expect((await revoke(app, "d0123456789abcdef")).statusCode).toBe(200);
+    expect(linesWith("[pairing] revoked")).toHaveLength(1);
+    expect(reg.listRevoked().devices[0]).toMatchObject({ id: "d0123456789abcdef", revokedBy: expect.stringMatching(/^session:/) });
+    expect(captured.join("\n")).not.toContain(token);
+    expect((await revoke(app, "d0123456789abcdef")).statusCode).toBe(404);
+    expect(linesWith("[pairing] revoked")).toHaveLength(1);
+  });
+
+  it("auditDeviceEvent: restored/deleted/revoked carry id+actor+ip; purged carries id only", () => {
+    for (const v of ["revoked", "restored", "deleted"] as const) auditDeviceEvent(v, "d0123456789abcdef", fakeReq);
+    auditDeviceEvent("purged", "d0123456789abcdef");
+    const lines = captured.filter((l) => l.startsWith("[pairing]"));
+    expect(lines).toHaveLength(4);
+    for (const l of lines.slice(0, 3)) expect(l).toMatch(SHAPE);
+    expect(lines[3]).toBe("[pairing] purged id=d0123456");
+  });
+
+  it("registry purge writes `purged id=<8>` (no actor, no ip) at 90 days; nothing for a kept record", () => {
+    const T0 = Date.UTC(2030, 0, 1);
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const reg = seedRegistry([{ id: "d0123456789abcdef", token: "t" }]);
+    reg.revoke("d0123456789abcdef");
+    vi.setSystemTime(T0 + 90 * 86_400_000 - 1000);
+    reg.listRevoked();
+    expect(linesWith("purged")).toHaveLength(0);
+    vi.setSystemTime(T0 + 90 * 86_400_000);
+    reg.listRevoked();
+    expect(linesWith("purged")).toEqual(["[pairing] purged id=d0123456"]);
+  });
+
+  it("key event lines: state verbs with the short key id; sanitised; no secrets", () => {
+    const keyId = "dk:AbC_-123456";
+    for (const v of ["key_bound", "key_replaced", "companion_allowed", "companion_removed"] as const) {
+      auditKeyEvent(v, "d0123456789abcdef", keyId, fakeReq);
+    }
+    auditKeyEvent("key_ignored", undefined, keyId);
+    const lines = captured.filter((l) => l.startsWith("[pairing]"));
+    expect(lines[0]).toBe("[pairing] key_bound id=d0123456 key=dk:AbC_-123456 actor=session:alice_ex ip=203.0.113.9");
+    expect(lines[4]).toBe("[pairing] key_ignored key=dk:AbC_-123456");
+    for (const l of lines) expect(l).toMatch(/^[\w.:\-\[\]= ]+$/);
+  });
+});
+
+describe("E23 — restore / delete-now routes audit on success only (route parts)", () => {
+  const ID = "d0123456789abcdef";
+  const call = (app: FastifyInstance, method: "POST" | "DELETE", url: string) =>
+    app.inject({ method, url, remoteAddress: "203.0.113.9", headers: SESSION });
+
+  it("revoke → restore → revoke → delete-now: exactly one line per success, same shape", async () => {
+    const token = "bearer-E23-route-canary";
+    const reg = seedRegistry([{ id: ID, token }]);
+    const app = await mkApp(reg);
+    expect((await revoke(app, ID)).statusCode).toBe(200);
+    expect((await call(app, "POST", `/api/paired-devices/${ID}/restore`)).statusCode).toBe(200);
+    expect((await revoke(app, ID)).statusCode).toBe(200);
+    expect((await call(app, "DELETE", `/api/paired-devices/revoked/${ID}`)).statusCode).toBe(200);
+    const lines = captured.filter((l) => l.startsWith("[pairing]"));
+    expect(lines.map((l) => l.split(" ")[1])).toEqual(["revoked", "restored", "revoked", "deleted"]);
+    for (const l of lines) expect(l).toMatch(/^\[pairing\] (revoked|restored|deleted) id=d0123456 actor=session:alice_ex ip=203\.0\.113\.9$/);
+    expect(captured.join("\n")).not.toContain(token);
+    expect(captured.join("\n")).not.toContain(sha(token));
+  });
+
+  it("404 and 409 write no line", async () => {
+    const reg = seedRegistry([
+      { id: ID, token: "t1" },
+      { id: "e0123456789abcdef", token: "t2" },
+    ]);
+    const app = await mkApp(reg);
+    await revoke(app, "e0123456789abcdef");
+    captured.length = 0;
+    expect((await call(app, "POST", "/api/paired-devices/nope/restore")).statusCode).toBe(404);
+    expect((await call(app, "POST", `/api/paired-devices/${ID}/restore`)).statusCode).toBe(409);
+    expect((await call(app, "DELETE", "/api/paired-devices/revoked/nope")).statusCode).toBe(404);
+    expect((await call(app, "DELETE", `/api/paired-devices/revoked/${ID}`)).statusCode).toBe(409);
+    expect((await revoke(app, "nope")).statusCode).toBe(404);
+    expect(captured.filter((l) => l.startsWith("[pairing]"))).toEqual([]);
   });
 });

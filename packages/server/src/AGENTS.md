@@ -4,8 +4,15 @@ Files in this directory. One row per source file.
 
 | File | Purpose |
 |------|---------|
+| `__tests__/device-nonce-store.test.ts` | `DeviceNonceStore` (43-char single-use nonce, 60 s TTL, 10 000 bound, consumed even on invalid proof) + `verifyDeviceSignature`/`verifyNonceProof` (E4). See change: device-key-mutual-check. |
+| `__tests__/device-status-limiter.test.ts` | `DeviceStatusLimiter` (60/min/peer, 1024-peer bound, one trip line) + `RevokedAnswerLog` throttle (E5, E17). See change: device-key-mutual-check. |
 | `__tests__/event-wiring-preferences-before-initial-prompt.test.ts` | #E10: real server + fake bridge WS; compat on + queued initial prompt → `preferences_update {claudeSubscriptionCompat:true}` arrives before `send_prompt`. See change: retire-anthropic-messages-bridge. |
 | `__tests__/host-project-trust.test.ts` | Legacy decision table + real pi, plus shared decision, #E24 agent dir, #X10 boot log, #E27 no trust.json writes. See change: mirror-dashboard-trust-to-pi. pi 1.5 order: recorded entry read for every folder (#E17 #E18 #X1), real-pi lock held → undecided ≤250 ms (#X2 #P2). See change: update-pi-core-1-5-adopt-apis. |
+| `__tests__/paired-devices-keys.test.ts` | Registry device-key + companion API (bind/replace/held, companion cap, lookup, `deviceKeyStatus`). See change: device-key-mutual-check. |
+| `__tests__/paired-devices-revoked.test.ts` | Registry held-revoked store (`revoked-devices.json`, restore, delete-now, purge, quarantine, two-file crash rule). See change: device-key-mutual-check. |
+| `__tests__/pairing-device-key-routes.test.ts` | `POST /api/pair/device-key` (E10) + operator held-device routes list/restore/delete-now/companion removal and device-bearer 401 (E14). See change: device-key-mutual-check. |
+| `__tests__/pairing-device-keys.test.ts` | Knock + QR-redeem key/companion intake, bind at approval, discard on deny/expiry/lockout, uniqueness races, companion bounds/origin, `allowCompanion`, key audit lines (E2, E6, E7, E9, E17, X16). See change: device-key-mutual-check. |
+| `__tests__/pairing-device-status.test.ts` | Challenge `deviceNonce`, `POST /api/pair/device-status` answers + indistinguishable `unverified`, observe-tier gate matrix, credential boundary (E3, E12, E13, E17). See change: device-key-mutual-check. |
 | `__tests__/pi-trust-mirror-service.test.ts` | #E1 #E3 #E4 #E19 #E20 #E22 #E26 #X5–#X9: registry, snapshot content, ordering and fault behaviour. See change: mirror-dashboard-trust-to-pi. |
 | `__tests__/preferences-claude-compat-routes.test.ts` | #E11: Fastify inject + fake gateway; PATCH broadcasts one full snapshot per session, later register gets new value, non-boolean → 400 without broadcast. See change: retire-anthropic-messages-bridge. |
 | `__tests__/remote-bridge-ticket-origin.test.ts` | #E14: remote bridge on the real two-port topology. `createTestServer` + paired-device bearer; `resolveDashboardHttpOrigin` → `mintBridgeTicket` → `withTicket` → dial gateway opens; control arm minting from the gateway port gives `wrong-origin` (426). See change: fix-remote-bridge-ticket-origin. |

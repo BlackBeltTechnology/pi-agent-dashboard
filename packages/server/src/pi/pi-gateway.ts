@@ -31,6 +31,7 @@ import {
   resolveProbe,
 } from "./bridge-contention.js";
 import { decideBridgeUpgrade, isLoopbackAddress } from "./bridge-upgrade-auth.js";
+import { closeDeviceSockets } from "../pairing/ws-tier-gate.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import { createProvisionalRegistry } from "./provisional-registration.js";
 
@@ -164,6 +165,12 @@ export interface PiGateway {
    * origin. See change: add-acp-session-driver (D1).
    */
   attachLocalConnection(socket: LocalGatewaySocket): void;
+  /**
+   * Close every open bridge socket admitted under `deviceId` with 4401 / `device revoked`
+   * (a revoke must not leave a live socket behind). Returns how many were closed.
+   * See change: device-key-mutual-check (D7).
+   */
+  closeDeviceSockets(deviceId: string): number;
   stop(): void;
   /**
    * Resolves once the async socket teardown handed off by the last `stop()`
@@ -307,6 +314,8 @@ export function createPiGateway(
    * connection handler can read it. Weak: entries die with the request.
    */
   const upgradeDeviceId = new WeakMap<IncomingMessage, string>();
+  /** The paired device a ticket-admitted socket belongs to, so a revoke can close it. See change: device-key-mutual-check (D7). */
+  const socketDeviceIds = new WeakMap<WebSocket, string>();
   // Track connection liveness for WS ping/pong (miss counter: kill after 2 consecutive misses)
   const aliveMisses = new Map<WebSocket, number>();
   // Map sessionId → heartbeat timeout
@@ -557,6 +566,8 @@ export function createPiGateway(
           tlsSockets.add(ws);
           ws.once("close", () => tlsSockets.delete(ws));
         }
+        const connDeviceId = req ? upgradeDeviceId.get(req) : undefined;
+        if (connDeviceId) socketDeviceIds.set(ws, connDeviceId);
         const sessionOrigin = attributeOrigin({
           transport: connTransport === "tcp" ? "tcp" : "unix",
           // A ticket-admitted TLS connection is attributed to its ticket's device as REMOTE, whatever the
@@ -567,7 +578,7 @@ export function createPiGateway(
               !isLoopbackAddress(
                 options?.peerAddressForTest ?? req?.socket?.remoteAddress ?? undefined,
               )),
-          deviceId: req ? upgradeDeviceId.get(req) : undefined,
+          deviceId: connDeviceId,
           localInstanceId: options?.instanceId ?? "",
         });
         // `originDeviceId` is ABSENT for a local session (that is how every
@@ -1471,6 +1482,9 @@ export function createPiGateway(
       target.handleUpgrade(req, socket as never, head, (ws) => {
         target.emit("connection", ws, req);
       });
+    },
+    closeDeviceSockets(deviceId: string) {
+      return closeDeviceSockets(wss?.clients ?? [], deviceId, (ws) => socketDeviceIds.get(ws as WebSocket));
     },
     attachLocalConnection(socket: LocalGatewaySocket) {
       handleConnection(socket as unknown as WebSocket, undefined, "local");

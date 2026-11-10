@@ -78,6 +78,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/model-proxy/api-keys/:id", tier: "control" },
   { method: "DELETE", path: "/api/openspec/groups/:id", tier: "control" },
   { method: "DELETE", path: "/api/paired-devices/:id", tier: "operate" },
+  // device-key-mutual-check (D6, D8): delete-now of a held (revoked) device, and removal of a companion key. Operator-only.
+  { method: "DELETE", path: "/api/paired-devices/revoked/:id", tier: "operate" },
+  { method: "DELETE", path: "/api/paired-devices/:id/companions/:companionId", tier: "operate" },
   { method: "DELETE", path: "/api/plugins/automation", tier: "control" },
   // decouple-plugins-from-core: removes a plugin's whole trust entry; the matching POST also needs a genuinely local caller.
   { method: "DELETE", path: "/api/plugins/:id/trust", tier: "operate" },
@@ -189,6 +192,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/pair/pending", tier: "operate" },
   { method: "GET", path: "/api/pair/reachable-urls", tier: "operate" },
   { method: "GET", path: "/api/paired-devices", tier: "operate" },
+  // device-key-mutual-check (D6, D8): the held (revoked) list names devices that no longer have access.
+  { method: "GET", path: "/api/paired-devices/revoked", tier: "operate" },
   { method: "GET", path: "/api/pi-core/changelog", tier: "observe" },
   { method: "GET", path: "/api/pi-core/versions", tier: "observe" },
   // Runtime overlay (see change: electron-runtime-overlay-updates).
@@ -400,12 +405,17 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/packages/update", tier: "operate" },
   { method: "POST", path: "/api/pair/approve", tier: "operate" },
   { method: "POST", path: "/api/pair/approve-pending", tier: "operate" },
-  { method: "POST", path: "/api/pair/challenge", tier: "operate" },
+  // device-key-mutual-check (D8): a paired device asks about ITS OWN pairing, so no tier may be refused
+  // (the gate only looks at bearer/session-admitted requests; anonymous callers are unaffected).
+  { method: "POST", path: "/api/pair/challenge", tier: "observe" },
   { method: "POST", path: "/api/pair/deny", tier: "operate" },
+  { method: "POST", path: "/api/pair/device-key", tier: "observe" },
+  { method: "POST", path: "/api/pair/device-status", tier: "observe" },
   { method: "POST", path: "/api/pair/poll", tier: "operate" },
   { method: "POST", path: "/api/pair/redeem", tier: "operate" },
   { method: "POST", path: "/api/pair/request", tier: "operate" },
   { method: "POST", path: "/api/paired-devices", tier: "operate" },
+  { method: "POST", path: "/api/paired-devices/:id/restore", tier: "operate" },
   // A browser-held bearer rotates ITSELF (bearer-only auth; observe so every device can).
   // See change: harden-auth-credentials (D5).
   { method: "POST", path: "/api/paired-devices/rotate", tier: "observe" },

@@ -77,3 +77,32 @@ export function sweepRevokedSockets(
   }
   return { total, byGateway };
 }
+
+/** Close reason for a socket whose paired device was revoked (code {@link WS_CLOSE_SESSION_REVOKED}). */
+export const WS_CLOSE_DEVICE_REVOKED_REASON = "device revoked";
+
+/**
+ * Close every open socket belonging to `deviceId` with 4401 / `device revoked`. `deviceOf` reads the
+ * device a socket was admitted under (a `deviceId` field by default). Sockets already CLOSING/CLOSED
+ * and sockets of other devices are untouched; a throwing `close` is logged and does not stop the sweep.
+ * Returns the number of sockets a close was issued to.
+ * See change: device-key-mutual-check (D7).
+ */
+export function closeDeviceSockets<S extends SweepableSocket>(
+  sockets: Iterable<S>,
+  deviceId: string,
+  deviceOf: (socket: S) => string | undefined = (s) => (s as { deviceId?: string }).deviceId,
+): number {
+  let closed = 0;
+  for (const socket of [...sockets]) {
+    try {
+      if (socket.readyState === 2 || socket.readyState === 3) continue;
+      if (deviceOf(socket) !== deviceId) continue;
+      socket.close(WS_CLOSE_SESSION_REVOKED, WS_CLOSE_DEVICE_REVOKED_REASON);
+      closed++;
+    } catch (err) {
+      console.error("[ws-gate] closing a revoked device's socket failed:", err);
+    }
+  }
+  return closed;
+}

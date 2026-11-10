@@ -27,7 +27,8 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { KnockOutcome } from "./knock-admission.js";
 import type { BearerChannel } from "../auth/proven-tls.js";
-import type { PairedDeviceRegistry, PairedDeviceView } from "./paired-devices.js";
+import { storedCompanionOrigin } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
+import { keyIdOf, type PairedDeviceRegistry, type PairedDeviceView } from "./paired-devices.js";
 
 /** Current pairing protocol version (D9). */
 export const PAIRING_PROTOCOL_VERSION = 1;
@@ -86,6 +87,13 @@ export interface RedeemMeta {
    * See change: harden-auth-credentials (D5).
    */
   holder?: unknown;
+  /**
+   * Device key already VERIFIED by the route (nonce consumed, signature checked, not held anywhere).
+   * Held on the pending device and bound only at approval. See change: device-key-mutual-check (D3).
+   */
+  deviceKey?: string;
+  /** Companion key already verified by the route (knock only); `origin` as the requester sent it. See D5. */
+  companion?: { pub: string; origin: string };
 }
 
 /** Operator-facing view of one pending device — never carries a code (R5). */
@@ -104,6 +112,12 @@ export interface PendingDeviceView {
   createdAt: number;
   expiresAt: number;
   attemptsLeft: number;
+  /** Short id (`dk:` + 12 chars) of the verified device key the request carries. Never the key itself. */
+  keyId?: string;
+  /** Verified companion: the requester's claimed origin (control/format characters stripped), plain text only. */
+  companionOrigin?: string;
+  /** Verified companion's short key id. */
+  companionId?: string;
 }
 
 export interface PairingPayload {
@@ -148,6 +162,10 @@ interface PendingDevice {
   viaHost?: string;
   remoteAddress?: string;
   forwardedFor?: string;
+  /** Verified device key, discarded with the pending device unless approved. */
+  deviceKey?: string;
+  /** Verified companion (raw origin as signed); stored only when the operator ticks the box at approval. */
+  companion?: { pub: string; origin: string };
 }
 
 /**
@@ -186,9 +204,21 @@ export type RedeemResult =
   | { ok: false; error: "invalid_code" | "expired" | "rate_limited" };
 
 export type ApproveResult =
-  | { ok: true; device: PairedDeviceView }
+  | { ok: true; device: PairedDeviceView; keys?: ApprovedKeys }
   | { ok: false; error: "mismatch"; attemptsLeft: number }
   | { ok: false; error: "invalid_code" | "no_pending" | "locked_out" | "expired" };
+
+/** What approval did with the pending key / companion, for the route's audit lines (never the keys themselves). */
+export interface ApprovedKeys {
+  key?: { id: string; bound: boolean };
+  companion?: { id: string; allowed: boolean };
+}
+
+/** Operator choices at approval beyond label and tier. */
+export interface ApproveOptions {
+  /** Store the requester's companion key with the device. Default false (the box is unticked). */
+  allowCompanion?: boolean;
+}
 
 export type KnockResult =
   | { ok: true; pendingId: string; confirmCode: string; expiresAt: number };
@@ -408,6 +438,9 @@ export class PairingManager {
       viaHost: bound(meta.host, MAX_HOST_CHARS),
       remoteAddress: bound(meta.remoteAddress, MAX_ADDR_CHARS),
       forwardedFor: bound(meta.forwardedFor?.split(",")[0], MAX_ADDR_CHARS),
+      ...(meta.deviceKey ? { deviceKey: meta.deviceKey } : {}),
+      // One key held twice in a knock keeps the key only.
+      ...(meta.companion && meta.companion.pub !== meta.deviceKey ? { companion: meta.companion } : {}),
     };
   }
 
@@ -509,6 +542,11 @@ export class PairingManager {
     if (p.viaHost !== undefined) view.viaHost = p.viaHost;
     if (p.remoteAddress !== undefined) view.remoteAddress = p.remoteAddress;
     if (p.forwardedFor !== undefined) view.forwardedFor = p.forwardedFor;
+    if (p.deviceKey) view.keyId = keyIdOf(p.deviceKey);
+    if (p.companion) {
+      view.companionOrigin = storedCompanionOrigin(p.companion.origin);
+      view.companionId = keyIdOf(p.companion.pub);
+    }
     if (entry.knock) {
       if (entry.knock.requesterName !== undefined) view.requesterName = entry.knock.requesterName;
       view.unencrypted = entry.knock.unencrypted;
@@ -528,10 +566,16 @@ export class PairingManager {
    * Delegates to `approve()` so compare, lockout budget, expiry and tier are
    * shared, not reimplemented (D2).
    */
-  approvePending(pendingId: string, typedConfirmCode: string, label?: string, tier?: Tier): ApproveResult {
+  approvePending(
+    pendingId: string,
+    typedConfirmCode: string,
+    label?: string,
+    tier?: Tier,
+    opts?: ApproveOptions,
+  ): ApproveResult {
     const entry = this.findByPendingId(pendingId);
     if (!entry) return { ok: false, error: "no_pending" };
-    return this.approve(entry.code, typedConfirmCode, label, tier);
+    return this.approve(entry.code, typedConfirmCode, label, tier, opts);
   }
 
   /**
@@ -549,6 +593,8 @@ export class PairingManager {
       return { ok: false, error: "no_pending" };
     }
     pending.rejected = true;
+    pending.deviceKey = undefined;
+    pending.companion = undefined;
     this.clearTimer(entry);
     // Keep the entry briefly so the device's poll can learn `rejected`.
     entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
@@ -564,7 +610,7 @@ export class PairingManager {
    * device. Wrong codes are rate-limited then locked out. MUST be called only
    * from an authenticated browser session (route-layer responsibility).
    */
-  approve(code: string, typedConfirmCode: string, label?: string, tier?: Tier): ApproveResult {
+  approve(code: string, typedConfirmCode: string, label?: string, tier?: Tier, opts: ApproveOptions = {}): ApproveResult {
     const entry = this.codes.get(code);
     if (!entry) return { ok: false, error: "invalid_code" };
     // Reject an expired entry explicitly — the server is the authority on code
@@ -591,6 +637,8 @@ export class PairingManager {
         // Budget exhausted by THIS failure → the request is blocked; it leaves
         // the operator list and its expiry timer is no longer needed.
         this.clearTimer(entry);
+        pending.deviceKey = undefined;
+        pending.companion = undefined;
         console.log(`[pairing] locked_out id=${shortId(pending.pendingId)}`);
         this.emitKnockResolved(entry, "locked_out");
         this.emitChanged();
@@ -604,14 +652,28 @@ export class PairingManager {
     // The approving browser chooses the tier; absent, the pairing source
     // default applies (`operate` — a phone browser drives the whole dashboard,
     // D1/D8).
-    const { device, token } = this.deps.registry.add(
+    // The pending device's verified key binds only here; a key held meanwhile (a second pending that
+    // carried the same key, approved first) is dropped by the registry and the pairing goes keyless.
+    // The companion is stored only when the operator ticked the box.
+    const companion = opts.allowCompanion === true ? pending.companion : undefined;
+    const { device, token, keyBound, companionsAdded } = this.deps.registry.add(
       label ?? pending.label,
       "pairing",
       isTier(tier) ? tier : defaultTierForSource("pairing"),
       pending.browserHolder ? "browser" : undefined,
+      {
+        ...(pending.deviceKey ? { key: pending.deviceKey } : {}),
+        ...(companion ? { companions: [companion] } : {}),
+      },
     );
+    const keys: ApprovedKeys = {
+      ...(pending.deviceKey ? { key: { id: keyIdOf(pending.deviceKey), bound: keyBound === true } } : {}),
+      ...(companion ? { companion: { id: keyIdOf(companion.pub), allowed: (companionsAdded ?? 0) > 0 } } : {}),
+    };
     pending.issuedToken = token;
     pending.deviceId = device.id;
+    pending.deviceKey = undefined;
+    pending.companion = undefined;
     // Drop the code so it can never be reused; keep the pending slot so the
     // device's next poll collects the token, then it self-expires via sweep.
     entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
@@ -619,7 +681,7 @@ export class PairingManager {
     console.log(`[pairing] approved id=${shortId(pending.pendingId)} device=${String(device.id).slice(0, 8)}`);
     this.emitKnockResolved(entry, "approved");
     this.emitChanged();
-    return { ok: true, device };
+    return { ok: true, device, ...(keys.key || keys.companion ? { keys } : {}) };
   }
 
   /** Expiry (epoch ms) for a collected token's row, converting it when `holder:"browser"` was declared late. */
