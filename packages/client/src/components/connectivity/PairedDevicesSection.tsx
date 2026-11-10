@@ -1,15 +1,18 @@
 /**
  * Settings → Security → Paired Devices.
  * Lists devices paired via QR/copy-string (bearer device auth) and revokes them.
- * Revoke deletes the server-side registry row so the device's token stops working.
+ * Revoke moves the device into a held state (refused everywhere at once, restorable for 90 days: a 10 s
+ * Undo notice and the Revoked devices list). The Device key and "Status checks from" columns, and every
+ * mutating control, follow the device-key-mutual-check change; the controls are offered only to a viewer
+ * the server accepts as an operator (the revoked-list call answers 401/403 otherwise).
  * Also mints tokens for MCP clients directly (D6, change:
  * mcp-legacy-clients-and-token-issuance): label → one POST → the plaintext
  * token shown ONCE with a copyable `claude mcp add` snippet, dismissed once.
  */
 
-import { mdiCellphoneKey, mdiDelete, mdiLockOpenAlertOutline } from "@mdi/js";
+import { mdiCellphoneKey, mdiClose, mdiDelete, mdiLockOpenAlertOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -17,16 +20,22 @@ import { SafeLink } from "../../lib/nav/safe-navigation.js";
 import {
   type BridgeTokenContext,
   createPairedDevice,
+  deleteRevokedDevice,
   getBridgeTokenContext,
   listPairedDevices,
+  listRevokedDevices,
   type MintedDeviceToken,
   type PairedDeviceView,
+  type RevokedDeviceView,
   reachableUrls,
+  removeCompanion,
+  restorePairedDevice,
   revokePairedDevice,
   type Tier,
 } from "../../lib/pairing/paired-devices-api.js";
 import { logRejection } from "../../lib/report-error.js";
 import { copyText } from "../../lib/util/clipboard.js";
+import { REVOKE_NOTICE_MS, RevokedDevicesPanel, RevokeNotice, type RevokeNoticeState } from "./RevokedDevicesPanel.js";
 
 function formatLastSeen(iso: string | null): string {
   if (!iso) return i18nT("common.neverSeen", undefined, "never");
@@ -240,6 +249,59 @@ function MintedTokenPanel({
   );
 }
 
+/** Tier label as shown to people: Observe / Control / Operate (the `TIER_OPTIONS` names). */
+function tierLabel(tier: Tier): string {
+  return TIER_OPTIONS.find((o) => o.value === tier)?.label ?? tier;
+}
+
+/** A thrown value's message, else `fallback`. */
+function messageOf(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback;
+}
+
+/** Device key (short id) and "Status checks from" (companion origins, each removable by an operator). */
+function KeyAndCompanions({
+  device,
+  operator,
+  onRemoveCompanion,
+}: {
+  device: PairedDeviceView;
+  operator: boolean;
+  onRemoveCompanion: (deviceId: string, companionId: string) => void;
+}) {
+  const companions = device.companions ?? [];
+  return (
+    <>
+      <div className="text-xs text-[var(--text-muted)]" data-testid={`device-key-${device.id}`}>
+        {i18nT("pairedDevices.deviceKey", undefined, "Device key")}:{" "}
+        {device.keyId ? <code className="font-mono">{device.keyId}</code> : i18nT("pairedDevices.deviceKeyNone", undefined, "none yet")}
+      </div>
+      <div className="text-xs text-[var(--text-muted)]" data-testid={`companions-${device.id}`}>
+        {i18nT("pairedDevices.statusChecksFrom", undefined, "Status checks from")}:{" "}
+        {companions.length === 0
+          ? i18nT("pairedDevices.statusChecksNone", undefined, "none")
+          : companions.map((c) => (
+              <span key={c.id} className="mr-2 inline-flex items-center gap-1">
+                {/* The origin is the requester's claim: a text child only. */}
+                <span className="font-mono">{c.origin}</span>
+                {operator && (
+                  <button
+                    type="button"
+                    className="text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+                    aria-label={i18nT("pairedDevices.removeStatusCheck", { origin: c.origin }, "Remove status check from {origin}")}
+                    title={i18nT("pairedDevices.removeStatusCheckTitle", undefined, "Remove this status check")}
+                    onClick={() => onRemoveCompanion(device.id, c.id)}
+                  >
+                    <Icon path={mdiClose} size={0.6} />
+                  </button>
+                )}
+              </span>
+            ))}
+      </div>
+    </>
+  );
+}
+
 export function PairedDevicesSection() {
   const [devices, setDevices] = useState<PairedDeviceView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -264,35 +326,134 @@ export function PairedDevicesSection() {
   const [bridgeCtx, setBridgeCtx] = useState<BridgeTokenContext>(NO_BRIDGE_CONTEXT);
   const [refusedUrl, setRefusedUrl] = useState<string | null | undefined>(undefined);
   const [, navigate] = useLocation();
+  // Held devices (D6). `operator` = the server accepted this viewer on the operator-only revoked list;
+  // until then (and on any failure) no mutating control is offered.
+  const [operator, setOperator] = useState(false);
+  const [revoked, setRevoked] = useState<RevokedDeviceView[]>([]);
+  const [unreadable, setUnreadable] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [notices, setNotices] = useState<RevokeNoticeState[]>([]);
+  const noticeTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  // No timer may outlive the section.
+  useEffect(() => {
+    const timers = noticeTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
+  const dropNotice = useCallback((id: string) => {
+    const timer = noticeTimers.current.get(id);
+    if (timer) clearTimeout(timer);
+    noticeTimers.current.delete(id);
+    setNotices((ns) => ns.filter((n) => n.id !== id));
+  }, []);
+
+  /** Show "<name> revoked · Undo" for exactly {@link REVOKE_NOTICE_MS}. */
+  const startNotice = useCallback(
+    (id: string, name: string) => {
+      const prior = noticeTimers.current.get(id);
+      if (prior) clearTimeout(prior);
+      setNotices((ns) => [...ns.filter((n) => n.id !== id), { id, name }]);
+      noticeTimers.current.set(id, setTimeout(() => dropNotice(id), REVOKE_NOTICE_MS));
+    },
+    [dropNotice],
+  );
 
   const copyOnce = useCallback((text: string) => {
     void copyText(text).then((ok) => setCopyOutcome(ok ? "ok" : "failed"));
   }, []);
 
+  const loadRevoked = useCallback(async () => {
+    try {
+      const r = await listRevokedDevices();
+      setOperator(r.operator);
+      setRevoked(r.operator ? r.devices : []);
+      setUnreadable(r.operator ? r.unreadable : false);
+    } catch {
+      // Cannot tell whether this viewer is an operator: fail closed, keep the paired list usable.
+      setOperator(false);
+      setRevoked([]);
+      setUnreadable(false);
+    }
+  }, []);
+
   const reload = useCallback(async () => {
     try {
-      setDevices(await listPairedDevices());
+      await Promise.all([listPairedDevices().then(setDevices), loadRevoked()]);
     } catch (e: any) {
       setError(e?.message ?? "failed to load");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadRevoked]);
 
   useEffect(() => { void reload().catch(logRejection("PairedDevicesSection.reload")); }, [reload]);
 
   const handleRevoke = async (id: string) => {
     if (revoking) return; // guard against double-submit
     setRevoking(id);
+    const name = devices.find((d) => d.id === id)?.label ?? id;
     try {
       await revokePairedDevice(id);
       setConfirmId(null);
       setError(null);
+      startNotice(id, name);
       await reload();
     } catch (e: any) {
       setError(e?.message ?? "failed to revoke");
     } finally {
       setRevoking(null);
+    }
+  };
+
+  /** Undo a revoke (from the notice or the revoked list); 404/409 ⇒ "No longer available" and a refresh. */
+  const handleUndo = async (id: string, fromNotice: boolean) => {
+    if (busyId) return;
+    setBusyId(id);
+    setUnavailable(false);
+    try {
+      const outcome = await restorePairedDevice(id);
+      if (outcome === "restored") {
+        dropNotice(id);
+      } else if (fromNotice) {
+        setNotices((ns) => ns.map((n) => (n.id === id ? { ...n, unavailable: true } : n)));
+      } else {
+        setUnavailable(true);
+      }
+      setError(null);
+      await reload();
+    } catch (e) {
+      setError(messageOf(e, "failed to restore"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteNow = async (id: string) => {
+    setBusyId(id);
+    setUnavailable(false);
+    try {
+      if ((await deleteRevokedDevice(id)) === "unavailable") setUnavailable(true);
+      setError(null);
+      await reload();
+    } catch (e) {
+      setError(messageOf(e, "failed to delete"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRemoveCompanion = async (deviceId: string, companionId: string) => {
+    try {
+      await removeCompanion(deviceId, companionId);
+      setError(null);
+      await reload();
+    } catch (e) {
+      setError(messageOf(e, "failed to remove"));
     }
   };
 
@@ -499,6 +660,9 @@ export function PairedDevicesSection() {
           onDismiss={dismissMinted}
         />
       )}
+      {notices.map((n) => (
+        <RevokeNotice key={n.id} notice={n} onUndo={(id) => void handleUndo(id, true)} />
+      ))}
       {devices.length === 0 ? (
         <div className="text-sm text-[var(--text-muted)] py-1">
           {i18nT("common.noPairedDevices", undefined, "No paired devices. Pair a phone from the pairing view (QR / copy-string).")}
@@ -518,7 +682,7 @@ export function PairedDevicesSection() {
                     className="ml-2 rounded bg-[var(--bg-surface)] px-1.5 py-0.5 align-middle text-[10px] uppercase text-[var(--text-muted)]"
                     data-testid={`tier-${d.id}`}
                   >
-                    {d.tier}
+                    {tierLabel(d.tier)}
                   </span>
                   {d.source === "manual" && (
                     <span className="ml-2 rounded bg-[var(--bg-surface)] px-1.5 py-0.5 align-middle text-[10px] uppercase text-[var(--text-muted)]">
@@ -529,8 +693,9 @@ export function PairedDevicesSection() {
                 <div className="text-xs text-[var(--text-muted)]">
                   {i18nT("common.lastSeen", undefined, "last seen")}: {formatLastSeen(d.lastSeen)}
                 </div>
+                <KeyAndCompanions device={d} operator={operator} onRemoveCompanion={(id, cid) => void handleRemoveCompanion(id, cid)} />
               </div>
-              {confirmId === d.id ? (
+              {!operator ? null : confirmId === d.id ? (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -561,6 +726,17 @@ export function PairedDevicesSection() {
             </li>
           ))}
         </ul>
+      )}
+      {operator && (
+        <RevokedDevicesPanel
+          devices={revoked}
+          unreadable={unreadable}
+          unavailable={unavailable}
+          busyId={busyId}
+          now={Date.now()}
+          onUndo={(id) => void handleUndo(id, false)}
+          onDeleteNow={handleDeleteNow}
+        />
       )}
     </div>
   );

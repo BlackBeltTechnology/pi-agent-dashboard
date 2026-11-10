@@ -7,6 +7,7 @@
  *
  * Mirrors `paired-devices-api.ts`. See change: wire-nonzrok-pairing-view.
  */
+import type { CompanionClaim, DeviceProof } from "@blackbelt-technology/pi-dashboard-shared/device-key-proof.js";
 import { getApiBase } from "../api/api-context.js";
 import { fetchJsonResponse } from "../api/fetch-json.js";
 import type { PairedDeviceView } from "./paired-devices-api.js";
@@ -88,7 +89,15 @@ export type RequestAccessResult = KnockGranted | KnockRefused;
  * A refusal resolves as `{ ok: false, error, retryAfter? }`; only a transport
  * failure (fetch rejects, non-JSON body) rejects. See change: add-lan-knock-pairing (D9).
  */
-export async function requestAccess(name?: string): Promise<RequestAccessResult> {
+export async function requestAccess(
+  name?: string,
+  /**
+   * Optional device-key material for the knock body (omitted members are not sent):
+   * `deviceKey` = `pi-devbind/v1` proof over a fresh challenge nonce, `companion` = the other dashboard's claim
+   * read from the `#companion=` fragment. See change: device-key-mutual-check.
+   */
+  extra: { deviceKey?: DeviceProof; companion?: CompanionClaim } = {},
+): Promise<RequestAccessResult> {
   const label = name?.trim();
   const { json } = await fetchJsonResponse<{
     success?: boolean;
@@ -98,7 +107,11 @@ export async function requestAccess(name?: string): Promise<RequestAccessResult>
   }>("/api/pair/request", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(label ? { name: label } : {}),
+    body: JSON.stringify({
+      ...(label ? { name: label } : {}),
+      ...(extra.deviceKey ? { deviceKey: extra.deviceKey } : {}),
+      ...(extra.companion ? { companion: extra.companion } : {}),
+    }),
   });
   if (json.success && json.data) return { ok: true, ...json.data };
   return {

@@ -10,3 +10,5 @@ Purpose "Bridge on another machine" (mints `pi_tls_` bridge token); disabled ove
 - Base-URL `select` populated from `reachableUrls()` (`GET /api/pair/reachable-urls`); preselects `window.location.origin` when present. Snippet targets the chosen base.
 - Device list shows a tier badge (`data-testid="tier-<id>"`) per row.
 - `createPairedDevice(label, tier)`; `PairedDeviceView.tier`.
+
+Device key (`device-key-<id>`) and 'Status checks from' (`companions-<id>`, per-origin remove) per row; tier badge shows Observe/Control/Operate. Revoke now holds the device: 10 s Undo notice + `RevokedDevicesPanel`. `operator` = revoked-list call accepted (fail closed: no Revoke/Undo/Delete now/companion-remove otherwise). See change: device-key-mutual-check.

@@ -18,6 +18,23 @@ export interface PairedDeviceView {
   source: "pairing" | "manual";
   /** Capability tier recorded at mint. */
   tier: Tier;
+  /** Short id (`dk:` + 12 chars) of the device's registered key; absent ⇒ none yet. See change: device-key-mutual-check. */
+  keyId?: string;
+  /** Other dashboards allowed a status-only check of this device (origin = the requester's claim, plain text). */
+  companions?: DeviceCompanionView[];
+}
+
+export interface DeviceCompanionView {
+  /** Short key id — the handle for removing it. */
+  id: string;
+  origin: string;
+  createdAt: number | string;
+}
+
+/** A revoked, held device (operator list). `revokedAt` is epoch ms; `revokedBy` a display-only short string. */
+export interface RevokedDeviceView extends PairedDeviceView {
+  revokedAt: number;
+  revokedBy: string;
 }
 
 /** Plaintext-once result of direct issuance — the token is never retrievable again. */
@@ -98,4 +115,55 @@ export async function revokePairedDevice(id: string): Promise<void> {
     method: "DELETE",
   });
   if (!json.success) throw new Error(json.error ?? "failed to revoke device");
+}
+
+// ── Revoked (held) devices — operator only (change: device-key-mutual-check, D6) ──
+
+/** A revoked device is deleted for good this long after `revokedAt` (server constant `REVOKED_RETENTION_MS`). */
+export const REVOKED_RETENTION_DAYS = 90;
+const DAY_MS = 86_400_000;
+
+/** Remaining retention in whole days, rounded up and never below 1 ("under 24 hours" reads "1 day"). */
+export function daysUntilPurge(revokedAt: number, now: number): number {
+  const remaining = revokedAt + REVOKED_RETENTION_DAYS * DAY_MS - now;
+  return Math.max(1, Math.ceil(remaining / DAY_MS));
+}
+
+/**
+ * `GET /api/paired-devices/revoked`. It accepts only an operator credential, so a `401`/`403` answer IS the
+ * "this viewer is not an operator" signal (`{ operator: false }`, no throw); any other failure throws.
+ * `unreadable` mirrors the server's `warning: "unreadable"`.
+ */
+export type RevokedListResult = { operator: true; devices: RevokedDeviceView[]; unreadable: boolean } | { operator: false };
+
+export async function listRevokedDevices(): Promise<RevokedListResult> {
+  const { res, json } = await fetchJsonResponse(`${getApiBase()}/api/paired-devices/revoked`);
+  if (res.status === 401 || res.status === 403) return { operator: false };
+  if (!json.success) throw new Error(json.error ?? "failed to list revoked devices");
+  return { operator: true, devices: json.data, unreadable: json.warning === "unreadable" };
+}
+
+/** Undo a revoke. `404` (record gone) and `409` (already active) both mean "no longer available". */
+export async function restorePairedDevice(id: string): Promise<"restored" | "unavailable"> {
+  const { res, json } = await fetchJsonResponse(`${getApiBase()}/api/paired-devices/${encodeURIComponent(id)}/restore`, { method: "POST" });
+  if (res.status === 404 || res.status === 409) return "unavailable";
+  if (!json.success) throw new Error(json.error ?? "failed to restore device");
+  return "restored";
+}
+
+/** Delete a revoked device for good ("Delete now"); same `404`/`409` mapping as {@link restorePairedDevice}. */
+export async function deleteRevokedDevice(id: string): Promise<"deleted" | "unavailable"> {
+  const { res, json } = await fetchJsonResponse(`${getApiBase()}/api/paired-devices/revoked/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (res.status === 404 || res.status === 409) return "unavailable";
+  if (!json.success) throw new Error(json.error ?? "failed to delete device");
+  return "deleted";
+}
+
+/** Remove ONE companion of an active device; the device stays paired with its full key. */
+export async function removeCompanion(deviceId: string, companionId: string): Promise<void> {
+  const json = await fetchJson(
+    `${getApiBase()}/api/paired-devices/${encodeURIComponent(deviceId)}/companions/${encodeURIComponent(companionId)}`,
+    { method: "DELETE" },
+  );
+  if (!json.success) throw new Error(json.error ?? "failed to remove companion");
 }

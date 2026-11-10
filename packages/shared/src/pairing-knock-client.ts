@@ -18,9 +18,17 @@
  * Over plain http the check defeats an impostor answering at the address, NOT an
  * on-path relay that forwards the challenge to the genuine server.
  *
- * See change: add-lan-knock-pairing (D11); add-electron-server-windows (D2).
+ * Optional device key (`hooks.deviceKey`): the knock / redeem then carries
+ * `deviceKey {deviceNonce, pub, sig}` — a `pi-devbind/v1` signature over a fresh
+ * identity-challenge `deviceNonce` (re-challenged when the proving challenge is
+ * older than 30 s). No provider, no nonce, or no key held ⇒ the body is exactly
+ * what it was before; a failure to get a key never blocks the pairing.
+ *
+ * See change: add-lan-knock-pairing (D11); add-electron-server-windows (D2);
+ * device-key-mutual-check (D3).
  */
 
+import { DEVICE_NONCE_REUSE_MS, type DeviceProof } from "./device-key-proof.js";
 import { truncateUtf8 } from "./display-name.js";
 import { isKnockRefusal, type KnockRefusal } from "./pairing-knock.js";
 import { validateDeliveredRoutes } from "./server-routes.js";
@@ -64,12 +72,35 @@ export interface KnockHooks {
   /** Delay injection (default `setTimeout`). */
   sleep?: (ms: number) => Promise<void>;
   pollIntervalMs?: number;
+  /** Device key to bind to this pairing request (see {@link DeviceKeyProvider}). Omitted ⇒ no key is sent. */
+  deviceKey?: DeviceKeyProvider;
   /** Fetch redirect mode. Browsers leave it unset; Electron main passes `"manual"` (never follow off-origin). */
   redirect?: RequestRedirect;
 }
 
-/** Identity proof: `{proven: fingerprint}` or `{refused: reason}`. May throw on transport failure. */
-export type ProveFn = (baseUrl: string) => Promise<{ proven: string; publicKey?: string } | { refused: string; identityFailure?: true }>;
+/**
+ * Identity proof: `{proven: fingerprint}` or `{refused: reason}`. May throw on transport failure.
+ * `deviceNonce` is the challenge reply's server-issued nonce (absent on an older server).
+ */
+export type ProveFn = (
+  baseUrl: string,
+) => Promise<{ proven: string; publicKey?: string; deviceNonce?: string } | { refused: string; identityFailure?: true }>;
+
+/** The device-key half of a pairing request body: `pi-devbind/v1` proof over a fresh `deviceNonce`. */
+export type KnockDeviceKey = DeviceProof;
+
+/**
+ * Supplies the device key for a knock / redeem. The caller owns the key store (WebCrypto in a browser,
+ * Node crypto in Electron main); this client owns the challenge freshness and the body.
+ */
+export interface DeviceKeyProvider {
+  /** Sign `pi-devbind/v1` over (`fingerprint`, `deviceNonce`); `null` ⇒ no key held (knock without one). May create the key. */
+  sign(fingerprint: string, deviceNonce: string): Promise<{ pub: string; sig: string } | null>;
+  /** Re-run the identity challenge when `challenge` is missing or older than 30 s. Without it no fresh nonce ⇒ no key. */
+  prove?: ProveFn;
+  /** The challenge that proved the pin: its `deviceNonce` and the `hooks.now()` instant it was made. */
+  challenge?: { deviceNonce: string; at: number };
+}
 
 const DEFAULT_POLL_MS = 2000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -162,7 +193,7 @@ export async function proveExpected(
   baseUrl: string,
   expectedFingerprint: string,
   prove: ProveFn,
-): Promise<{ fingerprint: string; publicKey?: string } | Extract<KnockOutcome, { status: "identity_mismatch" }>> {
+): Promise<{ fingerprint: string; publicKey?: string; deviceNonce?: string } | Extract<KnockOutcome, { status: "identity_mismatch" }>> {
   const proof = await prove(baseUrl);
   if ("refused" in proof || proof.proven !== expectedFingerprint) {
     return {
@@ -172,7 +203,49 @@ export async function proveExpected(
       stage: "challenge",
     };
   }
-  return { fingerprint: proof.proven, ...(proof.publicKey ? { publicKey: proof.publicKey } : {}) };
+  return {
+    fingerprint: proof.proven,
+    ...(proof.publicKey ? { publicKey: proof.publicKey } : {}),
+    ...(proof.deviceNonce ? { deviceNonce: proof.deviceNonce } : {}),
+  };
+}
+
+/**
+ * The `deviceKey` body member for a request to `baseUrl` whose identity `provenFingerprint` is proven, or `{}`
+ * (no key). Uses the proving challenge while it is younger than {@link DEVICE_NONCE_REUSE_MS}, else re-runs it
+ * through `provider.prove`; a re-challenge proving another fingerprint is an `identity_mismatch` (nothing is sent),
+ * any other failure just means "no key" — pairing never gets harder than without a key.
+ */
+async function deviceKeyMember(
+  baseUrl: string,
+  provenFingerprint: string,
+  hooks: KnockHooks,
+): Promise<{ deviceKey?: KnockDeviceKey } | Extract<KnockOutcome, { status: "identity_mismatch" }>> {
+  const provider = hooks.deviceKey;
+  if (!provider) return {};
+  const now = (hooks.now ?? Date.now)();
+  let nonce: string | undefined;
+  if (provider.challenge && now - provider.challenge.at < DEVICE_NONCE_REUSE_MS) {
+    nonce = provider.challenge.deviceNonce;
+  } else if (provider.prove) {
+    try {
+      const proof = await provider.prove(baseUrl);
+      if ("refused" in proof) return {};
+      if (proof.proven !== provenFingerprint) {
+        return { status: "identity_mismatch", expected: provenFingerprint, proven: proof.proven, stage: "challenge" };
+      }
+      nonce = proof.deviceNonce;
+    } catch {
+      return {};
+    }
+  }
+  if (!nonce) return {};
+  try {
+    const signed = await provider.sign(provenFingerprint, nonce);
+    return signed ? { deviceKey: { deviceNonce: nonce, pub: signed.pub, sig: signed.sig } } : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -185,10 +258,12 @@ export async function sendKnock(
   name: string,
   hooks: KnockHooks = {},
 ): Promise<KnockOutcome> {
+  const key = await deviceKeyMember(baseUrl, provenFingerprint, hooks);
+  if ("status" in key) return key;
   const knock = await post<{ pendingId: string; confirmCode: string; expiresAt: number; fingerprint: string }>(
     baseUrl,
     "/api/pair/request",
-    knockRequestBody(name),
+    { ...knockRequestBody(name), ...key },
     hooks.redirect,
   );
   const data = knock.json.data;
@@ -223,7 +298,9 @@ export async function redeemPairingCode(
   code: string,
   hooks: KnockHooks = {},
 ): Promise<KnockOutcome> {
-  const redeemed = await post<{ pendingId: string; confirmCode: string }>(baseUrl, "/api/pair/redeem", { code }, hooks.redirect);
+  const key = await deviceKeyMember(baseUrl, provenFingerprint, hooks);
+  if ("status" in key) return key;
+  const redeemed = await post<{ pendingId: string; confirmCode: string }>(baseUrl, "/api/pair/redeem", { code, ...key }, hooks.redirect);
   const data = redeemed.json.data;
   if (!redeemed.json.success || !data) return refusal(redeemed.status, redeemed.json);
   if (!/^\d{8}$/.test(String(data.confirmCode)) || typeof data.pendingId !== "string") return refusal(redeemed.status, {});
@@ -243,7 +320,14 @@ export async function knockServerWith(
   // CHALLENGE — never knock an address that cannot prove the expected identity.
   const proof = await proveExpected(baseUrl, expectedFingerprint, prove);
   if ("status" in proof) return proof;
-  return sendKnock(baseUrl, proof.fingerprint, name, hooks);
+  // The proving challenge is the freshest nonce: hand it to the provider (and the prover for a re-run).
+  const deviceKey: KnockHooks["deviceKey"] =
+    hooks.deviceKey && {
+      prove,
+      ...hooks.deviceKey,
+      ...(proof.deviceNonce ? { challenge: { deviceNonce: proof.deviceNonce, at: (hooks.now ?? Date.now)() } } : {}),
+    };
+  return sendKnock(baseUrl, proof.fingerprint, name, deviceKey ? { ...hooks, deviceKey } : hooks);
 }
 
 type PollData = { status: string; token?: string; routes?: unknown };
