@@ -39,7 +39,7 @@ When the server receives a `force_kill` message for a session whose pid target i
 
 The PID used for kill resolution SHALL come from the session's stored `pid` field (`DashboardSession.pid`), populated from `session_register.pid`. The PID stored on the session SHALL have been correlated to the session via the three-tier link in `headlessPidRegistry` (`linkByToken` → `linkByPid` → `linkSession`), so that for sessions registered with a `spawnToken`, the kill target is unambiguously the pi process matching that token rather than the first unsessioned entry in the cwd. This eliminates the prior race where a sibling spawn in the same cwd could be killed by mistake.
 
-`headlessPidRegistry.killBySessionId(sessionId)` SHALL look up the entry by `sessionId` set during link, and SHALL kill the `pid` recorded on that entry. When called for a session whose registry entry was linked via `linkByToken` or `linkByPid`, the kill SHALL target the strongly-correlated PID. When linked only via cwd-FIFO (legacy), behavior SHALL match pre-change semantics.
+`headlessPidRegistry.killBySessionId(sessionId)` SHALL look up the entry by `sessionId` set during link, and SHALL kill the `pid` recorded on that entry, except a restored entry's pid that fails identity verification (`headless-spawn` *A restored entry is verified before every signal*). When called for a session whose registry entry was linked via `linkByToken` or `linkByPid`, the kill SHALL target the strongly-correlated PID. When linked only via cwd-FIFO (legacy), behavior SHALL match pre-change semantics.
 
 #### Scenario: Windows tree kill via taskkill
 - **WHEN** the server handles a `force_kill` on `process.platform === "win32"` for a session with a known PID and a `host` pid target (or `unknown` on Windows)
@@ -380,7 +380,8 @@ used only in its resolved pid target*). Any other target SHALL be refused BEFORE
 any liveness probe, and reported as a failed reclaim that is not retried. On a
 Windows server the start time of a host-target non-headless process cannot be
 determined, so such a session SHALL also be refused. Headless sessions are
-terminated through the registry (`headless-spawn`).
+terminated through the registry (`headless-spawn`); a restored registry entry the
+registry refuses is not signalled and is reported as a failed reclaim.
 
 This requirement concerns the session's `pi` process itself. It does not assert
 descendant termination.
@@ -423,6 +424,7 @@ report success and SHALL NOT signal an unrelated process.
 - **AND** the terminator SHALL then probe the process's liveness, and SHALL
   signal it again through the shared ladder only if it is still alive
 - **AND** no additional signal SHALL be sent to a process that has already exited
+- **AND** a restored entry SHALL first pass `headless-spawn` *A restored entry is verified before every signal*
 
 #### Scenario: A non-headless session on a Windows server is refused, not killed
 
@@ -518,13 +520,7 @@ signal the process. It SHALL report the reclaim as failed with a diagnostic
 stating that the identity was unverifiable. The operator shutdown and force-kill
 paths are not subject to this requirement.
 
-Processes reached through the headless PID registry are NOT subject to this
-requirement. That covers a child process the server spawned and still holds
-(its pid cannot be recycled while the server holds it) AND an entry the registry
-restored from disk after a server restart; a restored entry is signalled exactly
-as the registry signals it today, without a start-time check. This exemption is
-explicit and pre-existing, not a guarantee: a restored entry's pid can have been
-recycled while the server was down.
+A child process the server spawned and still holds, reached through the headless PID registry, is NOT subject to this requirement: its pid cannot be recycled while the server holds it. An entry the registry RESTORED from disk after a server restart is NOT exempt. The registry SHALL verify it by start time (`headless-spawn` *Orphan cleanup on server startup*). When the registry refuses it, the unattended reclaim SHALL send no signal to that pid on any rung and SHALL report a failed reclaim that is not retried.
 
 #### Scenario: A reused PID is not signalled
 
@@ -550,6 +546,13 @@ recycled while the server was down.
 - **AND** the reclaim SHALL be reported as failed with a diagnostic stating the
   identity was unverifiable
 - **AND** that session SHALL NOT be retried on later sweeps
+
+#### Scenario: A restored registry entry refused by the registry is not signalled by the terminator
+
+- **WHEN** an unattended reclaim reaches a session whose headless registry entry was restored from disk
+- **AND** the registry refuses the entry's pid because its start time is later than the entry's identity anchor
+- **THEN** neither the registry nor the terminator SHALL signal that pid
+- **AND** the reclaim SHALL be reported as failed with a diagnostic naming the identity reuse, and SHALL NOT be retried on later sweeps
 
 ### Requirement: A recorded pid is used only in its resolved pid target
 

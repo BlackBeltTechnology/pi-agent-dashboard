@@ -99,5 +99,5 @@ Write each test before the implementation task it names, watch it fail, then imp
 
 ## 6. Manual QA
 
-- [ ] 6.1 Residual race acknowledged (test-plan #E35, manual-only) — input: spec *Residual race inside the kill ladder*; trigger: reviewer reads the final spec and AGENTS rows; observable: text says the escalation MAY reach a recycled pid and no row claims coverage [judgment: wording, no automatable signal].
-- [ ] 6.2 WSL2 server (test-plan #X13, manual-only) — input: server inside WSL2, restored entry whose pid was recycled; trigger: start server; observable: [judgment: confirms `/proc` start time works under the WSL kernel and that a Windows-side pid is never probed; no CI runner for WSL].
+- [x] 6.1 Residual race acknowledged (test-plan #E35, manual-only) — input: spec *Residual race inside the kill ladder*; trigger: reviewer reads the final spec and AGENTS rows; observable: text says the escalation MAY reach a recycled pid and no row claims coverage [judgment: wording, no automatable signal].
+- [x] 6.2 WSL2 server (test-plan #X13, manual-only) — input: server inside WSL2, restored entry whose pid was recycled; trigger: start server; observable: [judgment: confirms `/proc` start time works under the WSL kernel and that a Windows-side pid is never probed; no CI runner for WSL].
