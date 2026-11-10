@@ -166,6 +166,105 @@ export function frameClassOf(
   }
 }
 
+/**
+ * Defer key of a per-session event frame that must never be shed: a subagent
+ * end (`subagent_completed` / `subagent_failed`) or a subagent liveness frame
+ * (`subagent_stop_result`, `subagent_registry_snapshot`). `undefined` for every
+ * other frame, and for an end / stop answer without a string id, so ids never
+ * collapse into one shared key. The real end, the server's heal and the stop
+ * answer have SEPARATE keys: latest-wins never lets one replace another.
+ * `frameClassOf` is unchanged — these frames stay `transcript` and only
+ * `sendTo`'s shed branch consults this. See change: fix-background-subagent-ghost-rows (D6).
+ */
+export function deferKeyOfEvent(msg: ServerToBrowserMessage): string | undefined {
+  if (msg.type !== "event") return undefined;
+  const { sessionId } = msg as { sessionId?: unknown };
+  const event = (msg as { event?: { eventType?: unknown; data?: unknown } }).event;
+  if (typeof sessionId !== "string" || !event || typeof event !== "object") return undefined;
+  const data = (event.data && typeof event.data === "object" ? event.data : {}) as Record<string, unknown>;
+  switch (event.eventType) {
+    case "subagent_completed":
+    case "subagent_failed": {
+      if (typeof data.id !== "string" || data.id === "") return undefined;
+      const kind = data.healedBy !== undefined ? "subagent_heal" : "subagent_end";
+      return `${kind}:${sessionId}:${data.id}`;
+    }
+    case "subagent_stop_result":
+      if (typeof data.agentId !== "string" || data.agentId === "") return undefined;
+      return `subagent_stop_result:${sessionId}:${data.agentId}`;
+    case "subagent_registry_snapshot":
+      return `subagent_registry_snapshot:${sessionId}`;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Scalar `details` fields kept in a deferred end copy: the status plus the
+ * scalars `readSubagentDetails` reads. Fixed list, so the copy is bounded by
+ * construction (strings cut to 256 bytes each).
+ */
+const DEFER_DETAIL_SCALARS = [
+  "status", "stopReason", "entryCount", "activity", "displayName", "modelName",
+  "thinkingLevel", "subagentType", "toolUses", "durationMs", "agentMdPath",
+  "agentSessionId", "queuePosition", "activeSlots", "maxConcurrent", "slotGrantedAt",
+  "stoppable", "agentId",
+] as const;
+
+/** Byte cap of `result` / `error` in a deferred subagent end copy (D6). */
+export const SUBAGENT_END_DEFER_TEXT_BYTES = 8192;
+
+/** Cut a string to at most `max` UTF-8 bytes without splitting a code point. */
+function cutUtf8(text: string, max: number): string {
+  if (Buffer.byteLength(text) <= max) return text;
+  let out = Buffer.from(text).subarray(0, max).toString("utf8");
+  // A split code point decodes to U+FFFD (3 bytes); trim until within budget.
+  while (Buffer.byteLength(out) > max) out = out.slice(0, -1);
+  return out;
+}
+
+/**
+ * Bounded copy of a subagent end / liveness event frame for the pending map
+ * (D6). An end keeps `id`, `healedBy`, `durationMs`, `tokens`, `toolUses`,
+ * `result` / `error` cut to `SUBAGENT_END_DEFER_TEXT_BYTES`, and only the
+ * scalar `details` fields (no `entries`, no `liveBlock`, no nested object),
+ * plus `deferredProjection: true` so the client replay cache never stores it.
+ * Stop answers and snapshots are small and returned unchanged.
+ */
+export function projectDeferredSubagentFrame(msg: ServerToBrowserMessage): ServerToBrowserMessage {
+  if (msg.type !== "event") return msg;
+  const event = (msg as { event?: { eventType?: unknown; data?: unknown } }).event;
+  if (!event || (event.eventType !== "subagent_completed" && event.eventType !== "subagent_failed")) return msg;
+  const data = (event.data && typeof event.data === "object" ? event.data : {}) as Record<string, unknown>;
+  const projected: Record<string, unknown> = { id: data.id };
+  if (data.healedBy !== undefined) projected.healedBy = data.healedBy;
+  for (const k of ["type", "description"] as const) {
+    if (typeof data[k] === "string") projected[k] = cutUtf8(data[k] as string, 512);
+  }
+  if (typeof data.durationMs === "number") projected.durationMs = data.durationMs;
+  if (typeof data.toolUses === "number") projected.toolUses = data.toolUses;
+  const tokens = data.tokens as Record<string, unknown> | undefined;
+  if (tokens && typeof tokens === "object") {
+    const t: Record<string, number> = {};
+    for (const k of ["input", "output", "total"]) if (typeof tokens[k] === "number") t[k] = tokens[k] as number;
+    projected.tokens = t;
+  }
+  if (typeof data.result === "string") projected.result = cutUtf8(data.result, SUBAGENT_END_DEFER_TEXT_BYTES);
+  if (typeof data.error === "string") projected.error = cutUtf8(data.error, SUBAGENT_END_DEFER_TEXT_BYTES);
+  const details = data.details as Record<string, unknown> | undefined;
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    const d: Record<string, unknown> = {};
+    for (const k of DEFER_DETAIL_SCALARS) {
+      const v = details[k];
+      if (typeof v === "number" || typeof v === "boolean") d[k] = v;
+      else if (typeof v === "string") d[k] = cutUtf8(v, 256);
+    }
+    projected.details = d;
+  }
+  projected.deferredProjection = true;
+  return { ...msg, event: { ...event, data: projected } } as ServerToBrowserMessage;
+}
+
 import { randomUUID } from "node:crypto";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { hasPromptChannel, issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
@@ -225,6 +324,12 @@ export interface DroppedFrameStats {
   statusReconcileQueued: number;
   /** Reconcile registry frames actually PUT ON THE WIRE after drain (all kinds). */
   statusReconcileSent: number;
+  /**
+   * Subagent end / liveness frames DEFERRED (bounded copy, pending map) where a
+   * transcript frame would be shed. Not a drop: `total` never moves for it.
+   * See change: fix-background-subagent-ghost-rows (D6).
+   */
+  deferredSubagentFrames: number;
 }
 
 /** Owed registry kind — the frame shape the reconcile must rebuild (D2). */
@@ -280,6 +385,7 @@ export const EMPTY_DROPPED_FRAME_STATS: DroppedFrameStats = {
   stalledSocketsTerminated: 0,
   statusReconcileQueued: 0,
   statusReconcileSent: 0,
+  deferredSubagentFrames: 0,
 };
 
 export interface BrowserGateway {
@@ -1055,6 +1161,8 @@ export function createBrowserGateway(
   const pendingState = new Map<WebSocket, PendingState>();
   let coalescedState = 0;
   let stalledSocketsTerminated = 0;
+  /** Subagent end / liveness frames deferred instead of shed (D6). */
+  let deferredSubagentFrames = 0;
   const STATE_FLUSH_INTERVAL_MS = 250;
   let lastStateFlushWarnAt = 0;
 
@@ -1443,6 +1551,14 @@ export function createBrowserGateway(
           ws.bufferedAmount <= CRITICAL_FRAME_CEILING &&
           (ctx.criticalBudget === undefined || ctx.criticalBudget.remaining > 0);
         if (!exempt) {
+          // A subagent end / liveness frame is never shed: defer a bounded
+          // copy as state instead (D6). See change: fix-background-subagent-ghost-rows.
+          const deferKey = ctx?.critical === true ? undefined : deferKeyOfEvent(msg);
+          if (deferKey !== undefined) {
+            deferredSubagentFrames++;
+            sendState(ws, deferKey, JSON.stringify(projectDeferredSubagentFrame(msg)));
+            return false;
+          }
           recordDroppedFrame(ctx?.sessionId, ctx?.seq, ws.bufferedAmount, ctx?.critical === true ? "blocking" : "transcript");
           // A shed registry frame is a debt, not a loss — including a shed
           // RECONCILE, which re-enters here and is re-recorded with its kind (D2).
@@ -2014,6 +2130,9 @@ export function createBrowserGateway(
         // Archived counts come from the index, not the (non-resident) sessions.
         // See change: archive-sessions-lazy-load.
         archivedCountByCwd: sessionArchive?.countsByKey() ?? {},
+        // The client keys archive state with the server's own path-key
+        // platform. See change: fix-archive-fold-key-and-filter-chips.
+        ...(sessionArchive ? { pathKeyPlatform: sessionArchive.pathKeyPlatform } : {}),
       });
     }
 
@@ -2900,6 +3019,7 @@ export function createBrowserGateway(
         stalledSocketsTerminated,
         statusReconcileQueued,
         statusReconcileSent,
+        deferredSubagentFrames,
       };
     },
 

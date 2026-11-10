@@ -92,3 +92,5 @@ Read-only archived view: `viewedSession` (lib/session/archived-read-only-session
 See change: fix-chat-transcript-layout (D5) — `composer-stack-anchor` = content-height canvas chip slot (`shrink-0 mx-5`, no `aria-hidden`; 0 px while no chip), still gated `!frozen && !readOnly`, directly above `ComposerDockHost`; `CanvasDriver` portals the chip tray into it. `columnEl` (= its `parentElement`) unchanged.
 
 See change: add-spawn-model-choice. Mirrors `spawnDefaults` into `setSpawnDefaults` (spawn-choice store). Keyboard sibling (`handleForkPendingPrompt`) → `siblingSpawnOpts(target)`.
+
+`pathKeyPlatform` state (`NodeJS.Platform | undefined`): set by `setPathKeyPlatform` handler dep, reset to `undefined` in `clearInMemoryState`, passed to `SessionList` as `archiveKeyPlatform`. Static pin: `__tests__/app-clear-path-key-platform.test.ts`. See change: fix-archive-fold-key-and-filter-chips.

@@ -612,7 +612,15 @@ Checkout must be a built pi-agent-dashboard monorepo with:
 - `packages/extension/src/bridge.ts`
 - `node_modules` — run `pnpm install` if missing. Preflight message names it.
 
-Local link copies nothing. Runtime runs in place from the checkout. Runs under the shell's bundled Node (never system Node); refused `node_engines <range>` when the checkout root `package.json#engines.node` excludes that Node.
+Local link copies nothing. Runtime runs in place from the checkout. Runs under the shell's bundled Node (never system Node).
+
+Gate order in `gateRuntimeRoot` (`packages/electron/src/lib/runtime-overlay-main.ts`): `preflightLocal` required files → `engines.node` check → `preflightLocalNativeAbi` (`packages/shared/src/runtime-overlay/compat.ts`).
+
+- Engines refuse — `node_engines <range>` when checkout root `package.json#engines.node` excludes bundled Node.
+- `node_abi` refuse — ``node_abi <path> built for ABI <N>, app Node <v> needs ABI <M> — run `pnpm rebuild` in the checkout under Node <v>``. Fires on from-source node-gyp addon (`node_modules/[@scope/]<pkg>/build/Release/*.node`) whose `node_register_module_v<N>` ≠ bundled Node `process.versions.modules`. Fix: `pnpm rebuild` under that Node. Runs only when bundled Node present + probed (packaged app). No bundled Node (dev/unbundled build) → `spawnFromSource` resolves system Node at spawn time → check skipped (refuse on proof only).
+- N-API addons exempt — `prebuilds/` and N-API never refused (node-pty 1.x prebuilds, sharp, `@napi-rs/*`). Not scanned: nested `node_modules`, pnpm isolated `.pnpm/` store. Legacy addon without versioned symbol fails late instead.
+
+Refusal falls through to next launch kind, recorded `state.lastFailure`.
 
 `request.json` must exist to bind the pick. Open Settings → Updates once (or just boot) so the server records a runtime selection. Missing / unreadable → dialog "Local folder not used", error `request_unreadable`, nothing bound.
 

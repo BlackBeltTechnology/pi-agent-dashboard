@@ -47,4 +47,10 @@ Operator-socket set (design D2/D3). `holdsLiveCapability(ws)`: `capabilitySocket
 
 `onRegistryFrame(listener)`: tap at the top of `broadcast()` for `session_added` / `session_updated` / `session_removed`, before owner scoping, coalescing or shedding (every registry frame passes `broadcast`; `broadcastSession*` + `broadcastToAll` delegate to it). Listener errors logged, never block fan-out. Feeds `agent-events/agent-event-hub.ts`. See change: add-agent-event-stream.
 
+On-connect `sessions_snapshot` carries `pathKeyPlatform: sessionArchive.pathKeyPlatform` (omitted without an archive) beside `archivedCountByCwd`; wire keys unchanged. See change: fix-archive-fold-key-and-filter-chips.
+
+## fix-background-subagent-ghost-rows
+
+`deferKeyOfEvent(msg)` (beside `frameClassOf`, which is unchanged — event frames stay `transcript`) keys subagent end/liveness event frames: `subagent_end:<sid>:<id>` (real `subagent_completed|failed`), `subagent_heal:<sid>:<id>` (with `healedBy`), `subagent_stop_result:<sid>:<agentId>`, `subagent_registry_snapshot:<sid>`; `undefined` for a missing/non-string id and every other event. Only `sendTo`'s shed branch (non-critical) consults it: a keyed frame goes to `sendState` as `projectDeferredSubagentFrame(msg)` instead of drop + count — a bounded copy (whitelisted scalars, no `entries`/`liveBlock`/nested objects, `result`/`error` ≤ `SUBAGENT_END_DEFER_TEXT_BYTES` = 8192, `deferredProjection:true`). Healthy socket → full frame, unchanged. Counter `deferredSubagentFrames` on `getDroppedFrameStats()` and `/api/health` `droppedFrames` (not a drop: `total` never moves for it).
+
 `shutdownHeadlessProcesses({exitIntent})` async: awaits `headlessPidRegistry.killAll({exitIntent ?? null})`; `server.ts` `stop()` awaits it with `opts.exitIntent ?? "idle"`. See change: guard-restored-headless-identity.

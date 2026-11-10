@@ -119,4 +119,64 @@ describe("useArchivedSessions", () => {
     expect(url).toContain("q=allowlist");
     expect(url).not.toContain("cwd=");
   });
+
+  // A response that started before `invalidate` is stale: it must not replace
+  // the replacement request's page or clear its loading state, whether it
+  // resolves or rejects last. See change: fix-archive-fold-key-and-filter-chips
+  // (CodeRabbit PR #1149).
+  it("ignores a first page that resolves after invalidate + a replacement request", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise((r) => { resolvers.push(r); })));
+
+    const { result } = renderHook(() => useArchivedSessions());
+    act(() => { result.current.loadFirst("/a"); });
+    act(() => {
+      result.current.invalidate("/a");
+      result.current.loadFirst("/a");
+    });
+    expect(resolvers).toHaveLength(2);
+
+    await act(async () => { resolvers[1](okResponse([makeItem("new")])); });
+    await act(async () => { resolvers[0](okResponse([makeItem("old")], "old-cursor")); });
+
+    expect(result.current.get("/a").items.map((i) => i.id)).toEqual(["new"]);
+    expect(result.current.get("/a").nextCursor).toBeUndefined();
+  });
+
+  it("ignores a stale rejection that lands while the replacement request is in flight", async () => {
+    const settle: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise((resolve, reject) => { settle.push({ resolve, reject }); })));
+
+    const { result } = renderHook(() => useArchivedSessions());
+    act(() => { result.current.loadFirst("/a"); });
+    act(() => {
+      result.current.invalidate("/a");
+      result.current.loadFirst("/a");
+    });
+
+    await act(async () => { settle[0].reject(new Error("stale failure")); });
+    expect(result.current.get("/a").loading).toBe(true);
+    expect(result.current.get("/a").error).toBeUndefined();
+
+    await act(async () => { settle[1].resolve(okResponse([makeItem("new")])); });
+    expect(result.current.get("/a").items.map((i) => i.id)).toEqual(["new"]);
+    expect(result.current.get("/a").loading).toBe(false);
+  });
+
+  it("invalidate in the same tick as loadFirst leaves no stuck loading state", async () => {
+    const resolvers: Array<(v: unknown) => void> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise((r) => { resolvers.push(r); })));
+
+    const { result } = renderHook(() => useArchivedSessions());
+    act(() => {
+      result.current.loadFirst("/a");
+      result.current.invalidate("/a");
+    });
+    await act(async () => { resolvers[0](okResponse([makeItem("old")])); });
+
+    expect(result.current.get("/a").loading).toBe(false);
+    expect(result.current.get("/a").loaded).toBe(false);
+    act(() => { result.current.loadFirst("/a"); });
+    expect(resolvers).toHaveLength(2);
+  });
 });

@@ -6,7 +6,7 @@
  * match) is scanned for a raw Tailwind palette class, a hex literal, `rgba(` or
  * a `var(--token, <literal>)` fallback. `--text-muted` is allowed only on a
  * `disabled:` variant or an `aria-hidden` element. In `SessionList.tsx` only the
- * four pill regions are scanned — the rest of that file stays baselined.
+ * three pill regions are scanned — the rest of that file stays baselined.
  *
  * Deliberately NOT part of `aligned-surfaces-no-literals.test.ts`: that list
  * pulls in the 3:1 / 44 px floors (design D7).
@@ -95,11 +95,16 @@ function literals(file: string, src: string, ranges?: Array<[number, number]>): 
   return out;
 }
 
-/** The four SessionList pill regions, located structurally (not by line number). */
+/**
+ * The three SessionList pill regions, located structurally (not by line number).
+ * The Include-archive funnel toggle renders through `ToggleButton` (already
+ * scanned), so it needs no anchor of its own. See change:
+ * fix-archive-fold-key-and-filter-chips.
+ */
 function sessionListRegions(src: string): Array<[number, number]> {
   const sf = ts.createSourceFile(SESSION_LIST, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const out: Array<[number, number]> = [];
-  const found = { toggle: false, addToWs: false, archive: false, pinned: false };
+  const found = { toggle: false, addToWs: false, pinned: false };
   const visit = (node: ts.Node): void => {
     if (ts.isFunctionDeclaration(node) && node.name) {
       if (node.name.text === "ToggleButton") {
@@ -115,10 +120,7 @@ function sessionListRegions(src: string): Array<[number, number]> {
         (p): p is ts.JsxAttribute => ts.isJsxAttribute(p) && p.name.getText() === "data-testid",
       );
       const val = attr?.initializer?.getText() ?? "";
-      if (/"search-include-archive"/.test(val)) {
-        out.push([node.getStart(sf), node.getEnd()]);
-        found.archive = true;
-      } else if (/folder-pinned-indicator-/.test(val)) {
+      if (/folder-pinned-indicator-/.test(val)) {
         out.push([node.getStart(sf), node.getEnd()]);
         found.pinned = true;
       }
@@ -126,7 +128,7 @@ function sessionListRegions(src: string): Array<[number, number]> {
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  expect(found, "all four SessionList pill regions located").toEqual({ toggle: true, addToWs: true, archive: true, pinned: true });
+  expect(found, "all three SessionList pill regions located").toEqual({ toggle: true, addToWs: true, pinned: true });
   return out;
 }
 

@@ -674,6 +674,13 @@ export interface SessionsSnapshotMessage {
    * archive-sessions-lazy-load.
    */
   archivedCountByCwd: Record<string, number>;
+  /**
+   * Platform the server folds archive keys with (`pathKey(…, platform)`), so
+   * the client looks `archivedCountByCwd` up with the same key. Optional and
+   * additive: absent from an older server (client falls back to its inferred
+   * platform). See change: fix-archive-fold-key-and-filter-chips.
+   */
+  pathKeyPlatform?: "linux" | "darwin" | "win32";
 }
 
 export interface PinnedDirsUpdatedMessage {

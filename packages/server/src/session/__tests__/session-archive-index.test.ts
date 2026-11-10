@@ -93,3 +93,25 @@ describe("archive index group keying (E21)", () => {
     expect(events).toEqual([]);
   });
 });
+
+// test-plan #E9: on darwin the listing resolves any spelling of a folder —
+// including the folded key the client now sends — to the same bucket.
+// See change: fix-archive-fold-key-and-filter-chips.
+describe("archive listing resolves a folded cwd on darwin (E9)", () => {
+  it("returns the same 3 ids for the folded key and a trailing-slash spelling", () => {
+    const darwin = createSessionArchive({
+      sessionManager: {} as unknown as SessionManager,
+      metaPersistence: { flush: () => {} },
+      getPinnedDirs: () => [],
+      platform: "darwin",
+    });
+    darwin.seed([row("d1", "/Users/x/Proj"), row("d2", "/Users/x/Proj"), row("d3", "/Users/x/Proj")]);
+
+    const folded = darwin.list({ cwd: "/users/x/proj", limit: 50 }).items.map((r) => r.id).sort();
+    const display = darwin.list({ cwd: "/Users/x/Proj/", limit: 50 }).items.map((r) => r.id).sort();
+
+    expect(folded).toEqual(["d1", "d2", "d3"]);
+    expect(display).toEqual(folded);
+    expect(darwin.pathKeyPlatform).toBe("darwin");
+  });
+});

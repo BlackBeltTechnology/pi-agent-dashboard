@@ -13,6 +13,7 @@ import { isProcessAlive, killProcess } from "@blackbelt-technology/pi-dashboard-
 import {
   evaluateRuntimeCandidate,
   preflightLocal,
+  preflightLocalNativeAbi,
   preflightOverlay,
   type RuntimeGateResult,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
@@ -63,19 +64,36 @@ import { getStoredSpawnedPid, loadMinimalConfig, makeServerWatchdog, setSpawnedP
 
 type SpawnableSource = Exclude<LaunchSource, { kind: "attach" }>;
 
-let cachedNodeVersion: string | null = null;
+let bundledNodeProbe: { version: string; abi: number } | null | undefined;
 
-/** Version of the Node the shell runs the server with (bundled, else Electron's). */
-function shellNodeVersion(): string {
-  if (cachedNodeVersion) return cachedNodeVersion;
+/**
+ * Version + ABI of the bundled Node; null when absent or unprobeable. Without
+ * a bundled Node, `spawnFromSource` runs a system Node resolved at spawn time,
+ * so no ABI is known here.
+ */
+function bundledNode(): { version: string; abi: number } | null {
+  if (bundledNodeProbe !== undefined) return bundledNodeProbe;
+  bundledNodeProbe = null;
   const bundled = getBundledNodePath();
   try {
-    if (bundled) cachedNodeVersion = execFileSync(bundled, ["--version"], { encoding: "utf8", timeout: 5_000 }).trim();
+    if (bundled) {
+      const [version, abi] = execFileSync(bundled, ["-p", "process.version+' '+process.versions.modules"], {
+        encoding: "utf8",
+        timeout: 5_000,
+      })
+        .trim()
+        .split(" ");
+      if (version && Number(abi) > 0) bundledNodeProbe = { version, abi: Number(abi) };
+    }
   } catch {
     /* fall through */
   }
-  cachedNodeVersion ??= process.versions.node;
-  return cachedNodeVersion;
+  return bundledNodeProbe;
+}
+
+/** Version of the Node the shell runs the server with (bundled, else Electron's). */
+function shellNodeVersion(): string {
+  return bundledNode()?.version ?? process.versions.node;
 }
 
 function readEnginesNode(checkoutRoot: string): string | undefined {
@@ -100,15 +118,21 @@ function gateRuntimeRoot(
   }
   const files = preflightLocal(root, existsSync);
   if (!files.ok) return files;
-  // Spike 1.2 deferred → conservative: the checkout runs under the shell's
-  // Node and is refused when that Node is outside its engines range.
+  // The checkout runs under the shell's Node: refused when that Node is
+  // outside its engines range, or a from-source native addon targets another
+  // ABI than the bundled Node. See change: electron-local-link-node-compat.
   const engines = readEnginesNode(root);
-  if (!engines) return { ok: true };
-  return evaluateRuntimeCandidate({
-    manifest: { version: "local", minShellVersion: "0.0.0", nodeEngines: engines, origin: "bundled" },
-    shellVersion,
-    nodeVersion,
-  });
+  if (engines) {
+    const compat = evaluateRuntimeCandidate({
+      manifest: { version: "local", minShellVersion: "0.0.0", nodeEngines: engines, origin: "bundled" },
+      shellVersion,
+      nodeVersion,
+    });
+    if (!compat.ok) return compat;
+  }
+  // ABI known only for the bundled Node; otherwise skip (refuse on proof only).
+  const node = bundledNode();
+  return node ? preflightLocalNativeAbi(root, node) : { ok: true };
 }
 
 /** Resolver inputs for a cold launch; gate failures are recorded as `lastFailure`. */
