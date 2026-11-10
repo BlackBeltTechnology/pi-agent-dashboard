@@ -782,6 +782,50 @@ describe("killAll({ exitIntent }) (D7, G1, G6)", () => {
     });
   }
 
+  it("B1/E29: killAll runs the pi rung for a refused keeper — pi signalled, keeper never (G7)", async () => {
+    for (const intent of ["shutdown", "idle"] as const) {
+      killProcessMock.mockClear();
+      killPidWithGroupMock.mockClear();
+      killProcessGroupMock.mockClear();
+      const w = world();
+      const K = 500;
+      const P2 = 700;
+      w.starts.set(K, NOW); // recycled ⇒ identityRefused
+      const file = pidFileWith([{ pid: K, cwd: "/a", spawnedAt: iso(NOW - DAY), keeperPid: K, keeperSockPath: "/s", spawnToken: "tok" }]);
+      const reg = createHeadlessPidRegistry({ pidFilePath: file, probe: w.probe, isGone: w.isGone });
+      await reg.cleanupOrphans();
+      w.starts.set(P2, Date.now() - 5000);
+      reg.linkByToken("tok", "s1", P2);
+      await reg.killAll({ exitIntent: intent });
+      expect(killProcessMock).toHaveBeenCalledWith(P2, { timeoutMs: 2000 });
+      expect(signalsTo(K)).toBe(0);
+    }
+  });
+
+  for (const [label, keeperStart, piStart, intent, expectGroup, expectPi] of [
+    ["keeper match ⇒ group SIGTERM", "match", "match", "idle", true, false],
+    ["keeper mismatch, pi match ⇒ pi rung only", "mismatch", "match", "idle", false, true],
+    ["keeper mismatch, pi mismatch ⇒ nothing", "mismatch", "mismatch", "shutdown", false, false],
+    ["keeper unverifiable, pi unverifiable, shutdown ⇒ group", null, null, "shutdown", true, false],
+    ["keeper unverifiable, pi unverifiable, idle ⇒ nothing", null, null, "idle", false, false],
+  ] as const) {
+    it(`keeper killAll row: ${label}`, async () => {
+      const S = NOW - DAY;
+      const at = (v: "match" | "mismatch" | null, base: number) => (v === null ? null : v === "match" ? base : NOW);
+      const w = world();
+      w.starts.set(500, S - 1000);
+      w.starts.set(600, S + 1000);
+      const file = pidFileWith([{ pid: 500, cwd: "/a", spawnedAt: iso(S), keeperPid: 500, keeperSockPath: "/s", piPid: 600 }]);
+      const reg = createHeadlessPidRegistry({ pidFilePath: file, probe: w.probe, isGone: w.isGone });
+      await reg.cleanupOrphans();
+      w.starts.set(500, at(keeperStart, S - 1000));
+      w.starts.set(600, at(piStart, S + 1000));
+      await reg.killAll({ exitIntent: intent });
+      expect(killPidWithGroupMock.mock.calls.some((c) => c[0] === 500)).toBe(expectGroup);
+      expect(killProcessMock.mock.calls.some((c) => c[0] === 600)).toBe(expectPi);
+    });
+  }
+
   it("E17: snapshot — a late register is neither signalled nor deleted; an exited entry is not resurrected", async () => {
     let release!: () => void;
     const hold = new Promise<void>((r) => { release = r; });

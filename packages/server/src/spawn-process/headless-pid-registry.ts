@@ -765,16 +765,26 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
 
       // Verify restored entries concurrently, under a total budget (G6). A
       // verdict that lands after the budget is ignored (⇒ unverifiable).
+      // A restored keeper entry's `piPid` is verified too: when the keeper
+      // group cannot be signalled, the pi rung alone runs (D4, G7).
       const verdicts = new Map<HeadlessEntry, IdentityVerdict>();
+      const piVerdicts = new Map<HeadlessEntry, IdentityVerdict>();
       let settled = false;
-      const work = Promise.all(
-        snapshot
-          .filter(([, e]) => e.restored && !e.identityRefused)
+      const restoredEntries = snapshot.filter(([, e]) => e.restored);
+      const work = Promise.all([
+        ...restoredEntries
+          .filter(([, e]) => !e.identityRefused)
           .map(async ([pid, e]) => {
             const v = await verify(pid, e.spawnedAt).catch((): IdentityVerdict => "unverifiable");
             if (!settled) verdicts.set(e, v);
           }),
-      );
+        ...restoredEntries
+          .filter(([, e]) => e.keeperPid !== undefined && e.piPid !== undefined)
+          .map(async ([, e]) => {
+            const v = await verify(e.piPid as number, piAnchor(e)).catch((): IdentityVerdict => "unverifiable");
+            if (!settled) piVerdicts.set(e, v);
+          }),
+      ]);
       let budgetTimer: ReturnType<typeof setTimeout> | undefined;
       const budget = new Promise<void>((resolve) => {
         budgetTimer = setTimeout(resolve, KILL_ALL_VERIFY_BUDGET_MS);
@@ -784,6 +794,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       settled = true;
       if (budgetTimer) clearTimeout(budgetTimer);
 
+      const piKills: Array<Promise<unknown>> = [];
       for (const [pid, e] of snapshot) {
         let signal = true;
         if (e.identityRefused) {
@@ -807,8 +818,18 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
           } catch {
             // Process may have already exited
           }
+        } else if (e.keeperPid !== undefined && e.piPid !== undefined) {
+          // Keeper group not signalled: the pi rung alone, never the keeper.
+          const piPid = e.piPid;
+          const v = piVerdicts.get(e) ?? "unverifiable";
+          if (v === "match" || (v === "unverifiable" && operator)) {
+            piKills.push(killProcess(piPid, { timeoutMs: 2000 }).catch(() => undefined));
+          } else if (v !== "gone") {
+            console.warn(identityLogLine(v, piPid, "pi", e.sessionId));
+          }
         }
       }
+      await Promise.all(piKills);
       for (const [pid, e] of snapshot) {
         if (entries.get(pid) === e) entries.delete(pid);
       }
