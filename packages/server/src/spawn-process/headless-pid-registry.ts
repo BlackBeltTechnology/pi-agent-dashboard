@@ -823,6 +823,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
           const piPid = e.piPid;
           const v = piVerdicts.get(e) ?? "unverifiable";
           if (v === "match" || (v === "unverifiable" && operator)) {
+            if (v === "unverifiable") console.warn(identityLogLine("unverifiable (operator: signalled)", piPid, "pi", e.sessionId));
             piKills.push(killProcess(piPid, { timeoutMs: 2000 }).catch(() => undefined));
           } else if (v !== "gone") {
             console.warn(identityLogLine(v, piPid, "pi", e.sessionId));
