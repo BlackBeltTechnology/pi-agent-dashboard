@@ -378,7 +378,7 @@ describe("killProcessGroup — win32 delegates to killProcess (E57)", () => {
 // See change: guard-restored-headless-identity (test-plan E45, E46).
 describe("processStartedAt — restored-identity probe contract", () => {
   it("E45: darwin runs `LC_ALL=C ps -o lstart= -p <pid>` exactly once per call", () => {
-    const exec = vi.fn(() => "Thu Oct  1 00:49:08 2026\n");
+    const exec = vi.fn((_cmd: string) => "Thu Oct  1 00:49:08 2026\n");
     processStartedAt(4242, { platform: "darwin", exec });
     expect(exec).toHaveBeenCalledTimes(1);
     expect(exec.mock.calls[0][0]).toBe("LC_ALL=C ps -o lstart= -p 4242");

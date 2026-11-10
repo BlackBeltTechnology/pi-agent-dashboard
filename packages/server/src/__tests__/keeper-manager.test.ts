@@ -348,7 +348,7 @@ describe("KeeperManager discovery — keeper pid identity (E36, E37, E39, E43)",
     if (opts.piPid !== undefined) writeFileSync(piFile, opts.piPid);
     return { pidFile, sock, piFile, M };
   }
-  const sigterms = (spy: ReturnType<typeof vi.spyOn>) => spy.mock.calls.filter((c) => c[1] === "SIGTERM");
+  const sigterms = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.filter((c: unknown[]) => c[1] === "SIGTERM");
 
   for (const [label, delta, killed] of [
     ["M+1 999 ⇒ match, killed", 1999, true],

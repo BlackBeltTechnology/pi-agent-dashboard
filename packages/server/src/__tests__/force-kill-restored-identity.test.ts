@@ -5,7 +5,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
 const killProcessSpy = vi.hoisted(() => vi.fn(async (_pid: number, _opts?: unknown) => ({ ok: true, forced: false })));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", async (orig) => ({
@@ -44,7 +44,7 @@ function ctxFor(registry: unknown) {
 }
 
 describe("operator paths × restored entry identity", () => {
-  let warn: ReturnType<typeof vi.spyOn>;
+  let warn: MockInstance<typeof console.warn>;
   beforeEach(() => {
     killProcessSpy.mockClear();
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});

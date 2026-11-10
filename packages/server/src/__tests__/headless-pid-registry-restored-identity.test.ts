@@ -12,7 +12,7 @@ import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
 const killProcessMock = vi.hoisted(() => vi.fn(async (_pid: number, _o?: unknown) => ({ ok: true, forced: false })));
 const killPidWithGroupMock = vi.hoisted(() => vi.fn((_pid: number, _sig: string) => undefined));
@@ -57,10 +57,10 @@ const readFile = (p: string) => JSON.parse(readFileSync(p, "utf-8")) as { entrie
 function signalsTo(pid: number): number {
   return [killProcessMock, killPidWithGroupMock, killProcessGroupMock]
     .flatMap((m) => m.mock.calls)
-    .filter((c) => c[0] === pid).length;
+    .filter((c: unknown[]) => c[0] === pid).length;
 }
 
-let warn: ReturnType<typeof vi.spyOn>;
+let warn: MockInstance<typeof console.warn>;
 const warnLines = () => warn.mock.calls.map((c) => String(c[0]));
 
 beforeEach(() => {
